@@ -17,7 +17,7 @@ public class InputControl : MonoBehaviour {
 	void FixedUpdate () {
 		
 		// Log the pitch, roll, yaw, and throttle inputs
-		Debug.Log("Pitch: " + Input.GetAxis("Pitch") + " Roll: " + Input.GetAxis("Roll") + " Yaw: " + Input.GetAxis("Yaw") + " Throttle: " + Input.GetAxis("Throttle"));
+		// Debug.Log("Pitch: " + Input.GetAxis("Pitch") + " Roll: " + Input.GetAxis("Roll") + " Yaw: " + Input.GetAxis("Yaw") + " Throttle: " + Input.GetAxis("Throttle"));
 
 		vc.desired_vx = Input.GetAxisRaw ("Pitch")*4.0f;
 		vc.desired_vy = Input.GetAxisRaw ("Roll")*4.0f;

@@ -95,7 +95,7 @@ public class DroneAgent: Agent {
 		float startX = ((float) rand.NextDouble()) * (maxX - minX) + minX;
 		float startZ = ((float) rand.NextDouble()) * (maxZ - minZ) + minZ;
 
-		transform.position = new Vector3 (startX, initialPos.y, startZ);
+		// transform.position = new Vector3 (startX, initialPos.y, startZ);
 
 		wait = false;
 
@@ -148,7 +148,7 @@ public class DroneAgent: Agent {
 	public override void CollectObservations()
 	{
         //		List<float> state = new List<float>();
-        Debug.Log("CALLED");
+        // Debug.Log("CALLED");
 
         //NEW STATE
         //do this in collect state so we make sure we don't miss it
@@ -223,7 +223,7 @@ public class DroneAgent: Agent {
 
 		// Debug.Log (act);
 
-        Debug.Log("ACTION");
+        // Debug.Log("ACTION");
 
 //		float angle = normalizedHeader (transform.position, endRegion.transform.position);
 //		Debug.Log (angle);
