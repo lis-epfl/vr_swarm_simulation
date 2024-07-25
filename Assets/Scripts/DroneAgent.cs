@@ -148,7 +148,7 @@ public class DroneAgent: Agent {
 	public override void CollectObservations()
 	{
         //		List<float> state = new List<float>();
-        //Debug.Log("CALLED");
+        Debug.Log("CALLED");
 
         //NEW STATE
         //do this in collect state so we make sure we don't miss it
@@ -221,7 +221,9 @@ public class DroneAgent: Agent {
 		// add in code logic for drone control
 //		basicControl.Controller.InputAction(0, act[0], act[1], act[2]);
 
-		//Debug.Log (act);
+		// Debug.Log (act);
+
+        Debug.Log("ACTION");
 
 //		float angle = normalizedHeader (transform.position, endRegion.transform.position);
 //		Debug.Log (angle);
