@@ -26,6 +26,11 @@ public class VelocityControl : MonoBehaviour {
     public float desired_vx = 0.0f;
     public float desired_vy = 0.0f;
     public float desired_yaw = 0.0f;
+
+    public float swarm_vx = 0.0f;
+    public float swarm_vy = 0.0f;
+    public float swarm_vz = 0.0f;
+
     //must set this
     public float initial_height = 4.0f;
 
@@ -54,9 +59,18 @@ public class VelocityControl : MonoBehaviour {
         float heightError = state.Altitude - desired_height;
 
         Vector3 desiredVelocity = new Vector3 (desired_vy, -1.0f * heightError / time_constant_z_velocity, desired_vx);
-        Vector3 velocityError = state.VelocityVector - desiredVelocity;
+        Vector3 swarmVelocity = new Vector3 (swarm_vy, swarm_vz, swarm_vx);
+        swarmVelocity = new Vector3 (0.0f, 0.0f, 0.0f);
 
-        Debug.Log("desiredVelocity: " + desiredVelocity);
+        Vector3 totalTargetVelocity = desiredVelocity + swarmVelocity;
+
+        // Debug.Log("desiredVelocity: " + desiredVelocity);
+        // Debug.Log("swarmVelocity: " + swarmVelocity);
+        // Debug.Log("totalTargetVelocity: " + totalTargetVelocity);
+
+        Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+
+        // Debug.Log("desiredVelocity: " + desiredVelocity);
 
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
