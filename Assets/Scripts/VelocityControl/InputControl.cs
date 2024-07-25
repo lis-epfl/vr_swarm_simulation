@@ -15,11 +15,15 @@ public class InputControl : MonoBehaviour {
 	
 	// Update is called once per frame
 	void FixedUpdate () {
-//		vc.desired_vx = Input.GetAxisRaw ("Pitch")*4.0f;
-//		vc.desired_vy = Input.GetAxisRaw ("Roll")*4.0f;
-//		vc.desired_yaw = Input.GetAxisRaw ("Yaw")*0.5f;
-//		abs_height += Input.GetAxisRaw("Throttle") * 0.1f;
+		
+		// Log the pitch, roll, yaw, and throttle inputs
+		Debug.Log("Pitch: " + Input.GetAxis("Pitch") + " Roll: " + Input.GetAxis("Roll") + " Yaw: " + Input.GetAxis("Yaw") + " Throttle: " + Input.GetAxis("Throttle"));
+
+		vc.desired_vx = Input.GetAxisRaw ("Pitch")*4.0f;
+		vc.desired_vy = Input.GetAxisRaw ("Roll")*4.0f;
+		vc.desired_yaw = Input.GetAxisRaw ("Yaw")*0.5f;
+		abs_height += Input.GetAxisRaw("Throttle") * 0.1f;
 //
-//		vc.desired_height = abs_height;
+		vc.desired_height = abs_height;
 	}
 }

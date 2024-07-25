@@ -47,7 +47,7 @@ public class VelocityControl : MonoBehaviour {
         state.GetState ();
         
         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
-
+        
         Vector3 desiredTheta;
         Vector3 desiredOmega;
 
@@ -55,6 +55,8 @@ public class VelocityControl : MonoBehaviour {
 
         Vector3 desiredVelocity = new Vector3 (desired_vy, -1.0f * heightError / time_constant_z_velocity, desired_vx);
         Vector3 velocityError = state.VelocityVector - desiredVelocity;
+
+        Debug.Log("desiredVelocity: " + desiredVelocity);
 
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
