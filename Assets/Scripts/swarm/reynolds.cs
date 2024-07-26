@@ -30,7 +30,7 @@ public class reynolds : MonoBehaviour
         separation = new Vector3(0, 0, 0);
         alignment = new Vector3(0, 0, 0);
 
-        Debug.Log("Swarm Size: " + swarm.Count);
+        // Debug.Log("Swarm Size: " + swarm.Count);
 
         // Calculate the relative position and velocity of each drone to the current drone
         foreach (GameObject drone in swarm)
@@ -58,9 +58,9 @@ public class reynolds : MonoBehaviour
             alignment += relativeVelocity;
 
 
-            Debug.Log("Cohesion: " + cohesion);
-            Debug.Log("Separation: " + separation);
-            Debug.Log("Alignment: " + alignment);
+            // Debug.Log("Cohesion: " + cohesion);
+            // Debug.Log("Separation: " + separation);
+            // Debug.Log("Alignment: " + alignment);
         }
 
         // Multiply by coefficients and normalize by the number of drones
@@ -74,7 +74,7 @@ public class reynolds : MonoBehaviour
         GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
         GetComponent<VelocityControl>().swarm_vz = swarmInput.z;
 
-        Debug.Log("Swarm Input: " + swarmInput);
+        // Debug.Log("Swarm Input: " + swarmInput);
 
     }
 }

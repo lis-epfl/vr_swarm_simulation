@@ -64,13 +64,11 @@ public class VelocityControl : MonoBehaviour {
 
         Vector3 totalTargetVelocity = desiredVelocity + swarmVelocity;
 
-        // Debug.Log("desiredVelocity: " + desiredVelocity);
-        // Debug.Log("swarmVelocity: " + swarmVelocity);
-        // Debug.Log("totalTargetVelocity: " + totalTargetVelocity);
+        Debug.Log("desiredVelocity: " + desiredVelocity);
+        Debug.Log("swarmVelocity: " + swarmVelocity);
+        Debug.Log("totalTargetVelocity: " + totalTargetVelocity);
 
         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
-
-        // Debug.Log("desiredVelocity: " + desiredVelocity);
 
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
