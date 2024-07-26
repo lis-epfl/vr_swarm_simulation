@@ -19,14 +19,25 @@ public class swarmSpawn : MonoBehaviour
             {
                 Vector3 dronePosition = new Vector3(x * gridSpacing, 0, z * gridSpacing);
                 GameObject drone = Instantiate(dronePrefab, dronePosition, Quaternion.identity);
+                drone.name = "Drone " + swarm.Count;
+                
                 swarm.Add(drone);
+
+                Debug.Log("Spawned " + drone.name);
             }
         }
 
+        Debug.Log("Swarm Size: " + swarm.Count);
+        
         // Add the swarm list to the reynolds script of each drone
         foreach (GameObject drone in swarm)
         {
-            drone.GetComponent<reynolds>().swarm = swarm;
+            Debug.Log("Adding swarm to " + drone.name);
+
+            // Find the DroneParent object
+            Transform droneParent = drone.transform.Find("DroneParent");
+            droneParent.GetComponent<reynolds>().swarm = swarm;
+            
         }
     }
 
