@@ -24,3 +24,31 @@ The following packages were updated:
   com.unity.textmeshpro from version 1.2.4 to 3.0.6
 The following packages were removed:
   com.unity.package-manager-ui@1.9.11
+
+=== Wed Aug  7 23:15:33 2024
+
+Packages were changed.
+Update Mode: updateDependencies
+
+The following packages were updated:
+  com.unity.collab-proxy from version 1.13.5 to 2.4.3
+  com.unity.ide.rider from version 3.0.7 to 3.0.31
+  com.unity.ide.visualstudio from version 2.0.11 to 2.0.22
+  com.unity.ide.vscode from version 1.2.4 to 1.2.5
+  com.unity.render-pipelines.high-definition from version 12.1.0 to 14.0.11
+  com.unity.render-pipelines.universal from version 12.1.0 to 14.0.11
+  com.unity.shadergraph from version 12.1.0 to 14.0.11
+  com.unity.test-framework from version 1.1.29 to 1.1.33
+  com.unity.timeline from version 1.6.2 to 1.7.6
+  com.unity.visualscripting from version 1.7.2 to 1.9.4
+
+=== Wed Aug  7 23:15:33 2024
+
+Packages were changed.
+Update Mode: mergeDefaultDependencies
+
+The following packages were added:
+  com.unity.render-pipelines.high-definition@14.0.11
+  com.unity.render-pipelines.universal@14.0.11
+  com.unity.shadergraph@14.0.11
+  com.unity.visualscripting@1.9.4
