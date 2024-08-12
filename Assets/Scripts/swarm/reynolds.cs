@@ -46,7 +46,13 @@ public class reynolds : MonoBehaviour
             }
 
             // Relative Velocity
-            Vector3 relativeVelocity = drone.GetComponent<Rigidbody>().velocity - GetComponent<Rigidbody>().velocity;
+            // Vector3 relativeVelocity = drone.GetComponent<Rigidbody>().velocity - GetComponent<Rigidbody>().velocity;
+            Vector3 relativeVelocity = new Vector3(0, 0, 0);
+            // Vector3 otherDroneVelocity = drone.GetComponent<Rigidbody>().velocity;
+            // Vector3 currentDroneVelocity = GetComponent<Rigidbody>().velocity;
+
+            // Debug.Log("Other Drone Velocity: " + otherDroneVelocity);
+            // Debug.Log("Current Drone Velocity: " + currentDroneVelocity);
 
             // Cohesion
             cohesion += relativePosition;
