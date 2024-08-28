@@ -26,6 +26,11 @@ public class VelocityControl : MonoBehaviour {
     public float desired_vx = 0.0f;
     public float desired_vy = 0.0f;
     public float desired_yaw = 0.0f;
+    public float attitude_control_yaw = 0.0f;
+
+    private float targetYawRate = 0.0f;
+    private float filteredYawRate = 0.0f;
+    public float yawFilterCoefficient = 0.2f;
 
     public float swarm_vx = 0.0f;
     public float swarm_vy = 0.0f;
@@ -58,15 +63,48 @@ public class VelocityControl : MonoBehaviour {
 
         float heightError = state.Altitude - desired_height;
 
-        Vector3 desiredVelocity = new Vector3 (desired_vy, -1.0f * heightError / time_constant_z_velocity, desired_vx);
-        Vector3 swarmVelocity = new Vector3 (swarm_vy, swarm_vz, swarm_vx);
-        swarmVelocity = new Vector3 (0.0f, 0.0f, 0.0f);
+        // Vector3 desiredVelocity = new Vector3 (desired_vy, -1.0f * heightError / time_constant_z_velocity, desired_vx);
+        // Vector3 desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, -desired_vy);
+        Vector3 desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
+        Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
 
-        Vector3 totalTargetVelocity = desiredVelocity + swarmVelocity;
+        // NOTE: In world frame y is up
 
-        Debug.Log("desiredVelocity: " + desiredVelocity);
-        Debug.Log("swarmVelocity: " + swarmVelocity);
-        Debug.Log("totalTargetVelocity: " + totalTargetVelocity);
+        Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
+
+        // Transform the desired velocity from the body frame to the world frame
+        // totalTargetVelocity = transform.TransformDirection(totalTargetVelocityWorld);
+
+        // Transform the desired velocity from the world frame to the body frame
+        Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
+
+        // totalTargetVelocity = new Vector3(totalTargetVelocity.y, totalTargetVelocity.z, totalTargetVelocity.x);
+
+        // Get the name of the drone
+        string droneName = transform.parent.name;
+
+        // // Swarm Input
+        // Vector3 swarmInput = new Vector3(swarm_vx, swarm_vz, swarm_vy);
+
+        // // Check if it's drone 0
+        // if (droneName == "Drone 0")
+        // {
+           
+        //     Debug.Log("");
+        //     Debug.Log("desiredVelocity: " + desiredVelocity);
+        //     // Debug.Log("SwarmInput: " + swarmInput);
+        //     Debug.Log("swarmVelocity: " + swarmVelocity);
+        //     Debug.Log("totalTargetVelocityWorld: " + totalTargetVelocityWorld);
+        //     Debug.Log("totalTargetVelocity: " + totalTargetVelocity);
+
+        // }
+
+        // if (droneName == "Drone 0")
+        // {
+        //     Debug.Log("Desired Yaw in VelocityControl: " + desired_yaw2);
+        // }
+
+        
 
         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
 
@@ -87,7 +125,23 @@ public class VelocityControl : MonoBehaviour {
         Vector3 thetaError = state.Angles - desiredTheta;
 
         desiredOmega = thetaError * -1.0f / time_constant_omega_xy_rate;
-        desiredOmega.y = desired_yaw;
+
+        // Add the yaw rate contributions from user input and the autonomous control
+        targetYawRate = desired_yaw + attitude_control_yaw;
+
+        // Apply the low-pass filter to reduce oscillations in yaw control
+        filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
+
+        if (droneName == "Drone 0")
+        {
+            Debug.Log("desired_yaw: " + desired_yaw);
+            Debug.Log("attitude_control_yaw: " + attitude_control_yaw);
+            Debug.Log("targetYawRate: " + targetYawRate);
+            Debug.Log("filteredYawRate: " + filteredYawRate);
+        }
+
+        // Use the filtered yaw rate for further calculations
+        desiredOmega.y = filteredYawRate;
 
         Vector3 omegaError = state.AngularVelocityVector - desiredOmega;
 
