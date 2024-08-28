@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class reynolds : MonoBehaviour
+public class Reynolds : MonoBehaviour
 {
     public List<GameObject> swarm;
 
@@ -15,44 +15,38 @@ public class reynolds : MonoBehaviour
     private Vector3 alignment = new Vector3(0, 0, 0);
     private Vector3 swarmInput = new Vector3(0, 0, 0);
 
-    // Start is called before the first frame update
-    void Start()
-    {
-
-    }
 
     // Update is called once per frame
-    void Update()
+    void FixedUpdate()
     {
 
         // Reset the vectors
         cohesion = new Vector3(0, 0, 0);
         separation = new Vector3(0, 0, 0);
-        alignment = new Vector3(0, 0, 0);
-
-        // Debug.Log("Swarm Size: " + swarm.Count);
-
+        alignment = new Vector3(0, 0, 0);       
+        
         // Calculate the relative position and velocity of each drone to the current drone
-        foreach (GameObject drone in swarm)
+        foreach (GameObject neighbour in swarm)
         {
-            // Relative Position
-            Vector3 relativePosition = drone.transform.position - transform.position;
-            float distance = relativePosition.magnitude;
+            
+            // Get the child of the neighbour
+            GameObject neighbourChild = neighbour.transform.Find("DroneParent").gameObject;
 
             // Skip the current drone
-            if (distance == 0)
+            if (neighbourChild == gameObject)
             {
                 continue;
             }
 
-            // Relative Velocity
-            // Vector3 relativeVelocity = drone.GetComponent<Rigidbody>().velocity - GetComponent<Rigidbody>().velocity;
-            Vector3 relativeVelocity = new Vector3(0, 0, 0);
-            // Vector3 otherDroneVelocity = drone.GetComponent<Rigidbody>().velocity;
-            // Vector3 currentDroneVelocity = GetComponent<Rigidbody>().velocity;
+            // Get the position of the neighbour
+            Vector3 neighbourPosition = neighbourChild.transform.position;
+            
+            // Relative Position
+            Vector3 relativePosition = neighbourPosition - transform.position;
+            float distance = relativePosition.magnitude;           
 
-            // Debug.Log("Other Drone Velocity: " + otherDroneVelocity);
-            // Debug.Log("Current Drone Velocity: " + currentDroneVelocity);
+            // Relative Velocity
+            Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - GetComponent<Rigidbody>().velocity;
 
             // Cohesion
             cohesion += relativePosition;
@@ -63,10 +57,6 @@ public class reynolds : MonoBehaviour
             // Alignment
             alignment += relativeVelocity;
 
-
-            // Debug.Log("Cohesion: " + cohesion);
-            // Debug.Log("Separation: " + separation);
-            // Debug.Log("Alignment: " + alignment);
         }
 
         // Multiply by coefficients and normalize by the number of drones
@@ -79,8 +69,6 @@ public class reynolds : MonoBehaviour
         GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
         GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
         GetComponent<VelocityControl>().swarm_vz = swarmInput.z;
-
-        // Debug.Log("Swarm Input: " + swarmInput);
 
     }
 }

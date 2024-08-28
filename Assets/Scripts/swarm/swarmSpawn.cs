@@ -6,22 +6,47 @@ public class swarmSpawn : MonoBehaviour
 {
     public GameObject dronePrefab;
     public List<GameObject> swarm = new List<GameObject>();
-    public int gridLength = 3;
-    public float gridSpacing = 3.0f;
+    public int dronesAlongX = 3;
+    public int dronesAlongZ = 3;
+    public float droneSpacing = 3.0f;
+    public bool randomYaw = true;
+    private screenSpawn screenSpawn;
     private int droneNumber = 0;
 
     // Start is called before the first frame update
     void Start()
     {
+        
+        // Get the screenSpawn script
+        screenSpawn = GetComponent<screenSpawn>();
+        
         // Spawn drones in a grid
-        for (int x = 0; x < gridLength; x++)
+        for (int x = 0; x < dronesAlongX; x++)
         {
-            for (int z = 0; z < gridLength; z++)
+            for (int z = 0; z < dronesAlongZ; z++)
             {
-                Vector3 dronePosition = new Vector3(x * gridSpacing, 0, z * gridSpacing);
-                GameObject drone = Instantiate(dronePrefab, dronePosition, Quaternion.identity);
+                // Assign the drone position
+                Vector3 dronePosition = new Vector3(x * droneSpacing, 0, z * droneSpacing);
+
+                Quaternion droneRotation = Quaternion.Euler(0, 0, 0);
+                if (randomYaw)
+                {
+                    // Generate a random yaw angle and convert it to a quaternion
+                    float randomYaw = Random.Range(0f, 360f);
+                    droneRotation = Quaternion.Euler(0, randomYaw, 0);
+                }
+
+                // Instantiate the drone prefab at the drone position and rotation
+                GameObject drone = Instantiate(dronePrefab);//, dronePosition,droneRotation);
                 drone.name = "Drone " + swarm.Count;
+
+                // Move the drone to the position
+                Transform droneParent = drone.transform.Find("DroneParent");
+                droneParent.position = dronePosition;
+                droneParent.rotation = droneRotation;
+
                 
+                // Add the drone to the swarm list
                 swarm.Add(drone);
 
                 Debug.Log("Spawned " + drone.name);
@@ -41,55 +66,15 @@ public class swarmSpawn : MonoBehaviour
             
             // Find the DroneParent object
             Transform droneParent = drone.transform.Find("DroneParent");
-            droneParent.GetComponent<reynolds>().swarm = swarm;
 
+            // Add the swarm to the swarmAlgorithm script
+            droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;
 
-            // Create a quad, render texture, and screen material for each drone
-
-            // Create a quad
-            GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            // position the quad at 6.6, -3, 9.8
-            quad.transform.position = new Vector3(6.6f, -3.0f, 9.8f);
-            // Name the quad 'quad_' followed by the drone number
-            quad.name = "quad_" + droneNumber;
-
-            // Create a render texture
-            RenderTexture rt = new RenderTexture(256, 256, 24);
-            // Name the render texture 'rt_' followed by the drone number
-            rt.name = "rt_" + droneNumber;
-
-            // Load all assets from the Resources folder
-            Object[] resources = Resources.LoadAll("", typeof(Object));
-
-            Debug.Log("Resources in the Resources folder:");
-            // Print the names of all assets in the Resources folder
-            foreach (Object resource in resources)
-            {
-                Debug.Log(resource.name);
-            }
-            Debug.Log("End of Resources");
-
-            // Load the material from the Resources folder
-            Material screen = Resources.Load<Material>("Screen");
-
-            if (screen != null)
-            {
-                // Set the emission color to the render texture
-                screen.SetTexture("_EmissionColor", rt);
-
-                // Name the material 'screen_' followed by the drone number
-                screen.name = "screen_" + droneNumber;
-            }
-            else
-            {
-                Debug.LogError("Material 'Screen' not found in Resources folder");
-            }
-
-            // Set the quad's material to the screen material
-            quad.GetComponent<Renderer>().material = screen;
-            
             
         }
+
+        // Spawn screens for each drone in the swarm
+        screenSpawn.SpawnScreens(swarm);
         
     }
 

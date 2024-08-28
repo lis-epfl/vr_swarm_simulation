@@ -182,7 +182,10 @@ GameObject:
   - component: {fileID: 114145603923244640}
   - component: {fileID: 64614164402394468}
   - component: {fileID: 154702406167289886}
+  - component: {fileID: 2446258279458879349}
   - component: {fileID: 467967561642582945}
+  - component: {fileID: 259003137113264617}
+  - component: {fileID: 3810217873681142886}
   m_Layer: 9
   m_Name: DroneParent
   m_TagString: Player
@@ -348,6 +351,23 @@ TerrainCollider:
   serializedVersion: 2
   m_TerrainData: {fileID: 0}
   m_EnableTreeColliders: 1
+--- !u!114 &2446258279458879349
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d4d923f3e894346179c7818172a45a6f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarm: []
+  desired_height: 4
+  desired_vx: 0
+  desired_vy: 0
+  desired_yaw: 0
 --- !u!114 &467967561642582945
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -362,8 +382,55 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   swarm: []
   cohesionWeight: 1
-  separationWeight: 1
+  separationWeight: 15
   alignmentWeight: 1
+--- !u!114 &259003137113264617
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 417cbf70288a14145a0db9262ab405ff, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarm: []
+  d_ref: 1
+  r0_coh: 20
+  delta: 0.1
+  a: 0.3
+  b: 0.5
+  c: 1
+  gamma: 1
+  c_vm: 1
+  maxMigrationDistance: 10
+  detectionRadius: 5
+  obstacleAvoidanceForceWeight: 2
+  maxAvoidForce: 10
+  obstacleTag: Obstacle
+  desired_height: 4
+  desired_vx: 0
+  desired_vy: 0
+  desired_vz: 0
+  desired_yaw: 0
+--- !u!114 &3810217873681142886
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dbc7a8f820d8b486b87a328b4868bf49, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  vc: {fileID: 114202773416505472}
+  swarm: []
+  numNeighbours: 3
+  numDimensions: 2
 --- !u!1 &1343969879783188
 GameObject:
   m_ObjectHideFlags: 0
@@ -827,6 +894,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   vc: {fileID: 114202773416505472}
+  olfatiSaber: {fileID: 259003137113264617}
 --- !u!1 &1739179400309510
 GameObject:
   m_ObjectHideFlags: 0
@@ -895,7 +963,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 109.50142
   orthographic: 0
   orthographic size: 5
   m_Depth: 0
@@ -1100,7 +1168,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 109.50142
   orthographic: 0
   orthographic size: 5
   m_Depth: 0
@@ -1381,7 +1449,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1976944736351944}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a7653028c804f4c89947739c53765f9a, type: 3}
   m_Name: 
