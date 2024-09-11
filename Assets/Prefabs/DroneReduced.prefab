@@ -61,7 +61,7 @@ MonoBehaviour:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
-  instanceID: -1158
+  instanceID: 49780
 --- !u!1 &1194315723904280
 GameObject:
   m_ObjectHideFlags: 0
@@ -258,6 +258,8 @@ MonoBehaviour:
   desired_vx: 0
   desired_vy: 0
   desired_yaw: 0
+  attitude_control_yaw: 0
+  yawFilterCoefficient: 0.2
   swarm_vx: 0
   swarm_vy: 0
   swarm_vz: 0
@@ -429,6 +431,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   vc: {fileID: 114202773416505472}
   swarm: []
+  neighbours: []
   numNeighbours: 3
   numDimensions: 2
 --- !u!1 &1343969879783188
@@ -859,6 +862,7 @@ GameObject:
   m_Component:
   - component: {fileID: 4501315699650070}
   - component: {fileID: 114673619509455136}
+  - component: {fileID: 6727076729497765368}
   m_Layer: 0
   m_Name: Controller
   m_TagString: Untagged
@@ -891,6 +895,20 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ec3b2d78ab3414b538a10156593fb2e9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  vc: {fileID: 114202773416505472}
+  olfatiSaber: {fileID: 259003137113264617}
+--- !u!114 &6727076729497765368
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1713172099184850}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b489a38bd9672774ca5bb8a28b33fa11, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   vc: {fileID: 114202773416505472}

@@ -132,13 +132,13 @@ public class VelocityControl : MonoBehaviour {
         // Apply the low-pass filter to reduce oscillations in yaw control
         filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
 
-        if (droneName == "Drone 0")
-        {
-            Debug.Log("desired_yaw: " + desired_yaw);
-            Debug.Log("attitude_control_yaw: " + attitude_control_yaw);
-            Debug.Log("targetYawRate: " + targetYawRate);
-            Debug.Log("filteredYawRate: " + filteredYawRate);
-        }
+        // if (droneName == "Drone 0")
+        // {
+        //     Debug.Log("desired_yaw: " + desired_yaw);
+        //     Debug.Log("attitude_control_yaw: " + attitude_control_yaw);
+        //     Debug.Log("targetYawRate: " + targetYawRate);
+        //     Debug.Log("filteredYawRate: " + filteredYawRate);
+        // }
 
         // Use the filtered yaw rate for further calculations
         desiredOmega.y = filteredYawRate;
