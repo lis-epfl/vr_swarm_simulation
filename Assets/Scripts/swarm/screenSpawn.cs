@@ -118,12 +118,12 @@ public class screenSpawn : MonoBehaviour
             // Position the quad at the calculated coordinates
             screen.transform.position = new Vector3(x, y, z);
 
-            if (drone.name == "Drone 1")
-            {
-                Debug.Log("Drone 1 Yaw: " + yaw);
-                Debug.Log("Drone 1 Radians: " + radians);
-                Debug.Log("Drone 1 Screen Position: (" + x + ", " + y + ", " + z + ")");
-            }
+            // if (drone.name == "Drone 1")
+            // {
+            //     Debug.Log("Drone 1 Yaw: " + yaw);
+            //     Debug.Log("Drone 1 Radians: " + radians);
+            //     Debug.Log("Drone 1 Screen Position: (" + x + ", " + y + ", " + z + ")");
+            // }
 
             // Rotate the screen to face the center of the arena
             screen.transform.LookAt(arena.transform.position);
