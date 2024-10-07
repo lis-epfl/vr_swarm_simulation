@@ -103,7 +103,7 @@ public class screenSpawn : MonoBehaviour
         for (int i = 0; i < swarm.Count; i++)
         {
             GameObject drone = swarm[i];
-            GameObject screen = screens[i];
+            GameObject screen = screens[i]; // Check this
             GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
 
             // Calculate the screen position based on the yaw of the drone
