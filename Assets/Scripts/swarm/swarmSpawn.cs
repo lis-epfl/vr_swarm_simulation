@@ -10,6 +10,7 @@ public class swarmSpawn : MonoBehaviour
     public int dronesAlongZ = 3;
     public float droneSpacing = 3.0f;
     public bool randomYaw = true;
+    public GameObject swarmParent;
     private screenSpawn screenSpawn;
     private int droneNumber = 0;
 
@@ -19,6 +20,9 @@ public class swarmSpawn : MonoBehaviour
         
         // Get the screenSpawn script
         screenSpawn = GetComponent<screenSpawn>();
+
+        // Create an empty GameObject to serve as the parent for all drones
+        swarmParent = new GameObject("SwarmParent");
         
         // Spawn drones in a grid
         for (int x = 0; x < dronesAlongX; x++)
@@ -45,6 +49,8 @@ public class swarmSpawn : MonoBehaviour
                 droneParent.position = dronePosition;
                 droneParent.rotation = droneRotation;
 
+                // Parent the drone under the swarmParent GameObject
+                drone.transform.parent = swarmParent.transform;
                 
                 // Add the drone to the swarm list
                 swarm.Add(drone);
