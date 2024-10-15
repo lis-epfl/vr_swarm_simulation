@@ -37,6 +37,12 @@ public class OlfatiSaber : MonoBehaviour
 
     private Vector3 swarmInput = new Vector3(0, 0, 0);
 
+    private string droneName;
+
+    void Start()
+    {
+        droneName = transform.parent.name;
+    }
 
 
     void FixedUpdate()
@@ -53,14 +59,14 @@ public class OlfatiSaber : MonoBehaviour
 
         //Calculate the velocity matching force given the difference between the desired v_x, v_y, and v_z and the current velocity
         Vector3 desired_velocity = new Vector3(desired_vx, desired_vz, -desired_vy);
-        velocityMatching = c_vm * (desired_velocity - velocity);
-
-        // Calcualte the cohesion force for each of the neighbours
+        velocityMatching = c_vm * (desired_velocity - velocity);           
+        
+        // Calculate the cohesion force for each of the neighbours
         foreach (GameObject neighbour in swarm)
         {
             // Get the child of the neighbour
             GameObject neighbourChild = neighbour.transform.Find("DroneParent").gameObject;
-
+            
             // Skip the current drone
             if (neighbourChild == gameObject)
             {
@@ -78,7 +84,7 @@ public class OlfatiSaber : MonoBehaviour
             Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - velocity;
 
             // Cohesion
-            cohesion += GetCohesionForce(distance, d_ref, a, b, c, r0_coh, delta) * relativePosition.normalized;
+            cohesion += GetCohesionForce(distance) * relativePosition.normalized;
 
         }
 
@@ -89,97 +95,101 @@ public class OlfatiSaber : MonoBehaviour
 
         GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
         GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
-        GetComponent<VelocityControl>().swarm_vz = swarmInput.z;
+        GetComponent<VelocityControl>().swarm_vz = swarmInput.z;        
         
     }
 
-    // private Vector3 obstacleAvoidanceForce(Rigidbody droneRB)
-    // {
-
-    //     Vector3 avoidForce = Vector3.zero;
-    //     Collider[] hitColliders = Physics.OverlapSphere(droneRB.transform.position, detectionRadius);
-    //     float radius = droneRB.gameObject.transform.parent.GetComponent<interactionHandler>().radiusOfCollider;
-
-    //     foreach (var hitCollider in hitColliders)
-    //     {
-    //         if (hitCollider.CompareTag(obstacleTag))
-    //         {
-    //             // Find the closest point on the collider to the agent
-    //             Vector3 closestPoint = hitCollider.ClosestPoint(droneRB.transform.position);
-    //             Vector3 directionToObstacle = droneRB.transform.position - closestPoint;
-
-    //             float distanceToObstacle = directionToObstacle.magnitude-radius;
-
-    //             if (distanceToObstacle < detectionRadius && distanceToObstacle > 0)
-    //             {
-    //                 float forceMagnitude = Mathf.Min(maxAvoidForce, 1 / (distanceToObstacle*distanceToObstacle) * obstacleAvoidanceForceWeight);
-    //                 avoidForce += directionToObstacle.normalized * forceMagnitude;
-
-    //             }
-    //         }
-    //     }
-
-    //     droneRB.transform.parent.GetComponent<varibaleManager>().lastObstacle = avoidForce;
-    //     return avoidForce;
-    // }
-
-    private float GetCohesionForce(float r, float d_ref, float a, float b, float c, float r0, float delta)
+    private Vector3 obstacleAvoidanceForce(Rigidbody droneRB)
     {
-        float neighbourWeightDer = GetNeighbourWeightDer(r, r0, delta);
-        float cohesionIntensity = GetCohesionIntensity(r, d_ref, a, b, c);
-        float neighbourWeight = GetNeighbourWeight(r, r0, delta);
-        float cohesionIntensityDer = GetCohesionIntensityDer(r, d_ref, a, b, c);
 
-        return 1 / r0 *neighbourWeightDer * cohesionIntensity + neighbourWeight * cohesionIntensityDer;
+        Vector3 avoidForce = Vector3.zero;
+        // Collider[] hitColliders = Physics.OverlapSphere(droneRB.transform.position, detectionRadius);
+        // float radius = droneRB.gameObject.transform.parent.GetComponent<interactionHandler>().radiusOfCollider;
+
+        // foreach (var hitCollider in hitColliders)
+        // {
+        //     if (hitCollider.CompareTag(obstacleTag))
+        //     {
+        //         // Find the closest point on the collider to the agent
+        //         Vector3 closestPoint = hitCollider.ClosestPoint(droneRB.transform.position);
+        //         Vector3 directionToObstacle = droneRB.transform.position - closestPoint;
+
+        //         float distanceToObstacle = directionToObstacle.magnitude-radius;
+
+        //         if (distanceToObstacle < detectionRadius && distanceToObstacle > 0)
+        //         {
+        //             float forceMagnitude = Mathf.Min(maxAvoidForce, 1 / (distanceToObstacle*distanceToObstacle) * obstacleAvoidanceForceWeight);
+        //             avoidForce += directionToObstacle.normalized * forceMagnitude;
+
+        //         }
+        //     }
+        // }
+
+        // droneRB.transform.parent.GetComponent<varibaleManager>().lastObstacle = avoidForce;
+        return avoidForce;
     }
 
-    private float GetCohesionIntensity(float r, float d_ref, float a, float b, float c)
+    private float GetCohesionForce(float r)
+    {
+        float neighbourWeightDerivative = GetNeighbourWeightDerivative(r);
+        float cohesionIntensity = GetCohesionIntensity(r);
+        float neighbourWeight = GetNeighbourWeight(r);
+        float cohesionIntensityDerivative = GetCohesionIntensityDerivative(r);
+
+        return 1 / r0_coh *neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
+    }
+
+    // Cohesion intensity function
+    float GetCohesionIntensity(float r)
     {
         float diff = r - d_ref;
-
-        return (a + b) / 2 * Mathf.Sqrt(1 + Mathf.Pow(diff + c, 2)) - Mathf.Sqrt(1 + (c * c)) + (a - b) * diff / 2;
+        return ((a + b) / 2) * (Mathf.Sqrt(1 + Mathf.Pow(diff + c, 2)) - Mathf.Sqrt(1 + c * c)) + ((a - b) * diff) / 2;
     }
 
-    private float GetCohesionIntensityDer(float r, float d_ref, float a, float b, float c)
+    // Derivative of cohesion intensity function
+    float GetCohesionIntensityDerivative(float r)
     {
         float diff = r - d_ref;
-        return (a + b) / 2 * (diff + c) / Mathf.Sqrt(1 + Mathf.Pow(diff + c, 2)) + (a - b) / 2; 
+        return ((a + b) / 2) * (diff + c) / Mathf.Sqrt(1 + Mathf.Pow(diff + c, 2)) + (a - b) / 2;
     }
-
-    private float GetNeighbourWeight(float r, float r0, float delta)
+    
+    // Neighbor weight function
+    float GetNeighbourWeight(float r)
     {
-        float rRatio = r / r0;
+        float r_ratio = r / r0_coh;
 
-        if (rRatio < delta)
+        if (r_ratio < delta)
         {
-            return 1;
+            return 1.0f;
         }
-        else if (rRatio < 1)
+        else if (r_ratio < 1.0f)
         {
-            return 0.25f * Mathf.Pow(1 + Mathf.Cos(Mathf.PI * (rRatio - delta) / (1 - delta)), 2);
+            float arg = Mathf.PI * (r_ratio - delta) / (1 - delta);
+            return Mathf.Pow(0.5f * (1.0f + Mathf.Cos(arg)), 2);
         }
         else
         {
-            return 0;
+            return 0.0f;
         }
     }
 
-    private float GetNeighbourWeightDer(float r, float r0, float delta)
+    // Derivative of neighbor weight function
+    float GetNeighbourWeightDerivative(float r)
     {
-        float rRatio = r / r0;
+        float r_ratio = r / r0_coh;
 
-        if (rRatio < delta)
+        if (r_ratio < delta)
         {
-            return 1;
+            return 0.0f;
         }
-        else if (rRatio < 1)
+        else if (r_ratio < 1.0f)
         {
-            float arg = Mathf.PI * (rRatio - delta) / (1 - delta);
-            return -0.5f * Mathf.PI / (1 - delta) * (1 + Mathf.Cos(arg)) * Mathf.Sin(arg);
+            float arg = Mathf.PI * (r_ratio - delta) / (1 - delta);
+            return -Mathf.PI / (1 - delta) * (1 + Mathf.Cos(arg)) * Mathf.Sin(arg);
         }
         else
         {
-            return 0;
+            return 0.0f;
         }
     }
 }
