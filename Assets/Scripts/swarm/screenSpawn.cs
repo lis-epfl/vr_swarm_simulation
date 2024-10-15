@@ -8,13 +8,19 @@ public class screenSpawn : MonoBehaviour
     public List<GameObject> swarm = new List<GameObject>();
     public List<GameObject> screens = new List<GameObject>();
     public GameObject arena;
+    public GameObject screenParent;
     public float circleRadius = 2.0f;
+
+
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm)
     {
         
         // Store the swarm list
         this.swarm = swarm;
+
+        // Create an empty GameObject to serve as the parent for all screens
+        screenParent = new GameObject("ScreenParent");
         
         for (int i = 0; i < swarm.Count; i++)
         {
@@ -26,6 +32,9 @@ public class screenSpawn : MonoBehaviour
 
             // Name the screen
             screen.name = "screen_" + droneNumber;
+
+            // Parent the screen under the screenParent GameObject
+            screen.transform.parent = screenParent.transform;
 
             // Add the screen to the screens list
             screens.Add(screen);
@@ -94,13 +103,6 @@ public class screenSpawn : MonoBehaviour
 
             // Position the quad at the calculated coordinates
             screen.transform.position = new Vector3(x, y, z);
-
-            // if (drone.name == "Drone 1")
-            // {
-            //     Debug.Log("Drone 1 Yaw: " + yaw);
-            //     Debug.Log("Drone 1 Radians: " + radians);
-            //     Debug.Log("Drone 1 Screen Position: (" + x + ", " + y + ", " + z + ")");
-            // }
 
             // Rotate the screen to face the center of the arena
             screen.transform.LookAt(arena.transform.position);
