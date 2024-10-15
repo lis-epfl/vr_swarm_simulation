@@ -24,29 +24,6 @@ public class screenSpawn : MonoBehaviour
             // Create a screen using a quad
             GameObject screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
 
-            // // Position the quad at 6.6, -3, 9.5 - 0.3*droneNumber
-            // screen.transform.position = new Vector3(6.6f, -3.0f, 9.5f - 0.3f * droneNumber);
-
-            //  // Calculate the screen position based on the yaw of the drone
-            // float yaw = drone.transform.eulerAngles.y; // Get the yaw angle of the drone (in degrees)
-            // float radians = yaw * Mathf.Deg2Rad; // Convert yaw to radians
-
-            // // Calculate the position on circle relative to the arena
-            // float x = arena.transform.position.x + circleRadius * Mathf.Cos(radians);
-            // float z = arena.transform.position.z + circleRadius * Mathf.Sin(radians);
-            // float y = arena.transform.position.y - 0.3f;
-
-            // // Log the calculated coordinates and the arena position
-            // Debug.Log("Drone " + droneNumber + " Screen Position: (" + x + ", " + y + ", " + z + ")");
-            // Debug.Log("Arena Position: (" + arena.transform.position.x + ", " + arena.transform.position.y + ", " + arena.transform.position.z + ")");
-
-            // // Position the quad at the calculated coordinates
-            // screen.transform.position = new Vector3(x, y, z);
-
-            // // Rotate the screen to face the center of the arena
-            // screen.transform.LookAt(arena.transform.position);
-            // screen.transform.Rotate(0, 180f, 0); // Adjust rotation to face outward
-
             // Name the screen
             screen.name = "screen_" + droneNumber;
 

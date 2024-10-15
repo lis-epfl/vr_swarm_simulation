@@ -63,8 +63,6 @@ public class VelocityControl : MonoBehaviour {
 
         float heightError = state.Altitude - desired_height;
 
-        // Vector3 desiredVelocity = new Vector3 (desired_vy, -1.0f * heightError / time_constant_z_velocity, desired_vx);
-        // Vector3 desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, -desired_vy);
         Vector3 desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
         Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
 
@@ -72,37 +70,14 @@ public class VelocityControl : MonoBehaviour {
 
         Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
 
-        // Transform the desired velocity from the body frame to the world frame
-        // totalTargetVelocity = transform.TransformDirection(totalTargetVelocityWorld);
 
         // Transform the desired velocity from the world frame to the body frame
         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
 
-        // totalTargetVelocity = new Vector3(totalTargetVelocity.y, totalTargetVelocity.z, totalTargetVelocity.x);
 
         // Get the name of the drone
         string droneName = transform.parent.name;
 
-        // // Swarm Input
-        // Vector3 swarmInput = new Vector3(swarm_vx, swarm_vz, swarm_vy);
-
-        // // Check if it's drone 0
-        // if (droneName == "Drone 0")
-        // {
-           
-        //     Debug.Log("");
-        //     Debug.Log("desiredVelocity: " + desiredVelocity);
-        //     // Debug.Log("SwarmInput: " + swarmInput);
-        //     Debug.Log("swarmVelocity: " + swarmVelocity);
-        //     Debug.Log("totalTargetVelocityWorld: " + totalTargetVelocityWorld);
-        //     Debug.Log("totalTargetVelocity: " + totalTargetVelocity);
-
-        // }
-
-        // if (droneName == "Drone 0")
-        // {
-        //     Debug.Log("Desired Yaw in VelocityControl: " + desired_yaw2);
-        // }
 
         
 
@@ -132,14 +107,6 @@ public class VelocityControl : MonoBehaviour {
         // Apply the low-pass filter to reduce oscillations in yaw control
         filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
 
-        // if (droneName == "Drone 0")
-        // {
-        //     Debug.Log("desired_yaw: " + desired_yaw);
-        //     Debug.Log("attitude_control_yaw: " + attitude_control_yaw);
-        //     Debug.Log("targetYawRate: " + targetYawRate);
-        //     Debug.Log("filteredYawRate: " + filteredYawRate);
-        // }
-
         // Use the filtered yaw rate for further calculations
         desiredOmega.y = filteredYawRate;
 
@@ -167,15 +134,6 @@ public class VelocityControl : MonoBehaviour {
         propRR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRL.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
 
-        //Debug.Log ("Velocity" + state.VelocityVector);
-        //Debug.Log ("Desired Velocity" + desiredVelocity);
-        //Debug.Log ("Desired Acceleration" + desiredAcceleration);
-        //Debug.Log ("Angles" + state.Angles);
-        //Debug.Log ("Desired Angles" + desiredTheta);
-        //Debug.Log ("Angular Velocity" + state.AngularVelocityVector);
-        //Debug.Log ("Desired Angular Velocity" + desiredOmega);
-        //Debug.Log ("Desired Angular Acceleration" + desiredAlpha);
-        //Debug.Log ("Desired Torque" + desiredTorque);
     }
 
     public void Reset() {

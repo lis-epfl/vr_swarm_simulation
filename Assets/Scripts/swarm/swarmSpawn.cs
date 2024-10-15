@@ -37,7 +37,7 @@ public class swarmSpawn : MonoBehaviour
                 }
 
                 // Instantiate the drone prefab at the drone position and rotation
-                GameObject drone = Instantiate(dronePrefab);//, dronePosition,droneRotation);
+                GameObject drone = Instantiate(dronePrefab);
                 drone.name = "Drone " + swarm.Count;
 
                 // Move the drone to the position
@@ -69,7 +69,6 @@ public class swarmSpawn : MonoBehaviour
 
             // Add the swarm to the swarmAlgorithm script
             droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;
-
             
         }
 
