@@ -2,16 +2,17 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class attitudeControl : MonoBehaviour
+public class AttitudeControl : MonoBehaviour
 {
     public VelocityControl vc;
     public List<GameObject> swarm;
     public List<GameObject> neighbours;
     public int numNeighbours = 3;
     public int numDimensions = 2;
+    public bool boundaryEstimate = false;
 
-    private string droneName;
-
+    private string droneName;    
+    
     void Start()
     {
         droneName = transform.parent.name;
@@ -19,6 +20,14 @@ public class attitudeControl : MonoBehaviour
 
     void FixedUpdate()
     {
+        
+        // Log an error if the number of dimensions is not 2
+        if (numDimensions != 2)
+        {
+            Debug.LogError("The number of dimensions must be 2");
+            return;
+        }
+        
         // Sort the swarm by the distance to the current drone and get the closest numNeighbours
         swarm.Sort((a, b) => 
         {
@@ -30,6 +39,7 @@ public class attitudeControl : MonoBehaviour
             return Vector3.Distance(aChild.transform.position, transform.position).CompareTo(Vector3.Distance(bChild.transform.position, transform.position));
         });
 
+        // Get the closest numNeighbours
         neighbours = swarm.GetRange(1, (int)Mathf.Min(numNeighbours, swarm.Count - 1));
 
         // Collect positions of the current drone and its neighbours
@@ -38,6 +48,7 @@ public class attitudeControl : MonoBehaviour
         // Add the position of the current drone
         positions2D.Add(new Vector2(transform.position.x, transform.position.z));
 
+        // Add the positions of the neighbours
         foreach (GameObject neighbour in neighbours)
         {
             GameObject neighbourChild = neighbour.transform.Find("DroneParent").gameObject;
@@ -55,17 +66,12 @@ public class attitudeControl : MonoBehaviour
         Vector2 currentDronePosition = new Vector2(transform.position.x, transform.position.z);
         bool isInConvexHull = convexHull.Contains(currentDronePosition);
 
-        // Print if not in the convex hull
+        // Check if not in the convex hull
         if (!isInConvexHull)
         {
-            Debug.Log(droneName + " is not in the convex hull");
-            // print it's neighbours
-            foreach (GameObject neighbour in neighbours)
-            {
-                Debug.Log("Neighbour: " + neighbour.name);
-            }
-
-            // End the update
+            // Set the boundary estimate to false
+            boundaryEstimate = false;
+            
             return;
         }
 
@@ -98,6 +104,9 @@ public class attitudeControl : MonoBehaviour
 
         // Set the desired yaw rate in the velocity control script
         vc.attitude_control_yaw = desiredYawRateRadians;
+
+        // Set the boundary estimate to true
+        boundaryEstimate = true;
 
 
     }
