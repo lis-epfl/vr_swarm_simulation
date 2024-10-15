@@ -99,16 +99,6 @@ public class attitudeControl : MonoBehaviour
         // Set the desired yaw rate in the velocity control script
         vc.attitude_control_yaw = desiredYawRateRadians;
 
-        // if (droneName == "Drone 0")
-        // {
-        //     Debug.Log("convexHull[0]" + convexHull[0]);
-        //     Debug.Log("convexHull[1]" + convexHull[1]);
-        //     Debug.Log("convexHull[-1]" + convexHull[convexHull.Count - 1]);
-        //     Debug.Log("edge1: " + edge1);
-        //     Debug.Log("edge2: " + edge2);
-        //     Debug.Log("bisector: " + bisector);
-        //     Debug.Log("Desired yaw rate: " + desiredYawRateRadians);
-        // }
 
     }
 }

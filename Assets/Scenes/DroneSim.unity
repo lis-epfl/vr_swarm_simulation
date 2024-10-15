@@ -430,10 +430,11 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 2
-  dronesAlongZ: 2
+  dronesAlongX: 3
+  dronesAlongZ: 3
   droneSpacing: 3
   randomYaw: 1
+  swarmParent: {fileID: 0}
 --- !u!4 &978456175
 Transform:
   m_ObjectHideFlags: 0
@@ -464,6 +465,7 @@ MonoBehaviour:
   swarm: []
   screens: []
   arena: {fileID: 1298597749}
+  screenParent: {fileID: 0}
   circleRadius: 2
 --- !u!114 &978456177
 MonoBehaviour:
