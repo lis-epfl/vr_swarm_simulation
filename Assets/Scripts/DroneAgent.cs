@@ -76,9 +76,6 @@ public class DroneAgent: Agent {
 
         if (use_new_state)
         {
-            // Header and Magnitude
-            AddVectorObs(normalizedHeader(transform.position, currEndRegion.transform.position) / 180.0f); //-1 to 1
-            AddVectorObs(Vector3.Magnitude(transform.position - currEndRegion.transform.position)); // nonscaled magnitude
 
             //Velocities (v forward, yaw)
             //Debug.Log(velocityControl.state.VelocityVector);
@@ -107,9 +104,6 @@ public class DroneAgent: Agent {
             AddVectorObs(velocityControl.transform.rotation.y);
             AddVectorObs(velocityControl.transform.rotation.z);
 
-            AddVectorObs(currEndRegion.transform.position.x);
-            AddVectorObs(currEndRegion.transform.position.y);
-            AddVectorObs(currEndRegion.transform.position.z);
             AddVectorObs((collided ? 1.0f : 0.0f));
         }
         

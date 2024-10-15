@@ -54,17 +54,12 @@ public class swarmSpawn : MonoBehaviour
                 
                 // Add the drone to the swarm list
                 swarm.Add(drone);
-
-                Debug.Log("Spawned " + drone.name);
             }
         }
-
-        Debug.Log("Swarm Size: " + swarm.Count);
         
         // Add the swarm list to the reynolds script of each drone
         foreach (GameObject drone in swarm)
         {
-            Debug.Log("Adding swarm to " + drone.name);
 
             // Get the drone number from the name
             string[] splitName = drone.name.Split(' ');
@@ -74,8 +69,7 @@ public class swarmSpawn : MonoBehaviour
             Transform droneParent = drone.transform.Find("DroneParent");
 
             // Add the swarm to the swarmAlgorithm script
-            droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;
-            
+            droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;            
         }
 
         // Spawn screens for each drone in the swarm

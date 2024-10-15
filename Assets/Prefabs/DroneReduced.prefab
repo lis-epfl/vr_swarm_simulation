@@ -287,10 +287,6 @@ MonoBehaviour:
   velocityControl: {fileID: 114202773416505472}
   Scale: 1
   use_new_state: 1
-  startRegionIndex: -1
-  startRegions: []
-  endRegionIndex: -1
-  endRegions: []
   FORWARD_VELOCITY: 16
   YAW_RATE: 1
   DONE_DISTANCE: 15
@@ -377,7 +373,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1235058752258398}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 55712efd78ef9cc4c9d59db3a83f6ddd, type: 3}
   m_Name: 
@@ -393,7 +389,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1235058752258398}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 417cbf70288a14145a0db9262ab405ff, type: 3}
   m_Name: 
@@ -424,7 +420,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1235058752258398}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dbc7a8f820d8b486b87a328b4868bf49, type: 3}
   m_Name: 
