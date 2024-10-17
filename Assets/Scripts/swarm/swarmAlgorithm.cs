@@ -13,7 +13,7 @@ public class swarmAlgorithm : MonoBehaviour
 
     private Reynolds reynoldsAlgorithm;
     private OlfatiSaber olfatiSaberAlgorithm;
-    private attitudeControl attitudeControl;
+    private AttitudeControl attitudeControl;
 
     // Default altitude and velocity
     public float desired_height = 4.0f;
@@ -23,6 +23,14 @@ public class swarmAlgorithm : MonoBehaviour
 
     // Get the AttitudeControl enum from SwarmManager
     private SwarmManager.AttitudeControl attitudeControlType;
+
+    // Controller scripts
+    private GameObject controller;
+    private ReadController readController;
+    private InputControl inputControl;
+
+    // Velocity control script
+    private VelocityControl velocityControl;
 
     // Start is called before the first frame update
     void Start()
@@ -42,10 +50,18 @@ public class swarmAlgorithm : MonoBehaviour
         olfatiSaberAlgorithm.swarm = swarm;
         
         // Initialize the attitude control script
-        attitudeControl = GetComponent<attitudeControl>();
+        attitudeControl = GetComponent<AttitudeControl>();
 
         // Assign the swarm list to the attitude control script
         attitudeControl.swarm = swarm;
+
+        // Get the controller scripts
+        controller = transform.parent.Find("Controller").gameObject;
+        readController = controller.GetComponent<ReadController>();
+        inputControl = controller.GetComponent<InputControl>();
+
+        // Get the velocity control script
+        velocityControl = GetComponent<VelocityControl>();
 
         // Initialize parameters for the first time
         OnSwarmParamsChanged();
@@ -74,6 +90,10 @@ public class swarmAlgorithm : MonoBehaviour
                 EnableAlgorithm(reynoldsAlgorithm);
                 DisableAlgorithm(olfatiSaberAlgorithm);
                 UpdateReynoldsParameters();
+                readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
+                inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
+                velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
+
                 break;
 
             // Olfati-Saber algorithm and parameters
@@ -81,6 +101,9 @@ public class swarmAlgorithm : MonoBehaviour
                 EnableAlgorithm(olfatiSaberAlgorithm);
                 DisableAlgorithm(reynoldsAlgorithm);
                 UpdateOlfatiSaberParameters();
+                readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
+                inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
+                velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 break;
         }
 

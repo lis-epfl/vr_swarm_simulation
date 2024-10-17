@@ -430,10 +430,11 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 3
-  dronesAlongZ: 3
+  dronesAlongX: 4
+  dronesAlongZ: 4
   droneSpacing: 3
   randomYaw: 1
+  swarmParent: {fileID: 0}
 --- !u!4 &978456175
 Transform:
   m_ObjectHideFlags: 0
@@ -464,6 +465,7 @@ MonoBehaviour:
   swarm: []
   screens: []
   arena: {fileID: 1298597749}
+  screenParent: {fileID: 0}
   circleRadius: 2
 --- !u!114 &978456177
 MonoBehaviour:
@@ -478,18 +480,18 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   swarmAlgorithm: 0
-  cohesionWeight: 2
-  separationWeight: 20
-  alignmentWeight: 1
-  d_ref: 8
-  r0_coh: 30
+  cohesionWeight: 0.3
+  separationWeight: 4
+  alignmentWeight: 0.1
+  d_ref: 7
+  r0_coh: 60
   delta: 0.1
-  a: 1.2
-  b: 2
+  a: 0.24
+  b: 0.4
   gamma: 1
-  c_vm: 1
+  c_vm: 0.5
   attitudeControlType: 0
-  numNeighbours: 2
+  numNeighbours: 6
   numDimensions: 2
 --- !u!114 &978456178
 MonoBehaviour:
