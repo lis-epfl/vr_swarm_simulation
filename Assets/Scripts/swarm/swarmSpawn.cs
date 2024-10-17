@@ -10,6 +10,7 @@ public class swarmSpawn : MonoBehaviour
     public int dronesAlongZ = 3;
     public float droneSpacing = 3.0f;
     public bool randomYaw = true;
+    public GameObject swarmParent;
     private screenSpawn screenSpawn;
     private int droneNumber = 0;
 
@@ -19,6 +20,9 @@ public class swarmSpawn : MonoBehaviour
         
         // Get the screenSpawn script
         screenSpawn = GetComponent<screenSpawn>();
+
+        // Create an empty GameObject to serve as the parent for all drones
+        swarmParent = new GameObject("SwarmParent");
         
         // Spawn drones in a grid
         for (int x = 0; x < dronesAlongX; x++)
@@ -37,7 +41,7 @@ public class swarmSpawn : MonoBehaviour
                 }
 
                 // Instantiate the drone prefab at the drone position and rotation
-                GameObject drone = Instantiate(dronePrefab);//, dronePosition,droneRotation);
+                GameObject drone = Instantiate(dronePrefab);
                 drone.name = "Drone " + swarm.Count;
 
                 // Move the drone to the position
@@ -45,20 +49,17 @@ public class swarmSpawn : MonoBehaviour
                 droneParent.position = dronePosition;
                 droneParent.rotation = droneRotation;
 
+                // Parent the drone under the swarmParent GameObject
+                drone.transform.parent = swarmParent.transform;
                 
                 // Add the drone to the swarm list
                 swarm.Add(drone);
-
-                Debug.Log("Spawned " + drone.name);
             }
         }
-
-        Debug.Log("Swarm Size: " + swarm.Count);
         
         // Add the swarm list to the reynolds script of each drone
         foreach (GameObject drone in swarm)
         {
-            Debug.Log("Adding swarm to " + drone.name);
 
             // Get the drone number from the name
             string[] splitName = drone.name.Split(' ');
@@ -68,9 +69,7 @@ public class swarmSpawn : MonoBehaviour
             Transform droneParent = drone.transform.Find("DroneParent");
 
             // Add the swarm to the swarmAlgorithm script
-            droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;
-
-            
+            droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;            
         }
 
         // Spawn screens for each drone in the swarm
