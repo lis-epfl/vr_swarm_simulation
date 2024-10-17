@@ -39,7 +39,7 @@ public class VelocityControl : MonoBehaviour {
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
     //must set this
-    public float initial_height = 4.0f;
+    public float initial_height = 14.0f;
 
     private bool wait = false;
     private bool flag = true;
@@ -52,6 +52,9 @@ public class VelocityControl : MonoBehaviour {
         Rigidbody rb = GetComponent<Rigidbody> ();
         Vector3 desiredForce = new Vector3 (0.0f, gravity * state.Mass, 0.0f);
         rb.AddForce (desiredForce, ForceMode.Acceleration);
+
+        initial_height = state.Altitude + 4.0f;
+        desired_height = state.Altitude + 4.0f;
     }
 
     // Update is called once per frame
