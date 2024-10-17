@@ -281,32 +281,36 @@ class custom_stitcher_SP:
 
         return order
 
-    def first_thread(self, batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth,
-                     processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, debug = False):
+    def first_thread(self,batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
+                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug = False):
         """""
         This method read the images coming from the software. They have two shared memory files to store the images and the panorama.
         """""
         # global shared_images
+        processedImageSize = processedImageHeight*processedImageWidth*3
+        imageSize = imageWidth*imageHeight*3
+        batchMMF = mmap.mmap(-1, batchDataPosition + imageCount * imageSize, "BatchSharedMemory")
+        processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
+
         while True:
             images = read_images_from_shared_memory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth)
             with lock:
                 self.shared_images = images
-            
-            if debug:
-                break
 
             if not self.panoram_queue.empty():
                 panorama = self.panoram_queue.get()
-                H, W, C = panorama.shape
-                if processedImageSize != (H*W*C):
-                    # panorama = panorama[:225, :225]
+                H, W, _ = panorama.shape
+                if H != processedImageHeight or W != processedImageWidth:
                     print("shape problem")
-                    newWidth = W/processedImageSize*C*H/imageHeight
-                    panorama = cv2.resize(panorama, (imageHeight, newWidth))
-                
+                    
+                    panorama = cv2.resize(panorama, (processedImageWidth, processedImageHeight))
+                if debug:
+                    self.panoram_queue.put(panorama)
             # time.sleep(0.005)
+            if debug:
+                break
             
-            # write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, panorama)
+            write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, panorama)
 
     def compute_homographies_and_order(self, keypoints, matches_info, partial_order):
         """""
@@ -693,21 +697,17 @@ def test_threading():
     while True:
         time.sleep(10)
 
-def test_one_image():
+def test_one_image(front_image_index, angle):
     batchFlagPosition = 0
     batchDataPosition = 4
-    imageCount = 9
+    imageCount = 16
     imageWidth = 225
     imageHeight = 225
-    imageSize = imageWidth * imageHeight * 3  # RGB image size
-    totalBatchSize = batchDataPosition + imageCount * imageSize
 
     processedFlagPosition = 0
     processedDataPosition = 4
     processedImageHeight = 225
     processedImageWidth = 225
-    processedImageSize = processedImageHeight * processedImageWidth * 3
-    totalProcessedSize = processedDataPosition + processedImageSize
 
     f = 1000
 
@@ -717,25 +717,10 @@ def test_one_image():
 
     stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.9, score_threshold=0.1, device="cuda")
 
-    batchMMF = mmap.mmap(-1, totalBatchSize, "BatchSharedMemory")
-    processedMMF = mmap.mmap(-1, totalProcessedSize, "ProcessedImageSharedMemory")
-
-    while True:
-        images = read_images_from_shared_memory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth)
-        if images:
-            print("Images received, displaying first image.")
-            break
-        else:
-            print("No new images, retrying...")
-        time.sleep(0.05)  # Sleep briefly before retrying
-
-    # for image in images:
-    #     cv2.imshow("images", image)
-    #     cv2.waitKey(200)
-    stitcher.first_thread(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth,
-                     processedMMF, processedFlagPosition, processedDataPosition, processedImageSize)
+    stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
+                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug=True)
     # stitcher.image_queue.put(images)
-    keypoints, _, order, inverted, best_pairs, confidences=stitcher.second_thread(debug=True)
+    keypoints, _, order, inverted, best_pairs, confidences, imgs =stitcher.second_thread(front_image_index=front_image_index, debug=True)
 
     print("keypoints shape", [keypoint.shape for keypoint in keypoints])
     print("order", order)
@@ -743,35 +728,38 @@ def test_one_image():
     print("best_pairs", best_pairs)
     print("confidences", confidences)
 
-    stitcher.first_thread(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth,
-                     processedMMF, processedFlagPosition, processedDataPosition, processedImageSize)
+    for i in range(len(imgs)):
+        cv2.imshow(f"image {i}", imgs[i])
+        cv2.waitKey(2000)
+        cv2.destroyAllWindows()
+
+    stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
+                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug=True)
     # stitcher.image_queue.put(images)
-    stitcher.third_thread(angle=60)
-    stitcher.first_thread(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth,
-                     processedMMF, processedFlagPosition, processedDataPosition, processedImageSize)
+    stitcher.third_thread(angle=angle, debug = True)
+    stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
+                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug=True)
 
     panorama = stitcher.panoram_queue.get()
-    print("Plot panorama")
+    print("Plot panorama of shape", panorama.shape)
     cv2.imshow("panorama", panorama)
     cv2.waitKey(10000)
     cv2.destroyAllWindows()
 
 
 def main():
+
     batchFlagPosition = 0
     batchDataPosition = 4
     imageCount = 9
     imageWidth = 225
     imageHeight = 225
     imageSize = imageWidth * imageHeight * 3  # RGB image size
-    totalBatchSize = batchDataPosition + imageCount * imageSize
 
     processedFlagPosition = 0
     processedDataPosition = 4
     processedImageHeight = 225
     processedImageWidth = 225
-    processedImageSize = processedImageHeight * processedImageWidth * 3
-    totalProcessedSize = processedDataPosition + processedImageSize
 
     f = 1000
 
@@ -781,11 +769,9 @@ def main():
 
     stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.9, score_threshold=0.1, device="cuda")
 
-    batchMMF = mmap.mmap(-1, totalBatchSize, "BatchSharedMemory")
-    processedMMF = mmap.mmap(-1, totalProcessedSize, "ProcessedImageSharedMemory")
-
     # Start a thread for simulating the image feed
-    first_thread = threading.Thread(target=stitcher.first_thread, args=(images,))
+    first_thread = threading.Thread(target=stitcher.first_thread, args=(batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth,
+                    processedFlagPosition, processedDataPosition, processedImageHeight, processedImageWidth))
     first_thread.daemon = True
     first_thread.start()
 
@@ -799,7 +785,20 @@ def main():
     
 
 if __name__ == '__main__':
+    
+    # main function, the final result
     # main()
+
+    # Test reading and writing the images from/to the shared memory
     # test_reading_writing()
+
+    # Test stitcher with own images
     # test_stitcher()
-    test_threading()
+
+    # Test threading function
+    # test_threading()
+
+    # Test one stitched camera
+    front_image_index = 0
+    angle = 0
+    test_one_image(front_image_index, angle)

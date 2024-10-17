@@ -11,7 +11,7 @@ public class PyUniSharing : MonoBehaviour
     private MemoryMappedFile batchMMF, processedMMF;
     private MemoryMappedViewAccessor batchAccessor, processedAccessor;
     private const int batchFlagPosition = 0;
-    public const int imageCount = 9; 
+    public const int imageCount = 16; 
     public const int imageWidth = 225, imageHeight = 225;
     private const int imageSize = imageWidth * imageHeight * 3;
     private const int batchDataPosition = 4; 
