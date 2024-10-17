@@ -23,8 +23,8 @@ public class PyUniSharing : MonoBehaviour
     private const int totalProcessedSize = processedDataPosition + processedImageSize;
     public List<Camera> camerasToCapture;
 
-    private float sendInterval = 0.05f;
-    private float readInterval = 0.05f;
+    private float sendInterval = 0.02f;
+    private float readInterval = 0.02f;
     private float nextSendTime, nextReceiveTime = 0f;
 
 
@@ -36,6 +36,11 @@ public class PyUniSharing : MonoBehaviour
     private Material curvedScreenMaterial;
     public Texture2D panoTexture;
     public bool resize_dimension = false;
+
+    // Record time instance to debug
+
+    private float lastWritingTime = 0.0f;
+    private float lastReadingTime = 0.0f;
 
     // Start is called before the first frame update
     void Start()
@@ -76,9 +81,12 @@ public class PyUniSharing : MonoBehaviour
                 FindCameras();
         }
         else if (Time.time >= nextSendTime && batchAccessor.ReadInt32(batchFlagPosition) == 0){
-
+            
             batchAccessor.Write(batchFlagPosition, 1);
-            // Debug.LogWarning("Writing images");
+
+            // Debug.Log($"Time taken from last writing: {Time.time-lastWritingTime} seconds");
+            lastWritingTime = Time.time;
+
             // Create and write batch of images
             // Write a batch of images (simulated data)
             for (int i = 0; i < camerasToCapture.Count && i < imageCount; i++)
@@ -92,13 +100,28 @@ public class PyUniSharing : MonoBehaviour
             }
             // Python and Unity can read now
             batchAccessor.Write(batchFlagPosition, 0);
+
+            // Debug.Log($"Time to write a batch: {Time.time-lastWritingTime} seconds");
             nextSendTime += sendInterval;
         }
 
-        else if (Time.time >= nextReceiveTime && processedAccessor.ReadInt32(processedFlagPosition) == 0){
+        if (Time.time >= nextReceiveTime && processedAccessor.ReadInt32(processedFlagPosition) == 0){
+            
+            processedAccessor.Write(processedFlagPosition, 1);
 
-            Debug.LogWarning("Reading images");
-            ReceiveProcessedImage();
+            // Debug.Log($"Time taken from last reading: {Time.time-lastReadingTime} seconds");
+            lastReadingTime = Time.time;
+
+            byte[] processedImageBytes;
+            
+            processedImageBytes = ReceiveProcessedImage();
+
+            processedAccessor.Write(processedFlagPosition, 0);
+
+            SetPanoramaImage(processedImageBytes);
+            
+            // Debug.Log($"Time to read an image: {Time.time-lastReadingTime} seconds");
+            
 
             // Python and Unity can read now
             nextReceiveTime += readInterval;
@@ -160,18 +183,14 @@ public class PyUniSharing : MonoBehaviour
         Debug.Log($"Total cameras found: {camerasToCapture.Count}");
     }
 
-    void ReceiveProcessedImage()
+    byte[] ReceiveProcessedImage()
     {
-        processedAccessor.Write(processedFlagPosition, 1);
+        
 
         byte[] processedImageBytes = new byte[processedImageSize];
         processedAccessor.ReadArray(processedDataPosition, processedImageBytes, 0, processedImageBytes.Length);
-
-        // Debug.Log($"Processed image received.");
         
-        processedAccessor.Write(processedFlagPosition, 0);
-
-        SetPanoramaImage(processedImageBytes);
+        return processedImageBytes;
     }
 
     void OnDestroy()
@@ -237,23 +256,10 @@ public class PyUniSharing : MonoBehaviour
         // Texture2D panoramaTexture = LoadTextureFromBytes(partPanorama);
         Texture2D panoramaTexture = LoadRawRGBTexture(partPanorama, imageWidth, imageHeight);
 
-        // Check if the texture was created correctly
-        if (panoramaTexture != null)
-        {
-            Debug.Log($"Panorama texture loaded. Size: {panoramaTexture.width}x{panoramaTexture.height}");
-        }
-        else
-        {
-            Debug.LogError("Failed to load panorama texture from byte array.");
-            return;
-        }
-
         // Assign the texture to the material's main texture
         curvedScreenMaterial.mainTexture = panoramaTexture;
 
         panoTexture = panoramaTexture;
-
-        Debug.Log("Panorama texture set on the material.");
     }   
     
     // Utility function to convert byte[] to Texture2D
@@ -262,14 +268,6 @@ public class PyUniSharing : MonoBehaviour
         Texture2D texture = new Texture2D(2, 2);  // Placeholder dimensions; it will resize after LoadImage
         bool isLoaded = texture.LoadImage(imageData);
 
-        if (isLoaded)
-        {
-            Debug.Log("Texture successfully loaded from byte array.");
-        }
-        else
-        {
-            Debug.LogError("Failed to load texture from byte array.");
-        }
         return texture;
     }
 
