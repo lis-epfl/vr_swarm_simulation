@@ -12,19 +12,27 @@ public class PyUniSharing : MonoBehaviour
     private MemoryMappedViewAccessor batchAccessor, processedAccessor;
     private const int batchFlagPosition = 0;
     public const int imageCount = 16; 
-    public const int imageWidth = 225, imageHeight = 225;
+    public const int imageWidth = 300, imageHeight = 300;
     private const int imageSize = imageWidth * imageHeight * 3;
-    private const int batchDataPosition = 4; 
+    private const int boolListSize = imageCount;
+    private const int camerasToStitchPosition = 1;
+    private const int batchDataPosition = camerasToStitchPosition + boolListSize  ; // the flag + the full list
     private const int totalBatchSize = batchDataPosition + imageCount * imageSize;
     
     private const int processedFlagPosition = 0;
     private const int processedDataPosition = 4;
-    private const int processedImageSize = 225 * 225 * 3;
+    private const int processedImageSize = 240 * 240 * 3;
     private const int totalProcessedSize = processedDataPosition + processedImageSize;
     public List<Camera> camerasToCapture;
+    public List<bool> camerasToStitch;
 
-    private float sendInterval = 0.02f;
-    private float readInterval = 0.02f;
+    // Reuse object to avoid garbage generation
+    private RenderTexture reusableTexture;
+    private Texture2D image;
+
+    // Timings
+    private float sendInterval = 0.03f;
+    private float readInterval = 0.03f;
     private float nextSendTime, nextReceiveTime = 0f;
 
 
@@ -59,6 +67,10 @@ public class PyUniSharing : MonoBehaviour
         
         // Get the material attached to the MeshRenderer
         curvedScreenMaterial = GetComponent<MeshRenderer>().material;
+
+        reusableTexture = new RenderTexture(imageWidth, imageHeight, 24);
+        image = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
+
         nextSendTime = Time.time;
 
     }
@@ -70,6 +82,8 @@ public class PyUniSharing : MonoBehaviour
     void Update()
     {
         
+        UpdateCameraToStitch();
+
         if (resize_dimension)
         {
             GenerateCurvedScreen();
@@ -80,26 +94,37 @@ public class PyUniSharing : MonoBehaviour
                 // Debug.LogWarning("No cameras found to capture images.");
                 FindCameras();
         }
-        else if (Time.time >= nextSendTime && batchAccessor.ReadInt32(batchFlagPosition) == 0){
+        else if (Time.time >= nextSendTime && batchAccessor.ReadByte(batchFlagPosition) == 0){
             
-            batchAccessor.Write(batchFlagPosition, 1);
+            batchAccessor.Write(batchFlagPosition, (byte)1);
 
             // Debug.Log($"Time taken from last writing: {Time.time-lastWritingTime} seconds");
             lastWritingTime = Time.time;
+
+            for (int i = 0; i < boolListSize; i++)
+            {
+                byte value = (byte)(i < camerasToStitch.Count && camerasToStitch[i] ? 1 : 0);
+                batchAccessor.Write(camerasToStitchPosition + i, value);
+            }
 
             // Create and write batch of images
             // Write a batch of images (simulated data)
             for (int i = 0; i < camerasToCapture.Count && i < imageCount; i++)
             {
-                byte[] imageBytes = CaptureCameraImage(camerasToCapture[i], imageWidth, imageHeight);
-                
-                if (imageBytes != null)
+                if (i < camerasToStitch.Count && camerasToStitch[i])
                 {
-                    batchAccessor.WriteArray(batchDataPosition + i * imageSize, imageBytes, 0, imageBytes.Length);
+                    // Capture the image only if this camera is to be stitched
+                    byte[] imageBytes = CaptureCameraImage(camerasToCapture[i]);
+
+                    if (imageBytes != null)
+                    {
+                        // Write the captured image to shared memory
+                        batchAccessor.WriteArray(batchDataPosition + i * imageSize, imageBytes, 0, imageBytes.Length);
+                    }
                 }
             }
             // Python and Unity can read now
-            batchAccessor.Write(batchFlagPosition, 0);
+            batchAccessor.Write(batchFlagPosition, (byte)0);
 
             // Debug.Log($"Time to write a batch: {Time.time-lastWritingTime} seconds");
             nextSendTime += sendInterval;
@@ -109,7 +134,7 @@ public class PyUniSharing : MonoBehaviour
             
             processedAccessor.Write(processedFlagPosition, 1);
 
-            // Debug.Log($"Time taken from last reading: {Time.time-lastReadingTime} seconds");
+            Debug.Log($"Time taken from last reading: {Time.time-lastReadingTime} seconds");
             lastReadingTime = Time.time;
 
             byte[] processedImageBytes;
@@ -120,7 +145,7 @@ public class PyUniSharing : MonoBehaviour
 
             SetPanoramaImage(processedImageBytes);
             
-            // Debug.Log($"Time to read an image: {Time.time-lastReadingTime} seconds");
+            Debug.Log($"Time to read an image: {Time.time-lastReadingTime} seconds");
             
 
             // Python and Unity can read now
@@ -130,28 +155,23 @@ public class PyUniSharing : MonoBehaviour
     }
 
     // Capture the image from the camera and return it as a byte array (RGB format)
-    private byte[] CaptureCameraImage(Camera camera, int width, int height)
+    private byte[] CaptureCameraImage(Camera camera)
     {
-        // Create a RenderTexture to capture the camera's view, without altering the simulation camera's RenderTexture
+        // Ensure the camera uses the reusable texture
         RenderTexture previousRT = camera.targetTexture;
-        RenderTexture renderTexture = new RenderTexture(width, height, 24);
-        camera.targetTexture = renderTexture;
-        RenderTexture.active = renderTexture;
-        camera.Render();
+        camera.targetTexture = reusableTexture;
+        RenderTexture.active = reusableTexture;
 
-        
-        Texture2D image = new Texture2D(width, height, TextureFormat.RGB24, false);
-        image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+        camera.Render();
+        image.ReadPixels(new Rect(0, 0, imageWidth, imageHeight), 0, 0);
         image.Apply();
 
-        // Convert the Texture2D to a byte array (RGB)
+        // Convert Texture2D to byte array
         byte[] imageBytes = image.GetRawTextureData();
 
-        // Clean up
+        // Restore previous texture
         camera.targetTexture = previousRT;
         RenderTexture.active = null;
-        Destroy(renderTexture);
-        Destroy(image);
 
         return imageBytes;
     }
@@ -169,6 +189,9 @@ public class PyUniSharing : MonoBehaviour
         {
             Debug.Log($"Checking drone: {drone.name}");
             Camera camera = drone.transform.Find("FPV")?.GetComponent<Camera>();
+            // AttitudeControl attitudeScript = drone.transform.Find(droneParent).GetComponent<AttitudeControl>();
+            // bool estimate = attitudeScript.boundaryEstimate
+
             if (camera != null)
             {
                 camerasToCapture.Add(camera);
@@ -181,6 +204,31 @@ public class PyUniSharing : MonoBehaviour
         }
 
         Debug.Log($"Total cameras found: {camerasToCapture.Count}");
+    }
+
+    private void UpdateCameraToStitch()
+    {
+        camerasToStitch = new List<bool>();
+
+        // Find all GameObjects in the scene with the tag "DroneBase"
+        GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase"); // Use "DroneBase" tag
+                
+        foreach (GameObject drone in drones)
+        {
+            AttitudeControl attitudeScript = drone.transform.Find("DroneParent").GetComponent<AttitudeControl>();
+
+            if (attitudeScript != null)
+            {
+                bool estimate = attitudeScript.boundaryEstimate;
+                camerasToStitch.Add(estimate);
+            }
+            else
+            {
+                Debug.LogWarning($"No estimate found in {drone.name}");
+            }
+        }
+
+        // Debug.Log($"Total estimate found: {camerasToStitch.Count}");
     }
 
     byte[] ReceiveProcessedImage()
