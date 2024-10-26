@@ -98,7 +98,12 @@ def find_cycle_for_360_panorama(confidences, start_node, plot = False):
     
     return cycle
 
-
+def invert_affine_matrices(Ms):
+    Ms_inverted = np.zeros_like(Ms)
+    num_mat = Ms_inverted.shape[0]
+    for i in range(num_mat):
+        Ms_inverted[i]=cv2.invertAffineTransform(Ms[i])
+    return Ms_inverted
 
 @jit(nopython=True) 
 def apply_homographies(Hs, corners):
@@ -121,12 +126,42 @@ def apply_homographies(Hs, corners):
             
     return all_corners, H_accum
 
+def apply_affine_matrices(Ms, corners):
+    """
+    Apply the affine matrices to image corners and return the transformed corners.
+    Optimized for affine transformations, assuming 2x3 matrices.
+    """
+
+    num_images, num_corners = Ms.shape[0], 4
+    tot_points = num_corners * num_images
+    all_corners = np.zeros((2, tot_points), dtype=np.float32)  # Store 2D points
+    M_accum = np.zeros((num_images, 2, 3), dtype=np.float32)  # Accumulated affine matrices
+
+    M = np.eye(2,3, dtype=np.float32)  # Start with identity affine matrix
+
+    for i in range(num_images):
+        # Convert the affine matrix to a 3x3 homography-like matrix for accumulation
+        M_curr = np.vstack([Ms[i], [0, 0, 1]])  # Convert to 3x3 by adding [0, 0, 1] row
+        M_accum_3x3 = np.dot(M_curr, np.vstack([M, [0, 0, 1]]))  # Update accumulated affine matrix
+        
+        # Extract the 2x3 part for affine transformation (discard the 3rd row/column)
+        M_accum[i] = M_accum_3x3[:2, :]
+        
+        # Apply the current affine matrix to the corners
+        new_corners = np.dot(M_accum[i], corners)  # Only need 2xN points for affine
+        all_corners[:, i*num_corners: (i+1)*num_corners] = new_corners
+
+    print(M_accum)
+    
+    return all_corners, M_accum
+
 @jit(nopython=True) 
 def invert_matrices(Hs:np.ndarray)->np.ndarray:
     Hs_inverted = np.zeros_like(Hs)
     num_mat = Hs_inverted.shape[0]
     for i in range(num_mat):
-        Hs_inverted[i]=np.linalg.inv(Hs[i])
+        if np.abs(np.linalg.det(Hs[i])) > 1e-10:
+            Hs_inverted[i]=np.linalg.inv(Hs[i])
     return Hs_inverted
 
 class custom_stitcher_SP:
@@ -175,6 +210,25 @@ class custom_stitcher_SP:
         self.panoram_queue = queue.Queue(1)
         self.shared_images = None
         self.shared_images_bool = None
+
+    def ORB_extraction(self, images):
+
+        orb = cv2.ORB_create()
+        keypoints = []
+        descriptors = []
+
+        for image in images:
+            gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            kpts, dpts = orb.detectAndCompute(gray_img, None)
+
+            if kpts is not None and dpts is not None:
+                keypoints.append(np.array([kp.pt for kp in kpts]))
+                descriptors.append(dpts.astype(np.float32))
+            else:
+                keypoints.append(np.array([]))
+                descriptors.append(np.array([]))
+
+        return keypoints, descriptors
 
     def cylindricalWarp(self, img):
 
@@ -299,8 +353,8 @@ class custom_stitcher_SP:
                 if desc1.size == 0 or desc2.size == 0:
                     continue
 
-                matches = self.FLANN_matching(desc1, desc2)
-                # matches = self.BF_matching(desc1, desc2)
+                # matches = self.FLANN_matching(desc1, desc2)
+                matches = self.BF_matching(desc1, desc2)
                 num_matches = len(matches)
 
                 H1, H2 = None, None
@@ -390,11 +444,13 @@ class custom_stitcher_SP:
 
     def chooseSubsetsAndTransforms(self, Ts, num_pano_img, order, angle):
         num_images = len(Ts)//3
+        angle -= angle//360 *360
+        if angle<0:
+            angle+=360
         angle_per_image, angle_rad= 2*np.pi/num_images, np.deg2rad(angle)#- 2*np.pi(angle>180)
         orientation = angle_rad/angle_per_image+0.5
         ref = int(orientation)
         
-        # print(ref, angle_per_image, angle_rad)
         odd = num_pano_img%2
 
         
@@ -421,45 +477,6 @@ class custom_stitcher_SP:
             Ts2 = Ts[ref:ref+offset]
 
         return subset1, subset2, Ts1, Ts2
-    
-    def first_thread(self,batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
-                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug = False):
-        """""
-        This method read the images coming from the software. They have two shared memory files to store the images and the panorama.
-        """""
-        # global shared_images
-        processedImageSize = processedImageHeight*processedImageWidth*3
-        imageSize = imageWidth*imageHeight*3
-        batchMMF = mmap.mmap(-1, batchDataPosition + imageCount * imageSize, "BatchSharedMemory")
-        processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
-
-        while True:
-            images, images_bool = readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight)
-            
-            droneImInd = np.arange(0, images_bool.shape[0])[images_bool]
-            print(f"Index of the drone images to stitch: {droneImInd}")
-            with lock:
-                
-                self.shared_images = images
-                self.shared_images_bool = images_bool
-
-            if not self.panoram_queue.empty():
-                panorama = self.panoram_queue.get()
-                H, W, _ = panorama.shape
-                if H != processedImageHeight or W != processedImageWidth:
-                    print("shape problem")
-                    
-                    # panorama = cv2.resize(panorama, (processedImageWidth, processedImageHeight))
-                if debug:
-                    self.panoram_queue.put(panorama)
-                    break
-                
-                write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, panorama)
-                del panorama
-
-            # time.sleep(0.005)
-            if debug:
-                break
 
     def compute_homographies_and_order(self, keypoints, matches_info, partial_order):
         """""
@@ -501,43 +518,111 @@ class custom_stitcher_SP:
             
         return Hs, partial_order, False
     
-    def second_thread(self, front_image_index=0, debug= False):
+    def compute_affines_and_order(self, keypoints, matches_info, partial_order):
         """""
-        This method uses some of the above methods to extract the order and the homographies of the paired images.
-        Input:
-            - images: list of NDArrays.
-            - front_image_index: the index of the front image of the pilot
+        COmpute homographies between each best pairs. For n images in the 360 degrees panorama, we have n homographies to compute
+        because the last or the first image should be associated with two homographies.
         """""
-        # global shared_images
-        while True:
-            with lock:
-                if self.shared_images is None:
-                    time.sleep(0.1)
-                    continue
-                else:
-                    images = self.shared_images
-
-            if self.warp_type == "cylindrical":
-                outputs, ratios, images = self.SP_inference_fast(images)
+        num_images= len(keypoints)
+        matches_lookup = {(match['image1_index'], match['image2_index']): match['matches'] for match in matches_info}
+        
+        Hs = np.zeros((num_images, 2, 3))
+        for i in range(num_images):
+            if i<num_images-1:
+                idx1, idx2 = partial_order[i], partial_order[i + 1]
             else:
-                outputs, ratios = self.SP_inference_fast(images)
+                idx1, idx2 = partial_order[i], partial_order[0]
 
-            keypoints, descriptors = self.keep_best_keypoints(outputs, ratios)
-            matches_info, confidences = self.compute_matches_and_confidences(descriptors, keypoints)
-            best_pairs = self.find_top_pairs(confidences)
-            partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
-            Hs, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order)
+            if (idx1, idx2) in matches_lookup:
+                matches = matches_lookup[(idx1, idx2)]
+                src_p = np.float32([keypoints[idx1][m.queryIdx] for m in matches]).reshape(-1, 2)
+                dst_p = np.float32([keypoints[idx2][m.trainIdx] for m in matches]).reshape(-1, 2)
+            else:
+                matches = matches_lookup[(idx2, idx1)]
+                src_p = np.float32([keypoints[idx1][m.trainIdx] for m in matches]).reshape(-1, 2)
+                dst_p = np.float32([keypoints[idx2][m.queryIdx] for m in matches]).reshape(-1, 2)
 
-            # put everything in the queues
-            self.order_queue.put(order)
-            self.homography_queue.put(Hs)
-            self.direction_queue.put(inverted)
+            if dst_p.shape[0]>4:
+                Hs[i], _ = cv2.estimateAffine2D(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=5, confidence=0.995)
 
-            print("New parameters given")
+        w, h = self.camera_matrix[:2, -1]*2
+
+        middle_pixel = np.array([w/2, h/2, 1])
+        new_middle_pixel = Hs[0]@middle_pixel
+        diff_pos = new_middle_pixel[0]-middle_pixel[0]
+
+        if diff_pos<0:
+            Hs = np.concatenate((Hs[:1], Hs[1:][::-1]))
+            order = np.concatenate(([partial_order[0]], partial_order[1:][::-1]))
+            return Hs, order, True
             
-            if debug:
-                return keypoints, Hs, order, inverted, best_pairs, matches_info, confidences, images
+        return Hs, partial_order, False
 
+    def affineStitching(self, images, Ms1, Ms2, subset1, subset2, inverted, clip_x = 8000, clip_y = 2000):
+        
+        # Initial dimensions of the first image
+        h, w = images[0].shape[:2]
+
+        # Initial corners of the reference image
+        corners = np.array([[0, w-1 , w -1, 0],
+                              [0, 0, h-1 , h-1 ],
+                              [1, 1, 1, 1]], dtype=np.float32)
+
+        if inverted:
+            Ms2 = invert_affine_matrices(Ms2)
+        else:
+            Ms1 = invert_affine_matrices(Ms1)
+
+        # First, apply affine transformations for subset1 (left side)
+        warped_corners_1, M1_acc = apply_affine_matrices(Ms1, corners)
+
+        # Then, apply affine transformations for subset2 (right side)
+        warped_corners_2, M2_acc = apply_affine_matrices(Ms2, corners)
+
+        # Calculate the bounding box for the entire panorama
+        all_corners = np.concatenate((warped_corners_1, warped_corners_2), axis=1)
+
+        x_min, x_max = np.int32(all_corners[0, :].min()), np.int32(all_corners[0, :].max())
+        y_min, y_max = np.int32(all_corners[1, :].min()), np.int32(all_corners[1, :].max())
+
+        # print(x_min, x_max, y_min, y_max)
+
+        x_min, x_max = max(x_min, -clip_x), min(x_max, clip_x)
+        y_min, y_max = max(y_min, -clip_y), min(y_max, clip_y)
+
+        # print(x_min, x_max, y_min, y_max)
+
+        # Translation matrix for panorama placement
+        translation_matrix = np.array([[1, 0, -x_min],
+                                    [0, 1, -y_min]], dtype=np.float32)
+
+        panorama_size = (x_max - x_min, y_max - y_min)
+
+        # Warp the reference image and place it on the panorama canvas using cv2.warpAffine
+        panorama = cv2.warpAffine(images[subset2[0]], translation_matrix, panorama_size)
+        M1_acc[:,:2,-1]+=translation_matrix[:2,-1]
+        # M2_acc[:,:2,-1]+=translation_matrix[:2,-1]
+
+        # Warp and blend images from subset1 (left side), skipping the reference image
+        for i in range(M1_acc.shape[0]):
+            M_translate = M1_acc[i]
+
+            warped_img = cv2.warpAffine(images[subset1[i + 1]], M_translate, panorama_size)
+
+            mask = (warped_img > 0).astype(np.uint8)
+            panorama[mask > 0] = warped_img[mask > 0]
+
+        # Warp and blend images from subset2 (right side), skipping the reference image
+        # for i in range(M2_acc.shape[0]):
+        #     M_translate = M2_acc[i]
+
+        #     warped_img = cv2.warpAffine(images[subset2[i + 1]], M_translate, panorama_size)
+
+        #     mask = (warped_img > 0).astype(np.uint8)
+        #     panorama[mask > 0] = warped_img[mask > 0]
+
+        return panorama
+    
     def compose_with_ref(self, images, Hs1, Hs2, subset1, subset2, inverted, clip_x = 8000, clip_y = 2000):
         
         # Initial dimensions of the first image
@@ -566,12 +651,12 @@ class custom_stitcher_SP:
         x_min, x_max = np.int32(all_corners[0, :].min()), np.int32(all_corners[0, :].max())
         y_min, y_max = np.int32(all_corners[1, :].min()), np.int32(all_corners[1, :].max())
 
-        print(x_min, x_max, y_min, y_max)
+        # print(x_min, x_max, y_min, y_max)
 
         x_min, x_max =  max(x_min, -clip_x),  min(x_max, clip_x)
         y_min, y_max = max(y_min, -clip_y),  min(y_max, clip_y)
 
-        print(x_min, x_max, y_min, y_max)
+        # print(x_min, x_max, y_min, y_max)
 
         translation_matrix = np.array([[1, 0, -x_min],
                                     [0, 1, -y_min],
@@ -581,25 +666,114 @@ class custom_stitcher_SP:
 
         # Warp the reference image and place it on the panorama canvas
         panorama = cv2.warpPerspective(images[subset2[0]], translation_matrix, panorama_size)
+        ref_mask = (panorama > 0).astype(np.uint8)
 
         # Warp and blend images from subset1 (left side), skipping the reference image
         for i in range(Hs1.shape[0]):
             H_translate = np.dot(translation_matrix, H1_acc[i])
             
             warped_img = cv2.warpPerspective(images[subset1[i + 1]], H_translate, panorama_size)
+
             mask = (warped_img > 0).astype(np.uint8)
-            panorama[mask > 0] = warped_img[mask > 0]
+            panorama[(mask > 0) & (ref_mask == 0) ] = warped_img[(mask > 0) & (ref_mask == 0)]
 
         # Warp and blend images from subset2 (right side), skipping the reference image
         for i in range(Hs2.shape[0]):
             H_translate = np.dot(translation_matrix, H2_acc[i])
-            
             warped_img = cv2.warpPerspective(images[subset2[i + 1]], H_translate, panorama_size)
-            mask = (warped_img > 0).astype(np.uint8)
-            panorama[mask > 0] = warped_img[mask > 0]
 
-        return panorama
-    
+            mask = (warped_img > 0).astype(np.uint8)
+            panorama[(mask > 0) & (ref_mask == 0)] = warped_img[(mask > 0) & (ref_mask == 0)]
+
+        _, thresh = cv2.threshold(cv2.cvtColor(panorama, cv2.COLOR_RGB2GRAY), 1, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        x, y, w, h = cv2.boundingRect(contours[0])
+
+        return panorama[y:y+h, x:x+w]
+
+    def first_thread(self,batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
+                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug = False):
+        """""
+        This method read the images coming from the software. They have two shared memory files to store the images and the panorama.
+        """""
+        # global shared_images
+        processedImageSize = processedImageHeight*processedImageWidth*3
+        imageSize = imageWidth*imageHeight*3
+        batchMMF = mmap.mmap(-1, batchDataPosition + imageCount * imageSize, "BatchSharedMemory")
+        processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
+
+        while True:
+            images, images_bool = readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight)
+            
+            # droneImInd = np.arange(0, images_bool.shape[0])[images_bool]
+            # print(f"Index of the drone images to stitch: {droneImInd}")
+            with lock:
+                
+                self.shared_images = images
+                self.shared_images_bool = images_bool
+
+            if not self.panoram_queue.empty():
+                panorama = self.panoram_queue.get()
+                H, W, _ = panorama.shape
+                if H != processedImageHeight or W != processedImageWidth:
+                    
+                    panorama = cv2.resize(panorama, (processedImageWidth, processedImageHeight))
+                # if debug:
+                #     self.panoram_queue.put(panorama)
+                #     break
+                
+                write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
+                del panorama
+
+            time.sleep(0.05)
+            if debug:
+                break
+
+    def second_thread(self, front_image_index=0, debug= False):
+        """""
+        This method uses some of the above methods to extract the order and the homographies of the paired images.
+        Input:
+            - images: list of NDArrays.
+            - front_image_index: the index of the front image of the pilot
+        """""
+        # global shared_images
+        while True:
+            if self.shared_images is None:
+                    time.sleep(2.)
+                    continue
+            
+            with lock:
+                images = self.shared_images
+
+            t = time.time()
+            if self.warp_type == "cylindrical":
+                outputs, ratios, images = self.SP_inference_fast(images)
+            else:
+                outputs, ratios = self.SP_inference_fast(images)
+
+            keypoints, descriptors = self.keep_best_keypoints(outputs, ratios)
+
+            # keypoints, descriptors = self.ORB_extraction(images)
+            matches_info, confidences = self.compute_matches_and_confidences(descriptors, keypoints)
+            best_pairs = self.find_top_pairs(confidences)
+            partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
+            Hs, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order)
+            # Ms, order, inverted = self.compute_affines_and_order(keypoints, matches_info, partial_order)
+
+            # put everything in the queues
+            self.order_queue.put(order)
+            self.homography_queue.put(Hs)
+            # self.homography_queue.put(Ms)
+            self.direction_queue.put(inverted)
+
+            print(f"Time to compute the Parameters: {time.time()-t}")
+            time.sleep(2.5)
+            # print("New parameters given")
+            
+            if debug:
+                return keypoints, Hs, order, inverted, best_pairs, matches_info, confidences, images
+                # return keypoints, Ms, order, inverted, best_pairs, matches_info, confidences, images
+
     def third_thread(self, headANgle=100, num_pano_img=3, debug=False):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
@@ -611,9 +785,9 @@ class custom_stitcher_SP:
         """""
         # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
         # Take the order and the ref to compute the panorama
-        # global shared_images
 
         order, Hs, inverted = None, None, None
+
         while True:
             if not self.homography_queue.empty():
                 del order, Hs, inverted
@@ -625,24 +799,26 @@ class custom_stitcher_SP:
             elif order is None:
                 continue
             
-            with lock:
-                if self.shared_images is None:
-                    time.sleep(0.1)
+            if self.shared_images is None:
+                    time.sleep(2.)
                     continue
-                else:
-                    images = self.shared_images
+            
+            with lock:
+                images = self.shared_images
 
+            t = time.time()
             if self.warp_type == "cylindrical":
                 images = [self.cylindricalWarp(img) for img in images]
             
             
             subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headANgle)
             pano = self.compose_with_ref(images, Hs1, Hs2, subset1, subset2, inverted)
-            # pano2 = self.compose_with_ref_affine(images, M1, M2, subset1, subset2, inverted)
+            # pano = self.affineStitching(images, Hs1, Hs2, subset1, subset2, inverted)
             
             self.panoram_queue.put(pano)
 
-            print("Panorama Given")
+            print(f"Time to make the Panorama: {time.time()-t}")
+            # print("Panorama Given")
             if debug:
                 if inverted:
                     print("inverted")
@@ -724,14 +900,6 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
             processedMMF.seek(processedFlagPosition)
             processedMMF.write(struct.pack('i', 0))
             break
-    # time.sleep(0.01)
-
-def display_images(images):
-    for image in images:
-        cv2.imshow('Image', image)
-        if cv2.waitKey(500) & 0xFF == ord('q'):  # Display each image for 1.5 seconds
-            break
-    cv2.destroyAllWindows()
 
 def test_reading_writing():
     # Constants (must match the Unity script)
@@ -804,7 +972,6 @@ def test_stitcher():
     cv2.waitKey(10000)
     cv2.destroyAllWindows()
 
-
 def test_threading():
     # Path to the folder containing calibration images
     images_dir = 'With_calibrated_cam'
@@ -853,17 +1020,17 @@ def test_threading():
     while True:
         time.sleep(10)
 
-def test_one_image(front_image_index, angle):
+def test_one_image(front_image_index, angle, num_pano_img):
     batchFlagPosition = 0
     imageCount = 16
     batchDataPosition = 1+imageCount
-    imageWidth = 300
-    imageHeight = 300
+    imageWidth = 200
+    imageHeight = 200
 
     processedFlagPosition = 0
     processedDataPosition = 4
-    processedImageHeight = 240
-    processedImageWidth = 240
+    processedImageHeight = 300
+    processedImageWidth = 300
 
     f = 160
 
@@ -871,7 +1038,7 @@ def test_one_image(front_image_index, angle):
                         [0, f, imageHeight/2],
                         [0, 0, 1]])
 
-    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.0, device="cuda")
+    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device="cuda")
 
     stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
                     processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug=True)
@@ -884,20 +1051,21 @@ def test_one_image(front_image_index, angle):
     stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
                     processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug=True)
     # stitcher.image_queue.put(images)
-    stitcher.third_thread(headANgle=angle, debug = True)
+    stitcher.third_thread(headANgle=angle, num_pano_img= num_pano_img, debug = True)
     stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
                     processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug=True)
 
     panorama = stitcher.panoram_queue.get()
-    panorama_resized = cv2.resize(panorama, dsize=None, fx=0.5, fy=0.5)
+    panorama_resized = panorama#cv2.resize(panorama, dsize=None, fx=1, fy=1)
 
     # print(f"Original panorama shape{panorama.shape}")
     # print(f"Plot panorama of shape{panorama_resized.shape}")
 
-    cv2.imshow("panorama", panorama_resized)
-    cv2.waitKey(10000)
-    cv2.destroyAllWindows()
-    cv2.imwrite("result_3_images.png", panorama_resized)
+    # cv2.imshow("panorama", panorama_resized)
+    # cv2.waitKey(10000)
+    # cv2.destroyAllWindows()
+    panorama_resized = cv2.cvtColor(panorama_resized, cv2.COLOR_BGR2RGB)
+    cv2.imwrite("result_2_images_shift.png", panorama_resized)
 
 
 def main():
@@ -905,26 +1073,25 @@ def main():
     batchFlagPosition = 0
     imageCount = 16
     batchDataPosition = 1+imageCount
-    imageWidth = 240
-    imageHeight = 240
-    imageSize = imageWidth * imageHeight * 3  # RGB image size
+    imageWidth = 200
+    imageHeight = 200
 
     processedFlagPosition = 0
     processedDataPosition = 4
-    processedImageHeight = 240
-    processedImageWidth = 240
+    processedImageHeight = 300
+    processedImageWidth = 300
 
-    f = 1000
+    f = 160
 
     cam_mat = np.array([[f, 0, imageWidth/2], 
                         [0, f, imageHeight/2],
                         [0, 0, 1]])
 
-    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.9, score_threshold=0.1, device="cuda")
+    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device="cuda")
 
     # Start a thread for simulating the image feed
-    first_thread = threading.Thread(target=stitcher.first_thread, args=(batchFlagPosition, imageCount, batchDataPosition, imageSize, imageHeight, imageWidth,
-                    processedFlagPosition, processedDataPosition, processedImageHeight, processedImageWidth))
+    first_thread = threading.Thread(target=stitcher.first_thread, args=(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
+                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, False))
     first_thread.daemon = True
     first_thread.start()
 
@@ -932,15 +1099,18 @@ def main():
     sec_thread.daemon = True
     sec_thread.start()
 
-    third_thread = threading.Thread(target=stitcher.third_thread, args=(100, 3, False))
+    third_thread = threading.Thread(target=stitcher.third_thread, args=(0, 3, False))
     third_thread.daemon = True
     third_thread.start()
+
+    while True:
+        time.sleep(100)
     
 
 if __name__ == '__main__':
     
     # main function, the final result
-    # main()
+    main()
 
     # Test reading the images from shared memory and write an image in the panorama memory
     # test_reading_writing()
@@ -952,7 +1122,8 @@ if __name__ == '__main__':
     # test_threading()
 
     # Test one stitched camera
-    front_image_index = 0
-    angle = 344
-    
-    test_one_image(front_image_index, angle)
+    # front_image_index = 0
+    # angle = 0
+    # num_pano_img = 3
+
+    # test_one_image(front_image_index, angle, num_pano_img)
