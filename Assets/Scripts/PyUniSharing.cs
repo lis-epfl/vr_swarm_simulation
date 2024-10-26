@@ -12,7 +12,7 @@ public class PyUniSharing : MonoBehaviour
     private MemoryMappedViewAccessor batchAccessor, processedAccessor;
     private const int batchFlagPosition = 0;
     public const int imageCount = 16; 
-    public const int imageWidth = 300, imageHeight = 300;
+    public const int imageWidth = 200, imageHeight = 200;
     private const int imageSize = imageWidth * imageHeight * 3;
     private const int boolListSize = imageCount;
     private const int camerasToStitchPosition = 1;
@@ -21,7 +21,8 @@ public class PyUniSharing : MonoBehaviour
     
     private const int processedFlagPosition = 0;
     private const int processedDataPosition = 4;
-    private const int processedImageSize = 240 * 240 * 3;
+    public const int processedImageWidth = 300, processedImageHeight = 300;
+    private const int processedImageSize = processedImageWidth * processedImageHeight * 3;
     private const int totalProcessedSize = processedDataPosition + processedImageSize;
     public List<Camera> camerasToCapture;
     public List<bool> camerasToStitch;
@@ -31,8 +32,8 @@ public class PyUniSharing : MonoBehaviour
     private Texture2D image;
 
     // Timings
-    private float sendInterval = 0.03f;
-    private float readInterval = 0.03f;
+    private float sendInterval = 0.1f;
+    private float readInterval = 0.1f;
     private float nextSendTime, nextReceiveTime = 0f;
 
 
@@ -46,7 +47,6 @@ public class PyUniSharing : MonoBehaviour
     public bool resize_dimension = false;
 
     // Record time instance to debug
-
     private float lastWritingTime = 0.0f;
     private float lastReadingTime = 0.0f;
 
@@ -134,7 +134,7 @@ public class PyUniSharing : MonoBehaviour
             
             processedAccessor.Write(processedFlagPosition, 1);
 
-            Debug.Log($"Time taken from last reading: {Time.time-lastReadingTime} seconds");
+            // Debug.Log($"Time taken from last reading: {Time.time-lastReadingTime} seconds");
             lastReadingTime = Time.time;
 
             byte[] processedImageBytes;
@@ -145,7 +145,7 @@ public class PyUniSharing : MonoBehaviour
 
             SetPanoramaImage(processedImageBytes);
             
-            Debug.Log($"Time to read an image: {Time.time-lastReadingTime} seconds");
+            // Debug.Log($"Time to read an image: {Time.time-lastReadingTime} seconds");
             
 
             // Python and Unity can read now
@@ -164,7 +164,7 @@ public class PyUniSharing : MonoBehaviour
 
         camera.Render();
         image.ReadPixels(new Rect(0, 0, imageWidth, imageHeight), 0, 0);
-        image.Apply();
+        // image.Apply();
 
         // Convert Texture2D to byte array
         byte[] imageBytes = image.GetRawTextureData();
@@ -183,11 +183,11 @@ public class PyUniSharing : MonoBehaviour
         // Find all GameObjects in the scene with the tag "DroneBase"
         GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase"); // Use "DroneBase" tag
         
-        Debug.Log($"Drones found: {drones.Length}"); // Log number of drones found
+        // Debug.Log($"Drones found: {drones.Length}"); // Log number of drones found
         
         foreach (GameObject drone in drones)
         {
-            Debug.Log($"Checking drone: {drone.name}");
+            // Debug.Log($"Checking drone: {drone.name}");
             Camera camera = drone.transform.Find("FPV")?.GetComponent<Camera>();
             // AttitudeControl attitudeScript = drone.transform.Find(droneParent).GetComponent<AttitudeControl>();
             // bool estimate = attitudeScript.boundaryEstimate
@@ -195,15 +195,15 @@ public class PyUniSharing : MonoBehaviour
             if (camera != null)
             {
                 camerasToCapture.Add(camera);
-                Debug.Log($"Found camera: {camera.name} in {drone.name}");
+                // Debug.Log($"Found camera: {camera.name} in {drone.name}");
             }
-            else
-            {
-                Debug.LogWarning($"No camera found in {drone.name}");
-            }
+            // else
+            // {
+            //     Debug.LogWarning($"No camera found in {drone.name}");
+            // }
         }
 
-        Debug.Log($"Total cameras found: {camerasToCapture.Count}");
+        // Debug.Log($"Total cameras found: {camerasToCapture.Count}");
     }
 
     private void UpdateCameraToStitch()
@@ -234,7 +234,6 @@ public class PyUniSharing : MonoBehaviour
     byte[] ReceiveProcessedImage()
     {
         
-
         byte[] processedImageBytes = new byte[processedImageSize];
         processedAccessor.ReadArray(processedDataPosition, processedImageBytes, 0, processedImageBytes.Length);
         
@@ -302,7 +301,7 @@ public class PyUniSharing : MonoBehaviour
     {
         // Convert the byte array to Texture2D
         // Texture2D panoramaTexture = LoadTextureFromBytes(partPanorama);
-        Texture2D panoramaTexture = LoadRawRGBTexture(partPanorama, imageWidth, imageHeight);
+        Texture2D panoramaTexture = LoadRawRGBTexture(partPanorama);
 
         // Assign the texture to the material's main texture
         curvedScreenMaterial.mainTexture = panoramaTexture;
@@ -319,20 +318,20 @@ public class PyUniSharing : MonoBehaviour
         return texture;
     }
 
-    public Texture2D LoadRawRGBTexture(byte[] imageData, int width, int height)
+    public Texture2D LoadRawRGBTexture(byte[] imageData)
     {
         // Check that the byte array length matches the expected size
-        if (imageData.Length != width * height * 3)
+        if (imageData.Length != processedImageWidth * processedImageHeight * 3)
         {
-            Debug.LogError($"Raw image data size does not match expected size for {width}x{height} texture.");
+            Debug.LogError($"Raw image data size does not match expected size for {processedImageWidth}x{processedImageHeight} texture.");
             return null;
         }
 
         // Create a new Texture2D
-        Texture2D texture = new Texture2D(width, height, TextureFormat.RGB24, false);
+        Texture2D texture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
 
         // Set pixel data manually
-        Color32[] pixels = new Color32[width * height];
+        Color32[] pixels = new Color32[processedImageWidth * processedImageHeight];
 
         for (int i = 0; i < pixels.Length; i++)
         {
