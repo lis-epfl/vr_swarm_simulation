@@ -701,6 +701,7 @@ class custom_stitcher_SP:
         imageSize = imageWidth*imageHeight*3
         batchMMF = mmap.mmap(-1, batchDataPosition + imageCount * imageSize, "BatchSharedMemory")
         processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
+        first_loop = True
 
         while True:
             images, images_bool = readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight)
@@ -708,7 +709,6 @@ class custom_stitcher_SP:
             # droneImInd = np.arange(0, images_bool.shape[0])[images_bool]
             # print(f"Index of the drone images to stitch: {droneImInd}")
             with lock:
-                
                 self.shared_images = images
                 self.shared_images_bool = images_bool
 
@@ -716,8 +716,10 @@ class custom_stitcher_SP:
                 panorama = self.panoram_queue.get()
                 H, W, _ = panorama.shape
                 if H != processedImageHeight or W != processedImageWidth:
-                    
-                    panorama = cv2.resize(panorama, (processedImageWidth, processedImageHeight))
+                    try:
+                        panorama = cv2.resize(panorama, (processedImageWidth, processedImageHeight))
+                    except:
+                        continue
                 # if debug:
                 #     self.panoram_queue.put(panorama)
                 #     break
@@ -725,7 +727,13 @@ class custom_stitcher_SP:
                 write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
                 del panorama
 
+
             time.sleep(0.05)
+
+            if first_loop:
+                first_loop = False
+                time.sleep(1.)
+
             if debug:
                 break
 
@@ -739,7 +747,8 @@ class custom_stitcher_SP:
         # global shared_images
         while True:
             if self.shared_images is None:
-                    time.sleep(2.)
+                    print("Second thread sleep")
+                    time.sleep(0.4)
                     continue
             
             with lock:
@@ -804,11 +813,8 @@ class custom_stitcher_SP:
                 order = np.hstack((order, order, order))
                 Hs = np.concatenate((Hs, Hs, Hs))
             elif order is None:
+                time.sleep(0.4)
                 continue
-            
-            if self.shared_images is None:
-                    time.sleep(2.)
-                    continue
             
             with lock:
                 images = self.shared_images
@@ -1130,7 +1136,6 @@ def main():
 
     stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device="cuda")
 
-    # Start a thread for simulating the image feed
     first_thread = threading.Thread(target=stitcher.first_thread, args=(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
                     processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, False))
     first_thread.daemon = True
@@ -1143,6 +1148,8 @@ def main():
     third_thread = threading.Thread(target=stitcher.third_thread, args=(0, 3, False))
     third_thread.daemon = True
     third_thread.start()
+
+    print("Thread started")
 
     while True:
         time.sleep(100)
