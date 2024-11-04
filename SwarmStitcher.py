@@ -868,8 +868,7 @@ def readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, image
             batchMMF.write(struct.pack('B', 1))
 
             batchMMF.seek(1)
-            bb = batchMMF.read(imageCount)
-            boolean_list = [bool(b) for b in bb]
+            boolean_list = [bool(b) for b in batchMMF.read(imageCount)]
             boolean_array=np.array(boolean_list)
 
             for i in range(imageCount):
@@ -889,27 +888,38 @@ def readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, image
             batchMMF.write(struct.pack('B', 0))
 
             return images, boolean_array
-    
+
 def write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, image_data):
+    """
+    Write an image to shared memory with Unity.
+
+    Inputs:
+        - processedMMF: mmap object for the shared memory.
+        - processedFlagPosition: position of the flag in the memory
+        - processedDataPosition: position to start writing the image data.
+        - processedImageSize: expected size of the image data.
+        - image_data: numpy array of the image to write.
+    """
     while True:
-        # Read the flag to check if Unity has written new images
+        # Read the flag to check if Unity is ready for new data
         processedMMF.seek(processedFlagPosition)
         flag = struct.unpack('i', processedMMF.read(4))[0]
-        
+
         if flag == 0:  # Unity isn't writing new images
-            # Reset flag to 0, indicating we've read the images
+            # Set flag to 1, indicating we're writing
             processedMMF.seek(processedFlagPosition)
             processedMMF.write(struct.pack('i', 1))
-            
+
+            # Convert image to byte array and check size
             image_bytes = image_data.tobytes()
             if len(image_bytes) != processedImageSize:
                 raise ValueError(f"Image size mismatch: expected {processedImageSize}, got {len(image_bytes)}")
-            # Write image
+
+            # Write the image bytes to shared memory
             processedMMF.seek(processedDataPosition)
             processedMMF.write(image_bytes)
-            # Convert the byte array into a numpy array
 
-            # Reset flag to 0, indicating we've written the images
+            # Reset flag to 0, indicating we've written the image
             processedMMF.seek(processedFlagPosition)
             processedMMF.write(struct.pack('i', 0))
             break
