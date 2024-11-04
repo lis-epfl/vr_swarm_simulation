@@ -12,7 +12,7 @@ public class PyUniSharing : MonoBehaviour
     private MemoryMappedViewAccessor batchAccessor, processedAccessor;
     private const int batchFlagPosition = 0;
     public const int imageCount = 16; 
-    public const int imageWidth = 200, imageHeight = 200;
+    public const int imageWidth = 300, imageHeight = 300;
     private const int imageSize = imageWidth * imageHeight * 3;
     private const int boolListSize = imageCount;
     private const int camerasToStitchPosition = 1;
@@ -32,8 +32,8 @@ public class PyUniSharing : MonoBehaviour
     private Texture2D image;
 
     // Timings
-    private float sendInterval = 0.1f;
-    private float readInterval = 0.1f;
+    private float sendInterval = 0.05f;
+    private float readInterval = 0.05f;
     private float nextSendTime, nextReceiveTime = 0f;
 
 
@@ -49,6 +49,9 @@ public class PyUniSharing : MonoBehaviour
     // Record time instance to debug
     private float lastWritingTime = 0.0f;
     private float lastReadingTime = 0.0f;
+
+
+    private byte[] batchImageBuffer;
 
     // Start is called before the first frame update
     void Start()
@@ -70,6 +73,8 @@ public class PyUniSharing : MonoBehaviour
 
         reusableTexture = new RenderTexture(imageWidth, imageHeight, 24);
         image = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
+
+        batchImageBuffer = new byte[imageCount * imageSize];
 
         nextSendTime = Time.time;
 
@@ -119,10 +124,13 @@ public class PyUniSharing : MonoBehaviour
                     if (imageBytes != null)
                     {
                         // Write the captured image to shared memory
-                        batchAccessor.WriteArray(batchDataPosition + i * imageSize, imageBytes, 0, imageBytes.Length);
+                        // batchAccessor.WriteArray(batchDataPosition + i * imageSize, imageBytes, 0, imageBytes.Length);
+                        imageBytes.CopyTo(batchImageBuffer, i * imageSize);
                     }
                 }
             }
+
+            batchAccessor.WriteArray(1 + imageCount, batchImageBuffer, 0, batchImageBuffer.Length);
             // Python and Unity can read now
             batchAccessor.Write(batchFlagPosition, (byte)0);
 
@@ -163,8 +171,8 @@ public class PyUniSharing : MonoBehaviour
         RenderTexture.active = reusableTexture;
 
         camera.Render();
-        image.ReadPixels(new Rect(0, 0, imageWidth, imageHeight), 0, 0);
-        // image.Apply();
+        image.ReadPixels(new Rect(0, 0, imageWidth, imageHeight), 0, 0, false);
+        image.Apply(false);
 
         // Convert Texture2D to byte array
         byte[] imageBytes = image.GetRawTextureData();

@@ -686,8 +686,8 @@ class custom_stitcher_SP:
             panorama[(mask > 0) & (ref_mask == 0)] = warped_img[(mask > 0) & (ref_mask == 0)]
 
         _, thresh = cv2.threshold(cv2.cvtColor(panorama, cv2.COLOR_RGB2GRAY), 1, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        x, y, w, h = cv2.boundingRect(contours[0])
+        # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        x, y, w, h = cv2.boundingRect(thresh)#cv2.boundingRect(contours[0])
 
         return panorama[y:y+h, x:x+w]
 
@@ -751,14 +751,21 @@ class custom_stitcher_SP:
             else:
                 outputs, ratios = self.SP_inference_fast(images)
 
+            
             keypoints, descriptors = self.keep_best_keypoints(outputs, ratios)
-
+            t1 = time.time()
             # keypoints, descriptors = self.ORB_extraction(images)
             matches_info, confidences = self.compute_matches_and_confidences(descriptors, keypoints)
+            t2 = time.time()
             best_pairs = self.find_top_pairs(confidences)
             partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
             Hs, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order)
+            t3 = time.time()
             # Ms, order, inverted = self.compute_affines_and_order(keypoints, matches_info, partial_order)
+
+            print("time to extract keypoints:", t1-t)
+            print("time to compute matches:", t2-t1)
+            print("time to compute homographies:", t3-t2)
 
             # put everything in the queues
             self.order_queue.put(order)
@@ -766,8 +773,8 @@ class custom_stitcher_SP:
             # self.homography_queue.put(Ms)
             self.direction_queue.put(inverted)
 
-            print(f"Time to compute the Parameters: {time.time()-t}")
-            time.sleep(2.5)
+            # print(f"Time to compute the Parameters: {time.time()-t}")
+            # time.sleep(2.5)
             # print("New parameters given")
             
             if debug:
@@ -817,7 +824,7 @@ class custom_stitcher_SP:
             
             self.panoram_queue.put(pano)
 
-            print(f"Time to make the Panorama: {time.time()-t}")
+            # print(f"Time to make the Panorama: {time.time()-t}")
             # print("Panorama Given")
             if debug:
                 if inverted:
@@ -1024,8 +1031,8 @@ def test_one_image(front_image_index, angle, num_pano_img):
     batchFlagPosition = 0
     imageCount = 16
     batchDataPosition = 1+imageCount
-    imageWidth = 200
-    imageHeight = 200
+    imageWidth = 300
+    imageHeight = 300
 
     processedFlagPosition = 0
     processedDataPosition = 4
@@ -1038,7 +1045,7 @@ def test_one_image(front_image_index, angle, num_pano_img):
                         [0, f, imageHeight/2],
                         [0, 0, 1]])
 
-    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device="cuda")
+    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrica", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.0, device="cuda")
 
     stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
                     processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug=True)
@@ -1046,6 +1053,40 @@ def test_one_image(front_image_index, angle, num_pano_img):
     keypoints, Hs, order, inverted, best_pairs, matches_info, confidences, imgs =stitcher.second_thread(front_image_index=front_image_index, debug=True)
 
     print("order", order)
+
+    for i, image in enumerate(imgs):
+        if i ==2:
+            break
+        img = np.array(image)  # Convert PIL image to numpy array
+        cv2.imwrite(f"image{i}.png", cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        for keypoint in keypoints[i]:
+            keypoint_x, keypoint_y = int(keypoint[0]), int(keypoint[1])
+            color = tuple([255, 0, 0])
+            image = cv2.circle(img, (keypoint_x, keypoint_y), 5, color)
+
+        
+        cv2.imwrite(f"keypoints{i}.png", cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    
+    i=0
+    for match_info in matches_info:
+        if i ==1:
+            break
+
+        img1_idx = match_info['image1_index']
+        img2_idx = match_info['image2_index']
+        matches = match_info['matches']
+
+        img1 = np.array(imgs[img1_idx])
+        img2 = np.array(imgs[img2_idx])
+
+        # Convert keypoints to the format expected by cv2.drawMatches
+        keypoints1 = [cv2.KeyPoint(x.astype(float), y.astype(float), 1) for x, y in keypoints[img1_idx]]
+        keypoints2 = [cv2.KeyPoint(x.astype(float), y.astype(float), 1) for x, y in keypoints[img2_idx]]
+
+        img1_with_matches = cv2.drawMatches(img1, keypoints1, img2, keypoints2, matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        cv2.imwrite("matches.png", cv2.cvtColor(img1_with_matches, cv2.COLOR_BGR2RGB))
+
+        i+=1
         
 
     stitcher.first_thread(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
@@ -1073,8 +1114,8 @@ def main():
     batchFlagPosition = 0
     imageCount = 16
     batchDataPosition = 1+imageCount
-    imageWidth = 200
-    imageHeight = 200
+    imageWidth = 300
+    imageHeight = 300
 
     processedFlagPosition = 0
     processedDataPosition = 4
