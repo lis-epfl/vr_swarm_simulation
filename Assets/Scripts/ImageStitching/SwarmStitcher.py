@@ -658,11 +658,83 @@ class custom_stitcher_SP:
 
         # print(x_min, x_max, y_min, y_max)
 
-        translation_matrix = np.array([[1, 0, -x_min],
-                                    [0, 1, -y_min],
+        # translation_matrix = np.array([[1, 0, -x_min],
+        #                             [0, 1, -y_min],
+        #                             [0, 0, 1]], dtype=np.float32)
+
+        panorama_width = x_max - x_min
+        panorama_height = y_max - y_min
+
+        center_x_offset = panorama_width // 2 - w // 2
+        center_y_offset = panorama_height // 2 - h // 2
+
+    # Translation matrix to center the reference image
+        translation_matrix = np.array([[1, 0, center_x_offset],
+                                    [0, 1, center_y_offset],
                                     [0, 0, 1]], dtype=np.float32)
 
-        panorama_size = (x_max - x_min, y_max - y_min)
+        panorama_size = (panorama_width, panorama_height)
+
+        # Warp the reference image and place it on the panorama canvas
+        panorama = cv2.warpPerspective(images[subset2[0]], translation_matrix, panorama_size)
+        ref_mask = (panorama > 0).astype(np.uint8)
+
+        # Warp and blend images from subset1 (left side), skipping the reference image
+        for i in range(Hs1.shape[0]):
+            H_translate = np.dot(translation_matrix, H1_acc[i])
+            
+            print(len(images), i, subset1[i + 1])
+            warped_img = cv2.warpPerspective(images[subset1[i + 1]], H_translate, panorama_size)
+
+            mask = (warped_img > 0).astype(np.uint8)
+            panorama[(mask > 0) & (ref_mask == 0) ] = warped_img[(mask > 0) & (ref_mask == 0)]
+
+        # Warp and blend images from subset2 (right side), skipping the reference image
+        for i in range(Hs2.shape[0]):
+            print(len(images), i, subset1[i + 1])
+            H_translate = np.dot(translation_matrix, H2_acc[i])
+            warped_img = cv2.warpPerspective(images[subset2[i + 1]], H_translate, panorama_size)
+
+            mask = (warped_img > 0).astype(np.uint8)
+            panorama[(mask > 0) & (ref_mask == 0)] = warped_img[(mask > 0) & (ref_mask == 0)]
+
+        # _, thresh = cv2.threshold(cv2.cvtColor(panorama, cv2.COLOR_RGB2GRAY), 1, 255, cv2.THRESH_BINARY)
+        # # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # x, y, w, h = cv2.boundingRect(thresh)#cv2.boundingRect(contours[0])
+
+        return panorama#[y:y+h, x:x+w]
+    
+    def compose_with_defined_size(self, images, Hs1, Hs2, subset1, subset2, inverted,  panoWidth=500, panoHeight=400):
+        
+        # Initial dimensions of the first image
+        h, w = images[0].shape[:2]
+
+        # Initial corners of the reference image
+        # corners = np.array([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]], dtype=np.float32).reshape(-1, 1, 2)
+        corners = np.array([[0, w-1 , w -1, 0],
+                              [0, 0, h-1 , h-1 ],
+                              [1, 1, 1, 1]], dtype=np.float32)
+
+        if inverted:
+            Hs2 = invert_matrices(Hs2)
+        else:
+            Hs1 = invert_matrices(Hs1)
+
+        # First, apply homographies for subset1 (left side)
+        _, H1_acc = apply_homographies(Hs1, corners)
+        
+        # Then, apply homographies for subset2 (right side)
+        _, H2_acc = apply_homographies(Hs2, corners)
+
+        center_x_offset = panoWidth // 2 - w // 2
+        center_y_offset = panoHeight // 2 - h // 2
+
+    # Translation matrix to center the reference image
+        translation_matrix = np.array([[1, 0, center_x_offset],
+                                    [0, 1, center_y_offset],
+                                    [0, 0, 1]], dtype=np.float32)
+
+        panorama_size = (int(panoWidth), int(panoHeight))
 
         # Warp the reference image and place it on the panorama canvas
         panorama = cv2.warpPerspective(images[subset2[0]], translation_matrix, panorama_size)
@@ -685,11 +757,11 @@ class custom_stitcher_SP:
             mask = (warped_img > 0).astype(np.uint8)
             panorama[(mask > 0) & (ref_mask == 0)] = warped_img[(mask > 0) & (ref_mask == 0)]
 
-        _, thresh = cv2.threshold(cv2.cvtColor(panorama, cv2.COLOR_RGB2GRAY), 1, 255, cv2.THRESH_BINARY)
-        # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        x, y, w, h = cv2.boundingRect(thresh)#cv2.boundingRect(contours[0])
+        # _, thresh = cv2.threshold(cv2.cvtColor(panorama, cv2.COLOR_RGB2GRAY), 1, 255, cv2.THRESH_BINARY)
+        # # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # x, y, w, h = cv2.boundingRect(thresh)#cv2.boundingRect(contours[0])
 
-        return panorama[y:y+h, x:x+w]
+        return panorama#[y:y+h, x:x+w]
 
     def first_thread(self,batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
                     processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug = False):
@@ -783,14 +855,14 @@ class custom_stitcher_SP:
             self.direction_queue.put(inverted)
 
             # print(f"Time to compute the Parameters: {time.time()-t}")
-            # time.sleep(2.5)
+            time.sleep(0.5)
             # print("New parameters given")
             
             if debug:
                 return keypoints, Hs, order, inverted, best_pairs, matches_info, confidences, images
                 # return keypoints, Ms, order, inverted, best_pairs, matches_info, confidences, images
 
-    def third_thread(self, headANgle=100, num_pano_img=3, debug=False):
+    def third_thread(self, headANgle=100, num_pano_img=3, panoWidth=600, panoHeight=400, debug=False):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
         of the pilots head and the desired number of images in the panorama.
@@ -825,7 +897,8 @@ class custom_stitcher_SP:
             
             
             subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headANgle)
-            pano = self.compose_with_ref(images, Hs1, Hs2, subset1, subset2, inverted)
+            # pano = self.compose_with_ref(images, Hs1, Hs2, subset1, subset2, inverted)
+            pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=panoWidth, panoHeight=panoHeight)
             # pano = self.affineStitching(images, Hs1, Hs2, subset1, subset2, inverted)
             
             self.panoram_queue.put(pano)
@@ -1135,8 +1208,8 @@ def main():
 
     processedFlagPosition = 0
     processedDataPosition = 4
-    processedImageHeight = 300
-    processedImageWidth = 300
+    processedImageWidth = 600
+    processedImageHeight = 400
 
     f = 160
 
@@ -1155,7 +1228,7 @@ def main():
     sec_thread.daemon = True
     sec_thread.start()
 
-    third_thread = threading.Thread(target=stitcher.third_thread, args=(0, 3, False))
+    third_thread = threading.Thread(target=stitcher.third_thread, args=(0, 3, processedImageWidth, processedImageHeight, False))
     third_thread.daemon = True
     third_thread.start()
 
