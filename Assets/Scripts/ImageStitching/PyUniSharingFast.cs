@@ -26,7 +26,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     private const int processedFlagPosition = 0;
     private const int processedDataPosition = 4;
-    public const int processedImageWidth = 300, processedImageHeight = 300;
+    public const int processedImageWidth = 600, processedImageHeight = 400;
     private const int processedImageSize = processedImageWidth * processedImageHeight * 3;
     private const int totalProcessedSize = processedDataPosition + processedImageSize;
 
