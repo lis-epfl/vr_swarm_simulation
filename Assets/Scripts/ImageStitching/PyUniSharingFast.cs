@@ -5,30 +5,44 @@ using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PyUniSharingFast : MonoBehaviour
-{
-    // WinAPI memory-mapped file parameters
-    private const string BatchMapName = "BatchSharedMemory";
-    private const string ProcessedMapName = "ProcessedImageSharedMemory";
+{   
+    [SerializeField]
+    private string batchMapName = "BatchSharedMemory";
+
+    [SerializeField]
+    private string processedMapName = "ProcessedImageSharedMemory";
+
+    [SerializeField]
+    private int batchImageWidth = 300;
+
+    [SerializeField]
+    private int batchImageHeight = 300;
+
+    [SerializeField]
+    private int processedImageWidth = 600;
+
+    [SerializeField]
+    private int processedImageHeight = 400;
+
+    [SerializeField]
+    private float sendInterval = 0.05f;
+
+    [SerializeField]
+    private float readInterval = 0.05f;
+
+    private int batchImageCount = 2;
+    private int batchImageSize;
+    private int boolListSize;
+    private int batchDataPosition;
+    private int totalBatchSize;
+
+    private int processedImageSize;
+    private int totalProcessedSize;
 
     private IntPtr batchFileMap;
     private IntPtr batchPtr;
     private IntPtr processedFileMap;
     private IntPtr processedPtr;
-
-    private const int batchFlagPosition = 0;
-    public const int imageCount = 16;
-    public const int imageWidth = 300, imageHeight = 300;
-    private const int imageSize = imageWidth * imageHeight * 3;
-    private const int boolListSize = imageCount;
-    private const int camerasToStitchPosition = 1;
-    private const int batchDataPosition = camerasToStitchPosition + boolListSize;
-    private const int totalBatchSize = batchDataPosition + imageCount * imageSize;
-
-    private const int processedFlagPosition = 0;
-    private const int processedDataPosition = 4;
-    public const int processedImageWidth = 600, processedImageHeight = 400;
-    private const int processedImageSize = processedImageWidth * processedImageHeight * 3;
-    private const int totalProcessedSize = processedDataPosition + processedImageSize;
 
     public List<Camera> camerasToCapture;
     public List<bool> camerasToStitch;
@@ -36,10 +50,8 @@ public class PyUniSharingFast : MonoBehaviour
     private RenderTexture reusableTexture;
     private Texture2D image;
     private byte[] batchImageBuffer;
-
-    private float sendInterval = 0.05f;
-    private float readInterval = 0.05f;
     private float nextSendTime, nextReceiveTime = 0f;
+    private Color32[] pixels;
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern IntPtr CreateFileMapping(IntPtr hFile, IntPtr lpFileMappingAttributes, uint flProtect, uint dwMaximumSizeHigh, uint dwMaximumSizeLow, string lpName);
@@ -53,8 +65,15 @@ public class PyUniSharingFast : MonoBehaviour
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
+    // Constant values
+
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
+    
+    private const int FlagPosition = 0;
+    private const int camerasToStitchPosition = 1;
+    private const int processedDataPosition = 4;
+
 
     // Parameters for screen in front of the pilot
     public float radius = 5f;
@@ -62,58 +81,54 @@ public class PyUniSharingFast : MonoBehaviour
     public int segments = 20;
     public float height = 3f;
     private Material curvedScreenMaterial;
-    public Texture2D panoTexture;
+    private Texture2D panoTexture;
     public bool resize_dimension = false;
+
+    // Other timing values to check the number of camera in the batch
+    private float cameraUpdateInterval = 5f; // Time interval to update cameras
+    private float nextCameraUpdateTime = 0f; // Next time to update cameras
 
     void Start()
     {
-        // Create batch and processed memory-mapped files
-        batchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, totalBatchSize, BatchMapName);
-        processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, totalProcessedSize, ProcessedMapName);
-
-        if (batchFileMap == IntPtr.Zero || processedFileMap == IntPtr.Zero)
-        {
-            Debug.LogError("Unable to create memory-mapped files.");
-            return;
-        }
-
-        batchPtr = MapViewOfFile(batchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalBatchSize);
-        processedPtr = MapViewOfFile(processedFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalProcessedSize);
-
-        if (batchPtr == IntPtr.Zero || processedPtr == IntPtr.Zero)
-        {
-            Debug.LogError("Unable to map view of file.");
-            CloseHandle(batchFileMap);
-            CloseHandle(processedFileMap);
-            return;
-        }
+        CalculateMemorySizes();
+        CreateMemoryMaps();
 
         FindCameras();
         GenerateCurvedScreen();
         curvedScreenMaterial = GetComponent<MeshRenderer>().material;
 
-        reusableTexture = new RenderTexture(imageWidth, imageHeight, 24);
-        image = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
-        batchImageBuffer = new byte[imageCount * imageSize];
+        reusableTexture = new RenderTexture(batchImageWidth, batchImageHeight, 24);
+        image = new Texture2D(batchImageWidth, batchImageHeight, TextureFormat.RGB24, false);
+        batchImageBuffer = new byte[batchImageCount * batchImageSize];
+        panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
+        pixels = new Color32[processedImageWidth * processedImageHeight];
         nextSendTime = Time.time;
     }
 
     void Update()
     {
-        UpdateCameraToStitch();
+
+        if (Time.time >= nextCameraUpdateTime)
+        {
+            UpdateCameras();
+            nextCameraUpdateTime = Time.time + cameraUpdateInterval; // Schedule the next update
+        }
 
         if (resize_dimension)
         {
             GenerateCurvedScreen();
-        }
+        } 
 
         if (camerasToCapture.Count == 0)
         {
             FindCameras();
+            return;
         }
-        else if (Time.time >= nextSendTime && Marshal.ReadByte(batchPtr, batchFlagPosition) == 0)
+       
+
+        else if (Time.time >= nextSendTime && Marshal.ReadByte(batchPtr, FlagPosition) == 0)
         {
-            Marshal.WriteByte(batchPtr, batchFlagPosition, 1);
+            Marshal.WriteByte(batchPtr, FlagPosition, 1);
 
             for (int i = 0; i < boolListSize; i++)
             {
@@ -121,29 +136,29 @@ public class PyUniSharingFast : MonoBehaviour
                 Marshal.WriteByte(batchPtr, camerasToStitchPosition + i, value);
             }
 
-            for (int i = 0; i < camerasToCapture.Count && i < imageCount; i++)
+            for (int i = 0; i < camerasToCapture.Count && i < batchImageCount; i++)
             {
                 if (i < camerasToStitch.Count && camerasToStitch[i])
                 {
                     byte[] imageBytes = CaptureCameraImage(camerasToCapture[i]);
                     if (imageBytes != null)
                     {
-                        Array.Copy(imageBytes, 0, batchImageBuffer, i * imageSize, imageBytes.Length);
+                        Array.Copy(imageBytes, 0, batchImageBuffer, i * batchImageSize, imageBytes.Length);
                     }
                 }
             }
 
             Marshal.Copy(batchImageBuffer, 0, IntPtr.Add(batchPtr, batchDataPosition), batchImageBuffer.Length);
-            Marshal.WriteByte(batchPtr, batchFlagPosition, 0);
+            Marshal.WriteByte(batchPtr, FlagPosition, 0);
             nextSendTime += sendInterval;
         }
 
-        if (Time.time >= nextReceiveTime && Marshal.ReadInt32(processedPtr, processedFlagPosition) == 0)
+        if (Time.time >= nextReceiveTime && Marshal.ReadInt32(processedPtr, FlagPosition) == 0)
         {
-            Marshal.WriteInt32(processedPtr, processedFlagPosition, 1);
+            Marshal.WriteInt32(processedPtr, FlagPosition, 1);
 
             byte[] processedImageBytes = ReceiveProcessedImage();
-            Marshal.WriteInt32(processedPtr, processedFlagPosition, 0);
+            Marshal.WriteInt32(processedPtr, FlagPosition, 0);
             SetPanoramaImage(processedImageBytes);
 
             nextReceiveTime += readInterval;
@@ -157,7 +172,7 @@ public class PyUniSharingFast : MonoBehaviour
         RenderTexture.active = reusableTexture;
 
         camera.Render();
-        image.ReadPixels(new Rect(0, 0, imageWidth, imageHeight), 0, 0, false);
+        image.ReadPixels(new Rect(0, 0, batchImageWidth, batchImageHeight), 0, 0, false);
         image.Apply(false);
 
         byte[] imageBytes = image.GetRawTextureData();
@@ -172,14 +187,6 @@ public class PyUniSharingFast : MonoBehaviour
         byte[] processedImageBytes = new byte[processedImageSize];
         Marshal.Copy(IntPtr.Add(processedPtr, processedDataPosition), processedImageBytes, 0, processedImageBytes.Length);
         return processedImageBytes;
-    }
-
-    void OnDestroy()
-    {
-        UnmapViewOfFile(batchPtr);
-        UnmapViewOfFile(processedPtr);
-        CloseHandle(batchFileMap);
-        CloseHandle(processedFileMap);
     }
 
     private void GenerateCurvedScreen()
@@ -226,21 +233,15 @@ public class PyUniSharingFast : MonoBehaviour
 
     public void SetPanoramaImage(byte[] partPanorama)
     {
-        Texture2D panoramaTexture = LoadRawRGBTexture(partPanorama);
-        curvedScreenMaterial.mainTexture = panoramaTexture;
-        panoTexture = panoramaTexture;
+        // panoTexture = LoadRawRGBTexture(partPanorama);
+        LoadRawRGBTexture(partPanorama);
+        curvedScreenMaterial.mainTexture = panoTexture;
     }
 
-    public Texture2D LoadRawRGBTexture(byte[] imageData)
+    public void LoadRawRGBTexture(byte[] imageData)
     {
-        if (imageData.Length != processedImageWidth * processedImageHeight * 3)
-        {
-            Debug.LogError($"Raw image data size does not match expected size for {processedImageWidth}x{processedImageHeight} texture.");
-            return null;
-        }
-
-        Texture2D texture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
-        Color32[] pixels = new Color32[processedImageWidth * processedImageHeight];
+        // panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
+        // Color32[] pixels = new Color32[processedImageWidth * processedImageHeight];
 
         for (int i = 0; i < pixels.Length; i++)
         {
@@ -248,9 +249,9 @@ public class PyUniSharingFast : MonoBehaviour
             pixels[i] = new Color32(imageData[byteIndex], imageData[byteIndex + 1], imageData[byteIndex + 2], 255);
         }
 
-        texture.SetPixels32(pixels);
-        texture.Apply();
-        return texture;
+        panoTexture.SetPixels32(pixels);
+        panoTexture.Apply();
+        // return panoTexture;
     }
 
     private void FindCameras()
@@ -306,5 +307,134 @@ public class PyUniSharingFast : MonoBehaviour
         }
 
         // Debug.Log($"Total estimate found: {camerasToStitch.Count}");
+    }
+
+    private void CalculateMemorySizes()
+    {
+        // Calculate memory sizes based on configurable parameters
+        batchImageSize = batchImageWidth * batchImageHeight * 3;
+        boolListSize = batchImageCount;
+        batchDataPosition = boolListSize + camerasToStitchPosition;
+        totalBatchSize = batchDataPosition + batchImageCount * batchImageSize;
+
+        processedImageSize = processedImageWidth * processedImageHeight * 3;
+        totalProcessedSize = processedDataPosition + processedImageSize; 
+    }
+
+    private void CreateMemoryMaps()
+    {
+        // Destroy any existing memory maps before recreating
+        DestroyMemoryMaps();
+
+        // Create memory-mapped files
+        batchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalBatchSize , batchMapName);
+        processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalProcessedSize, processedMapName);
+
+        if (batchFileMap == IntPtr.Zero || processedFileMap == IntPtr.Zero)
+        {
+            Debug.LogError("Unable to create memory-mapped files.");
+            return;
+        }
+
+        batchPtr = MapViewOfFile(batchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalBatchSize);
+        processedPtr = MapViewOfFile(processedFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalProcessedSize);
+
+        if (batchPtr == IntPtr.Zero || processedPtr == IntPtr.Zero)
+        {
+            Debug.LogError("Unable to map view of file.");
+            DestroyMemoryMaps();
+        }
+    }
+
+    private void DestroyMemoryMaps()
+    {
+        if (batchPtr != IntPtr.Zero)
+        {
+            UnmapViewOfFile(batchPtr);
+            batchPtr = IntPtr.Zero;
+        }
+        if (processedPtr != IntPtr.Zero)
+        {
+            UnmapViewOfFile(processedPtr);
+            processedPtr = IntPtr.Zero;
+        }
+        if (batchFileMap != IntPtr.Zero)
+        {
+            CloseHandle(batchFileMap);
+            batchFileMap = IntPtr.Zero;
+        }
+        if (processedFileMap != IntPtr.Zero)
+        {
+            CloseHandle(processedFileMap);
+            processedFileMap = IntPtr.Zero;
+        }
+    }
+
+    private void OnValidate()
+    {
+        // Recalculate memory sizes
+        CalculateMemorySizes();
+
+        // Recreate memory maps to reflect changes
+        CreateMemoryMaps();
+
+        // Update reusable resources
+        reusableTexture = new RenderTexture(batchImageWidth, batchImageHeight, 24);
+        image = new Texture2D(batchImageWidth, batchImageHeight, TextureFormat.RGB24, false);
+        batchImageBuffer = new byte[batchImageCount * batchImageSize];
+        boolListSize = batchImageCount;
+
+        panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
+        pixels = new Color32[processedImageWidth * processedImageHeight];
+
+        Debug.Log("Parameters updated: Memory sizes and resources recalculated.");
+    }
+
+    private void ValidateTextures()
+    {
+        if (reusableTexture == null || reusableTexture.width != batchImageWidth || reusableTexture.height != batchImageHeight)
+        {
+            reusableTexture?.Release();
+            reusableTexture = new RenderTexture(batchImageWidth, batchImageHeight, 24);
+        }
+
+        if (image == null || image.width != batchImageWidth || image.height != batchImageHeight)
+        {
+            Destroy(image);
+            image = new Texture2D(batchImageWidth, batchImageHeight, TextureFormat.RGB24, false);
+        }
+    }
+
+    private void UpdateCameras()
+    {
+        FindCameras();
+
+        int newBatchImageCount = camerasToCapture.Count;
+        if (newBatchImageCount != batchImageCount)
+        {
+            batchImageCount = newBatchImageCount;
+
+            int previousTotalBatchSize = totalBatchSize;
+            CalculateMemorySizes();
+
+            if (totalBatchSize != previousTotalBatchSize)
+            {
+                CreateMemoryMaps();
+            }
+
+            batchImageBuffer = new byte[batchImageCount * batchImageSize];
+            UpdateCameraToStitch();
+            ValidateTextures(); // Ensure textures are updated
+            Debug.Log($"Updated cameras. Found {batchImageCount} cameras.");
+        }
+    }
+
+    void OnDestroy()
+    {
+        UnmapViewOfFile(batchPtr);
+        UnmapViewOfFile(processedPtr);
+        CloseHandle(batchFileMap);
+        CloseHandle(processedFileMap);
+        DestroyMemoryMaps();
     }
 }
