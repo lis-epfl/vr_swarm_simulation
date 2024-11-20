@@ -8,12 +8,6 @@ using UnityEngine;
 public class PyUniSharingFast : MonoBehaviour
 {   
     [SerializeField]
-    private string batchMapName = "BatchSharedMemory";
-
-    [SerializeField]
-    private string processedMapName = "ProcessedImageSharedMemory";
-
-    [SerializeField]
     private int batchImageWidth = 300;
 
     [SerializeField]
@@ -37,22 +31,27 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField]
     private bool cylindrical = false;
 
-    [SerializeField]
-    private float headAngle = 0f;
-
+    private string batchMapName = "BatchSharedMemory";
     private int batchImageCount = 0;
     private int batchImageSize = 0;
     private int boolListSize = 0;
     private int batchDataPosition = 0;
     private int totalBatchSize = 0;
 
+    private string processedMapName = "ProcessedImageSharedMemory";
     private int processedImageSize = 0;
     private int totalProcessedSize = 0;
+
+    private string metadataMapName = "MetadataSharedMemory";
+    private int metadataSize = 20 + 64 + 1; // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
 
     private IntPtr batchFileMap;
     private IntPtr batchPtr;
     private IntPtr processedFileMap;
     private IntPtr processedPtr;
+
+    private IntPtr metadataFileMap;
+    private IntPtr metadataPtr;
 
     public List<Camera> camerasToCapture;
     public List<bool> camerasToStitch;
@@ -79,13 +78,12 @@ public class PyUniSharingFast : MonoBehaviour
     private static extern IntPtr OpenFileMapping(uint dwDesiredAccess, bool bInheritHandle, string lpName);
 
     // Constant values
-
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
     private const int FlagPosition = 0;
-    private const int metadataPosition= 1; // Position in memory for metadata
-    // 1 byte flag + 12 bytes for ints (3x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
-    private const int camerasToStitchPosition = metadataPosition + 12 + 64 + 1 + 4;
+    private const int camerasToStitchPosition = 1;
+    // private const int angelHeadPosition = boolListSize+camerasToStitchPosition;//+4
+    private const int numFloatByte = 4;
     private const int processedDataPosition = 4;
 
     public enum stitcherType
@@ -94,6 +92,7 @@ public class PyUniSharingFast : MonoBehaviour
         UDIS,
         NIS
     }
+    private bool hasStarted = false;
 
 
     // Parameters for screen in front of the pilot
@@ -111,7 +110,11 @@ public class PyUniSharingFast : MonoBehaviour
 
     void Start()
     {
-        
+        hasStarted = true;
+
+        metadataFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)metadataSize, metadataMapName);
+        metadataPtr = MapViewOfFile(metadataFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
+
         CalculateMemorySizes();
         DestroyMemoryMaps();
         CreateMemoryMaps();
@@ -131,6 +134,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     void Update()
     {
+
         if (Time.time >= nextCameraUpdateTime)
         {
             UpdateCameras();
@@ -157,6 +161,11 @@ public class PyUniSharingFast : MonoBehaviour
                 byte value = (byte)(i < camerasToStitch.Count && camerasToStitch[i] ? 1 : 0);
                 Marshal.WriteByte(batchPtr, camerasToStitchPosition + i, value);
             }
+
+            float headAngle = TakeHeadsetAngle();
+            // Write float
+            byte[] floatBytes = BitConverter.GetBytes(headAngle);
+            Marshal.Copy(floatBytes, 0, IntPtr.Add(batchPtr, boolListSize+camerasToStitchPosition), floatBytes.Length);
 
             for (int i = 0; i < camerasToCapture.Count && i < batchImageCount; i++)
             {
@@ -185,6 +194,13 @@ public class PyUniSharingFast : MonoBehaviour
 
             nextReceiveTime += readInterval;
         }
+    }
+
+    private float TakeHeadsetAngle()
+    {
+        float headAngle = 0f;
+
+        return headAngle;
     }
 
     private byte[] CaptureCameraImage(Camera camera)
@@ -336,7 +352,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Calculate memory sizes based on configurable parameters
         batchImageSize = batchImageWidth * batchImageHeight * 3;
         boolListSize = batchImageCount;
-        batchDataPosition = boolListSize + camerasToStitchPosition;
+        batchDataPosition = boolListSize + camerasToStitchPosition + numFloatByte;
         totalBatchSize = batchDataPosition + batchImageCount * batchImageSize;
 
         processedImageSize = processedImageWidth * processedImageHeight * 3;
@@ -347,7 +363,7 @@ public class PyUniSharingFast : MonoBehaviour
     private void CreateMemoryMaps()
     {
         // Destroy any existing memory maps before recreating
-        DestroyMemoryMaps();
+        // DestroyMemoryMaps();
 
         Debug.Log($"Calculated totalBatchSize: {totalBatchSize}, totalProcessedSize: {totalProcessedSize}");
         if (totalBatchSize <= 82 || totalProcessedSize <= 5) 
@@ -355,6 +371,8 @@ public class PyUniSharingFast : MonoBehaviour
             Debug.LogWarning("Invalid memory size calculation.");
             return;
         }
+
+        DestroyMemoryMaps();
 
         // CheckExistingMapping(batchMapName);
         // CheckExistingMapping(processedMapName);
@@ -364,8 +382,9 @@ public class PyUniSharingFast : MonoBehaviour
         // Create memory-mapped files in RAM with new IntPtr(-1) with appropriate name
         batchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalBatchSize , batchMapName);
         processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalProcessedSize, processedMapName);
+        
 
-        if (batchFileMap == IntPtr.Zero || processedFileMap == IntPtr.Zero)
+        if (batchFileMap == IntPtr.Zero || processedFileMap == IntPtr.Zero|| metadataFileMap == IntPtr.Zero)
         {
             Debug.LogWarning("Unable to create memory-mapped files.");
             return;
@@ -381,7 +400,7 @@ public class PyUniSharingFast : MonoBehaviour
             Debug.LogWarning($"Failed to map view of file. Error Code: {errorCode}");
         }
 
-        if (batchPtr == IntPtr.Zero || processedPtr == IntPtr.Zero)
+        if (batchPtr == IntPtr.Zero || processedPtr == IntPtr.Zero|| metadataPtr == IntPtr.Zero)
         {
             Debug.LogWarning($"Unable to map view of file. Total batch Size: {totalBatchSize}, Total processed Size: {totalProcessedSize}");
             DestroyMemoryMaps();
@@ -431,21 +450,22 @@ public class PyUniSharingFast : MonoBehaviour
 
     private void OnValidate()
     {
-        // Recalculate memory sizes
-        CalculateMemorySizes();
-        DestroyMemoryMaps();
-        // Recreate memory maps to reflect changes
-        CreateMemoryMaps();
+        if(hasStarted)
+        {
+            DestroyMemoryMaps();
+            CalculateMemorySizes();
+            CreateMemoryMaps();
 
-        WriteMetadata();
-        // Update reusable resources
-        reusableTexture = new RenderTexture(batchImageWidth, batchImageHeight, 24);
-        image = new Texture2D(batchImageWidth, batchImageHeight, TextureFormat.RGB24, false);
-        batchImageBuffer = new byte[batchImageCount * batchImageSize];
-        boolListSize = batchImageCount;
+            WriteMetadata();
+            // Update reusable resources
+            reusableTexture = new RenderTexture(batchImageWidth, batchImageHeight, 24);
+            image = new Texture2D(batchImageWidth, batchImageHeight, TextureFormat.RGB24, false);
+            batchImageBuffer = new byte[batchImageCount * batchImageSize];
+            boolListSize = batchImageCount;
 
-        panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
-        pixels = new Color32[processedImageWidth * processedImageHeight];
+            panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
+            pixels = new Color32[processedImageWidth * processedImageHeight];
+        }
     }
 
     private void ValidateTextures()
@@ -491,32 +511,39 @@ public class PyUniSharingFast : MonoBehaviour
 
     private void WriteMetadata()
     {
-        if (batchPtr == IntPtr.Zero) return;
+        if (metadataPtr == IntPtr.Zero)
+        {
+            Debug.LogError($"Problem with metadata memory.");
+            return;
+        }
 
         // Write metadata to the shared memory
-        int offset = metadataPosition;
+        int offset = 0;
 
         // Write integers
-        Marshal.WriteInt32(batchPtr, offset, batchImageWidth);
+        Marshal.WriteInt32(metadataPtr, offset, batchImageWidth);
         offset += 4;
-        Marshal.WriteInt32(batchPtr, offset, batchImageHeight);
+        Marshal.WriteInt32(metadataPtr, offset, batchImageHeight);
         offset += 4;
-        Marshal.WriteInt32(batchPtr, offset, batchImageCount);
+        Marshal.WriteInt32(metadataPtr, offset, batchImageCount);
+        offset += 4;
+        Marshal.WriteInt32(metadataPtr, offset, processedImageWidth);
+        offset += 4;
+        Marshal.WriteInt32(metadataPtr, offset, processedImageHeight);
         offset += 4;
 
         // Write string (up to 64 bytes, zero-padded)
+
         byte[] stringBytes = Encoding.UTF8.GetBytes(typeOfSTitcher.ToString());
-        Marshal.Copy(stringBytes, 0, IntPtr.Add(batchPtr, offset), Math.Min(stringBytes.Length, 64));
+        byte[] stringBuffer = new byte[64];
+        Array.Copy(stringBytes, stringBuffer, Math.Min(stringBytes.Length, stringBuffer.Length));
+        Marshal.Copy(stringBuffer, 0, IntPtr.Add(metadataPtr, offset), stringBuffer.Length);
+        
+        // Marshal.Copy(stringBytes, 0, IntPtr.Add(metadataPtr, offset), Math.Min(stringBytes.Length, 64));
         offset += 64;
 
         // Write bool
-        Marshal.WriteByte(batchPtr, offset, (byte)(cylindrical ? 1 : 0));
-        offset += 1;
-
-        // Write float
-        byte[] floatBytes = BitConverter.GetBytes(headAngle);
-        Marshal.Copy(floatBytes, 0, IntPtr.Add(batchPtr, offset), floatBytes.Length);
-
+        Marshal.WriteByte(metadataPtr, offset, (byte)(cylindrical ? 1 : 0));
         // Debug.Log("Metadata written to shared memory.");
     }
     private void CheckExistingMapping(string mapName)
@@ -524,16 +551,16 @@ public class PyUniSharingFast : MonoBehaviour
         IntPtr existingMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
         if (existingMap != IntPtr.Zero)
         {
-            Debug.LogWarning($"A memory map with the name '{mapName}' already exists. Attempting to clean up.");
+            // Debug.LogWarning($"A memory map with the name '{mapName}' already exists. Attempting to clean up.");
 
-            if (CloseHandle(existingMap))
-            {
-                Debug.Log($"Successfully closed existing memory map handle for: {mapName}");
-            }
-            else
-            {
-                Debug.LogError($"Failed to close existing memory map handle for: {mapName}. Error: {Marshal.GetLastWin32Error()}");
-            }
+            // if (CloseHandle(existingMap))
+            // {
+            //     Debug.Log($"Successfully closed existing memory map handle for: {mapName}");
+            // }
+            // else
+            // {
+            //     Debug.LogError($"Failed to close existing memory map handle for: {mapName}. Error: {Marshal.GetLastWin32Error()}");
+            // }
 
             // Delay to ensure the OS fully releases the resource
             System.Threading.Thread.Sleep(100);
@@ -545,19 +572,25 @@ public class PyUniSharingFast : MonoBehaviour
                 Debug.LogError($"Memory map '{mapName}' still exists after closing the handle.");
                 CloseHandle(secondCheck);
             }
-            else
-            {
-                Debug.Log($"No memory map found for '{mapName}' after closing.");
-            }
+            // else
+            // {
+            //     Debug.Log($"No memory map found for '{mapName}' after closing.");
+            // }
         }
-        else
-        {
-            Debug.Log($"No existing memory map found for '{mapName}'.");
-        }
+        // else
+        // {
+        //     Debug.Log($"No existing memory map found for '{mapName}'.");
+        // }
     }
 
     void OnDestroy()
     {
+        UnmapViewOfFile(metadataPtr);
+        metadataPtr = IntPtr.Zero;
+
+        CloseHandle(metadataFileMap);
+        metadataFileMap = IntPtr.Zero;
+
         DestroyMemoryMaps();
     }
     void OnApplicationQuit()

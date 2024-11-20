@@ -14,9 +14,68 @@ import mmap
 import struct
 import networkx as nx
 import random
+from scipy.optimize import minimize
 
 
 lock = threading.Lock()
+
+global processedImageWidth
+global processedImageHeight
+
+def smooth_homography(H_new, H_prev, alpha=0.8):
+    """
+    Smooth the new homography matrix by blending it with the previous one.
+    :param H_new: New homography matrix (3x3).
+    :param H_prev: Previous homography matrix (3x3).
+    :param alpha: Smoothing factor (0 < alpha <= 1). Higher values favor the previous matrix.
+    :return: Smoothed homography matrix.
+    """
+    return alpha * H_prev + (1 - alpha) * H_new
+
+def weighted_average_homography(H_new, H_prev, weight=0.1):
+    """
+    Weighted averaging of homography matrices.
+    :param H_new: Newly computed homography matrix.
+    :param H_prev: Previous homography matrix.
+    :param weight: Weight given to the previous homography.
+    :return: Smoothed homography matrix.
+    """
+    delta = np.linalg.norm(H_new - H_prev, ord='fro')
+    adaptive_weight = weight / (1 + delta)  # Higher weight if the change is small
+    return adaptive_weight * H_prev + (1 - adaptive_weight) * H_new
+
+def compute_regularized_homography(points1, points2, H_prev, lambda_reg=0.1):
+    """
+    Compute homography matrix with regularization using optimization.
+    :param points1: Source points (Nx2).
+    :param points2: Destination points (Nx2).
+    :param H_prev: Previous homography matrix.
+    :param lambda_reg: Regularization weight.
+    :return: Regularized homography matrix.
+    """
+
+    def reprojection_error(H_flat, points1, points2, H_prev, lambda_reg):
+        H = H_flat.reshape(3, 3)
+        points1_homog = np.hstack((points1, np.ones((points1.shape[0], 1))))
+        points2_proj = (H @ points1_homog.T).T
+        points2_proj /= points2_proj[:, 2][:, None]
+        reprojection_error = np.sum(np.linalg.norm(points2_proj[:, :2] - points2, axis=1)**2)
+        regularization_term = lambda_reg * np.linalg.norm(H - H_prev, ord='fro')**2
+        return reprojection_error + regularization_term
+
+    # Initial guess: the previous homography
+    H_init = H_prev.flatten()
+
+    # Minimize the reprojection error with regularization
+    result = minimize(
+        reprojection_error, 
+        H_init, 
+        args=(points1, points2, H_prev, lambda_reg), 
+        method='BFGS'
+    )
+
+    H_optimized = result.x.reshape(3, 3)
+    return H_optimized
 
 
 def plot_graph_with_opencv(cycle, node_positions):
@@ -210,6 +269,7 @@ class custom_stitcher_SP:
         self.panoram_queue = queue.Queue(1)
         self.shared_images = None
         self.shared_images_bool = None
+        self.headAngle = 30
 
     def ORB_extraction(self, images):
 
@@ -362,17 +422,17 @@ class custom_stitcher_SP:
                 # It was originally made to compute Homographies (needs 4 matches at least to be computed)
                 # This should be removed
                 if num_matches> 4:
-                    # src_p = np.float32([keypoints[i][m.queryIdx] for m in matches]).reshape(-1, 2)
-                    # dst_p = np.float32([keypoints[j][m.trainIdx] for m in matches]).reshape(-1, 2)
-                    # H1, mask1 = cv2.findHomography(dst_p, src_p, cv2.RANSAC, ransacReprojThreshold=3)
-                    # H2, mask2 = cv2.findHomography(src_p, dst_p, cv2.RANSAC, ransacReprojThreshold=3)
-                    # max_inliers = max(np.sum(mask1.ravel()), np.sum(mask2.ravel()))
-                    # conf = max_inliers / (8 + 0.3 * num_matches)
+                    src_p = np.float32([keypoints[i][m.queryIdx] for m in matches]).reshape(-1, 2)
+                    dst_p = np.float32([keypoints[j][m.trainIdx] for m in matches]).reshape(-1, 2)
+                    H1, mask1 = cv2.findHomography(dst_p, src_p, cv2.RANSAC, ransacReprojThreshold=5)
+                    H2, mask2 = cv2.findHomography(src_p, dst_p, cv2.RANSAC, ransacReprojThreshold=5)
+                    max_inliers = max(np.sum(mask1.ravel()), np.sum(mask2.ravel()))
+                    conf = max_inliers / (8 + 0.3 * num_matches)
 
                     # This is not the exact same equation as the one given by the opencv
                     # function. This could be removed and just plug the num_matches in 
                     # the confidence matrix 
-                    conf = num_matches#num_matches / (8 + 0.3 * num_matches)
+                    # conf = num_matches#num_matches / (8 + 0.3 * num_matches)
 
                     confidences[i, j], confidences[j, i] = conf, conf
 
@@ -478,7 +538,7 @@ class custom_stitcher_SP:
 
         return subset1, subset2, Ts1, Ts2
 
-    def compute_homographies_and_order(self, keypoints, matches_info, partial_order):
+    def compute_homographies_and_order(self, keypoints, matches_info, partial_order, H_prev=None):
         """""
         COmpute homographies between each best pairs. For n images in the 360 degrees panorama, we have n homographies to compute
         because the last or the first image should be associated with two homographies.
@@ -503,7 +563,11 @@ class custom_stitcher_SP:
                 dst_p = np.float32([keypoints[idx2][m.queryIdx] for m in matches]).reshape(-1, 2)
 
             if dst_p.shape[0]>4:
-                Hs[i], _ = cv2.findHomography(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=5, confidence=0.995)
+                Hs[i], _ = cv2.findHomography(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=3, confidence=0.995)
+                # Hs[i], _ = cv2.findHomography(dst_p, src_p, method=0, ransacReprojThreshold=1, confidence=0.995)
+
+                # if H_prev is not None:
+                #     Hs[i]=compute_regularized_homography(src_p, dst_p, H_prev[i], lambda_reg=0.5)
 
         w, h = self.camera_matrix[:2, -1]*2
 
@@ -763,20 +827,60 @@ class custom_stitcher_SP:
 
         return panorama#[y:y+h, x:x+w]
 
-    def first_thread(self,batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
-                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, debug = False):
+    def first_thread(self, debug = False):
         """""
-        This method read the images coming from the software. They have two shared memory files to store the images and the panorama.
+        This method read the images coming from the software. They have three shared memory files to store the images, the panorama and the metadatas.
         """""
-        # global shared_images
-        processedImageSize = processedImageHeight*processedImageWidth*3
-        imageSize = imageWidth*imageHeight*3
-        batchMMF = mmap.mmap(-1, batchDataPosition + imageCount * imageSize, "BatchSharedMemory")
-        processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
-        first_loop = True
+        global processedImageWidth
+        global processedImageHeight
 
+        flagPosition = 0
+        processedDataPosition = 4
+        # global shared_images
+        metadataSize = 20 + 64 + 1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
+        metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
+
+        # Read first time metadata to initialize the memories:
+        output = readMetadataMemory(metadataMMF)
+        typeOfStitcher, isCylindrical= output["string"], output["boolean"]
+        
+        batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight= output["int_values"]
+        
+        imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight)
+        batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
+        processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
+
+        first_loop = True
         while True:
-            images, images_bool = readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight)
+
+            ### New part
+            output = readMetadataMemory(metadataMMF)
+            typeOfStitcher, isCylindrical= output["string"], output["boolean"]
+            
+            batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight= output["int_values"]
+            
+            imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight)
+            
+            # print("batchImageWidth", batchImageWidth)
+            # print("batchImageHeight", batchImageHeight)
+            # print("imageCount", imageCount)
+            # print("processedImageWidth", processedImageWidth)
+            # print("processedImageHeight", processedImageHeight)
+            # print("processedImageSize", processedImageSize)
+            # print("imageSize", imageSize)
+            # print("batchDataPosition", batchDataPosition)
+
+            batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
+            processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
+
+            print(f"Type of STitcher: {typeOfStitcher}.\n Is cylindrical: {isCylindrical}")
+            ###
+
+            try:
+                images, images_bool, self.headAngle = readMemory(batchMMF, flagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, batchImageWidth, batchImageHeight)
+            except:
+                print("problem")
+                continue
             
             # droneImInd = np.arange(0, images_bool.shape[0])[images_bool]
             # print(f"Index of the drone images to stitch: {droneImInd}")
@@ -795,9 +899,11 @@ class custom_stitcher_SP:
                 # if debug:
                 #     self.panoram_queue.put(panorama)
                 #     break
-                
-                write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
-                del panorama
+                try:
+                    write_memory(processedMMF, flagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
+                    del panorama
+                except:
+                    continue
 
 
             time.sleep(0.05)
@@ -816,6 +922,7 @@ class custom_stitcher_SP:
             - images: list of NDArrays.
             - front_image_index: the index of the front image of the pilot
         """""
+        Hs = None
         # global shared_images
         while True:
             if self.shared_images is None:
@@ -840,29 +947,35 @@ class custom_stitcher_SP:
             t2 = time.time()
             best_pairs = self.find_top_pairs(confidences)
             partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
-            Hs, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order)
+            H, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order, Hs)
+            if Hs is not None:
+                for i in range(H.shape[0]):
+                    Hs[i] = smooth_homography(H[i], Hs[i], alpha=0.08)
+            else:
+                Hs = H
+
             t3 = time.time()
             # Ms, order, inverted = self.compute_affines_and_order(keypoints, matches_info, partial_order)
 
-            print("time to extract keypoints:", t1-t)
-            print("time to compute matches:", t2-t1)
-            print("time to compute homographies:", t3-t2)
+            # print("time to extract keypoints:", t1-t)
+            # print("time to compute matches:", t2-t1)
+            # print("time to compute homographies:", t3-t2)
 
             # put everything in the queues
             self.order_queue.put(order)
             self.homography_queue.put(Hs)
             # self.homography_queue.put(Ms)
             self.direction_queue.put(inverted)
-
+            print(order)
             # print(f"Time to compute the Parameters: {time.time()-t}")
-            time.sleep(0.5)
+            # time.sleep(0.5)
             # print("New parameters given")
             
             if debug:
                 return keypoints, Hs, order, inverted, best_pairs, matches_info, confidences, images
                 # return keypoints, Ms, order, inverted, best_pairs, matches_info, confidences, images
 
-    def third_thread(self, headANgle=100, num_pano_img=3, panoWidth=600, panoHeight=400, debug=False):
+    def third_thread(self, headAngle=100, num_pano_img=3, debug=False):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
         of the pilots head and the desired number of images in the panorama.
@@ -873,6 +986,9 @@ class custom_stitcher_SP:
         """""
         # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
         # Take the order and the ref to compute the panorama
+
+        global processedImageWidth
+        global processedImageHeight
 
         order, Hs, inverted = None, None, None
 
@@ -896,9 +1012,9 @@ class custom_stitcher_SP:
                 images = [self.cylindricalWarp(img) for img in images]
             
             
-            subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headANgle)
+            subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
             # pano = self.compose_with_ref(images, Hs1, Hs2, subset1, subset2, inverted)
-            pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=panoWidth, panoHeight=panoHeight)
+            pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=processedImageWidth, panoHeight=processedImageHeight)
             # pano = self.affineStitching(images, Hs1, Hs2, subset1, subset2, inverted)
             
             self.panoram_queue.put(pano)
@@ -913,8 +1029,39 @@ class custom_stitcher_SP:
 
                 break
 
+def readMetadataMemory(metadataMMF :mmap )->dict:
+    
+    # Read the integers
+    metadataMMF.seek(0)
+    int_values = struct.unpack('iiiii', metadataMMF.read(20))  # 5 integers
 
-def readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight):
+    # Read the string
+    raw_string = metadataMMF.read(64)
+    metadata_string = raw_string.decode('utf-8').rstrip('\x00')  # Remove padding
+
+    # Read the boolean
+    raw_bool = metadataMMF.read(1)
+    metadata_bool = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
+
+    # Return all parsed metadata
+    return {
+        "int_values": int_values,  # Tuple of 5 integers
+        "string": metadata_string,
+        "boolean": metadata_bool
+    }
+
+@jit(nopython=True) 
+def UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight):
+    
+    imageSize = batchImageWidth*batchImageHeight*3
+    headAnglePosition = 5
+    batchDataPosition = headAnglePosition+ imageCount
+
+    processedImageSize = processedImageWidth*processedImageHeight*3
+
+    return imageSize, headAnglePosition, batchDataPosition, processedImageSize
+ 
+def readMemory(batchMMF, batchFlagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight):
     """
         Read Memory shared with Unity code. If the flag is 0, we can access data.
 
@@ -944,6 +1091,9 @@ def readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, image
             boolean_list = [bool(b) for b in batchMMF.read(imageCount)]
             boolean_array=np.array(boolean_list)
 
+            batchMMF.seek(headANglePosition)
+            headAngle = struct.unpack('f', batchMMF.read(4))[0]
+
             for i in range(imageCount):
                 if not boolean_array[i]:
                     continue
@@ -960,7 +1110,7 @@ def readMemory(batchMMF, batchFlagPosition, imageCount, batchDataPosition, image
             batchMMF.seek(batchFlagPosition)
             batchMMF.write(struct.pack('B', 0))
 
-            return images, boolean_array
+            return images, boolean_array, headAngle
 
 def write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, image_data):
     """
@@ -996,6 +1146,9 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
             processedMMF.seek(processedFlagPosition)
             processedMMF.write(struct.pack('i', 0))
             break
+
+# Have to add function that will look if parameters have changed and if so, recompute cylindrical warping
+# Think about how to change the stitcher. Maybe instead of 3 methods as thread, just do 3 functions
 
 def test_reading_writing():
     # Constants (must match the Unity script)
@@ -1197,19 +1350,10 @@ def test_one_image(front_image_index, angle, num_pano_img):
     panorama_resized = cv2.cvtColor(panorama_resized, cv2.COLOR_BGR2RGB)
     cv2.imwrite("result_2_images_shift.png", panorama_resized)
 
-
 def main():
 
-    batchFlagPosition = 0
-    imageCount = 16
-    batchDataPosition = 1+imageCount
     imageWidth = 300
     imageHeight = 300
-
-    processedFlagPosition = 0
-    processedDataPosition = 4
-    processedImageWidth = 600
-    processedImageHeight = 400
 
     f = 160
 
@@ -1217,10 +1361,9 @@ def main():
                         [0, f, imageHeight/2],
                         [0, 0, 1]])
 
-    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrical", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device="cuda")
+    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrica", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device="cuda")
 
-    first_thread = threading.Thread(target=stitcher.first_thread, args=(batchFlagPosition, imageCount, batchDataPosition, imageWidth, imageHeight,
-                    processedFlagPosition, processedDataPosition, processedImageWidth, processedImageHeight, False))
+    first_thread = threading.Thread(target=stitcher.first_thread, args=(False,))
     first_thread.daemon = True
     first_thread.start()
 
@@ -1228,11 +1371,9 @@ def main():
     sec_thread.daemon = True
     sec_thread.start()
 
-    third_thread = threading.Thread(target=stitcher.third_thread, args=(0, 3, processedImageWidth, processedImageHeight, False))
+    third_thread = threading.Thread(target=stitcher.third_thread, args=(0, 3, False))
     third_thread.daemon = True
     third_thread.start()
-
-    print("Thread started")
 
     while True:
         time.sleep(100)
