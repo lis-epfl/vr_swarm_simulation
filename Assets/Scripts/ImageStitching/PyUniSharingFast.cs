@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
@@ -30,14 +31,23 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField]
     private float readInterval = 0.05f;
 
-    private int batchImageCount = 2;
-    private int batchImageSize;
-    private int boolListSize;
-    private int batchDataPosition;
-    private int totalBatchSize;
+    [SerializeField]
+    private stitcherType typeOfSTitcher = stitcherType.CLASSIC; // Possible values: classic, UDIS, NIS
 
-    private int processedImageSize;
-    private int totalProcessedSize;
+    [SerializeField]
+    private bool cylindrical = false;
+
+    [SerializeField]
+    private float headAngle = 0f;
+
+    private int batchImageCount = 0;
+    private int batchImageSize = 0;
+    private int boolListSize = 0;
+    private int batchDataPosition = 0;
+    private int totalBatchSize = 0;
+
+    private int processedImageSize = 0;
+    private int totalProcessedSize = 0;
 
     private IntPtr batchFileMap;
     private IntPtr batchPtr;
@@ -65,14 +75,25 @@ public class PyUniSharingFast : MonoBehaviour
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern IntPtr OpenFileMapping(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+
     // Constant values
 
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
-    
     private const int FlagPosition = 0;
-    private const int camerasToStitchPosition = 1;
+    private const int metadataPosition= 1; // Position in memory for metadata
+    // 1 byte flag + 12 bytes for ints (3x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
+    private const int camerasToStitchPosition = metadataPosition + 12 + 64 + 1 + 4;
     private const int processedDataPosition = 4;
+
+    public enum stitcherType
+    {
+        CLASSIC,
+        UDIS,
+        NIS
+    }
 
 
     // Parameters for screen in front of the pilot
@@ -90,8 +111,11 @@ public class PyUniSharingFast : MonoBehaviour
 
     void Start()
     {
+        
         CalculateMemorySizes();
+        DestroyMemoryMaps();
         CreateMemoryMaps();
+        WriteMetadata();
 
         FindCameras();
         GenerateCurvedScreen();
@@ -107,7 +131,6 @@ public class PyUniSharingFast : MonoBehaviour
 
     void Update()
     {
-
         if (Time.time >= nextCameraUpdateTime)
         {
             UpdateCameras();
@@ -117,14 +140,13 @@ public class PyUniSharingFast : MonoBehaviour
         if (resize_dimension)
         {
             GenerateCurvedScreen();
-        } 
+        }
 
         if (camerasToCapture.Count == 0)
         {
             FindCameras();
             return;
         }
-       
 
         else if (Time.time >= nextSendTime && Marshal.ReadByte(batchPtr, FlagPosition) == 0)
         {
@@ -318,7 +340,8 @@ public class PyUniSharingFast : MonoBehaviour
         totalBatchSize = batchDataPosition + batchImageCount * batchImageSize;
 
         processedImageSize = processedImageWidth * processedImageHeight * 3;
-        totalProcessedSize = processedDataPosition + processedImageSize; 
+        totalProcessedSize = processedDataPosition + processedImageSize;
+        // Debug.Log($"batchImageWidth: {batchImageWidth}, batchImageHeight: {batchImageHeight}, batchImageSize: {batchImageSize}, batchImageCount: {batchImageCount}, boolListSize: {boolListSize}, camerasToStitchPosition: {camerasToStitchPosition}, batchImageHeight: {batchDataPosition}");
     }
 
     private void CreateMemoryMaps()
@@ -326,58 +349,95 @@ public class PyUniSharingFast : MonoBehaviour
         // Destroy any existing memory maps before recreating
         DestroyMemoryMaps();
 
-        // Create memory-mapped files
+        Debug.Log($"Calculated totalBatchSize: {totalBatchSize}, totalProcessedSize: {totalProcessedSize}");
+        if (totalBatchSize <= 82 || totalProcessedSize <= 5) 
+        {
+            Debug.LogWarning("Invalid memory size calculation.");
+            return;
+        }
+
+        // CheckExistingMapping(batchMapName);
+        // CheckExistingMapping(processedMapName);
+        CheckExistingMapping(batchMapName);
+        CheckExistingMapping(processedMapName);
+
+        // Create memory-mapped files in RAM with new IntPtr(-1) with appropriate name
         batchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalBatchSize , batchMapName);
         processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalProcessedSize, processedMapName);
 
         if (batchFileMap == IntPtr.Zero || processedFileMap == IntPtr.Zero)
         {
-            Debug.LogError("Unable to create memory-mapped files.");
+            Debug.LogWarning("Unable to create memory-mapped files.");
             return;
         }
 
-        batchPtr = MapViewOfFile(batchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalBatchSize);
-        processedPtr = MapViewOfFile(processedFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalProcessedSize);
+        // Creates a pointer that allows the process to access the memory-mapped file
+        batchPtr = MapViewOfFile(batchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
+        processedPtr = MapViewOfFile(processedFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
+
+        if (batchPtr == IntPtr.Zero)
+        {
+            int errorCode = Marshal.GetLastWin32Error();
+            Debug.LogWarning($"Failed to map view of file. Error Code: {errorCode}");
+        }
 
         if (batchPtr == IntPtr.Zero || processedPtr == IntPtr.Zero)
         {
-            Debug.LogError("Unable to map view of file.");
+            Debug.LogWarning($"Unable to map view of file. Total batch Size: {totalBatchSize}, Total processed Size: {totalProcessedSize}");
             DestroyMemoryMaps();
         }
     }
 
+    // private void DestroyMemoryMaps()
+    // {
+    //     if (batchPtr != IntPtr.Zero)
+    //     {
+    //         UnmapViewOfFile(batchPtr);
+    //         batchPtr = IntPtr.Zero;
+    //     }
+    //     if (processedPtr != IntPtr.Zero)
+    //     {
+    //         UnmapViewOfFile(processedPtr);
+    //         processedPtr = IntPtr.Zero;
+    //     }
+    //     if (batchFileMap != IntPtr.Zero)
+    //     {
+    //         CloseHandle(batchFileMap);
+    //         batchFileMap = IntPtr.Zero;
+    //     }
+    //     if (processedFileMap != IntPtr.Zero)
+    //     {
+    //         CloseHandle(processedFileMap);
+    //         processedFileMap = IntPtr.Zero;
+    //     }
+    // }
+
     private void DestroyMemoryMaps()
     {
-        if (batchPtr != IntPtr.Zero)
-        {
-            UnmapViewOfFile(batchPtr);
-            batchPtr = IntPtr.Zero;
-        }
-        if (processedPtr != IntPtr.Zero)
-        {
-            UnmapViewOfFile(processedPtr);
-            processedPtr = IntPtr.Zero;
-        }
-        if (batchFileMap != IntPtr.Zero)
-        {
-            CloseHandle(batchFileMap);
-            batchFileMap = IntPtr.Zero;
-        }
-        if (processedFileMap != IntPtr.Zero)
-        {
-            CloseHandle(processedFileMap);
-            processedFileMap = IntPtr.Zero;
-        }
+        
+        UnmapViewOfFile(batchPtr);
+        batchPtr = IntPtr.Zero;
+        
+        UnmapViewOfFile(processedPtr);
+        processedPtr = IntPtr.Zero;
+        
+        
+        CloseHandle(batchFileMap);
+        batchFileMap = IntPtr.Zero;
+        
+        CloseHandle(processedFileMap);
+        processedFileMap = IntPtr.Zero;
     }
 
     private void OnValidate()
     {
         // Recalculate memory sizes
         CalculateMemorySizes();
-
+        DestroyMemoryMaps();
         // Recreate memory maps to reflect changes
         CreateMemoryMaps();
 
+        WriteMetadata();
         // Update reusable resources
         reusableTexture = new RenderTexture(batchImageWidth, batchImageHeight, 24);
         image = new Texture2D(batchImageWidth, batchImageHeight, TextureFormat.RGB24, false);
@@ -386,8 +446,6 @@ public class PyUniSharingFast : MonoBehaviour
 
         panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
         pixels = new Color32[processedImageWidth * processedImageHeight];
-
-        Debug.Log("Parameters updated: Memory sizes and resources recalculated.");
     }
 
     private void ValidateTextures()
@@ -410,6 +468,7 @@ public class PyUniSharingFast : MonoBehaviour
         FindCameras();
 
         int newBatchImageCount = camerasToCapture.Count;
+        UpdateCameraToStitch();
         if (newBatchImageCount != batchImageCount)
         {
             batchImageCount = newBatchImageCount;
@@ -419,22 +478,91 @@ public class PyUniSharingFast : MonoBehaviour
 
             if (totalBatchSize != previousTotalBatchSize)
             {
+                DestroyMemoryMaps();
                 CreateMemoryMaps();
             }
 
             batchImageBuffer = new byte[batchImageCount * batchImageSize];
-            UpdateCameraToStitch();
+            
             ValidateTextures(); // Ensure textures are updated
-            Debug.Log($"Updated cameras. Found {batchImageCount} cameras.");
+        }
+        
+    }
+
+    private void WriteMetadata()
+    {
+        if (batchPtr == IntPtr.Zero) return;
+
+        // Write metadata to the shared memory
+        int offset = metadataPosition;
+
+        // Write integers
+        Marshal.WriteInt32(batchPtr, offset, batchImageWidth);
+        offset += 4;
+        Marshal.WriteInt32(batchPtr, offset, batchImageHeight);
+        offset += 4;
+        Marshal.WriteInt32(batchPtr, offset, batchImageCount);
+        offset += 4;
+
+        // Write string (up to 64 bytes, zero-padded)
+        byte[] stringBytes = Encoding.UTF8.GetBytes(typeOfSTitcher.ToString());
+        Marshal.Copy(stringBytes, 0, IntPtr.Add(batchPtr, offset), Math.Min(stringBytes.Length, 64));
+        offset += 64;
+
+        // Write bool
+        Marshal.WriteByte(batchPtr, offset, (byte)(cylindrical ? 1 : 0));
+        offset += 1;
+
+        // Write float
+        byte[] floatBytes = BitConverter.GetBytes(headAngle);
+        Marshal.Copy(floatBytes, 0, IntPtr.Add(batchPtr, offset), floatBytes.Length);
+
+        // Debug.Log("Metadata written to shared memory.");
+    }
+    private void CheckExistingMapping(string mapName)
+    {
+        IntPtr existingMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
+        if (existingMap != IntPtr.Zero)
+        {
+            Debug.LogWarning($"A memory map with the name '{mapName}' already exists. Attempting to clean up.");
+
+            if (CloseHandle(existingMap))
+            {
+                Debug.Log($"Successfully closed existing memory map handle for: {mapName}");
+            }
+            else
+            {
+                Debug.LogError($"Failed to close existing memory map handle for: {mapName}. Error: {Marshal.GetLastWin32Error()}");
+            }
+
+            // Delay to ensure the OS fully releases the resource
+            System.Threading.Thread.Sleep(100);
+
+            // Recheck
+            IntPtr secondCheck = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
+            if (secondCheck != IntPtr.Zero)
+            {
+                Debug.LogError($"Memory map '{mapName}' still exists after closing the handle.");
+                CloseHandle(secondCheck);
+            }
+            else
+            {
+                Debug.Log($"No memory map found for '{mapName}' after closing.");
+            }
+        }
+        else
+        {
+            Debug.Log($"No existing memory map found for '{mapName}'.");
         }
     }
 
     void OnDestroy()
     {
-        UnmapViewOfFile(batchPtr);
-        UnmapViewOfFile(processedPtr);
-        CloseHandle(batchFileMap);
-        CloseHandle(processedFileMap);
         DestroyMemoryMaps();
+    }
+    void OnApplicationQuit()
+    {
+        DestroyMemoryMaps();
+        Debug.Log("Application quitting. Memory maps destroyed.");
     }
 }
