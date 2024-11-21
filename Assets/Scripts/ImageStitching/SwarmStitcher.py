@@ -14,7 +14,7 @@ import mmap
 import struct
 import networkx as nx
 import random
-from scipy.optimize import minimize
+# from scipy.optimize import minimize
 
 
 lock = threading.Lock()
@@ -44,38 +44,38 @@ def weighted_average_homography(H_new, H_prev, weight=0.1):
     adaptive_weight = weight / (1 + delta)  # Higher weight if the change is small
     return adaptive_weight * H_prev + (1 - adaptive_weight) * H_new
 
-def compute_regularized_homography(points1, points2, H_prev, lambda_reg=0.1):
-    """
-    Compute homography matrix with regularization using optimization.
-    :param points1: Source points (Nx2).
-    :param points2: Destination points (Nx2).
-    :param H_prev: Previous homography matrix.
-    :param lambda_reg: Regularization weight.
-    :return: Regularized homography matrix.
-    """
+# def compute_regularized_homography(points1, points2, H_prev, lambda_reg=0.1):
+#     """
+#     Compute homography matrix with regularization using optimization.
+#     :param points1: Source points (Nx2).
+#     :param points2: Destination points (Nx2).
+#     :param H_prev: Previous homography matrix.
+#     :param lambda_reg: Regularization weight.
+#     :return: Regularized homography matrix.
+#     """
 
-    def reprojection_error(H_flat, points1, points2, H_prev, lambda_reg):
-        H = H_flat.reshape(3, 3)
-        points1_homog = np.hstack((points1, np.ones((points1.shape[0], 1))))
-        points2_proj = (H @ points1_homog.T).T
-        points2_proj /= points2_proj[:, 2][:, None]
-        reprojection_error = np.sum(np.linalg.norm(points2_proj[:, :2] - points2, axis=1)**2)
-        regularization_term = lambda_reg * np.linalg.norm(H - H_prev, ord='fro')**2
-        return reprojection_error + regularization_term
+#     def reprojection_error(H_flat, points1, points2, H_prev, lambda_reg):
+#         H = H_flat.reshape(3, 3)
+#         points1_homog = np.hstack((points1, np.ones((points1.shape[0], 1))))
+#         points2_proj = (H @ points1_homog.T).T
+#         points2_proj /= points2_proj[:, 2][:, None]
+#         reprojection_error = np.sum(np.linalg.norm(points2_proj[:, :2] - points2, axis=1)**2)
+#         regularization_term = lambda_reg * np.linalg.norm(H - H_prev, ord='fro')**2
+#         return reprojection_error + regularization_term
 
-    # Initial guess: the previous homography
-    H_init = H_prev.flatten()
+#     # Initial guess: the previous homography
+#     H_init = H_prev.flatten()
 
-    # Minimize the reprojection error with regularization
-    result = minimize(
-        reprojection_error, 
-        H_init, 
-        args=(points1, points2, H_prev, lambda_reg), 
-        method='BFGS'
-    )
+#     # Minimize the reprojection error with regularization
+#     result = minimize(
+#         reprojection_error, 
+#         H_init, 
+#         args=(points1, points2, H_prev, lambda_reg), 
+#         method='BFGS'
+#     )
 
-    H_optimized = result.x.reshape(3, 3)
-    return H_optimized
+#     H_optimized = result.x.reshape(3, 3)
+#     return H_optimized
 
 
 def plot_graph_with_opencv(cycle, node_positions):
@@ -1149,6 +1149,23 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
 
 # Have to add function that will look if parameters have changed and if so, recompute cylindrical warping
 # Think about how to change the stitcher. Maybe instead of 3 methods as thread, just do 3 functions
+
+# def hasSmallStretchHomography(H: np.ndarray, corners, tolerance = 2):
+
+#     H[:2, -1] = np.zeros(2)
+#     _, newCorners =apply_homographies(np.expand_dims(H, axis=0), corners)
+
+#     if newCorners>tolerance*corners[:2]:
+#         print("Too big changes")
+#         return False    
+    
+#     return True
+
+# def hassmallChangeHomography(H_new, H_prev, criterion = 0.5):
+#     """
+#     Assume same dimensions for H_new and H_prev
+#     """
+#     return np.linalg.norm(H_prev-H_new, 'fro')>criterion
 
 def test_reading_writing():
     # Constants (must match the Unity script)
