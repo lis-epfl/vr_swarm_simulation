@@ -44,40 +44,6 @@ def weighted_average_homography(H_new, H_prev, weight=0.1):
     adaptive_weight = weight / (1 + delta)  # Higher weight if the change is small
     return adaptive_weight * H_prev + (1 - adaptive_weight) * H_new
 
-# def compute_regularized_homography(points1, points2, H_prev, lambda_reg=0.1):
-#     """
-#     Compute homography matrix with regularization using optimization.
-#     :param points1: Source points (Nx2).
-#     :param points2: Destination points (Nx2).
-#     :param H_prev: Previous homography matrix.
-#     :param lambda_reg: Regularization weight.
-#     :return: Regularized homography matrix.
-#     """
-
-#     def reprojection_error(H_flat, points1, points2, H_prev, lambda_reg):
-#         H = H_flat.reshape(3, 3)
-#         points1_homog = np.hstack((points1, np.ones((points1.shape[0], 1))))
-#         points2_proj = (H @ points1_homog.T).T
-#         points2_proj /= points2_proj[:, 2][:, None]
-#         reprojection_error = np.sum(np.linalg.norm(points2_proj[:, :2] - points2, axis=1)**2)
-#         regularization_term = lambda_reg * np.linalg.norm(H - H_prev, ord='fro')**2
-#         return reprojection_error + regularization_term
-
-#     # Initial guess: the previous homography
-#     H_init = H_prev.flatten()
-
-#     # Minimize the reprojection error with regularization
-#     result = minimize(
-#         reprojection_error, 
-#         H_init, 
-#         args=(points1, points2, H_prev, lambda_reg), 
-#         method='BFGS'
-#     )
-
-#     H_optimized = result.x.reshape(3, 3)
-#     return H_optimized
-
-
 def plot_graph_with_opencv(cycle, node_positions):
     # Create a white canvas for plotting
     img_size = 600
@@ -837,7 +803,7 @@ class custom_stitcher_SP:
         flagPosition = 0
         processedDataPosition = 4
         # global shared_images
-        metadataSize = 20 + 64 + 1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
+        metadataSize = 20 + 64 + 1 + 8 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 8 bytes for ints (2x4 bytes) for max sizes
         metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
 
         # Read first time metadata to initialize the memories:
@@ -847,8 +813,13 @@ class custom_stitcher_SP:
         batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight= output["int_values"]
         
         imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight)
-        batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
-        processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
+        
+        maxTotalBatchSize, maxTotalProcessedSize = output["maxSizes"]
+        batchMMF = mmap.mmap(-1, maxTotalBatchSize, "BatchSharedMemory")
+        processedMMF = mmap.mmap(-1, maxTotalProcessedSize, "ProcessedImageSharedMemory")
+
+        # batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
+        # processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
 
         first_loop = True
         while True:
@@ -869,15 +840,14 @@ class custom_stitcher_SP:
             # print("processedImageSize", processedImageSize)
             # print("imageSize", imageSize)
             # print("batchDataPosition", batchDataPosition)
+            # print("headANglePosition", headANglePosition)
 
-            batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
-            processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
-
-            print(f"Type of STitcher: {typeOfStitcher}.\n Is cylindrical: {isCylindrical}")
-            ###
-
+            # print(f"Type of STitcher: {typeOfStitcher}.\n Is cylindrical: {isCylindrical}")
+            # print(f"batchDataPosition: {batchDataPosition}.\n imageCount: {imageCount}.\n imageSize: {imageSize}")
             try:
+                # batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
                 images, images_bool, self.headAngle = readMemory(batchMMF, flagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, batchImageWidth, batchImageHeight)
+                # print(images, images_bool, self.headAngle)
             except:
                 print("problem")
                 continue
@@ -900,6 +870,7 @@ class custom_stitcher_SP:
                 #     self.panoram_queue.put(panorama)
                 #     break
                 try:
+                    # processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
                     write_memory(processedMMF, flagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
                     del panorama
                 except:
@@ -1043,18 +1014,23 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     raw_bool = metadataMMF.read(1)
     metadata_bool = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
 
+    # Read the next integers
+    raw_ints = metadataMMF.read(8)
+    maxSizes = struct.unpack('ii', raw_ints)  # Unpack as unsigned char
+
     # Return all parsed metadata
     return {
         "int_values": int_values,  # Tuple of 5 integers
         "string": metadata_string,
-        "boolean": metadata_bool
+        "boolean": metadata_bool,
+        "maxSizes": maxSizes
     }
 
 @jit(nopython=True) 
 def UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight):
     
     imageSize = batchImageWidth*batchImageHeight*3
-    headAnglePosition = 5
+    headAnglePosition = imageCount+1
     batchDataPosition = headAnglePosition+ imageCount
 
     processedImageSize = processedImageWidth*processedImageHeight*3
