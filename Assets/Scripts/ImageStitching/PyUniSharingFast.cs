@@ -43,7 +43,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalProcessedSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1; // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
+    private int metadataSize = 20 + 64 + 1+ 4 + 4; // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
 
     private IntPtr batchFileMap;
     private IntPtr batchPtr;
@@ -77,15 +77,6 @@ public class PyUniSharingFast : MonoBehaviour
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern IntPtr OpenFileMapping(uint dwDesiredAccess, bool bInheritHandle, string lpName);
 
-    // Constant values
-    private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
-    private const uint PAGE_READWRITE = 0x04;
-    private const int FlagPosition = 0;
-    private const int camerasToStitchPosition = 1;
-    // private const int angelHeadPosition = boolListSize+camerasToStitchPosition;//+4
-    private const int numFloatByte = 4;
-    private const int processedDataPosition = 4;
-
     public enum stitcherType
     {
         CLASSIC,
@@ -94,6 +85,23 @@ public class PyUniSharingFast : MonoBehaviour
     }
     private bool hasStarted = false;
 
+    // Constant values
+    private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
+    private const uint PAGE_READWRITE = 0x04;
+    private const int FlagPosition = 0;
+    private const int camerasToStitchPosition = 1;
+    private const int numFloatByte = 4;
+    private const int processedDataPosition = 4;
+    private const int maxBatchWidth = 2000;
+    private const int maxBatchHeight = 2000;
+    private const int maxBatchImageCount = 30;
+    private const int maxBatchImageSize = maxBatchWidth*maxBatchHeight * 3;
+    private const int maxTotalBatchSize = camerasToStitchPosition+maxBatchImageSize + numFloatByte + maxBatchImageCount;
+
+    private const int maxProcessedWidth = 4000;
+    private const int maxProcessedHeight = 4000;
+    private const int maxProcessedSize = maxProcessedWidth * maxProcessedHeight * 3;
+    private const int maxTotalProcessedSize = processedDataPosition + maxProcessedSize;
 
     // Parameters for screen in front of the pilot
     public float radius = 5f;
@@ -105,18 +113,15 @@ public class PyUniSharingFast : MonoBehaviour
     public bool resize_dimension = false;
 
     // Other timing values to check the number of camera in the batch
-    private float cameraUpdateInterval = 5f; // Time interval to update cameras
+    private float cameraUpdateInterval = 3f; // Time interval to update cameras
     private float nextCameraUpdateTime = 0f; // Next time to update cameras
 
     void Start()
     {
-        hasStarted = true;
-
         metadataFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)metadataSize, metadataMapName);
         metadataPtr = MapViewOfFile(metadataFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
 
         CalculateMemorySizes();
-        DestroyMemoryMaps();
         CreateMemoryMaps();
         WriteMetadata();
 
@@ -129,11 +134,18 @@ public class PyUniSharingFast : MonoBehaviour
         batchImageBuffer = new byte[batchImageCount * batchImageSize];
         panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
         pixels = new Color32[processedImageWidth * processedImageHeight];
+        hasStarted = true;
+
         nextSendTime = Time.time;
     }
 
     void Update()
     {
+        if(batchImageWidth>maxBatchWidth || batchImageHeight>maxBatchHeight || processedImageWidth>maxProcessedWidth || processedImageHeight>maxProcessedHeight)
+        {
+            Debug.LogError("Problem Dimensions");
+            return;
+        }
 
         if (Time.time >= nextCameraUpdateTime)
         {
@@ -317,6 +329,7 @@ public class PyUniSharingFast : MonoBehaviour
             // {
             //     Debug.LogWarning($"No camera found in {drone.name}");
             // }
+            if(camerasToCapture.Count >maxBatchImageCount) break;
         }
 
         // Debug.Log($"Total cameras found: {camerasToCapture.Count}");
@@ -350,10 +363,41 @@ public class PyUniSharingFast : MonoBehaviour
     private void CalculateMemorySizes()
     {
         // Calculate memory sizes based on configurable parameters
-        batchImageSize = batchImageWidth * batchImageHeight * 3;
+        if(batchImageCount>maxBatchImageCount)
+        {
+            batchImageCount = maxBatchImageCount;
+            Debug.LogError("Decrease number of drones or increase maxBatchImageCount constant. Value upperbounded at maxBatchImageCount.");
+        }
+
         boolListSize = batchImageCount;
+
+        if(batchImageWidth>maxBatchWidth)
+        {
+            batchImageWidth = maxBatchWidth;
+            Debug.LogError("Decrease dimensions of images or increase maxBatchWidth constant.");
+        } 
+
+        if(batchImageHeight>maxBatchHeight)
+        {
+            batchImageHeight = maxBatchHeight;
+            Debug.LogError("Decrease dimensions of images or increase maxBatchHeight constant.");
+        }
+
+        batchImageSize=batchImageWidth*batchImageHeight*3;
         batchDataPosition = boolListSize + camerasToStitchPosition + numFloatByte;
         totalBatchSize = batchDataPosition + batchImageCount * batchImageSize;
+
+        if(processedImageWidth>maxProcessedWidth)
+        {
+            processedImageWidth = maxProcessedWidth;
+            Debug.LogError("Decrease dimensions of images or increase maxProcessedWidth constant.");
+        } 
+
+        if(processedImageHeight>maxProcessedHeight)
+        {
+            processedImageHeight = maxProcessedHeight;
+            Debug.LogError("Decrease dimensions of images or increase maxProcessedHeight constant.");
+        }
 
         processedImageSize = processedImageWidth * processedImageHeight * 3;
         totalProcessedSize = processedDataPosition + processedImageSize;
@@ -362,26 +406,9 @@ public class PyUniSharingFast : MonoBehaviour
 
     private void CreateMemoryMaps()
     {
-        // Destroy any existing memory maps before recreating
-        // DestroyMemoryMaps();
-
-        Debug.Log($"Calculated totalBatchSize: {totalBatchSize}, totalProcessedSize: {totalProcessedSize}");
-        if (totalBatchSize <= 82 || totalProcessedSize <= 5) 
-        {
-            Debug.LogWarning("Invalid memory size calculation.");
-            return;
-        }
-
-        DestroyMemoryMaps();
-
-        // CheckExistingMapping(batchMapName);
-        // CheckExistingMapping(processedMapName);
-        CheckExistingMapping(batchMapName);
-        CheckExistingMapping(processedMapName);
-
         // Create memory-mapped files in RAM with new IntPtr(-1) with appropriate name
-        batchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalBatchSize , batchMapName);
-        processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalProcessedSize, processedMapName);
+        batchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)maxTotalBatchSize , batchMapName);
+        processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)maxTotalProcessedSize, processedMapName);
         
 
         if (batchFileMap == IntPtr.Zero || processedFileMap == IntPtr.Zero|| metadataFileMap == IntPtr.Zero)
@@ -407,30 +434,6 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
-    // private void DestroyMemoryMaps()
-    // {
-    //     if (batchPtr != IntPtr.Zero)
-    //     {
-    //         UnmapViewOfFile(batchPtr);
-    //         batchPtr = IntPtr.Zero;
-    //     }
-    //     if (processedPtr != IntPtr.Zero)
-    //     {
-    //         UnmapViewOfFile(processedPtr);
-    //         processedPtr = IntPtr.Zero;
-    //     }
-    //     if (batchFileMap != IntPtr.Zero)
-    //     {
-    //         CloseHandle(batchFileMap);
-    //         batchFileMap = IntPtr.Zero;
-    //     }
-    //     if (processedFileMap != IntPtr.Zero)
-    //     {
-    //         CloseHandle(processedFileMap);
-    //         processedFileMap = IntPtr.Zero;
-    //     }
-    // }
-
     private void DestroyMemoryMaps()
     {
         
@@ -440,28 +443,30 @@ public class PyUniSharingFast : MonoBehaviour
         UnmapViewOfFile(processedPtr);
         processedPtr = IntPtr.Zero;
         
+        UnmapViewOfFile(metadataPtr);
+        metadataPtr = IntPtr.Zero;
         
         CloseHandle(batchFileMap);
         batchFileMap = IntPtr.Zero;
         
         CloseHandle(processedFileMap);
         processedFileMap = IntPtr.Zero;
+
+        CloseHandle(metadataFileMap);
+        metadataFileMap = IntPtr.Zero;
     }
 
     private void OnValidate()
     {
         if(hasStarted)
         {
-            DestroyMemoryMaps();
             CalculateMemorySizes();
-            CreateMemoryMaps();
-
             WriteMetadata();
             // Update reusable resources
             reusableTexture = new RenderTexture(batchImageWidth, batchImageHeight, 24);
             image = new Texture2D(batchImageWidth, batchImageHeight, TextureFormat.RGB24, false);
             batchImageBuffer = new byte[batchImageCount * batchImageSize];
-            boolListSize = batchImageCount;
+            // boolListSize = batchImageCount;
 
             panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
             pixels = new Color32[processedImageWidth * processedImageHeight];
@@ -492,21 +497,12 @@ public class PyUniSharingFast : MonoBehaviour
         if (newBatchImageCount != batchImageCount)
         {
             batchImageCount = newBatchImageCount;
-
-            int previousTotalBatchSize = totalBatchSize;
             CalculateMemorySizes();
-
-            if (totalBatchSize != previousTotalBatchSize)
-            {
-                DestroyMemoryMaps();
-                CreateMemoryMaps();
-            }
-
+            WriteMetadata();
             batchImageBuffer = new byte[batchImageCount * batchImageSize];
-            
             ValidateTextures(); // Ensure textures are updated
+            
         }
-        
     }
 
     private void WriteMetadata()
@@ -525,6 +521,7 @@ public class PyUniSharingFast : MonoBehaviour
         offset += 4;
         Marshal.WriteInt32(metadataPtr, offset, batchImageHeight);
         offset += 4;
+        Debug.LogWarning(batchImageCount);
         Marshal.WriteInt32(metadataPtr, offset, batchImageCount);
         offset += 4;
         Marshal.WriteInt32(metadataPtr, offset, processedImageWidth);
@@ -545,7 +542,15 @@ public class PyUniSharingFast : MonoBehaviour
         // Write bool
         Marshal.WriteByte(metadataPtr, offset, (byte)(cylindrical ? 1 : 0));
         // Debug.Log("Metadata written to shared memory.");
+
+        if(hasStarted)return;
+        offset +=1;
+        // Write integers
+        Marshal.WriteInt32(metadataPtr, offset, maxTotalBatchSize);
+        offset += 4;
+        Marshal.WriteInt32(metadataPtr, offset, maxTotalProcessedSize);
     }
+
     private void CheckExistingMapping(string mapName)
     {
         IntPtr existingMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
@@ -585,12 +590,6 @@ public class PyUniSharingFast : MonoBehaviour
 
     void OnDestroy()
     {
-        UnmapViewOfFile(metadataPtr);
-        metadataPtr = IntPtr.Zero;
-
-        CloseHandle(metadataFileMap);
-        metadataFileMap = IntPtr.Zero;
-
         DestroyMemoryMaps();
     }
     void OnApplicationQuit()
