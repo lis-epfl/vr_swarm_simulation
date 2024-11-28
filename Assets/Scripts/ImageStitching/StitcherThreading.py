@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import glob
 import os
+import sys
 import torch
 import time
 from transformers import SuperPointForKeypointDetection
@@ -16,21 +17,70 @@ import networkx as nx
 import random
 
 
-lock = threading.Lock()
-global stitcher
+# sys.path.append(os.path.abspath("UDIS2_main\Warp"))
+from BaseStitcher import *
 
-global processedImageWidth
-global processedImageHeight
-global panoram_queue
-global headAngle
-# global typeOfStitcher, isCylindrical
 
-stitcher =0
+sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
+
+import UDIS2_main.Warp.Codes.utils_udis as udis_utils
+# from UDIS2_main.Warp.Codes.utils import *
+import UDIS2_main.Warp.Codes.utils_udis.torch_DLT as torch_DLT
+import UDIS2_main.Warp.Codes.grid_res as grid_res
+from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
+from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
+
+from UDISStitcher import *
+
+
+sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
+# sys.path.append(os.path.abspath("Neural_Image_Stitching_main\models"))
+# sys.path.append(os.path.abspath("."))
+
+# from Neural_Image_Stitching_main.srwarp import *
+# # import Neural_Image_Stitching_main.utils
+# from Neural_Image_Stitching_main.utils import *
+
+# from Neural_Image_Stitching_main.utils import make_coord
+# from Neural_Image_Stitching_main.models import *
+# from Neural_Image_Stitching_main.models.ihn import *
+# # from Neural_Image_Stitching_main.models_ import *
+# from Neural_Image_Stitching_main import stitch
+# import Neural_Image_Stitching_main.pretrained
+
+from PIL import Image
+
+sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
+import Neural_Image_Stitching_main.srwarp
+import Neural_Image_Stitching_main.utils as nis_utils
+# import Neural_Image_Stitching_main.utils
+from Neural_Image_Stitching_main.models.ihn import *
+from Neural_Image_Stitching_main.models import *
+from Neural_Image_Stitching_main import stitch
+import Neural_Image_Stitching_main.pretrained
+import yaml
+from types import SimpleNamespace
+
+
+from NISStitcher import *
+
+
 
 class StitcherManager:
-    def __init__(self):
-        self.active_stitcher = None
-        self.active_stitcher_type = None
+    def __init__(self, device ="cpu"):
+
+        self.stitchers = {
+            "CLASSIC": BaseStitcher(device=device),
+            "UDIS": UDISStitcher(),
+            "NIS": NISStitcher(),  # Replace with your NISStitcher instance if implemented
+        }
+
+        # Manually remove models of NIS from GPU because they load them directly on GPU
+        self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
+
+        self.active_stitcher = self.stitchers["CLASSIC"]
+        self.active_stitcher_type = "CLASSIC"
+        self.device = device
         
         self.switching_lock1 = threading.Lock()
         self.switching_lock2 = threading.Lock()
@@ -38,59 +88,85 @@ class StitcherManager:
 
         self.stitcherTypes = ["CLASSIC", "UDIS", "NIS"]
         self.cylidnricalWarp = False
-        self.panoram_queue = queue.Queue(1)
         self.headAngle = 0
         self.shared_images = None
         self.shared_images_bool = None
 
-    def set_stitcher(self, stitcher):
+        self.processedImageWidth = None
+        self.processedImageHeight = None
+
+        self.order_queue = queue.Queue(1)
+        self.homography_queue = queue.Queue(1)
+        self.direction_queue = queue.Queue(1)
+        self.panoram_queue = queue.Queue(1)
+
+    def set_stitcher(self, stitcher_type):
         """
         Safely switch the active stitcher.
         Waits for both threads to finish their current work before switching.
         """
-        if stitcher in self.stitcherTypes:
-            # Acquire both locks to ensure both threads are idle
-            with self.switching_lock1, self.switching_lock2:
-                # REmove devices from GPU
-                if self.active_stitcher_type == "CLASSIC":
-                    self.active_stitcher.model.cpu()
-                elif self.active_stitcher_type == "UDIS":
-                    self.active_stitcher.net.cpu()
-                elif self.active_stitcher_type == "UDIS":
-                    # TODO
-                    pass
+        if stitcher_type in self.stitcherTypes:
+            # Acquire both locks to ensure both threads are idle. First the lock of process2 because it is the slowest part
+            with self.switching_lock1:
+                with self.switching_lock2:
+                    # REmove devices from GPU
+                    if self.active_stitcher_type == "CLASSIC":
+                        self.active_stitcher.superpoint_model.cpu()
+                    elif self.active_stitcher_type == "UDIS":
+                        self.active_stitcher.net.cpu()
+                    elif self.active_stitcher_type == "NIS":
+                        self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
 
-                self.active_stitcher = stitcher
-                print(f"Switched to {stitcher.__class__.__name__}")
+                    self.active_stitcher = self.stitchers[stitcher_type]
+                    self.active_stitcher_type = stitcher_type
+                    print(f"Switched to {self.active_stitcher.__class__.__name__}")
+                    if self.active_stitcher_type == "CLASSIC":
+                        self.active_stitcher.superpoint_model.to(self.device)
+                    elif self.active_stitcher_type == "UDIS":
+                        self.active_stitcher.net.to(self.device)
+                    elif self.active_stitcher_type == "NIS":
+                        self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
 
-    def process_thread2(self):
+    def process_thread2(self, images, front_image_index,Hs, verbose, debug):
         """
         Thread 2 operation. Uses lock_thread2 for thread-safe access.
         """
         with self.switching_lock1:
-            if self.active_stitcher:
-                self.active_stitcher.process_images()
+            # if self.active_stitcher is not None:
+            Hs, order, inverted = self.active_stitcher.findHomographyOrder(images, front_image_index,Hs, verbose, debug)
+            self.order_queue.put(order)
+            self.homography_queue.put(Hs)
+            self.direction_queue.put(inverted)
 
-    def process_thread3(self):
+
+    def process_thread3(self, images, order, Hs, inverted, num_pano_img=3, verbose= False):
         """
         Thread 3 operation. Uses lock_thread3 for thread-safe access.
         """
         with self.switching_lock2:
-            if self.active_stitcher:
-                self.active_stitcher.stitch_panorama()
+            # if self.active_stitcher:
 
-    def changeCylindrical(self):
+            if self.active_stitcher_type == "CLASSIC":
+                pano = self.active_stitcher.stitch(images, order, Hs, inverted, self.headAngle, self.processedImageWidth, self.processedImageHeight, num_pano_img=num_pano_img, verbose=verbose)
+            elif self.active_stitcher_type == "UDIS":
+                pano = self.active_stitcher.stitch(images, order, Hs, inverted ,self.headAngle, num_pano_img=num_pano_img, verbose=verbose)
+            elif self.active_stitcher_type == "NIS":
+                # pano = self.active_stitcher.stitch(images, self.headAngle, order, num_pano_img=num_pano_img, verbose=verbose)
+                pano = self.active_stitcher.stitch(images, order, Hs, inverted , self.headAngle, num_pano_img=num_pano_img, verbose=verbose)
+                # pano = np.zeros((self.processedImageHeight, self.processedImageWidth, 3))
+            if self.panoram_queue.empty():
+                self.panoram_queue.put(pano)
+
+    def changeCylindrical(self, isCylindrical):
+        with self.switching_lock1, self.switching_lock2:
+            self.active_stitcher.cylindricalWarp = isCylindrical
+            self.active_stitcher.points_remap = None
         pass
-
-
 
 def first_thread(manager: StitcherManager, debug = False):
     """""
     This method read the images coming from the software. They have three shared memory files to store the images, the panorama and the metadatas.
     """""
-    global processedImageWidth
-    global processedImageHeight
-
     flagPosition = 0
     processedDataPosition = 4
     metadataSize = 20 + 64 + 1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
@@ -100,9 +176,9 @@ def first_thread(manager: StitcherManager, debug = False):
     output = readMetadataMemory(metadataMMF)
     typeOfStitcher, isCylindrical= output["string"], output["boolean"]
     
-    batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight= output["int_values"]
+    batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth , manager.processedImageHeight= output["int_values"]
     
-    imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight)
+    imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
     batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
     processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
 
@@ -112,14 +188,14 @@ def first_thread(manager: StitcherManager, debug = False):
         ### New part
         output = readMetadataMemory(metadataMMF)
         typeOfStitcher, isCylindrical= output["string"], output["boolean"]
-        batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight= output["int_values"]
-        imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight)
+        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight= output["int_values"]
+        imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
         
-        if manager.active_stitcher != typeOfStitcher:
+        if manager.active_stitcher_type != typeOfStitcher:
             manager.set_stitcher(typeOfStitcher)
 
-        if manager.active_stitcher.cylidnricalWarp != isCylindrical:
-            manager.changeCylindrical()
+        if manager.active_stitcher.cylindricalWarp != isCylindrical:
+            manager.changeCylindrical(isCylindrical)
 
         try:
             batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
@@ -138,14 +214,11 @@ def first_thread(manager: StitcherManager, debug = False):
         if not manager.panoram_queue.empty():
             panorama = manager.panoram_queue.get()
             H, W, _ = panorama.shape
-            if H != processedImageHeight or W != processedImageWidth:
+            if H != manager.processedImageHeight or W != manager.processedImageWidth:
                 try:
-                    panorama = cv2.resize(panorama, (processedImageWidth, processedImageHeight))
+                    panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
                 except:
                     continue
-            # if debug:
-            #     panoram_queue.put(panorama)
-            #     break
             try:
                 processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
                 write_memory(processedMMF, flagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
@@ -157,6 +230,8 @@ def first_thread(manager: StitcherManager, debug = False):
 
         time.sleep(0.05)
 
+        # print(headAngle, typeOfStitcher, isCylindrical)
+
         if first_loop:
             first_loop = False
             time.sleep(1.)
@@ -164,7 +239,7 @@ def first_thread(manager: StitcherManager, debug = False):
         if debug:
             break
 
-def second_thread(manager: StitcherManager, front_image_index=0, debug= False):
+def second_thread(manager: StitcherManager, front_image_index=0, verbose = False, debug= False):
     """""
     This method uses some of the above methods to extract the order and the homographies of the paired images.
     Input:
@@ -175,56 +250,24 @@ def second_thread(manager: StitcherManager, front_image_index=0, debug= False):
     # global shared_images
     while True:
         if manager.shared_images is None:
-                print("Second thread sleep")
-                time.sleep(0.4)
-                continue
+            print("Second thread sleep")
+            time.sleep(0.4)
+            continue
         
-        with lock:
+        with manager.info_lock:
             images = manager.shared_images
 
         t = time.time()
-        if manager.cylidnricalWarp:
-            outputs, ratios, images = SP_inference_fast(images)
-        else:
-            outputs, ratios = SP_inference_fast(images)
+        manager.process_thread2(images, front_image_index=front_image_index,Hs = Hs, verbose = verbose, debug= debug)
 
-        
-        keypoints, descriptors = keep_best_keypoints(outputs, ratios)
-        t1 = time.time()
-        # keypoints, descriptors = ORB_extraction(images)
-        matches_info, confidences = compute_matches_and_confidences(descriptors, keypoints)
-        t2 = time.time()
-        best_pairs = find_top_pairs(confidences)
-        partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
-        H, order, inverted = compute_homographies_and_order(keypoints, matches_info, partial_order, Hs)
-        if Hs is not None:
-            for i in range(H.shape[0]):
-                Hs[i] = smooth_homography(H[i], Hs[i], alpha=0.08)
-        else:
-            Hs = H
-
-        t3 = time.time()
-        # Ms, order, inverted = compute_affines_and_order(keypoints, matches_info, partial_order)
-
-        # print("time to extract keypoints:", t1-t)
-        # print("time to compute matches:", t2-t1)
-        # print("time to compute homographies:", t3-t2)
-
-        # put everything in the queues
-        order_queue.put(order)
-        homography_queue.put(Hs)
-        # homography_queue.put(Ms)
-        direction_queue.put(inverted)
-        print(order)
-        # print(f"Time to compute the Parameters: {time.time()-t}")
+        # print(order)
+        if verbose:
+            print(f"Second thread loop time: {time.time()-t}")
         # time.sleep(0.5)
-        # print("New parameters given")
-        
         if debug:
-            return keypoints, Hs, order, inverted, best_pairs, matches_info, confidences, images
-            # return keypoints, Ms, order, inverted, best_pairs, matches_info, confidences, images
-
-def third_thread(manager: StitcherManager, num_pano_img=3, debug=False):
+            break
+    
+def third_thread(manager: StitcherManager, num_pano_img=3, verbose =False, debug=False):
     """""
     This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
     of the pilots head and the desired number of images in the panorama.
@@ -235,9 +278,6 @@ def third_thread(manager: StitcherManager, num_pano_img=3, debug=False):
     """""
     # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
     # Take the order and the ref to compute the panorama
-
-    global processedImageWidth
-    global processedImageHeight
 
     order, Hs, inverted = None, None, None
 
@@ -253,30 +293,22 @@ def third_thread(manager: StitcherManager, num_pano_img=3, debug=False):
             time.sleep(0.4)
             continue
         
-        with lock:
+        with manager.info_lock:
             images = manager.shared_images
 
         t = time.time()
-        if manager.cylidnricalWarp:
-            images = [cylindricalWarp(img) for img in images]
-        
-        
-        subset1, subset2, Hs1, Hs2 = chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
-        # pano = compose_with_ref(images, Hs1, Hs2, subset1, subset2, inverted)
-        pano = compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=processedImageWidth, panoHeight=processedImageHeight)
-        # pano = affineStitching(images, Hs1, Hs2, subset1, subset2, inverted)
-        
-        panoram_queue.put(pano)
 
-        # print(f"Time to make the Panorama: {time.time()-t}")
-        # print("Panorama Given")
+        if order.shape[0]//3 != len(images):
+            order = None
+            continue
+        manager.process_thread3(images,order, Hs, inverted, num_pano_img=3, verbose=verbose)
+
+        if verbose:
+            print(f"Third thread loop time: {time.time()-t}")
         if debug:
-            if inverted:
-                print("inverted")
-            print(f"Order of the right : {subset2}")
-            print(f"Order of the left : {subset1}")
-
             break
+
+    print("Quitting third thread")
 
 def readMetadataMemory(metadataMMF :mmap )->dict:
     
@@ -406,20 +438,20 @@ def main():
     cam_mat = np.array([[f, 0, imageWidth/2], 
                         [0, f, imageHeight/2],
                         [0, 0, 1]])
+    
+    manager = StitcherManager("cuda")
 
-    stitcher = custom_stitcher_SP(camera_matrix=cam_mat, warp_type="cylindrica", algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device="cuda")
+    first_t = threading.Thread(target=first_thread, args=(manager, False))
+    first_t.daemon = True
+    first_t.start()
 
-    first_thread = threading.Thread(target=stitcher.first_thread, args=(False,))
-    first_thread.daemon = True
-    first_thread.start()
+    sec_t = threading.Thread(target=second_thread, args=(manager, 0, True, False))
+    sec_t.daemon = True
+    sec_t.start()
 
-    sec_thread = threading.Thread(target=stitcher.second_thread, args=(0, False))
-    sec_thread.daemon = True
-    sec_thread.start()
-
-    third_thread = threading.Thread(target=stitcher.third_thread, args=(0, 3, False))
-    third_thread.daemon = True
-    third_thread.start()
+    third_t = threading.Thread(target=third_thread, args=(manager, 3, True, False))
+    third_t.daemon = True
+    third_t.start()
 
     while True:
         time.sleep(100)

@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
 
-from UDIS2_main.Warp.Codes.utils import *
+from UDIS2_main.Warp.Codes.utils_udis import *
 
 import UDIS2_main.Warp.Codes.grid_res as grid_res
 from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
@@ -30,12 +30,13 @@ import torchvision.transforms as T
 # from numba import jit
 
 class UDISStitcher(BaseStitcher):
-    def __init__(self, device):
+    def __init__(self):
         super().__init__(device="cpu")  # Initialize the base class
 
         # UDIS parameters
         self.resize_512 = T.Resize((512,512))
         self.net = Network()
+        model_path ="UDIS2_main\Warp"
         MODEL_DIR = os.path.join(model_path, 'model')
 
         ckpt_list = glob.glob(MODEL_DIR + "/*.pth")
@@ -45,8 +46,6 @@ class UDISStitcher(BaseStitcher):
             checkpoint = torch.load(model_path)
             self.net.load_state_dict(checkpoint['model'])
             print('load model from {}!'.format(model_path))
-
-        self.net.to(device)
     
     def UDIS_warping(self, image1, image2):
         input1_tensor, input2_tensor = loadSingleData(image1, image2)
@@ -79,31 +78,35 @@ class UDISStitcher(BaseStitcher):
         # print("warping right")
         right_warp = self.UDIS_warping(images[subset2[0]], images[subset2[1]])
 
-        shiftup2 = np.argmax(right_warp[:,0].mean(axis=1) != 0)
-        shiftdown2 = shiftup2 + np.argmax(right_warp[shiftup2:, 0].mean(axis=1) == 0)
+        # Find first black pixel and first black pixel after image in the first column
+        sum_right = right_warp[:,0].sum(axis=1)
+        shiftup2 = np.argmax(sum_right != 0)
+        shiftdown2 = 0
+        if sum_right[-1]==0:
+            shiftdown2 = shiftup2 + np.argmax(sum_right[shiftup2:] == 0)
 
         # We have to flip the images to warp the left image and keep central image as the reference
         image1, image2 = cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1)
-
-        # print("warping left")
         left_warp = self.UDIS_warping(image1, image2)
         
-        shiftup1 = np.argmax(left_warp[:,0].mean(axis=1) != 0)
-        shiftdown1 = shiftup1 + np.argmax(left_warp[shiftup1:, 0].mean(axis=1) == 0)
+        # Find first black pixel and first black pixel after image in the first column
+        sum_left = left_warp[:,0].sum(axis=1)
+        shiftup1 = np.argmax(sum_left != 0)
+        shiftdown1 = 0
+        if sum_left[-1]==0:
+            shiftdown1 = shiftup1 + np.argmax(sum_left[shiftup1:] == 0)
 
         left_warp = cv2.flip(left_warp, 1)
 
         rightSize = right_warp.shape
         leftSize = left_warp.shape
 
+        # Compute difference size between ref image and warped ones
         diff2x, diff2y = rightSize[1]-w, rightSize[0]-h
         diff1x, diff1y = leftSize[1]-w, leftSize[0]-h
 
         pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
         # pano = np.zeros((h, diff1x+diff2x+w, 3))
-
-        print(f"right diff: {diff2x, diff2y}")
-        print(f"left diff: {diff1x, diff1y}")
 
         if diff2y == shiftup2+(rightSize[0]-shiftdown2) and diff1y == shiftup1+(leftSize[0]-shiftdown1):
             diffshiftup = shiftup2-shiftup1
@@ -114,12 +117,19 @@ class UDISStitcher(BaseStitcher):
             else:
                 pano[:leftSize[0], :diff1x+w//2] = left_warp[:, :diff1x+w//2]
                 # Problem dimension here
-                pano[-diffshiftup:leftSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
+                pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
                 # maybe this
                 # pano[-diffshiftup:leftSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
                 
         else:
+            print("Control if shifts are equal:")
+            print(diff2y==shiftup2+shiftdown2, diff1y==shiftup1+shiftdown1)
+            
             print("Alignement problem")
+            print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
+            print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
+            
+            pano = right_warp
 
         print(f"Warp time : {time.time()-t0}")
 
@@ -170,10 +180,10 @@ class UDISStitcher(BaseStitcher):
 
         left_warp, right_warp = output[0].numpy().transpose(1,2,0), output[1].numpy().transpose(1,2,0)
         
-        shiftup1 = np.argmax(left_warp[:,0].mean(axis=1) != 0)
-        shiftdown1 = shiftup1 + np.argmax(left_warp[shiftup1:, 0].mean(axis=1) == 0)
-        shiftup2 = np.argmax(right_warp[:,0].mean(axis=1) != 0)
-        shiftdown2 = shiftup2 + np.argmax(right_warp[shiftup2:, 0].mean(axis=1) == 0)
+        shiftup1 = np.argmax(left_warp[:,0].sum(axis=1) != 0)
+        shiftdown1 = shiftup1 + np.argmax(left_warp[shiftup1:, 0].sum(axis=1) == 0)
+        shiftup2 = np.argmax(right_warp[:,0].sum(axis=1) != 0)
+        shiftdown2 = shiftup2 + np.argmax(right_warp[shiftup2:, 0].sum(axis=1) == 0)
         
 
         left_warp = cv2.flip(left_warp, 1)
@@ -197,7 +207,7 @@ class UDISStitcher(BaseStitcher):
                 pano[:rightSize[0], diff1x+w//2:] = right_warp[:, w//2:]
             else:
                 pano[:leftSize[0], :diff1x+w//2] = left_warp[:, :diff1x+w//2]
-                pano[-diffshiftup:leftSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
+                pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
 
         else:
             print("Alignement problem")
@@ -209,7 +219,7 @@ class UDISStitcher(BaseStitcher):
 
         return pano.astype(np.uint8)
   
-    def stitch(self, images, headAngle, order, num_pano_img=3, verbose=False):
+    def stitch(self, images, order, Hs, inverted, headAngle, num_pano_img=3, verbose=False):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
         of the pilots head and the desired number of images in the panorama.
@@ -223,7 +233,7 @@ class UDISStitcher(BaseStitcher):
 
         t = time.time()
 
-        subset1, subset2 = self.chooseSubsetsAndTransforms(num_pano_img, order, headAngle)
+        subset1, subset2, _, _ = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
         pano = self.UDIS_pano(images, subset1, subset2)          
         if verbose:
             print(f"Warp time: {time.time()-t}")    
