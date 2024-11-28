@@ -8,63 +8,6 @@ from transformers import SuperPointForKeypointDetection
 from numba import jit
 import networkx as nx
 import random
-from scipy.optimize import minimize
-
-
-def smooth_homography(H_new, H_prev, alpha=0.8):
-    """
-    Smooth the new homography matrix by blending it with the previous one.
-    :param H_new: New homography matrix (3x3).
-    :param H_prev: Previous homography matrix (3x3).
-    :param alpha: Smoothing factor (0 < alpha <= 1). Higher values favor the previous matrix.
-    :return: Smoothed homography matrix.
-    """
-    return alpha * H_prev + (1 - alpha) * H_new
-
-def weighted_average_homography(H_new, H_prev, weight=0.1):
-    """
-    Weighted averaging of homography matrices.
-    :param H_new: Newly computed homography matrix.
-    :param H_prev: Previous homography matrix.
-    :param weight: Weight given to the previous homography.
-    :return: Smoothed homography matrix.
-    """
-    delta = np.linalg.norm(H_new - H_prev, ord='fro')
-    adaptive_weight = weight / (1 + delta)  # Higher weight if the change is small
-    return adaptive_weight * H_prev + (1 - adaptive_weight) * H_new
-
-def compute_regularized_homography(points1, points2, H_prev, lambda_reg=0.1):
-    """
-    Compute homography matrix with regularization using optimization.
-    :param points1: Source points (Nx2).
-    :param points2: Destination points (Nx2).
-    :param H_prev: Previous homography matrix.
-    :param lambda_reg: Regularization weight.
-    :return: Regularized homography matrix.
-    """
-
-    def reprojection_error(H_flat, points1, points2, H_prev, lambda_reg):
-        H = H_flat.reshape(3, 3)
-        points1_homog = np.hstack((points1, np.ones((points1.shape[0], 1))))
-        points2_proj = (H @ points1_homog.T).T
-        points2_proj /= points2_proj[:, 2][:, None]
-        reprojection_error = np.sum(np.linalg.norm(points2_proj[:, :2] - points2, axis=1)**2)
-        regularization_term = lambda_reg * np.linalg.norm(H - H_prev, ord='fro')**2
-        return reprojection_error + regularization_term
-
-    # Initial guess: the previous homography
-    H_init = H_prev.flatten()
-
-    # Minimize the reprojection error with regularization
-    result = minimize(
-        reprojection_error, 
-        H_init, 
-        args=(points1, points2, H_prev, lambda_reg), 
-        method='BFGS'
-    )
-
-    H_optimized = result.x.reshape(3, 3)
-    return H_optimized
 
 
 def plot_graph_with_opencv(cycle, node_positions):
@@ -216,7 +159,7 @@ def invert_matrices(Hs:np.ndarray)->np.ndarray:
 
 class BaseStitcher:
     def __init__(self, 
-                 camera_matrix, 
+                 camera_matrix = None, 
                  cylindricalWarp=False, 
                  full_cylinder = False, 
                  algorithm=1, 
@@ -251,6 +194,8 @@ class BaseStitcher:
         self.ratio_thresh = ratio_thresh
 
         # Camera informations
+        if camera_matrix is None:
+            camera_matrix = np.array([[300,0, 150], [0,300, 150], [0,0, 1]])
         self.camera_matrix = camera_matrix
 
         # Warp informations
@@ -287,7 +232,9 @@ class BaseStitcher:
         Warps an image in cylindrical coordinate based on the intrinsic camera matrix.
         """
         if self.points_remap is None:
-            K = self.camera_matrix
+            K = self.camera_matrix.copy()
+            K[0,2] = img.shape[1]//2
+            K[1,2] = img.shape[0]//2
             foc_len = (K[0][0] +K[1][1])/2
             cylinder = np.zeros_like(img)
             temp = np.mgrid[0:img.shape[1],0:img.shape[0]]
@@ -764,7 +711,6 @@ class BaseStitcher:
         # Warp and blend images from subset1 (left side), skipping the reference image
         for i in range(Hs1.shape[0]):
             H_translate = np.dot(translation_matrix, H1_acc[i])
-            
             warped_img = cv2.warpPerspective(images[subset1[i + 1]], H_translate, panorama_size)
 
             mask = (warped_img > 0).astype(np.uint8)
@@ -809,20 +755,32 @@ class BaseStitcher:
         matches_info, confidences = self.compute_matches_and_confidences(descriptors, keypoints)
         t2 = time.time()
         partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
+
+        # TODO Should also look if number of images is the same
         H, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order, Hs)
-        
-        if Hs is not None:
-            for i in range(H.shape[0]):
-                Hs[i] = smooth_homography(H[i], Hs[i], alpha=0.08)
-        else:
-            Hs = H
         t3 = time.time()
+
+        if Hs is None or H.shape !=Hs.shape:
+            Hs = np.zeros_like(H)
+        
+        h, w = images[0].shape[:2]
+
+        # Initial corners of the reference image
+        # corners = np.array([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]], dtype=np.float32).reshape(-1, 1, 2)
+        corners = np.array([[0, w-1 , w -1, 0],
+                              [0, 0, h-1 , h-1 ],
+                              [1, 1, 1, 1]], dtype=np.float32)
+        
+        Hs = ControlHomography(H, Hs, corners, ratios=1.5, change_thresh =100)
+        
+        t4 = time.time()
 
         if verbose:
             print("time to extract keypoints:", t1-t0)
             print("time to compute matches:", t2-t1)
             print("time to compute homographies:", t3-t2)
-            print("Total time to compute Hs and order:", t3-t0)
+            print("Time to control:", t4-t3)
+            print("Total time to compute Hs and order:", t4-t0)
         
         if debug:
             best_pairs = self.find_top_pairs(confidences)
@@ -830,7 +788,7 @@ class BaseStitcher:
         
         return Hs, order, inverted
 
-    def stitch(self, images, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3, verbose=False):
+    def stitch(self, images, order, Hs, inverted, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3, verbose=False):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
         of the pilots head and the desired number of images in the panorama.
@@ -842,7 +800,7 @@ class BaseStitcher:
         # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
         # Take the order and the ref to compute the panorama
 
-        order, Hs, inverted = None, None, None
+        # order, Hs, inverted = None, None, None
 
         t = time.time()
         if self.cylindricalWarp:
@@ -858,14 +816,14 @@ class BaseStitcher:
 # Have to add function that will look if parameters have changed and if so, recompute cylindrical warping
 # Think about how to change the stitcher. Maybe instead of 3 methods as thread, just do 3 functions
 
-def hasSmallStretchHomography(H: np.ndarray, corners, tolerance = 2):
+def hasSmallStretchHomography(H: np.ndarray, corners, ratio = 1.5):
 
     H[:2, -1] = np.zeros(2)
     _, newCorners =apply_homographies(np.expand_dims(H, axis=0), corners)
 
-    if newCorners>tolerance*corners[:2]:
+    if newCorners>1.5*corners[:2]:
         print("Too big changes")
-        return False
+        return False, None
     
     return True
 
@@ -874,3 +832,92 @@ def hassmallChangeHomography(H_new, H_prev, criterion = 0.5):
     Assume same dimensions for H_new and H_prev
     """
     return np.linalg.norm(H_prev-H_new, 'fro')>criterion
+
+# def ControlHomography(Hs_new, Hs_prev, corners, ratios=1.5, change_thresh =100):
+
+#     b = Hs_new.shape[0]
+
+#     # Compute new corners in batch
+#     Hs_new_ = Hs_new.copy()
+#     Hs_new_[:, :2, -1] = np.zeros(2)
+
+#     new_corners_2d = (Hs_new_@corners[:, 1:3])[:, :2, :]
+
+#     Hs_prev_ = Hs_prev.copy()
+#     Hs_prev_[:, :2, -1] = np.zeros(2)
+#     prev_corners_2d = (Hs_prev_@corners[:, 1:3])[:, :2, :]
+
+#     good_index = np.ones(b, dtype=np.bool_)
+#     # Control if image not too stretched
+#     for i in range(b):
+#         if np.linalg.norm(new_corners_2d[i]-corners[:2, 1:3], "fro")>ratios**2:
+#             good_index[i]=False
+#         else:
+#             if Hs_prev[i] == np.zeros_like(Hs_prev[i]):
+#                 Hs_prev[i] = Hs_new[i]
+#                 good_index[i]=False
+
+#     # Control if points have not changed too much between 2 homographies
+#     for i in range(b):
+#         distance = np.linalg.norm(new_corners_2d[i]-prev_corners_2d[i], "fro")
+#         if good_index[i] and distance < change_thresh :
+#             Hs_prev[i] = Hs_new[i]
+
+#     return Hs_prev
+
+def ControlHomography(Hs_new, Hs_prev, corners, ratios=1.5, change_thresh=100):
+    """
+    Validate and update homographies based on stretch and change thresholds.
+
+    Parameters:
+        Hs_new (np.ndarray): New homographies, shape (b, 3, 3).
+        Hs_prev (np.ndarray): Previous homographies, shape (b, 3, 3).
+        corners (np.ndarray): Corner points, shape (n, 3, num_corners).
+        ratios: Maximum allowed ratio for homography stretch.
+        change_thresh (float): Maximum allowed change between consecutive homography transformations on the two right corners.
+
+    Returns:
+        np.ndarray: Updated homographies, shape (b, 3, 3).
+    """
+    b = Hs_new.shape[0]
+
+    # Remove translation component
+    Hs_new_ = Hs_new.copy()
+    Hs_new_[:, :2, -1] = 0
+
+    Hs_prev_ = Hs_prev.copy()
+    Hs_prev_[:, :2, -1] = 0
+
+    # Compute transformed corners
+    # new_corners_2d = np.einsum('bij,jk->bik', Hs_new_, corners[:, 1:3])[:, :2, :]
+    # prev_corners_2d = np.einsum('bij,jk->bik', Hs_prev_, corners[:, 1:3])[:, :2, :]
+
+    new_corners = np.einsum('bij,jk->bik', Hs_new_, corners[:, 1:3])#[:, :2, :]
+    prev_corners = np.einsum('bij,jk->bik', Hs_prev_, corners[:, 1:3])#[:, :2, :]
+
+    new_corners_2d = new_corners[:, :2, :] / (new_corners[:, -1:, :] + 1e-6)
+    prev_corners_2d = prev_corners[:, :2, :] / (prev_corners[:, -1:, :] + 1e-6)
+
+    good_index = np.ones(b, dtype=bool)
+
+    # Check for image stretch
+    for i in range(b):
+        frobenius_distance = np.linalg.norm(new_corners_2d[i] - corners[:2, 1:3], ord="fro")
+        if frobenius_distance > ratios ** 2:
+            good_index[i] = False
+        elif np.allclose(Hs_prev[i], 0):  # Check for zero homography
+            Hs_prev[i] = Hs_new[i]
+            good_index[i] = False
+
+    # Check for large changes between consecutive homographies
+    for i in range(b):
+        distance = np.linalg.norm(new_corners_2d[i] - prev_corners_2d[i], ord="fro")
+        if good_index[i] and distance < change_thresh:
+            Hs_prev[i] = Hs_new[i]
+
+    return Hs_prev
+
+
+
+    #Control if not too much changes between two consecutive homorgraphies
+
