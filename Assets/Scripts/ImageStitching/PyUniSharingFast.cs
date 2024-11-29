@@ -26,10 +26,16 @@ public class PyUniSharingFast : MonoBehaviour
     private float readInterval = 0.05f;
 
     [SerializeField]
-    private stitcherType typeOfSTitcher = stitcherType.CLASSIC; // Possible values: classic, UDIS, NIS
+    private stitcherType typeOfStitcher = stitcherType.CLASSIC; // Possible values: classic, UDIS, NIS
 
     [SerializeField]
     private bool cylindrical = false;
+
+    [SerializeField]
+    private matcherType typeOfMatcher = matcherType.BF;
+
+    [SerializeField]
+    private bool ransac = false;
 
     private string batchMapName = "BatchSharedMemory";
     private int batchImageCount = 0;
@@ -43,7 +49,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalProcessedSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1+ 4 + 4; // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
+    private int metadataSize = 20 + 64 + 1+ 4 + 4;//+64+1 for matcher and ransac bool // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
 
     private IntPtr batchFileMap;
     private IntPtr batchPtr;
@@ -83,6 +89,13 @@ public class PyUniSharingFast : MonoBehaviour
         UDIS,
         NIS
     }
+
+    public enum matcherType
+    {
+        BF,
+        FLANN
+    }
+    
     private bool hasStarted = false;
 
     // Constant values
@@ -531,16 +544,27 @@ public class PyUniSharingFast : MonoBehaviour
 
         // Write string (up to 64 bytes, zero-padded)
 
-        byte[] stringBytes = Encoding.UTF8.GetBytes(typeOfSTitcher.ToString());
+        byte[] stringBytes = Encoding.UTF8.GetBytes(typeOfStitcher.ToString());
         byte[] stringBuffer = new byte[64];
         Array.Copy(stringBytes, stringBuffer, Math.Min(stringBytes.Length, stringBuffer.Length));
         Marshal.Copy(stringBuffer, 0, IntPtr.Add(metadataPtr, offset), stringBuffer.Length);
-        
-        // Marshal.Copy(stringBytes, 0, IntPtr.Add(metadataPtr, offset), Math.Min(stringBytes.Length, 64));
         offset += 64;
 
         // Write bool
         Marshal.WriteByte(metadataPtr, offset, (byte)(cylindrical ? 1 : 0));
+        offset +=1;
+
+        // // Wrtite type of matcher
+        // byte[] stringBytes = Encoding.UTF8.GetBytes(typeOfMatcher.ToString());
+        // byte[] stringBuffer = new byte[64];
+        // Array.Copy(stringBytes, stringBuffer, Math.Min(stringBytes.Length, stringBuffer.Length));
+        // Marshal.Copy(stringBuffer, 0, IntPtr.Add(metadataPtr, offset), stringBuffer.Length);
+        // offset += 64;
+
+        // // Write RANSAC bool
+        // Marshal.WriteByte(metadataPtr, offset, (byte)(ransac ? 1 : 0));
+        // // offset +=1;
+
         // Debug.Log("Metadata written to shared memory.");
 
         if(hasStarted)return;

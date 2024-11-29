@@ -273,13 +273,13 @@ class BaseStitcher:
                 return None, None
 
             H, W = images_cyl[0].shape[:2]
-            if W<640 or H<480:
+            if W<self.W_SP or H<self.H_SP:
                 inputs = [cv2.resize(img, (self.W_SP, self.H_SP), interpolation=cv2.INTER_LINEAR) for img in images_cyl]
             else:
                 inputs = [cv2.resize(img, (self.W_SP, self.H_SP), interpolation=cv2.INTER_AREA) for img in images_cyl]
         else:
             H, W = images[0].shape[:2]
-            if W<640 or H<480:
+            if W<self.W_SP or H<self.H_SP:
                 inputs = [cv2.resize(img, (self.W_SP, self.H_SP), interpolation=cv2.INTER_LINEAR) for img in images]
             else:   
                 inputs = [cv2.resize(img, (self.W_SP, self.H_SP), interpolation=cv2.INTER_AREA) for img in images]
