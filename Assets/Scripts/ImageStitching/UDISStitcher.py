@@ -29,6 +29,8 @@ import torchvision.transforms as T
 # # from torch.quantization import quantize_dynamic
 # from numba import jit
 
+already_saved = False
+
 class UDISStitcher(BaseStitcher):
     def __init__(self):
         super().__init__(device="cpu")  # Initialize the base class
@@ -36,6 +38,7 @@ class UDISStitcher(BaseStitcher):
         # UDIS parameters
         self.resize_512 = T.Resize((512,512))
         self.net = Network()
+        self.net.eval()
         model_path ="UDIS2_main\Warp"
         MODEL_DIR = os.path.join(model_path, 'model')
 
@@ -69,10 +72,40 @@ class UDISStitcher(BaseStitcher):
 
         stitched_images = output['stitched'][0].cpu().detach().numpy().transpose(1,2,0)
 
+        """""
+        # To be tested. It should be the part to just obtain the panorama without retraining the net
+        inpu1_tesnor = batch_value[0].float()
+        inpu2_tesnor = batch_value[1].float()
+
+        if torch.cuda.is_available():
+            inpu1_tesnor = inpu1_tesnor.cuda()
+            inpu2_tesnor = inpu2_tesnor.cuda()
+
+        with torch.no_grad():
+            batch_out = build_output_model(net, inpu1_tesnor, inpu2_tesnor)
+
+        final_warp1 = batch_out['final_warp1']
+        final_warp1_mask = batch_out['final_warp1_mask']
+        final_warp2 = batch_out['final_warp2']
+        final_warp2_mask = batch_out['final_warp2_mask']
+        final_mesh1 = batch_out['mesh1']
+        final_mesh2 = batch_out['mesh2']
+
+
+        final_warp1 = ((final_warp1[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
+        final_warp2 = ((final_warp2[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
+        final_warp1_mask = final_warp1_mask[0].cpu().detach().numpy().transpose(1,2,0)
+        final_warp2_mask = final_warp2_mask[0].cpu().detach().numpy().transpose(1,2,0)
+        # final_mesh1 = final_mesh1[0].cpu().detach().numpy()
+        # final_mesh2 = final_mesh2[0].cpu().detach().numpy()
+
+        ave_fusion = final_warp1 * (final_warp1/ (final_warp1+final_warp2+1e-6)) + final_warp2 * (final_warp2/ (final_warp1+final_warp2+1e-6))
+        """""
+
         return stitched_images
 
     def UDIS_pano(self, images, subset1, subset2):
-
+        global already_saved
         t0=time.time()
         h, w, _ = images[0].shape
         # print("warping right")
@@ -132,6 +165,15 @@ class UDISStitcher(BaseStitcher):
             pano = right_warp
 
         print(f"Warp time : {time.time()-t0}")
+
+        if not already_saved:
+            already_saved = True
+            cv2.imwrite("left_warp.jpg", cv2.cvtColor(left_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
+            cv2.imwrite("right_warp.jpg", cv2.cvtColor(right_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
+            # cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
+            # cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
+            cv2.imwrite("pano.jpg", cv2.cvtColor(pano.astype('uint8'), cv2.COLOR_RGB2BGR))
+            print("saving")
 
         return pano.astype(np.uint8)
 

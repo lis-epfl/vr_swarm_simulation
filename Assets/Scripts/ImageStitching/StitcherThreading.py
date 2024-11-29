@@ -1,4 +1,3 @@
-# import custom_stitching
 import numpy as np
 import cv2
 import glob
@@ -15,62 +14,32 @@ import mmap
 import struct
 import networkx as nx
 import random
+from PIL import Image
 
-
-# sys.path.append(os.path.abspath("UDIS2_main\Warp"))
 from BaseStitcher import *
 
-
 sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
-
 import UDIS2_main.Warp.Codes.utils_udis as udis_utils
-# from UDIS2_main.Warp.Codes.utils import *
 import UDIS2_main.Warp.Codes.utils_udis.torch_DLT as torch_DLT
 import UDIS2_main.Warp.Codes.grid_res as grid_res
 from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
 from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
-
 from UDISStitcher import *
-
-
-sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
-# sys.path.append(os.path.abspath("Neural_Image_Stitching_main\models"))
-# sys.path.append(os.path.abspath("."))
-
-# from Neural_Image_Stitching_main.srwarp import *
-# # import Neural_Image_Stitching_main.utils
-# from Neural_Image_Stitching_main.utils import *
-
-# from Neural_Image_Stitching_main.utils import make_coord
-# from Neural_Image_Stitching_main.models import *
-# from Neural_Image_Stitching_main.models.ihn import *
-# # from Neural_Image_Stitching_main.models_ import *
-# from Neural_Image_Stitching_main import stitch
-# import Neural_Image_Stitching_main.pretrained
-
-from PIL import Image
 
 sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
 import Neural_Image_Stitching_main.srwarp
 import Neural_Image_Stitching_main.utils as nis_utils
-# import Neural_Image_Stitching_main.utils
 from Neural_Image_Stitching_main.models.ihn import *
 from Neural_Image_Stitching_main.models import *
 from Neural_Image_Stitching_main import stitch
 import Neural_Image_Stitching_main.pretrained
-import yaml
-from types import SimpleNamespace
-
-
 from NISStitcher import *
-
-
 
 class StitcherManager:
     def __init__(self, device ="cpu"):
 
         self.stitchers = {
-            "CLASSIC": BaseStitcher(device=device),
+            "CLASSIC": BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.15, device=device),
             "UDIS": UDISStitcher(),
             "NIS": NISStitcher(),  # Replace with your NISStitcher instance if implemented
         }
@@ -137,6 +106,7 @@ class StitcherManager:
             self.order_queue.put(order)
             self.homography_queue.put(Hs)
             self.direction_queue.put(inverted)
+            print(order)
 
 
     def process_thread3(self, images, order, Hs, inverted, num_pano_img=3, verbose= False):
@@ -260,7 +230,6 @@ def second_thread(manager: StitcherManager, front_image_index=0, verbose = False
         t = time.time()
         manager.process_thread2(images, front_image_index=front_image_index,Hs = Hs, verbose = verbose, debug= debug)
 
-        # print(order)
         if verbose:
             print(f"Second thread loop time: {time.time()-t}")
         # time.sleep(0.5)
@@ -302,6 +271,7 @@ def third_thread(manager: StitcherManager, num_pano_img=3, verbose =False, debug
             order = None
             continue
         manager.process_thread3(images,order, Hs, inverted, num_pano_img=3, verbose=verbose)
+        # order = None
 
         if verbose:
             print(f"Third thread loop time: {time.time()-t}")
@@ -440,16 +410,18 @@ def main():
                         [0, 0, 1]])
     
     manager = StitcherManager("cuda")
+    verbose = False
+    debug = False
 
-    first_t = threading.Thread(target=first_thread, args=(manager, False))
+    first_t = threading.Thread(target=first_thread, args=(manager, debug))
     first_t.daemon = True
     first_t.start()
 
-    sec_t = threading.Thread(target=second_thread, args=(manager, 0, True, False))
+    sec_t = threading.Thread(target=second_thread, args=(manager, 0, verbose, debug))
     sec_t.daemon = True
     sec_t.start()
 
-    third_t = threading.Thread(target=third_thread, args=(manager, 3, True, False))
+    third_t = threading.Thread(target=third_thread, args=(manager, 3, verbose, debug))
     third_t.daemon = True
     third_t.start()
 
