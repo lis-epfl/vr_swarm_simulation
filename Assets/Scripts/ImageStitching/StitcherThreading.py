@@ -35,6 +35,12 @@ from Neural_Image_Stitching_main import stitch
 import Neural_Image_Stitching_main.pretrained
 from NISStitcher import *
 
+# Activate environnement
+# cmd
+# cd Assets\Scripts\ImageStitching 
+# python StitcherThreading.py
+
+
 class StitcherManager:
     def __init__(self, device ="cpu"):
 
@@ -49,6 +55,7 @@ class StitcherManager:
 
         self.active_stitcher = self.stitchers["CLASSIC"]
         self.active_stitcher_type = "CLASSIC"
+        self.active_matcher_type = "BF"
         self.device = device
         
         self.switching_lock1 = threading.Lock()
@@ -57,6 +64,7 @@ class StitcherManager:
 
         self.stitcherTypes = ["CLASSIC", "UDIS", "NIS"]
         self.cylidnricalWarp = False
+        self.isRANSAC = False
         self.headAngle = 0
         self.shared_images = None
         self.shared_images_bool = None
@@ -74,27 +82,39 @@ class StitcherManager:
         Safely switch the active stitcher.
         Waits for both threads to finish their current work before switching.
         """
-        if stitcher_type in self.stitcherTypes:
-            # Acquire both locks to ensure both threads are idle. First the lock of process2 because it is the slowest part
+        
+        # REmove devices from GPU
+        if self.active_stitcher_type == "CLASSIC":
+            self.active_stitcher.superpoint_model.cpu()
+        elif self.active_stitcher_type == "UDIS":
+            self.active_stitcher.net.cpu()
+        elif self.active_stitcher_type == "NIS":
+            self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
+
+        torch.cuda.empty_cache()
+        self.active_stitcher = self.stitchers[stitcher_type]
+        self.active_stitcher_type = stitcher_type
+        print(f"Switched to {self.active_stitcher.__class__.__name__}")
+        if self.active_stitcher_type == "CLASSIC":
+            self.active_stitcher.superpoint_model.to(self.device)
+        elif self.active_stitcher_type == "UDIS":
+            self.active_stitcher.net.to(self.device)
+        elif self.active_stitcher_type == "NIS":
+            self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
+
+    def checkHyperparaChanges(self, output : dict):
+        typeOfStitcher, isCylindrical, matcherType, isRANSAC = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
+        
+        if (self.active_stitcher_type != typeOfStitcher and typeOfStitcher in self.stitcherTypes) or self.active_stitcher.cylindricalWarp != isCylindrical:
             with self.switching_lock1:
                 with self.switching_lock2:
-                    # REmove devices from GPU
-                    if self.active_stitcher_type == "CLASSIC":
-                        self.active_stitcher.superpoint_model.cpu()
-                    elif self.active_stitcher_type == "UDIS":
-                        self.active_stitcher.net.cpu()
-                    elif self.active_stitcher_type == "NIS":
-                        self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
-
-                    self.active_stitcher = self.stitchers[stitcher_type]
-                    self.active_stitcher_type = stitcher_type
-                    print(f"Switched to {self.active_stitcher.__class__.__name__}")
-                    if self.active_stitcher_type == "CLASSIC":
-                        self.active_stitcher.superpoint_model.to(self.device)
-                    elif self.active_stitcher_type == "UDIS":
-                        self.active_stitcher.net.to(self.device)
-                    elif self.active_stitcher_type == "NIS":
-                        self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
+                    self.set_stitcher(typeOfStitcher)
+                    self.changeCylindrical(isCylindrical)
+                    self.changeCalculationsHyperpara(output)
+        
+        elif self.active_stitcher.active_matcher_type != matcherType or self.active_stitcher.isRANSAC != isRANSAC:
+            with self.switching_lock1:
+                self.changeCalculationsHyperpara(output)
 
     def process_thread2(self, images, front_image_index,Hs, verbose, debug):
         """
@@ -102,11 +122,12 @@ class StitcherManager:
         """
         with self.switching_lock1:
             # if self.active_stitcher is not None:
-            Hs, order, inverted = self.active_stitcher.findHomographyOrder(images, front_image_index,Hs, verbose, debug)
+            Hs, order, inverted = self.active_stitcher.findHomographyOrder(images, front_image_index, Hs, verbose, debug)
             self.order_queue.put(order)
             self.homography_queue.put(Hs)
             self.direction_queue.put(inverted)
             print(order)
+            return Hs
 
 
     def process_thread3(self, images, order, Hs, inverted, num_pano_img=3, verbose= False):
@@ -128,9 +149,15 @@ class StitcherManager:
                 self.panoram_queue.put(pano)
 
     def changeCylindrical(self, isCylindrical):
-        with self.switching_lock1, self.switching_lock2:
-            self.active_stitcher.cylindricalWarp = isCylindrical
-            self.active_stitcher.points_remap = None
+        
+        self.active_stitcher.cylindricalWarp = isCylindrical
+        self.active_stitcher.points_remap = None
+        pass
+
+    def changeCalculationsHyperpara(self, output):
+        self.active_stitcher.active_matcher_type = output["matcherType"]
+        self.active_stitcher.isRANSAC = output["isRANSAC"]
+        print( output["isRANSAC"], output["matcherType"])
         pass
 
 def first_thread(manager: StitcherManager, debug = False):
@@ -139,14 +166,14 @@ def first_thread(manager: StitcherManager, debug = False):
     """""
     flagPosition = 0
     processedDataPosition = 4
-    metadataSize = 20 + 64 + 1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
+    metadataSize = 20 + 64 + 1+ 64+ 1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
 
     # Read first time metadata to initialize the memories:
     output = readMetadataMemory(metadataMMF)
-    typeOfStitcher, isCylindrical= output["string"], output["boolean"]
+    typeOfStitcher, isCylindrical = output["typeOfStitcher"], output["isCylindrical"]
     
-    batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth , manager.processedImageHeight= output["int_values"]
+    batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth , manager.processedImageHeight= output["Sizes"]
     
     imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
     batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
@@ -157,15 +184,9 @@ def first_thread(manager: StitcherManager, debug = False):
 
         ### New part
         output = readMetadataMemory(metadataMMF)
-        typeOfStitcher, isCylindrical= output["string"], output["boolean"]
-        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight= output["int_values"]
+        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight= output["Sizes"]
         imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
-        
-        if manager.active_stitcher_type != typeOfStitcher:
-            manager.set_stitcher(typeOfStitcher)
-
-        if manager.active_stitcher.cylindricalWarp != isCylindrical:
-            manager.changeCylindrical(isCylindrical)
+        manager.checkHyperparaChanges(output)
 
         try:
             batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
@@ -228,7 +249,7 @@ def second_thread(manager: StitcherManager, front_image_index=0, verbose = False
             images = manager.shared_images
 
         t = time.time()
-        manager.process_thread2(images, front_image_index=front_image_index,Hs = Hs, verbose = verbose, debug= debug)
+        Hs = manager.process_thread2(images, front_image_index=front_image_index, Hs = Hs, verbose = verbose, debug= debug)
 
         if verbose:
             print(f"Second thread loop time: {time.time()-t}")
@@ -282,23 +303,33 @@ def third_thread(manager: StitcherManager, num_pano_img=3, verbose =False, debug
 
 def readMetadataMemory(metadataMMF :mmap )->dict:
     
-    # Read the integers
+    # Read the integers for image sizes
     metadataMMF.seek(0)
     int_values = struct.unpack('iiiii', metadataMMF.read(20))  # 5 integers
 
-    # Read the string
+    # Read the string for Stitcher Type
     raw_string = metadataMMF.read(64)
     metadata_string = raw_string.decode('utf-8').rstrip('\x00')  # Remove padding
 
-    # Read the boolean
+    # Read the boolean isCylindrical
     raw_bool = metadataMMF.read(1)
     metadata_bool = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
 
+    # Read the string for BF or FLANN
+    raw_string = metadataMMF.read(64)
+    matcherType = raw_string.decode('utf-8').rstrip('\x00')  # Remove padding
+
+    # Read the boolean for RANSAC or not
+    raw_bool = metadataMMF.read(1)
+    isRANSAC = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
+
     # Return all parsed metadata
     return {
-        "int_values": int_values,  # Tuple of 5 integers
-        "string": metadata_string,
-        "boolean": metadata_bool
+        "Sizes": int_values,  # Tuple of 5 integers
+        "typeOfStitcher": metadata_string,
+        "isCylindrical": metadata_bool,
+        "matcherType" : matcherType,
+        "isRANSAC" :isRANSAC
     }
 
 @jit(nopython=True) 
@@ -311,6 +342,7 @@ def UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWi
     processedImageSize = processedImageWidth*processedImageHeight*3
 
     return imageSize, headAnglePosition, batchDataPosition, processedImageSize
+    
  
 def readMemory(batchMMF, batchFlagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight):
     """

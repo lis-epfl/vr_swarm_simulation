@@ -263,4 +263,4 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
         # If there are errors in the calculation due to bad image order or bad logical calculations
         pano = right_warp
 
-    return pano#.astype(np.uint8)
+    return pano

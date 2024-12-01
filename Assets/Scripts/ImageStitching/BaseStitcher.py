@@ -166,7 +166,9 @@ class BaseStitcher:
                  trees=5, 
                  checks=50, 
                  ratio_thresh = 0.7, 
-                 score_threshold = 0.2, 
+                 score_threshold = 0.2,
+                 active_matcher_type= "BF",
+                 isRANSAC= False, 
                  device = "cpu"
                  ):
         
@@ -188,10 +190,12 @@ class BaseStitcher:
         self.index_params = dict(algorithm=algorithm, trees=trees)
         self.search_params = dict(checks=checks) 
 
-        # Create a FLANN Matcher
+        # Create a FLANN and BF Matcher
         self.flann = cv2.FlannBasedMatcher(self.index_params, self.search_params)
         self.BF = cv2.BFMatcher()
         self.ratio_thresh = ratio_thresh
+        self.active_matcher_type = active_matcher_type
+        self.isRANSAC = isRANSAC
 
         # Camera informations
         if camera_matrix is None:
@@ -351,9 +355,13 @@ class BaseStitcher:
 
                 if desc1.size == 0 or desc2.size == 0:
                     continue
-
-                # matches = self.FLANN_matching(desc1, desc2)
-                matches = self.BF_matching(desc1, desc2)
+                
+                if self.active_matcher_type == "BF":
+                    matches = self.BF_matching(desc1, desc2)
+                else:
+                    ## Need to change FLANN parameters if we want to fine tune 
+                    matches = self.FLANN_matching(desc1, desc2)
+                
                 num_matches = len(matches)
 
                 H1, H2 = None, None
@@ -466,11 +474,10 @@ class BaseStitcher:
                 dst_p = np.float32([keypoints[idx2][m.queryIdx] for m in matches]).reshape(-1, 2)
 
             if dst_p.shape[0]>4:
-                Hs[i], _ = cv2.findHomography(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=3, confidence=0.995)
-                # Hs[i], _ = cv2.findHomography(dst_p, src_p, method=0, ransacReprojThreshold=1, confidence=0.995)
-
-                # if H_prev is not None:
-                #     Hs[i]=compute_regularized_homography(src_p, dst_p, H_prev[i], lambda_reg=0.5)
+                if self.isRANSAC:
+                    Hs[i], _ = cv2.findHomography(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=3, confidence=0.995)
+                else:
+                    Hs[i], _ = cv2.findHomography(dst_p, src_p, method=0)
 
         w, h = self.camera_matrix[:2, -1]*2
 
@@ -743,7 +750,7 @@ class BaseStitcher:
 
         t0 = time.time()
         if self.cylindricalWarp:
-            outputs, ratios = self.SP_inference_fast(images)
+            outputs, ratios, _ = self.SP_inference_fast(images)
         else:
             outputs, ratios = self.SP_inference_fast(images)
 
@@ -756,11 +763,12 @@ class BaseStitcher:
         t2 = time.time()
         partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
 
-        # TODO Should also look if number of images is the same
         H, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order, Hs)
         t3 = time.time()
 
         if Hs is None or H.shape !=Hs.shape:
+            if Hs is not None:
+                print(H.shape, Hs.shape)
             Hs = np.zeros_like(H)
         
         h, w = images[0].shape[:2]
@@ -771,7 +779,7 @@ class BaseStitcher:
                               [0, 0, h-1 , h-1 ],
                               [1, 1, 1, 1]], dtype=np.float32)
         
-        Hs = ControlHomography(H, Hs, corners, ratios=1.5, change_thresh =100)
+        Hs = ControlHomography(H, Hs, corners, ratio=1.5, change_thresh =200)
         
         t4 = time.time()
 
@@ -807,6 +815,7 @@ class BaseStitcher:
             images = [self.CylindricalWarp(img) for img in images]
 
         subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
+        print(subset1, subset2)
         pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=processedImageWidth, panoHeight=processedImageHeight)            
         if verbose:
             print(f"Warp time: {time.time()-t}")    
@@ -865,7 +874,7 @@ def hassmallChangeHomography(H_new, H_prev, criterion = 0.5):
 
 #     return Hs_prev
 
-def ControlHomography(Hs_new, Hs_prev, corners, ratios=1.5, change_thresh=100):
+def ControlHomography(Hs_new, Hs_prev, corners, ratio=2.5, change_thresh=200):
     """
     Validate and update homographies based on stretch and change thresholds.
 
@@ -902,18 +911,30 @@ def ControlHomography(Hs_new, Hs_prev, corners, ratios=1.5, change_thresh=100):
 
     # Check for image stretch
     for i in range(b):
-        frobenius_distance = np.linalg.norm(new_corners_2d[i] - corners[:2, 1:3], ord="fro")
-        if frobenius_distance > ratios ** 2:
-            good_index[i] = False
-        elif np.allclose(Hs_prev[i], 0):  # Check for zero homography
-            Hs_prev[i] = Hs_new[i]
-            good_index[i] = False
+        # frobenius_distance = np.linalg.norm(new_corners_2d[i] - corners[:2, 1:3], ord="fro")
+        dist_new_corners = np.linalg.norm(new_corners_2d[i], axis=0)
+        dist_corners = np.linalg.norm(corners[:2, 1:3], axis=0)
 
-    # Check for large changes between consecutive homographies
-    for i in range(b):
-        distance = np.linalg.norm(new_corners_2d[i] - prev_corners_2d[i], ord="fro")
-        if good_index[i] and distance < change_thresh:
+        # print(dist_new_corners)
+        # print(ratio*dist_corners)
+        # print(ratio*dist_corners < dist_new_corners)
+        if np.allclose(Hs_prev[i], 0):  # Check for zero homography
+            if np.any(ratio*dist_corners < dist_new_corners):
+                # print("too large homography")
+                continue
             Hs_prev[i] = Hs_new[i]
+            good_index[i] = False
+            # print("Zero homography but new one good")
+    
+    # Check if two changes are small enough
+    for i in range(b):
+        if good_index[i]:
+            distance = np.linalg.norm(new_corners_2d[i] - prev_corners_2d[i], axis=0)
+            if np.any(distance>change_thresh):
+                # print("Changes are too big")
+                continue
+            Hs_prev[i] = Hs_new[i]
+            # print(f"CHanges in homography {i}")
 
     return Hs_prev
 

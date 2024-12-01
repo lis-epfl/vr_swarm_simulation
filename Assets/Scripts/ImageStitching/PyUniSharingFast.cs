@@ -49,7 +49,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalProcessedSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1+ 4 + 4;//+64+1 for matcher and ransac bool // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 4 bytes float
+    private int metadataSize = 20 + 64 + 1+ 4 + 64 + 1 + 4; // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 64 bytes for string + 1 byte bool +  4 bytes float
 
     private IntPtr batchFileMap;
     private IntPtr batchPtr;
@@ -554,20 +554,19 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteByte(metadataPtr, offset, (byte)(cylindrical ? 1 : 0));
         offset +=1;
 
-        // // Wrtite type of matcher
-        // byte[] stringBytes = Encoding.UTF8.GetBytes(typeOfMatcher.ToString());
-        // byte[] stringBuffer = new byte[64];
-        // Array.Copy(stringBytes, stringBuffer, Math.Min(stringBytes.Length, stringBuffer.Length));
-        // Marshal.Copy(stringBuffer, 0, IntPtr.Add(metadataPtr, offset), stringBuffer.Length);
-        // offset += 64;
+        // Wrtite type of matcher
+        byte[] stringBytesMatcher = Encoding.UTF8.GetBytes(typeOfMatcher.ToString());
+        byte[] stringBufferMatcher = new byte[64];
+        Array.Copy(stringBytesMatcher, stringBufferMatcher, Math.Min(stringBytesMatcher.Length, stringBufferMatcher.Length));
+        Marshal.Copy(stringBufferMatcher, 0, IntPtr.Add(metadataPtr, offset), stringBufferMatcher.Length);
+        offset += 64;
 
-        // // Write RANSAC bool
-        // Marshal.WriteByte(metadataPtr, offset, (byte)(ransac ? 1 : 0));
-        // // offset +=1;
+        // Write RANSAC bool
+        Marshal.WriteByte(metadataPtr, offset, (byte)(ransac ? 1 : 0));
 
         // Debug.Log("Metadata written to shared memory.");
 
-        if(hasStarted)return;
+        if(hasStarted) return;
         offset +=1;
         // Write integers
         Marshal.WriteInt32(metadataPtr, offset, maxTotalBatchSize);
