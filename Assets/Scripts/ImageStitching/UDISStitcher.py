@@ -50,77 +50,103 @@ class UDISStitcher(BaseStitcher):
             self.net.load_state_dict(checkpoint['model'])
             print('load model from {}!'.format(model_path))
     
-    def UDIS_warping(self, image1, image2):
+    def UDIS_warping(self, image1, image2, test = True):
         input1_tensor, input2_tensor = loadSingleData(image1, image2)
+        
+        if not test:
+            
 
-        if torch.cuda.is_available():
-            input1_tensor = input1_tensor.cuda()
-            input2_tensor = input2_tensor.cuda()
+            if torch.cuda.is_available():
+                input1_tensor = input1_tensor.cuda()
+                input2_tensor = input2_tensor.cuda()
 
-        input1_tensor_512 = self.resize_512(input1_tensor)
-        input2_tensor_512 = self.resize_512(input2_tensor)
+            input1_tensor_512 = self.resize_512(input1_tensor)
+            input2_tensor_512 = self.resize_512(input2_tensor)
 
-        with torch.no_grad():
-            batch_out = build_new_ft_model(self.net, input1_tensor_512, input2_tensor_512)
-        # warp_mesh = batch_out['warp_mesh']
-        # warp_mesh_mask = batch_out['warp_mesh_mask']
-        rigid_mesh = batch_out['rigid_mesh']
-        mesh = batch_out['mesh']
+            with torch.no_grad():
+                batch_out = build_new_ft_model(self.net, input1_tensor_512, input2_tensor_512)
+            # warp_mesh = batch_out['warp_mesh']
+            # warp_mesh_mask = batch_out['warp_mesh_mask']
+            rigid_mesh = batch_out['rigid_mesh']
+            mesh = batch_out['mesh']
 
-        with torch.no_grad():
-            output = get_stitched_result(input1_tensor, input2_tensor, rigid_mesh, mesh)
+            with torch.no_grad():
+                output = get_stitched_result(input1_tensor, input2_tensor, rigid_mesh, mesh)
 
-        stitched_images = output['stitched'][0].cpu().detach().numpy().transpose(1,2,0)
+            stitched_images = output['stitched'][0].cpu().detach().numpy().transpose(1,2,0)
+            return stitched_images, 0
 
-        """""
-        # To be tested. It should be the part to just obtain the panorama without retraining the net
-        inpu1_tesnor = batch_value[0].float()
-        inpu2_tesnor = batch_value[1].float()
+        
+        if test:
+            # inpu1_tesnor = batch_value[0].float()
+            # inpu2_tesnor = batch_value[1].float()
 
-        if torch.cuda.is_available():
-            inpu1_tesnor = inpu1_tesnor.cuda()
-            inpu2_tesnor = inpu2_tesnor.cuda()
+            if torch.cuda.is_available():
+                inpu1_tesnor = input1_tensor.cuda()
+                inpu2_tesnor = input2_tensor.cuda()
 
-        with torch.no_grad():
-            batch_out = build_output_model(net, inpu1_tesnor, inpu2_tesnor)
+            with torch.no_grad():
+                batch_out = build_output_model(self.net, inpu1_tesnor, inpu2_tesnor)
 
-        final_warp1 = batch_out['final_warp1']
-        final_warp1_mask = batch_out['final_warp1_mask']
-        final_warp2 = batch_out['final_warp2']
-        final_warp2_mask = batch_out['final_warp2_mask']
-        final_mesh1 = batch_out['mesh1']
-        final_mesh2 = batch_out['mesh2']
+            final_warp1 = batch_out['final_warp1']
+            final_warp1_mask = batch_out['final_warp1_mask']
+            final_warp2 = batch_out['final_warp2']
+            final_warp2_mask = batch_out['final_warp2_mask']
+            # final_mesh1 = batch_out['mesh1']
+            # final_mesh2 = batch_out['mesh2']
 
 
-        final_warp1 = ((final_warp1[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
-        final_warp2 = ((final_warp2[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
-        final_warp1_mask = final_warp1_mask[0].cpu().detach().numpy().transpose(1,2,0)
-        final_warp2_mask = final_warp2_mask[0].cpu().detach().numpy().transpose(1,2,0)
-        # final_mesh1 = final_mesh1[0].cpu().detach().numpy()
-        # final_mesh2 = final_mesh2[0].cpu().detach().numpy()
+            final_warp1 = ((final_warp1[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
+            final_warp2 = ((final_warp2[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
+            final_warp1_mask = final_warp1_mask[0].cpu().detach().numpy().transpose(1,2,0)
+            final_warp2_mask = final_warp2_mask[0].cpu().detach().numpy().transpose(1,2,0)
+            # final_mesh1 = final_mesh1[0].cpu().detach().numpy()
+            # final_mesh2 = final_mesh2[0].cpu().detach().numpy()
 
-        ave_fusion = final_warp1 * (final_warp1/ (final_warp1+final_warp2+1e-6)) + final_warp2 * (final_warp2/ (final_warp1+final_warp2+1e-6))
-        """""
+            stitched_images = final_warp1 * (final_warp1/ (final_warp1+final_warp2+1e-6)) + final_warp2 * (final_warp2/ (final_warp1+final_warp2+1e-6))
+            batch_out = None
+            return stitched_images, final_warp1_mask
 
-        return stitched_images
+        
 
     def UDIS_pano(self, images, subset1, subset2):
         global already_saved
         t0=time.time()
         h, w, _ = images[0].shape
-        # print("warping right")
-        right_warp = self.UDIS_warping(images[subset2[0]], images[subset2[1]])
+        test= False
 
+        if test:
+            right_warp, right_mask = self.UDIS_warping(images[subset2[0]], images[subset2[1]], test)
+
+            # We have to flip the images to warp the left image and keep central image as the reference
+            image1, image2 = cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1)
+            left_warp, left_mask = self.UDIS_warping(image1, image2, test)
+            pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
+
+            print(f"Warp time : {time.time()-t0}")
+
+            if not already_saved:
+                already_saved = True
+                cv2.imwrite("left_warp.jpg", cv2.cvtColor(left_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
+                cv2.imwrite("right_warp.jpg", cv2.cvtColor(right_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
+                cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
+                cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
+                cv2.imwrite("pano.jpg", cv2.cvtColor(pano.astype('uint8'), cv2.COLOR_RGB2BGR))
+                print("saving")
+
+            return pano.astype(np.uint8)
+
+        right_warp, right_mask = self.UDIS_warping(images[subset2[0]], images[subset2[1]], test)
+
+        # We have to flip the images to warp the left image and keep central image as the reference
+        image1, image2 = cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1)
+        left_warp, left_mask = self.UDIS_warping(image1, image2, test)
         # Find first black pixel and first black pixel after image in the first column
         sum_right = right_warp[:,0].sum(axis=1)
         shiftup2 = np.argmax(sum_right != 0)
         shiftdown2 = 0
         if sum_right[-1]==0:
             shiftdown2 = shiftup2 + np.argmax(sum_right[shiftup2:] == 0)
-
-        # We have to flip the images to warp the left image and keep central image as the reference
-        image1, image2 = cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1)
-        left_warp = self.UDIS_warping(image1, image2)
         
         # Find first black pixel and first black pixel after image in the first column
         sum_left = left_warp[:,0].sum(axis=1)
@@ -151,8 +177,6 @@ class UDISStitcher(BaseStitcher):
                 pano[:leftSize[0], :diff1x+w//2] = left_warp[:, :diff1x+w//2]
                 # Problem dimension here
                 pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
-                # maybe this
-                # pano[-diffshiftup:leftSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
                 
         else:
             print("Control if shifts are equal:")
@@ -164,14 +188,13 @@ class UDISStitcher(BaseStitcher):
             
             pano = right_warp
 
+        
         print(f"Warp time : {time.time()-t0}")
 
         if not already_saved:
             already_saved = True
             cv2.imwrite("left_warp.jpg", cv2.cvtColor(left_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
             cv2.imwrite("right_warp.jpg", cv2.cvtColor(right_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
-            # cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
-            # cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
             cv2.imwrite("pano.jpg", cv2.cvtColor(pano.astype('uint8'), cv2.COLOR_RGB2BGR))
             print("saving")
 
@@ -328,3 +351,82 @@ def load3images(image1, image2, image2_flipped, image3):
         torch.stack((input1_tensor, input3_tensor))
     )
     return batch
+
+def find_image_shift(part_mask):
+    """
+    Determines the shift of the first image in a panorama using its mask.
+    
+    Parameters:
+        part_mask (numpy.ndarray): A part of the mask of the right/left image in the panorama.
+        
+    Returns:
+        tuple: (y_shift_up, y_shift_down) where  y_shift_up is the vertical shift from above (row index)
+               and y_shift_down is the vertical shift from bottom(row index).
+    """
+    # Ensure the mask is binary (if it's not already)
+    binary_mask = part_mask > 0
+
+    # Find the row indices with any non-zero elements
+    row_indices = np.any(binary_mask, axis=1)
+    y_shift_up = np.argmax(row_indices)  # First row with a non-zero value
+    # y_shift_down = np.argmin(row_indices[y_shift_up:])  # First row with a non-zero value
+
+    # # Find the column indices with any non-zero elements
+    # col_indices = np.any(binary_mask, axis=0)
+    # x_shift = np.argmax(col_indices)  # First column with a non-zero value
+
+    return y_shift_up#, y_shift_down
+
+def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300)):
+    h, w = size
+    rightSize = right_warp.shape
+    leftSize = left_warp.shape
+
+    shiftup1 = find_image_shift(left_mask[:, :w//3])
+    shiftup2 = find_image_shift(right_mask[:, :w//3])
+    shiftdown1 = leftSize[0]-h-shiftup1
+    shiftdown2 = rightSize[0]-h-shiftup2
+
+    left_warp = cv2.flip(left_warp, 1)
+
+    # Compute difference size between ref image and warped ones
+    diff2x, diff2y = rightSize[1]-w, rightSize[0]-h
+    diff1x, diff1y = leftSize[1]-w, leftSize[0]-h
+
+    
+    print(f"rightSIze: {rightSize}")
+    print(f"leftSIze: {leftSize}")
+    print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
+    print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
+    print(f"shiftup1+(leftSize[0]-shiftdown1): {shiftup1+(leftSize[0]-shiftdown1)}")
+    print(f"shiftup2+(rightSize[0]-shiftdown2): {shiftup2+(rightSize[0]-shiftdown2)}")
+    
+    pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
+    # pano = np.zeros((h, diff1x+diff2x+w, 3))
+
+    if diff2y == shiftup2+shiftdown2 and diff1y == shiftup1+shiftdown1:
+        diffshiftup = shiftup2-shiftup1
+        try:
+            if diffshiftup >= 0:
+                pano[diffshiftup:leftSize[0]+diffshiftup, :diff1x+w//2] = left_warp[:, :diff1x+w//2]
+                pano[:rightSize[0], diff1x+w//2:] = right_warp[:, w//2:]
+            else:
+                pano[:leftSize[0], :diff1x+w//2] = left_warp[:, :diff1x+w//2]
+                # Problem dimension here
+                pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
+        except:
+            pano = right_warp
+            
+            
+    else:
+        print("Control if shifts are equal:")
+        # print(diff2y==shiftup2+shiftdown2, diff1y==shiftup1+shiftdown1)
+        
+        # print("Alignement problem")
+        # print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
+        # print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
+        
+        # If there are errors in the calculation due to bad image order or bad logical calculations
+        pano = right_warp
+
+    return pano
