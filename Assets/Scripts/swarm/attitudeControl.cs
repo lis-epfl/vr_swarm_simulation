@@ -71,6 +71,9 @@ public class AttitudeControl : MonoBehaviour
         {
             // Set the boundary estimate to false
             boundaryEstimate = false;
+
+            // Set the desired yaw rate to zero
+            vc.attitude_control_yaw = 0;
             
             return;
         }
