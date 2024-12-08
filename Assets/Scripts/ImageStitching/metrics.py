@@ -81,6 +81,10 @@ from Residual_Elastic_Warp_main.datasets import wrappers  # Same as above
 
 c1 = [0, 0]; c2 = [0, 0]
 finder = cv2.detail.SeamFinder.createDefault(2)
+# UDIS : average psnr: 25.42688753348356, average ssim: 0.83781886
+# NIS (only IHN) : PSNR:26.4804, SSIM:0.8206
+# NIS :
+# REWRARP : PSNR:22.9463/24.4961/26.2651, Avg PSNR: 24.9925, SSIM:0.7488/0.7848/0.8207, SSIM:0.7942
 
 #### FROM UDIS
 
@@ -210,6 +214,7 @@ def eval_IHN(loader, model):
     pbar = tqdm(range(len(loader)), smoothing=0.9)
     loader = iter(loader)
     
+    desc= None
     i=0
     for b_id in pbar:
         i +=1
@@ -225,8 +230,8 @@ def eval_IHN(loader, model):
 
         mask = torch.ones_like(inp_src).cuda()
         b, c, h, w = inp_tgt.shape
-
-        four_pred, _ = model(inp_src_, inp_tgt_, iters_lev0=6, iters_lev1=3, test_mode=True)
+        with torch.no_grad():
+            four_pred, _ = model(inp_src_, inp_tgt_, iters_lev0=6, iters_lev1=3, test_mode=True)
         shift = four_pred.reshape(b, 2, -1).permute(0, 2, 1)
 
         shape = (128, 128)
@@ -250,8 +255,8 @@ def eval_IHN(loader, model):
             failures += 1
             continue
         
-        if i==1:
-            print(tgt_samples.shape, src_samples.shape)
+        # if i==1:
+        #     print(tgt_samples.shape, src_samples.shape)
         psnr = compare_psnr(tgt_samples, src_samples, data_range=1.)
         ssim = compare_ssim(tgt_samples * 255, src_samples * 255, data_range=255.)
 
@@ -261,9 +266,11 @@ def eval_IHN(loader, model):
         pbar.set_description_str(
         desc="PSNR:{:.4f}, SSIM:{:.4f}, Failures:{}".format(
             tot_psnr/(b_id+1), tot_ssim/(b_id+1), failures), refresh=True)
-        
+        torch.cuda.empty_cache()
         # if i>10:
         #     break
+    print(desc)
+    
 
 # Blending eval NIS
 
@@ -433,7 +440,8 @@ def valid_NIS(loader, model, H_model):
     H_model.eval()
 
     tot_psnr = 0
-    failures = []
+    tot_ssim = 0
+    failures = 0
 
     os.makedirs("visualization/", exist_ok=True)
 
@@ -441,6 +449,8 @@ def valid_NIS(loader, model, H_model):
     loader = iter(loader)
     print("evaluating start")
     i = 0
+    desc = None
+    good = 0
     for b_id in pbar:
         i+=1
         batch = next(loader)
@@ -461,33 +471,65 @@ def valid_NIS(loader, model, H_model):
             else:
                 inp_ref = ref * 255
                 inp_tgt = tgt * 255
-
-        tgt_grid, tgt_cell, tgt_mask, \
-        ref_grid, ref_cell, ref_mask, \
-        stit_grid, stit_mask, sizes = prepare_ingredient(H_model, inp_tgt, inp_ref, tgt, ref)
+        with torch.no_grad():
+            tgt_grid, tgt_cell, tgt_mask, \
+            ref_grid, ref_cell, ref_mask, \
+            stit_grid, stit_mask, sizes = prepare_ingredient(H_model, inp_tgt, inp_ref, tgt, ref)
 
         ref = (ref - 0.5) * 2
         tgt = (tgt - 0.5) * 2
 
         ref_mask = ref_mask.reshape(b,1,*sizes)
         tgt_mask = tgt_mask.reshape(b,1,*sizes)
-
-        pred = batched_predict(
-            model, ref, ref_grid, ref_cell, ref_mask,
-            tgt, tgt_grid, tgt_cell, tgt_mask,
-            stit_grid, sizes, config['eval_bsize'], seam_cut=True
-        )
+        
+        with torch.no_grad():
+            pred = batched_predict(
+                model, ref, ref_grid, ref_cell, ref_mask,
+                tgt, tgt_grid, tgt_cell, tgt_mask,
+                stit_grid, sizes, config['eval_bsize'], seam_cut=True
+            )
         pred = pred.permute(0, 2, 1).reshape(b, c, *sizes)
         pred = ((pred + 1)/2).clamp(0,1) * stit_mask.reshape(b, 1, *sizes)
+        
 
-        transforms.ToPILImage()(pred[0]).save('visualization/{0:06d}.png'.format(b_id))
+        # transforms.ToPILImage()(pred[0]).save('visualization/{0:06d}.png'.format(b_id))
+        ref_samples = (ref.cpu().numpy().transpose(0, 2, 3, 1)*2+1)* 255.
+        pred_samples = pred.cpu().numpy().transpose(0, 2, 3, 1)* 255.
+        ref_mask = ref_mask.cpu().squeeze(0)
+        # print(ref_mask.shape, pred_samples.shape)
+        try:
+            pred_samples = pred_samples[ref_mask.bool()].reshape(b, 512, 512, 3)
+            # print(ref_samples.shape, pred_samples.shape)
+            psnr = compare_psnr(ref_samples, pred_samples, data_range=255.)
+            ssim = compare_ssim(ref_samples.squeeze(), pred_samples.squeeze(), data_range=255., multichannel=True, channel_axis=-1)
+            tot_psnr += psnr
+            tot_ssim += ssim
+            good += 1
+        except:
+            pred_samples_n = pred_samples.squeeze(0)#.numpy()
+            ref_mask = ref_mask.squeeze(0).numpy()
+            # print((ref_mask>0).sum(), (tgt_mask.cpu().squeeze(0).squeeze(0).numpy()).sum(), pred_samples_n.shape, ref_mask.shape)
+            print("problem with shape")
+            # cv2.imwrite("pred.jpg", cv2.cvtColor(pred_samples_n.astype('uint8'), cv2.COLOR_RGB2BGR))
+            # cv2.imwrite("ref_m.jpg", (ref_mask * 255).astype('uint8'))
+        
+        # psnr = compare_psnr(tgt_samples, src_samples, data_range=1.)
+        # ssim = compare_ssim(tgt_samples * 255, src_samples * 255, data_range=255.)
 
-        if i>10:
-            break
+        
+        torch.cuda.empty_cache()
 
+        pbar.set_description_str(
+        desc="PSNR:{:.4f}, SSIM:{:.4f}, Failures:{}".format(
+            tot_psnr/(good), tot_ssim/(good), failures), refresh=True)
+        
+        # if i>10:
+        #     break
+
+    print(f"Final PSNR: {tot_psnr / len(pbar):.4f}, SSIM: {tot_ssim / len(pbar):.4f}")
     print('Failure cases:', failures)
 
-    return tot_psnr / (b_id+1)
+    # return tot_psnr / (b_id+1)
 
 
 
@@ -539,6 +581,10 @@ def eval_REWARP(loader, IHN, model):
     collection_60 = []
     collection_100 = []
 
+    collection_30_SSIM = []
+    collection_60_SSIM = []
+    collection_100_SSIM = []
+
     hcell_iter = 6
     tcell_iter = 3
     model.iters_lev = tcell_iter
@@ -584,7 +630,8 @@ def eval_REWARP(loader, IHN, model):
 
 
         # Warp Field estimated by TPS
-        flows = model(tgt_w, ref, iters=tcell_iter, scale=scale)
+        with torch.no_grad():
+            flows = model(tgt_w, ref, iters=tcell_iter, scale=scale)
         translation = RE_utils.get_translation(*offset)
         T_ref = translation.clone()
         T_tgt = torch.inverse(H).double() @ translation.cuda()
@@ -646,6 +693,7 @@ def eval_REWARP(loader, IHN, model):
         tgt_ovl = tgt_w[ovl].cpu().numpy()
 
         psnr = compare_psnr(ref_ovl, tgt_ovl, data_range=1.)
+        ssim = compare_ssim(ref_ovl, tgt_ovl, data_range=1., multichannel=True)
         stit += (1-(mask_r + mask_t).clamp(0,1))
 
         if ovl_ratio <= 0.3: collection_30.append(psnr)
@@ -653,19 +701,28 @@ def eval_REWARP(loader, IHN, model):
         elif ovl_ratio > 0.6: collection_100.append(psnr)
         collections = collection_30 + collection_60 + collection_100
 
+        if ovl_ratio <= 0.3: collection_30_SSIM.append(ssim)
+        elif ovl_ratio > 0.3 and ovl_ratio <= 0.6 : collection_60_SSIM.append(ssim)
+        elif ovl_ratio > 0.6: collection_100_SSIM.append(ssim)
+        collections_SSIM = collection_30_SSIM + collection_60_SSIM + collection_100_SSIM
+
         pbar.set_description_str(
-            desc="[Evaluation] PSNR:{:.4f}/{:.4f}/{:.4f}, Avg PSNR: {:.4f}, Failures:{}".format(
+            desc="[Evaluation] PSNR:{:.4f}/{:.4f}/{:.4f}, Avg PSNR: {:.4f}, [Evaluation] SSIM:{:.4f}/{:.4f}/{:.4f}, SSIM:{:.4f}, Failures:{}".format(
                 (sum(collection_30) + 1e-10)/(len(collection_30) + 1e-7),
                 (sum(collection_60) + 1e-10)/(len(collection_60) + 1e-7),
                 (sum(collection_100) + 1e-10)/(len(collection_100) + 1e-7),
                 (sum(collections) + 1e-10)/(len(collections) + 1e-7),
+                (sum(collection_30_SSIM) + 1e-10)/(len(collection_30_SSIM) + 1e-7),
+                (sum(collection_60_SSIM) + 1e-10)/(len(collection_60_SSIM) + 1e-7),
+                (sum(collection_100_SSIM) + 1e-10)/(len(collection_100_SSIM) + 1e-7),
+                (sum(collections_SSIM) + 1e-10)/(len(collections_SSIM) + 1e-7),
                 failures), refresh=True
         )
 
         flows, disps= None, None
 
-        if i>10:
-            break
+        # if i>10:
+        #     break
 
 # if __name__ == '__main__':
 #     parser = argparse.ArgumentParser()
@@ -770,8 +827,8 @@ if __name__ == '__main__':
     # normalized_paths = [path.replace("\\", "/") for path in datas]
     # print(normalized_paths)
     # print(datas)
-    # main_UDIS()
-    # main_IHN()
+    main_UDIS()
+    main_IHN()
     # main_NIS()
     main_REWARP()
     # parser = argparse.ArgumentParser()
