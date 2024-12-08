@@ -49,6 +49,8 @@ class NISStitcher(BaseStitcher):
         self.model, self.H_model = stitch.prepare_validation(self.config)
         self.model.eval()
         self.H_model.eval()
+        # Not implemented yet (Can maybe use only IHN for stitching and then do simple blending for fast computation)
+        self.onlyIHN = False
 
     def NIS_warping(self, ref, tgt, inp_ref, inp_tgt):
         
