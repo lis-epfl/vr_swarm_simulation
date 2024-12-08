@@ -35,19 +35,27 @@ from Neural_Image_Stitching_main import stitch
 import Neural_Image_Stitching_main.pretrained
 from NISStitcher import *
 
+sys.path.append(os.path.abspath("Residual_Elastic_Warp_main"))
+import Residual_Elastic_Warp_main.models
+import Residual_Elastic_Warp_main.utils
+from REStitcher import *
+
 # Activate environnement
 # cmd
 # cd Assets\Scripts\ImageStitching 
 # python StitcherThreading.py
+
+# ADD REWARP, add segmentation, metrics and variables, UDIS dataset evaluation
 
 
 class StitcherManager:
     def __init__(self, device ="cpu"):
 
         self.stitchers = {
-            "CLASSIC": BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.15, device=device),
+            "CLASSIC": BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device=device),
             "UDIS": UDISStitcher(),
             "NIS": NISStitcher(),  # Replace with your NISStitcher instance if implemented
+            "REWARP": REStitcher(),
         }
 
         # Manually remove models of NIS from GPU because they load them directly on GPU
@@ -62,7 +70,7 @@ class StitcherManager:
         self.switching_lock2 = threading.Lock()
         self.info_lock = threading.Lock()
 
-        self.stitcherTypes = ["CLASSIC", "UDIS", "NIS"]
+        self.stitcherTypes = ["CLASSIC", "UDIS", "NIS", "REWARP"]
         self.cylidnricalWarp = False
         self.isRANSAC = False
         self.headAngle = 0
@@ -71,13 +79,16 @@ class StitcherManager:
 
         self.processedImageWidth = None
         self.processedImageHeight = None
+        self.batchImageWidth = None
+        self.batchImageHeight = None
+
 
         self.order_queue = queue.Queue(1)
         self.homography_queue = queue.Queue(1)
         self.direction_queue = queue.Queue(1)
         self.panoram_queue = queue.Queue(1)
 
-    def set_stitcher(self, stitcher_type):
+    def set_stitcher(self, stitcher_type, onlyIHN):
         """
         Safely switch the active stitcher.
         Waits for both threads to finish their current work before switching.
@@ -90,6 +101,8 @@ class StitcherManager:
             self.active_stitcher.net.cpu()
         elif self.active_stitcher_type == "NIS":
             self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
+        elif self.active_stitcher_type == "REWARP":
+            self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
 
         torch.cuda.empty_cache()
         self.active_stitcher = self.stitchers[stitcher_type]
@@ -101,28 +114,61 @@ class StitcherManager:
             self.active_stitcher.net.to(self.device)
         elif self.active_stitcher_type == "NIS":
             self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
+            self.active_stitcher.onlyIHN = onlyIHN
+        elif self.active_stitcher_type == "REWARP":
+            self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
 
     def checkHyperparaChanges(self, output : dict):
-        typeOfStitcher, isCylindrical, matcherType, isRANSAC = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
         
-        if (self.active_stitcher_type != typeOfStitcher and typeOfStitcher in self.stitcherTypes) or self.active_stitcher.cylindricalWarp != isCylindrical:
+        typeOfStitcher, isCylindrical, matcherType, isRANSAC  = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
+        checks, ratio_thresh, score_threshold, focal, onlyIHN = output["checks"], output["ratio_thresh"], output["score_threshold"], output["focal"], output["onlyIHN"]
+        batchImageWidth, batchImageHeight = output["Sizes"][:2]
+
+        def has_stitcher_changes():
+            return (
+                self.active_stitcher_type != typeOfStitcher and typeOfStitcher in self.stitcherTypes
+            ) or (
+                self.active_stitcher.cylindricalWarp != isCylindrical
+            )
+
+        def has_hyperparameter_changes():
+            return (
+                self.active_stitcher.active_matcher_type != matcherType or
+                self.active_stitcher.isRANSAC != isRANSAC or
+                self.active_stitcher.checks != checks or
+                self.active_stitcher.ratio_thresh != ratio_thresh or
+                self.active_stitcher.score_threshold != score_threshold or
+                self.active_stitcher.focal != focal or
+                self.batchImageWidth != batchImageWidth or
+                self.batchImageHeight != batchImageHeight
+            )
+
+        
+        if has_stitcher_changes():
             with self.switching_lock1:
                 with self.switching_lock2:
-                    self.set_stitcher(typeOfStitcher)
+                    self.set_stitcher(typeOfStitcher, onlyIHN)
                     self.changeCylindrical(isCylindrical)
                     self.changeCalculationsHyperpara(output)
-        
-        elif self.active_stitcher.active_matcher_type != matcherType or self.active_stitcher.isRANSAC != isRANSAC:
+                    pass
+        if has_hyperparameter_changes():
             with self.switching_lock1:
                 self.changeCalculationsHyperpara(output)
-
+        
+        if self.active_stitcher_type == "NIS" and self.active_stitcher.onlyIHN != onlyIHN:
+            with self.switching_lock2:
+                self.active_stitcher.onlyIHN = onlyIHN
+    
     def process_thread2(self, images, front_image_index,Hs, verbose, debug):
         """
         Thread 2 operation. Uses lock_thread2 for thread-safe access.
         """
         with self.switching_lock1:
             # if self.active_stitcher is not None:
-            Hs, order, inverted = self.active_stitcher.findHomographyOrder(images, front_image_index, Hs, verbose, debug)
+            try:
+                Hs, order, inverted = self.active_stitcher.findHomographyOrder(images, front_image_index, Hs, verbose, debug)
+            except:
+                return None
             self.order_queue.put(order)
             self.homography_queue.put(Hs)
             self.direction_queue.put(inverted)
@@ -145,6 +191,8 @@ class StitcherManager:
                 # pano = self.active_stitcher.stitch(images, self.headAngle, order, num_pano_img=num_pano_img, verbose=verbose)
                 pano = self.active_stitcher.stitch(images, order, Hs, inverted , self.headAngle, num_pano_img=num_pano_img, verbose=verbose)
                 # pano = np.zeros((self.processedImageHeight, self.processedImageWidth, 3))
+            elif self.active_stitcher_type == "REWARP":
+                pano = self.active_stitcher.stitch(images, order, Hs, inverted , self.headAngle, num_pano_img=num_pano_img, verbose=verbose)
             if self.panoram_queue.empty():
                 self.panoram_queue.put(pano)
 
@@ -157,7 +205,17 @@ class StitcherManager:
     def changeCalculationsHyperpara(self, output):
         self.active_stitcher.active_matcher_type = output["matcherType"]
         self.active_stitcher.isRANSAC = output["isRANSAC"]
-        print( output["isRANSAC"], output["matcherType"])
+        self.active_stitcher.checks = output["checks"]
+        self.active_stitcher.search_params = dict(checks=output["checks"])
+        self.active_stitcher.ratio_thresh = output["ratio_thresh"]
+        self.active_stitcher.score_threshold = output["score_threshold"]
+        focal = output["focal"]
+        self.active_stitcher.focal = focal
+        self.active_stitcher.camera_matrix = np.array([[focal,0, 150], [0,focal, 150], [0,0, 1]])
+        self.batchImageWidth, self.batchImageHeight = output["Sizes"][:2]
+        self.active_stitcher.points_remap = None
+
+        print( output["isRANSAC"], output["matcherType"], output["checks"], output["ratio_thresh"], output["score_threshold"], output["focal"], self.batchImageWidth, self.batchImageHeight)
         pass
 
 def first_thread(manager: StitcherManager, debug = False):
@@ -166,12 +224,11 @@ def first_thread(manager: StitcherManager, debug = False):
     """""
     flagPosition = 0
     processedDataPosition = 4
-    metadataSize = 20 + 64 + 1+ 64+ 1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
+    metadataSize = 20 + 64 + 1+ 64+ 1 + 4*4 +1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
 
     # Read first time metadata to initialize the memories:
     output = readMetadataMemory(metadataMMF)
-    typeOfStitcher, isCylindrical = output["typeOfStitcher"], output["isCylindrical"]
     
     batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth , manager.processedImageHeight= output["Sizes"]
     
@@ -323,13 +380,31 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     raw_bool = metadataMMF.read(1)
     isRANSAC = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
 
+    # Read the integer for check sizes
+    checks = struct.unpack('i', metadataMMF.read(4))[0]  # 4 bytes for int
+
+    # Read the float for ratio and score
+    floats = struct.unpack('ff', metadataMMF.read(8))  # 2 floats (4 bytes each)
+
+    # Read the integer for check sizes
+    focal = struct.unpack('i', metadataMMF.read(4))[0]  # 4 bytes for int
+
+    # Read the boolean for RANSAC or not
+    raw_bool = metadataMMF.read(1)
+    onlyIHN = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
+
     # Return all parsed metadata
     return {
         "Sizes": int_values,  # Tuple of 5 integers
         "typeOfStitcher": metadata_string,
         "isCylindrical": metadata_bool,
         "matcherType" : matcherType,
-        "isRANSAC" :isRANSAC
+        "isRANSAC" : isRANSAC,
+        "checks" : checks,
+        "ratio_thresh" : floats[0],
+        "score_threshold" : floats[1],
+        "focal" : focal,
+        "onlyIHN" : onlyIHN,
     }
 
 @jit(nopython=True) 

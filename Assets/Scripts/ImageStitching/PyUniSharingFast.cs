@@ -37,6 +37,21 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField]
     private bool ransac = false;
 
+    [SerializeField]
+    private int checks = 50;
+
+    [SerializeField]
+    private float ratio_thresh = 0.7f;
+
+    [SerializeField]
+    private float score_threshold = 0.1f;
+
+    [SerializeField]
+    private int focal_length = 1000;
+
+    [SerializeField]
+    private bool onlyIHN = false; //Maybe for implementation of NIS only with IHN for fast warping
+
     private string batchMapName = "BatchSharedMemory";
     private int batchImageCount = 0;
     private int batchImageSize = 0;
@@ -49,7 +64,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalProcessedSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1+ 4 + 64 + 1 + 4; // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 64 bytes for string + 1 byte bool +  4 bytes float
+    private int metadataSize = 20 + 64 + 1+ 4 + 64 + 1 + 4 + 4*4 + 1; // 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool + 64 bytes for string + 1 byte bool +  4 bytes float + 4*4 int and floats + one bool
 
     private IntPtr batchFileMap;
     private IntPtr batchPtr;
@@ -87,7 +102,8 @@ public class PyUniSharingFast : MonoBehaviour
     {
         CLASSIC,
         UDIS,
-        NIS
+        NIS,
+        REWARP
     }
 
     public enum matcherType
@@ -563,6 +579,35 @@ public class PyUniSharingFast : MonoBehaviour
 
         // Write RANSAC bool
         Marshal.WriteByte(metadataPtr, offset, (byte)(ransac ? 1 : 0));
+        offset +=1;
+
+        // write checks (int)
+        Marshal.WriteInt32(metadataPtr, offset, checks);
+        offset += 4;
+        // Write ratio_thresh (float)
+        byte[] ratioThreshBytes = BitConverter.GetBytes(ratio_thresh);
+        // Ensure correct endianness
+        if (!BitConverter.IsLittleEndian)
+        {
+            Array.Reverse(ratioThreshBytes);
+        }
+        Marshal.Copy(ratioThreshBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
+        offset += 4;
+
+        // Write score_threshold (float)
+        byte[] scoreThresholdBytes = BitConverter.GetBytes(score_threshold);
+        // Ensure correct endianness
+        if (!BitConverter.IsLittleEndian)
+        {
+            Array.Reverse(scoreThresholdBytes);
+        }
+        Marshal.Copy(scoreThresholdBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
+        offset += 4;
+        // write focal_length (int)
+        Marshal.WriteInt32(metadataPtr, offset, focal_length);
+        offset += 4;
+        // write onlyIHN (bool)
+        Marshal.WriteByte(metadataPtr, offset, (byte)(onlyIHN ? 1 : 0));
 
         // Debug.Log("Metadata written to shared memory.");
 

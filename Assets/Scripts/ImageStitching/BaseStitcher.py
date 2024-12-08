@@ -187,6 +187,7 @@ class BaseStitcher:
         self.superpoint_model.to(self.device)
 
         # Flann parameters. Algorithm that match the different keypoints between images based on the descriptors
+        self.checks = checks
         self.index_params = dict(algorithm=algorithm, trees=trees)
         self.search_params = dict(checks=checks) 
 
@@ -201,6 +202,7 @@ class BaseStitcher:
         if camera_matrix is None:
             camera_matrix = np.array([[300,0, 150], [0,300, 150], [0,0, 1]])
         self.camera_matrix = camera_matrix
+        self.focal = camera_matrix[0,0]
 
         # Warp informations
         self.cylindricalWarp = cylindricalWarp
@@ -304,12 +306,16 @@ class BaseStitcher:
         images = [np.array(image) for image in images]
         return {'keypoints': keypoints, 'scores': scores, 'descriptors': descriptors}, (ratio_x, ratio_y)
 
-    def keep_best_keypoints(self, outputs, ratios):
+    def keep_best_keypoints(self, outputs, ratios, image_height):
         # Extract tensors from the outputs dictionary
         kpts, scores, dpts = outputs['keypoints'], outputs['scores'],  outputs['descriptors']
 
         # Get mask of valid scores
-        valid_mask = scores > self.score_threshold
+        score_mask = scores > self.score_threshold
+        threshold = 2 * image_height / 3
+        
+        # Keep keypoints with best score and within the above 2/3 of the image
+        valid_mask = score_mask | (kpts[:,:, 1]<threshold)
 
         # Apply mask to keypoints and descriptors
         valid_keypoints = [(kpts[i][valid_mask[i]]*np.array([ratios[0],ratios[1]])).astype(int) for i in range(kpts.shape[0])]
@@ -750,14 +756,14 @@ class BaseStitcher:
 
         t0 = time.time()
         if self.cylindricalWarp:
-            outputs, ratios, _ = self.SP_inference_fast(images)
+            outputs, ratios, images = self.SP_inference_fast(images)
         else:
             outputs, ratios = self.SP_inference_fast(images)
 
         if outputs is None:
             return None, None, None
         
-        keypoints, descriptors = self.keep_best_keypoints(outputs, ratios)
+        keypoints, descriptors = self.keep_best_keypoints(outputs, ratios, images[0].shape[0])
         t1 = time.time()
         matches_info, confidences = self.compute_matches_and_confidences(descriptors, keypoints)
         t2 = time.time()
