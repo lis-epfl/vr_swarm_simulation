@@ -424,18 +424,27 @@ class BaseStitcher:
         headAngle -= headAngle//360 *360
         if headAngle<0:
             headAngle+=360
+        # print(headAngle)
+        # print(num_images)
         angle_per_image, angle_rad= 2*np.pi/num_images, np.deg2rad(headAngle)#- 2*np.pi(angle>180)
+        # print(angle_rad)
+        # print(angle_rad/angle_per_image)
         orientation = angle_rad/angle_per_image+0.5
+        # print(orientation)
         ref = int(orientation)
         
+        # print(ref)
         odd = num_pano_img%2
 
         
         ref +=num_images
-
+        
+        # print(ref)
+        # print(order)
         if odd:
             offset = num_pano_img // 2  # Offset to pick images on both sides of the reference
             # Subset1: Take images from the left of the reference
+            # print(ref-offset)
             subset1 = order[ref-offset:ref+1][::-1]
             Ts1 = Ts[ref-offset:ref][::-1]
             
@@ -494,9 +503,9 @@ class BaseStitcher:
         if diff_pos<0:
             Hs = np.concatenate((Hs[:1], Hs[1:][::-1]))
             order = np.concatenate(([partial_order[0]], partial_order[1:][::-1]))
+            # print(type(order), len(partial_order))
             return Hs, order, True
-            
-        return Hs, partial_order, False
+        return Hs, np.array(partial_order), False
     
     def compute_affines_and_order(self, keypoints, matches_info, partial_order):
         """""
@@ -725,7 +734,6 @@ class BaseStitcher:
         for i in range(Hs1.shape[0]):
             H_translate = np.dot(translation_matrix, H1_acc[i])
             warped_img = cv2.warpPerspective(images[subset1[i + 1]], H_translate, panorama_size)
-
             mask = (warped_img > 0).astype(np.uint8)
             panorama[(mask > 0) & (ref_mask == 0) ] = warped_img[(mask > 0) & (ref_mask == 0)]
 
@@ -733,7 +741,6 @@ class BaseStitcher:
         for i in range(Hs2.shape[0]):
             H_translate = np.dot(translation_matrix, H2_acc[i])
             warped_img = cv2.warpPerspective(images[subset2[i + 1]], H_translate, panorama_size)
-
             mask = (warped_img > 0).astype(np.uint8)
             panorama[(mask > 0) & (ref_mask == 0)] = warped_img[(mask > 0) & (ref_mask == 0)]
 
@@ -785,7 +792,7 @@ class BaseStitcher:
                               [0, 0, h-1 , h-1 ],
                               [1, 1, 1, 1]], dtype=np.float32)
         
-        Hs = ControlHomography(H, Hs, corners, ratio=1.5, change_thresh =200)
+        Hs = H#ControlHomography(H, Hs, corners, ratio=1.5, change_thresh =200)
         
         t4 = time.time()
 
@@ -821,10 +828,10 @@ class BaseStitcher:
             images = [self.CylindricalWarp(img) for img in images]
 
         subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
-        print(subset1, subset2)
+        # print(subset1, subset2)
         pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=processedImageWidth, panoHeight=processedImageHeight)            
         if verbose:
-            print(f"Warp time: {time.time()-t}")    
+            print(f"Warp time: {time.time()-t}")
         return pano
             
 
@@ -847,38 +854,6 @@ def hassmallChangeHomography(H_new, H_prev, criterion = 0.5):
     Assume same dimensions for H_new and H_prev
     """
     return np.linalg.norm(H_prev-H_new, 'fro')>criterion
-
-# def ControlHomography(Hs_new, Hs_prev, corners, ratios=1.5, change_thresh =100):
-
-#     b = Hs_new.shape[0]
-
-#     # Compute new corners in batch
-#     Hs_new_ = Hs_new.copy()
-#     Hs_new_[:, :2, -1] = np.zeros(2)
-
-#     new_corners_2d = (Hs_new_@corners[:, 1:3])[:, :2, :]
-
-#     Hs_prev_ = Hs_prev.copy()
-#     Hs_prev_[:, :2, -1] = np.zeros(2)
-#     prev_corners_2d = (Hs_prev_@corners[:, 1:3])[:, :2, :]
-
-#     good_index = np.ones(b, dtype=np.bool_)
-#     # Control if image not too stretched
-#     for i in range(b):
-#         if np.linalg.norm(new_corners_2d[i]-corners[:2, 1:3], "fro")>ratios**2:
-#             good_index[i]=False
-#         else:
-#             if Hs_prev[i] == np.zeros_like(Hs_prev[i]):
-#                 Hs_prev[i] = Hs_new[i]
-#                 good_index[i]=False
-
-#     # Control if points have not changed too much between 2 homographies
-#     for i in range(b):
-#         distance = np.linalg.norm(new_corners_2d[i]-prev_corners_2d[i], "fro")
-#         if good_index[i] and distance < change_thresh :
-#             Hs_prev[i] = Hs_new[i]
-
-#     return Hs_prev
 
 def ControlHomography(Hs_new, Hs_prev, corners, ratio=2.5, change_thresh=200):
     """

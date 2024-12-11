@@ -34,7 +34,7 @@ from torchvision import transforms
 # # from torch.quantization import quantize_dynamic
 # from numba import jit
 
-already_saved = False
+already_saved = True
 
 class NISStitcher(BaseStitcher):
     def __init__(self):
@@ -233,12 +233,12 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
     diff1x, diff1y = leftSize[1]-w, leftSize[0]-h
 
     
-    print(f"rightSIze: {rightSize}")
-    print(f"leftSIze: {leftSize}")
-    print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
-    print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
-    print(f"shiftup1+(leftSize[0]-shiftdown1): {shiftup1+(leftSize[0]-shiftdown1)}")
-    print(f"shiftup2+(rightSize[0]-shiftdown2): {shiftup2+(rightSize[0]-shiftdown2)}")
+    # print(f"rightSIze: {rightSize}")
+    # print(f"leftSIze: {leftSize}")
+    # print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
+    # print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
+    # print(f"shiftup1+(leftSize[0]-shiftdown1): {shiftup1+(leftSize[0]-shiftdown1)}")
+    # print(f"shiftup2+(rightSize[0]-shiftdown2): {shiftup2+(rightSize[0]-shiftdown2)}")
     
     pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
     # pano = np.zeros((h, diff1x+diff2x+w, 3))
@@ -255,10 +255,10 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
             pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
             
     else:
-        print("Control if shifts are equal:")
+        # print("Control if shifts are equal:")
         # print(diff2y==shiftup2+shiftdown2, diff1y==shiftup1+shiftdown1)
         
-        # print("Alignement problem")
+        print("Alignement problem")
         # print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
         # print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
         
