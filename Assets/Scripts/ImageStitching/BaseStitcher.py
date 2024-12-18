@@ -161,7 +161,8 @@ class BaseStitcher:
     def __init__(self, 
                  camera_matrix = None, 
                  cylindricalWarp=False, 
-                 full_cylinder = False, 
+                 full_cylinder = True, 
+                 known_order = None,
                  algorithm=1, 
                  trees=5, 
                  checks=50, 
@@ -185,6 +186,12 @@ class BaseStitcher:
         self.H_SP = 480
         self.score_threshold = score_threshold
         self.superpoint_model.to(self.device)
+
+        # If a defined order is given, use it to find homographies
+        self.known_order = known_order
+
+        # If a full 360 degrees field is pictured
+        self.full_cylinder = full_cylinder
 
         # Flann parameters. Algorithm that match the different keypoints between images based on the descriptors
         self.checks = checks
@@ -424,27 +431,18 @@ class BaseStitcher:
         headAngle -= headAngle//360 *360
         if headAngle<0:
             headAngle+=360
-        # print(headAngle)
-        # print(num_images)
         angle_per_image, angle_rad= 2*np.pi/num_images, np.deg2rad(headAngle)#- 2*np.pi(angle>180)
-        # print(angle_rad)
-        # print(angle_rad/angle_per_image)
         orientation = angle_rad/angle_per_image+0.5
-        # print(orientation)
         ref = int(orientation)
         
-        # print(ref)
         odd = num_pano_img%2
 
         
         ref +=num_images
         
-        # print(ref)
-        # print(order)
         if odd:
             offset = num_pano_img // 2  # Offset to pick images on both sides of the reference
             # Subset1: Take images from the left of the reference
-            # print(ref-offset)
             subset1 = order[ref-offset:ref+1][::-1]
             Ts1 = Ts[ref-offset:ref][::-1]
             
@@ -494,124 +492,17 @@ class BaseStitcher:
                 else:
                     Hs[i], _ = cv2.findHomography(dst_p, src_p, method=0)
 
-        w, h = self.camera_matrix[:2, -1]*2
+        if self.known_order is None:
+            w, h = self.camera_matrix[:2, -1]*2
+            middle_pixel = np.array([w/2, h/2, 1])
+            new_middle_pixel = Hs[0]@middle_pixel
+            diff_pos = new_middle_pixel[0]/new_middle_pixel[2]-middle_pixel[0]
 
-        middle_pixel = np.array([w/2, h/2, 1])
-        new_middle_pixel = Hs[0]@middle_pixel
-        diff_pos = new_middle_pixel[0]/new_middle_pixel[2]-middle_pixel[0]
-
-        if diff_pos<0:
-            Hs = np.concatenate((Hs[:1], Hs[1:][::-1]))
-            order = np.concatenate(([partial_order[0]], partial_order[1:][::-1]))
-            # print(type(order), len(partial_order))
-            return Hs, order, True
+            if diff_pos<0:
+                Hs = np.concatenate((Hs[:1], Hs[1:][::-1]))
+                order = np.concatenate(([partial_order[0]], partial_order[1:][::-1]))
+                return Hs, order, True
         return Hs, np.array(partial_order), False
-    
-    def compute_affines_and_order(self, keypoints, matches_info, partial_order):
-        """""
-        COmpute homographies between each best pairs. For n images in the 360 degrees panorama, we have n homographies to compute
-        because the last or the first image should be associated with two homographies.
-        """""
-        num_images= len(keypoints)
-        matches_lookup = {(match['image1_index'], match['image2_index']): match['matches'] for match in matches_info}
-        
-        Hs = np.zeros((num_images, 2, 3))
-        for i in range(num_images):
-            if i<num_images-1:
-                idx1, idx2 = partial_order[i], partial_order[i + 1]
-            else:
-                idx1, idx2 = partial_order[i], partial_order[0]
-
-            if (idx1, idx2) in matches_lookup:
-                matches = matches_lookup[(idx1, idx2)]
-                src_p = np.float32([keypoints[idx1][m.queryIdx] for m in matches]).reshape(-1, 2)
-                dst_p = np.float32([keypoints[idx2][m.trainIdx] for m in matches]).reshape(-1, 2)
-            else:
-                matches = matches_lookup[(idx2, idx1)]
-                src_p = np.float32([keypoints[idx1][m.trainIdx] for m in matches]).reshape(-1, 2)
-                dst_p = np.float32([keypoints[idx2][m.queryIdx] for m in matches]).reshape(-1, 2)
-
-            if dst_p.shape[0]>4:
-                Hs[i], _ = cv2.estimateAffine2D(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=5, confidence=0.995)
-
-        w, h = self.camera_matrix[:2, -1]*2
-
-        middle_pixel = np.array([w/2, h/2, 1])
-        new_middle_pixel = Hs[0]@middle_pixel
-        diff_pos = new_middle_pixel[0]-middle_pixel[0]
-
-        if diff_pos<0:
-            Hs = np.concatenate((Hs[:1], Hs[1:][::-1]))
-            order = np.concatenate(([partial_order[0]], partial_order[1:][::-1]))
-            return Hs, order, True
-            
-        return Hs, partial_order, False
-
-    def affineStitching(self, images, Ms1, Ms2, subset1, subset2, inverted, clip_x = 8000, clip_y = 2000):
-        pass
-        
-        # Initial dimensions of the first image
-        # h, w = images[0].shape[:2]
-
-        # # Initial corners of the reference image
-        # corners = np.array([[0, w-1 , w -1, 0],
-        #                       [0, 0, h-1 , h-1 ],
-        #                       [1, 1, 1, 1]], dtype=np.float32)
-
-        # if inverted:
-        #     Ms2 = invert_affine_matrices(Ms2)
-        # else:
-        #     Ms1 = invert_affine_matrices(Ms1)
-
-        # # First, apply affine transformations for subset1 (left side)
-        # warped_corners_1, M1_acc = apply_affine_matrices(Ms1, corners)
-
-        # # Then, apply affine transformations for subset2 (right side)
-        # warped_corners_2, M2_acc = apply_affine_matrices(Ms2, corners)
-
-        # # Calculate the bounding box for the entire panorama
-        # all_corners = np.concatenate((warped_corners_1, warped_corners_2), axis=1)
-
-        # x_min, x_max = np.int32(all_corners[0, :].min()), np.int32(all_corners[0, :].max())
-        # y_min, y_max = np.int32(all_corners[1, :].min()), np.int32(all_corners[1, :].max())
-
-        # # print(x_min, x_max, y_min, y_max)
-
-        # x_min, x_max = max(x_min, -clip_x), min(x_max, clip_x)
-        # y_min, y_max = max(y_min, -clip_y), min(y_max, clip_y)
-
-        # # print(x_min, x_max, y_min, y_max)
-
-        # # Translation matrix for panorama placement
-        # translation_matrix = np.array([[1, 0, -x_min],
-        #                             [0, 1, -y_min]], dtype=np.float32)
-
-        # panorama_size = (x_max - x_min, y_max - y_min)
-
-        # # Warp the reference image and place it on the panorama canvas using cv2.warpAffine
-        # panorama = cv2.warpAffine(images[subset2[0]], translation_matrix, panorama_size)
-        # M1_acc[:,:2,-1]+=translation_matrix[:2,-1]
-        # M2_acc[:,:2,-1]+=translation_matrix[:2,-1]
-
-        # # Warp and blend images from subset1 (left side), skipping the reference image
-        # for i in range(M1_acc.shape[0]):
-        #     M_translate = M1_acc[i]
-
-        #     warped_img = cv2.warpAffine(images[subset1[i + 1]], M_translate, panorama_size)
-
-        #     mask = (warped_img > 0).astype(np.uint8)
-        #     panorama[mask > 0] = warped_img[mask > 0]
-
-        # # Warp and blend images from subset2 (right side), skipping the reference image
-        # for i in range(M2_acc.shape[0]):
-        #     M_translate = M2_acc[i]
-
-        #     warped_img = cv2.warpAffine(images[subset2[i + 1]], M_translate, panorama_size)
-
-        #     mask = (warped_img > 0).astype(np.uint8)
-        #     panorama[mask > 0] = warped_img[mask > 0]
-
-        # return panorama
     
     def compose_with_ref(self, images, Hs1, Hs2, subset1, subset2, inverted, clip_x = 8000, clip_y = 2000):
         
@@ -641,16 +532,8 @@ class BaseStitcher:
         x_min, x_max = np.int32(all_corners[0, :].min()), np.int32(all_corners[0, :].max())
         y_min, y_max = np.int32(all_corners[1, :].min()), np.int32(all_corners[1, :].max())
 
-        # print(x_min, x_max, y_min, y_max)
-
         x_min, x_max =  max(x_min, -clip_x),  min(x_max, clip_x)
         y_min, y_max = max(y_min, -clip_y),  min(y_max, clip_y)
-
-        # print(x_min, x_max, y_min, y_max)
-
-        # translation_matrix = np.array([[1, 0, -x_min],
-        #                             [0, 1, -y_min],
-        #                             [0, 0, 1]], dtype=np.float32)
 
         panorama_width = x_max - x_min
         panorama_height = y_max - y_min
@@ -658,7 +541,7 @@ class BaseStitcher:
         center_x_offset = panorama_width // 2 - w // 2
         center_y_offset = panorama_height // 2 - h // 2
 
-    # Translation matrix to center the reference image
+        # Translation matrix to center the reference image
         translation_matrix = np.array([[1, 0, center_x_offset],
                                     [0, 1, center_y_offset],
                                     [0, 0, 1]], dtype=np.float32)
@@ -688,11 +571,7 @@ class BaseStitcher:
             mask = (warped_img > 0).astype(np.uint8)
             panorama[(mask > 0) & (ref_mask == 0)] = warped_img[(mask > 0) & (ref_mask == 0)]
 
-        # _, thresh = cv2.threshold(cv2.cvtColor(panorama, cv2.COLOR_RGB2GRAY), 1, 255, cv2.THRESH_BINARY)
-        # # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        # x, y, w, h = cv2.boundingRect(thresh)#cv2.boundingRect(contours[0])
-
-        return panorama#[y:y+h, x:x+w]
+        return panorama
     
     def compose_with_defined_size(self, images, Hs1, Hs2, subset1, subset2, inverted,  panoWidth=500, panoHeight=400):
         
@@ -700,7 +579,6 @@ class BaseStitcher:
         h, w = images[0].shape[:2]
 
         # Initial corners of the reference image
-        # corners = np.array([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]], dtype=np.float32).reshape(-1, 1, 2)
         corners = np.array([[0, w-1 , w -1, 0],
                               [0, 0, h-1 , h-1 ],
                               [1, 1, 1, 1]], dtype=np.float32)
@@ -719,7 +597,7 @@ class BaseStitcher:
         center_x_offset = panoWidth // 2 - w // 2
         center_y_offset = panoHeight // 2 - h // 2
 
-    # Translation matrix to center the reference image
+        # Translation matrix to center the reference image
         translation_matrix = np.array([[1, 0, center_x_offset],
                                     [0, 1, center_y_offset],
                                     [0, 0, 1]], dtype=np.float32)
@@ -744,11 +622,47 @@ class BaseStitcher:
             mask = (warped_img > 0).astype(np.uint8)
             panorama[(mask > 0) & (ref_mask == 0)] = warped_img[(mask > 0) & (ref_mask == 0)]
 
-        # _, thresh = cv2.threshold(cv2.cvtColor(panorama, cv2.COLOR_RGB2GRAY), 1, 255, cv2.THRESH_BINARY)
-        # # contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        # x, y, w, h = cv2.boundingRect(thresh)#cv2.boundingRect(contours[0])
+        return panorama
+    
+    def compose_2_images(self, images, H, order):
 
-        return panorama#[y:y+h, x:x+w]
+        """""
+        Implementation for 2 images stitching. The warped image is put after the reference image and no blending is done
+        It is principally used for evaluation on UDIS dataset.
+        """""
+        
+        # Initial dimensions of the first image
+        h, w = images[0].shape[:2]
+
+        # Initial corners of the reference image
+        corners = np.array([[0, w-1 , w -1, 0],
+                              [0, 0, h-1 , h-1 ],
+                              [1, 1, 1, 1]], dtype=np.float32)
+
+
+        corners = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)
+
+        # Warp the corners of the first image to the second image
+        warped_corners_image1 = cv2.perspectiveTransform(corners, H.squeeze())
+
+        # Get the bounding box of the combined image
+        combined_corners = np.concatenate((warped_corners_image1, np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)), axis=0)
+        [x_min, y_min] = np.int32(combined_corners.min(axis=0).ravel() - 0.5)
+        [x_max, y_max] = np.int32(combined_corners.max(axis=0).ravel() + 0.5)
+
+        # Get the translation homography
+        translation_dist = [-x_min, -y_min]
+        translation_homography = np.array([[1, 0, translation_dist[0]], [0, 1, translation_dist[1]], [0, 0, 1]])
+
+        # Warp the first image to the larger canvas
+        warped_image = cv2.warpPerspective(images[order[0]], translation_homography.dot(H.squeeze()), (x_max - x_min, y_max - y_min))
+        mask = cv2.warpPerspective(np.ones_like(images[order[0]]), translation_homography.dot(H.squeeze()), (x_max - x_min, y_max - y_min))
+        panorama = np.zeros_like(warped_image)
+        panorama[translation_dist[1]:h+translation_dist[1], translation_dist[0]:h+translation_dist[0]] = images[order[1]]
+        panorama[mask>0] = warped_image[mask>0]
+
+
+        return panorama, warped_image, mask, images[order[1]]
 
     def findHomographyOrder(self, images, front_image_index=0,Hs=None, verbose = False, debug= False):
         """""
@@ -774,7 +688,10 @@ class BaseStitcher:
         t1 = time.time()
         matches_info, confidences = self.compute_matches_and_confidences(descriptors, keypoints)
         t2 = time.time()
-        partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
+        if self.known_order is None:
+            partial_order = find_cycle_for_360_panorama(confidences, front_image_index, False)[:-1]
+        else:
+            partial_order = self.known_order
 
         H, order, inverted = self.compute_homographies_and_order(keypoints, matches_info, partial_order, Hs)
         t3 = time.time()
@@ -821,15 +738,26 @@ class BaseStitcher:
         # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
         # Take the order and the ref to compute the panorama
 
-        # order, Hs, inverted = None, None, None
-
         t = time.time()
         if self.cylindricalWarp:
             images = [self.CylindricalWarp(img) for img in images]
 
-        subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
-        # print(subset1, subset2)
-        pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=processedImageWidth, panoHeight=processedImageHeight)            
+        if num_pano_img>2:
+            subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
+            # print(subset1, subset2)
+            pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=processedImageWidth, panoHeight=processedImageHeight)
+        else:
+            num_img = len(images)
+            # Implemententation for 2 images
+            if inverted:
+                H = Hs[num_img+1]
+                subset = order[num_img+1:num_img+3]
+            else:
+                H = Hs[num_img]
+                subset = order[num_img:num_img+2]
+
+            return self.compose_2_images(images, H, subset)
+
         if verbose:
             print(f"Warp time: {time.time()-t}")
         return pano
@@ -919,7 +847,4 @@ def ControlHomography(Hs_new, Hs_prev, corners, ratio=2.5, change_thresh=200):
 
     return Hs_prev
 
-
-
-    #Control if not too much changes between two consecutive homorgraphies
 

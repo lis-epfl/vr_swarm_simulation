@@ -119,11 +119,11 @@ class REStitcher(BaseStitcher):
         tgt_w = (tgt_w + 1)/2 * mask_t
 
         t1 = time.time()
-        print("Model inference", time.time()-t0)
+        # print("Model inference", time.time()-t0)
         # Image Stitching
         stit = linear_blender(ref_w, tgt_w, mask_r, mask_t)
         
-        print("Linear blending", time.time()-t1)
+        # print("Linear blending", time.time()-t1)
         stit_ = stit[0].detach().cpu().numpy()*255.  # Convert to NumPy
         
         # stit_ = (stit_ + 1) / 2 * 255  # Scale from [-1, 1] to [0, 255]
@@ -158,12 +158,12 @@ class REStitcher(BaseStitcher):
         elif left_warp is None:
             return right_warp
 
-        # pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
-        pano = right_warp
+        pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
+        # pano = right_warp
 
-        print(f"Warp time : {time.time()-t0}")
-        print(f"First Warp time : {t1-t0}")
-        print(f"Second time : {t2-t1}")
+        # print(f"Warp time : {time.time()-t0}")
+        # print(f"First Warp time : {t1-t0}")
+        # print(f"Second time : {t2-t1}")
 
         if not already_saved:
             already_saved = True
@@ -175,91 +175,6 @@ class REStitcher(BaseStitcher):
             print("saving")
 
         return pano.astype(np.uint8)
-
-    def RE_batch_warping(self, image1, image2, image3):
-        pass
-        
-        # t0=time.time()
-        # image1, image2_flipped=cv2.flip(image1, 1), cv2.flip(image2, 1)
-        # input1_tensor, input2_tensor = load3images(image1, image2, image2_flipped, image3)
-        # t1=time.time()
-        # if torch.cuda.is_available():
-        #     input1_tensor = input1_tensor.cuda()
-        #     input2_tensor = input2_tensor.cuda()
-        # t2=time.time()
-        # input1_tensor_512 = self.resize_512(input1_tensor)
-        # input2_tensor_512 = self.resize_512(input2_tensor)
-        # t3=time.time()
-        # with torch.no_grad():
-        #     batch_out = build_new_ft_model(self.net, input1_tensor_512, input2_tensor_512)
-        # rigid_mesh = batch_out['rigid_mesh']
-        # mesh = batch_out['mesh']
-        # t4=time.time()
-        # with torch.no_grad():
-        #     output = get_stitched_result(input1_tensor, input2_tensor, rigid_mesh, mesh)
-        # t5=time.time()
-        # stitched_images = output['stitched'].cpu().detach()#.numpy().transpose(1,2,0)
-        # t6=time.time()
-
-        # print(f"loading time : {t1-t0}")
-        # print(f"GPU transfer time : {t2-t1}")
-        # print(f"Resize time : {t3-t2}")
-        # print(f"Mesh computation time : {t4-t3}")
-        # print(f"Stitching time : {t5-t4}")
-        # print(f"CPU + detachement time : {t6-t5}")
-
-        # return stitched_images
-    
-    def RE_batch_pano(self, images, subset1, subset2):
-        pass
-        # t0=time.time()
-        # h, w, _ = images[0].shape
-
-        # output = self.UDIS_batch_warping(images[subset1[1]], images[subset2[0]], images[subset2[1]])
-        # # input1_tensor, input2_tensor = load3images(images[subset1[1]], images[subset2[0]], images[subset2[1]])
-        # # out = build_output_model(self.net, input1_tensor.cuda(), input2_tensor.cuda())
-        # t1=time.time()
-
-        # left_warp, right_warp = output[0].numpy().transpose(1,2,0), output[1].numpy().transpose(1,2,0)
-        
-        # shiftup1 = np.argmax(left_warp[:,0].sum(axis=1) != 0)
-        # shiftdown1 = shiftup1 + np.argmax(left_warp[shiftup1:, 0].sum(axis=1) == 0)
-        # shiftup2 = np.argmax(right_warp[:,0].sum(axis=1) != 0)
-        # shiftdown2 = shiftup2 + np.argmax(right_warp[shiftup2:, 0].sum(axis=1) == 0)
-        
-
-        # left_warp = cv2.flip(left_warp, 1)
-
-        # rightSize = right_warp.shape
-        # leftSize = left_warp.shape
-
-        # diff2x, diff2y = rightSize[1]-w, rightSize[0]-h
-        # diff1x, diff1y = leftSize[1]-w, leftSize[0]-h
-
-        # pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
-        # # pano = np.zeros((h, diff1x+diff2x+w, 3))
-
-        # t2=time.time()
-
-        # if diff2y == shiftup2+(rightSize[0]-shiftdown2) and diff1y == shiftup1+(leftSize[0]-shiftdown1):
-        #     diffshiftup = shiftup2-shiftup1
-
-        #     if diffshiftup >= 0:
-        #         pano[diffshiftup:leftSize[0]+diffshiftup, :diff1x+w//2] = left_warp[:, :diff1x+w//2]
-        #         pano[:rightSize[0], diff1x+w//2:] = right_warp[:, w//2:]
-        #     else:
-        #         pano[:leftSize[0], :diff1x+w//2] = left_warp[:, :diff1x+w//2]
-        #         pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
-
-        # else:
-        #     print("Alignement problem")
-
-        # # print(f"UDIS time : {t1-t0}")
-        # # print(f"Placement calculation time : {t2-t1}")
-        # # print(f"If code time : {time.time()-t2}")
-        # # print(f"Warp time : {time.time()-t0}")
-
-        # return pano.astype(np.uint8)
   
     def stitch(self, images, order, Hs, inverted, headAngle, num_pano_img=3, verbose=False):
         """""
@@ -281,24 +196,6 @@ class REStitcher(BaseStitcher):
         if verbose:
             print(f"Warp time: {time.time()-t}")    
         return pano
-    
-
-def loadSingleData(image1, image2):
-
-    # load image1
-    input1 = image1.astype(dtype=np.float32)
-    input1 = (input1 / 127.5) - 1.0
-    input1 = np.transpose(input1, [2, 0, 1])
-
-    # load image2
-    input2 = image2.astype(dtype=np.float32)
-    input2 = (input2 / 127.5) - 1.0
-    input2 = np.transpose(input2, [2, 0, 1])
-
-    # convert to tensor
-    input1_tensor = torch.tensor(input1).unsqueeze(0)
-    input2_tensor = torch.tensor(input2).unsqueeze(0)
-    return (input1_tensor, input2_tensor)
 
 @jit(nopython=True)
 def preprocess_images(images):
@@ -355,15 +252,15 @@ def find_image_shift(part_mask):
 
     return y_shift_up#, y_shift_down
 
-def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300)):
+def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300), security_factor = 5):
     h, w = size
     rightSize = right_warp.shape
     leftSize = left_warp.shape
 
-    shiftup1 = find_image_shift(left_mask[:, :w//3])
-    shiftup2 = find_image_shift(right_mask[:, :w//3])
-    shiftdown1 = leftSize[0]-h-shiftup1
-    shiftdown2 = rightSize[0]-h-shiftup2
+    shiftup1 = find_image_shift(left_mask[:, :w//4])
+    shiftup2 = find_image_shift(right_mask[:, :w//4])
+    shiftdown1 = max(leftSize[0]-h-shiftup1, 0)
+    shiftdown2 = max(rightSize[0]-h-shiftup2, 0)
 
     left_warp = cv2.flip(left_warp, 1)
 
@@ -371,16 +268,11 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
     diff2x, diff2y = rightSize[1]-w, rightSize[0]-h
     diff1x, diff1y = leftSize[1]-w, leftSize[0]-h
 
-    
-    # print(f"rightSIze: {rightSize}")
-    # print(f"leftSIze: {leftSize}")
-    # print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
-    # print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
-    # print(f"shiftup1+(leftSize[0]-shiftdown1): {shiftup1+(leftSize[0]-shiftdown1)}")
-    # print(f"shiftup2+(rightSize[0]-shiftdown2): {shiftup2+(rightSize[0]-shiftdown2)}")
-    
-    pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
-    # pano = np.zeros((h, diff1x+diff2x+w, 3))
+    top_shift = max(shiftup1, shiftup2)
+    bottom_shift = max((leftSize[0] - shiftup1), (rightSize[0] - shiftup2))
+
+    # pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
+    pano = np.zeros((top_shift + bottom_shift+security_factor, diff1x+diff2x+w, 3))
 
     if diff2y == shiftup2+shiftdown2 and diff1y == shiftup1+shiftdown1:
         diffshiftup = shiftup2-shiftup1
@@ -389,18 +281,26 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
                 pano[diffshiftup:leftSize[0]+diffshiftup, :diff1x+w//2] = left_warp[:, :diff1x+w//2]
                 pano[:rightSize[0], diff1x+w//2:] = right_warp[:, w//2:]
             else:
-                pano[:leftSize[0], :diff1x+w//2] = left_warp[:, :diff1x+w//2]
-                # Problem dimension here
+                min_height = min(leftSize[0], pano.shape[0])
+                pano[:min_height, :diff1x+w//2] = left_warp[:min_height, :diff1x+w//2]
                 pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
         except:
+            print("only right part")
             pano = right_warp
             
-            
     else:
-        print("Control if shifts are equal:")
-        # print("Alignement problem")
-        # print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
-        # print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
+        print("Alignement problem")
+
+        condition1 = diff1y == shiftup1+shiftdown1
+        condition2 = diff2y == shiftup2+shiftdown2
+
+        if not condition1 and not condition2:
+            print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
+            print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
+        elif not condition1:
+            print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
+        elif not condition2:
+            print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
         
         # If there are errors in the calculation due to bad image order or bad logical calculations
         pano = right_warp
@@ -414,15 +314,6 @@ def loadImages(ref, tgt):
     if h != 512 or w != 512:
         ref_ = cv2.resize(ref, dsize=(512, 512), interpolation=cv2.INTER_LINEAR)
         tgt_ = cv2.resize(tgt, dsize=(512, 512), interpolation=cv2.INTER_LINEAR)
-
-    # img_ref = np.array(Image.fromarray(ref_).convert('RGB'))
-    # img_tgt = np.array(Image.fromarray(tgt_).convert('RGB'))
-
-    # img_ref = torch.tensor(ref_/255.)
-    # img_tgt = torch.tensor(tgt_/255.)
-
-    # img_ref=cv2.resize(img_ref, dsize=(1280, 960), interpolation=cv2.INTER_AREA)
-    # img_tgt=cv2.resize(img_tgt, dsize=(1280, 960), interpolation=cv2.INTER_AREA)
     
     ref =  (ref/255. - 0.5) * 2
     tgt = (tgt/255. - 0.5) * 2
@@ -461,3 +352,7 @@ def linear_blender(ref, tgt, ref_m, tgt_m, mask=False):
     stit = ref * mask1 + tgt * mask2
 
     return stit
+
+# # To avoid too big images
+#     diff2x, diff2y = min(diff2x, 3*w), min(diff2y, 2*h)
+#     diff1x, diff1y = min(diff2x, 3*w), min(diff2y, 2*h)

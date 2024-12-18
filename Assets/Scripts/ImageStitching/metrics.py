@@ -17,14 +17,14 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from torchvision import transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import GaussianBlur
-
+from collections import OrderedDict
 
 from skimage.metrics import peak_signal_noise_ratio as compare_psnr
 from skimage.metrics import structural_similarity as compare_ssim
 
-# from BaseStitcher import *
+from BaseStitcher import *
 
 
 # UDIS2 imports
@@ -83,8 +83,100 @@ c1 = [0, 0]; c2 = [0, 0]
 finder = cv2.detail.SeamFinder.createDefault(2)
 # UDIS : average psnr: 25.42688753348356, average ssim: 0.83781886
 # NIS (only IHN) : PSNR:26.4804, SSIM:0.8206
-# NIS :
 # REWRARP : PSNR:22.9463/24.4961/26.2651, Avg PSNR: 24.9925, SSIM:0.7488/0.7848/0.8207, SSIM:0.7942
+
+
+### CLASSIC method
+
+class ClassicDataset(Dataset):
+    def __init__(self, data_path):
+
+        self.width = 512
+        self.height = 512
+        self.test_path = data_path
+        self.datas = OrderedDict()
+        
+        datas = glob.glob(os.path.join(self.test_path, '*'))
+
+        # Added from original code (for Windows users)
+        datas= [path.replace("\\", "/") for path in datas]
+
+        for data in sorted(datas):
+            data_name = data.split('/')[-1]
+            if data_name == 'input1' or data_name == 'input2' :
+                self.datas[data_name] = {}
+                self.datas[data_name]['path'] = data
+                self.datas[data_name]['image'] = glob.glob(os.path.join(data, '*.jpg'))
+                self.datas[data_name]['image'].sort()
+        print(self.datas.keys())
+
+    def __getitem__(self, index):
+        
+        input1 = cv2.imread(self.datas['input1']['image'][index])
+        input2 = cv2.imread(self.datas['input2']['image'][index])
+
+        return [input1, input2]
+
+    def __len__(self):
+
+        return len(self.datas['input1']['image'])
+
+def eval_CLASSIC():
+    if torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = "cpu"
+
+    stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.2, device=device)
+
+    test_path = r"testing"
+    test_data = ClassicDataset(data_path=test_path)
+
+    print("##################start testing#######################")
+    psnr_list = []
+    ssim_list = []
+
+    for i, images in enumerate(test_data):
+
+        _, Hs, order, inverted, _, _, confidences = stitcher.findHomographyOrder(images, 0, None, verbose = False, debug= True)
+        order = np.hstack((order, order, order))
+        Hs = np.concatenate((Hs, Hs, Hs))
+
+        _, warped_image, mask, img = stitcher.stitch(images, order, Hs, inverted, 0, None, None, num_pano_img=2, verbose = False)
+        
+        psnr = compare_psnr(img * mask, warped_image * mask, data_range=255)
+        ssim = compare_ssim(img * mask, warped_image * mask, data_range=255, multichannel=True)
+
+
+        print('i = {}, psnr = {:.6f}'.format( i+1, psnr))
+
+        psnr_list.append(psnr)
+        ssim_list.append(ssim)
+        torch.cuda.empty_cache()
+
+        # if i>10:
+        #     break
+
+    print("=================== Analysis ==================")
+    print("psnr")
+    psnr_list.sort(reverse = True)
+    psnr_list_30 = psnr_list[0 : 331]
+    psnr_list_60 = psnr_list[331: 663]
+    psnr_list_100 = psnr_list[663: -1]
+    print("top 30%", np.mean(psnr_list_30))
+    print("top 30~60%", np.mean(psnr_list_60))
+    print("top 60~100%", np.mean(psnr_list_100))
+    print('average psnr:', np.mean(psnr_list))
+
+    ssim_list.sort(reverse = True)
+    ssim_list_30 = ssim_list[0 : 331]
+    ssim_list_60 = ssim_list[331: 663]
+    ssim_list_100 = ssim_list[663: -1]
+    print("top 30%", np.mean(ssim_list_30))
+    print("top 30~60%", np.mean(ssim_list_60))
+    print("top 60~100%", np.mean(ssim_list_100))
+    print('average ssim:', np.mean(ssim_list))
+    print("##################end testing#######################")
 
 #### FROM UDIS
 
@@ -219,6 +311,8 @@ def eval_IHN(loader, model):
     for b_id in pbar:
         i +=1
         batch = next(loader)
+        # if i != 241:
+        #     continue
         for k, v in batch.items():
             batch[k] = v.cuda()
 
@@ -267,81 +361,87 @@ def eval_IHN(loader, model):
         desc="PSNR:{:.4f}, SSIM:{:.4f}, Failures:{}".format(
             tot_psnr/(b_id+1), tot_ssim/(b_id+1), failures), refresh=True)
         torch.cuda.empty_cache()
+        
+        
+        # tgt = batch['inp_tgt'].permute(0, 3, 1, 2)
+        # ref = batch['inp_ref'].permute(0, 3, 1, 2) 
+        # inp_tgt = batch['inp_tgt'].permute(0, 3, 1, 2) * 255
+        # inp_ref = batch['inp_ref'].permute(0, 3, 1, 2) * 255
+
+        # tgt_grid, tgt_cell, tgt_mask, \
+        # ref_grid, ref_cell, ref_mask, \
+        # stit_grid, stit_mask, sizes = prepare_ingredient(model, inp_tgt, inp_ref, tgt, ref)
+
+        # # ref = (ref - 0.5) * 2
+        # # tgt = (tgt - 0.5) * 2
+
+        # ref_mask = ref_mask.reshape(b,1,*sizes)
+        # tgt_mask = tgt_mask.reshape(b,1,*sizes)
+
+        # b, c, h, w = tgt.shape  # Original dimensions of the target image
+        # output_h, output_w = sizes  # Output size for the stitched canvas
+
+        # # Reshape coord to match the output size
+        # tgt_grid_reshaped = tgt_grid.view(b, output_h, output_w, 2)
+
+        # # Flip last dimension of coord to match PyTorch grid_sample convention
+        # tgt_grid_flipped = tgt_grid_reshaped.flip(-1)
+
+        # # Warp the target image using grid_sample
+        # warped_tgt = torch.nn.functional.grid_sample(
+        #     inp_tgt / 255.0,  # Normalize input to [0, 1]
+        #     tgt_grid_flipped,  # Use flipped grid
+        #     mode='bilinear',
+        #     padding_mode='zeros',
+        #     align_corners=False
+        # )
+        # warped_tgt_masked = warped_tgt * tgt_mask
+        # warped_tgt_visual = (warped_tgt_masked[0].cpu().clamp(0, 1) * 255).numpy().transpose(1, 2, 0).astype(np.uint8)
+
+        # # Normalize and warp the reference image
+        # ref_grid_normalized = ref_grid.clone()
+        # ref_grid_normalized = ref_grid_normalized.view(b, output_h, output_w, 2)
+        # ref_grid_normalized = ref_grid_normalized.flip(-1)  # Flip last dimension for PyTorch conventions
+
+        # # Warp the reference image using grid_sample
+        # warped_ref = torch.nn.functional.grid_sample(
+        #     inp_ref / 255.0,  # Normalize input to [0, 1]
+        #     ref_grid_normalized,
+        #     mode='bilinear',
+        #     padding_mode='zeros',
+        #     align_corners=False
+        # )
+
+        # # Apply the reference mask
+        # warped_ref_masked = warped_ref * ref_mask
+
+        # # Combine the reference and target images into the canvas
+        # canvas = torch.zeros_like(warped_ref)  # Initialize the canvas with zeros
+        # combined_mask = torch.zeros_like(ref_mask)  # Combined mask for normalization
+
+        # # Add reference image to the canvas
+        # canvas += warped_ref_masked
+        # combined_mask += ref_mask
+
+        # # Add target image to the canvas
+        # canvas += warped_tgt_masked
+        # combined_mask += tgt_mask
+
+        # # Normalize the canvas by the combined mask
+        # canvas = canvas / (combined_mask + 1e-5)  # Avoid division by zero
+
+        # # Visualize the final stitched canvas
+        # canvas_visual = (canvas[0].cpu().clamp(0, 1) * 255).numpy().transpose(1, 2, 0).astype(np.uint8)
+        # # warped_tgt_pil = transforms.ToPILImage()(canvas[0])
+        # # warped_tgt_pil.show()
+
+        # cv2.imshow("img_src", canvas_visual)
+        # cv2.waitKey(20000)
+        
+        # break
         # if i>10:
         #     break
     print(desc)
-    
-
-# Blending eval NIS
-
-def seam_finder(ref, tgt, ref_m, tgt_m):
-    ref_ = ref.mean(dim=1, keepdim=True)
-    ref_ -= ref_.min()
-    ref_ /= ref_.max()
-
-    tgt_ = tgt.mean(dim=1, keepdim=True)
-    tgt_ -= tgt_.min()
-    tgt_ /= tgt_.max()
-
-    ref_ = (ref_.cpu().numpy() * 255).astype(np.uint8)
-    tgt_ = (tgt_.cpu().numpy() * 255).astype(np.uint8)
-    ref_m = (ref_m[0,0,:,:].cpu().numpy() * 255).astype(np.uint8)
-    tgt_m = (tgt_m[0,0,:,:].cpu().numpy() * 255).astype(np.uint8)
-
-    inp = np.concatenate([ref_, tgt_], axis=0).transpose(0,2,3,1)
-    inp = np.repeat(inp, 3, -1)
-
-    masks = np.stack([ref_m, tgt_m], axis=0)[..., None]
-    corners = np.stack([c1, c2], axis=0).astype(np.uint8)
-
-    ref_m, tgt_m = finder.find(inp, corners, masks)
-    ref *= torch.Tensor(cv2.UMat.get(ref_m).reshape(1,1,*ref.shape[-2:])/255).cuda()
-    tgt *= torch.Tensor(cv2.UMat.get(tgt_m).reshape(1,1,*tgt.shape[-2:])/255).cuda()
-
-    stit_rep = ref + tgt
-
-    return stit_rep
-
-
-def batched_predict(model, ref, ref_grid, ref_cell, ref_mask,
-                    tgt, tgt_grid, tgt_cell, tgt_mask,
-                    stit_grid, sizes, bsize, seam_cut=False):
-
-    fea_ref, fea_ref_grid, ref_coef, ref_freq = model.gen_feat(ref)
-    fea_ref_w = model.NeuralWarping(
-        ref, fea_ref, fea_ref_grid,
-        ref_freq, ref_coef, ref_grid, ref_cell, sizes
-    )
-
-    fea_tgt, fea_tgt_grid, tgt_coef, tgt_freq = model.gen_feat(tgt)
-    fea_tgt_w = model.NeuralWarping(
-        tgt, fea_tgt, fea_tgt_grid,
-        tgt_freq, tgt_coef, tgt_grid, tgt_cell, sizes
-    )
-
-    if seam_cut:
-        fea = seam_finder(fea_ref_w, fea_tgt_w, ref_mask, tgt_mask).repeat(1,2,1,1)
-
-    else:
-        fea_ref_w *= ref_mask
-        fea_tgt_w *= tgt_mask
-        fea = torch.cat([fea_ref_w, fea_tgt_w], dim=1)
-
-    stit_rep = model.gen_feat_for_blender(fea)
-
-    ql = 0
-    preds = []
-    n = ref_grid.shape[1]
-
-    while ql < n:
-        qr = min(ql + bsize, n)
-        pred = model.query_rgb(stit_rep, stit_grid[:, ql: qr, :])
-        preds.append(pred)
-        ql = qr
-
-    pred = torch.cat(preds, dim=1)
-
-    return pred
 
 
 def prepare_ingredient(model, inp_tgt, inp_ref, tgt, ref):
@@ -401,135 +501,6 @@ def prepare_ingredient(model, inp_tgt, inp_ref, tgt, ref):
     stit_grid = stit_grid.unsqueeze(0).repeat(b,1,1)
 
     return tgt_grid, tgt_cell, tgt_mask, ref_grid, ref_cell, ref_mask, stit_grid, stit_mask, sizes
-
-
-def prepare_validation(config):
-    spec = config.get('dataset')
-
-    dataset = Neural_Image_Stitching_main.datasetsNIS.datasets.make(spec['dataset'])
-    dataset = Neural_Image_Stitching_main.datasetsNIS.datasets.make(spec['wrapper'], args={'dataset': dataset})
-
-    log('dataset: size={}'.format(len(dataset)))
-    for k, v in dataset[0].items():
-        log('  {}: shape={}'.format(k, tuple(v.shape)))
-
-    loader = DataLoader(
-        dataset,
-        batch_size=spec['batch_size'],
-        shuffle=False,
-        num_workers=16,
-        pin_memory=True
-    )
-
-    # sv_file = torch.load(config['resume_stitching'])
-    # model = Neural_Image_Stitching_main.models.make(sv_file['model'], load_sd=True).cuda()
-
-    # H_model = Neural_Image_Stitching_main.models.IHN().cuda()
-    # sv_file = torch.load(config['resume_align'])
-    # H_model.load_state_dict(sv_file['model']['sd'])
-
-    # n_params = nis_utils.compute_num_params(model)
-
-    # log('model params: {}'.format(n_params))
-
-    return loader#, model, H_model
-
-
-def valid_NIS(loader, model, H_model):
-    model.eval()
-    H_model.eval()
-
-    tot_psnr = 0
-    tot_ssim = 0
-    failures = 0
-
-    os.makedirs("visualization/", exist_ok=True)
-
-    pbar = tqdm(range(len(loader)), smoothing=0.9)
-    loader = iter(loader)
-    print("evaluating start")
-    i = 0
-    desc = None
-    good = 0
-    for b_id in pbar:
-        i+=1
-        batch = next(loader)
-
-        for k, v in batch.items():
-            batch[k] = v.cuda()
-
-        ref = batch['inp_ref']
-        tgt = batch['inp_tgt']
-
-        b, c, h, w = ref.shape
-
-        with torch.no_grad():
-            if h != 128 or w != 128:
-                inp_ref = F.interpolate(ref, size=(128,128), mode='bilinear') * 255
-                inp_tgt = F.interpolate(tgt, size=(128,128), mode='bilinear') * 255
-
-            else:
-                inp_ref = ref * 255
-                inp_tgt = tgt * 255
-        with torch.no_grad():
-            tgt_grid, tgt_cell, tgt_mask, \
-            ref_grid, ref_cell, ref_mask, \
-            stit_grid, stit_mask, sizes = prepare_ingredient(H_model, inp_tgt, inp_ref, tgt, ref)
-
-        ref = (ref - 0.5) * 2
-        tgt = (tgt - 0.5) * 2
-
-        ref_mask = ref_mask.reshape(b,1,*sizes)
-        tgt_mask = tgt_mask.reshape(b,1,*sizes)
-        
-        with torch.no_grad():
-            pred = batched_predict(
-                model, ref, ref_grid, ref_cell, ref_mask,
-                tgt, tgt_grid, tgt_cell, tgt_mask,
-                stit_grid, sizes, config['eval_bsize'], seam_cut=True
-            )
-        pred = pred.permute(0, 2, 1).reshape(b, c, *sizes)
-        pred = ((pred + 1)/2).clamp(0,1) * stit_mask.reshape(b, 1, *sizes)
-        
-
-        # transforms.ToPILImage()(pred[0]).save('visualization/{0:06d}.png'.format(b_id))
-        ref_samples = (ref.cpu().numpy().transpose(0, 2, 3, 1)*2+1)* 255.
-        pred_samples = pred.cpu().numpy().transpose(0, 2, 3, 1)* 255.
-        ref_mask = ref_mask.cpu().squeeze(0)
-        # print(ref_mask.shape, pred_samples.shape)
-        try:
-            pred_samples = pred_samples[ref_mask.bool()].reshape(b, 512, 512, 3)
-            # print(ref_samples.shape, pred_samples.shape)
-            psnr = compare_psnr(ref_samples, pred_samples, data_range=255.)
-            ssim = compare_ssim(ref_samples.squeeze(), pred_samples.squeeze(), data_range=255., multichannel=True, channel_axis=-1)
-            tot_psnr += psnr
-            tot_ssim += ssim
-            good += 1
-        except:
-            pred_samples_n = pred_samples.squeeze(0)#.numpy()
-            ref_mask = ref_mask.squeeze(0).numpy()
-            # print((ref_mask>0).sum(), (tgt_mask.cpu().squeeze(0).squeeze(0).numpy()).sum(), pred_samples_n.shape, ref_mask.shape)
-            print("problem with shape")
-            # cv2.imwrite("pred.jpg", cv2.cvtColor(pred_samples_n.astype('uint8'), cv2.COLOR_RGB2BGR))
-            # cv2.imwrite("ref_m.jpg", (ref_mask * 255).astype('uint8'))
-        
-        # psnr = compare_psnr(tgt_samples, src_samples, data_range=1.)
-        # ssim = compare_ssim(tgt_samples * 255, src_samples * 255, data_range=255.)
-
-        
-        torch.cuda.empty_cache()
-
-        pbar.set_description_str(
-        desc="PSNR:{:.4f}, SSIM:{:.4f}, Failures:{}".format(
-            tot_psnr/(good), tot_ssim/(good), failures), refresh=True)
-        
-        # if i>10:
-        #     break
-
-    print(f"Final PSNR: {tot_psnr / len(pbar):.4f}, SSIM: {tot_ssim / len(pbar):.4f}")
-    print('Failure cases:', failures)
-
-    # return tot_psnr / (b_id+1)
 
 
 
@@ -742,6 +713,9 @@ def eval_REWARP(loader, IHN, model):
 
 # Main functions
 
+def main_CLASSIC():
+    eval_CLASSIC()
+
 def main_UDIS():
 
     parser = argparse.ArgumentParser()
@@ -776,33 +750,6 @@ def main_IHN():
         eval_IHN(loader, model)
 
 
-def main_NIS():
-    global config, log, writer
-
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
-    with open(r"Neural_Image_Stitching_main/configs/test/NIS_blending.yaml", 'r') as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-        print('config loaded.')
-
-    config_ = r"Neural_Image_Stitching_main/configs/test/NIS_blending.yaml"
-    save_path = os.path.join('./save', '_' + config_.split('/')[-1][:-len('.yaml')])
-    log, writer = nis_utils.set_save_path(save_path, remove=False)
-    with open(os.path.join(save_path, 'config.yaml'), 'w') as f:
-        yaml.dump(config, f, sort_keys=False)
-
-    # loader, model, H_model = prepare_validation(config)
-    loader = prepare_validation(config)
-    model, H_model = stitch.prepare_validation(config)
-
-    n_gpus = len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
-    if n_gpus > 1:
-        model = nn.parallel.DataParallel(model)
-
-    with torch.no_grad():
-        valid_psnr = valid_NIS(loader, model, H_model)
-
-
 def main_REWARP():
 
     yaml_path = "Residual_Elastic_Warp_main/configs/test/rewarp.yaml"
@@ -827,10 +774,11 @@ if __name__ == '__main__':
     # normalized_paths = [path.replace("\\", "/") for path in datas]
     # print(normalized_paths)
     # print(datas)
-    main_UDIS()
-    main_IHN()
+    main_CLASSIC()
+    # main_UDIS()
+    # main_IHN()
     # main_NIS()
-    main_REWARP()
+    # main_REWARP()
     # parser = argparse.ArgumentParser()
     # parser.add_argument('--config')
     # parser.add_argument('--gpu', default='0')

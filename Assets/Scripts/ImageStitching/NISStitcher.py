@@ -119,6 +119,117 @@ class NISStitcher(BaseStitcher):
 
         return (pano * 255).astype('uint8')#.astype(np.uint8)
   
+    def IHN_warping(self, ref, tgt, inp_ref, inp_tgt):
+
+        b, c, h, w = ref.shape
+
+        inp_ref *=255
+        inp_tgt *=255
+
+        tgt_grid, tgt_cell, tgt_mask, \
+        ref_grid, ref_cell, ref_mask, \
+        stit_grid, stit_mask, sizes = stitch.prepare_ingredient(self.H_model, inp_tgt, inp_ref, tgt, ref)
+
+        ref_mask = ref_mask.reshape(b,1,*sizes)
+        tgt_mask = tgt_mask.reshape(b,1,*sizes)
+
+        output_h, output_w = sizes  # Output size for the stitched canvas
+
+        # Reshape coord to match the output size
+        tgt_grid_reshaped = tgt_grid.view(b, output_h, output_w, 2)
+
+        # Flip last dimension of coord to match PyTorch grid_sample convention
+        tgt_grid_flipped = tgt_grid_reshaped.flip(-1)
+
+        # Warp the target image using grid_sample
+        warped_tgt = torch.nn.functional.grid_sample(
+            tgt,  # Normalize input to [0, 1]
+            tgt_grid_flipped,  # Use flipped grid
+            mode='bicubic',
+            padding_mode='zeros',
+            align_corners=False
+        )
+
+        # Apply mask
+        warped_tgt_masked = warped_tgt * tgt_mask
+        
+        # Normalize and warp the reference image
+        ref_grid_normalized = ref_grid.clone()
+        ref_grid_normalized = ref_grid_normalized.view(b, output_h, output_w, 2)
+        ref_grid_normalized = ref_grid_normalized.flip(-1)  # Flip last dimension for PyTorch conventions
+
+        # Warp the reference image using grid_sample
+        warped_ref = torch.nn.functional.grid_sample(
+            ref,  # Normalize input to [0, 1]
+            ref_grid_normalized,
+            mode='bicubic',
+            padding_mode='zeros',
+            align_corners=False
+        )
+
+        # Apply the reference mask
+        warped_ref_masked = warped_ref * ref_mask
+
+        # Combine the reference and target images into the canvas
+        canvas = torch.zeros_like(warped_ref)  # Initialize the canvas with zeros
+        combined_mask = torch.zeros_like(ref_mask)  # Combined mask for normalization
+
+        # Add reference image to the canvas
+        canvas += warped_ref_masked
+        combined_mask += ref_mask
+
+        # Add target image to the canvas
+        canvas += warped_tgt_masked
+        combined_mask += tgt_mask
+
+        # Normalize the canvas by the combined mask
+        canvas = canvas / (combined_mask + 1e-5)  # Avoid division by zero
+
+        # Visualize the final stitched canvas
+        # canvas_visual = (canvas[0].cpu().clamp(0, 1) * 255).numpy().transpose(1, 2, 0).astype(np.uint8)
+        canvas_visual = canvas[0].cpu().clamp(0, 1).numpy().transpose(1, 2, 0)
+
+
+        return canvas_visual, ref_mask.cpu()[0].numpy().transpose(1, 2, 0)
+
+    def IHN_pano(self, images, subset1, subset2):
+        global already_saved
+        t0=time.time()
+
+        ref, tgt, inp_ref, inp_tgt = resize_pair_images(cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1))
+        h, w = ref.shape[:2]
+        ref, tgt, inp_ref, inp_tgt = TransformToTensor(ref, tgt, inp_ref, inp_tgt)
+        
+        # print("warping right")
+        left_warp, left_mask = self.IHN_warping(ref, tgt, inp_ref, inp_tgt)
+
+        # Release GPU memory 
+        del ref
+        del tgt
+
+        # In the case of GPU Out-of-memory (resize the images to avoid extreme memory usage and warping time)
+        ref, tgt, inp_ref, inp_tgt = resize_pair_images(images[subset2[0]], images[subset2[1]])
+        ref, tgt, inp_ref, inp_tgt = TransformToTensor(ref, tgt, inp_ref, inp_tgt)
+        
+        # print("warping right")
+        right_warp, right_mask = self.IHN_warping(ref, tgt, inp_ref, inp_tgt)
+        
+        # Release GPU memory 
+        del ref
+        del tgt
+        pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
+
+        if not already_saved:
+            already_saved = True
+            cv2.imwrite("left_warp.jpg", cv2.cvtColor((left_warp * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
+            cv2.imwrite("right_warp.jpg", cv2.cvtColor((right_warp * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
+            cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
+            cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
+            cv2.imwrite("pano.jpg", cv2.cvtColor((pano * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
+            print("saving")
+
+        return (pano * 255).astype('uint8')#.astype(np.uint8)
+    
     def stitch(self, images, order, Hs, inverted, headAngle, num_pano_img=3, verbose=False):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
@@ -134,8 +245,14 @@ class NISStitcher(BaseStitcher):
         t = time.time()
 
         subset1, subset2, _, _ = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
-        with torch.no_grad():
-            pano = self.NIS_pano(images, subset1, subset2)          
+        
+        print(subset1, subset2)
+        if self.onlyIHN:
+            with torch.no_grad():
+                pano = self.IHN_pano(images, subset1, subset2)  
+        else:
+            with torch.no_grad():
+                pano = self.NIS_pano(images, subset1, subset2)          
         
         if verbose:
             print(f"Warp time: {time.time()-t}")
@@ -212,7 +329,7 @@ def find_image_shift(part_mask):
 
     return y_shift_up#, y_shift_down
 
-def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300)):
+def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300), security_factor = 5):
     h, w = size
     rightSize = right_warp.shape
     leftSize = left_warp.shape
@@ -232,37 +349,30 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
     diff2x, diff2y = rightSize[1]-w, rightSize[0]-h
     diff1x, diff1y = leftSize[1]-w, leftSize[0]-h
 
+    top_shift = max(shiftup1, shiftup2)
+    bottom_shift = max((leftSize[0] - shiftup1), (rightSize[0] - shiftup2))
+    pano = np.zeros((top_shift + bottom_shift+security_factor, diff1x+diff2x+w, 3))
     
-    # print(f"rightSIze: {rightSize}")
-    # print(f"leftSIze: {leftSize}")
-    # print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
-    # print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
-    # print(f"shiftup1+(leftSize[0]-shiftdown1): {shiftup1+(leftSize[0]-shiftdown1)}")
-    # print(f"shiftup2+(rightSize[0]-shiftdown2): {shiftup2+(rightSize[0]-shiftdown2)}")
-    
-    pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
+    # pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
     # pano = np.zeros((h, diff1x+diff2x+w, 3))
 
     if diff2y == shiftup2+shiftdown2 and diff1y == shiftup1+shiftdown1:
         diffshiftup = shiftup2-shiftup1
-
-        if diffshiftup >= 0:
-            pano[diffshiftup:leftSize[0]+diffshiftup, :diff1x+w//2] = left_warp[:, :diff1x+w//2]
-            pano[:rightSize[0], diff1x+w//2:] = right_warp[:, w//2:]
-        else:
-            pano[:leftSize[0], :diff1x+w//2] = left_warp[:, :diff1x+w//2]
-            # Problem dimension here
-            pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
-            
+        try:
+            if diffshiftup >= 0:
+                pano[diffshiftup:leftSize[0]+diffshiftup, :diff1x+w//2] = left_warp[:, :diff1x+w//2]
+                pano[:rightSize[0], diff1x+w//2:] = right_warp[:, w//2:]
+            else:
+                min_height = min(leftSize[0], pano.shape[0])
+                pano[:min_height, :diff1x+w//2] = left_warp[:min_height, :diff1x+w//2]
+                pano[-diffshiftup:rightSize[0]-diffshiftup, diff1x+w//2:] = right_warp[:, w//2:]
+        except:
+            print("only right part")
+            pano = right_warp
     else:
-        # print("Control if shifts are equal:")
-        # print(diff2y==shiftup2+shiftdown2, diff1y==shiftup1+shiftdown1)
-        
         print("Alignement problem")
-        # print(f"diff1x: {diff1x}, diff1y: {diff1y}, shiftup1: {shiftup1}, shiftdown1: {shiftdown1}")
-        # print(f"diff2x: {diff2x}, diff2y: {diff2y}, shiftup2: {shiftup2}, shiftdown2: {shiftdown2}")
-        
         # If there are errors in the calculation due to bad image order or bad logical calculations
         pano = right_warp
+
 
     return pano
