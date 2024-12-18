@@ -25,6 +25,7 @@ class VotingApp:
             "large parallax": {"CLASSIC": 0, "UDIS": 0, "IHN": 0, "REWARP": 0},
             "small parallax": {"CLASSIC": 0, "UDIS": 0, "IHN": 0, "REWARP": 0}
         }
+        self.bad_cases = []  # To track bad cases
         
         # Collect all top-level folders and their subfolders
         for foldername in os.listdir(image_path):
@@ -53,8 +54,13 @@ class VotingApp:
         # Buttons under images
         self.left_button = tk.Button(self.button_frame, text="Vote Left", command=self.vote_left)
         self.right_button = tk.Button(self.button_frame, text="Vote Right", command=self.vote_right)
+        self.both_good_button = tk.Button(self.button_frame, text="Both Good", command=self.vote_both_good)
+        self.both_bad_button = tk.Button(self.button_frame, text="Both Bad", command=self.vote_both_bad)
+
         self.left_button.pack(side=tk.LEFT, padx=10)
-        self.right_button.pack(side=tk.RIGHT, padx=10)
+        self.right_button.pack(side=tk.LEFT, padx=10)
+        self.both_good_button.pack(side=tk.LEFT, padx=10)
+        self.both_bad_button.pack(side=tk.LEFT, padx=10)
 
         self.next_images()
 
@@ -100,6 +106,14 @@ class VotingApp:
         self.record_vote("Right")
         self.next_images()
 
+    def vote_both_good(self):
+        self.record_vote("Both Good")
+        self.next_images()
+
+    def vote_both_bad(self):
+        self.record_bad_case()
+        self.next_images()
+
     def random_case_selection(self):
         type_case_path = random.choice(self.folderpaths)
         return random.choice(self.subfolders_map[type_case_path])
@@ -134,12 +148,26 @@ class VotingApp:
         # Increment the corresponding subfolder vote count
         if vote_side == "Left":
             method = os.path.basename(self.image_path_1).split('.')[0]
-        else:
+        elif vote_side == "Right":
             method = os.path.basename(self.image_path_2).split('.')[0]
+        elif vote_side == "Both Good":
+            method_1 = os.path.basename(self.image_path_1).split('.')[0]
+            method_2 = os.path.basename(self.image_path_2).split('.')[0]
+            if method_1 in self.voting_results[parallax]:
+                self.voting_results[parallax][method_1] += 1
+            if method_2 in self.voting_results[parallax]:
+                self.voting_results[parallax][method_2] += 1
+            return
 
         if method in self.voting_results[parallax]:
             self.voting_results[parallax][method] += 1
-    
+
+    def record_bad_case(self):
+        # print(os.path.dirname(os.path.dirname(self.image_path_1)))
+        bad1 = os.path.relpath(self.image_path_1, STITCHING_FOLDER)
+        bad2 = os.path.relpath(self.image_path_2, STITCHING_FOLDER)
+        self.bad_cases.append((bad1, bad2))
+
     def save_results_to_csv(self):
         with open(RESULTS_FILE, mode='w', newline='') as file:
             writer = csv.writer(file)
@@ -149,6 +177,12 @@ class VotingApp:
                 row = [parallax] + [results[method] for method in ["CLASSIC", "UDIS", "IHN", "REWARP"]]
                 writer.writerow(row)
 
+            # Write bad cases
+            writer.writerow([])
+            writer.writerow(["Bad Cases"])
+            writer.writerow(["Image 1", "Image 2"])
+            for bad_case in self.bad_cases:
+                writer.writerow(bad_case)
 
 def resize_with_max_size(image, max_size):
     """Resize the image to fit within the max_size while maintaining aspect ratio."""
