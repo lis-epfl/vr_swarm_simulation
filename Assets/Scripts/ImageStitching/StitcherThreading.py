@@ -45,7 +45,10 @@ from REStitcher import *
 # cd Assets\Scripts\ImageStitching 
 # python StitcherThreading.py
 
-# ADD REWARP, add segmentation, metrics and variables, UDIS dataset evaluation
+# Adding classic with order given 
+# Add hyperparameter order
+# dataset of 100 images (pairwise voting)
+# Adding NIS and debugging
 
 
 class StitcherManager:

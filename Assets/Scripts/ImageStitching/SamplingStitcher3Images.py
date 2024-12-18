@@ -1,20 +1,14 @@
 import numpy as np
 import cv2
-import glob
 import os
-import sys
 import torch
 import time
-from transformers import SuperPointForKeypointDetection
-# from torch.quantization import quantize_dynamic
 from numba import jit
 import queue
 import threading
 import mmap
 import struct
-import networkx as nx
-import random
-from PIL import Image
+import sys
 
 from BaseStitcher import *
 
@@ -43,7 +37,7 @@ from REStitcher import *
 # Activate environnement
 # cmd
 # cd Assets\Scripts\ImageStitching 
-# python SamplingStitcher.py
+# python SamplingStitcher3Images.py
 
 
 from datetime import datetime
@@ -182,84 +176,13 @@ def first_thread(absolute_path_save = "save_images/", save_time = 10.0, debug = 
             print("problem opening/reading batched memory")
             continue
 
-        SAVE_PATH = absolute_path_save + "("+ str(batchImageWidth)+ "_" + str(batchImageWidth)+ ")" + datetime.now().strftime("%m%d%y%H%M%S")+ '/'
-        save_images(images, SAVE_PATH, images_bool)
+        SAVE_PATH = absolute_path_save + datetime.now().strftime("%m%d%y%H%M%S")+ '/'
+        save_images(images, SAVE_PATH)
+
+        if debug:
+            break
 
         time.sleep(save_time)
-
-        if debug:
-            break
-
-def second_thread(manager: StitcherManager, front_image_index=0, verbose = False, debug= False):
-    """""
-    This method uses some of the above methods to extract the order and the homographies of the paired images.
-    Input:
-        - images: list of NDArrays.
-        - front_image_index: the index of the front image of the pilot
-    """""
-    Hs = None
-    # global shared_images
-    while True:
-        if manager.shared_images is None:
-            print("Second thread sleep")
-            time.sleep(0.4)
-            continue
-        
-        with manager.info_lock:
-            images = manager.shared_images
-
-        t = time.time()
-        Hs = manager.process_thread2(images, front_image_index=front_image_index, Hs = Hs, verbose = verbose, debug= debug)
-
-        if verbose:
-            print(f"Second thread loop time: {time.time()-t}")
-        # time.sleep(0.5)
-        if debug:
-            break
-    
-def third_thread(manager: StitcherManager, num_pano_img=3, verbose =False, debug=False):
-    """""
-    This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
-    of the pilots head and the desired number of images in the panorama.
-    Input:
-        - images: list of NDArrays.
-        - angle : orientation of the pilots head (in degrees [0,360[?)
-        - num_pano_img : desired number of images in the panorama
-    """""
-    # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
-    # Take the order and the ref to compute the panorama
-
-    order, Hs, inverted = None, None, None
-
-    while True:
-        if not manager.homography_queue.empty():
-            del order, Hs, inverted
-            order = manager.order_queue.get()
-            Hs = manager.homography_queue.get()
-            inverted = manager.direction_queue.get()
-            order = np.hstack((order, order, order))
-            Hs = np.concatenate((Hs, Hs, Hs))
-        elif order is None:
-            time.sleep(0.4)
-            continue
-        
-        with manager.info_lock:
-            images = manager.shared_images
-
-        t = time.time()
-
-        if order.shape[0]//3 != len(images):
-            order = None
-            continue
-        manager.process_thread3(images,order, Hs, inverted, num_pano_img=3, verbose=verbose)
-        # order = None
-
-        if verbose:
-            print(f"Third thread loop time: {time.time()-t}")
-        if debug:
-            break
-
-    print("Quitting third thread")
 
 def readMetadataMemory(metadataMMF :mmap )->dict:
     
@@ -373,75 +296,72 @@ def readMemory(batchMMF, batchFlagPosition, headANglePosition, imageCount, batch
 
             return images, boolean_array, headAngle
 
-def save_images(image_list, folder_path, bool_array):
+def save_images(image_list, folder_path):
     """
     Save images from a list into a folder with labels determined by a boolean array.
+    Knowing the order of the images in the panorama, we select three desired images 
+    and save them in the folder with their 
 
     Args:
         image_list (list): List of image arrays (e.g., numpy arrays from OpenCV).
         folder_path (str): Path to the folder where images will be saved.
         bool_array (list): Boolean array determining the labels of the images.
     """
+    desired_images = [0, 1, 4]
+
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
 
-    # Initialize variables
     label = 0
-    for i, image in enumerate(image_list):
-        # Find the next valid label from the boolean array
-        while label < len(bool_array) and not bool_array[label]:
-            label += 1
-
-        # If no more valid labels, break the loop
-        if label >= len(bool_array):
-            print(f"No more valid labels for image {i}. Stopping.")
-            break
-
-        # Define the filename with the label
+    for i in desired_images:
         filename = os.path.join(folder_path, f"image_{label}.png")
         
         # Save the image
-        cv2.imwrite(filename, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(filename, cv2.cvtColor(image_list[i], cv2.COLOR_RGB2BGR))
         print(f"Saved image {i} as {filename}")
-
-        # Increment label
         label += 1
 
 
 def stitch_saved_images(save_path, device = "cuda"):
 
-    # stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device=device)
-    # for folderename in os.listdir(save_path):
-    #     folderpath = os.path.join(save_path, folderename)
-    #     stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC")
-    #     # # break
+    stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.2, device=device)
+    stitcher.known_order = [1, 2, 0]
+    
+    for folderename in os.listdir(save_path):
+        folderpath = os.path.join(save_path, folderename)
+        stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC")
+        # # break
     
     stitcher = None
     stitcher = UDISStitcher()
     stitcher.superpoint_model.to(device)
     stitcher.net.to(device)
+    stitcher.known_order = [1, 2, 0]
 
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
-        stitch_folder(stitcher, folderpath, stitcher_type = "UDIS_GIVEN_ORDER")
-
+        stitch_folder(stitcher, folderpath, stitcher_type = "UDIS")
+    
     stitcher = None
     stitcher = NISStitcher()
     stitcher.superpoint_model.to(device)
     stitcher.model.to(device), stitcher.H_model.to(device)
+    stitcher.onlyIHN = True
+    stitcher.known_order = [1, 2, 0]
 
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
-        stitch_folder(stitcher, folderpath, stitcher_type = "NIS_GIVEN_ORDER")
+        stitch_folder(stitcher, folderpath, stitcher_type = "IHN")
 
     stitcher = None
     stitcher = REStitcher()
     stitcher.superpoint_model.to(device)
     stitcher.model.to(device), stitcher.H_model.to(device)
+    stitcher.known_order = [1, 2, 0]
 
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
-        stitch_folder(stitcher, folderpath, stitcher_type = "REWARP_GIVEN_ORDER")
+        stitch_folder(stitcher, folderpath, stitcher_type = "REWARP")
 
 def stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC"):
     """
@@ -460,50 +380,52 @@ def stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC"):
     h, w, c = images[0].shape
     
     _, Hs, order, inverted, _, _, confidences = stitcher.findHomographyOrder(images, 0, None, verbose = False, debug= True)
-    print(order)
-    order = [0, 1, 2, 3, 5, 7, 11, 10, 9, 8, 6, 4]
     order = np.hstack((order, order, order))
     Hs = np.concatenate((Hs, Hs, Hs))
     
-    num_images = len(images)
-    angle_per_image = 360/num_images
     processedImageWidth, processedImageHeight = w*4, h*2
-    folderpath = os.path.join(folderpath, stitcher_type)
+    folderpath = os.path.join(folderpath, "stitched_images")
     if not os.path.exists(folderpath):
         os.makedirs(folderpath)
-    for i in range(num_images):
-        headAngle = i*angle_per_image
-        if stitcher_type == "CLASSIC":
-            pano = stitcher.stitch(images, order, Hs, inverted, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3, verbose = False)
-        elif stitcher_type == "UDIS_GIVEN_ORDER":
-            pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
-        elif stitcher_type == "NIS_GIVEN_ORDER":
-            pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
-        elif stitcher_type == "REWARP_GIVEN_ORDER":
-            pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
+    
+    headAngle = 0
+    if stitcher_type == "CLASSIC":
+        pano = stitcher.stitch(images, order, Hs, inverted, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3, verbose = False)
+    elif stitcher_type == "UDIS":
+        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
+    elif stitcher_type == "IHN":
+        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
+    elif stitcher_type == "REWARP":
+        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
         
-        # Define the filename with the label
-        filename = os.path.join(folderpath, f"angle_{int(headAngle)}_{stitcher_type}.png")
-        
-        # # Save the image
-        cv2.imwrite(filename, cv2.cvtColor(pano, cv2.COLOR_RGB2BGR))
-        # print(f"Saved image {i} as {filename}")
+    # Define the filename with the label
+    filename = os.path.join(folderpath, f"{stitcher_type}.png")
+    pano = cv2.cvtColor(pano, cv2.COLOR_RGB2BGR)
+    # # Save the image
+    cv2.imwrite(filename, pano)
+    print(f"Saved image as {filename}")
         
 def main():
 
-    SAVING = True
+    SAVING = False
 
-    debug = False
-    absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples"
+    debug = True
+    
     save_time = 50.0
 
     if SAVING:
-        first_t = threading.Thread(target=first_thread ,args=(absolute_path_save, save_time, debug))
-        first_t.daemon = True
-        first_t.start()
-        while True:
-            time.sleep(100)
+        # absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/low_parallax/"
+        absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/large_parallax/"
+        first_thread(absolute_path_save, save_time, debug)
+        # first_t = threading.Thread(target=first_thread ,args=(absolute_path_save, save_time, debug))
+        # first_t.daemon = True
+        # first_t.start()
+        # while True:
+        #     time.sleep(100)
     else:
+        absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/low_parallax/"
+        stitch_saved_images(absolute_path_save, device = "cuda")
+        absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/large_parallax/"
         stitch_saved_images(absolute_path_save, device = "cuda")
     
 
