@@ -7,13 +7,11 @@ import os
 import numpy as np
 
 # Where the results file will be located
-RESULTS_FILE = "C:/Users/guill/OneDrive/Bureau/voting_test/first_survey.csv"
-FULL_RESULTS_FILE = "C:/Users/guill/OneDrive/Bureau/voting_test/first_survey_full_results.csv"
+RESULTS_FILE = "C:/Users/guill/OneDrive/Bureau/voting_test/second_survey.csv"
 
 # Where the images file is located
 STITCHING_FOLDER = "C:/Users/guill/OneDrive/Bureau/image_samples/"
 
-# column A: parallax || column B image number|| left image algor|| right image algo || choice (left or right)
 
 # Column A parrallax || column B image number || algorithm || choice (good or bad)
 
@@ -26,17 +24,13 @@ class VotingApp:
         self.image_path = image_path
         self.folderpaths = []
         self.subfolders_map = {}  # Dictionary: {folder: [list of subfolders]}
-        self.voting_results = {
-            "large parallax": {"CLASSIC": 0, "UDIS": 0, "IHN": 0, "REWARP": 0},
-            "small parallax": {"CLASSIC": 0, "UDIS": 0, "IHN": 0, "REWARP": 0}
-        }
-        
+
         half_votes = max_votes // 2
         self.case_indices = np.array([0] * half_votes + [1] * half_votes)
         np.random.shuffle(self.case_indices)
-
-        # column A: parallax || column B image number|| left image algor|| right image algo || choice (left or right)
-        self.full_results = []
+        
+        # Column A parrallax || column B image number || algorithm || choice (good or bad)
+        self.results = []
         
         # Collect all top-level folders and their subfolders
         for foldername in os.listdir(image_path):
@@ -57,14 +51,12 @@ class VotingApp:
         self.button_frame.pack(side=tk.TOP, pady=10)
 
         # Image labels
-        self.left_image_label = tk.Label(self.image_frame)
-        self.right_image_label = tk.Label(self.image_frame)
-        self.left_image_label.pack(side=tk.LEFT, padx=10)
-        self.right_image_label.pack(side=tk.RIGHT, padx=10)
+        self.image_label = tk.Label(self.image_frame)
+        self.image_label.pack(side=tk.TOP, padx=10)
 
         # Buttons under images
-        self.left_button = tk.Button(self.button_frame, text="Vote Left", command=self.vote_left)
-        self.right_button = tk.Button(self.button_frame, text="Vote Right", command=self.vote_right)
+        self.left_button = tk.Button(self.button_frame, text="Good", command=self.vote_left)
+        self.right_button = tk.Button(self.button_frame, text="Bad", command=self.vote_right)
 
         self.left_button.pack(side=tk.LEFT, padx=10)
         self.right_button.pack(side=tk.LEFT, padx=10)
@@ -74,7 +66,6 @@ class VotingApp:
     def next_images(self):
         if self.vote_count >= self.max_votes:
             self.save_results_to_csv()
-            self.save_full_results()
             messagebox.showinfo("Voting Terminated", "You have completed the voting process. Thank You!")
             self.root.quit()
             return
@@ -83,18 +74,14 @@ class VotingApp:
         if images_infos is None:
             self.next_images()  # Exit if no images are found
         
-        (self.image_path_1, self.image_name_1), (self.image_path_2, self.image_name_2) = images_infos
+        self.image_path, self.image_name = images_infos
         
-        left_image = Image.open(self.image_path_1)
-        right_image = Image.open(self.image_path_2)
+        image = Image.open(self.image_path)
         max_size = (600, 400)
-        left_image_resized = resize_with_max_size(left_image, max_size)
-        right_image_resized = resize_with_max_size(right_image, max_size)
+        image_resized = resize_with_max_size(image, max_size)
         
-        self.left_photo = ImageTk.PhotoImage(left_image_resized)
-        self.right_photo = ImageTk.PhotoImage(right_image_resized)
-        self.left_image_label.config(image=self.left_photo)
-        self.right_image_label.config(image=self.right_photo)
+        self.photo = ImageTk.PhotoImage(image_resized)
+        self.image_label.config(image=self.photo)
         self.vote_count += 1
 
     def _get_subfolders(self, parent_folder):
@@ -107,11 +94,11 @@ class VotingApp:
         return subfolder_paths
 
     def vote_left(self):
-        self.record_vote("Left")
+        self.record_vote("Good")
         self.next_images()
 
     def vote_right(self):
-        self.record_vote("Right")
+        self.record_vote("Bad")
         self.next_images()
 
     def random_case_selection(self):
@@ -135,56 +122,30 @@ class VotingApp:
             print(f"Not enough images found in '{image_path}'.")
             return None
 
-        selected_images = random.sample(image_files, 2)
+        selected_images = random.sample(image_files, 1)
 
         #full paths and file names returned
-        image_1 = os.path.join(image_path, selected_images[0])
-        image_2 = os.path.join(image_path, selected_images[1])
-        return (image_1, selected_images[0]), (image_2, selected_images[1])
+        image = os.path.join(image_path, selected_images[0])
+        return image, selected_images[0]
     
-    def record_vote(self, vote_side):
-        folder = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(self.image_path_1))))  # Two levels up
+    def record_vote(self, vote):
+        folder = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(self.image_path))))  # Two levels up
         parallax = "large parallax" if "large" in folder.lower() else "small parallax"
 
-        # Increment the corresponding subfolder vote count
-        if vote_side == "Left":
-            method = os.path.basename(self.image_path_1).split('.')[0]
-        elif vote_side == "Right":
-            method = os.path.basename(self.image_path_2).split('.')[0]
-
-        if method in self.voting_results[parallax]:
-            self.voting_results[parallax][method] += 1
-
-        # Full results : # parallax | image number| left image algor| right image algo | choice (left or right)
-        img_number = os.path.basename(os.path.dirname(os.path.dirname(self.image_path_1)))
-        left_algo = os.path.basename(self.image_path_1).split('.')[0]
-        right_algo = os.path.basename(self.image_path_2).split('.')[0]
-        self.full_results.append((parallax, img_number, left_algo, right_algo, method))
-        
-
-    def record_bad_case(self):
-        # print(os.path.dirname(os.path.dirname(self.image_path_1)))
-        bad1 = os.path.relpath(self.image_path_1, STITCHING_FOLDER)
-        bad2 = os.path.relpath(self.image_path_2, STITCHING_FOLDER)
-        self.bad_cases.append((bad1, bad2))
+        # Full results : # parallax | image number| image algo | choice (good or bad)
+        img_number = os.path.basename(os.path.dirname(os.path.dirname(self.image_path)))
+        algo = os.path.basename(self.image_path).split('.')[0]
+        self.results.append((parallax, img_number, algo, vote))
 
     def save_results_to_csv(self):
         with open(RESULTS_FILE, mode='w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(["Parallax", "CLASSIC", "UDIS", "IHN", "REWARP"])
+            writer.writerow(["Parallax", "Image Number", "Image", "Choice"])
 
-            for parallax, results in self.voting_results.items():
-                row = [parallax] + [results[method] for method in ["CLASSIC", "UDIS", "IHN", "REWARP"]]
-                writer.writerow(row)
-
-    def save_full_results(self):
-        with open(FULL_RESULTS_FILE, mode='w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(["Parallax", "Image Number", "Left Image", "Right image", "Choice"])
-
-            for elements in self.full_results:
+            for elements in self.results:
                 row = list(elements)
                 writer.writerow(row)
+
 
 def resize_with_max_size(image, max_size):
     """Resize the image to fit within the max_size while maintaining aspect ratio."""

@@ -321,7 +321,6 @@ def save_images(image_list, folder_path):
         print(f"Saved image {i} as {filename}")
         label += 1
 
-
 def stitch_saved_images(save_path, device = "cuda"):
 
     stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.2, device=device)
@@ -330,7 +329,6 @@ def stitch_saved_images(save_path, device = "cuda"):
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
         stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC")
-        # # break
     
     stitcher = None
     stitcher = UDISStitcher()
@@ -402,6 +400,9 @@ def stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC"):
     filename = os.path.join(folderpath, f"{stitcher_type}.png")
     pano = cv2.cvtColor(pano, cv2.COLOR_RGB2BGR)
     # # Save the image
+    # cv2.imshow("pano", pano)
+    # cv2.waitKey(10000)
+    # cv2.destroyAllWindows()
     cv2.imwrite(filename, pano)
     print(f"Saved image as {filename}")
         
