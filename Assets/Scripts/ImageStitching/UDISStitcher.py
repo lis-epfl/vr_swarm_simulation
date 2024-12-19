@@ -92,16 +92,11 @@ class UDISStitcher(BaseStitcher):
             final_warp1_mask = batch_out['final_warp1_mask']
             final_warp2 = batch_out['final_warp2']
             final_warp2_mask = batch_out['final_warp2_mask']
-            # final_mesh1 = batch_out['mesh1']
-            # final_mesh2 = batch_out['mesh2']
-
 
             final_warp1 = ((final_warp1[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
             final_warp2 = ((final_warp2[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
             final_warp1_mask = final_warp1_mask[0].cpu().detach().numpy().transpose(1,2,0)
             final_warp2_mask = final_warp2_mask[0].cpu().detach().numpy().transpose(1,2,0)
-            # final_mesh1 = final_mesh1[0].cpu().detach().numpy()
-            # final_mesh2 = final_mesh2[0].cpu().detach().numpy()
 
             stitched_images = final_warp1 * (final_warp1/ (final_warp1+final_warp2+1e-6)) + final_warp2 * (final_warp2/ (final_warp1+final_warp2+1e-6))
             batch_out = None
@@ -367,4 +362,16 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
         # If there are errors in the calculation due to bad image order or bad logical calculations
         
 
-    return pano
+    max_width = int(1.5 * w)
+    clip_x_start = max(0, diff1x - max_width)  # Clip left side if needed
+    clip_x_end = min(pano.shape[1], diff1x + max_width + w)  # Clip right side if needed
+
+    # Clip panorama height if diff1y or diff2y exceed 1.5 times the height (h)
+    max_height = int(1.5 * h)
+    clip_y_start = max(0, top_shift - max_height)  # Clip top side based on top_shift
+    clip_y_end = min(pano.shape[0], bottom_shift + max_height)  # Clip bottom side based on bottom_shift
+
+    # Apply clipping to both width and height
+    pano_clipped = pano[clip_y_start:clip_y_end, clip_x_start:clip_x_end]
+
+    return pano_clipped

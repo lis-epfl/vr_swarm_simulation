@@ -29,8 +29,6 @@ from torchvision.transforms import GaussianBlur
 # # from torch.quantization import quantize_dynamic
 # from numba import jit
 
-already_saved = True
-
 class REStitcher(BaseStitcher):
     def __init__(self):
         super().__init__(device="cpu")  # Initialize the base class
@@ -47,7 +45,7 @@ class REStitcher(BaseStitcher):
         self.model = Residual_Elastic_Warp_main.models.make(sv_file['T_model'], load_sd=True)
         self.H_model = Residual_Elastic_Warp_main.models.make(sv_file['H_model'], load_sd=True)
     
-    def RE_warping(self, image1, image2, test = True):
+    def RE_warping(self, image1, image2):
         ref , tgt, ref_, tgt_  = loadImages(image1, image2)
 
         hcell_iter = 6
@@ -103,7 +101,118 @@ class REStitcher(BaseStitcher):
         mask_r = F.grid_sample(ones, mesh_r, mode='nearest', align_corners=True)
         mask_t = F.grid_sample(ones, mesh_t, mode='nearest', align_corners=True)
 
-        # ovl = torch.round(mask_r * mask_t)
+        flow = flows[-1]/511
+        if flow.shape[-2] != 512 or flow.shape[-1] != 512:
+            flow = F.interpolate(flow.permute(0,3,1,2), size=(h, w), mode='bilinear').permute(0,2,3,1) * 2
+
+        mesh_t[:, offset[0]:offset[0]+h, offset[1]:offset[1]+w, :] += flow
+        ref_w = F.grid_sample(ref_, mesh_r, mode='bilinear', align_corners=True)
+        mask_r = F.grid_sample(ones, mesh_r, mode='nearest', align_corners=True)
+        tgt_w = F.grid_sample(tgt_, mesh_t, mode='bilinear', align_corners=True)
+        mask_t = F.grid_sample(ones, mesh_t, mode='nearest', align_corners=True)
+
+        ref_w = (ref_w + 1)/2 * mask_r
+        tgt_w = (tgt_w + 1)/2 * mask_t
+
+        # Image Stitching
+        stit = linear_blender(ref_w, tgt_w, mask_r, mask_t)
+        
+        stit_ = stit[0].detach().cpu().numpy()*255.
+        
+        stit_ = stit_.clip(0, 255).astype('uint8')  # Clip to valid range
+
+        stit_ = stit_.transpose(1, 2, 0)
+        mask_r = mask_r.cpu().squeeze(0)
+
+        torch.cuda.empty_cache()
+        return stit_, mask_r.squeeze(0).numpy()[0]
+
+    def RE_pano(self, images, subset1, subset2):
+        h, w, _ = images[0].shape
+
+        
+        right_warp, right_mask = self.RE_warping(images[subset2[0]], images[subset2[1]])
+        # We have to flip the images to warp the left image and keep central image as the reference
+        image1, image2 = cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1)
+        left_warp, left_mask = self.RE_warping(image1, image2)
+        
+        if right_warp is None:
+            if left_warp is None:
+                return None
+            else:
+                return left_warp
+        elif left_warp is None:
+            return right_warp
+
+        pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
+
+        return pano.astype(np.uint8)
+    
+    def RE_batch_warping(self, left_image, center_image, right_image):
+
+        left_image_flipped, center_image_flipped = cv2.flip(left_image, 1), cv2.flip(center_image, 1)
+        ref, tgt, ref_, tgt_  = load3images(left_image_flipped,center_image , center_image_flipped, right_image )
+
+        hcell_iter = 6
+        tcell_iter = 3
+        self.model.iters_lev = tcell_iter
+
+        print(ref.shape)
+        print(tgt.shape)
+        print(ref_.shape)
+        print(tgt_.shape)
+
+        b, _, h, w = ref_.shape
+        scale = h/ref.shape[-2]
+
+        with torch.no_grad():
+            _, disps, _ = self.H_model(ref, tgt, iters_lev0=hcell_iter)
+
+        print(disps)
+        # Preparation of warped inputs
+        H, img_h, img_w, offset = Residual_Elastic_Warp_main.utils.get_warped_coords(disps[-1], scale=(h/512, w/512), size=(h,w))
+        H_, *_ = Residual_Elastic_Warp_main.utils.get_H(disps[-1].reshape(ref.shape[0],2,-1).permute(0,2,1), [*ref.shape[-2:]])
+        H_ = Residual_Elastic_Warp_main.utils.compens_H(H_, [*ref.shape[-2:]])
+
+        grid = Residual_Elastic_Warp_main.utils.make_coordinate_grid([*ref.shape[-2:]], type=H_.type())
+        grid = grid.reshape(1, -1, 2).repeat(ref.shape[0], 1, 1)
+
+        mesh_homography = Residual_Elastic_Warp_main.utils.warp_coord(grid, H_.cuda()).reshape(b,*ref.shape[-2:],-1)
+        ones = torch.ones_like(ref_).cuda()
+        tgt_w = F.grid_sample(tgt, mesh_homography, align_corners=True)
+
+
+        # Warp Field estimated by TPS
+        flows = self.model(tgt_w, ref, iters=tcell_iter, scale=scale)
+        translation = Residual_Elastic_Warp_main.utils.get_translation(*offset)
+        T_ref = translation.clone()
+        T_tgt = torch.inverse(H).double() @ translation.cuda()
+
+        print(H_.shape, img_h, img_w, offset)
+        print()
+        sizes = (img_h, img_w)
+        # if img_h > 5000 or img_w > 5000:
+        #     print(sizes)
+        #     print('Fail; Evaluated Size: {}X{}'.format(img_h, img_w))
+        #     flows, disps= None, None
+        #     return None, None
+
+
+        # Image Alignment
+        coord1 = Residual_Elastic_Warp_main.utils.to_pixel_samples(None, sizes=sizes).cuda()
+        mesh_r, _ = Residual_Elastic_Warp_main.utils.gridy2gridx_homography(
+            coord1.contiguous(), *sizes, *tgt_.shape[-2:], T_ref.cuda(), cpu=False
+        )
+        mesh_r = mesh_r.reshape(b, img_h, img_w, 2).cuda().flip(-1)
+
+        coord2 = Residual_Elastic_Warp_main.utils.to_pixel_samples(None, sizes=sizes).cuda()
+        mesh_t, _ = Residual_Elastic_Warp_main.utils.gridy2gridx_homography(
+            coord2.contiguous(), *sizes, *tgt_.shape[-2:], T_tgt.cuda(), cpu=False
+        )
+        mesh_t = mesh_t.reshape(b, img_h, img_w, 2).cuda().flip(-1)
+
+        mask_r = F.grid_sample(ones, mesh_r, mode='nearest', align_corners=True)
+        mask_t = F.grid_sample(ones, mesh_t, mode='nearest', align_corners=True)
 
         flow = flows[-1]/511
         if flow.shape[-2] != 512 or flow.shape[-1] != 512:
@@ -118,37 +227,25 @@ class REStitcher(BaseStitcher):
         ref_w = (ref_w + 1)/2 * mask_r
         tgt_w = (tgt_w + 1)/2 * mask_t
 
-        t1 = time.time()
-        # print("Model inference", time.time()-t0)
         # Image Stitching
-        stit = linear_blender(ref_w, tgt_w, mask_r, mask_t)
+        stit = linear_blender(ref_w, tgt_w, mask_r, mask_t).detach().cpu()
         
-        # print("Linear blending", time.time()-t1)
-        stit_ = stit[0].detach().cpu().numpy()*255.  # Convert to NumPy
+        stit_l, stit_r = stit[0].numpy()*255., stit[1].numpy()*255.
         
-        # stit_ = (stit_ + 1) / 2 * 255  # Scale from [-1, 1] to [0, 255]
-        stit_ = stit_.clip(0, 255).astype('uint8')  # Clip to valid range
+        stit_l, stit_r = stit_l.clip(0, 255).astype('uint8').transpose(1, 2, 0), stit_r.clip(0, 255).astype('uint8').transpose(1, 2, 0)  # Clip to valid range
 
-        # Transpose to [H, W, C] for saving
-        stit_ = stit_.transpose(1, 2, 0)
-        mask_r = mask_r.cpu().squeeze(0)
+        mask_r = mask_r.cpu().numpy()
+        mask_l, mask_r = mask_r[0], mask_r[1]
 
+        print(stit_l, stit_r, mask_l, mask_r)
         torch.cuda.empty_cache()
-        return stit_, mask_r.cpu().squeeze(0).numpy()[0]#.transpose(1, 2, 0)
-
-    def RE_pano(self, images, subset1, subset2):
-        global already_saved
-        t0=time.time()
+        return stit_l, stit_r,  mask_l, mask_r
+    
+    def RE_batch_pano(self, images, subset1, subset2):
         h, w, _ = images[0].shape
-        test= False
-
         
-        right_warp, right_mask = self.RE_warping(images[subset2[0]], images[subset2[1]], test)
-        t1 = time.time()
-        # We have to flip the images to warp the left image and keep central image as the reference
-        image1, image2 = cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1)
-        left_warp, left_mask = self.RE_warping(image1, image2, test)
-        t2 = time.time()
+        # Left, center, right image are stitched and we obtain 2 masks and 2 images
+        left_warp, right_warp,  left_mask, right_mask = self.RE_batch_warping(images[subset1[1]], images[subset2[0]], images[subset2[1]])
         
         if right_warp is None:
             if left_warp is None:
@@ -159,20 +256,6 @@ class REStitcher(BaseStitcher):
             return right_warp
 
         pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
-        # pano = right_warp
-
-        # print(f"Warp time : {time.time()-t0}")
-        # print(f"First Warp time : {t1-t0}")
-        # print(f"Second time : {t2-t1}")
-
-        if not already_saved:
-            already_saved = True
-            cv2.imwrite("left_warp.jpg", cv2.cvtColor(left_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("right_warp.jpg", cv2.cvtColor(right_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
-            cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
-            cv2.imwrite("pano.jpg", cv2.cvtColor(pano.astype('uint8'), cv2.COLOR_RGB2BGR))
-            print("saving")
 
         return pano.astype(np.uint8)
   
@@ -192,7 +275,8 @@ class REStitcher(BaseStitcher):
 
         subset1, subset2, _, _ = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
         with torch.no_grad():
-            pano = self.RE_pano(images, subset1, subset2)          
+            pano = self.RE_pano(images, subset1, subset2)
+            # pano = self.RE_batch_pano(images, subset1, subset2)          
         if verbose:
             print(f"Warp time: {time.time()-t}")    
         return pano
@@ -209,23 +293,23 @@ def preprocess_images(images):
 
 def load3images(image1, image2, image2_flipped, image3):
     """""
-    image1 : left image in panorama
+    image1 : left image (flipped) in panorama
     image2 : middle image in panorama
+    image2_flipped : middle image in panorama but flipped
     image3 : right image in panorama
 
     """""
-    images = [image1, image2, image2_flipped, image3]
-    processed_images = preprocess_images(images)
-    input1_tensor = torch.from_numpy(processed_images[0]).float()
-    input2_tensor = torch.from_numpy(processed_images[1]).float()
-    input2_flipped_tensor = torch.from_numpy(processed_images[2]).float()
-    input3_tensor = torch.from_numpy(processed_images[3]).float()
+    input2_flipped_tensor_resized, image1_tensor_resized, input2_flipped_tensor, image1_tensor = loadImages(image2_flipped, image1)
+    image2_tensor_resized, image3_tensor_resized, image2_tensor, image3_tensor = loadImages(image2, image3)
 
-    batch = (
-        torch.stack((input2_flipped_tensor, input2_tensor)), 
-        torch.stack((input1_tensor, input3_tensor))
-    )
-    return batch
+    batch_ref = torch.cat((input2_flipped_tensor_resized, image1_tensor_resized), dim=0)
+    batch_tgt = torch.cat((image2_tensor_resized, image3_tensor_resized), dim=0)
+    
+
+    ref_ = torch.cat((input2_flipped_tensor, image2_tensor))
+    tgt_ = torch.cat((image1_tensor, image3_tensor))
+
+    return batch_ref, batch_tgt, ref_, tgt_
 
 def find_image_shift(part_mask):
     """
@@ -244,13 +328,8 @@ def find_image_shift(part_mask):
     # Find the row indices with any non-zero elements
     row_indices = np.any(binary_mask, axis=1)
     y_shift_up = np.argmax(row_indices)  # First row with a non-zero value
-    # y_shift_down = np.argmin(row_indices[y_shift_up:])  # First row with a non-zero value
 
-    # # Find the column indices with any non-zero elements
-    # col_indices = np.any(binary_mask, axis=0)
-    # x_shift = np.argmax(col_indices)  # First column with a non-zero value
-
-    return y_shift_up#, y_shift_down
+    return y_shift_up
 
 def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300), security_factor = 5):
     h, w = size
@@ -305,7 +384,20 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
         # If there are errors in the calculation due to bad image order or bad logical calculations
         pano = right_warp
 
-    return pano
+
+    max_width = int(1.5 * w)
+    clip_x_start = max(0, diff1x - max_width)  # Clip left side if needed
+    clip_x_end = min(pano.shape[1], diff1x + max_width + w)  # Clip right side if needed
+
+    # Clip panorama height if diff1y or diff2y exceed 1.5 times the height (h)
+    max_height = int(1.5 * h)
+    clip_y_start = max(0, top_shift - max_height)  # Clip top side based on top_shift
+    clip_y_end = min(pano.shape[0], bottom_shift + max_height)  # Clip bottom side based on bottom_shift
+
+    # Apply clipping to both width and height
+    pano_clipped = pano[clip_y_start:clip_y_end, clip_x_start:clip_x_end]
+
+    return pano_clipped
 
 
 def loadImages(ref, tgt):
@@ -353,6 +445,3 @@ def linear_blender(ref, tgt, ref_m, tgt_m, mask=False):
 
     return stit
 
-# # To avoid too big images
-#     diff2x, diff2y = min(diff2x, 3*w), min(diff2y, 2*h)
-#     diff1x, diff1y = min(diff2x, 3*w), min(diff2y, 2*h)

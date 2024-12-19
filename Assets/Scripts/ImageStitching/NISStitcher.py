@@ -375,4 +375,16 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
         pano = right_warp
 
 
-    return pano
+    max_width = int(1.5 * w)
+    clip_x_start = max(0, diff1x - max_width)  # Clip left side if needed
+    clip_x_end = min(pano.shape[1], diff1x + max_width + w)  # Clip right side if needed
+
+    # Clip panorama height if diff1y or diff2y exceed 1.5 times the height (h)
+    max_height = int(1.5 * h)
+    clip_y_start = max(0, top_shift - max_height)  # Clip top side based on top_shift
+    clip_y_end = min(pano.shape[0], bottom_shift + max_height)  # Clip bottom side based on bottom_shift
+
+    # Apply clipping to both width and height
+    pano_clipped = pano[clip_y_start:clip_y_end, clip_x_start:clip_x_end]
+
+    return pano_clipped
