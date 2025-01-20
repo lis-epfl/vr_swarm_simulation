@@ -1,3 +1,7 @@
+##################
+# OLD VERSION of the StitcherThreading for DL models
+##################
+
 # import custom_stitching
 import numpy as np
 import cv2

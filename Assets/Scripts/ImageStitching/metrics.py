@@ -118,7 +118,6 @@ class ClassicDataset(Dataset):
         return [input1, input2]
 
     def __len__(self):
-
         return len(self.datas['input1']['image'])
 
 def eval_CLASSIC():
@@ -127,7 +126,9 @@ def eval_CLASSIC():
     else:
         device = "cpu"
 
-    stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.2, device=device)
+    
+    # Remove first the part that removes the keypoints at bottom of image
+    stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.1, active_matcher_type="FLANN", isRANSAC=True, device=device)
 
     test_path = r"testing"
     test_data = ClassicDataset(data_path=test_path)
@@ -136,47 +137,47 @@ def eval_CLASSIC():
     psnr_list = []
     ssim_list = []
 
+    len_dataset = test_data.__len__()
+
     for i, images in enumerate(test_data):
 
         _, Hs, order, inverted, _, _, confidences = stitcher.findHomographyOrder(images, 0, None, verbose = False, debug= True)
-        order = np.hstack((order, order, order))
-        Hs = np.concatenate((Hs, Hs, Hs))
 
-        _, warped_image, mask, img = stitcher.stitch(images, order, Hs, inverted, 0, None, None, num_pano_img=2, verbose = False)
+        if inverted:
+            H = np.linalg.pinv(Hs[0])
+        else:
+            H = Hs[0]
         
-        psnr = compare_psnr(img * mask, warped_image * mask, data_range=255)
-        ssim = compare_ssim(img * mask, warped_image * mask, data_range=255, multichannel=True)
+        h, w = images[0].shape[:2]
 
+        # Remove translation from the homography
+        homography_no_translation = H.copy()
+        homography_no_translation[0, 2] = 0
+        homography_no_translation[1, 2] = 0
 
-        print('i = {}, psnr = {:.6f}'.format( i+1, psnr))
+        warped_image = cv2.warpPerspective(images[1], homography_no_translation, (w, h))
+
+        # Create a mask for the input image
+        mask = np.ones((h, w, 3), dtype=np.uint8)
+        warped_mask = cv2.warpPerspective(mask, homography_no_translation, (w, h))
+        masked_original = images[1]*warped_mask
+        masked_warped = warped_image*warped_mask
+        
+        psnr = compare_psnr(masked_original, masked_warped, data_range=255)
+        ssim = compare_ssim(masked_original, masked_warped, data_range=255, multichannel=True, channel_axis=-1)
+
+        desc="PSNR:{:.4f}, SSIM:{:.4f}".format(
+            psnr, ssim)
+        print(desc)
+        if psnr== np.inf:
+            continue
 
         psnr_list.append(psnr)
         ssim_list.append(ssim)
         torch.cuda.empty_cache()
 
-        # if i>10:
-        #     break
-
-    print("=================== Analysis ==================")
-    print("psnr")
-    psnr_list.sort(reverse = True)
-    psnr_list_30 = psnr_list[0 : 331]
-    psnr_list_60 = psnr_list[331: 663]
-    psnr_list_100 = psnr_list[663: -1]
-    print("top 30%", np.mean(psnr_list_30))
-    print("top 30~60%", np.mean(psnr_list_60))
-    print("top 60~100%", np.mean(psnr_list_100))
-    print('average psnr:', np.mean(psnr_list))
-
-    ssim_list.sort(reverse = True)
-    ssim_list_30 = ssim_list[0 : 331]
-    ssim_list_60 = ssim_list[331: 663]
-    ssim_list_100 = ssim_list[663: -1]
-    print("top 30%", np.mean(ssim_list_30))
-    print("top 30~60%", np.mean(ssim_list_60))
-    print("top 60~100%", np.mean(ssim_list_100))
-    print('average ssim:', np.mean(ssim_list))
-    print("##################end testing#######################")
+    print(np.array(psnr_list).mean())
+    print(np.array(ssim_list).mean())
 
 #### FROM UDIS
 
@@ -186,9 +187,6 @@ def test(args):
     # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     test_path = r"testing"
-    # dataset
-    # test_data = TestDataset(data_path=args.test_path)
-    # test_loader = DataLoader(dataset=test_data, batch_size=args.batch_size, num_workers=1, shuffle=False, drop_last=False)
 
     test_data = TestDataset(data_path=test_path)
     test_loader = DataLoader(dataset=test_data, batch_size=1, num_workers=1, shuffle=False, drop_last=False)
@@ -238,11 +236,6 @@ def test(args):
             warp_mesh_np = ((warp_mesh[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
             warp_mesh_mask_np = warp_mesh_mask[0].cpu().detach().numpy().transpose(1,2,0)
             inpu1_np = ((inpu1_tesnor[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
-
-
-            # print((inpu1_np * warp_mesh_mask_np).shape)
-            # print((warp_mesh_np * warp_mesh_mask_np).shape)
-            # calculate psnr/ssim
             psnr = compare_psnr(inpu1_np*warp_mesh_mask_np, warp_mesh_np*warp_mesh_mask_np, data_range=255)
             ssim = compare_ssim(inpu1_np*warp_mesh_mask_np, warp_mesh_np*warp_mesh_mask_np, data_range=255, multichannel=True, channel_axis=-1)
 
@@ -352,7 +345,7 @@ def eval_IHN(loader, model):
         # if i==1:
         #     print(tgt_samples.shape, src_samples.shape)
         psnr = compare_psnr(tgt_samples, src_samples, data_range=1.)
-        ssim = compare_ssim(tgt_samples * 255, src_samples * 255, data_range=255.)
+        ssim = compare_ssim(tgt_samples, src_samples, data_range=1.)
 
         tot_psnr += psnr
         tot_ssim += ssim
@@ -362,85 +355,6 @@ def eval_IHN(loader, model):
             tot_psnr/(b_id+1), tot_ssim/(b_id+1), failures), refresh=True)
         torch.cuda.empty_cache()
         
-        
-        # tgt = batch['inp_tgt'].permute(0, 3, 1, 2)
-        # ref = batch['inp_ref'].permute(0, 3, 1, 2) 
-        # inp_tgt = batch['inp_tgt'].permute(0, 3, 1, 2) * 255
-        # inp_ref = batch['inp_ref'].permute(0, 3, 1, 2) * 255
-
-        # tgt_grid, tgt_cell, tgt_mask, \
-        # ref_grid, ref_cell, ref_mask, \
-        # stit_grid, stit_mask, sizes = prepare_ingredient(model, inp_tgt, inp_ref, tgt, ref)
-
-        # # ref = (ref - 0.5) * 2
-        # # tgt = (tgt - 0.5) * 2
-
-        # ref_mask = ref_mask.reshape(b,1,*sizes)
-        # tgt_mask = tgt_mask.reshape(b,1,*sizes)
-
-        # b, c, h, w = tgt.shape  # Original dimensions of the target image
-        # output_h, output_w = sizes  # Output size for the stitched canvas
-
-        # # Reshape coord to match the output size
-        # tgt_grid_reshaped = tgt_grid.view(b, output_h, output_w, 2)
-
-        # # Flip last dimension of coord to match PyTorch grid_sample convention
-        # tgt_grid_flipped = tgt_grid_reshaped.flip(-1)
-
-        # # Warp the target image using grid_sample
-        # warped_tgt = torch.nn.functional.grid_sample(
-        #     inp_tgt / 255.0,  # Normalize input to [0, 1]
-        #     tgt_grid_flipped,  # Use flipped grid
-        #     mode='bilinear',
-        #     padding_mode='zeros',
-        #     align_corners=False
-        # )
-        # warped_tgt_masked = warped_tgt * tgt_mask
-        # warped_tgt_visual = (warped_tgt_masked[0].cpu().clamp(0, 1) * 255).numpy().transpose(1, 2, 0).astype(np.uint8)
-
-        # # Normalize and warp the reference image
-        # ref_grid_normalized = ref_grid.clone()
-        # ref_grid_normalized = ref_grid_normalized.view(b, output_h, output_w, 2)
-        # ref_grid_normalized = ref_grid_normalized.flip(-1)  # Flip last dimension for PyTorch conventions
-
-        # # Warp the reference image using grid_sample
-        # warped_ref = torch.nn.functional.grid_sample(
-        #     inp_ref / 255.0,  # Normalize input to [0, 1]
-        #     ref_grid_normalized,
-        #     mode='bilinear',
-        #     padding_mode='zeros',
-        #     align_corners=False
-        # )
-
-        # # Apply the reference mask
-        # warped_ref_masked = warped_ref * ref_mask
-
-        # # Combine the reference and target images into the canvas
-        # canvas = torch.zeros_like(warped_ref)  # Initialize the canvas with zeros
-        # combined_mask = torch.zeros_like(ref_mask)  # Combined mask for normalization
-
-        # # Add reference image to the canvas
-        # canvas += warped_ref_masked
-        # combined_mask += ref_mask
-
-        # # Add target image to the canvas
-        # canvas += warped_tgt_masked
-        # combined_mask += tgt_mask
-
-        # # Normalize the canvas by the combined mask
-        # canvas = canvas / (combined_mask + 1e-5)  # Avoid division by zero
-
-        # # Visualize the final stitched canvas
-        # canvas_visual = (canvas[0].cpu().clamp(0, 1) * 255).numpy().transpose(1, 2, 0).astype(np.uint8)
-        # # warped_tgt_pil = transforms.ToPILImage()(canvas[0])
-        # # warped_tgt_pil.show()
-
-        # cv2.imshow("img_src", canvas_visual)
-        # cv2.waitKey(20000)
-        
-        # break
-        # if i>10:
-        #     break
     print(desc)
 
 
@@ -692,23 +606,6 @@ def eval_REWARP(loader, IHN, model):
 
         flows, disps= None, None
 
-        # if i>10:
-        #     break
-
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--config')
-#     parser.add_argument('--gpu', default='0')
-#     args = parser.parse_args()
-
-#     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-
-#     with open(args.config, 'r') as f:
-#         config = yaml.load(f, Loader=yaml.FullLoader)
-#         print('config loaded.')
-
-#     main(config, args)
-
 
 
 # Main functions
@@ -732,10 +629,6 @@ def main_UDIS():
 
 
 def main_IHN():
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--config')
-    # parser.add_argument('--gpu', default='0')
-    # args = parser.parse_args()
 
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -770,24 +663,7 @@ def main_REWARP():
 
 if __name__ == '__main__':
 
-    # datas = glob.glob(os.path.join("testing", '*'))
-    # normalized_paths = [path.replace("\\", "/") for path in datas]
-    # print(normalized_paths)
-    # print(datas)
-    main_CLASSIC()
+    # main_CLASSIC()
     # main_UDIS()
-    # main_IHN()
-    # main_NIS()
+    main_IHN()
     # main_REWARP()
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--config')
-    # parser.add_argument('--gpu', default='0')
-    # args = parser.parse_args()
-
-    # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-
-    # with open(args.config, 'r') as f:
-    #     config = yaml.load(f, Loader=yaml.FullLoader)
-    #     print('config loaded.')
-
-    # main(config, args)

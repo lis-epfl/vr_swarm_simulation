@@ -7,8 +7,8 @@ import os
 import numpy as np
 
 # Where the results file will be located
-RESULTS_FILE = "C:/Users/guill/OneDrive/Bureau/voting_test/first_survey.csv"
-FULL_RESULTS_FILE = "C:/Users/guill/OneDrive/Bureau/voting_test/first_survey_full_results.csv"
+RESULTS_FILE = "C:/Users/guill/OneDrive/Bureau/voting_test/first_survey20.csv"
+FULL_RESULTS_FILE = "C:/Users/guill/OneDrive/Bureau/voting_test/first_survey_full_results20.csv"
 
 # Where the images file is located
 STITCHING_FOLDER = "C:/Users/guill/OneDrive/Bureau/image_samples/"
@@ -206,5 +206,5 @@ def resize_with_max_size(image, max_size):
 # Run the Application
 if __name__ == "__main__":
     root = tk.Tk()
-    app = VotingApp(root, STITCHING_FOLDER, max_votes=10)
+    app = VotingApp(root, STITCHING_FOLDER, max_votes=20)
     root.mainloop()

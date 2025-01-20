@@ -1,3 +1,8 @@
+##################
+# OLD VERSION of the StitcherThreading
+##################
+
+
 # import custom_stitching
 import numpy as np
 import cv2

@@ -1,3 +1,8 @@
+##################
+# ONLY FOR SAMPLING IMAGES FROM SIMULATION AND STITCH THEM + SAVES THEM IN GOOD FOLDER
+# CHOOSE IN THE MAIN WHICH MODE YOU WANT TO USE
+##################
+
 import numpy as np
 import cv2
 import os
@@ -323,13 +328,19 @@ def save_images(image_list, folder_path):
 
 def stitch_saved_images(save_path, device = "cuda"):
 
+    time_CLASSIC = []
+    time_UDIS = []
+    time_NIS = []
+    time_REWARP = []
+
     stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.2, device=device)
     stitcher.known_order = [1, 2, 0]
     
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
-        stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC")
-    
+        stitch_time = stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC")
+        time_CLASSIC.append(stitch_time)
+
     stitcher = None
     stitcher = UDISStitcher()
     stitcher.superpoint_model.to(device)
@@ -338,7 +349,8 @@ def stitch_saved_images(save_path, device = "cuda"):
 
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
-        stitch_folder(stitcher, folderpath, stitcher_type = "UDIS")
+        stitch_time = stitch_folder(stitcher, folderpath, stitcher_type = "UDIS")
+        time_UDIS.append(stitch_time)
     
     stitcher = None
     stitcher = NISStitcher()
@@ -349,7 +361,8 @@ def stitch_saved_images(save_path, device = "cuda"):
 
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
-        stitch_folder(stitcher, folderpath, stitcher_type = "IHN")
+        stitch_time = stitch_folder(stitcher, folderpath, stitcher_type = "IHN")
+        time_NIS.append(stitch_time)
 
     stitcher = None
     stitcher = REStitcher()
@@ -359,7 +372,16 @@ def stitch_saved_images(save_path, device = "cuda"):
 
     for folderename in os.listdir(save_path):
         folderpath = os.path.join(save_path, folderename)
-        stitch_folder(stitcher, folderpath, stitcher_type = "REWARP")
+        stitch_time =stitch_folder(stitcher, folderpath, stitcher_type = "REWARP")
+        time_REWARP.append(stitch_time)
+
+
+    # Not currently used in the report
+    print(f"Mean warp time CLASSIC : {np.array(time_CLASSIC).mean()}")
+    print(f"Mean warp time UDIS : {np.array(time_UDIS).mean()}")
+    print(f"Mean warp time IHN : {np.array(time_NIS).mean()}")
+    print(f"Mean warp time REWARP : {np.array(time_REWARP).mean()}")
+        
 
 def stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC"):
     """
@@ -386,25 +408,35 @@ def stitch_folder(stitcher, folderpath, stitcher_type = "CLASSIC"):
     if not os.path.exists(folderpath):
         os.makedirs(folderpath)
     
-    headAngle = 0
+    headAngle = 0    
     if stitcher_type == "CLASSIC":
-        pano = stitcher.stitch(images, order, Hs, inverted, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3, verbose = False)
+        t = time.time()
+        pano = stitcher.stitch(images, order, Hs, inverted, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3)
+        stitch_time = time.time()-t
     elif stitcher_type == "UDIS":
-        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
+        t = time.time()
+        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3)
+        stitch_time = time.time()-t
     elif stitcher_type == "IHN":
-        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
+        t = time.time()
+        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3)
+        stitch_time = time.time()-t
     elif stitcher_type == "REWARP":
-        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3, verbose = False)
-        
+        t = time.time()
+        pano = stitcher.stitch(images, order, Hs, inverted , headAngle, num_pano_img=3)
+        stitch_time = time.time()-t
     # Define the filename with the label
-    filename = os.path.join(folderpath, f"{stitcher_type}.png")
-    pano = cv2.cvtColor(pano, cv2.COLOR_RGB2BGR)
+    # filename = os.path.join(folderpath, f"{stitcher_type}.png")
+    # pano = cv2.cvtColor(pano, cv2.COLOR_RGB2BGR)
+    # pano_saved = cv2.imread(filename, cv2.IMREAD_COLOR_BGR)
     # # Save the image
     # cv2.imshow("pano", pano)
+    # cv2.imshow("old pano", pano_saved)
     # cv2.waitKey(10000)
     # cv2.destroyAllWindows()
-    cv2.imwrite(filename, pano)
-    print(f"Saved image as {filename}")
+    # cv2.imwrite(filename, pano)
+    # print(f"Saved image as {filename}")
+    return stitch_time 
         
 def main():
 
@@ -418,19 +450,67 @@ def main():
         # absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/low_parallax/"
         absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/large_parallax/"
         first_thread(absolute_path_save, save_time, debug)
-        # first_t = threading.Thread(target=first_thread ,args=(absolute_path_save, save_time, debug))
-        # first_t.daemon = True
-        # first_t.start()
-        # while True:
-        #     time.sleep(100)
     else:
         absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/low_parallax/"
         stitch_saved_images(absolute_path_save, device = "cuda")
         absolute_path_save = "C:/Users/guill/OneDrive/Bureau/image_samples/large_parallax/"
         stitch_saved_images(absolute_path_save, device = "cuda")
+
+def generate_plots():
+    """
+    To generate the images for the report. We generate the keypoints and the matches for two images. They are then stitched together without blending
+    """
+    stitcher = BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.0, device="cuda")
+    images_path = r"C:\Users\guill\OneDrive\Bureau\image_samples\low_parallax\121524141933"
+    images = []
+
+    for filename in sorted(os.listdir(images_path), key=lambda x: int(''.join(filter(str.isdigit, x))) if any(c.isdigit() for c in x) else float('inf')):
+        filepath = os.path.join(images_path, filename)
+        if os.path.isfile(filepath):
+            image = cv2.imread(filepath, cv2.IMREAD_COLOR)  # Load as RGB
+            if image is not None:
+                images.append(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))  # Convert to RGB
+
+    images = images[1:]
+    keypoints, Hs, order, inverted, best_pairs, matches_info, confidences = stitcher.findHomographyOrder(images, 0, None, verbose = False, debug= True)
+    images_ = [cv2.cvtColor(image, cv2.COLOR_RGB2BGR) for image in images]
+    for i, image in enumerate(images_):
+        img = np.array(image)  # Convert PIL image to numpy array
+        for keypoint in keypoints[i]:
+            keypoint_x, keypoint_y = int(keypoint[0]), int(keypoint[1])
+            color = tuple([0, 0, 150])
+            image = cv2.circle(img, (keypoint_x, keypoint_y), 4, color)
+        cv2.imshow(f"Keypoints {i}", image)
+        cv2.waitKey(10000)
+        cv2.destroyAllWindows()
+        cv2.imwrite(f"Keypoints_{i}.jpg", image)
     
+    for match_info in matches_info:
+        img1_idx = match_info['image1_index']
+        img2_idx = match_info['image2_index']
+        matches = match_info['matches']
+
+        img1 = np.array(images_[img1_idx])
+        img2 = np.array(images_[img2_idx])
+
+        # Convert keypoints to the format expected by cv2.drawMatches
+        keypoints1 = [cv2.KeyPoint(x.astype(float), y.astype(float), 1) for x, y in keypoints[img1_idx]]
+        keypoints2 = [cv2.KeyPoint(x.astype(float), y.astype(float), 1) for x, y in keypoints[img2_idx]]
+
+        img1_with_matches = cv2.drawMatches(img1, keypoints1, img2, keypoints2, matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        cv2.imshow(f"Matches between {img1_idx} and {img2_idx}", img1_with_matches)
+        cv2.waitKey(10000)
+        cv2.destroyAllWindows()
+        cv2.imwrite(f"Matches.jpg", img1_with_matches)
+    
+    panorama, warped_image, mask, img_ = stitcher.stitch(images_, order, Hs, inverted, 0, 0, 0, num_pano_img=2, verbose=False)
+    cv2.imshow(f"Panorama", panorama)
+    cv2.waitKey(10000)
+    cv2.destroyAllWindows()
+    cv2.imwrite("panorama.jpg", panorama)
 
 if __name__ == '__main__':
     
     # main function, the final result
     main()
+    # generate_plots()

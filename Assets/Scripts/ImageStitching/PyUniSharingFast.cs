@@ -50,7 +50,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int focal_length = 1000;
 
     [SerializeField]
-    private bool onlyIHN = false; //Maybe for implementation of NIS only with IHN for fast warping
+    private bool onlyIHN = true; //Maybe for implementation of NIS only with IHN for fast warping
 
     private string batchMapName = "BatchSharedMemory";
     private int batchImageCount = 0;
@@ -244,6 +244,7 @@ public class PyUniSharingFast : MonoBehaviour
         return headAngle;
     }
 
+    // Captures an image from a given camera and returns its raw texture data as a byte array.
     private byte[] CaptureCameraImage(Camera camera)
     {
         RenderTexture previousRT = camera.targetTexture;
@@ -261,6 +262,7 @@ public class PyUniSharingFast : MonoBehaviour
         return imageBytes;
     }
 
+    // Receives a processed image from memory and returns its data as a byte array.
     byte[] ReceiveProcessedImage()
     {
         byte[] processedImageBytes = new byte[processedImageSize];
@@ -268,6 +270,7 @@ public class PyUniSharingFast : MonoBehaviour
         return processedImageBytes;
     }
 
+    // Generates the Curved surface based on the desired paramaeters chosen in unity
     private void GenerateCurvedScreen()
     {
         MeshFilter meshFilter = GetComponent<MeshFilter>();
@@ -310,6 +313,7 @@ public class PyUniSharingFast : MonoBehaviour
         meshFilter.mesh = mesh;
     }
 
+    // Sets the panorama image on the curved screen material by loading it from a byte array.
     public void SetPanoramaImage(byte[] partPanorama)
     {
         // panoTexture = LoadRawRGBTexture(partPanorama);
@@ -317,6 +321,7 @@ public class PyUniSharingFast : MonoBehaviour
         curvedScreenMaterial.mainTexture = panoTexture;
     }
 
+    // Loads raw RGB image data into the panorama texture.
     public void LoadRawRGBTexture(byte[] imageData)
     {
         // panoTexture = new Texture2D(processedImageWidth, processedImageHeight, TextureFormat.RGB24, false);
@@ -333,6 +338,7 @@ public class PyUniSharingFast : MonoBehaviour
         // return panoTexture;
     }
 
+    // Find the cameras of the drones and placed them in a list
     private void FindCameras()
     {
         camerasToCapture = new List<Camera>();
@@ -364,6 +370,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Debug.Log($"Total cameras found: {camerasToCapture.Count}");
     }
 
+    // Updates the list of cameras to be stitched by checking the boundary estimates of all drones in the scene.
     private void UpdateCameraToStitch()
     {
         camerasToStitch = new List<bool>();
@@ -389,6 +396,8 @@ public class PyUniSharingFast : MonoBehaviour
         // Debug.Log($"Total estimate found: {camerasToStitch.Count}");
     }
 
+    // Calculates memory sizes for batch and processed images based on configurable parameters,
+    // ensuring constraints are met and logging errors if limits are exceeded.
     private void CalculateMemorySizes()
     {
         // Calculate memory sizes based on configurable parameters
@@ -433,6 +442,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Debug.Log($"batchImageWidth: {batchImageWidth}, batchImageHeight: {batchImageHeight}, batchImageSize: {batchImageSize}, batchImageCount: {batchImageCount}, boolListSize: {boolListSize}, camerasToStitchPosition: {camerasToStitchPosition}, batchImageHeight: {batchDataPosition}");
     }
 
+    // Creates memory-mapped files in RAM for batch and processed image data, enabling inter-process communication.
     private void CreateMemoryMaps()
     {
         // Create memory-mapped files in RAM with new IntPtr(-1) with appropriate name
@@ -485,6 +495,9 @@ public class PyUniSharingFast : MonoBehaviour
         metadataFileMap = IntPtr.Zero;
     }
 
+    // Ensures the validity and consistency of parameters, recalculates memory sizes, and updates reusable resources.
+    // This method is triggered automatically in the Unity Editor when a script's serialized properties are changed.
+
     private void OnValidate()
     {
         if(hasStarted)
@@ -502,6 +515,7 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
+    // Validates and updates the reusable textures for image processing, ensuring they match the current dimensions.
     private void ValidateTextures()
     {
         if (reusableTexture == null || reusableTexture.width != batchImageWidth || reusableTexture.height != batchImageHeight)
@@ -517,6 +531,8 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
+    // Updates the cameras by identifying the active cameras, recalculating batch sizes,
+    // updating metadata, and validating textures as needed.
     private void UpdateCameras()
     {
         FindCameras();
@@ -534,6 +550,7 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
+    // Writes metadata to shared memory, ensuring it reflects the current configuration of the system.
     private void WriteMetadata()
     {
         if (metadataPtr == IntPtr.Zero)
