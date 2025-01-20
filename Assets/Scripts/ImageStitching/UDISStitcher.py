@@ -19,17 +19,15 @@ sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
 
 from UDIS2_main.Warp.Codes.utils_udis import *
 
-import UDIS2_main.Warp.Codes.grid_res as grid_res
+# import UDIS2_main.Warp.Codes.grid_res as grid_res
 from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
-from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
+# from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
 
 import torchvision.transforms as T
 
 # from transformers import SuperPointForKeypointDetection
 # # from torch.quantization import quantize_dynamic
 # from numba import jit
-
-already_saved = True
 
 class UDISStitcher(BaseStitcher):
     def __init__(self):
@@ -48,65 +46,77 @@ class UDISStitcher(BaseStitcher):
             model_path = ckpt_list[-1]
             checkpoint = torch.load(model_path)
             self.net.load_state_dict(checkpoint['model'])
-            print('load model from {}!'.format(model_path))
     
     def UDIS_warping(self, image1, image2, test = True):
+        """
+        Performs warping and stitching of two images using the UDIS (Unsupervised Deep Image Stitching) model.
+
+        Parameters:
+        - image1 (np.ndarray): The first input image.
+        - image2 (np.ndarray): The second input image.
+        - test (bool): A flag for enabling test-specific behavior. Default is True.
+
+        Returns:
+        - stitched_images (np.ndarray): The stitched image resulting from the UDIS model.
+        - final_warp1_mask (np.ndarray): The mask for the first warped image.
+        """
         input1_tensor, input2_tensor = loadSingleData(image1, image2)
         
-        if not test:
-            
+        # ### More comuptationally intensive
+        # if torch.cuda.is_available():
+        #     input1_tensor = input1_tensor.cuda()
+        #     input2_tensor = input2_tensor.cuda()
 
-            if torch.cuda.is_available():
-                input1_tensor = input1_tensor.cuda()
-                input2_tensor = input2_tensor.cuda()
+        # input1_tensor_512 = self.resize_512(input1_tensor)
+        # input2_tensor_512 = self.resize_512(input2_tensor)
 
-            input1_tensor_512 = self.resize_512(input1_tensor)
-            input2_tensor_512 = self.resize_512(input2_tensor)
+        # with torch.no_grad():
+        #     batch_out = build_new_ft_model(self.net, input1_tensor_512, input2_tensor_512)
+        # rigid_mesh = batch_out['rigid_mesh']
+        # mesh = batch_out['mesh']
 
-            with torch.no_grad():
-                batch_out = build_new_ft_model(self.net, input1_tensor_512, input2_tensor_512)
-            # warp_mesh = batch_out['warp_mesh']
-            # warp_mesh_mask = batch_out['warp_mesh_mask']
-            rigid_mesh = batch_out['rigid_mesh']
-            mesh = batch_out['mesh']
+        # with torch.no_grad():
+        #     output = get_stitched_result(input1_tensor, input2_tensor, rigid_mesh, mesh)
 
-            with torch.no_grad():
-                output = get_stitched_result(input1_tensor, input2_tensor, rigid_mesh, mesh)
+        # stitched_images = output['stitched'][0].cpu().detach().numpy().transpose(1,2,0)
+        # return stitched_images, 0
 
-            stitched_images = output['stitched'][0].cpu().detach().numpy().transpose(1,2,0)
-            return stitched_images, 0
+        if torch.cuda.is_available():
+            inpu1_tesnor = input1_tensor.cuda()
+            inpu2_tesnor = input2_tensor.cuda()
 
-        
-        if test:
-            # inpu1_tesnor = batch_value[0].float()
-            # inpu2_tesnor = batch_value[1].float()
+        with torch.no_grad():
+            batch_out = build_output_model(self.net, inpu1_tesnor, inpu2_tesnor)
 
-            if torch.cuda.is_available():
-                inpu1_tesnor = input1_tensor.cuda()
-                inpu2_tesnor = input2_tensor.cuda()
+        final_warp1 = batch_out['final_warp1']
+        final_warp1_mask = batch_out['final_warp1_mask']
+        final_warp2 = batch_out['final_warp2']
+        final_warp2_mask = batch_out['final_warp2_mask']
 
-            with torch.no_grad():
-                batch_out = build_output_model(self.net, inpu1_tesnor, inpu2_tesnor)
+        final_warp1 = ((final_warp1[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
+        final_warp2 = ((final_warp2[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
+        final_warp1_mask = final_warp1_mask[0].cpu().detach().numpy().transpose(1,2,0)
+        final_warp2_mask = final_warp2_mask[0].cpu().detach().numpy().transpose(1,2,0)
 
-            final_warp1 = batch_out['final_warp1']
-            final_warp1_mask = batch_out['final_warp1_mask']
-            final_warp2 = batch_out['final_warp2']
-            final_warp2_mask = batch_out['final_warp2_mask']
-
-            final_warp1 = ((final_warp1[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
-            final_warp2 = ((final_warp2[0]+1)*127.5).cpu().detach().numpy().transpose(1,2,0)
-            final_warp1_mask = final_warp1_mask[0].cpu().detach().numpy().transpose(1,2,0)
-            final_warp2_mask = final_warp2_mask[0].cpu().detach().numpy().transpose(1,2,0)
-
-            stitched_images = final_warp1 * (final_warp1/ (final_warp1+final_warp2+1e-6)) + final_warp2 * (final_warp2/ (final_warp1+final_warp2+1e-6))
-            batch_out = None
-            return stitched_images, final_warp1_mask
+        sum_warp = final_warp1+final_warp2+1e-6
+        stitched_images = final_warp1 * (final_warp1/ sum_warp) + final_warp2 * (final_warp2/sum_warp)
+        batch_out = None
+        return stitched_images, final_warp1_mask
 
         
 
     def UDIS_pano(self, images, subset1, subset2):
-        global already_saved
-        t0=time.time()
+        """
+        Creates a panorama by stitching images using the UDIS (Unsupervised Deep Image Stitching) model.
+
+        Parameters:
+        - images (list): List of input images to be stitched into a panorama.
+        - subset1 (np.ndarray): Indices of images on the left side of the panorama.
+        - subset2 (np.ndarray): Indices of images on the right side of the panorama.
+
+        Returns:
+        - pano (np.ndarray): The final stitched panorama image in uint8 format.
+        """
         h, w, _ = images[0].shape
         test= True
 
@@ -117,61 +127,55 @@ class UDISStitcher(BaseStitcher):
         left_warp, left_mask = self.UDIS_warping(image1, image2, test)
         pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
 
-        print(f"Warp time : {time.time()-t0}")
-
-        if not already_saved:
-            already_saved = True
-            cv2.imwrite("left_warp.jpg", cv2.cvtColor(left_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("right_warp.jpg", cv2.cvtColor(right_warp.astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
-            cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
-            cv2.imwrite("pano.jpg", cv2.cvtColor(pano.astype('uint8'), cv2.COLOR_RGB2BGR))
-            print("saving")
-
         return pano.astype(np.uint8)
 
     def UDIS_batch_warping(self, image1, image2, image3):
+        """
+        Performs batch warping and stitching of three images using the UDIS (Unsupervised Deep Image Stitching) model.
+
+        Parameters:
+        - image1 (np.ndarray): The first input image. Left image
+        - image2 (np.ndarray): The second input image. Middle image
+        - image3 (np.ndarray): The third input image. Right image
+
+        Returns:
+        - stitched_images (torch.Tensor): The stitched batch of images as a PyTorch tensor.
+        """
         
-        t0=time.time()
         image1, image2_flipped=cv2.flip(image1, 1), cv2.flip(image2, 1)
         input1_tensor, input2_tensor = load3images(image1, image2, image2_flipped, image3)
-        t1=time.time()
         if torch.cuda.is_available():
             input1_tensor = input1_tensor.cuda()
             input2_tensor = input2_tensor.cuda()
-        t2=time.time()
         input1_tensor_512 = self.resize_512(input1_tensor)
         input2_tensor_512 = self.resize_512(input2_tensor)
-        t3=time.time()
         with torch.no_grad():
             batch_out = build_new_ft_model(self.net, input1_tensor_512, input2_tensor_512)
         rigid_mesh = batch_out['rigid_mesh']
         mesh = batch_out['mesh']
-        t4=time.time()
         with torch.no_grad():
             output = get_stitched_result(input1_tensor, input2_tensor, rigid_mesh, mesh)
-        t5=time.time()
         stitched_images = output['stitched'].cpu().detach()#.numpy().transpose(1,2,0)
-        t6=time.time()
-
-        # print(f"loading time : {t1-t0}")
-        # print(f"GPU transfer time : {t2-t1}")
-        # print(f"Resize time : {t3-t2}")
-        # print(f"Mesh computation time : {t4-t3}")
-        # print(f"Stitching time : {t5-t4}")
-        # print(f"CPU + detachement time : {t6-t5}")
 
         return stitched_images
     
     def UDIS_batch_pano(self, images, subset1, subset2):
+        """
+        Creates a panorama from a batch of images using the UDIS (Unsupervised Deep Image Stitching) model.
 
-        t0=time.time()
+        Parameters:
+        - images (list): List of input images to be stitched into a panorama.
+        - subset1 (np.ndarray): Indices of images on the left side of the panorama.
+        - subset2 (np.ndarray): Indices of images on the right side of the panorama.
+
+        Returns:
+        - pano (np.ndarray): The final stitched panorama image in uint8 format.
+        """
         h, w, _ = images[0].shape
 
         output = self.UDIS_batch_warping(images[subset1[1]], images[subset2[0]], images[subset2[1]])
         # input1_tensor, input2_tensor = load3images(images[subset1[1]], images[subset2[0]], images[subset2[1]])
         # out = build_output_model(self.net, input1_tensor.cuda(), input2_tensor.cuda())
-        t1=time.time()
 
         left_warp, right_warp = output[0].numpy().transpose(1,2,0), output[1].numpy().transpose(1,2,0)
         
@@ -192,8 +196,6 @@ class UDISStitcher(BaseStitcher):
         pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
         # pano = np.zeros((h, diff1x+diff2x+w, 3))
 
-        t2=time.time()
-
         if diff2y == shiftup2+(rightSize[0]-shiftdown2) and diff1y == shiftup1+(leftSize[0]-shiftdown1):
             diffshiftup = shiftup2-shiftup1
 
@@ -206,15 +208,9 @@ class UDISStitcher(BaseStitcher):
 
         else:
             print("Alignement problem")
-
-        # print(f"UDIS time : {t1-t0}")
-        # print(f"Placement calculation time : {t2-t1}")
-        # print(f"If code time : {time.time()-t2}")
-        # print(f"Warp time : {time.time()-t0}")
-
         return pano.astype(np.uint8)
   
-    def stitch(self, images, order, Hs, inverted, headAngle, num_pano_img=3, verbose=False):
+    def stitch(self, images, order, Hs, inverted, headAngle, num_pano_img=3):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
         of the pilots head and the desired number of images in the panorama.
@@ -223,19 +219,25 @@ class UDISStitcher(BaseStitcher):
             - angle : orientation of the pilots head (in degrees [0,360[?)
             - num_pano_img : desired number of images in the panorama
         """""
-        # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
-        # Take the order and the ref to compute the panorama
-
-        t = time.time()
-
         subset1, subset2, _, _ = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
         pano = self.UDIS_pano(images, subset1, subset2)          
-        if verbose:
-            print(f"Warp time: {time.time()-t}")    
+        
         return pano
     
 
 def loadSingleData(image1, image2):
+    """
+    Prepares and preprocesses two input images for deep learning models.
+
+    Parameters:
+    - image1 (np.ndarray): The first input image with shape (height, width, channels).
+    - image2 (np.ndarray): The second input image with shape (height, width, channels).
+
+    Returns:
+    - tuple: A tuple containing:
+        - input1_tensor (torch.Tensor): The preprocessed tensor for the first image with shape (1, channels, height, width).
+        - input2_tensor (torch.Tensor): The preprocessed tensor for the second image with shape (1, channels, height, width).
+    """
 
     # load image1
     input1 = image1.astype(dtype=np.float32)
@@ -254,6 +256,16 @@ def loadSingleData(image1, image2):
 
 @jit(nopython=True)
 def preprocess_images(images):
+    """
+    Preprocesses a list of images for deep learning models.
+
+    Parameters:
+    - images (list): A list of images in numpy array format, each with shape (height, width, channels).
+
+    Returns:
+    - processed_images (list): A list of preprocessed images, each with shape (channels, height, width),
+                               normalized to the range [-1, 1].
+    """
     processed_images = []
     for img in images:
         img = img.astype(np.float32)  # Convert to float32
@@ -308,6 +320,21 @@ def find_image_shift(part_mask):
     return y_shift_up#, y_shift_down
 
 def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300), security_factor = 5):
+    """
+    Composes a panorama by blending warped images from the left and right sides.
+
+    Parameters:
+    - left_warp (np.ndarray): The warped image from the left side.
+    - right_warp (np.ndarray): The warped image from the right side.
+    - left_mask (np.ndarray): The mask for the left warped image.
+    - right_mask (np.ndarray): The mask for the right warped image.
+    - size (tuple): The size of the reference image (height, width). Default is (300, 300).
+    - security_factor (int): A padding factor to avoid dimension mismatches. Default is 5.
+
+    Returns:
+    - pano (np.ndarray): The composed panorama image.
+    """
+    
     h, w = size
     rightSize = right_warp.shape
     leftSize = left_warp.shape

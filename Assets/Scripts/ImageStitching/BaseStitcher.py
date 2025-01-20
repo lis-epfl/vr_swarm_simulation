@@ -1,4 +1,3 @@
-# import custom_stitching
 import numpy as np
 import cv2
 import torch
@@ -40,6 +39,21 @@ def plot_graph_with_opencv(cycle, node_positions):
     cv2.destroyAllWindows()
 
 def find_cycle_for_360_panorama(confidences, start_node, plot = False):
+    """
+    Finds a cycle through a set of images for creating a 360-degree panorama, 
+    using a greedy algorithm to maximize the confidence between images.
+
+    Parameters:
+    - confidences: A square matrix of shape (nb_img, nb_img) where confidences[i, j] represents 
+                   the confidence level between image i and image j.
+    - start_node: An integer representing the starting node for the cycle. 
+                  If None, a heuristic is used to select the start node.
+    - plot: A boolean indicating whether to visualize the constructed cycle.
+
+    Returns:
+    - cycle: A list of integers representing the sequence of nodes in the cycle.
+    """
+
     nb_img = confidences.shape[0]  # Number of images
     G = nx.Graph()
     
@@ -91,6 +105,16 @@ def find_cycle_for_360_panorama(confidences, start_node, plot = False):
 
 
 def invert_affine_matrices(Ms):
+    """
+    Inverts a batch of affine transformation matrices.
+
+    Parameters:
+    - Ms: A numpy array of shape (N, 2, 3), where each entry represents a 2x3 affine transformation matrix.
+
+    Returns:
+    - Ms_inverted: A numpy array of the same shape as Ms, containing the inverted affine transformation matrices.
+    """
+
     Ms_inverted = np.zeros_like(Ms)
     num_mat = Ms_inverted.shape[0]
     for i in range(num_mat):
@@ -98,10 +122,21 @@ def invert_affine_matrices(Ms):
     return Ms_inverted
 
 @jit(nopython=True) 
-def apply_homographies(Hs, corners):
+def apply_homographies(Hs: np.ndarray, corners: np.ndarray):
     """
-    Apply the homographies to image corners and return the transformed corners.
+    Apply a series of homographies to image corners and compute the transformed points.
     Optimized with Numba for faster execution.
+
+    Parameters:
+    - Hs: A numpy array of shape (num_images, 3, 3), where each 3x3 matrix is a homography.
+    - corners: A numpy array of shape (3, 4), representing the homogeneous coordinates of 
+               the four corners of an image.
+
+    Returns:
+    - all_corners: A numpy array of shape (2, num_images * 4), containing the 2D transformed 
+                   corner points for all images.
+    - H_accum: A numpy array of shape (num_images, 3, 3), containing the accumulated homographies 
+               after applying each transformation.
     """
 
     num_images, num_corners = Hs.shape[0], 4
@@ -118,11 +153,18 @@ def apply_homographies(Hs, corners):
             
     return all_corners, H_accum
 
-
 def apply_affine_matrices(Ms, corners):
     """
-    Apply the affine matrices to image corners and return the transformed corners.
-    Optimized for affine transformations, assuming 2x3 matrices.
+    Apply a sequence of affine transformation matrices to image corners and return the transformed points.
+    Optimized for affine transformations, assuming the input matrices are in 2x3 format.
+
+    Parameters:
+    - Ms: A numpy array of shape (num_images, 2, 3), where each 2x3 matrix represents an affine transformation.
+    - corners: A numpy array of shape (3, 4), representing the homogeneous coordinates of the four corners of an image.
+
+    Returns:
+    - all_corners: A numpy array of shape (2, num_images * 4), containing the 2D transformed corner points.
+    - M_accum: A numpy array of shape (num_images, 2, 3), containing the accumulated affine transformation matrices.
     """
 
     num_images, num_corners = Ms.shape[0], 4
@@ -143,13 +185,22 @@ def apply_affine_matrices(Ms, corners):
         # Apply the current affine matrix to the corners
         new_corners = np.dot(M_accum[i], corners)  # Only need 2xN points for affine
         all_corners[:, i*num_corners: (i+1)*num_corners] = new_corners
-
-    print(M_accum)
     
     return all_corners, M_accum
 
 @jit(nopython=True) 
 def invert_matrices(Hs:np.ndarray)->np.ndarray:
+    """
+    Invert a batch of square matrices using Numba for optimized performance.
+
+    Parameters:
+    - Hs: A numpy array of shape (N, M, M), where each (M, M) matrix represents a square matrix to be inverted.
+
+    Returns:
+    - Hs_inverted: A numpy array of the same shape as Hs, containing the inverted matrices.
+                   If a matrix is singular (determinant is too small), it is left as a zero matrix.
+    """
+
     Hs_inverted = np.zeros_like(Hs)
     num_mat = Hs_inverted.shape[0]
     for i in range(num_mat):
@@ -167,18 +218,13 @@ class BaseStitcher:
                  trees=5, 
                  checks=50, 
                  ratio_thresh = 0.7, 
-                 score_threshold = 0.2,
+                 score_threshold = 0.0,
                  active_matcher_type= "BF",
                  isRANSAC= False, 
                  device = "cpu"
                  ):
         
         self.superpoint_model = SuperPointForKeypointDetection.from_pretrained("magic-leap-community/superpoint")
-        # self.model = quantize_dynamic(
-        #     self.model,  # the original model
-        #     {torch.nn.Conv2d},  # layers to quantize
-        #     dtype=torch.qint8  # quantization data type
-        #     )
         self.superpoint_model.eval()
         self.device = torch.device(device)
         
@@ -219,6 +265,20 @@ class BaseStitcher:
         self.points_remap = None
 
     def ORB_extraction(self, images):
+        """
+        Extracts ORB (Oriented FAST and Rotated BRIEF) keypoints and descriptors from a list of images.
+
+        Parameters:
+        - images (List[np.ndarray]): A list of input images (in RGB format) from which keypoints and descriptors 
+                                    are to be extracted.
+
+        Returns:
+        - keypoints (List[np.ndarray]): A list of numpy arrays, where each array contains the (x, y) coordinates 
+                                        of the keypoints for the corresponding image.
+        - descriptors (List[np.ndarray]): A list of numpy arrays, where each array contains the ORB descriptors 
+                                        (in float32) for the corresponding image. If no descriptors are found 
+                                        for an image, an empty array is returned for that image.
+        """
 
         orb = cv2.ORB_create()
         keypoints = []
@@ -314,15 +374,33 @@ class BaseStitcher:
         return {'keypoints': keypoints, 'scores': scores, 'descriptors': descriptors}, (ratio_x, ratio_y)
 
     def keep_best_keypoints(self, outputs, ratios, image_height):
+        """
+        Filters and retains the best keypoints and their descriptors based on score and spatial constraints.
+
+        Parameters:
+        - outputs (dict): A dictionary containing:
+            - 'keypoints' (np.ndarray): Array of shape (num_images, num_keypoints, 2) with (x, y) coordinates of keypoints.
+            - 'scores' (np.ndarray): Array of shape (num_images, num_keypoints) with confidence scores for each keypoint.
+            - 'descriptors' (np.ndarray): Array of shape (num_images, num_keypoints, descriptor_dim) with descriptors for each keypoint.
+        - ratios (tuple): A tuple (ratio_x, ratio_y) used to scale the keypoints to their original resolution.
+        - image_height (int): The height of the image, used to filter keypoints based on vertical position.
+
+        Returns:
+        - valid_keypoints (list): A list of numpy arrays, where each array contains the filtered (x, y) coordinates of 
+                                valid keypoints for each image, scaled by the provided ratios.
+        - valid_descriptors (list): A list of numpy arrays, where each array contains the descriptors corresponding 
+                                    to the valid keypoints for each image.
+        """
+
         # Extract tensors from the outputs dictionary
         kpts, scores, dpts = outputs['keypoints'], outputs['scores'],  outputs['descriptors']
 
         # Get mask of valid scores
         score_mask = scores > self.score_threshold
-        threshold = 2 * image_height / 3
+        threshold = 3 * image_height / 4
         
         # Keep keypoints with best score and within the above 2/3 of the image
-        valid_mask = score_mask | (kpts[:,:, 1]<threshold)
+        valid_mask = score_mask & (kpts[:,:, 1]<threshold)
 
         # Apply mask to keypoints and descriptors
         valid_keypoints = [(kpts[i][valid_mask[i]]*np.array([ratios[0],ratios[1]])).astype(int) for i in range(kpts.shape[0])]
@@ -332,6 +410,21 @@ class BaseStitcher:
         return valid_keypoints, valid_descriptors
     
     def FLANN_matching(self, descriptor1, descriptor2, k=2):
+        """
+        Performs FLANN-based (Fast Library for Approximate Nearest Neighbors) matching between two sets of descriptors 
+        and filters matches using Lowe's ratio test.
+
+        Parameters:
+        - descriptor1 (np.ndarray): A numpy array of shape (num_features1, descriptor_dim) containing descriptors 
+                                    for the first set of keypoints.
+        - descriptor2 (np.ndarray): A numpy array of shape (num_features2, descriptor_dim) containing descriptors 
+                                    for the second set of keypoints.
+        - k (int): The number of nearest neighbors to consider for matching. Default is 2.
+
+        Returns:
+        - list: A list of the best matches that pass the Lowe's ratio test. Each match is an object of type `cv2.DMatch`.
+        """
+
         # descriptors must be numpy arrays
         knn_matches = self.flann.knnMatch(descriptor1, descriptor2, k=k)
         
@@ -343,6 +436,21 @@ class BaseStitcher:
         return  [m for m, n in knn_matches if m.distance < ratio_thresh * n.distance]
     
     def BF_matching(self, descriptor1, descriptor2, k=2):
+        """
+        Performs BF-based matching between two sets of descriptors 
+        and filters matches using Lowe's ratio test.
+
+        Parameters:
+        - descriptor1 (np.ndarray): A numpy array of shape (num_features1, descriptor_dim) containing descriptors 
+                                    for the first set of keypoints.
+        - descriptor2 (np.ndarray): A numpy array of shape (num_features2, descriptor_dim) containing descriptors 
+                                    for the second set of keypoints.
+        - k (int): The number of nearest neighbors to consider for matching. Default is 2.
+
+        Returns:
+        - list: A list of the best matches that pass the Lowe's ratio test. Each match is an object of type `cv2.DMatch`.
+        """
+        
         # descriptors must be numpy arrays
         knn_matches = self.BF.knnMatch(descriptor1, descriptor2, k=k)
         
@@ -354,6 +462,25 @@ class BaseStitcher:
         return  [m for m, n in knn_matches if m.distance < ratio_thresh * n.distance]
     
     def compute_matches_and_confidences(self, descriptors, keypoints):
+        """
+        Computes matches and confidence scores between descriptors from multiple images.
+
+        Parameters:
+        - descriptors (list): A list of numpy arrays, where each array contains the descriptors for a set of keypoints 
+                            in one image.
+        - keypoints (list): A list of numpy arrays, where each array contains the (x, y) coordinates of the keypoints 
+                            in one image.
+
+        Returns:
+        - matches_info (list): A list of dictionaries, where each dictionary contains:
+            - 'image1_index': Index of the first image in the match pair.
+            - 'image2_index': Index of the second image in the match pair.
+            - 'matches': A list of matches between the two images (either BF or FLANN-based).
+            - 'H1': Homography matrix from image 2 to image 1 (computed using RANSAC).
+            - 'H2': Homography matrix from image 1 to image 2 (computed using RANSAC).
+        - confidences (np.ndarray): A symmetric matrix of shape (nb_img, nb_img) where each entry (i, j) represents the 
+                                    confidence score between images i and j.
+        """
     
         nb_img = len(descriptors)
         matches_info = []
@@ -379,8 +506,6 @@ class BaseStitcher:
 
                 H1, H2 = None, None
 
-                # It was originally made to compute Homographies (needs 4 matches at least to be computed)
-                # This should be removed
                 if num_matches> 4:
                     src_p = np.float32([keypoints[i][m.queryIdx] for m in matches]).reshape(-1, 2)
                     dst_p = np.float32([keypoints[j][m.trainIdx] for m in matches]).reshape(-1, 2)
@@ -389,10 +514,8 @@ class BaseStitcher:
                     max_inliers = max(np.sum(mask1.ravel()), np.sum(mask2.ravel()))
                     conf = max_inliers / (8 + 0.3 * num_matches)
 
-                    # This is not the exact same equation as the one given by the opencv
-                    # function. This could be removed and just plug the num_matches in 
-                    # the confidence matrix 
-                    # conf = num_matches#num_matches / (8 + 0.3 * num_matches)
+                    # This could be removed and just plug the num_matches in 
+                    # the confidence matrix
 
                     confidences[i, j], confidences[j, i] = conf, conf
 
@@ -409,7 +532,18 @@ class BaseStitcher:
         
         return matches_info, confidences
 
-    def find_top_pairs(self, conf_matrix):
+    def find_top_pairs(self, conf_matrix: np.ndarray) -> list:
+        """
+        Identifies the top 2 most confident matches for each image based on the confidence matrix.
+
+        Parameters:
+        - conf_matrix (np.ndarray): A square matrix of shape (num_images, num_images) where each entry 
+                                    represents the confidence score between pairs of images.
+
+        Returns:
+        - top_pairs (list): A list of lists, where each sublist contains the indices of the top 2 images 
+                            with the highest confidence for the corresponding image.
+        """
         
         num_images = conf_matrix.shape[0]
         top_pairs = []
@@ -426,7 +560,23 @@ class BaseStitcher:
 
         return top_pairs
 
-    def chooseSubsetsAndTransforms(self, Ts, num_pano_img, order, headAngle):
+    def chooseSubsetsAndTransforms(self, Ts: np.ndarray, num_pano_img: int, order: np.ndarray, headAngle: float) -> tuple:
+        """
+        Selects subsets of images and their corresponding transformations for panorama creation based on the head angle.
+
+        Parameters:
+        - Ts (np.ndarray): A numpy array containing transformation matrices (e.g., homographies or affine transforms).
+        - num_pano_img (int): The number of images to include in the panorama.
+        - order (np.ndarray): An array defining the order of images in the panorama sequence.
+        - headAngle (float): The head angle in degrees, which determines the orientation and reference image.
+
+        Returns:
+        - subset1 (np.ndarray): An array containing the indices of images in the first subset, arranged in reverse order.
+        - subset2 (np.ndarray): An array containing the indices of images in the second subset, arranged in order.
+        - Ts1 (np.ndarray): Transformation matrices corresponding to the first subset, arranged in reverse order.
+        - Ts2 (np.ndarray): Transformation matrices corresponding to the second subset, arranged in order.
+        """
+
         num_images = len(Ts)//3
         headAngle -= headAngle//360 *360
         if headAngle<0:
@@ -470,13 +620,9 @@ class BaseStitcher:
         num_images= len(keypoints)
         matches_lookup = {(match['image1_index'], match['image2_index']): match['matches'] for match in matches_info}
         
-        Hs = np.zeros((num_images, 3, 3))
-        for i in range(num_images):
-            if i<num_images-1:
-                idx1, idx2 = partial_order[i], partial_order[i + 1]
-            else:
-                idx1, idx2 = partial_order[i], partial_order[0]
-
+        if num_images==2:
+            Hs = np.zeros((1, 3, 3))
+            idx1, idx2 = 0, 1
             if (idx1, idx2) in matches_lookup:
                 matches = matches_lookup[(idx1, idx2)]
                 src_p = np.float32([keypoints[idx1][m.queryIdx] for m in matches]).reshape(-1, 2)
@@ -485,12 +631,35 @@ class BaseStitcher:
                 matches = matches_lookup[(idx2, idx1)]
                 src_p = np.float32([keypoints[idx1][m.trainIdx] for m in matches]).reshape(-1, 2)
                 dst_p = np.float32([keypoints[idx2][m.queryIdx] for m in matches]).reshape(-1, 2)
-
+            
             if dst_p.shape[0]>4:
                 if self.isRANSAC:
-                    Hs[i], _ = cv2.findHomography(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=3, confidence=0.995)
+                    Hs[0], _ = cv2.findHomography(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=3, confidence=0.995)
                 else:
-                    Hs[i], _ = cv2.findHomography(dst_p, src_p, method=0)
+                    Hs[0], _ = cv2.findHomography(dst_p, src_p, method=0)
+
+        else:
+            Hs = np.zeros((num_images, 3, 3))
+            for i in range(num_images):
+                if i<num_images-1:
+                    idx1, idx2 = partial_order[i], partial_order[i + 1]
+                else:
+                    idx1, idx2 = partial_order[i], partial_order[0]
+
+                if (idx1, idx2) in matches_lookup:
+                    matches = matches_lookup[(idx1, idx2)]
+                    src_p = np.float32([keypoints[idx1][m.queryIdx] for m in matches]).reshape(-1, 2)
+                    dst_p = np.float32([keypoints[idx2][m.trainIdx] for m in matches]).reshape(-1, 2)
+                else:
+                    matches = matches_lookup[(idx2, idx1)]
+                    src_p = np.float32([keypoints[idx1][m.trainIdx] for m in matches]).reshape(-1, 2)
+                    dst_p = np.float32([keypoints[idx2][m.queryIdx] for m in matches]).reshape(-1, 2)
+
+                if dst_p.shape[0]>4:
+                    if self.isRANSAC:
+                        Hs[i], _ = cv2.findHomography(dst_p, src_p, method=cv2.RANSAC, ransacReprojThreshold=3, confidence=0.995)
+                    else:
+                        Hs[i], _ = cv2.findHomography(dst_p, src_p, method=0)
 
         if self.known_order is None:
             w, h = self.camera_matrix[:2, -1]*2
@@ -504,7 +673,23 @@ class BaseStitcher:
                 return Hs, order, True
         return Hs, np.array(partial_order), False
     
-    def compose_with_ref(self, images, Hs1, Hs2, subset1, subset2, inverted, clip_x = 8000, clip_y = 2000):
+    def compose_with_ref(self, images: list, Hs1: np.ndarray, Hs2: np.ndarray, subset1: list, subset2: list, inverted: bool, clip_x: int = 8000, clip_y: int = 2000) -> np.ndarray:
+        """
+        Composes a panorama by stitching images together using reference-based homographies.
+
+        Parameters:
+        - images (list): List of input images to be stitched into the panorama.
+        - Hs1 (np.ndarray): Array of homographies for subset1 (left side of the reference image).
+        - Hs2 (np.ndarray): Array of homographies for subset2 (right side of the reference image).
+        - subset1 (list): Indices of images in the first subset (left side of reference image).
+        - subset2 (list): Indices of images in the second subset (right side of reference image).
+        - inverted (bool): Flag to determine whether to invert Hs1 or Hs2 before use.
+        - clip_x (int): Maximum horizontal bound for clipping the panorama.
+        - clip_y (int): Maximum vertical bound for clipping the panorama.
+
+        Returns:
+        - panorama (np.ndarray): The resulting panorama image.
+        """
         
         # Initial dimensions of the first image
         h, w = images[0].shape[:2]
@@ -573,7 +758,23 @@ class BaseStitcher:
 
         return panorama
     
-    def compose_with_defined_size(self, images, Hs1, Hs2, subset1, subset2, inverted,  panoWidth=500, panoHeight=400):
+    def compose_with_defined_size(self, images: list, Hs1: np.ndarray, Hs2: np.ndarray, subset1: list, subset2: list, inverted: bool, panoWidth: int = 500, panoHeight: int = 400) -> np.ndarray:
+        """
+        Composes a panorama by stitching images together within a user-defined panorama size.
+
+        Parameters:
+        - images (list): List of input images to be stitched into the panorama.
+        - Hs1 (np.ndarray): Array of homographies for subset1 (left side of the reference image).
+        - Hs2 (np.ndarray): Array of homographies for subset2 (right side of the reference image).
+        - subset1 (list): Indices of images in the first subset (left side of reference image).
+        - subset2 (list): Indices of images in the second subset (right side of reference image).
+        - inverted (bool): Flag to determine whether to invert Hs1 or Hs2 before use.
+        - panoWidth (int): Width of the output panorama.
+        - panoHeight (int): Height of the output panorama.
+
+        Returns:
+        - panorama (np.ndarray): The resulting panorama image of the defined size.
+        """
         
         # Initial dimensions of the first image
         h, w = images[0].shape[:2]
@@ -625,44 +826,39 @@ class BaseStitcher:
         return panorama
     
     def compose_2_images(self, images, H, order):
-
-        """""
-        Implementation for 2 images stitching. The warped image is put after the reference image and no blending is done
+        """
+        Implementation for 2 images stitching. The warped image is put after the reference image and no blending is done.
         It is principally used for evaluation on UDIS dataset.
-        """""
-        
+        """
         # Initial dimensions of the first image
         h, w = images[0].shape[:2]
 
         # Initial corners of the reference image
-        corners = np.array([[0, w-1 , w -1, 0],
-                              [0, 0, h-1 , h-1 ],
-                              [1, 1, 1, 1]], dtype=np.float32)
-
-
         corners = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)
 
         # Warp the corners of the first image to the second image
         warped_corners_image1 = cv2.perspectiveTransform(corners, H.squeeze())
 
         # Get the bounding box of the combined image
-        combined_corners = np.concatenate((warped_corners_image1, np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)), axis=0)
+        combined_corners = np.concatenate((warped_corners_image1, corners), axis=0)
         [x_min, y_min] = np.int32(combined_corners.min(axis=0).ravel() - 0.5)
         [x_max, y_max] = np.int32(combined_corners.max(axis=0).ravel() + 0.5)
 
         # Get the translation homography
         translation_dist = [-x_min, -y_min]
-        translation_homography = np.array([[1, 0, translation_dist[0]], [0, 1, translation_dist[1]], [0, 0, 1]])
+        translation_homography = np.array([[1, 0, translation_dist[0]], 
+                                        [0, 1, translation_dist[1]], 
+                                        [0, 0, 1]])
 
-        # Warp the first image to the larger canvas
-        warped_image = cv2.warpPerspective(images[order[0]], translation_homography.dot(H.squeeze()), (x_max - x_min, y_max - y_min))
-        mask = cv2.warpPerspective(np.ones_like(images[order[0]]), translation_homography.dot(H.squeeze()), (x_max - x_min, y_max - y_min))
-        panorama = np.zeros_like(warped_image)
-        panorama[translation_dist[1]:h+translation_dist[1], translation_dist[0]:h+translation_dist[0]] = images[order[1]]
-        panorama[mask>0] = warped_image[mask>0]
+        # Warp the second image into the panorama coordinate space
+        warped_image = cv2.warpPerspective(images[order[1]], translation_homography.dot(H.squeeze()), (x_max - x_min, y_max - y_min))
+        mask = cv2.warpPerspective(np.ones_like(images[order[1]]), translation_homography.dot(H.squeeze()), (x_max - x_min, y_max - y_min))
+        
+        # Initialize the panorama
+        panorama = warped_image.copy()
+        panorama[translation_dist[1]:h+translation_dist[1], translation_dist[0]:w+translation_dist[0]] = images[order[0]]
 
-
-        return panorama, warped_image, mask, images[order[1]]
+        return panorama, warped_image, mask, images[order[1]], combined_corners
 
     def findHomographyOrder(self, images, front_image_index=0,Hs=None, verbose = False, debug= False):
         """""
@@ -717,8 +913,6 @@ class BaseStitcher:
             print("time to extract keypoints:", t1-t0)
             print("time to compute matches:", t2-t1)
             print("time to compute homographies:", t3-t2)
-            print("Time to control:", t4-t3)
-            print("Total time to compute Hs and order:", t4-t0)
         
         if debug:
             best_pairs = self.find_top_pairs(confidences)
@@ -726,7 +920,7 @@ class BaseStitcher:
         
         return Hs, order, inverted
 
-    def stitch(self, images, order, Hs, inverted, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3, verbose=False):
+    def stitch(self, images, order, Hs, inverted, headAngle, processedImageWidth, processedImageHeight, num_pano_img=3):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
         of the pilots head and the desired number of images in the panorama.
@@ -742,40 +936,32 @@ class BaseStitcher:
         if self.cylindricalWarp:
             images = [self.CylindricalWarp(img) for img in images]
 
-        if num_pano_img>2:
+        if num_pano_img>2 and len(images)>2:
             subset1, subset2, Hs1, Hs2 = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
             # print(subset1, subset2)
             pano = self.compose_with_defined_size(images, Hs1, Hs2, subset1, subset2, inverted, panoWidth=processedImageWidth, panoHeight=processedImageHeight)
         else:
             num_img = len(images)
             # Implemententation for 2 images
-            if inverted:
-                H = Hs[num_img+1]
-                subset = order[num_img+1:num_img+3]
-            else:
-                H = Hs[num_img]
-                subset = order[num_img:num_img+2]
+            if num_img == 2:
+                if inverted:
+                    H = np.linalg.pinv(Hs[0])
+                    subset = order
+                else:
+                    H = Hs[0]
+                    subset = order
+            else:    
+                if inverted:
+                    H = Hs[num_img+1]
+                    subset = order[num_img+1:num_img+3]
+                else:
+                    H = Hs[num_img]
+                    subset = order[num_img:num_img+2]
+
 
             return self.compose_2_images(images, H, subset)
 
-        if verbose:
-            print(f"Warp time: {time.time()-t}")
         return pano
-            
-
-# Have to add function that will look if parameters have changed and if so, recompute cylindrical warping
-# Think about how to change the stitcher. Maybe instead of 3 methods as thread, just do 3 functions
-
-def hasSmallStretchHomography(H: np.ndarray, corners, ratio = 1.5):
-
-    H[:2, -1] = np.zeros(2)
-    _, newCorners =apply_homographies(np.expand_dims(H, axis=0), corners)
-
-    if newCorners>1.5*corners[:2]:
-        print("Too big changes")
-        return False, None
-    
-    return True
 
 def hassmallChangeHomography(H_new, H_prev, criterion = 0.5):
     """
@@ -806,10 +992,6 @@ def ControlHomography(Hs_new, Hs_prev, corners, ratio=2.5, change_thresh=200):
     Hs_prev_ = Hs_prev.copy()
     Hs_prev_[:, :2, -1] = 0
 
-    # Compute transformed corners
-    # new_corners_2d = np.einsum('bij,jk->bik', Hs_new_, corners[:, 1:3])[:, :2, :]
-    # prev_corners_2d = np.einsum('bij,jk->bik', Hs_prev_, corners[:, 1:3])[:, :2, :]
-
     new_corners = np.einsum('bij,jk->bik', Hs_new_, corners[:, 1:3])#[:, :2, :]
     prev_corners = np.einsum('bij,jk->bik', Hs_prev_, corners[:, 1:3])#[:, :2, :]
 
@@ -820,31 +1002,66 @@ def ControlHomography(Hs_new, Hs_prev, corners, ratio=2.5, change_thresh=200):
 
     # Check for image stretch
     for i in range(b):
-        # frobenius_distance = np.linalg.norm(new_corners_2d[i] - corners[:2, 1:3], ord="fro")
         dist_new_corners = np.linalg.norm(new_corners_2d[i], axis=0)
         dist_corners = np.linalg.norm(corners[:2, 1:3], axis=0)
-
-        # print(dist_new_corners)
-        # print(ratio*dist_corners)
-        # print(ratio*dist_corners < dist_new_corners)
         if np.allclose(Hs_prev[i], 0):  # Check for zero homography
             if np.any(ratio*dist_corners < dist_new_corners):
-                # print("too large homography")
                 continue
             Hs_prev[i] = Hs_new[i]
             good_index[i] = False
-            # print("Zero homography but new one good")
     
     # Check if two changes are small enough
     for i in range(b):
         if good_index[i]:
             distance = np.linalg.norm(new_corners_2d[i] - prev_corners_2d[i], axis=0)
             if np.any(distance>change_thresh):
-                # print("Changes are too big")
                 continue
             Hs_prev[i] = Hs_new[i]
-            # print(f"CHanges in homography {i}")
 
     return Hs_prev
 
+def plot_keypoints(images, keypoints):
+    """
+    Plot keypoints on each image.
+    
+    Args:
+    - images (list of PIL.Image): List of input images.
+    - keypoints (list of numpy.ndarray): List of keypoints for each image.
+    """
+    for i, image in enumerate(images):
+        img = np.array(image)  # Convert PIL image to numpy array
+        for keypoint in keypoints[i]:
+            keypoint_x, keypoint_y = int(keypoint[0]), int(keypoint[1])
+            color = tuple([255, 0, 0])
+            image = cv2.circle(img, (keypoint_x, keypoint_y), 10, color)
+        
+        cv2.imshow(f"Keypoints {i}", image)
+        cv2.waitKey(10000)
+        cv2.destroyAllWindows()
+
+def plot_matches(images, keypoints, matches_info):
+    """
+    Plot matches between image pairs.
+    
+    Args:
+    - images (list of PIL.Image): List of input images.
+    - keypoints (list of numpy.ndarray): List of keypoints for each image.
+    - matches_info (list of dict): List of matches information between image pairs.
+    """
+    for match_info in matches_info:
+        img1_idx = match_info['image1_index']
+        img2_idx = match_info['image2_index']
+        matches = match_info['matches']
+
+        img1 = np.array(images[img1_idx])
+        img2 = np.array(images[img2_idx])
+
+        # Convert keypoints to the format expected by cv2.drawMatches
+        keypoints1 = [cv2.KeyPoint(x.astype(float), y.astype(float), 1) for x, y in keypoints[img1_idx]]
+        keypoints2 = [cv2.KeyPoint(x.astype(float), y.astype(float), 1) for x, y in keypoints[img2_idx]]
+
+        img1_with_matches = cv2.drawMatches(img1, keypoints1, img2, keypoints2, matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        cv2.imshow(f"Matches between {img1_idx} and {img2_idx}", img1_with_matches)
+        cv2.waitKey(10000)
+        cv2.destroyAllWindows()
 

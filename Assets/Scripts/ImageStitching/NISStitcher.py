@@ -4,16 +4,12 @@ import cv2
 import torch
 import time
 from BaseStitcher import *
-
-
 import glob
 import os
 from numba import jit
-
 import sys
 import torch.nn as nn
 import torch.optim as optim
-
 import matplotlib.pyplot as plt
 from PIL import Image
 import os
@@ -34,10 +30,8 @@ from torchvision import transforms
 # # from torch.quantization import quantize_dynamic
 # from numba import jit
 
-already_saved = True
-
 class NISStitcher(BaseStitcher):
-    def __init__(self):
+    def __init__(self, onlyIHN = True):
         super().__init__(device="cpu")  # Initialize the base class
 
         # self.net.to(device)
@@ -50,9 +44,22 @@ class NISStitcher(BaseStitcher):
         self.model.eval()
         self.H_model.eval()
         # Not implemented yet (Can maybe use only IHN for stitching and then do simple blending for fast computation)
-        self.onlyIHN = False
+        self.onlyIHN = onlyIHN
 
     def NIS_warping(self, ref, tgt, inp_ref, inp_tgt):
+        """
+        Performs Neural Image Stitching (NIS) warping to blend reference and target images using a deep learning model.
+
+        Parameters:
+        - ref (torch.Tensor): The reference image tensor of shape (batch_size, channels, height, width).
+        - tgt (torch.Tensor): The target image tensor of shape (batch_size, channels, height, width).
+        - inp_ref (torch.Tensor): Preprocessed input reference image tensor (scaled between 0 and 1).
+        - inp_tgt (torch.Tensor): Preprocessed input target image tensor (scaled between 0 and 1).
+
+        Returns:
+        - pred (np.ndarray): The warped and blended output image of shape (height, width, channels).
+        - ref_mask (np.ndarray): The mask for the reference image of shape (height, width, 1).
+        """
         
         b, c, h, w = ref.shape
 
@@ -82,8 +89,17 @@ class NISStitcher(BaseStitcher):
         return pred.transpose(1, 2, 0), ref_mask.transpose(1, 2, 0)
 
     def NIS_pano(self, images, subset1, subset2):
-        global already_saved
-        t0=time.time()
+        """
+        Performs Neural Image Stitching (NIS) to create a panorama from input images using subsets.
+
+        Parameters:
+        - images (list): List of input images to be stitched into a panorama.
+        - subset1 (np.ndarray): Indices of images on the left side of the panorama.
+        - subset2 (np.ndarray): Indices of images on the right side of the panorama.
+
+        Returns:
+        - pano (np.ndarray): The stitched panorama image in uint8 format.
+        """
 
         ref, tgt, inp_ref, inp_tgt = resize_pair_images(cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1))
         h, w = ref.shape[:2]
@@ -108,18 +124,22 @@ class NISStitcher(BaseStitcher):
         del tgt
         pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
 
-        if not already_saved:
-            already_saved = True
-            cv2.imwrite("left_warp.jpg", cv2.cvtColor((left_warp * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("right_warp.jpg", cv2.cvtColor((right_warp * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
-            cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
-            cv2.imwrite("pano.jpg", cv2.cvtColor((pano * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
-            print("saving")
-
         return (pano * 255).astype('uint8')#.astype(np.uint8)
   
     def IHN_warping(self, ref, tgt, inp_ref, inp_tgt):
+        """
+        Performs Image Harmonization Network (IHN) warping to blend reference and target images.
+
+        Parameters:
+        - ref (torch.Tensor): The reference image tensor of shape (batch_size, channels, height, width).
+        - tgt (torch.Tensor): The target image tensor of shape (batch_size, channels, height, width).
+        - inp_ref (torch.Tensor): Preprocessed input reference image tensor (scaled between 0 and 1).
+        - inp_tgt (torch.Tensor): Preprocessed input target image tensor (scaled between 0 and 1).
+
+        Returns:
+        - canvas_visual (np.ndarray): The stitched and blended canvas image of shape (height, width, channels).
+        - ref_mask (np.ndarray): The mask for the reference image of shape (height, width, 1).
+        """
 
         b, c, h, w = ref.shape
 
@@ -145,7 +165,7 @@ class NISStitcher(BaseStitcher):
         warped_tgt = torch.nn.functional.grid_sample(
             tgt,  # Normalize input to [0, 1]
             tgt_grid_flipped,  # Use flipped grid
-            mode='bicubic',
+            mode='bilinear',
             padding_mode='zeros',
             align_corners=False
         )
@@ -162,7 +182,7 @@ class NISStitcher(BaseStitcher):
         warped_ref = torch.nn.functional.grid_sample(
             ref,  # Normalize input to [0, 1]
             ref_grid_normalized,
-            mode='bicubic',
+            mode='bilinear',
             padding_mode='zeros',
             align_corners=False
         )
@@ -193,8 +213,17 @@ class NISStitcher(BaseStitcher):
         return canvas_visual, ref_mask.cpu()[0].numpy().transpose(1, 2, 0)
 
     def IHN_pano(self, images, subset1, subset2):
-        global already_saved
-        t0=time.time()
+        """
+        Creates a panorama by stitching images using the Image Harmonization Network (IHN).
+
+        Parameters:
+        - images (list): List of input images to be stitched into a panorama.
+        - subset1 (np.ndarray): Indices of images on the left side of the panorama.
+        - subset2 (np.ndarray): Indices of images on the right side of the panorama.
+
+        Returns:
+        - pano (np.ndarray): The final stitched panorama image in uint8 format.
+        """
 
         ref, tgt, inp_ref, inp_tgt = resize_pair_images(cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1))
         h, w = ref.shape[:2]
@@ -219,18 +248,9 @@ class NISStitcher(BaseStitcher):
         del tgt
         pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
 
-        if not already_saved:
-            already_saved = True
-            cv2.imwrite("left_warp.jpg", cv2.cvtColor((left_warp * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("right_warp.jpg", cv2.cvtColor((right_warp * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
-            cv2.imwrite("left_mask.jpg", (left_mask * 255).astype('uint8'))
-            cv2.imwrite("right_mask.jpg", (right_mask * 255).astype('uint8'))
-            cv2.imwrite("pano.jpg", cv2.cvtColor((pano * 255).astype('uint8'), cv2.COLOR_RGB2BGR))
-            print("saving")
-
-        return (pano * 255).astype('uint8')#.astype(np.uint8)
+        return (pano * 255).astype('uint8')
     
-    def stitch(self, images, order, Hs, inverted, headAngle, num_pano_img=3, verbose=False):
+    def stitch(self, images, order, Hs, inverted, headAngle, num_pano_img=3):
         """""
         This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
         of the pilots head and the desired number of images in the panorama.
@@ -238,28 +258,36 @@ class NISStitcher(BaseStitcher):
             - images: list of NDArrays.
             - angle : orientation of the pilots head (in degrees [0,360[?)
             - num_pano_img : desired number of images in the panorama
+
+        Returns:
+        - pano (np.ndarray): The final stitched panorama image in uint8 format. If self.onlyIHN is true, only uses IHN without NIS.
         """""
-        # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
-        # Take the order and the ref to compute the panorama
-
-        t = time.time()
-
         subset1, subset2, _, _ = self.chooseSubsetsAndTransforms(Hs, num_pano_img, order, headAngle)
         
-        print(subset1, subset2)
         if self.onlyIHN:
             with torch.no_grad():
                 pano = self.IHN_pano(images, subset1, subset2)  
         else:
             with torch.no_grad():
                 pano = self.NIS_pano(images, subset1, subset2)          
-        
-        if verbose:
-            print(f"Warp time: {time.time()-t}")
         return pano
 
 
 def resize_pair_images(ref, tgt):
+    """
+    Resizes a pair of reference and target images to manage memory usage and standardize input dimensions.
+
+    Parameters:
+    - ref (np.ndarray): The reference image, a numpy array of shape (height, width, channels).
+    - tgt (np.ndarray): The target image, a numpy array of shape (height, width, channels).
+
+    Returns:
+    - ref (np.ndarray): The resized reference image.
+    - tgt (np.ndarray): The resized target image.
+    - inp_ref (np.ndarray): A smaller resized version of the reference image (128x128).
+    - inp_tgt (np.ndarray): A smaller resized version of the target image (128x128).
+    """
+   
     h, w, _ = ref.shape
 
     # In the case of GPU Out-of-memory (resize the images to avoid extreme memory usage and warping time)
@@ -279,8 +307,8 @@ def resize_pair_images(ref, tgt):
                 tgt = cv2.resize(tgt, dsize=(300, new_w), interpolation=cv2.INTER_AREA)
 
     if h != 128 or w != 128:
-        inp_ref = cv2.resize(ref, dsize=(128,128), interpolation=cv2.INTER_CUBIC)
-        inp_tgt = cv2.resize(tgt, dsize=(128,128), interpolation=cv2.INTER_CUBIC)
+        inp_ref = cv2.resize(ref, dsize=(128,128), interpolation=cv2.INTER_AREA)
+        inp_tgt = cv2.resize(tgt, dsize=(128,128), interpolation=cv2.INTER_AREA)
 
     return ref, tgt, inp_ref, inp_tgt
 
@@ -312,8 +340,7 @@ def find_image_shift(part_mask):
         part_mask (numpy.ndarray): A part of the mask of the right/left image in the panorama.
         
     Returns:
-        tuple: (y_shift_up, y_shift_down) where  y_shift_up is the vertical shift from above (row index)
-               and y_shift_down is the vertical shift from bottom(row index).
+        tuple: y_shift_up where  y_shift_up is the vertical shift from above (row index)
     """
     # Ensure the mask is binary (if it's not already)
     binary_mask = part_mask > 0
@@ -321,23 +348,29 @@ def find_image_shift(part_mask):
     # Find the row indices with any non-zero elements
     row_indices = np.any(binary_mask, axis=1)
     y_shift_up = np.argmax(row_indices)  # First row with a non-zero value
-    # y_shift_down = np.argmin(row_indices[y_shift_up:])  # First row with a non-zero value
 
-    # # Find the column indices with any non-zero elements
-    # col_indices = np.any(binary_mask, axis=0)
-    # x_shift = np.argmax(col_indices)  # First column with a non-zero value
-
-    return y_shift_up#, y_shift_down
+    return y_shift_up
 
 def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300), security_factor = 5):
+    """
+    Composes a panorama by blending warped images from the left and right sides.
+
+    Parameters:
+    - left_warp (np.ndarray): The warped image from the left side.
+    - right_warp (np.ndarray): The warped image from the right side.
+    - left_mask (np.ndarray): The mask for the left warped image.
+    - right_mask (np.ndarray): The mask for the right warped image.
+    - size (tuple): The size of the reference image (height, width). Default is (300, 300).
+    - security_factor (int): A padding factor to avoid dimension mismatches. Default is 5.
+
+    Returns:
+    - pano (np.ndarray): The composed panorama image.
+    """
+
     h, w = size
     rightSize = right_warp.shape
     leftSize = left_warp.shape
 
-    # _, shiftup1 = find_image_shift(left_mask[:, :w//3])
-    # _, shiftup2 = find_image_shift(right_mask[:, :w//3])
-    # shiftup1, shiftdown1 = find_image_shift(left_mask[:, :w//3])
-    # shiftup2, shiftdown2 = find_image_shift(right_mask[:, :w//3])
     shiftup1 = find_image_shift(left_mask[:, :w//3])
     shiftup2 = find_image_shift(right_mask[:, :w//3])
     shiftdown1 = leftSize[0]-h-shiftup1
@@ -352,9 +385,6 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
     top_shift = max(shiftup1, shiftup2)
     bottom_shift = max((leftSize[0] - shiftup1), (rightSize[0] - shiftup2))
     pano = np.zeros((top_shift + bottom_shift+security_factor, diff1x+diff2x+w, 3))
-    
-    # pano = np.zeros((diff1y+diff2y+h, diff1x+diff2x+w, 3))
-    # pano = np.zeros((h, diff1x+diff2x+w, 3))
 
     if diff2y == shiftup2+shiftdown2 and diff1y == shiftup1+shiftdown1:
         diffshiftup = shiftup2-shiftup1
@@ -375,16 +405,17 @@ def ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(300, 300
         pano = right_warp
 
 
-    max_width = int(1.5 * w)
-    clip_x_start = max(0, diff1x - max_width)  # Clip left side if needed
-    clip_x_end = min(pano.shape[1], diff1x + max_width + w)  # Clip right side if needed
+    #Uncomment if clipping wanted 
+    # max_width = int(1.5 * w)
+    # clip_x_start = max(0, diff1x - max_width)  # Clip left side if needed
+    # clip_x_end = min(pano.shape[1], diff1x + max_width + w)  # Clip right side if needed
 
-    # Clip panorama height if diff1y or diff2y exceed 1.5 times the height (h)
-    max_height = int(1.5 * h)
-    clip_y_start = max(0, top_shift - max_height)  # Clip top side based on top_shift
-    clip_y_end = min(pano.shape[0], bottom_shift + max_height)  # Clip bottom side based on bottom_shift
+    # # Clip panorama height if diff1y or diff2y exceed 1.5 times the height (h)
+    # max_height = int(1.5 * h)
+    # clip_y_start = max(0, top_shift - max_height)  # Clip top side based on top_shift
+    # clip_y_end = min(pano.shape[0], bottom_shift + max_height)  # Clip bottom side based on bottom_shift
 
-    # Apply clipping to both width and height
-    pano_clipped = pano[clip_y_start:clip_y_end, clip_x_start:clip_x_end]
-
-    return pano_clipped
+    # # Apply clipping to both width and height
+    # pano_clipped = pano[clip_y_start:clip_y_end, clip_x_start:clip_x_end]
+    # return pano_clipped
+    return pano
