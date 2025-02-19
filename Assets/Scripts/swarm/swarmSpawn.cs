@@ -14,6 +14,7 @@ public class swarmSpawn : MonoBehaviour
     public int start_z = 0;
     public bool randomYaw = true;
     public bool addScreens = true;
+    public bool addTPVCamera = true;
     public GameObject swarmParent;
     private screenSpawn screenSpawn;
     private int droneNumber = 0;
@@ -80,6 +81,16 @@ public class swarmSpawn : MonoBehaviour
         if (addScreens)
         {
             screenSpawn.SpawnScreens(swarm);
+        }
+
+        // Add a TPV camera to the first drone
+        if (addTPVCamera)
+        {
+            // Get the SwarmFollowCamera script
+            SwarmFollowCamera swarmFollowCamera = GetComponent<SwarmFollowCamera>();
+
+            // Setup the camera to follow the swarm
+            swarmFollowCamera.SetupCamera(swarm);
         }
     }
 
