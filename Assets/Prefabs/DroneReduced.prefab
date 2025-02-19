@@ -263,7 +263,8 @@ MonoBehaviour:
   swarm_vx: 0
   swarm_vy: 0
   swarm_vz: 0
-  initial_height: 4
+  currentAlgorithm: 0
+  initial_height: 14
 --- !u!114 &114375580164158172
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -430,6 +431,7 @@ MonoBehaviour:
   neighbours: []
   numNeighbours: 3
   numDimensions: 2
+  boundaryEstimate: 0
 --- !u!1 &1343969879783188
 GameObject:
   m_ObjectHideFlags: 0
@@ -895,6 +897,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   vc: {fileID: 114202773416505472}
   olfatiSaber: {fileID: 259003137113264617}
+  currentAlgorithm: 0
 --- !u!114 &6727076729497765368
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -909,6 +912,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   vc: {fileID: 114202773416505472}
   olfatiSaber: {fileID: 259003137113264617}
+  currentAlgorithm: 0
 --- !u!1 &1739179400309510
 GameObject:
   m_ObjectHideFlags: 0
