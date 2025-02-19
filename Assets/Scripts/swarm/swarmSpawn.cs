@@ -13,6 +13,7 @@ public class swarmSpawn : MonoBehaviour
     public int start_y = 0;
     public int start_z = 0;
     public bool randomYaw = true;
+    public bool addScreens = true;
     public GameObject swarmParent;
     private screenSpawn screenSpawn;
     private int droneNumber = 0;
@@ -76,8 +77,10 @@ public class swarmSpawn : MonoBehaviour
         }
 
         // Spawn screens for each drone in the swarm
-        screenSpawn.SpawnScreens(swarm);
-        
+        if (addScreens)
+        {
+            screenSpawn.SpawnScreens(swarm);
+        }
     }
 
     // Update is called once per frame
