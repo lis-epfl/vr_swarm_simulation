@@ -1429,6 +1429,25 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 54395356}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &54892604 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 100008, guid: ce816f2e6abb0504092c23ed9b970dfd,
+    type: 3}
+  m_PrefabInstance: {fileID: 1757688930}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &54892610
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 54892604}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 42db5ecc8de4741dab15ec0daba7a499, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarmFollowCamera: {fileID: 0}
 --- !u!1001 &55039806
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -13728,7 +13747,7 @@ MonoBehaviour:
   start_x: 60
   start_y: 12
   start_z: -60
-  randomYaw: 1
+  randomYaw: 0
   addScreens: 0
   addTPVCamera: 1
   swarmParent: {fileID: 0}
@@ -38819,6 +38838,15 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 11400010, guid: ce816f2e6abb0504092c23ed9b970dfd, type: 3}
+      propertyPath: EnableLinearMovement
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 20504667576486672, guid: ce816f2e6abb0504092c23ed9b970dfd,
+        type: 3}
+      propertyPath: m_TargetDisplay
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects:
@@ -38838,7 +38866,11 @@ PrefabInstance:
         type: 3}
       insertIndex: -1
       addedObject: {fileID: 3478043}
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 100008, guid: ce816f2e6abb0504092c23ed9b970dfd,
+        type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 54892610}
   m_SourcePrefab: {fileID: 100100000, guid: ce816f2e6abb0504092c23ed9b970dfd, type: 3}
 --- !u!4 &1757688931 stripped
 Transform:
