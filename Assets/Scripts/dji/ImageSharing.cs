@@ -89,7 +89,9 @@ public class ImageSharing : MonoBehaviour
             MeshRenderer renderer = screenObj.GetComponent<MeshRenderer>();
             if (renderer != null)
             {
+                // Set both the main texture and the emission map to the display texture.
                 renderer.material.mainTexture = displayTexture;
+                renderer.material.SetTexture("_EmissionMap", displayTexture);
                 screenMaterial = renderer.material;
             }
             else
