@@ -76,7 +76,7 @@ public class swarmSpawn : MonoBehaviour
         }
 
         // Spawn screens for each drone in the swarm
-        screenSpawn.SpawnScreens(swarm);
+        // screenSpawn.SpawnScreens(swarm);
         
     }
 
