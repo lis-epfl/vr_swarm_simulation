@@ -10,6 +10,8 @@ public class screenSpawn : MonoBehaviour
     public GameObject arena;
     public GameObject screenParent;
     public float circleRadius = 2.0f;
+    public int width = 640;
+    public int height = 360;
 
 
     // Function to spawn screens for the drones in the swarm
@@ -40,7 +42,7 @@ public class screenSpawn : MonoBehaviour
             screens.Add(screen);
 
             // Create a render texture
-            RenderTexture rt = new RenderTexture(256, 256, 24);
+            RenderTexture rt = new RenderTexture(width, height, 24);
 
             // Name the render texture 'rt_' followed by the drone number
             rt.name = "rt_" + droneNumber;
@@ -72,8 +74,16 @@ public class screenSpawn : MonoBehaviour
             // Set the screens material to the screen material
             screen.GetComponent<Renderer>().material = screenMaterial;
 
+            // set the scale to match the aspect ratio of the feed
+            screen.transform.localScale = new Vector3((float)width/height, 1f, 1f);
+
             // Find the camera object on the drone called 'FPV'
             Transform camera = drone.transform.Find("FPV");
+
+            // Get the camera and set the aspect ratio and field of view
+            Camera cam = camera.GetComponent<Camera>();
+            cam.aspect = (float)width/height;
+            cam.fieldOfView = 82.1f;
 
             // Set the camera's target texture to the render texture
             camera.GetComponent<Camera>().targetTexture = rt;
@@ -99,7 +109,7 @@ public class screenSpawn : MonoBehaviour
             {
                 // Calculate the screen position based on the yaw of the drone
                 float yaw = droneChild.transform.eulerAngles.y; // Get the yaw angle of the drone (in degrees)
-                float radians = yaw * Mathf.Deg2Rad; // Convert yaw to radians
+                float radians = -yaw * Mathf.Deg2Rad; // Convert yaw to radians
 
                 // Calculate the position on circle relative to the arena
                 float x = arena.transform.position.x + circleRadius * Mathf.Cos(radians);
