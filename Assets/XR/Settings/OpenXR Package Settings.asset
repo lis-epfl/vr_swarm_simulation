@@ -56,20 +56,21 @@ MonoBehaviour:
   m_Name: Android
   m_EditorClassIdentifier: 
   features:
-  - {fileID: -276892892317776691}
-  - {fileID: 1139265398558723678}
-  - {fileID: 8706109192217602237}
-  - {fileID: 5815455247421318265}
-  - {fileID: 1813552139578693710}
   - {fileID: -6339105952320258719}
-  - {fileID: -3381939700770749425}
   - {fileID: -6350701758290372802}
   - {fileID: 1483097940007585413}
   - {fileID: -1808776090801245027}
   - {fileID: 7343573589736633479}
   - {fileID: -5585559553732364819}
   - {fileID: 8686436449535043225}
+  - {fileID: 1466760573791288525}
   - {fileID: -2561885230526728087}
+  - {fileID: -276892892317776691}
+  - {fileID: 1139265398558723678}
+  - {fileID: 8706109192217602237}
+  - {fileID: 5815455247421318265}
+  - {fileID: 1813552139578693710}
+  - {fileID: -3381939700770749425}
   - {fileID: 2751558507341921108}
   - {fileID: -4705856808857108993}
   - {fileID: 5943022347611816287}
@@ -83,7 +84,11 @@ MonoBehaviour:
   - {fileID: -4218715835926433051}
   - {fileID: 3464888967476229409}
   m_renderMode: 1
+  m_autoColorSubmissionMode: 1
+  m_colorSubmissionModes:
+    m_List: 00000000
   m_depthSubmissionMode: 0
+  m_spacewarpMotionVectorTextureFormat: 0
   m_optimizeBufferDiscards: 0
   m_symmetricProjection: 0
 --- !u!114 &-6988796402006328118
@@ -730,6 +735,26 @@ MonoBehaviour:
   company: Unity Technologies
   priority: 0
   required: 0
+--- !u!114 &1466760573791288525
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2b7365b139f7aec43b23d26b7a48b5a6, type: 3}
+  m_Name: MetaQuestTouchPlusControllerProfile Android
+  m_EditorClassIdentifier: 
+  m_enabled: 0
+  nameUi: Meta Quest Touch Plus Controller Profile
+  version: 0.0.1
+  featureIdInternal: com.unity.openxr.feature.input.metaquestplus
+  openxrExtensionStrings: XR_META_touch_controller_plus
+  company: Unity
+  priority: 0
+  required: 0
 --- !u!114 &1483097940007585413
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -891,6 +916,26 @@ MonoBehaviour:
   company: Unity
   priority: 0
   required: 0
+--- !u!114 &3806165972601756578
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2b7365b139f7aec43b23d26b7a48b5a6, type: 3}
+  m_Name: MetaQuestTouchPlusControllerProfile Standalone
+  m_EditorClassIdentifier: 
+  m_enabled: 0
+  nameUi: Meta Quest Touch Plus Controller Profile
+  version: 0.0.1
+  featureIdInternal: com.unity.openxr.feature.input.metaquestplus
+  openxrExtensionStrings: XR_META_touch_controller_plus
+  company: Unity
+  priority: 0
+  required: 0
 --- !u!114 &5815455247421318265
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1004,6 +1049,9 @@ MonoBehaviour:
   - visibleName: Quest 3
     manifestName: eureka
     enabled: 1
+  - visibleName: Quest 3S
+    manifestName: quest3s
+    enabled: 1
   forceRemoveInternetPermission: 0
   symmetricProjection: 0
   foveatedRenderingApi: 0
@@ -1011,6 +1059,8 @@ MonoBehaviour:
   optimizeBufferDiscards: 1
   lateLatchingMode: 0
   lateLatchingDebug: 0
+  optimizeMultiviewRenderRegions: 0
+  spacewarpMotionVectorTextureFormat: 0
 --- !u!114 &8706109192217602237
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1053,6 +1103,7 @@ MonoBehaviour:
   - {fileID: -2008696778473830672}
   - {fileID: -3050605874465988031}
   - {fileID: -4680446965603910471}
+  - {fileID: 3806165972601756578}
   - {fileID: -4944711551861362006}
   - {fileID: -661771221872761792}
   - {fileID: -1015479299280569076}
@@ -1067,7 +1118,11 @@ MonoBehaviour:
   - {fileID: -4137803056267828605}
   - {fileID: 233553495756917496}
   m_renderMode: 1
+  m_autoColorSubmissionMode: 1
+  m_colorSubmissionModes:
+    m_List: 00000000
   m_depthSubmissionMode: 0
+  m_spacewarpMotionVectorTextureFormat: 0
   m_optimizeBufferDiscards: 0
   m_symmetricProjection: 0
 --- !u!114 &9008797307381762837
