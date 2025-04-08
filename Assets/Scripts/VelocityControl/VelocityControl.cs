@@ -45,6 +45,9 @@ public class VelocityControl : MonoBehaviour {
     private bool flag = true;
 
     private float speedScale = 500.0f;
+    
+    private Vector3 filteredVelocity = Vector3.zero;
+    private float filterCoefficient = 0.01f;
 
     // Use this for initialization
     void Start () {
@@ -90,13 +93,10 @@ public class VelocityControl : MonoBehaviour {
         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
 
 
-        // Get the name of the drone
-        string droneName = transform.parent.name;
+        // Apply the low-pass filter to reduce oscillations in velocity control
+        filteredVelocity = filteredVelocity * (1.0f - filterCoefficient) + totalTargetVelocity * filterCoefficient;        
 
-
-        
-
-        Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+        Vector3 velocityError = state.VelocityVector - filteredVelocity;
 
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
@@ -132,7 +132,7 @@ public class VelocityControl : MonoBehaviour {
         desiredAlpha = Vector3.Max (desiredAlpha, Vector3.one * max_alpha * -1.0f);
 
         float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos (state.Angles.z) * Mathf.Cos (state.Angles.x));
-        desiredThrust = Mathf.Min (desiredThrust, 2.0f * gravity);
+        desiredThrust = Mathf.Min (desiredThrust, 2.7f * gravity);
         desiredThrust = Mathf.Max (desiredThrust, 0.0f);
 
         Vector3 desiredTorque = Vector3.Scale (desiredAlpha, state.Inertia);
