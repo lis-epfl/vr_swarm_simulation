@@ -20,6 +20,7 @@ public class VelocityControl : MonoBehaviour {
 
     private float max_pitch = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies 
     private float max_roll = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies
+    private float max_yaw_rate = 0.5f;
     private float max_alpha = 10.0f;
     //must set this
     public float desired_height = 4.0f;
@@ -30,7 +31,7 @@ public class VelocityControl : MonoBehaviour {
 
     private float targetYawRate = 0.0f;
     private float filteredYawRate = 0.0f;
-    public float yawFilterCoefficient = 0.2f;
+    public float yawFilterCoefficient = 0.15f;
 
     public float swarm_vx = 0.0f;
     public float swarm_vy = 0.0f;
@@ -101,16 +102,10 @@ public class VelocityControl : MonoBehaviour {
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
         desiredTheta = new Vector3 (desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
-        if (desiredTheta.x > max_pitch) {
-            desiredTheta.x = max_pitch;
-        } else if (desiredTheta.x < -1.0f * max_pitch) {
-            desiredTheta.x = -1.0f * max_pitch;
-        }
-        if (desiredTheta.z > max_roll) {
-            desiredTheta.z = max_roll;
-        } else if (desiredTheta.z < -1.0f * max_roll) {
-            desiredTheta.z = -1.0f * max_roll;
-        }
+
+        // Clamp the desired angles to the maximum allowed values
+        desiredTheta.x = Mathf.Clamp(desiredTheta.x, -max_pitch, max_pitch);
+        desiredTheta.z = Mathf.Clamp(desiredTheta.z, -max_roll, max_roll);
 
         Vector3 thetaError = state.Angles - desiredTheta;
 
@@ -121,6 +116,9 @@ public class VelocityControl : MonoBehaviour {
 
         // Apply the low-pass filter to reduce oscillations in yaw control
         filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
+
+        // Clamp the filtered yaw rate to the maximum allowed value
+        filteredYawRate = Mathf.Clamp(filteredYawRate, -max_yaw_rate, max_yaw_rate);
 
         // Use the filtered yaw rate for further calculations
         desiredOmega.y = filteredYawRate;
