@@ -806,7 +806,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &4198999323543592
 Transform:
   m_ObjectHideFlags: 0
@@ -898,6 +898,9 @@ MonoBehaviour:
   vc: {fileID: 114202773416505472}
   olfatiSaber: {fileID: 259003137113264617}
   currentAlgorithm: 0
+  speedCoeff: 4
+  yawRateCoeff: 0.5
+  altCoeff: 0.1
 --- !u!114 &6727076729497765368
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1014,7 +1017,7 @@ AudioListener:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1739179400309510}
-  m_Enabled: 1
+  m_Enabled: 0
 --- !u!114 &114660381931437216
 MonoBehaviour:
   m_ObjectHideFlags: 0

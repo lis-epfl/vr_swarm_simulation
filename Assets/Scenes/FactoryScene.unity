@@ -13661,6 +13661,7 @@ GameObject:
   - component: {fileID: 590275741}
   - component: {fileID: 590275740}
   - component: {fileID: 590275739}
+  - component: {fileID: 590275744}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -13693,17 +13694,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 0
-  cohesionWeight: 0.3
-  separationWeight: 4
-  alignmentWeight: 0.1
-  d_ref: 7
-  r0_coh: 60
+  swarmAlgorithm: 1
+  cohesionWeight: 0.8
+  separationWeight: 16
+  alignmentWeight: 0.5
+  d_ref: 8
+  r0_coh: 50
   delta: 0.1
-  a: 0.24
-  b: 0.4
+  a: 0.45
+  b: 0.75
   gamma: 1
-  c_vm: 0.5
+  c_vm: 1
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
@@ -13764,6 +13765,27 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &590275744
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 656be34a415de4b90aa6ce56b39f625d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  olfatiSaber: {fileID: 0}
+  textureWidth: 900
+  textureHeight: 400
+  maxDistance: 30
+  minDistance: 0
+  xTickCount: 5
+  yTickCount: 5
+  plotType: 0
+  forceRange: 2
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
