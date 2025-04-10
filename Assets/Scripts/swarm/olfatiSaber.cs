@@ -8,10 +8,10 @@ public class OlfatiSaber : MonoBehaviour
     public List<GameObject> swarm;
 
     public float d_ref = 7.0f;
-    public float r0_coh = 20.0f;
+    public float r0_coh = 150.0f;
     public float delta = 0.1f;
-    public float a = 0.3f;
-    public float b = 0.5f;
+    public float a = 0.9f;
+    public float b = 1.5f;
     public float c;
     public float gamma = 1.0f;
     public float c_vm = 1.0f;
@@ -84,9 +84,22 @@ public class OlfatiSaber : MonoBehaviour
             Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - velocity;
 
             // Cohesion
-            cohesion += GetCohesionForce(distance) * relativePosition.normalized;
+            Vector3 thisCohesion = GetCohesionForce(distance) * relativePosition.normalized;
+            cohesion += thisCohesion;
 
+            // // Check if this is drone 0
+            // if (droneName == "Drone 0")
+            // {
+            //     // Print the neighbour name, relative position, distance, relative position normalized and cohesion
+            //     Debug.Log("Neighbour: " + neighbourChild.name + " Relative Position: " + relativePosition + " Distance: " + distance + " Relative Position Normalized: " + relativePosition.normalized + " thisCohesion: " + thisCohesion + " Cohesion: " + cohesion + " Cohesion Magnitude: " + cohesion.magnitude);
+            // }
         }
+
+        // if (droneName == "Drone 0")
+        // {
+        //     // Print the algorithm parameters: d_ref, r0_coh, delta, a, b, c
+        //     Debug.Log("d_ref: " + d_ref + " r0_coh: " + r0_coh + " delta: " + delta + " a: " + a + " b: " + b + " c: " + c);
+        // }
 
         // TODO: Add the obstacle avoidance force here
 
@@ -129,18 +142,18 @@ public class OlfatiSaber : MonoBehaviour
         return avoidForce;
     }
 
-    private float GetCohesionForce(float r)
+    public float GetCohesionForce(float r)
     {
         float neighbourWeightDerivative = GetNeighbourWeightDerivative(r);
         float cohesionIntensity = GetCohesionIntensity(r);
         float neighbourWeight = GetNeighbourWeight(r);
         float cohesionIntensityDerivative = GetCohesionIntensityDerivative(r);
 
-        return 1 / r0_coh *neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
+        return 1 / r0_coh * neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
     }
 
     // Cohesion intensity function
-    float GetCohesionIntensity(float r)
+    public float GetCohesionIntensity(float r)
     {
         float diff = r - d_ref;
         return ((a + b) / 2) * (Mathf.Sqrt(1 + Mathf.Pow(diff + c, 2)) - Mathf.Sqrt(1 + c * c)) + ((a - b) * diff) / 2;
@@ -154,7 +167,7 @@ public class OlfatiSaber : MonoBehaviour
     }
     
     // Neighbor weight function
-    float GetNeighbourWeight(float r)
+    public float GetNeighbourWeight(float r)
     {
         float r_ratio = r / r0_coh;
 
@@ -185,7 +198,7 @@ public class OlfatiSaber : MonoBehaviour
         else if (r_ratio < 1.0f)
         {
             float arg = Mathf.PI * (r_ratio - delta) / (1 - delta);
-            return -Mathf.PI / (1 - delta) * (1 + Mathf.Cos(arg)) * Mathf.Sin(arg);
+            return 0.5f*(-Mathf.PI) / (1 - delta) * (1 + Mathf.Cos(arg)) * Mathf.Sin(arg);
         }
         else
         {
