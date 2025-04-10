@@ -29,6 +29,7 @@ public class SwarmManager : MonoBehaviour
     private float c;
     public float gamma = 1.0f;
     public float c_vm = 1.0f;
+    public float scaleFactor = 10.0f;
 
     public enum AttitudeControl
     {
@@ -79,6 +80,7 @@ public class SwarmManager : MonoBehaviour
     public float GetC() => (b-a) / (2 * Mathf.Sqrt(a*b));
     public float GetGamma() => gamma;
     public float GetCVM() => c_vm;
+    public float getScaleFactor() => scaleFactor;
 
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;

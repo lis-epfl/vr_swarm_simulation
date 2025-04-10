@@ -15,6 +15,7 @@ public class OlfatiSaber : MonoBehaviour
     public float c;
     public float gamma = 1.0f;
     public float c_vm = 1.0f;
+    public float scaleFactor = 10.0f;
 
 
     public float maxMigrationDistance = 10.0f;
@@ -83,6 +84,9 @@ public class OlfatiSaber : MonoBehaviour
             // Relative Velocity
             Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - velocity;
 
+            // Scale the distance to fit the cohesion function
+            distance = distance / scaleFactor;
+            
             // Cohesion
             Vector3 thisCohesion = GetCohesionForce(distance) * relativePosition.normalized;
             cohesion += thisCohesion;
