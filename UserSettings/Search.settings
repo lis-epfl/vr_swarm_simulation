@@ -3,13 +3,13 @@ refreshSearchWindowsInPlayMode = false
 pickerAdvancedUI = false
 fetchPreview = true
 defaultFlags = 0
-keepOpen = false
+keepOpen = true
 queryFolder = "Assets"
 onBoardingDoNotAskAgain = true
 showPackageIndexes = false
 showStatusBar = false
 scopes = {
-	"last_search.66F56946" = "pro build"
+	"last_search.66F56946" = "Standard Unlit"
 	"OpenInspectorPreview.66F56946" = "0"
 	"currentGroup.66F56946" = "all"
 }
@@ -39,17 +39,17 @@ providers = {
 		priority = 90
 		defaultAction = null
 	}
-	profilermarkers = {
-		active = false
-		priority = 100
-		defaultAction = null
-	}
 	store = {
 		active = false
 		priority = 100
 		defaultAction = null
 	}
 	performance = {
+		active = false
+		priority = 100
+		defaultAction = null
+	}
+	profilermarkers = {
 		active = false
 		priority = 100
 		defaultAction = null
@@ -63,6 +63,7 @@ providers = {
 objectSelectors = {
 }
 recentSearches = [
+	"Standard Unlit"
 ]
 searchItemFavorites = [
 ]
