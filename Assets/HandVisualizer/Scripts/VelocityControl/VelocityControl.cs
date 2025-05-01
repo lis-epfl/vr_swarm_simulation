@@ -46,6 +46,8 @@ public class VelocityControl : MonoBehaviour {
 
     private float speedScale = 500.0f;
 
+    public Quaternion targetOrientation = Quaternion.identity; // Add this line, initialize to identity
+
     // Use this for initialization
     void Start () {
         state.GetState ();
@@ -149,6 +151,32 @@ public class VelocityControl : MonoBehaviour {
         propRR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRL.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
 
+        // --- Add logic here to use targetOrientation ---
+        // Example: Calculate torque needed to reach targetOrientation
+        // This is a simplified example using proportional control for torque.
+        // You'll likely need a more robust PD or PID controller.
+
+        Quaternion currentRotation = transform.rotation;
+        Quaternion rotationDifference = targetOrientation * Quaternion.Inverse(currentRotation);
+
+        rotationDifference.ToAngleAxis(out float angleDegrees, out Vector3 axis);
+        Vector3 angularVelocityError = axis.normalized * (angleDegrees * Mathf.Deg2Rad); // Error in radians
+
+        // Reduce angular velocity error over time (damping) - requires Rigidbody access (rb)
+        // Vector3 currentAngularVelocity = rb.angularVelocity; 
+        // Vector3 torque = angularVelocityError * attitudeCorrectionTorque - currentAngularVelocity * attitudeDamping; // Example PD control
+        
+        // Simplified: Apply torque proportional to the angular error
+        // You'll need to define and tune attitudeCorrectionTorque and potentially attitudeDamping
+        // float attitudeCorrectionTorque = 5.0f; // Example value - TUNE THIS
+        // float attitudeDamping = 0.5f; // Example value - TUNE THIS
+        // Rigidbody rb = GetComponent<Rigidbody>(); // Get the Rigidbody if not already cached
+        // if (rb != null) {
+        //     Vector3 torque = angularVelocityError * attitudeCorrectionTorque; 
+        //     rb.AddTorque(torque);
+        // }
+        
+        // --- End of attitude control logic example ---
     }
 
     public void Reset() {
