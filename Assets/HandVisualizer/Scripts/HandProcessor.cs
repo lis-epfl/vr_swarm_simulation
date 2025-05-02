@@ -140,6 +140,9 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
 
         public static float HandEllipsoidLength = 0f;  // updated with palm-to-palm distance
         public static float HandEllipsoidWidth = 0f;   // updated with width scale from index fingers
+        public static Vector3 LeftPalmPosition = Vector3.zero;  // ADDED: Static variable for left palm position
+        public static Vector3 RightPalmPosition = Vector3.zero; // ADDED: Static variable for right palm position
+        public static bool ArePalmsTracked = false; // ADDED: Flag to indicate if palms used for ellipsoid are tracked
 
         /// <inheritdoc />
         public void ProcessJoints(XRHandSubsystem subsystem, XRHandSubsystem.UpdateSuccessFlags successFlags, XRHandSubsystem.UpdateType updateType)
@@ -232,6 +235,7 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
             if (!leftHand.isTracked || !rightHand.isTracked)
             {
                 HideShape();
+                ArePalmsTracked = false; // ADDED: Reset flag
                 return;
             }
         
@@ -240,11 +244,19 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
                 !rightHand.GetJoint(XRHandJointID.Palm).TryGetPose(out Pose rightPalmPose))
             {
                 HideShape();
+                ArePalmsTracked = false; // ADDED: Reset flag
                 return;
             }
+
+            // --- Palms are successfully tracked from here ---
+            ArePalmsTracked = true; // ADDED: Set flag
+
+            // ADDED: Update static palm positions
+            LeftPalmPosition = leftPalmPose.position;
+            RightPalmPosition = rightPalmPose.position;
             
             // Calculate palm-to-palm vector and distance early
-            Vector3 palmTopalm = rightPalmPose.position - leftPalmPose.position;
+            Vector3 palmTopalm = RightPalmPosition - LeftPalmPosition; // Use updated static vars
             float palmDistance = palmTopalm.magnitude;
             Vector3 mainAxis = palmTopalm.normalized;
             
@@ -376,6 +388,12 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
                 m_ShapeInstance.SetActive(false);
                 m_IsShapeActive = false;
             }
+            // ADDED: Reset static values when shape is hidden
+            HandEllipsoidLength = 0f;
+            HandEllipsoidWidth = 0f;
+            LeftPalmPosition = Vector3.zero;
+            RightPalmPosition = Vector3.zero;
+            ArePalmsTracked = false;
         }
 
         void Update()

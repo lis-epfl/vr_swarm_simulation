@@ -6,15 +6,23 @@ public class swarmSpawn : MonoBehaviour
 {
     public GameObject dronePrefab;
     public List<GameObject> swarm = new List<GameObject>();
+    
+    [Header("Grid Dimensions")] // Added header for clarity
     public int dronesAlongX = 3;
+    public int dronesAlongY = 1; // Added Y dimension control
     public int dronesAlongZ = 3;
+    
+    [Header("Spawning Parameters")] // Added header for clarity
     public float droneSpacing = 3.0f;
     public int start_x = 0;
-    public int start_y = 0;
+    public int start_y = 0; // Renamed for consistency, represents the base Y level
     public int start_z = 0;
     public bool randomYaw = true;
+    
+    [Header("Optional Components")] // Added header for clarity
     public bool addScreens = true;
     public bool addTPVCamera = true;
+    
     public GameObject swarmParent;
     private screenSpawn screenSpawn;
     private int droneNumber = 0;
@@ -22,81 +30,115 @@ public class swarmSpawn : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        
-        // Get the screenSpawn script
+        // Get the screenSpawn script if it exists on the same GameObject
         screenSpawn = GetComponent<screenSpawn>();
+        if (screenSpawn == null && addScreens)
+        {
+            Debug.LogWarning("screenSpawn script not found, cannot add screens.");
+            addScreens = false; // Disable screen adding if script is missing
+        }
 
         // Create an empty GameObject to serve as the parent for all drones
         swarmParent = new GameObject("SwarmParent");
         
-        // Spawn drones in a grid
+        // Spawn drones in a 3D grid
         for (int x = 0; x < dronesAlongX; x++)
         {
-            for (int z = 0; z < dronesAlongZ; z++)
+            for (int y = 0; y < dronesAlongY; y++) // Added Y loop
             {
-                // Assign the drone position
-                Vector3 dronePosition = new Vector3(start_x + x * droneSpacing, start_y, start_z + z * droneSpacing);
-
-                Quaternion droneRotation = Quaternion.Euler(0, 0, 0);
-                if (randomYaw)
+                for (int z = 0; z < dronesAlongZ; z++)
                 {
-                    // Generate a random yaw angle and convert it to a quaternion
-                    float randomYaw = Random.Range(0f, 360f);
-                    droneRotation = Quaternion.Euler(0, randomYaw, 0);
+                    // Assign the drone position in 3D grid
+                    Vector3 dronePosition = new Vector3(
+                        start_x + x * droneSpacing, 
+                        start_y + y * droneSpacing, // Added Y position calculation
+                        start_z + z * droneSpacing
+                    );
+
+                    Quaternion droneRotation = Quaternion.identity; // Default to no rotation
+                    if (randomYaw)
+                    {
+                        // Generate a random yaw angle and convert it to a quaternion
+                        float randomYawAngle = Random.Range(0f, 360f);
+                        droneRotation = Quaternion.Euler(0, randomYawAngle, 0);
+                    }
+
+                    // Instantiate the drone prefab 
+                    GameObject drone = Instantiate(dronePrefab);
+                    // Use swarm.Count to ensure unique names even with multiple spawners
+                    drone.name = "Drone " + swarm.Count; 
+
+                    // Find the child object that holds the main components and position/rotate it
+                    Transform droneParentTransform = drone.transform.Find("DroneParent"); 
+                    if (droneParentTransform != null)
+                    {
+                        droneParentTransform.position = dronePosition;
+                        droneParentTransform.rotation = droneRotation;
+                    }
+                    else
+                    {
+                        // Fallback if "DroneParent" doesn't exist: position the root object
+                        Debug.LogWarning($"Drone prefab for {drone.name} does not have a 'DroneParent' child. Positioning root object instead.");
+                        drone.transform.position = dronePosition;
+                        drone.transform.rotation = droneRotation;
+                    }
+
+
+                    // Parent the drone under the swarmParent GameObject
+                    drone.transform.parent = swarmParent.transform;
+                    
+                    // Add the drone to the swarm list
+                    swarm.Add(drone);
                 }
-
-                // Instantiate the drone prefab at the drone position and rotation
-                GameObject drone = Instantiate(dronePrefab);
-                drone.name = "Drone " + swarm.Count;
-
-                // Move the drone to the position
-                Transform droneParent = drone.transform.Find("DroneParent");
-                droneParent.position = dronePosition;
-                droneParent.rotation = droneRotation;
-
-                // Parent the drone under the swarmParent GameObject
-                drone.transform.parent = swarmParent.transform;
-                
-                // Add the drone to the swarm list
-                swarm.Add(drone);
             }
         }
         
-        // Add the swarm list to the reynolds script of each drone
+        // Add the swarm list to the relevant script of each drone
         foreach (GameObject drone in swarm)
         {
+            // Find the DroneParent object again (or use the root if fallback occurred)
+            Transform droneControllerTransform = drone.transform.Find("DroneParent") ?? drone.transform;
 
-            // Get the drone number from the name
-            string[] splitName = drone.name.Split(' ');
-            droneNumber = int.Parse(splitName[1]);
-            
-            // Find the DroneParent object
-            Transform droneParent = drone.transform.Find("DroneParent");
-
-            // Add the swarm to the swarmAlgorithm script
-            droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;            
+            // Try to get the swarmAlgorithm component
+            swarmAlgorithm algorithmScript = droneControllerTransform.GetComponent<swarmAlgorithm>();
+            if (algorithmScript != null)
+            {
+                 algorithmScript.swarm = swarm; // Assign the complete swarm list
+            }
+            else
+            {
+                Debug.LogError($"swarmAlgorithm script not found on {droneControllerTransform.name} for {drone.name}");
+            }
+           
+            // Assign other necessary references if needed here...
         }
 
         // Spawn screens for each drone in the swarm
-        if (addScreens)
+        if (addScreens && screenSpawn != null)
         {
             screenSpawn.SpawnScreens(swarm);
         }
 
-        // Add a TPV camera to the first drone
+        // Add a TPV camera to follow the swarm (if component exists)
         if (addTPVCamera)
         {
-            // Get the SwarmFollowCamera script
+            // Get the SwarmFollowCamera script from this GameObject
             SwarmFollowCamera swarmFollowCamera = GetComponent<SwarmFollowCamera>();
-
-            // Setup the camera to follow the swarm
-            swarmFollowCamera.SetupCamera(swarm);
+            if (swarmFollowCamera != null)
+            {
+                // Setup the camera to follow the swarm
+                swarmFollowCamera.SetupCamera(swarm);
+            }
+            else
+            {
+                 Debug.LogWarning("SwarmFollowCamera script not found, cannot add TPV camera.");
+            }
         }
     }
 
     // Update is called once per frame
     void Update()
     {
-        
+        // Usually empty for a spawner script
     }
 }

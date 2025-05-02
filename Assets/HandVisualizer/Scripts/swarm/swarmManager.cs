@@ -39,7 +39,7 @@ public class SwarmManager : MonoBehaviour
     [Header("Attitude Control")]
     public AttitudeControl attitudeControlType;
     public int numNeighbours = 5;
-    public int numDimensions = 2;
+    public int numDimensions = 3;
 
 
     public delegate void OnSwarmParamsChanged();
