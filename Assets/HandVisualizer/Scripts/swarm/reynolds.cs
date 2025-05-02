@@ -7,17 +7,17 @@ public class Reynolds : MonoBehaviour
 {
     public List<GameObject> swarm;
 
-    public float cohesionWeight = 1.0f;
-    public float separationWeight = 1.0f;
+    public float cohesionWeight = 1000.0f;
+    public float separationWeight = 5000.0f;
     public float alignmentWeight = 1.0f;
 
     // New overall multipliers that let you scale the final cohesion and separation forces
-    public float cohesionMultiplier = 1.0f;
-    public float separationMultiplier = 1.0f;
+    public float cohesionMultiplier = 1000.0f;
+    public float separationMultiplier = 5000.0f;
 
     // New modifiers that affect how the cohesion and separation change along the adjusted axes.
     // For cohesion, this modifier scales the factor you use when modifying the force.
-    // Likewise for separation.
+    // Likewise for separation. 
     public float cohesionAxisModifier = 1.0f;
     public float separationAxisModifier = 1.0f;
 
@@ -71,21 +71,23 @@ public class Reynolds : MonoBehaviour
         float baselineWidth  = 0.1f; // example baseline for width scale
 
         // Compute factors – if hands are further apart, we want less cohesion along that axis and more separation.
-        // Now, use handWidth for x and handLength for z.
+        // Now, use handWidth for x and y, and handLength for z.
         float lengthFactor = (handLength > 0) ? handLength / baselineLength : 1.0f;
         float widthFactor  = (handWidth > 0)  ? handWidth / baselineWidth   : 1.0f;
 
-        // Because we're working in 2D (x and z only) modify only these axes.
-        // Invert the axes: use widthFactor for x and lengthFactor for z.
+        // Modify cohesion and separation based on hand shape factors for all three axes.
+        // Use widthFactor for x and y, and lengthFactor for z.
         cohesion.x /= (widthFactor * cohesionAxisModifier);   // larger thickness (handWidth) → lower cohesion in x
+        cohesion.y /= (widthFactor * cohesionAxisModifier);   // larger thickness (handWidth) → lower cohesion in y (NEW)
         cohesion.z /= (lengthFactor * cohesionAxisModifier);    // larger palm distance → lower cohesion in z
 
         separation.x *= (widthFactor * separationAxisModifier); // larger thickness → increased separation in x
+        separation.y *= (widthFactor * separationAxisModifier); // larger thickness → increased separation in y (NEW)
         separation.z *= (lengthFactor * separationAxisModifier);  // larger palm distance → increased separation in z
 
         // Apply overall multipliers
         cohesion *= cohesionMultiplier;
-        separation *= separationMultiplier;
+        separation *= separationMultiplier; 
 
         // Combine forces (alignment remains unchanged)
         swarmInput = cohesion + separation + alignment;

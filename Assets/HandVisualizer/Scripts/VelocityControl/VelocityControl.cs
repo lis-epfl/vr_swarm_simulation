@@ -63,43 +63,45 @@ public class VelocityControl : MonoBehaviour {
     void FixedUpdate () {
         state.GetState ();
         
-        // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
-        
         Vector3 desiredTheta;
         Vector3 desiredOmega;
-        Vector3 desiredVelocity;
+        Vector3 desiredVelocity; // Base desired velocity (user input + height control)
+        Vector3 swarmVelocity;   // Velocity component from swarm algorithm
+        Vector3 totalTargetVelocityWorld; // Final target velocity
 
+        // Calculate height error and the corresponding corrective velocity
         float heightError = state.Altitude - desired_height;
+        float heightControlVelocity = -1.0f * heightError / time_constant_z_velocity;
 
-        // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
+        // Set the base desired velocity
         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
         {
-            desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
+            // For Reynolds: Use user input for horizontal (desired_vx, desired_vy)
+            // AND use the height control velocity for the base vertical component.
+            desiredVelocity = new Vector3(desired_vx, heightControlVelocity, desired_vy); // Restore height control here
         } 
-        else
+        else // Olfati-Saber or other algorithms
         {
-            desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
+            // For Olfati-Saber: Use height control for vertical base, zero for horizontal base.
+            // Horizontal movement comes entirely from swarm_vx/vz in this case.
+            desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
         }
         
-        Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
+        // Get the velocity contribution from the active swarm algorithm (includes swarm_vy)
+        swarmVelocity = new Vector3 (swarm_vx, swarm_vy, swarm_vz); 
 
-        // NOTE: In world frame y is up
+        // Combine the base desired velocity (with height control) and the swarm algorithm's velocity
+        totalTargetVelocityWorld = desiredVelocity + swarmVelocity; 
+        // Now, totalTargetVelocityWorld.y = heightControlVelocity + swarm_vy
 
-        Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
-
-
-        // Transform the desired velocity from the world frame to the body frame
+        // Transform the final target velocity from the world frame to the body frame
         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
-
 
         // Get the name of the drone
         string droneName = transform.parent.name;
 
-
-        
-
+        // --- The rest of the FixedUpdate remains the same ---
         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
-
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
         desiredTheta = new Vector3 (desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
