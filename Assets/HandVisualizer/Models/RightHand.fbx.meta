@@ -1,4 +1,5 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/HandVisualizer/Models/RightHand.fbx.meta
 guid: 56186ccf27ad7864681108ed88349071
 ModelImporter:
   serializedVersion: 20300
@@ -9,6 +10,30 @@ ModelImporter:
     materialName: 0
     materialSearch: 1
     materialLocation: 1
+========
+guid: 17d4dad0a373442b1b5d3e6ac481e5c8
+ModelImporter:
+  serializedVersion: 22
+  fileIDToRecycleName:
+    100000: default
+    100002: //RootNode
+    400000: default
+    400002: //RootNode
+    2300000: default
+    3300000: default
+    4300000: default
+  externalObjects:
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: defaultMat
+    second: {fileID: 2100000, guid: 6e1d9a5598c0c4307b9883eaf9d6288b, type: 2}
+  materials:
+    importMaterials: 0
+    materialName: 0
+    materialSearch: 1
+    materialLocation: 0
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Racket/Racket.obj.meta
   animations:
     legacyGenerateAnimations: 4
     bakeSimulation: 0
@@ -31,18 +56,26 @@ ModelImporter:
     extraExposedTransformPaths: []
     extraUserProperties: []
     clipAnimations: []
+<<<<<<<< HEAD:Assets/HandVisualizer/Models/RightHand.fbx.meta
     isReadable: 0
+========
+    isReadable: 1
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Racket/Racket.obj.meta
   meshes:
     lODScreenPercentages: []
     globalScale: 1
     meshCompression: 0
     addColliders: 0
+<<<<<<<< HEAD:Assets/HandVisualizer/Models/RightHand.fbx.meta
     useSRGBMaterialColor: 1
     sortHierarchyByName: 1
+========
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Racket/Racket.obj.meta
     importVisibility: 1
     importBlendShapes: 1
     importCameras: 1
     importLights: 1
+<<<<<<<< HEAD:Assets/HandVisualizer/Models/RightHand.fbx.meta
     fileIdsGeneration: 2
     swapUVChannels: 0
     generateSecondaryUV: 0
@@ -62,6 +95,19 @@ ModelImporter:
     secondaryUVMarginMethod: 1
     secondaryUVMinLightmapResolution: 40
     secondaryUVMinObjectScale: 1
+========
+    swapUVChannels: 0
+    generateSecondaryUV: 0
+    useFileUnits: 1
+    optimizeMeshForGPU: 1
+    keepQuads: 0
+    weldVertices: 1
+    preserveHierarchy: 0
+    indexFormat: 1
+    secondaryUVAngleDistortion: 8
+    secondaryUVAreaDistortion: 15.000001
+    secondaryUVHardAngle: 88
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Racket/Racket.obj.meta
     secondaryUVPackMargin: 4
     useFileScale: 1
   tangentSpace:
@@ -69,6 +115,7 @@ ModelImporter:
     normalImportMode: 0
     tangentImportMode: 3
     normalCalculationMode: 4
+<<<<<<<< HEAD:Assets/HandVisualizer/Models/RightHand.fbx.meta
     legacyComputeAllNormalsFromSmoothingGroupsWhenMeshHasBlendShapes: 0
     blendShapeNormalImportMode: 1
     normalSmoothingSource: 0
@@ -76,6 +123,12 @@ ModelImporter:
   importAnimation: 1
   humanDescription:
     serializedVersion: 3
+========
+  importAnimation: 1
+  copyAvatar: 0
+  humanDescription:
+    serializedVersion: 2
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Racket/Racket.obj.meta
     human: []
     skeleton: []
     armTwist: 0.5
@@ -85,18 +138,28 @@ ModelImporter:
     armStretch: 0.05
     legStretch: 0.05
     feetSpacing: 0
+<<<<<<<< HEAD:Assets/HandVisualizer/Models/RightHand.fbx.meta
     globalScale: 1
     rootMotionBoneName: 
+========
+    rootMotionBoneName: 
+    rootMotionBoneRotation: {x: 0, y: 0, z: 0, w: 1}
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Racket/Racket.obj.meta
     hasTranslationDoF: 0
     hasExtraRoot: 0
     skeletonHasParents: 1
   lastHumanDescriptionAvatarSource: {instanceID: 0}
+<<<<<<<< HEAD:Assets/HandVisualizer/Models/RightHand.fbx.meta
   autoGenerateAvatarMappingIfUnspecified: 1
   animationType: 2
   humanoidOversampling: 1
   avatarSetup: 0
   addHumanoidExtraRootOnlyWhenUsingAvatar: 1
   remapMaterialsIfMaterialImportModeIsNone: 0
+========
+  animationType: 0
+  humanoidOversampling: 1
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Racket/Racket.obj.meta
   additionalBone: 0
   userData: 
   assetBundleName: 

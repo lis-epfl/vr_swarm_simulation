@@ -1,8 +1,15 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/Presets/XRI Default Left ActionBasedControllerManager.preset.meta
 guid: c3d4ecc12d5e0f14c93fd734af32ab63
 NativeFormatImporter:
   externalObjects: {}
   mainObjectFileID: 2655988077585873504
+========
+guid: 79d09bf6cbfa64f55a572755f594652f
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 100100000
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/BananaCollectors/Prefabs/VisualRLArea.prefab.meta
   userData: 
   assetBundleName: 
   assetBundleVariant: 

@@ -1,4 +1,5 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
 guid: 2f8349570a152884fb6cf7ebdc8c18b3
 TextureImporter:
   internalIDToNameTable: []
@@ -7,6 +8,17 @@ TextureImporter:
   mipmaps:
     mipMapMode: 0
     enableMipMap: 0
+========
+guid: 0d342588c0383439e92173c7356b6e4c
+timeCreated: 1501268935
+licenseType: Pro
+TextureImporter:
+  fileIDToRecycleName: {}
+  serializedVersion: 4
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 1
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
     sRGBTexture: 1
     linearTexture: 0
     fadeOut: 0
@@ -21,9 +33,12 @@ TextureImporter:
     heightScale: 0.25
     normalMapFilter: 0
   isReadable: 0
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
   streamingMipmaps: 0
   streamingMipmapsPriority: 0
   vTOnly: 0
+========
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
   grayScaleToAlpha: 0
   generateCubemap: 6
   cubemapConvolution: 0
@@ -32,11 +47,19 @@ TextureImporter:
   maxTextureSize: 2048
   textureSettings:
     serializedVersion: 2
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
     filterMode: 1
     aniso: 1
     mipBias: 0
     wrapU: 1
     wrapV: 1
+========
+    filterMode: -1
+    aniso: -1
+    mipBias: -1
+    wrapU: 0
+    wrapV: 0
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
     wrapW: 0
   nPOTScale: 0
   lightmap: 0
@@ -46,6 +69,7 @@ TextureImporter:
   spriteMeshType: 1
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
   spritePixelsToUnits: 100
   spriteBorder: {x: 0, y: 0, z: 0, w: 0}
   spriteGenerateFallbackPhysicsShape: 1
@@ -68,43 +92,72 @@ TextureImporter:
     buildTarget: DefaultTexturePlatform
     maxTextureSize: 2048
     resizeAlgorithm: 0
+========
+  spriteBorder: {x: 0, y: 0, z: 0, w: 0}
+  spritePixelsToUnits: 100
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  spriteTessellationDetail: -1
+  textureType: 0
+  textureShape: 1
+  maxTextureSizeSet: 0
+  compressionQualitySet: 0
+  textureFormatSet: 0
+  platformSettings:
+  - buildTarget: DefaultTexturePlatform
+    maxTextureSize: 2048
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
     textureFormat: -1
     textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
     overridden: 0
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 3
     buildTarget: Standalone
     maxTextureSize: 2048
     resizeAlgorithm: 0
+========
+  - buildTarget: Standalone
+    maxTextureSize: 2048
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
     textureFormat: -1
     textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
     overridden: 0
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
   - serializedVersion: 3
     buildTarget: Android
     maxTextureSize: 2048
     resizeAlgorithm: 0
+========
+  - buildTarget: WebGL
+    maxTextureSize: 2048
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
     textureFormat: -1
     textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
     overridden: 0
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
+========
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
   spriteSheet:
     serializedVersion: 2
     sprites: []
     outline: []
     physicsShape: []
+<<<<<<<< HEAD:Assets/Samples/XR Interaction Toolkit/2.6.4/Starter Assets/DemoSceneAssets/Sprites/Circle_60x60 Outline 4.png.meta
     bones: []
     spriteID: 5e97eb03825dee720800000000000000
     internalID: 0
@@ -116,6 +169,9 @@ TextureImporter:
   spritePackingTag: 
   pSDRemoveMatte: 0
   pSDShowRemoveMatteOption: 0
+========
+  spritePackingTag: 
+>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Materials/logo.png.meta
   userData: 
   assetBundleName: 
   assetBundleVariant: 
