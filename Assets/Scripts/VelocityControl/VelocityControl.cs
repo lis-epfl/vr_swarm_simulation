@@ -71,6 +71,8 @@ public class VelocityControl : MonoBehaviour {
         Vector3 desiredOmega;
         Vector3 desiredVelocity;
 
+        desired_height = desired_height + swarm_vy * Time.deltaTime;
+
         float heightError = state.Altitude - desired_height;
 
         // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
