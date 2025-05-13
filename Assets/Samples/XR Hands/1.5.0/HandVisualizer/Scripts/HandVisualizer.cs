@@ -561,7 +561,7 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
                             s_LinePointsReuse[1] += 0.05f * velocity.normalized;
                     }
 
-                    renderer.SetPositions(s_LinePointsReuse); 
+                    renderer.SetPositions(s_LinePointsReuse);
                 }
             }
 
