@@ -60,147 +60,12 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/2022.3.59f1/Unity.app/Contents/Tools/Unity.SourceGenerators/Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/BCTeacherHelper.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/StateFinder.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/RPY PID Control/Motors/Motor.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Hallway/Scripts/HallwayAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/BananaCollectors/Scripts/BananaArea.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Pyramids/Scripts/PyramidAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/DroneAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/Area.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CoreBrainExternal.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityRlInput.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Simple Control/DroneContinuousMovement.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/ResetParameters.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/RPY PID Control/Controller/Controller.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityOutput.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Reacher/Scripts/ReacherAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Camera/SwarmFollowCamera.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Reacher/Scripts/ReacherAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityMessage.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/JointDriveController.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Walker/Scripts/WalkerAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityRlInitializationInput.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/PushBlock/Scripts/PushBlockAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/InputControl.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/Batcher.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Soccer/Scripts/SoccerFieldArea.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Basic/Scripts/BasicDecision.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/WallJump/Scripts/WallJumpAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/Decision.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Basic/Scripts/BasicAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityToExternal.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Hallway/Scripts/HallwayAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Editor/BrainEditor.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/CameraFollow.cs" />
     <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/JointVisualizer.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/ResolutionProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/swarmSpawn.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Control/ReadController.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/ImageStitching/PyUniSharing.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/RPY PID Control/ComputerModule.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Scripts/TennisAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Editor/ResetParameterDrawer.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Player/moveObjectToPlayer.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/WallJump/Scripts/WallJumpAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Scripts/Ball3DAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Editor/AgentEditor.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/GroundContact.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/UnityAgentsException.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Test.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Basic/Scripts/BasicAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/BananaCollectors/Scripts/BananaLogic.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/BrainTypeProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/GridWorld/Scripts/GridAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityInput.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Reacher/Scripts/ReacherDecision.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Scripts/hitWall.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Walker/Scripts/WalkerAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/olfatiSaber.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/PushBlock/Scripts/PushAgentBasic.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Bouncer/Scripts/BouncerBanana.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/CommandProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityRlOutput.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Scripts/TennisArea.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/RpcCommunicator.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/TargetContact.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CoreBrain.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/reynolds.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Simple Control/DroneMovementScript.cs" />
     <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/HandProcessor.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Template/Scripts/TemplateAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Crawler/Scripts/CrawlerAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Pyramids/Scripts/PyramidAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/RPY PID Control/BasicControl.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/Academy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CoreBrainHeuristic.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/FlyCamera.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CoreBrainPlayer.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/AdjustTrainingTimescale.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Camera/FPVCameraScript.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/Communicator.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Soccer/Scripts/AgentSoccer.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Soccer/Scripts/SoccerBallController.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/convexHull.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/AgentActionProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/DroneAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/BananaCollectors/Scripts/BananaAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/ActionMasker.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Pyramids/Scripts/PyramidArea.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Template/Scripts/TemplateDecision.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Camera/CameraLookAt.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/screenSpawn.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/swarmAlgorithm.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CoreBrainInternal.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/RandomDecision.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Freespace/FreeSpaceDetection.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/swarmManager.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/BananaCollectors/Scripts/BananaAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Tennis/Scripts/TennisAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Crawler/Scripts/CrawlerAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/EnvironmentParametersProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityRlInitializationOutput.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Control/UDPReceiverManager.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/Agent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/UnityToExternalGrpc.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Player/movePlayer.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Camera/CameraFollowScript.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/ImageStitching/PyUniSharingFast.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Scripts/Ball3DAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Bouncer/Scripts/BouncerAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/Monitor.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/RPY PID Control/PID.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/EngineConfigurationProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/Brain.cs" />
     <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/HandVisualizer.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/AgentInfoProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Reacher/Scripts/ReacherGoal.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/Noise/RandomPulseNoise.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Pyramids/Scripts/PyramidSwitch.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Bouncer/Scripts/BouncerAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/PushBlock/Scripts/GoalDetect.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/BrainParametersProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/SocketCommunicator.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/swarm/attitudeControl.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Template/Scripts/TemplateAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/SpaceTypeProto.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/SharedAssets/Scripts/RayPerception.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/GridWorld/Scripts/GridAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Scripts/Ball3DDecision.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/RPY PID Control/BasicGyro.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/Soccer/Scripts/SoccerAcademy.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Examples/3DBall/Scripts/Ball3DHardAgent.cs" />
-    <Compile Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Scripts/CommunicatorObjects/Header.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/ImageStitching/README.txt" />
-    <None Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/runtimes/win/native/grpc_csharp_ext.x64.dll" />
-    <None Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/System.Interactive.Async.dll" />
-    <None Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/runtimes/win/native/grpc_csharp_ext.x86.dll" />
-    <None Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/Google.Protobuf.dll" />
     <None Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/Unity.XR.Hands.Samples.VisualizerSample.asmdef" />
-    <None Include="Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/Grpc.Core.dll" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine">
@@ -555,10 +420,6 @@
       <HintPath>Library/PackageCache/com.unity.collab-proxy@2.7.1/Lib/Editor/Unity.Plastic.Antlr3.Runtime.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="System.Interactive.Async">
-      <HintPath>Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/System.Interactive.Async.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="Unity.Plastic.Newtonsoft.Json">
       <HintPath>Library/PackageCache/com.unity.collab-proxy@2.7.1/Lib/Editor/Unity.Plastic.Newtonsoft.Json.dll</HintPath>
       <Private>False</Private>
@@ -571,16 +432,8 @@
       <HintPath>Library/PackageCache/com.unity.visualscripting@1.9.4/Editor/VisualScripting.Core/Dependencies/DotNetZip/Unity.VisualScripting.IonicZip.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Google.Protobuf">
-      <HintPath>Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/Google.Protobuf.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
       <HintPath>Library/PackageCache/com.unity.visualscripting@1.9.4/Runtime/VisualScripting.Flow/Dependencies/NCalc/Unity.VisualScripting.Antlr3.Runtime.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Grpc.Core">
-      <HintPath>Assets/Samples/XR Hands/1.5.0/HandVisualizer/3rd-Party/ML-Agents/Plugins/ProtoBuffer/Grpc.Core.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.VisualScripting.TextureAssets">

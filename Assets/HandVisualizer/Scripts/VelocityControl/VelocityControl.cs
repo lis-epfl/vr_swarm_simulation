@@ -43,6 +43,7 @@ public class VelocityControl : MonoBehaviour {
 
     private bool wait = false;
     private bool flag = true;
+    private bool takeoff = false;
 
 
     private float speedScale = 500.0f;
@@ -64,7 +65,7 @@ public class VelocityControl : MonoBehaviour {
     void FixedUpdate () {
         state.GetState ();
         
-//<<<<<<<< HEAD:Assets/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
+
         Vector3 desiredTheta;
         Vector3 desiredOmega;
         Vector3 desiredVelocity; // Base desired velocity (user input + height control)
@@ -86,7 +87,23 @@ public class VelocityControl : MonoBehaviour {
         {
             // For Olfati-Saber: Use height control for vertical base, zero for horizontal base.
             // Horizontal movement comes entirely from swarm_vx/vz in this case.
-            desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
+            if heightError < 0.25f
+            {
+                takeoff = true;
+            }
+
+            if (takeoff == false)
+            {
+                // If the drone is too low, set the desired velocity to zero
+                // This prevents the drone from trying to go down when it's already low enough
+                desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
+            }
+            else 
+            {
+                // If the drone is at a safe height, allow it to move horizontally
+                desiredVelocity = new Vector3(0.0f, 0.0f, 0.0f);
+            }
+            // desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
         }
         
         // Get the velocity contribution from the active swarm algorithm (includes swarm_vy)
@@ -104,7 +121,7 @@ public class VelocityControl : MonoBehaviour {
 
         // --- The rest of the FixedUpdate remains the same ---
         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
-// ========
+
 //         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
         
 //         Vector3 desiredTheta;
@@ -142,7 +159,7 @@ public class VelocityControl : MonoBehaviour {
 
 //         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
 
-// >>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
+
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
         desiredTheta = new Vector3 (desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
@@ -194,7 +211,7 @@ public class VelocityControl : MonoBehaviour {
         propRR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRL.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
 
-//<<<<<<<< HEAD:Assets/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
+
         // --- Add logic here to use targetOrientation ---
         // Example: Calculate torque needed to reach targetOrientation
         // This is a simplified example using proportional control for torque.
@@ -221,8 +238,6 @@ public class VelocityControl : MonoBehaviour {
         // }
         
         // --- End of attitude control logic example ---
-========
-//>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
     }
 
     public void Reset() {
