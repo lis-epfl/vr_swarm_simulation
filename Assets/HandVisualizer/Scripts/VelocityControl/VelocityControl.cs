@@ -44,13 +44,11 @@ public class VelocityControl : MonoBehaviour {
     private bool wait = false;
     private bool flag = true;
 
+
     private float speedScale = 500.0f;
 
-<<<<<<<< HEAD:Assets/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
     public Quaternion targetOrientation = Quaternion.identity; // Add this line, initialize to identity
 
-========
->>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
     // Use this for initialization
     void Start () {
         state.GetState ();
@@ -66,7 +64,7 @@ public class VelocityControl : MonoBehaviour {
     void FixedUpdate () {
         state.GetState ();
         
-<<<<<<<< HEAD:Assets/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
+//<<<<<<<< HEAD:Assets/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
         Vector3 desiredTheta;
         Vector3 desiredOmega;
         Vector3 desiredVelocity; // Base desired velocity (user input + height control)
@@ -106,45 +104,45 @@ public class VelocityControl : MonoBehaviour {
 
         // --- The rest of the FixedUpdate remains the same ---
         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
-========
-        // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
+// ========
+//         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
         
-        Vector3 desiredTheta;
-        Vector3 desiredOmega;
-        Vector3 desiredVelocity;
+//         Vector3 desiredTheta;
+//         Vector3 desiredOmega;
+//         Vector3 desiredVelocity;
 
-        float heightError = state.Altitude - desired_height;
+//         float heightError = state.Altitude - desired_height;
 
-        // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
-        if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
-        {
-            desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
-        } 
-        else
-        {
-            desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
-        }
+//         // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
+//         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
+//         {
+//             desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
+//         } 
+//         else
+//         {
+//             desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
+//         }
         
-        Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
+//         Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
 
-        // NOTE: In world frame y is up
+//         // NOTE: In world frame y is up
 
-        Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
-
-
-        // Transform the desired velocity from the world frame to the body frame
-        Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
+//         Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
 
 
-        // Get the name of the drone
-        string droneName = transform.parent.name;
+//         // Transform the desired velocity from the world frame to the body frame
+//         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
+
+
+//         // Get the name of the drone
+//         string droneName = transform.parent.name;
 
 
         
 
-        Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+//         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
 
->>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
+// >>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
         desiredTheta = new Vector3 (desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
@@ -196,7 +194,7 @@ public class VelocityControl : MonoBehaviour {
         propRR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRL.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
 
-<<<<<<<< HEAD:Assets/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
+//<<<<<<<< HEAD:Assets/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
         // --- Add logic here to use targetOrientation ---
         // Example: Calculate torque needed to reach targetOrientation
         // This is a simplified example using proportional control for torque.
@@ -224,7 +222,7 @@ public class VelocityControl : MonoBehaviour {
         
         // --- End of attitude control logic example ---
 ========
->>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
+//>>>>>>>> origin/hand_control:Assets/Samples/XR Hands/1.5.0/HandVisualizer/Scripts/VelocityControl/VelocityControl.cs
     }
 
     public void Reset() {
