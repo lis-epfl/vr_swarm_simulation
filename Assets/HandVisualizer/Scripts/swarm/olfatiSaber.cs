@@ -60,7 +60,7 @@ public class OlfatiSaber : MonoBehaviour
     private string droneName;
 
     [Header("UDP Settings")]
-    public string targetIPAddress = "127.0.0.1"; // IP address of the receiver
+    public string targetIPAddress = "192.168.100.176"; // IP address of the receiver
     public int targetPort = 11000; // Port the receiver is listening on
 
     private UdpClient udpClient;
