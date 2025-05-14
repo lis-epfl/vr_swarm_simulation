@@ -87,7 +87,7 @@ public class VelocityControl : MonoBehaviour {
         {
             // For Olfati-Saber: Use height control for vertical base, zero for horizontal base.
             // Horizontal movement comes entirely from swarm_vx/vz in this case.
-            if heightError < 0.25f
+            if (heightError < 0.25f)
             {
                 takeoff = true;
             }
