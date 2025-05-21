@@ -22,6 +22,7 @@ public class swarmSpawn : MonoBehaviour
     [Header("Optional Components")] // Added header for clarity
     public bool addScreens = true;
     public bool addTPVCamera = true;
+    public bool streamUDP = true;
     
     public GameObject swarmParent;
     private screenSpawn screenSpawn;
@@ -133,6 +134,23 @@ public class swarmSpawn : MonoBehaviour
             {
                  Debug.LogWarning("SwarmFollowCamera script not found, cannot add TPV camera.");
             }
+        }
+
+        if(streamUDP)
+        {
+            // Get the UDPConnection script from this GameObject
+            UDPConnection udpConnection = GetComponent<UDPConnection>();
+
+            // set the swarm list in the UDPConnection script
+            if (udpConnection != null)
+            {
+                udpConnection.swarm = swarm;
+            }
+            else
+            {
+                Debug.LogWarning("UDPConnection script not found, cannot set swarm list.");
+            }
+
         }
     }
 

@@ -39,20 +39,20 @@ public class SwarmFollowCamera : MonoBehaviour
     // Update the position of the camera at the end of every frame
     void LateUpdate()
     {
-        // If the camera hasn't been created yet, do nothing.
-        if (swarmCamera == null)
-        {
-            return;
-        }
+        // // If the camera hasn't been created yet, do nothing.
+        // if (swarmCamera == null)
+        // {
+        //     return;
+        // }
 
-        // Compute the centroid of the swarm.
-        Vector3 centroid = GetSwarmCentroid();
+        // // Compute the centroid of the swarm.
+        // Vector3 centroid = GetSwarmCentroid();
 
-        // Set the camera's position to the centroid plus the offset.
-        swarmCamera.transform.position = centroid + cameraOffset;
+        // // Set the camera's position to the centroid plus the offset.
+        // swarmCamera.transform.position = centroid + cameraOffset;
 
-        // Rotate the camera to look at the swarm centroid.
-        swarmCamera.transform.LookAt(centroid);
+        // // Rotate the camera to look at the swarm centroid.
+        // swarmCamera.transform.LookAt(centroid);
     }
     
     // Get the centroid of the swarm
