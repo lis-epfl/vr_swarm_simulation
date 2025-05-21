@@ -43,6 +43,8 @@ public class VelocityControl : MonoBehaviour {
 
     private bool wait = false;
     private bool flag = true;
+    private bool takeoff = false;
+
 
     private float speedScale = 500.0f;
 
@@ -63,6 +65,7 @@ public class VelocityControl : MonoBehaviour {
     void FixedUpdate () {
         state.GetState ();
         
+
         Vector3 desiredTheta;
         Vector3 desiredOmega;
         Vector3 desiredVelocity; // Base desired velocity (user input + height control)
@@ -84,7 +87,23 @@ public class VelocityControl : MonoBehaviour {
         {
             // For Olfati-Saber: Use height control for vertical base, zero for horizontal base.
             // Horizontal movement comes entirely from swarm_vx/vz in this case.
-            desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
+            if (heightError < 0.01f)
+            {
+                takeoff = true;
+            }
+
+            if (takeoff == false)
+            {
+                // If the drone is too low, set the desired velocity to zero
+                // This prevents the drone from trying to go down when it's already low enough
+                desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
+            }
+            else 
+            {
+                // If the drone is at a safe height, allow it to move horizontally
+                desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
+            }
+            // desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
         }
         
         // Get the velocity contribution from the active swarm algorithm (includes swarm_vy)
@@ -93,15 +112,60 @@ public class VelocityControl : MonoBehaviour {
         // Combine the base desired velocity (with height control) and the swarm algorithm's velocity
         totalTargetVelocityWorld = desiredVelocity + swarmVelocity; 
         // Now, totalTargetVelocityWorld.y = heightControlVelocity + swarm_vy
+                // Get the name of the drone
+        string droneName = transform.parent.name;
+        // get drone name
+        if (droneName == "Drone 0")
+        {
+            Debug.Log("Desired Velocity: " + desiredVelocity);
+            Debug.Log("Swarm Velocity: " + swarmVelocity);
+            Debug.Log("Total Target Velocity (World): " + totalTargetVelocityWorld);
+        }
 
         // Transform the final target velocity from the world frame to the body frame
         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
 
-        // Get the name of the drone
-        string droneName = transform.parent.name;
-
         // --- The rest of the FixedUpdate remains the same ---
         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+
+//         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
+        
+//         Vector3 desiredTheta;
+//         Vector3 desiredOmega;
+//         Vector3 desiredVelocity;
+
+//         float heightError = state.Altitude - desired_height;
+
+//         // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
+//         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
+//         {
+//             desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
+//         } 
+//         else
+//         {
+//             desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
+//         }
+        
+//         Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
+
+//         // NOTE: In world frame y is up
+
+//         Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
+
+
+//         // Transform the desired velocity from the world frame to the body frame
+//         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
+
+
+//         // Get the name of the drone
+//         string droneName = transform.parent.name;
+
+
+        
+
+//         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+
+
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
         desiredTheta = new Vector3 (desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
@@ -152,6 +216,7 @@ public class VelocityControl : MonoBehaviour {
         propFR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRL.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
+
 
         // --- Add logic here to use targetOrientation ---
         // Example: Calculate torque needed to reach targetOrientation
