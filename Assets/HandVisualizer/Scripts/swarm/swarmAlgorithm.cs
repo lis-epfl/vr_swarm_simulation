@@ -35,7 +35,7 @@ public class swarmAlgorithm : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-
+        
         // Automatically assign the SwarmManager if not already set
         swarmManager = swarmManager ?? SwarmManager.Instance;
 
@@ -45,12 +45,12 @@ public class swarmAlgorithm : MonoBehaviour
         reynoldsAlgorithm = GetComponent<Reynolds>();
         olfatiSaberAlgorithm = GetComponent<OlfatiSaber>();
 
+        // Initialize the attitude control script
+        attitudeControl = GetComponent<AttitudeControl>();
+
         // Assign the swarm list to both algorithms
         reynoldsAlgorithm.swarm = swarm;
         olfatiSaberAlgorithm.swarm = swarm;
-        
-        // Initialize the attitude control script
-        attitudeControl = GetComponent<AttitudeControl>();
 
         // Assign the swarm list to the attitude control script
         attitudeControl.swarm = swarm;
