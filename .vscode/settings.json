@@ -51,9 +51,6 @@
         "temp/": true,
         "Temp/": true
     },
-<<<<<<< HEAD
-    "dotnet.defaultSolution": "vr_swarm_simulation2.sln"
-=======
+    "vr_swarm_simulation2.sln=======dotnet.defaultSolution": "vr_swarm_simulation.sln>>>>>>>origin/hand_control",
     "dotnet.defaultSolution": "vr_swarm_simulation.sln"
->>>>>>> origin/hand_control
 }

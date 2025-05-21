@@ -6,22 +6,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-// Data structure for Olfati-Saber parameters to be sent via UDP
-[System.Serializable]
-public class OlfatiSaberUdpParameters
-{
-    public float d_ref;
-    public float r0_coh;
-    public float delta;
-    public float a;
-    public float b;
-    public float c;
-    public float gamma;
-    public float c_vm;
-    public float scaleFactor;
-    // Add any other parameters you deem "weights" here
-}
-
 public class OlfatiSaber : MonoBehaviour
 {
     public List<GameObject> swarm;
@@ -390,4 +374,20 @@ public class OlfatiSaber : MonoBehaviour
             return 0.0f;
         }
     }
+}
+
+// Data structure for Olfati-Saber parameters to be sent via UDP
+[System.Serializable]
+public class OlfatiSaberUdpParameters
+{
+    public float d_ref;
+    public float r0_coh;
+    public float delta;
+    public float a;
+    public float b;
+    public float c;
+    public float gamma;
+    public float c_vm;
+    public float scaleFactor;
+    // Add any other parameters you deem "weights" here
 }

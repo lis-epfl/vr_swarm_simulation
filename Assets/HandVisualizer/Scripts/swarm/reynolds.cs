@@ -6,20 +6,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-// Data structure for Reynolds parameters to be sent via UDP
-[System.Serializable]
-public class ReynoldsUdpParameters
-{
-    public float cohesionWeight;
-    public float separationWeight;
-    public float alignmentWeight;
-    public float cohesionMultiplier;
-    public float separationMultiplier;
-    public float cohesionAxisModifier;
-    public float separationAxisModifier;
-    // Add any other parameters you want to send
-}
-
 public class Reynolds : MonoBehaviour
 {
     public List<GameObject> swarm;
@@ -248,5 +234,19 @@ public class Reynolds : MonoBehaviour
             // Debug.LogWarning($"VelocityControl script not found on {gameObject.name}", this);
         }
     }
+}
+
+// Data structure for Reynolds parameters to be sent via UDP
+[System.Serializable]
+public class ReynoldsUdpParameters
+{
+    public float cohesionWeight;
+    public float separationWeight;
+    public float alignmentWeight;
+    public float cohesionMultiplier;
+    public float separationMultiplier;
+    public float cohesionAxisModifier;
+    public float separationAxisModifier;
+    // Add any other parameters you want to send
 }
 

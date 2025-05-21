@@ -104,6 +104,10 @@ public class swarmSpawn : MonoBehaviour
             if (algorithmScript != null)
             {
                  algorithmScript.swarm = swarm; // Assign the complete swarm list
+                 Debug.Log($"swarmAlgorithm script found on {droneControllerTransform.name} for {drone.name}");
+
+                 // log the swarm
+                Debug.Log($"Swarm for {drone.name}: {swarm.Count} drones");
             }
             else
             {
