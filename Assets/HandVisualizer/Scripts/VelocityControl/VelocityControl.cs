@@ -35,6 +35,8 @@ public class VelocityControl : MonoBehaviour {
     public float swarm_vx = 0.0f;
     public float swarm_vy = 0.0f;
     public float swarm_vz = 0.0f;
+    private Vector3 filteredVelocity = Vector3.zero; 
+    private float filterCoefficient = 0.03f; 
 
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
@@ -115,18 +117,22 @@ public class VelocityControl : MonoBehaviour {
                 // Get the name of the drone
         string droneName = transform.parent.name;
         // get drone name
-        if (droneName == "Drone 0")
-        {
-            Debug.Log("Desired Velocity: " + desiredVelocity);
-            Debug.Log("Swarm Velocity: " + swarmVelocity);
-            Debug.Log("Total Target Velocity (World): " + totalTargetVelocityWorld);
-        }
+        // if (droneName == "Drone 0")
+        // {
+        //     Debug.Log("Desired Velocity: " + desiredVelocity);
+        //     Debug.Log("Swarm Velocity: " + swarmVelocity);
+        //     Debug.Log("Total Target Velocity (World): " + totalTargetVelocityWorld);
+        // }
 
         // Transform the final target velocity from the world frame to the body frame
         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
 
+        filteredVelocity = filteredVelocity * (1.0f - filterCoefficient) + totalTargetVelocity * filterCoefficient;         
+ 
+
+
         // --- The rest of the FixedUpdate remains the same ---
-        Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+        Vector3 velocityError = state.VelocityVector - filteredVelocity;
 
 //         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
         
@@ -200,7 +206,7 @@ public class VelocityControl : MonoBehaviour {
         desiredAlpha = Vector3.Max (desiredAlpha, Vector3.one * max_alpha * -1.0f);
 
         float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos (state.Angles.z) * Mathf.Cos (state.Angles.x));
-        desiredThrust = Mathf.Min (desiredThrust, 2.0f * gravity);
+        desiredThrust = Mathf.Min (desiredThrust, 2.7f * gravity);
         desiredThrust = Mathf.Max (desiredThrust, 0.0f);
 
         Vector3 desiredTorque = Vector3.Scale (desiredAlpha, state.Inertia);

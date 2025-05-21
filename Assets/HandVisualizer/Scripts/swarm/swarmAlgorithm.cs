@@ -166,6 +166,7 @@ public class swarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.gamma = swarmManager.GetGamma();
             olfatiSaberAlgorithm.c_vm = swarmManager.GetCVM();
             olfatiSaberAlgorithm.scaleFactor = swarmManager.getScaleFactor();
+            olfatiSaberAlgorithm.cohesionMultiplier = swarmManager.GetCohesionMultiplier();
         }
     }
 

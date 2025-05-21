@@ -318,7 +318,7 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
             ShowEllipsoid(centerPoint, palmDistance, widthScale, mainAxis);
             
             // Debug log to check if we're getting here
-            Debug.Log($"Showing ellipsoid: center={centerPoint}, length={palmDistance}, width={widthScale}");
+            // Debug.Log($"Showing ellipsoid: center={centerPoint}, length={palmDistance}, width={widthScale}");
         }
         
         void ShowEllipsoid(Vector3 position, float length, float width, Vector3 direction)

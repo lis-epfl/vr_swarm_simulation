@@ -243,9 +243,13 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 2079120468148026987, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2699141731812529971, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: dronesAlongX
-      value: 5
+      value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 2699141731812529971, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: dronesAlongY
@@ -253,7 +257,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2699141731812529971, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: dronesAlongZ
-      value: 6
+      value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: a
@@ -277,7 +281,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: swarmAlgorithm
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 3537119850083185486, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: m_Enabled
@@ -294,7 +298,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 1335436841683177830, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1574879721}
   m_SourcePrefab: {fileID: 100100000, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
 --- !u!1001 &686316607
 PrefabInstance:
@@ -414,6 +421,29 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: e200b68b71be1ec4abf7c8e56ab93c70, type: 3}
+--- !u!1 &1574879715 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 1335436841683177830, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
+  m_PrefabInstance: {fileID: 239706830}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1574879721
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1574879715}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a38be7d7b8c25ec4aa4ade3ba9b047f8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetIPAddress: 192.168.100.176
+  targetPort: 11001
+  cohesionWeights: {x: 1, y: 1, z: 1}
+  separationWeights: {x: 1, y: 1, z: 1}
+  sendInterval: 0.1
+  swarm: []
 --- !u!1 &2005380513 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 115333503712420897, guid: 2224bf5a292ac2b46b5859708b5af65f, type: 3}

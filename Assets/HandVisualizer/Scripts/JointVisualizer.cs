@@ -34,7 +34,7 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
             if (m_JointVisual.TryGetComponent<Renderer>(out var jointRenderer))
                 m_JointRenderer = jointRenderer;
 
-            Debug.Log("Player position: " + transform.position);
+            // Debug.Log("Player position: " + transform.position);
         }
     }
 }
