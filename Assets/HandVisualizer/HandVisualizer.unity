@@ -285,7 +285,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: handDistanceScaleFactor
-      value: 0.001
+      value: 1.25
+      objectReference: {fileID: 0}
+    - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
+      propertyPath: velocityProportionFactor
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 3537119850083185486, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: m_Enabled
@@ -309,6 +313,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 1335436841683177830, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1574879727}
+    - targetCorrespondingSourceObject: {fileID: 1335436841683177830, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1574879728}
   m_SourcePrefab: {fileID: 100100000, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
 --- !u!1001 &686316607
 PrefabInstance:
@@ -458,7 +465,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1574879715}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5ceea96ebdd4a43a2bceb89b3a2de3da, type: 3}
   m_Name: 
@@ -472,6 +479,46 @@ MonoBehaviour:
   yTickCount: 5
   plotType: 0
   forceRange: 10
+--- !u!114 &1574879728
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1574879715}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 417cbf70288a14145a0db9262ab405ff, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarm: []
+  d_ref: 300
+  d_ref_x: 7
+  d_ref_y: 7
+  d_ref_z: 7
+  r0_coh: 20
+  delta: 0.1
+  a: 0.9
+  b: 1.5
+  c: 0
+  gamma: 1
+  c_vm: 1
+  scaleFactor: 10
+  cohesionMultiplier: 2
+  velocityProportionFactor: 100
+  baselineLength: 0.5
+  baselineWidth: 0.1
+  handDistanceScaleFactor: 0.001
+  maxMigrationDistance: 10
+  detectionRadius: 5
+  obstacleAvoidanceForceWeight: 2
+  maxAvoidForce: 10
+  obstacleTag: Obstacle
+  desired_vx: 0
+  desired_vy: 0
+  desired_vz: 0
+  desired_yaw: 0
+  desired_height: 4
 --- !u!1 &2005380513 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 115333503712420897, guid: 2224bf5a292ac2b46b5859708b5af65f, type: 3}
