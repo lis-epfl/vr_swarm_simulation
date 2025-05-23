@@ -9,17 +9,27 @@ using System.Text;
 [System.Serializable]
 public class ReynoldsAxisWeightsUdpData
 {
+    public string algorithmType = "Reynolds";
     public Vector3 cohesionWeights; // X, Y, Z cohesion weights
     public Vector3 separationWeights; // X, Y, Z separation weights
-    // You can add other general parameters here if needed in the futur
+}
 
+// Data structure for Olfati-Saber axis-specific reference distances to be sent via UDP
+[System.Serializable]
+public class OlfatiSaberAxisDistancesUdpData
+{
+    public string algorithmType = "OlfatiSaber";
+    public float d_ref_x; // X axis reference distance
+    public float d_ref_y; // Y axis reference distance
+    public float d_ref_z; // Z axis reference distance
+    public float baseD_ref; // Base reference distance
 }
 
 public class UDPConnection : MonoBehaviour
 {
     [Header("UDP Settings")]
     public string targetIPAddress = "192.168.100.176"; // Target IP address
-    public int targetPort = 11002;             // Target port (ensure it's different if Reynolds still sends)
+    public int targetPort = 11002;             // Target port
 
     [Header("Reynolds General Weights (Per Axis)")]
     public Vector3 cohesionWeights = new Vector3(1.0f, 1.0f, 1.0f);
@@ -30,12 +40,12 @@ public class UDPConnection : MonoBehaviour
 
     public List<GameObject> swarm;
 
-
-
     private float timeSinceLastSend = 0f;
     private UdpClient udpClient;
     private GameObject drone0;
     private Reynolds reynoldsScript; // Reference to the Reynolds script on drone0
+    private OlfatiSaber olfatiSaberScript; // Reference to the OlfatiSaber script on drone0
+    private SwarmManager swarmManager;
 
     void Start()
     {        
@@ -52,52 +62,102 @@ public class UDPConnection : MonoBehaviour
             this.enabled = false; // Disable script if UDP can't be set up
         }
 
-        // Set the Reynolds script reference
-        SetReynoldsScript();
+        // Get SwarmManager reference
+        swarmManager = SwarmManager.Instance;
+        if (swarmManager == null)
+        {
+            Debug.LogError("UDP_Connection: SwarmManager instance not found.");
+        }
+
+        // Set the algorithm script references
+        SetAlgorithmScripts();
     }
 
     void Update()
     {
-        if (udpClient == null)
+        if (udpClient == null || swarmManager == null)
         {
-            return; // Don't proceed if UDP client isn't initialized
+            return; // Don't proceed if UDP client isn't initialized or SwarmManager is missing
         }
 
-        if (reynoldsScript == null)
+        // Check if we need to set algorithm scripts again
+        if ((swarmManager.swarmAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS && reynoldsScript == null) ||
+            (swarmManager.swarmAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER && olfatiSaberScript == null))
         {
-            SetReynoldsScript(); // Try to set the Reynolds script again
-            if (reynoldsScript == null)
-            {
-                Debug.Log("UDP_Connection: Reynolds script is not set. Cannot send data.");
-               
-                return; // Exit if Reynolds script is still not set
-            }
+            SetAlgorithmScripts();
         }
 
         timeSinceLastSend += Time.deltaTime;
 
         if (timeSinceLastSend >= sendInterval)
         {
-            SendReynoldsWeights();
+            SendSwarmData();
             timeSinceLastSend = 0f; // Reset timer
+        }
+    }
+
+    void SendSwarmData()
+    {
+        // Check which algorithm is currently being used
+        switch (swarmManager.swarmAlgorithm)
+        {
+            case SwarmManager.SwarmAlgorithm.REYNOLDS:
+                SendReynoldsWeights();
+                break;
+            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
+                SendOlfatiSaberDistances();
+                break;
         }
     }
 
     void SendReynoldsWeights()
     {
+        if (reynoldsScript == null)
+        {
+            Debug.LogWarning("UDP_Connection: Reynolds script is not set. Cannot send Reynolds data.");
+            return;
+        }
+
         ReynoldsAxisWeightsUdpData parametersToSend = new ReynoldsAxisWeightsUdpData
         {
+            algorithmType = "Reynolds",
             cohesionWeights = reynoldsScript.scaledWorldCohesion,
             separationWeights = reynoldsScript.scaledWorldSeparation
         };
 
         string jsonParameters = JsonUtility.ToJson(parametersToSend);
-        byte[] data = Encoding.UTF8.GetBytes(jsonParameters);
+        SendUdpData(jsonParameters);
+    }
+
+    void SendOlfatiSaberDistances()
+    {
+        if (olfatiSaberScript == null)
+        {
+            Debug.LogWarning("UDP_Connection: OlfatiSaber script is not set. Cannot send OlfatiSaber data.");
+            return;
+        }
+
+        OlfatiSaberAxisDistancesUdpData parametersToSend = new OlfatiSaberAxisDistancesUdpData
+        {
+            algorithmType = "OlfatiSaber",
+            d_ref_x = olfatiSaberScript.d_ref_x,
+            d_ref_y = olfatiSaberScript.d_ref_y,
+            d_ref_z = olfatiSaberScript.d_ref_z,
+            baseD_ref = olfatiSaberScript.d_ref
+        };
+
+        string jsonParameters = JsonUtility.ToJson(parametersToSend);
+        SendUdpData(jsonParameters);
+    }
+
+    void SendUdpData(string jsonData)
+    {
+        byte[] data = Encoding.UTF8.GetBytes(jsonData);
 
         try
         {
             udpClient.Send(data, data.Length, targetIPAddress, targetPort);
-            //Debug.Log($"UDP_Connection: Sent Reynolds axis weights to {targetIPAddress}:{targetPort}: {jsonParameters}");
+            //Debug.Log($"UDP_Connection: Sent data to {targetIPAddress}:{targetPort}: {jsonData}");
         }
         catch (SocketException e)
         {
@@ -126,7 +186,7 @@ public class UDPConnection : MonoBehaviour
         this.separationWeights = newSeparationWeights;
     }
 
-    public void SetReynoldsScript()
+    public void SetAlgorithmScripts()
     {
         // Get drone0 from the swarm list
         if (swarm != null && swarm.Count > 0)
@@ -134,8 +194,27 @@ public class UDPConnection : MonoBehaviour
             drone0 = swarm[0];
             // get the droneParent child
             Transform droneParentTransform = drone0.transform.Find("DroneParent");
-            // Get the reynolds script from drone0
-            reynoldsScript = droneParentTransform.GetComponent<Reynolds>();
+            
+            if (droneParentTransform != null)
+            {
+                // Get both algorithm scripts from drone0
+                reynoldsScript = droneParentTransform.GetComponent<Reynolds>();
+                olfatiSaberScript = droneParentTransform.GetComponent<OlfatiSaber>();
+                
+                if (reynoldsScript == null)
+                {
+                    Debug.LogWarning("UDP_Connection: Reynolds script not found on drone0.");
+                }
+                
+                if (olfatiSaberScript == null)
+                {
+                    Debug.LogWarning("UDP_Connection: OlfatiSaber script not found on drone0.");
+                }
+            }
+            else
+            {
+                Debug.LogError("UDP_Connection: DroneParent not found on drone0.");
+            }
         }
         else
         {
