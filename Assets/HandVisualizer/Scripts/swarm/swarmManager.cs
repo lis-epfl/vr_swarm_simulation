@@ -31,8 +31,8 @@ public class SwarmManager : MonoBehaviour
     public float c_vm = 1.0f;
     public float scaleFactor = 10.0f;
     public float cohesionMultiplier = 2.0f;
-
     public float handDistanceScaleFactor = 1.0f;
+    public float velocityProportionFactor = 0.5f;
 
     public enum AttitudeControl
     {
@@ -89,6 +89,7 @@ public class SwarmManager : MonoBehaviour
     public float getScaleFactor() => scaleFactor;
     public float GetCohesionMultiplier() => cohesionMultiplier;
     public float GetHandDistanceScaleFactor() => handDistanceScaleFactor;
+    public float GetVelocityProportionFactor() => velocityProportionFactor;
 
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;

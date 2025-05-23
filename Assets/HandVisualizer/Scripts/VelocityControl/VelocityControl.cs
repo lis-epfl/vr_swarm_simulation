@@ -116,60 +116,51 @@ public class VelocityControl : MonoBehaviour {
         // Now, totalTargetVelocityWorld.y = heightControlVelocity + swarm_vy
                 // Get the name of the drone
         string droneName = transform.parent.name;
-        // get drone name
-        // if (droneName == "Drone 0")
-        // {
-        //     Debug.Log("Desired Velocity: " + desiredVelocity);
-        //     Debug.Log("Swarm Velocity: " + swarmVelocity);
-        //     Debug.Log("Total Target Velocity (World): " + totalTargetVelocityWorld);
-        // }
 
         // Transform the final target velocity from the world frame to the body frame
         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
 
         filteredVelocity = filteredVelocity * (1.0f - filterCoefficient) + totalTargetVelocity * filterCoefficient;         
- 
-
 
         // --- The rest of the FixedUpdate remains the same ---
         Vector3 velocityError = state.VelocityVector - filteredVelocity;
 
 //         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
-        
-//         Vector3 desiredTheta;
-//         Vector3 desiredOmega;
-//         Vector3 desiredVelocity;
 
-//         float heightError = state.Altitude - desired_height;
+        //         Vector3 desiredTheta;
+        //         Vector3 desiredOmega;
+        //         Vector3 desiredVelocity;
 
-//         // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
-//         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
-//         {
-//             desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
-//         } 
-//         else
-//         {
-//             desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
-//         }
-        
-//         Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
+        //         float heightError = state.Altitude - desired_height;
 
-//         // NOTE: In world frame y is up
+        //         // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
+        //         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
+        //         {
+        //             desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
+        //         } 
+        //         else
+        //         {
+        //             desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
+        //         }
 
-//         Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
+        //         Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
 
+        //         // NOTE: In world frame y is up
 
-//         // Transform the desired velocity from the world frame to the body frame
-//         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
+        //         Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
 
 
-//         // Get the name of the drone
-//         string droneName = transform.parent.name;
+        //         // Transform the desired velocity from the world frame to the body frame
+        //         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
 
 
-        
+        //         // Get the name of the drone
+        //         string droneName = transform.parent.name;
 
-//         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+
+
+
+        //         Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
 
 
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;

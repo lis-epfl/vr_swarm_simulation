@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Text;
 using System;
 
+
 public class OlfatiSaber : MonoBehaviour
 {
     public List<GameObject> swarm;
@@ -31,11 +32,22 @@ public class OlfatiSaber : MonoBehaviour
     public float c_vm = 1.0f;
     public float scaleFactor = 10.0f;
     public float cohesionMultiplier = 2.0f;
+    public float velocityProportionFactor = 100.0f; // Changeable proportion factor
 
     [Header("Hand Interaction Parameters")]
     public float baselineLength = 0.5f;
     public float baselineWidth = 0.1f;
     public float handDistanceScaleFactor = 0.001f; // How much hand movement affects distance
+
+    // NEW: Velocity control calibration parameters
+    [Header("Velocity Control Calibration")]
+
+    private Vector3 calibrationMidpoint = Vector3.zero;
+    private float calibrationMinY = 0.0f;
+    private bool isCalibrated = false;
+    private bool isCalibrating = false;
+    private float calibrationTimer = 0.0f;
+    private const float CALIBRATION_WAIT_TIME = 3.0f;
 
     [Header("Migration and Obstacle Avoidance")]
     public float maxMigrationDistance = 10.0f;
@@ -56,16 +68,41 @@ public class OlfatiSaber : MonoBehaviour
     private Vector3 swarmInput = Vector3.zero;
     private string droneName;
 
+    // Add this variable for countdown tracking
+    private int lastCountdownNumber = -1;
+
     void Start()
     {
         if (transform.parent != null)
         {
             droneName = transform.parent.name;
+            // Debug.Log($"OlfatiSaber: Drone name set to {droneName}"); // Add this debug line
         }
         else
         {
             droneName = gameObject.name;
             Debug.LogWarning("OlfatiSaber script on " + gameObject.name + " does not have a parent. Using GameObject name.");
+        }
+    }
+
+    void Update()
+    {
+
+        // Handle calibration input (only for one drone to avoid multiple calibrations)
+        if (this.droneName == "Drone 0")
+        {
+            // Add debug to confirm this is being called
+            if (Input.GetKeyDown(KeyCode.C))
+            {
+                Debug.Log("C key pressed detected!");
+            }
+
+                HandleCalibrationInput();
+            }
+        else if (this.droneName != "Drone 0" && Input.GetKeyDown(KeyCode.C))
+        {
+            // Debug for other drones
+            Debug.Log($"C key pressed on {this.droneName}, but only Drone 0 handles calibration");
         }
     }
 
@@ -81,9 +118,17 @@ public class OlfatiSaber : MonoBehaviour
         if (rb == null) return;
         Vector3 velocity = rb.velocity;
 
-        // Calculate velocity matching
-        Vector3 desired_velocity_for_vm = new Vector3(desired_vx, desired_vz, -desired_vy);
+        // Update velocity control based on hand position if calibrated
+        Vector3 desired_velocity_for_vm = UpdateVelocityFromHandPosition();
+
         velocityMatching = c_vm * (desired_velocity_for_vm - velocity);
+
+        // // if drone 0 log the desired velocities
+        // if (this.droneName == "Drone 0")
+        // {
+        //     Debug.Log($"Desired velocities - VX: {desired_vx:F2}, VY: {desired_vy:F2}, VZ: {desired_vz:F2}");
+        //     Debug.Log($"Velocity matching - X: {velocityMatching.x:F2}, Y: {velocityMatching.y:F2}, Z: {velocityMatching.z:F2}");
+        // }
 
         // Update reference distances based on hand tracking
         UpdateReferenceDistancesFromHands();
@@ -98,7 +143,7 @@ public class OlfatiSaber : MonoBehaviour
                 Transform neighbourChildTransform = neighbourGO.transform.Find("DroneParent");
                 if (neighbourChildTransform == null) continue;
                 GameObject neighbourChild = neighbourChildTransform.gameObject;
-            
+
                 if (neighbourChild == gameObject) continue;
 
                 Vector3 neighbourPosition = neighbourChild.transform.position;
@@ -123,6 +168,119 @@ public class OlfatiSaber : MonoBehaviour
             vc.swarm_vy = swarmInput.y;
             vc.swarm_vz = swarmInput.z;
         }
+
+        // if (this.droneName == "Drone 0")
+        // {
+        //     Debug.Log($"Desired velocities - VX: {desired_vx:F2}, VY: {desired_vy:F2}, VZ: {desired_vz:F2}");
+        //     Debug.Log($"Velocity matching - X: {velocityMatching.x:F2}, Y: {velocityMatching.y:F2}, Z: {velocityMatching.z:F2}");
+        //     Debug.Log($"Cohesion - X: {cohesion.x:F2}, Y: {cohesion.y:F2}, Z: {cohesion.z:F2}");
+        //     Debug.Log($"Swarm input - X: {swarmInput.x:F2}, Y: {swarmInput.y:F2}, Z: {swarmInput.z:F2}");
+        // }
+
+    }
+
+    // NEW: Handle calibration input and timing
+    private void HandleCalibrationInput()
+    {
+        if (Input.GetKeyDown(KeyCode.C) && !isCalibrating)
+        {
+            StartCalibration();
+        }
+
+        if (isCalibrating)
+        {
+            calibrationTimer += Time.deltaTime;
+            
+            // Update countdown display in console
+            float remainingTime = CALIBRATION_WAIT_TIME - calibrationTimer;
+            if (remainingTime > 0)
+            {
+                int countdownNumber = Mathf.CeilToInt(remainingTime);
+                // Only print when the number changes (avoid spam)
+                if (countdownNumber != lastCountdownNumber)
+                {
+                    lastCountdownNumber = countdownNumber;
+                    Debug.Log($"Calibration countdown: {countdownNumber}");
+                }
+            }
+            
+            if (calibrationTimer >= CALIBRATION_WAIT_TIME)
+            {
+                PerformCalibration();
+            }
+        }
+    }
+
+    // NEW: Start calibration process
+    private void StartCalibration()
+    {
+        isCalibrating = true;
+        calibrationTimer = 0.0f;
+        lastCountdownNumber = -1; // Reset countdown tracker
+        Debug.Log("Calibration started. Wait 3 seconds...");
+    }
+
+    // NEW: Perform the actual calibration
+    private void PerformCalibration()
+    {
+        if (HandProcessor.ArePalmsTracked)
+        {
+            Vector3 leftPalmPos = HandProcessor.LeftPalmPosition;
+            Vector3 rightPalmPos = HandProcessor.RightPalmPosition;
+            calibrationMidpoint = (leftPalmPos + rightPalmPos) / 2.0f;
+            calibrationMinY = calibrationMidpoint.y; // Set minimum Y position
+            isCalibrated = true;
+            Debug.Log($"Calibration complete! Midpoint: {calibrationMidpoint}, Min Y: {calibrationMinY}");
+        }
+        else
+        {
+            Debug.LogWarning("Cannot calibrate: hands not tracked!");
+        }
+        
+        isCalibrating = false;
+        calibrationTimer = 0.0f;
+        lastCountdownNumber = -1; // Reset countdown tracker
+    }
+
+    // NEW: Update velocity based on hand position relative to calibration
+    private Vector3 UpdateVelocityFromHandPosition()
+    {
+        if (!isCalibrated || !HandProcessor.ArePalmsTracked)
+        {
+            return Vector3.zero; // No velocity update if not calibrated or hands not tracked
+        }
+
+        Vector3 leftPalmPos = HandProcessor.LeftPalmPosition;
+        Vector3 rightPalmPos = HandProcessor.RightPalmPosition;
+        Vector3 currentMidpoint = (leftPalmPos + rightPalmPos) / 2.0f;
+
+        // Calculate displacement from calibration point
+        Vector3 displacement = currentMidpoint - calibrationMidpoint;
+
+        // if drone 0 log the displacement
+        if (this.droneName == "Drone 0")
+        {
+            Debug.Log($"Displacement from calibration: {displacement}");
+        }
+
+        // Apply velocity proportional to displacement
+        desired_vx = displacement.x * velocityProportionFactor;
+        desired_vz = displacement.z * velocityProportionFactor;
+
+        // For Y axis, only allow upward movement from calibration minimum
+        if (currentMidpoint.y > calibrationMinY)
+        {
+            desired_vy = (currentMidpoint.y - calibrationMinY) * velocityProportionFactor;
+        }
+        else
+        {
+            desired_vy = 0.0f; // Don't go below calibration minimum
+        }
+
+        desired_vy = 0.0f; // Disable Y velocity for now
+
+        return new Vector3(desired_vx, desired_vy, desired_vz);
+        
     }
 
     // NEW: Update reference distances based on hand movements
@@ -162,12 +320,12 @@ public class OlfatiSaber : MonoBehaviour
             d_ref_y = d_ref * widthFactor * handDistanceScaleFactor;
             d_ref_z = d_ref * lengthFactor * handDistanceScaleFactor;
 
-            // Debug output for one drone
-            if (this.droneName == "Drone 0")
-            {
-                Debug.Log($"Hand factors - Length: {lengthFactor:F2}, Width: {widthFactor:F2}");
-                Debug.Log($"d_ref distances - X: {d_ref_x:F2}, Y: {d_ref_y:F2}, Z: {d_ref_z:F2}");
-            }
+            // // Debug output for one drone
+            // if (this.droneName == "Drone 0")
+            // {
+            //     Debug.Log($"Hand factors - Length: {lengthFactor:F2}, Width: {widthFactor:F2}");
+            //     Debug.Log($"d_ref distances - X: {d_ref_x:F2}, Y: {d_ref_y:F2}, Z: {d_ref_z:F2}");
+            // }
         }
         else
         {
@@ -185,15 +343,14 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 cohesionForce = Vector3.zero;
 
         // Scale distance for function calculations
-        // float scaled_distance = distance / scaleFactor;
         float scaled_distance_x = Mathf.Abs(relativePosition.x / scaleFactor);
         float scaled_distance_y = Mathf.Abs(relativePosition.y / scaleFactor);
         float scaled_distance_z = Mathf.Abs(relativePosition.z / scaleFactor);
 
         // Calculate force for each axis using its specific reference distance
-        float forceX = GetCohesionForceWithCustomDRef(scaled_distance_x, d_ref_x);// / scaleFactor);
-        float forceY = GetCohesionForceWithCustomDRef(scaled_distance_y, d_ref_y);// / scaleFactor);
-        float forceZ = GetCohesionForceWithCustomDRef(scaled_distance_z, d_ref_z);// / scaleFactor);
+        float forceX = GetCohesionForceWithCustomDRef(scaled_distance_x, d_ref_x);
+        float forceY = GetCohesionForceWithCustomDRef(scaled_distance_y, d_ref_y);
+        float forceZ = GetCohesionForceWithCustomDRef(scaled_distance_z, d_ref_z);
 
         // Apply the force in the direction of each axis component
         cohesionForce.x = forceX * normalizedRelativePos.x;
