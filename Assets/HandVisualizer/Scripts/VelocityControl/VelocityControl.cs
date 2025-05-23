@@ -36,7 +36,7 @@ public class VelocityControl : MonoBehaviour {
     public float swarm_vy = 0.0f;
     public float swarm_vz = 0.0f;
     private Vector3 filteredVelocity = Vector3.zero; 
-    private float filterCoefficient = 0.03f; 
+    public float filterCoefficient = 0.1f; 
 
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
 

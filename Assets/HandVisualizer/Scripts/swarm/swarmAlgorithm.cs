@@ -5,7 +5,7 @@ using UnityEngine;
 public class swarmAlgorithm : MonoBehaviour
 {
     public List<GameObject> swarm;
-    
+
     private SwarmManager swarmManager;
 
     // Use the SwarmAlgorithm enum from SwarmManager
@@ -48,7 +48,7 @@ public class swarmAlgorithm : MonoBehaviour
         // Assign the swarm list to both algorithms
         reynoldsAlgorithm.swarm = swarm;
         olfatiSaberAlgorithm.swarm = swarm;
-        
+
         // Initialize the attitude control script
         attitudeControl = GetComponent<AttitudeControl>();
 
@@ -74,11 +74,11 @@ public class swarmAlgorithm : MonoBehaviour
         swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;
     }
 
-    
+
     // Update the swarming parameters
     void OnSwarmParamsChanged()
     {
-        
+
         // Get swarm algorithm selection
         currentAlgorithm = swarmManager.swarmAlgorithm;
 
@@ -86,7 +86,7 @@ public class swarmAlgorithm : MonoBehaviour
         switch (currentAlgorithm)
         {
             // Reynolds algorithm and parameters
-            case SwarmManager.SwarmAlgorithm.REYNOLDS:                
+            case SwarmManager.SwarmAlgorithm.REYNOLDS:
                 EnableAlgorithm(reynoldsAlgorithm);
                 DisableAlgorithm(olfatiSaberAlgorithm);
                 UpdateReynoldsParameters();
@@ -97,7 +97,7 @@ public class swarmAlgorithm : MonoBehaviour
                 break;
 
             // Olfati-Saber algorithm and parameters
-            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:                
+            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
                 EnableAlgorithm(olfatiSaberAlgorithm);
                 DisableAlgorithm(reynoldsAlgorithm);
                 UpdateOlfatiSaberParameters();
@@ -121,6 +121,9 @@ public class swarmAlgorithm : MonoBehaviour
                 UpdateAttitudeControlParameters();
                 break;
         }
+
+        // Update the velocity control parameters
+        UpdateVelocityControlParameters();
 
     }
     // Enable an algorithm script
@@ -167,6 +170,8 @@ public class swarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.c_vm = swarmManager.GetCVM();
             olfatiSaberAlgorithm.scaleFactor = swarmManager.getScaleFactor();
             olfatiSaberAlgorithm.cohesionMultiplier = swarmManager.GetCohesionMultiplier();
+            olfatiSaberAlgorithm.handDistanceScaleFactor = swarmManager.GetHandDistanceScaleFactor();
+
         }
     }
 
@@ -177,6 +182,14 @@ public class swarmAlgorithm : MonoBehaviour
         {
             attitudeControl.numNeighbours = swarmManager.GetNumNeighbours();
             attitudeControl.numDimensions = swarmManager.GetNumDimensions();
+        }
+    }
+    
+    private void UpdateVelocityControlParameters()
+    {
+        if (velocityControl != null)
+        {
+            velocityControl.filterCoefficient = swarmManager.GetFilterCoefficient();
         }
     }
 }

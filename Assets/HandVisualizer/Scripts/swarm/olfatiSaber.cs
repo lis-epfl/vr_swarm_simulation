@@ -11,11 +11,18 @@ using System;
 public class OlfatiSaber : MonoBehaviour
 {
     public List<GameObject> swarm;
-    private Vector3 cohesion = Vector3.zero; // This is calculated from GetCohesionForce
+    private Vector3 cohesion = Vector3.zero;
 
     [Header("Olfati-Saber Model Parameters")]
-    public float d_ref = 7.0f;
-    public float r0_coh = 20.0f; // MODIFIED: Was 150.0f, try a smaller value
+    public float d_ref = 300.0f; // Keep as fallback/baseline
+    
+    // NEW: Axis-specific reference distances
+    [Header("Axis-Specific Reference Distances")]
+    public float d_ref_x = 7.0f;
+    public float d_ref_y = 7.0f;
+    public float d_ref_z = 7.0f;
+    
+    public float r0_coh = 20.0f;
     public float delta = 0.1f;
     public float a = 0.9f;
     public float b = 1.5f;
@@ -26,9 +33,9 @@ public class OlfatiSaber : MonoBehaviour
     public float cohesionMultiplier = 2.0f;
 
     [Header("Hand Interaction Parameters")]
-    public float baselineLength = 0.5f; // Adjust this to your neutral hand separation (palm-to-palm)
-    public float baselineWidth = 0.1f;  // Adjust this to a neutral hand width measure
-    public float handCohesionAxisModifier = 1.0f; // Tune this: >1 weakens cohesion more with expansion, <1 weakens it less.
+    public float baselineLength = 0.5f;
+    public float baselineWidth = 0.1f;
+    public float handDistanceScaleFactor = 0.001f; // How much hand movement affects distance
 
     [Header("Migration and Obstacle Avoidance")]
     public float maxMigrationDistance = 10.0f;
@@ -36,31 +43,21 @@ public class OlfatiSaber : MonoBehaviour
     public float obstacleAvoidanceForceWeight = 2.0f;
     public float maxAvoidForce = 10.0f;
     public string obstacleTag = "Obstacle";
-    // Add this new parameter to your class
-    //[Header("Force Multipliers")]
 
     [Header("Desired State Inputs (for Velocity Matching)")]
     public float desired_vx = 0.0f;
-    public float desired_vy = 0.0f; // This is mapped to world Z for desired_velocity
-    public float desired_vz = 0.0f; // This is mapped to world Y for desired_velocity
+    public float desired_vy = 0.0f;
+    public float desired_vz = 0.0f;
     public float desired_yaw = 0.0f;
-    public float desired_height = 4.0f;  // Add this line - default value matches typical VelocityControl value
+    public float desired_height = 4.0f;
     
     private Vector3 velocityMatching = Vector3.zero;
     private Vector3 obstacle = Vector3.zero;
     private Vector3 swarmInput = Vector3.zero;
-
-    private string droneName; // Class member for drone name
-
-    // vector3 cohesionmultiplier
-    //public Vector3 cohesionMultiplier = new Vector3(5.0f, 5.0f, 5.0f);
-  
-
-    
+    private string droneName;
 
     void Start()
     {
-        // Initialize droneName once
         if (transform.parent != null)
         {
             droneName = transform.parent.name;
@@ -70,10 +67,7 @@ public class OlfatiSaber : MonoBehaviour
             droneName = gameObject.name;
             Debug.LogWarning("OlfatiSaber script on " + gameObject.name + " does not have a parent. Using GameObject name.");
         }
-        
-       
     }
-
 
     void FixedUpdate()
     {
@@ -82,25 +76,19 @@ public class OlfatiSaber : MonoBehaviour
         cohesion = Vector3.zero;
         obstacle = Vector3.zero;
 
-        // Get the position and velocity of the current drone
         Vector3 position = transform.position;
         Rigidbody rb = GetComponent<Rigidbody>();
         if (rb == null) return;
         Vector3 velocity = rb.velocity;
 
-        // Calculate the velocity matching force
-        // Note: desired_vz (OlfatiSaber field) contributes to world Y of desired_velocity for VM.
-        // Ensure desired_vz is 0.0f in Inspector if no vertical velocity is intended from THIS component.
+        // Calculate velocity matching
         Vector3 desired_velocity_for_vm = new Vector3(desired_vx, desired_vz, -desired_vy);
-        velocityMatching = c_vm * (desired_velocity_for_vm - velocity); 
+        velocityMatching = c_vm * (desired_velocity_for_vm - velocity);
 
-        if (this.droneName == "Drone 0") // Use class member droneName
-        {
-            Debug.Log($"OlfatiSaber Drone 0 - VM Target: {desired_velocity_for_vm}, CurrentVel: {velocity}, Resulting VM: {velocityMatching}");
-            Debug.Log("cohesionMultiplier: " + cohesionMultiplier);
-        }          
-        
-        // Calculate the base cohesion force for each of the neighbours
+        // Update reference distances based on hand tracking
+        UpdateReferenceDistancesFromHands();
+
+        // Calculate cohesion forces using axis-specific reference distances
         if (swarm != null)
         {
             foreach (GameObject neighbourGO in swarm)
@@ -119,17 +107,27 @@ public class OlfatiSaber : MonoBehaviour
 
                 if (distance < 0.001f) distance = 0.001f;
 
-                // Scale the distance for the Olfati-Saber math functions
-                float scaled_distance_for_function = distance / scaleFactor;
-            
-                Vector3 individualCohesionForce = GetCohesionForce(scaled_distance_for_function) * relativePosition.normalized;
+                // Calculate cohesion force for each axis separately
+                Vector3 individualCohesionForce = GetAxisSpecificCohesionForce(relativePosition, distance);
                 cohesion += individualCohesionForce;
             }
         }
-       
-       
 
-        // --- Hand Interaction for Cohesion (Copied and Adapted from Reynolds-like logic) ---
+        swarmInput = velocityMatching + cohesion + obstacle;
+        swarmInput.y = 0.0f; // No vertical swarm input
+
+        var vc = GetComponent<VelocityControl>();
+        if (vc != null)
+        {
+            vc.swarm_vx = swarmInput.x;
+            vc.swarm_vy = swarmInput.y;
+            vc.swarm_vz = swarmInput.z;
+        }
+    }
+
+    // NEW: Update reference distances based on hand movements
+    private void UpdateReferenceDistancesFromHands()
+    {
         if (HandProcessor.ArePalmsTracked)
         {
             Vector3 leftPalmPos = HandProcessor.LeftPalmPosition;
@@ -140,111 +138,127 @@ public class OlfatiSaber : MonoBehaviour
             Quaternion handOrientation = Quaternion.identity;
             Vector3 handVector = rightPalmPos - leftPalmPos;
 
-            if (handVector.sqrMagnitude > 0.001f) // Ensure handVector is not zero
+            if (handVector.sqrMagnitude > 0.001f)
             {
                 handOrientation = Quaternion.LookRotation(handVector.normalized, Vector3.up);
             }
 
-            // Calculate scaling factors based on current hand dimensions vs baselines
-            float lengthFactor = (baselineLength > 0.001f && currentHandEllipsoidLength > 0) ? currentHandEllipsoidLength / baselineLength : 1.0f;
-            float widthFactor = (baselineWidth > 0.001f && currentHandEllipsoidWidth > 0) ? currentHandEllipsoidWidth / baselineWidth : 1.0f;
+            // Calculate scaling factors
+            float lengthFactor = (baselineLength > 0.001f && currentHandEllipsoidLength > 0) ? 
+                currentHandEllipsoidLength / baselineLength : 1.0f;
+            float widthFactor = (baselineWidth > 0.001f && currentHandEllipsoidWidth > 0) ? 
+                currentHandEllipsoidWidth / baselineWidth : 1.0f;
 
-            // Clamp factors to prevent extreme scaling
+            // Clamp factors
             lengthFactor = Mathf.Clamp(lengthFactor, 0.1f, 10.0f);
             widthFactor = Mathf.Clamp(widthFactor, 0.1f, 10.0f);
 
-            // --- Debugging: Output factors and pre-scaled cohesion ---
-            // if (this.droneName == "Drone 0") // Or any specific drone for less spam
-            // {
-            //     Debug.Log($"Hand Factors: LengthF={lengthFactor:F2}, WidthF={widthFactor:F2}. Pre-Scale Cohesion: {cohesion.magnitude:F2}");
-            // }
+            // Transform to hand-local space to determine which axis should be affected
+            Vector3 localHandDirection = Quaternion.Inverse(handOrientation) * Vector3.forward;
 
-            // Transform cohesion to hand-local space
-            Vector3 localCohesion = Quaternion.Inverse(handOrientation) * cohesion;
+            // Update reference distances based on hand orientation and scaling
+            // X and Y axes scale with width factor, Z axis scales with length factor
+            d_ref_x = d_ref * widthFactor * handDistanceScaleFactor;
+            d_ref_y = d_ref * widthFactor * handDistanceScaleFactor;
+            d_ref_z = d_ref * lengthFactor * handDistanceScaleFactor;
 
-            // Apply the cohesion multiplier BEFORE scaling by hand factors
-            localCohesion *= cohesionMultiplier;
-
-            // Fix the safeAxisModifier calculation - it was forcing a minimum of 100!
-            float safeAxisModifier = Mathf.Max(0.1f, handCohesionAxisModifier); // Changed from 100f to 0.001f
-
-            localCohesion.x /= (widthFactor * safeAxisModifier);
-            localCohesion.y /= (widthFactor * safeAxisModifier);
-            localCohesion.z /= (lengthFactor * safeAxisModifier);
-
-            // Transform scaled cohesion back to world space
-            cohesion = handOrientation * localCohesion;
-            Debug.Log($"Hand Orientation: {handOrientation}, Local Cohesion: {localCohesion}, Scaled Cohesion: {cohesion}");
-            Debug.Log($"Cohesion: {cohesion}");
-
-            // --- Debugging: Output post-scaled cohesion ---
-            // if (this.droneName == "Drone 0")
-            // {
-            //     Debug.Log($"Post-Scale Cohesion: {cohesion.magnitude:F2}");
-            // }
+            // Debug output for one drone
+            if (this.droneName == "Drone 0")
+            {
+                Debug.Log($"Hand factors - Length: {lengthFactor:F2}, Width: {widthFactor:F2}");
+                Debug.Log($"d_ref distances - X: {d_ref_x:F2}, Y: {d_ref_y:F2}, Z: {d_ref_z:F2}");
+            }
         }
-        // If palms are not tracked, cohesion remains unscaled by hands.
-        // --- End Hand Interaction for Cohesion ---
-
-        // obstacle = obstacleAvoidanceForce(rb); // Implement if needed
-
-        swarmInput = velocityMatching + cohesion + obstacle;
-
-        // Ensure OlfatiSaber script does not command net vertical velocity to VelocityControl
-        // Vertical positioning is primarily handled by VelocityControl's height controller.
-        swarmInput.y = 0.0f;
-
-        var vc = GetComponent<VelocityControl>();
-        if (vc != null)
+        else
         {
-            vc.swarm_vx = swarmInput.x;
-            vc.swarm_vy = swarmInput.y; // Will be 0.0f
-            vc.swarm_vz = swarmInput.z;        
+            // Reset to baseline when hands not tracked
+            d_ref_x = d_ref;
+            d_ref_y = d_ref;
+            d_ref_z = d_ref;
         }
-        
     }
-    
-    
-    // Cohesion force calculation
-    public float GetCohesionForce(float r)
+
+    // NEW: Calculate cohesion force using axis-specific reference distances
+    private Vector3 GetAxisSpecificCohesionForce(Vector3 relativePosition, float distance)
     {
-        if (float.IsNaN(c) || float.IsInfinity(c)) c = 0; // Basic fallback for c
-        if (r0_coh == 0) return 0f; // Avoid division by zero if r0_coh is set to 0
+        Vector3 normalizedRelativePos = relativePosition.normalized;
+        Vector3 cohesionForce = Vector3.zero;
 
-        float neighbourWeightDerivative = GetNeighbourWeightDerivative(r);
-        float cohesionIntensityVal = GetCohesionIntensity(r); // Renamed to avoid conflict
-        float neighbourWeight = GetNeighbourWeight(r);
-        float cohesionIntensityDerivative = GetCohesionIntensityDerivative(r);
+        // Scale distance for function calculations
+        // float scaled_distance = distance / scaleFactor;
+        float scaled_distance_x = Mathf.Abs(relativePosition.x / scaleFactor);
+        float scaled_distance_y = Mathf.Abs(relativePosition.y / scaleFactor);
+        float scaled_distance_z = Mathf.Abs(relativePosition.z / scaleFactor);
 
-        // Ensure r0_coh is not zero before division
-        float r0_coh_safe = (r0_coh == 0) ? 1.0f : r0_coh; // Use 1.0f as a fallback if r0_coh is zero, though it should be positive
+        // Calculate force for each axis using its specific reference distance
+        float forceX = GetCohesionForceWithCustomDRef(scaled_distance_x, d_ref_x);// / scaleFactor);
+        float forceY = GetCohesionForceWithCustomDRef(scaled_distance_y, d_ref_y);// / scaleFactor);
+        float forceZ = GetCohesionForceWithCustomDRef(scaled_distance_z, d_ref_z);// / scaleFactor);
 
-        return (1.0f / r0_coh_safe) * neighbourWeightDerivative * cohesionIntensityVal + neighbourWeight * cohesionIntensityDerivative;
+        // Apply the force in the direction of each axis component
+        cohesionForce.x = forceX * normalizedRelativePos.x;
+        cohesionForce.y = forceY * normalizedRelativePos.y;
+        cohesionForce.z = forceZ * normalizedRelativePos.z;
+
+        return cohesionForce;
     }
 
-    // Cohesion intensity function
-    public float GetCohesionIntensity(float r)
+    // NEW: Modified cohesion force calculation with custom d_ref
+    private float GetCohesionForceWithCustomDRef(float r, float custom_d_ref)
     {
         if (float.IsNaN(c) || float.IsInfinity(c)) c = 0;
-        float diff = r - d_ref;
+        if (r0_coh == 0) return 0f;
+
+        float neighbourWeightDerivative = GetNeighbourWeightDerivative(r);
+        float cohesionIntensityVal = GetCohesionIntensityWithCustomDRef(r, custom_d_ref);
+        float neighbourWeight = GetNeighbourWeight(r);
+        float cohesionIntensityDerivative = GetCohesionIntensityDerivativeWithCustomDRef(r, custom_d_ref);
+
+        float r0_coh_safe = (r0_coh == 0) ? 1.0f : r0_coh;
+
+        return (1.0f / r0_coh_safe) * neighbourWeightDerivative * cohesionIntensityVal + 
+               neighbourWeight * cohesionIntensityDerivative;
+    }
+
+    // NEW: Cohesion intensity with custom d_ref
+    private float GetCohesionIntensityWithCustomDRef(float r, float custom_d_ref)
+    {
+        if (float.IsNaN(c) || float.IsInfinity(c)) c = 0;
+        float diff = r - custom_d_ref;
         float term_sqrt_1_val = 1 + Mathf.Pow(diff + c, 2);
         float term_sqrt_2_val = 1 + c * c;
         term_sqrt_1_val = Mathf.Max(0, term_sqrt_1_val);
         term_sqrt_2_val = Mathf.Max(0, term_sqrt_2_val);
-        return ((a + b) / 2.0f) * (Mathf.Sqrt(term_sqrt_1_val) - Mathf.Sqrt(term_sqrt_2_val)) + ((a - b) * diff) / 2.0f;
+        return ((a + b) / 2.0f) * (Mathf.Sqrt(term_sqrt_1_val) - Mathf.Sqrt(term_sqrt_2_val)) + 
+               ((a - b) * diff) / 2.0f;
     }
 
-    // Derivative of cohesion intensity function
-    float GetCohesionIntensityDerivative(float r)
+    // NEW: Cohesion intensity derivative with custom d_ref
+    private float GetCohesionIntensityDerivativeWithCustomDRef(float r, float custom_d_ref)
     {
         if (float.IsNaN(c) || float.IsInfinity(c)) c = 0;
-        float diff = r - d_ref;
+        float diff = r - custom_d_ref;
         float denominator_val = 1 + Mathf.Pow(diff + c, 2);
         if (denominator_val <= 0) return (a - b) / 2.0f;
         return ((a + b) / 2.0f) * (diff + c) / Mathf.Sqrt(denominator_val) + (a - b) / 2.0f;
     }
+
+    // Keep original methods for compatibility
+    public float GetCohesionForce(float r)
+    {
+        return GetCohesionForceWithCustomDRef(r, d_ref / scaleFactor);
+    }
+
+    public float GetCohesionIntensity(float r)
+    {
+        return GetCohesionIntensityWithCustomDRef(r, d_ref / scaleFactor);
+    }
+
+    float GetCohesionIntensityDerivative(float r)
+    {
+        return GetCohesionIntensityDerivativeWithCustomDRef(r, d_ref / scaleFactor);
+    }
     
-    // Neighbor weight function
     public float GetNeighbourWeight(float r)
     {
         if (r0_coh == 0) return 0f;
@@ -259,7 +273,6 @@ public class OlfatiSaber : MonoBehaviour
         return 0.0f;
     }
 
-    // Derivative of neighbor weight function
     float GetNeighbourWeightDerivative(float r)
     {
         if (r0_coh == 0) return 0f;

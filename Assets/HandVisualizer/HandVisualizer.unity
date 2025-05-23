@@ -253,7 +253,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2699141731812529971, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: dronesAlongY
-      value: 1
+      value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 2699141731812529971, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: dronesAlongZ
@@ -261,7 +261,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: a
-      value: 1.56
+      value: 1.06
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: b
@@ -273,7 +273,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: d_ref
-      value: 1.25
+      value: 0.5
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: r0_coh
@@ -281,7 +281,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: swarmAlgorithm
-      value: 0
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
+      propertyPath: handDistanceScaleFactor
+      value: 0.001
       objectReference: {fileID: 0}
     - target: {fileID: 3537119850083185486, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: m_Enabled
@@ -302,6 +306,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 1335436841683177830, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1574879721}
+    - targetCorrespondingSourceObject: {fileID: 1335436841683177830, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1574879727}
   m_SourcePrefab: {fileID: 100100000, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
 --- !u!1001 &686316607
 PrefabInstance:
@@ -444,6 +451,27 @@ MonoBehaviour:
   separationWeights: {x: 1, y: 1, z: 1}
   sendInterval: 0.1
   swarm: []
+--- !u!114 &1574879727
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1574879715}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5ceea96ebdd4a43a2bceb89b3a2de3da, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  olfatiSaber: {fileID: 0}
+  textureWidth: 900
+  textureHeight: 400
+  maxDistance: 30
+  minDistance: 0
+  xTickCount: 5
+  yTickCount: 5
+  plotType: 0
+  forceRange: 10
 --- !u!1 &2005380513 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 115333503712420897, guid: 2224bf5a292ac2b46b5859708b5af65f, type: 3}
