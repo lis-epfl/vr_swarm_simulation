@@ -32,6 +32,8 @@ public class SwarmManager : MonoBehaviour
     public float scaleFactor = 10.0f;
     public float cohesionMultiplier = 2.0f;
 
+    public float handDistanceScaleFactor = 1.0f;
+
     public enum AttitudeControl
     {
         NONE,
@@ -42,6 +44,9 @@ public class SwarmManager : MonoBehaviour
     public AttitudeControl attitudeControlType;
     public int numNeighbours = 5;
     public int numDimensions = 3;
+
+    [Header("Velocity Control")]
+    public float filterCoefficient = 0.1f;
 
 
     public delegate void OnSwarmParamsChanged();
@@ -78,14 +83,18 @@ public class SwarmManager : MonoBehaviour
     public float GetDelta() => delta;
     public float GetA() => a;
     public float GetB() => b;
-    public float GetC() => (b-a) / (2 * Mathf.Sqrt(a*b));
+    public float GetC() => (b - a) / (2 * Mathf.Sqrt(a * b));
     public float GetGamma() => gamma;
     public float GetCVM() => c_vm;
     public float getScaleFactor() => scaleFactor;
     public float GetCohesionMultiplier() => cohesionMultiplier;
+    public float GetHandDistanceScaleFactor() => handDistanceScaleFactor;
 
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;
     public int GetNumDimensions() => numDimensions;
+
+    // Getters for the velocity control
+    public float GetFilterCoefficient() => filterCoefficient;
 
 }
