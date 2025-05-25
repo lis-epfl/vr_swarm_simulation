@@ -171,7 +171,7 @@ public class swarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.scaleFactor = swarmManager.getScaleFactor();
             olfatiSaberAlgorithm.cohesionMultiplier = swarmManager.GetCohesionMultiplier();
             olfatiSaberAlgorithm.handDistanceScaleFactor = swarmManager.GetHandDistanceScaleFactor();
-            olfatiSaberAlgorithm.velocityProportionFactor = swarmManager.GetVelocityProportionFactor();
+            //olfatiSaberAlgorithm.velocityProportionFactor = swarmManager.GetVelocityProportionFactor();
 
         }
     }

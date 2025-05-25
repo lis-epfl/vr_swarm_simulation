@@ -165,8 +165,8 @@ public class OlfatiSaber : MonoBehaviour
             // Debug output for one drone
             if (this.droneName == "Drone 0")
             {
-                Debug.Log($"Hand factors - Length: {lengthFactor:F2}, Width: {widthFactor:F2}");
-                Debug.Log($"d_ref distances - X: {d_ref_x:F2}, Y: {d_ref_y:F2}, Z: {d_ref_z:F2}");
+                //Debug.Log($"Hand factors - Length: {lengthFactor:F2}, Width: {widthFactor:F2}");
+                //Debug.Log($"d_ref distances - X: {d_ref_x:F2}, Y: {d_ref_y:F2}, Z: {d_ref_z:F2}");
             }
         }
         else

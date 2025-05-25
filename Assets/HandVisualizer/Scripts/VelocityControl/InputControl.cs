@@ -13,7 +13,7 @@ public class InputControl : MonoBehaviour {
     private float abs_height = 1;
 
     [Header("Hand Control Settings")]
-    public float velocityScale = 20.0f; // 5 m/s at 25cm distance = 20 ratio
+    public float velocityScale = 40.0f; // 5 m/s at 25cm distance = 20 ratio
     public float maxVelocity = 10.0f; // Maximum velocity in m/s
     
     // Calibration state
@@ -178,8 +178,8 @@ public class InputControl : MonoBehaviour {
         // Debug output (only occasionally to avoid spam)
         if (Time.fixedTime % 0.5f < Time.fixedDeltaTime) // Every 0.5 seconds
         {
-            Debug.Log($"Hand displacement: {displacement.magnitude:F3}m, " +
-                     $"Velocity: ({targetVelocity.x:F2}, {targetVelocity.y:F2}, {targetVelocity.z:F2}) m/s");
+            //Debug.Log($"Hand displacement: {displacement.magnitude:F3}m, " +
+                     //$"Velocity: ({targetVelocity.x:F2}, {targetVelocity.y:F2}, {targetVelocity.z:F2}) m/s");
         }
     }
 
