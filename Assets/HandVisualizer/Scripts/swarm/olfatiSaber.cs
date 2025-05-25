@@ -158,9 +158,11 @@ public class OlfatiSaber : MonoBehaviour
 
             // Update reference distances based on hand orientation and scaling
             // X and Y axes scale with width factor, Z axis scales with length factor
-            d_ref_x = d_ref * widthFactor * handDistanceScaleFactor;
-            d_ref_y = d_ref * widthFactor * handDistanceScaleFactor;
+            d_ref_x = d_ref * widthFactor * handDistanceScaleFactor - 0.3f;
+            d_ref_y = d_ref * widthFactor * handDistanceScaleFactor - 0.3f;
             d_ref_z = d_ref * lengthFactor * handDistanceScaleFactor;
+
+            Debug.Log($"Drone {droneName} - d_ref_x: {d_ref_x:F2}, d_ref_y: {d_ref_y:F2}, d_ref_z: {d_ref_z:F2}");
 
             // Debug output for one drone
             if (this.droneName == "Drone 0")
