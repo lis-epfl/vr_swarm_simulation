@@ -6,6 +6,7 @@ public class movePlayer : MonoBehaviour
 {
     // Reference to the camera GameObject that the player should follow.
     public GameObject swarmFollowCamera;
+
     
     private bool hasSetInitialRotation = false;
 
@@ -60,6 +61,7 @@ public class movePlayer : MonoBehaviour
                 if (directionToSwarm.magnitude > 0.1f)
                 {
                     transform.rotation = Quaternion.LookRotation(directionToSwarm.normalized);
+                    //directionForEllipsoid = transform.rotation.eulerAngles;
                     hasSetInitialRotation = true;
                 }
             }

@@ -69,19 +69,19 @@ public class InputControl : MonoBehaviour {
         // Check for C key press to start calibration
         if (Input.GetKeyDown(KeyCode.C) && !isCalibrating)
         {
-            StartCalibration();
+            StartCoroutine(CalibrationDelayRoutine());
         }
 
         // Handle calibration countdown
         if (isCalibrating)
         {
             calibrationTimer += Time.fixedDeltaTime;
-            
+
             if (calibrationTimer >= 1.0f) // Every second
             {
                 calibrationTimer = 0f;
                 calibrationCountdown--;
-                
+
                 if (calibrationCountdown > 0)
                 {
                     Debug.Log($"Calibration countdown: {calibrationCountdown}");
@@ -92,6 +92,14 @@ public class InputControl : MonoBehaviour {
                 }
             }
         }
+    }
+
+    // Add this coroutine for the 2 seconds wait
+    private System.Collections.IEnumerator CalibrationDelayRoutine()
+    {
+        Debug.Log("Calibration will start in 2 seconds...");
+        yield return new WaitForSeconds(2f);
+        StartCalibration();
     }
 
     private void StartCalibration()
