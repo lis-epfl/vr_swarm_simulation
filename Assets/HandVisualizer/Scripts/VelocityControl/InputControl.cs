@@ -5,16 +5,22 @@ using UnityEngine.XR.Hands.Samples.VisualizerSample; // Add this for HandProcess
 
 public class InputControl : MonoBehaviour {
 
-    public VelocityControl vc;
-    public OlfatiSaber olfatiSaber;
+    public VelocityControl vc; // Assign a representative drone's VelocityControl component
+    public OlfatiSaber olfatiSaber; // Assign a representative drone's OlfatiSaber component
 
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
     private float abs_height = 1;
 
+    [Header("Calibration Settings")]
+    public bool useAutomaticCalibrationPoint = true; // Set to true for automatic calibration
+    public Transform playerViewpointTransform; // Assign player's viewpoint transform (e.g., Main Camera or Player GameObject) for automatic calibration
+
     [Header("Hand Control Settings")]
-    public float velocityScale = 40.0f; // 5 m/s at 25cm distance = 20 ratio
+    public float velocityScale = 30.0f; // User's value
     public float maxVelocity = 10.0f; // Maximum velocity in m/s
+    public float yawRateScale = 0.5f; // Sensitivity for yaw control (degrees of hand rotation to degrees/sec of yaw rate)
+    public float handDeadZoneRadius = 0.05f; // 5cm radius for the dead zone (10cm diameter)
     
     // Calibration state
     private bool isCalibrated = false;
@@ -23,29 +29,124 @@ public class InputControl : MonoBehaviour {
     private float calibrationTimer = 0f;
     private int calibrationCountdown = 3;
 
+    // Y-axis safety
+    private float initialCalibratedYPosition;
+    private bool isYPositionInitialized = false;
+    public float yRecoverySpeed = 0.3f; // Speed to return to initialY if below
+    public float yDeadZone = 0.05f;     // Small zone around initialY to consider "at" initialY
+
+    // Palm angle for Yaw - REMOVED CALIBRATION FIELDS
+    // private float initialPalmLineAngleWorld; // REMOVED
+    // private bool isPalmAngleCalibrated = false; // REMOVED
+
+
     // Use this for initialization
     void Start()
     {
-        
+        // Auto-assign dependencies if not set in Inspector
+        if (vc == null)
+        {
+            vc = FindObjectOfType<VelocityControl>();
+            if (vc == null)
+            {
+                Debug.LogError("InputControl: VelocityControl (vc) could not be found automatically. Please assign it or ensure one exists in the scene.");
+            }
+        }
+        if (olfatiSaber == null)
+        {
+            olfatiSaber = FindObjectOfType<OlfatiSaber>();
+            if (olfatiSaber == null)
+            {
+                Debug.LogError("InputControl: OlfatiSaber could not be found automatically. Please assign it or ensure one exists in the scene.");
+            }
+        }
+        if (playerViewpointTransform == null)
+        {
+            if (Camera.main != null)
+            {
+                playerViewpointTransform = Camera.main.transform;
+            }
+            else
+            {
+                Debug.LogError("InputControl: Main Camera could not be found automatically for playerViewpointTransform. Please assign it or ensure a Camera is tagged 'MainCamera'.");
+            }
+        }
+
+        // Ensure vc and olfatiSaber are assigned, otherwise log error
+        if (vc == null)
+        {
+            Debug.LogError("VelocityControl (vc) is not assigned in InputControl. Hand control and Y-axis safety might not work correctly.");
+        }
+        if (olfatiSaber == null)
+        {
+            Debug.LogError("OlfatiSaber is not assigned in InputControl. Hand control might not work correctly.");
+        }
+
+        if (useAutomaticCalibrationPoint)
+        {
+            PerformAutomaticCalibration();
+        }
     }
     
+    void PerformAutomaticCalibration()
+    {
+        if (playerViewpointTransform == null)
+        {
+            Debug.LogError("PlayerViewpointTransform not assigned in InputControl for automatic calibration. Automatic calibration failed.");
+            return;
+        }
+        if (vc == null)
+        {
+            Debug.LogError("VelocityControl (vc) not assigned. Cannot set initial Y position for automatic calibration. Automatic calibration failed.");
+            return;
+        }
+
+        // Calculate calibration point 30cm in front and 30cm below the player's viewpoint
+        calibrationCenterPoint = playerViewpointTransform.position + playerViewpointTransform.forward * 0.3f - playerViewpointTransform.up * 0.3f;
+        isCalibrated = true; // Mark as calibrated
+
+        // Initialize Y position safety floor based on a representative drone's current height
+        initialCalibratedYPosition = vc.transform.position.y;
+        isYPositionInitialized = true;
+
+        Debug.Log($"Automatic calibration complete! Center point set to: {calibrationCenterPoint}. Initial Y swarm position set to: {initialCalibratedYPosition:F2}m");
+        
+        // Calibrate palm angle for yaw if hands are tracked - REMOVED YAW CALIBRATION LOGIC
+        // if (HandProcessor.ArePalmsTracked) { // REMOVED
+        //     Vector3 palmConnection = HandProcessor.RightPalmPosition - HandProcessor.LeftPalmPosition; // REMOVED
+        //     initialPalmLineAngleWorld = Mathf.Atan2(palmConnection.z, palmConnection.x) * Mathf.Rad2Deg; // REMOVED
+        //     isPalmAngleCalibrated = true; // REMOVED
+        //     Debug.Log($"Automatic calibration: Initial palm line angle for yaw set to {initialPalmLineAngleWorld:F2} degrees."); // REMOVED
+        // } else { // REMOVED
+        //     isPalmAngleCalibrated = false; // REMOVED
+        //     Debug.LogWarning("Automatic calibration: Hands not tracked, palm angle for yaw not calibrated. Yaw control via hand angle will be disabled until manual calibration with hands."); // REMOVED
+        // } // REMOVED
+        Debug.Log("Swarm can now be controlled by hand movement. Yaw control is active if hands are tracked (no calibration needed).");
+    }
+
     // Update is called once per frame
     void FixedUpdate () {
         
-        // Handle calibration input
-        HandleCalibration();
+        // Handle 'C' key calibration only if not using automatic calibration and not already calibrated by it
+        if (!useAutomaticCalibrationPoint)
+        {
+            HandleCalibration();
+        }
         
         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS)
         {
             // Default velocity control for Reynolds
-            vc.desired_vx = 0.0f; //Input.GetAxisRaw ("Pitch")*4.0f;
-            vc.desired_vy = 0.0f; //Input.GetAxisRaw ("Roll")*4.0f;
-            vc.desired_yaw = 0.0f; //Input.GetAxisRaw ("Yaw")*0.5f;
-            abs_height += 0.0f; //Input.GetAxisRaw("Throttle") * 0.1f;
-            // vc.desired_height = abs_height;
+            if (vc != null)
+            {
+                vc.desired_vx = 0.0f; 
+                vc.desired_vy = 0.0f; 
+                vc.desired_yaw = 0.0f;
+            }
         }
         else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
         {
+            if (olfatiSaber == null) return; // Do nothing if olfatiSaber script is not assigned
+
             // Hand-controlled Olfati-Saber velocity control
             if (isCalibrated && HandProcessor.ArePalmsTracked)
             {
@@ -55,24 +156,24 @@ public class InputControl : MonoBehaviour {
             {
                 // Default to zero velocity if not calibrated or hands not tracked
                 olfatiSaber.desired_vx = 0.0f;
-                olfatiSaber.desired_vy = 0.0f;
-                olfatiSaber.desired_vz = 0.0f; // Note: This maps to world Y in your system
+                olfatiSaber.desired_vy = 0.0f; // Corresponds to World Z (via -desired_vy in OlfatiSaber)
+                olfatiSaber.desired_vz = 0.0f; // Corresponds to World Y
+                olfatiSaber.desired_yaw = 0.0f; // No yaw rate
             }
-            
-            olfatiSaber.desired_yaw = 0.0f; //Input.GetAxisRaw ("Yaw")*0.5f;
-            // Don't override desired_height here - let it be controlled by the drone's height controller
+            // The global olfatiSaber.desired_yaw = 0.0f; line that was here previously is removed
+            // as yaw is now actively controlled or zeroed within the conditions above.
         }
     }
 
     private void HandleCalibration()
     {
-        // Check for C key press to start calibration
-        if (Input.GetKeyDown(KeyCode.C) && !isCalibrating)
+        // Check for C key press to start calibration if manual mode is active
+        if (!useAutomaticCalibrationPoint && Input.GetKeyDown(KeyCode.C) && !isCalibrating && !isCalibrated)
         {
             StartCoroutine(CalibrationDelayRoutine());
         }
 
-        // Handle calibration countdown
+        // Handle calibration countdown (this part is shared if manual calibration was initiated
         if (isCalibrating)
         {
             calibrationTimer += Time.fixedDeltaTime;
@@ -94,7 +195,6 @@ public class InputControl : MonoBehaviour {
         }
     }
 
-    // Add this coroutine for the 2 seconds wait
     private System.Collections.IEnumerator CalibrationDelayRoutine()
     {
         Debug.Log("Calibration will start in 2 seconds...");
@@ -102,7 +202,7 @@ public class InputControl : MonoBehaviour {
         StartCalibration();
     }
 
-    private void StartCalibration()
+    private void StartCalibration() // This is for manual 'C' key calibration
     {
         if (!HandProcessor.ArePalmsTracked)
         {
@@ -112,6 +212,8 @@ public class InputControl : MonoBehaviour {
 
         isCalibrating = true;
         isCalibrated = false;
+        isYPositionInitialized = false; // Reset Y position initialization
+        // isPalmAngleCalibrated = false; // REMOVED Reset palm angle calibration
         calibrationCountdown = 3;
         calibrationTimer = 0f;
         
@@ -119,7 +221,7 @@ public class InputControl : MonoBehaviour {
         Debug.Log($"Calibration countdown: {calibrationCountdown}");
     }
 
-    private void CompleteCalibration()
+    private void CompleteCalibration() // This is for manual 'C' key calibration
     {
         if (!HandProcessor.ArePalmsTracked)
         {
@@ -135,20 +237,40 @@ public class InputControl : MonoBehaviour {
         
         isCalibrating = false;
         isCalibrated = true;
+
+        // Initialize Y position safety floor
+        if (vc != null)
+        {
+            initialCalibratedYPosition = vc.transform.position.y;
+            isYPositionInitialized = true;
+            Debug.Log($"Manual calibration complete! Center point: {calibrationCenterPoint}. Initial Y swarm position set to: {initialCalibratedYPosition:F2}m");
+        }
+        else
+        {
+            Debug.LogError("VelocityControl (vc) not assigned. Cannot set initial Y position for safety floor.");
+            isYPositionInitialized = false;
+            Debug.LogWarning("Calibration complete, but Y-axis safety floor is NOT active.");
+        }
+
+        // Calibrate palm angle for yaw - REMOVED YAW CALIBRATION
+        // Vector3 palmConnection = HandProcessor.RightPalmPosition - HandProcessor.LeftPalmPosition; // REMOVED
+        // initialPalmLineAngleWorld = Mathf.Atan2(palmConnection.z, palmConnection.x) * Mathf.Rad2Deg; // REMOVED
+        // isPalmAngleCalibrated = true; // REMOVED
+        // Debug.Log($"Manual calibration: Initial palm line angle for yaw set to {initialPalmLineAngleWorld:F2} degrees."); // REMOVED
         
-        Debug.Log("Calibration complete!");
-        Debug.Log($"Center point set at: {calibrationCenterPoint}");
-        Debug.Log("Swarm can now be controlled by hand movement.");
+        Debug.Log("Swarm can now be controlled by hand movement. Yaw control is active if hands are tracked (no calibration needed).");
     }
 
     private void UpdateSwarmVelocityFromHands()
     {
-        if (!HandProcessor.ArePalmsTracked)
+        if (olfatiSaber == null) return;
+
+        if (!HandProcessor.ArePalmsTracked) 
         {
-            // If hands are lost, stop the swarm
             olfatiSaber.desired_vx = 0.0f;
-            olfatiSaber.desired_vy = 0.0f;
+            olfatiSaber.desired_vy = 0.0f; 
             olfatiSaber.desired_vz = 0.0f;
+            olfatiSaber.desired_yaw = 0.0f;
             return;
         }
 
@@ -157,37 +279,68 @@ public class InputControl : MonoBehaviour {
         Vector3 rightPalmPos = HandProcessor.RightPalmPosition;
         Vector3 currentMidpoint = (leftPalmPos + rightPalmPos) * 0.5f;
 
-        // Calculate displacement from calibration center
+        // Calculate displacement from calibration center (this is in world coordinates)
         Vector3 displacement = currentMidpoint - calibrationCenterPoint;
 
-        // Calculate velocity magnitude based on displacement
-        float displacementMagnitude = displacement.magnitude;
-        float velocityMagnitude = displacementMagnitude * velocityScale;
-        
-        // Clamp to maximum velocity
-        velocityMagnitude = Mathf.Min(velocityMagnitude, maxVelocity);
-
-        // Calculate velocity direction (normalized displacement)
-        Vector3 velocityDirection = Vector3.zero;
-        if (displacementMagnitude > 0.001f) // Avoid division by zero
+        // Check if inside the dead zone for translational movement
+        if (displacement.magnitude <= handDeadZoneRadius)
         {
-            velocityDirection = displacement.normalized;
+            olfatiSaber.desired_vx = 0.0f;
+            olfatiSaber.desired_vy = 0.0f;
+            olfatiSaber.desired_vz = 0.0f;
+        }
+        else
+        {
+            // Calculate target velocity based on displacement (outside dead zone)
+            // We can scale the displacement from the edge of the deadzone, or just use the full displacement
+            // For simplicity, using full displacement and then scaling.
+            Vector3 targetVelocity = displacement * velocityScale;
+
+            if (targetVelocity.magnitude > maxVelocity)
+            {
+                targetVelocity = targetVelocity.normalized * maxVelocity;
+            }
+            
+            // Apply to Olfati-Saber desired velocities
+            // Hand Z movement (targetVelocity.z) controls OlfatiSaber's local X
+            olfatiSaber.desired_vx = targetVelocity.z;
+            // Hand X movement (targetVelocity.x) controls OlfatiSaber's local Z (via desired_vy)
+            olfatiSaber.desired_vy = targetVelocity.x; 
+
+            // Y-axis (World Y / Up-Down) control with safety floor
+            if (isYPositionInitialized && vc != null)
+            {
+                float hand_commanded_world_y_velocity = targetVelocity.y; // Hand Y displacement controls OlfatiSaber's local Y
+                float current_world_y = vc.transform.position.y;
+
+                if (current_world_y < initialCalibratedYPosition - yDeadZone) {
+                    olfatiSaber.desired_vz = Mathf.Max(hand_commanded_world_y_velocity, yRecoverySpeed);
+                } else if (current_world_y <= initialCalibratedYPosition + yDeadZone) {
+                    olfatiSaber.desired_vz = Mathf.Max(0.0f, hand_commanded_world_y_velocity);
+                } else {
+                    olfatiSaber.desired_vz = hand_commanded_world_y_velocity;
+                }
+            }
+            else
+            {
+                olfatiSaber.desired_vz = 0.0f;
+            }
         }
 
-        // Calculate final velocity vector
-        Vector3 targetVelocity = velocityDirection * velocityMagnitude;
+        // Yaw control based on palm line angle (no calibration, always active if hands tracked)
+        Vector3 currentPalmConnection = HandProcessor.RightPalmPosition - HandProcessor.LeftPalmPosition;
+        // Calculate angle of the palm connection line relative to the World Z-axis in the XZ plane.
+        // Atan2(x, z) gives angle where 0 is along +Z, positive towards +X.
+        float currentPalmAngleRelativeToWorldZ_rad = Mathf.Atan2(currentPalmConnection.x, currentPalmConnection.z);
+        float currentPalmAngleRelativeToWorldZ_deg = currentPalmAngleRelativeToWorldZ_rad * Mathf.Rad2Deg;
+        
+        olfatiSaber.desired_yaw = currentPalmAngleRelativeToWorldZ_deg * yawRateScale;
 
-        // Apply to Olfati-Saber desired velocities
-        // Note: Your system maps desired_vy to world Z and desired_vz to world Y
-        olfatiSaber.desired_vx = targetVelocity.x;
-        olfatiSaber.desired_vz = targetVelocity.z; // World Z mapped to desired_vy
-        olfatiSaber.desired_vy = 0.0f; // Keep vertical component zero for stability
 
-        // Debug output (only occasionally to avoid spam)
-        if (Time.fixedTime % 0.5f < Time.fixedDeltaTime) // Every 0.5 seconds
+        // Debug output (optional)
+        if (Time.fixedTime % 0.5f < Time.fixedDeltaTime) 
         {
-            //Debug.Log($"Hand displacement: {displacement.magnitude:F3}m, " +
-                     //$"Velocity: ({targetVelocity.x:F2}, {targetVelocity.y:F2}, {targetVelocity.z:F2}) m/s");
+            // Debug.Log($"Hand Disp:({displacement.x:F2},{displacement.y:F2},{displacement.z:F2}), TargetVel:({targetVelocity.x:F2},{targetVelocity.y:F2},{targetVelocity.z:F2}) -> OS_desiredV:({olfatiSaber.desired_vx:F2}, {olfatiSaber.desired_vy:F2}, {olfatiSaber.desired_vz:F2}), OS_YawRate: {olfatiSaber.desired_yaw:F2}");
         }
     }
 
@@ -196,8 +349,10 @@ public class InputControl : MonoBehaviour {
     {
         isCalibrated = false;
         isCalibrating = false;
+        isYPositionInitialized = false;
+        // isPalmAngleCalibrated = false; // REMOVED
         calibrationCenterPoint = Vector3.zero;
-        Debug.Log("Calibration reset.");
+        Debug.Log("Calibration reset. Y-axis safety floor deactivated until next calibration. Automatic calibration will re-run if enabled and scene reloads/script re-enables, or use 'C' for manual. Yaw control remains active if hands are tracked.");
     }
 
     // Public method to check calibration status

@@ -505,7 +505,6 @@ MonoBehaviour:
   c_vm: 1
   scaleFactor: 10
   cohesionMultiplier: 2
-  velocityProportionFactor: 100
   baselineLength: 0.5
   baselineWidth: 0.1
   handDistanceScaleFactor: 0.001
@@ -536,7 +535,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 42db5ecc8de4741dab15ec0daba7a499, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmFollowCamera: {fileID: 0}
 --- !u!1001 &3691194254872229918
 PrefabInstance:
   m_ObjectHideFlags: 0
