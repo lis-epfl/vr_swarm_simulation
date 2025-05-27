@@ -12,6 +12,9 @@ public class ReynoldsAxisWeightsUdpData
     public string algorithmType = "Reynolds";
     public Vector3 cohesionWeights; // X, Y, Z cohesion weights
     public Vector3 separationWeights; // X, Y, Z separation weights
+    public float swarm_vx; // Commanded swarm velocity X
+    public float swarm_vy; // Commanded swarm velocity Y (vertical)
+    public float swarm_vz; // Commanded swarm velocity Z
 }
 
 // Data structure for Olfati-Saber axis-specific reference distances to be sent via UDP
@@ -23,6 +26,9 @@ public class OlfatiSaberAxisDistancesUdpData
     public float d_ref_y; // Y axis reference distance
     public float d_ref_z; // Z axis reference distance
     public float baseD_ref; // Base reference distance
+    public float swarm_vx; // Commanded swarm velocity X
+    public float swarm_vy; // Commanded swarm velocity Y (vertical)
+    public float swarm_vz; // Commanded swarm velocity Z
 }
 
 public class UDPConnection : MonoBehaviour
@@ -117,12 +123,22 @@ public class UDPConnection : MonoBehaviour
             Debug.LogWarning("UDP_Connection: Reynolds script is not set. Cannot send Reynolds data.");
             return;
         }
+        if (olfatiSaberScript == null) // Also need olfatiSaberScript for desired velocities
+        {
+            Debug.LogWarning("UDP_Connection: OlfatiSaber script is not set. Cannot send desired swarm velocities for Reynolds packet.");
+            // Optionally, send with zero velocities or return
+            // For now, we'll proceed and they'll be zero if olfatiSaberScript is null later
+        }
 
         ReynoldsAxisWeightsUdpData parametersToSend = new ReynoldsAxisWeightsUdpData
         {
             algorithmType = "Reynolds",
             cohesionWeights = reynoldsScript.scaledWorldCohesion,
-            separationWeights = reynoldsScript.scaledWorldSeparation
+            separationWeights = reynoldsScript.scaledWorldSeparation,
+            // Swarm velocities are taken from olfatiSaberScript as InputControl always updates these
+            swarm_vx = olfatiSaberScript != null ? olfatiSaberScript.desired_vx : 0f,
+            swarm_vy = olfatiSaberScript != null ? olfatiSaberScript.desired_vz : 0f, // OlfatiSaber's desired_vz is world Y
+            swarm_vz = olfatiSaberScript != null ? -olfatiSaberScript.desired_vy : 0f // OlfatiSaber's -desired_vy is local Z
         };
 
         string jsonParameters = JsonUtility.ToJson(parametersToSend);
@@ -143,7 +159,10 @@ public class UDPConnection : MonoBehaviour
             d_ref_x = olfatiSaberScript.d_ref_x,
             d_ref_y = olfatiSaberScript.d_ref_y,
             d_ref_z = olfatiSaberScript.d_ref_z,
-            baseD_ref = olfatiSaberScript.d_ref
+            baseD_ref = olfatiSaberScript.d_ref,
+            swarm_vx = olfatiSaberScript.desired_vx,
+            swarm_vy = olfatiSaberScript.desired_vz, // OlfatiSaber's desired_vz is world Y
+            swarm_vz = -olfatiSaberScript.desired_vy  // OlfatiSaber's -desired_vy is local Z
         };
 
         string jsonParameters = JsonUtility.ToJson(parametersToSend);
