@@ -114,7 +114,7 @@ public class OlfatiSaber : MonoBehaviour
         }
 
         swarmInput = velocityMatching + cohesion + obstacle;
-        swarmInput.y = 0.0f; // No vertical swarm input
+        //swarmInput.y = 0.0f; // No vertical swarm input
 
         var vc = GetComponent<VelocityControl>();
         if (vc != null)
