@@ -39,7 +39,7 @@ public class OlfatiSaber : MonoBehaviour
 
     [Header("Migration and Obstacle Avoidance")]
     public float maxMigrationDistance = 10.0f;
-    public float detectionRadius = 5.0f;
+    public float detectionRadius = 7.5.0f;
     public float obstacleAvoidanceForceWeight = 2.0f;
     public float maxAvoidForce = 10.0f;
     public string obstacleTag = "Obstacle";

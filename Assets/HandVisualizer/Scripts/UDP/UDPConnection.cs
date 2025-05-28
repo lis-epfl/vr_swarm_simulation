@@ -12,9 +12,12 @@ using UnityEngine.XR.Hands.Samples.VisualizerSample; // Required for HandProcess
 public class ReynoldsAxisWeightsUdpData
 {
     public string algorithmType = "Reynolds";
-    public Vector3 cohesionWeights; // X,
+    public Vector3 cohesionWeights; // X, Y, Z cohesion weights
+    public Vector3 separationWeights; // X, Y, Z separation weights
+    public float swarm_vx; // Commanded swarm velocity X
     public float swarm_vy; // Commanded swarm velocity Y (vertical)
     public float swarm_vz; // Commanded swarm velocity Z
+    public float desired_yaw; // Commanded swarm yaw
 }
 
 // Data structure for Olfati-Saber axis-specific reference distances to be sent via UDP
@@ -29,6 +32,7 @@ public class OlfatiSaberAxisDistancesUdpData
     public float swarm_vx; // Commanded swarm velocity X
     public float swarm_vy; // Commanded swarm velocity Y (vertical)
     public float swarm_vz; // Commanded swarm velocity Z
+    public float desired_yaw; // Commanded swarm yaw
 }
 
 public class UDPConnection : MonoBehaviour
@@ -87,21 +91,35 @@ public class UDPConnection : MonoBehaviour
 
     void InitializeCsvWriter()
     {
-        csvFilePath = Path.Combine(Application.persistentDataPath, "data_UDP_collection.csv");
+        string baseFileName = "data_UDP_collection";
+        string fileExtension = ".csv";
+        string directoryPath = Application.persistentDataPath;
+        int fileCounter = 0;
+
+        csvFilePath = Path.Combine(directoryPath, baseFileName + fileExtension);
+
+        // Check for existing files and increment counter
+        while (File.Exists(csvFilePath))
+        {
+            fileCounter++;
+            csvFilePath = Path.Combine(directoryPath, baseFileName + fileCounter + fileExtension);
+        }
+        
         try
         {
             // Create or overwrite the file and write the header
-            csvWriter = new StreamWriter(csvFilePath, false); // false to overwrite
+            csvWriter = new StreamWriter(csvFilePath, false); // false to overwrite with the new unique name
             string header = "Timestamp,AlgorithmType," +
                             "LeftPalmPosX,LeftPalmPosY,LeftPalmPosZ," +
                             "RightPalmPosX,RightPalmPosY,RightPalmPosZ," +
                             "WidthFactor,LengthFactor," +
-                            "SwarmVX_Command,SwarmVY_Command,SwarmVZ_Command," + // Common velocity commands
-                            "CohesionWeightX,CohesionWeightY,CohesionWeightZ," + // Reynolds specific
-                            "SeparationWeightX,SeparationWeightY,SeparationWeightZ," + // Reynolds specific
-                            "DRefX,DRefY,DRefZ,BaseDRef"; // Olfati-Saber specific
+                            "SwarmVX_Command,SwarmVY_Command,SwarmVZ_Command," +
+                            "DesiredYaw," + // Added DesiredYaw
+                            "CohesionWeightX,CohesionWeightY,CohesionWeightZ," + 
+                            "SeparationWeightX,SeparationWeightY,SeparationWeightZ," + 
+                            "DRefX,DRefY,DRefZ,BaseDRef"; 
             csvWriter.WriteLine(header);
-            csvWriter.Flush(); // Ensure header is written immediately
+            csvWriter.Flush(); 
             Debug.Log($"UDP_Connection: CSV logging initialized. File at: {csvFilePath}");
         }
         catch (System.Exception e)
@@ -155,12 +173,7 @@ public class UDPConnection : MonoBehaviour
             Debug.LogWarning("UDP_Connection: Reynolds script is not set. Cannot send Reynolds data.");
             return;
         }
-        // olfatiSaberScript is needed for desired velocities and factors
-        // if (olfatiSaberScript == null) 
-        // {
-        //     Debug.LogWarning("UDP_Connection: OlfatiSaber script is not set. Cannot send desired swarm velocities or hand factors for Reynolds packet.");
-        // }
-
+        
         ReynoldsAxisWeightsUdpData parametersToSend = new ReynoldsAxisWeightsUdpData
         {
             algorithmType = "Reynolds",
@@ -168,7 +181,8 @@ public class UDPConnection : MonoBehaviour
             separationWeights = reynoldsScript.scaledWorldSeparation,
             swarm_vx = olfatiSaberScript != null ? olfatiSaberScript.desired_vx : 0f,
             swarm_vy = olfatiSaberScript != null ? olfatiSaberScript.desired_vz : 0f,
-            swarm_vz = olfatiSaberScript != null ? -olfatiSaberScript.desired_vy : 0f
+            swarm_vz = olfatiSaberScript != null ? -olfatiSaberScript.desired_vy : 0f,
+            desired_yaw = olfatiSaberScript != null ? olfatiSaberScript.desired_yaw : 0f // Added desired_yaw
         };
 
         string jsonParameters = JsonUtility.ToJson(parametersToSend);
@@ -182,19 +196,20 @@ public class UDPConnection : MonoBehaviour
             float widthFactor = olfatiSaberScript != null ? olfatiSaberScript.CurrentWidthFactor : 1.0f;
             float lengthFactor = olfatiSaberScript != null ? olfatiSaberScript.CurrentLengthFactor : 1.0f;
 
-            string csvLine = string.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22}",
-                Time.time.ToString("F3"), // Timestamp
+            string csvLine = string.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22},{23}",
+                Time.time.ToString("F3"), 
                 parametersToSend.algorithmType,
                 leftPalmPos.x.ToString("F3"), leftPalmPos.y.ToString("F3"), leftPalmPos.z.ToString("F3"),
                 rightPalmPos.x.ToString("F3"), rightPalmPos.y.ToString("F3"), rightPalmPos.z.ToString("F3"),
                 widthFactor.ToString("F2"),
                 lengthFactor.ToString("F2"),
                 parametersToSend.swarm_vx.ToString("F3"),
-                parametersToSend.swarm_vy.ToString("F3"), // This is world Y / Olfati's desired_vz
-                parametersToSend.swarm_vz.ToString("F3"), // This is Olfati's local Z / -desired_vy
+                parametersToSend.swarm_vy.ToString("F3"), 
+                parametersToSend.swarm_vz.ToString("F3"), 
+                parametersToSend.desired_yaw.ToString("F3"), // Added desired_yaw
                 parametersToSend.cohesionWeights.x.ToString("F3"), parametersToSend.cohesionWeights.y.ToString("F3"), parametersToSend.cohesionWeights.z.ToString("F3"),
                 parametersToSend.separationWeights.x.ToString("F3"), parametersToSend.separationWeights.y.ToString("F3"), parametersToSend.separationWeights.z.ToString("F3"),
-                "N/A", "N/A", "N/A", "N/A" // Olfati-Saber specific fields
+                "N/A", "N/A", "N/A", "N/A" 
             );
             csvWriter.WriteLine(csvLine);
         }
@@ -217,7 +232,8 @@ public class UDPConnection : MonoBehaviour
             baseD_ref = olfatiSaberScript.d_ref,
             swarm_vx = olfatiSaberScript.desired_vx,
             swarm_vy = olfatiSaberScript.desired_vz, 
-            swarm_vz = -olfatiSaberScript.desired_vy
+            swarm_vz = -olfatiSaberScript.desired_vy,
+            desired_yaw = olfatiSaberScript.desired_yaw // Added desired_yaw
         };
 
         string jsonParameters = JsonUtility.ToJson(parametersToSend);
@@ -228,22 +244,22 @@ public class UDPConnection : MonoBehaviour
         {
             Vector3 leftPalmPos = HandProcessor.ArePalmsTracked ? HandProcessor.LeftPalmPosition : Vector3.zero;
             Vector3 rightPalmPos = HandProcessor.ArePalmsTracked ? HandProcessor.RightPalmPosition : Vector3.zero;
-            // Factors are directly from olfatiSaberScript
             float widthFactor = olfatiSaberScript.CurrentWidthFactor;
             float lengthFactor = olfatiSaberScript.CurrentLengthFactor;
 
-            string csvLine = string.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22}",
-                Time.time.ToString("F3"), // Timestamp
+            string csvLine = string.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22},{23}",
+                Time.time.ToString("F3"), 
                 parametersToSend.algorithmType,
                 leftPalmPos.x.ToString("F3"), leftPalmPos.y.ToString("F3"), leftPalmPos.z.ToString("F3"),
                 rightPalmPos.x.ToString("F3"), rightPalmPos.y.ToString("F3"), rightPalmPos.z.ToString("F3"),
                 widthFactor.ToString("F2"),
                 lengthFactor.ToString("F2"),
                 parametersToSend.swarm_vx.ToString("F3"),
-                parametersToSend.swarm_vy.ToString("F3"), // This is world Y / Olfati's desired_vz
-                parametersToSend.swarm_vz.ToString("F3"), // This is Olfati's local Z / -desired_vy
-                "N/A", "N/A", "N/A", // Reynolds specific
-                "N/A", "N/A", "N/A", // Reynolds specific
+                parametersToSend.swarm_vy.ToString("F3"), 
+                parametersToSend.swarm_vz.ToString("F3"), 
+                parametersToSend.desired_yaw.ToString("F3"), // Added desired_yaw
+                "N/A", "N/A", "N/A", 
+                "N/A", "N/A", "N/A", 
                 parametersToSend.d_ref_x.ToString("F3"), parametersToSend.d_ref_y.ToString("F3"), parametersToSend.d_ref_z.ToString("F3"), parametersToSend.baseD_ref.ToString("F3")
             );
             csvWriter.WriteLine(csvLine);
