@@ -17,7 +17,7 @@ public class InputControl : MonoBehaviour {
     public Transform playerViewpointTransform; // Assign player's viewpoint transform (e.g., Main Camera or Player GameObject) for automatic calibration
 
     [Header("Hand Control Settings")]
-    public float velocityScale = 30.0f; // User's value
+    public float velocityScale = 5.0f; // User's value
     public float maxVelocity = 10.0f; // Maximum velocity in m/s
     public float yawRateScale = 0.5f; // Sensitivity for yaw control (degrees of hand rotation to degrees/sec of yaw rate)
     public float handDeadZoneRadius = 0.05f; // 5cm radius for the dead zone (10cm diameter)
@@ -102,7 +102,7 @@ public class InputControl : MonoBehaviour {
         }
 
         // Calculate calibration point 30cm in front and 30cm below the player's viewpoint
-        calibrationCenterPoint = playerViewpointTransform.position + playerViewpointTransform.forward * 0.3f - playerViewpointTransform.up * 0.3f;
+        calibrationCenterPoint = playerViewpointTransform.position + playerViewpointTransform.forward * 0.2f - playerViewpointTransform.up * 0.3f;
         isCalibrated = true; // Mark as calibrated
 
         // Initialize Y position safety floor based on a representative drone's current height

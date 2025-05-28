@@ -289,7 +289,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3416373887009054178, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: velocityProportionFactor
-      value: 50
+      value: 10
       objectReference: {fileID: 0}
     - target: {fileID: 3537119850083185486, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: m_Enabled
