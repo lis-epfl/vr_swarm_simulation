@@ -56,6 +56,10 @@ public class OlfatiSaber : MonoBehaviour
     private Vector3 swarmInput = Vector3.zero;
     private string droneName;
 
+    // Public properties to expose calculated factors
+    public float CurrentWidthFactor { get; private set; } = 1.0f;
+    public float CurrentLengthFactor { get; private set; } = 1.0f;
+
     void Start()
     {
         if (transform.parent != null)
@@ -81,47 +85,68 @@ public class OlfatiSaber : MonoBehaviour
         if (rb == null) return;
         Vector3 velocity = rb.velocity;
 
-        // Calculate velocity matching
-        Vector3 desired_velocity_for_vm = new Vector3(desired_vx, desired_vz, -desired_vy);
-        velocityMatching = c_vm * (desired_velocity_for_vm - velocity);
+        // --- 1. Rotate Target Velocity for Velocity Matching ---
+        // desired_vx is along swarm's local X (side), desired_vz is swarm's local Y (up/down), -desired_vy is swarm's local Z (forward)
+        Vector3 localDesiredVelocityForVM = new Vector3(desired_vx, desired_vz, -desired_vy); 
+        Quaternion swarmYawRotation = Quaternion.Euler(0, desired_yaw, 0); // Rotation based on hand yaw input
+        Vector3 worldDesiredVelocityForVM = swarmYawRotation * localDesiredVelocityForVM;
+        velocityMatching = c_vm * (worldDesiredVelocityForVM - velocity);
 
-        // Update reference distances based on hand tracking
+        // Update reference distances based on hand tracking (magnitudes of d_ref_x,y,z)
         UpdateReferenceDistancesFromHands();
 
-        // Calculate cohesion forces using axis-specific reference distances
+        // Calculate cohesion forces using axis-specific reference distances in the swarm's yawed frame
         if (swarm != null)
         {
+            Quaternion inverseSwarmYawRotation = Quaternion.Inverse(swarmYawRotation);
             foreach (GameObject neighbourGO in swarm)
             {
                 if (neighbourGO == null) continue;
 
-                Transform neighbourChildTransform = neighbourGO.transform.Find("DroneParent");
-                if (neighbourChildTransform == null) continue;
-                GameObject neighbourChild = neighbourChildTransform.gameObject;
+                // Assuming OlfatiSaber script is on the same GameObject as the Rigidbody and represents the drone's center
+                // If DroneParent is a child visual, use neighbourGO.transform.position if OlfatiSaber is on the root drone object.
+                // For consistency, let's assume OlfatiSaber is on the object whose position matters for swarming.
+                // The original code used neighbourGO.transform.Find("DroneParent").gameObject.transform.position
+                // Let's stick to that if "DroneParent" is the intended swarming agent center.
+                // If OlfatiSaber is on "DroneParent", then neighbourGO is the "DroneParent".
+                // If OlfatiSaber is on the root, and "DroneParent" is a child, then we need the "DroneParent" of the neighbour.
+
+                GameObject neighbourSwarmAgent = neighbourGO; // Assuming OlfatiSaber is on the swarming agent itself
+                // If your setup requires finding "DroneParent" for each neighbour:
+                // Transform neighbourChildTransform = neighbourGO.transform.Find("DroneParent");
+                // if (neighbourChildTransform == null) continue;
+                // GameObject neighbourSwarmAgent = neighbourChildTransform.gameObject;
             
-                if (neighbourChild == gameObject) continue;
+                if (neighbourSwarmAgent == gameObject) continue; // Don't interact with self
 
-                Vector3 neighbourPosition = neighbourChild.transform.position;
-                Vector3 relativePosition = neighbourPosition - position;
-                float distance = relativePosition.magnitude;
+                Vector3 neighbourPosition = neighbourSwarmAgent.transform.position;
+                Vector3 relativePositionWorld = neighbourPosition - position; // In world coordinates
+                float worldDistance = relativePositionWorld.magnitude;
 
-                if (distance < 0.001f) distance = 0.001f;
+                if (worldDistance < 0.001f) worldDistance = 0.001f;
 
-                // Calculate cohesion force for each axis separately
-                Vector3 individualCohesionForce = GetAxisSpecificCohesionForce(relativePosition, distance);
-                cohesion += individualCohesionForce;
+                // --- 2. Transform relative position to swarm's yawed frame ---
+                Vector3 relativePositionInSwarmFrame = inverseSwarmYawRotation * relativePositionWorld;
+
+                // --- 3. Calculate cohesion force in swarm's yawed frame ---
+                // GetAxisSpecificCohesionForce now expects relativePositionInSwarmFrame
+                Vector3 cohesionForceInSwarmFrame = GetAxisSpecificCohesionForce(relativePositionInSwarmFrame, worldDistance);
+                
+                // --- 4. Transform cohesion force back to world space ---
+                Vector3 cohesionForceWorld = swarmYawRotation * cohesionForceInSwarmFrame;
+                cohesion += cohesionForceWorld;
             }
         }
 
         swarmInput = velocityMatching + cohesion + obstacle;
-        //swarmInput.y = 0.0f; // No vertical swarm input
+        // swarmInput.y = 0.0f; // Original code had this, re-evaluate if vertical swarm control is intended through OlfatiSaber forces
 
         var vc = GetComponent<VelocityControl>();
         if (vc != null)
         {
             vc.swarm_vx = swarmInput.x;
-            vc.swarm_vy = swarmInput.y;
-            vc.swarm_vz = swarmInput.z;
+            vc.swarm_vy = swarmInput.y; // This is world Y for the swarm input
+            vc.swarm_vz = swarmInput.z; // This is world Z for the swarm input
         }
     }
 
@@ -153,6 +178,10 @@ public class OlfatiSaber : MonoBehaviour
             lengthFactor = Mathf.Clamp(lengthFactor, 0.1f, 10.0f);
             widthFactor = Mathf.Clamp(widthFactor, 0.1f, 10.0f);
 
+            // Update public properties
+            CurrentLengthFactor = lengthFactor;
+            CurrentWidthFactor = widthFactor;
+
             // Transform to hand-local space to determine which axis should be affected
             Vector3 localHandDirection = Quaternion.Inverse(handOrientation) * Vector3.forward;
 
@@ -177,32 +206,41 @@ public class OlfatiSaber : MonoBehaviour
             d_ref_x = d_ref;
             d_ref_y = d_ref;
             d_ref_z = d_ref;
+            CurrentLengthFactor = 1.0f; // Reset exposed factors
+            CurrentWidthFactor = 1.0f;  // Reset exposed factors
         }
     }
 
-    // NEW: Calculate cohesion force using axis-specific reference distances
-    private Vector3 GetAxisSpecificCohesionForce(Vector3 relativePosition, float distance)
+    // MODIFIED: Calculate cohesion force using axis-specific reference distances in the swarm's yawed frame
+    private Vector3 GetAxisSpecificCohesionForce(Vector3 relativePositionInSwarmFrame, float worldDistance)
     {
-        Vector3 normalizedRelativePos = relativePosition.normalized;
-        Vector3 cohesionForce = Vector3.zero;
+        // normalizedRelativePos should also be in the swarm frame for directional application of axis forces
+        Vector3 normalizedRelativePosInSwarmFrame = Vector3.zero;
+        if (relativePositionInSwarmFrame.sqrMagnitude > 0.00001f) // Avoid normalization of zero vector
+        {
+            normalizedRelativePosInSwarmFrame = relativePositionInSwarmFrame.normalized;
+        }
+        
+        Vector3 cohesionForceInSwarmFrame = Vector3.zero;
 
-        // Scale distance for function calculations
-        // float scaled_distance = distance / scaleFactor;
-        float scaled_distance_x = Mathf.Abs(relativePosition.x / scaleFactor);
-        float scaled_distance_y = Mathf.Abs(relativePosition.y / scaleFactor);
-        float scaled_distance_z = Mathf.Abs(relativePosition.z / scaleFactor);
+        // Scale distance components for function calculations based on the swarm's yawed frame
+        // These are distances along the swarm's local X, Y, Z axes
+        float scaled_distance_swarm_x = Mathf.Abs(relativePositionInSwarmFrame.x / scaleFactor);
+        float scaled_distance_swarm_y = Mathf.Abs(relativePositionInSwarmFrame.y / scaleFactor); // Swarm's local Y
+        float scaled_distance_swarm_z = Mathf.Abs(relativePositionInSwarmFrame.z / scaleFactor); // Swarm's local Z
 
         // Calculate force for each axis using its specific reference distance
-        float forceX = GetCohesionForceWithCustomDRef(scaled_distance_x, d_ref_x);// / scaleFactor);
-        float forceY = GetCohesionForceWithCustomDRef(scaled_distance_y, d_ref_y);// / scaleFactor);
-        float forceZ = GetCohesionForceWithCustomDRef(scaled_distance_z, d_ref_z);// / scaleFactor);
+        // d_ref_x, d_ref_y, d_ref_z are defined relative to the swarm's desired orientation (magnitudes set by hands)
+        float forceSwarmX = GetCohesionForceWithCustomDRef(scaled_distance_swarm_x, d_ref_x);
+        float forceSwarmY = GetCohesionForceWithCustomDRef(scaled_distance_swarm_y, d_ref_y); 
+        float forceSwarmZ = GetCohesionForceWithCustomDRef(scaled_distance_swarm_z, d_ref_z);
 
-        // Apply the force in the direction of each axis component
-        cohesionForce.x = forceX * normalizedRelativePos.x;
-        cohesionForce.y = forceY * normalizedRelativePos.y;
-        cohesionForce.z = forceZ * normalizedRelativePos.z;
+        // Apply the force in the direction of each axis component *within the swarm's frame*
+        cohesionForceInSwarmFrame.x = forceSwarmX * normalizedRelativePosInSwarmFrame.x;
+        cohesionForceInSwarmFrame.y = forceSwarmY * normalizedRelativePosInSwarmFrame.y;
+        cohesionForceInSwarmFrame.z = forceSwarmZ * normalizedRelativePosInSwarmFrame.z;
 
-        return cohesionForce;
+        return cohesionForceInSwarmFrame; // This force is in the swarm's yawed reference frame
     }
 
     // NEW: Modified cohesion force calculation with custom d_ref
