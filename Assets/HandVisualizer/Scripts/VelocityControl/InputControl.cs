@@ -13,7 +13,7 @@ public class InputControl : MonoBehaviour {
     private float abs_height = 1;
 
     [Header("Calibration Settings")]
-    public bool useAutomaticCalibrationPoint = true; // Set to true for automatic calibration
+    public bool useAutomaticCalibrationPoint = false; // Set to true for automatic calibration
     public Transform playerViewpointTransform; // Assign player's viewpoint transform (e.g., Main Camera or Player GameObject) for automatic calibration
 
     [Header("Hand Control Settings")]
@@ -102,14 +102,20 @@ public class InputControl : MonoBehaviour {
         }
 
         // Calculate calibration point 30cm in front and 30cm below the player's viewpoint
-        calibrationCenterPoint = playerViewpointTransform.position + playerViewpointTransform.forward * 0.2f - playerViewpointTransform.up * 0.3f;
-        isCalibrated = true; // Mark as calibrated
+        // calibrationCenterPoint = playerViewpointTransform.position + playerViewpointTransform.forward * 0.2f - playerViewpointTransform.up * 0.3f;
+        // calibrationCenterPoint = playerViewpointTransform.forward * 0.2f - playerViewpointTransform.up * 0.3f;
+        // Set the calibration center point to the current hand midpoint
+        Vector3 leftPalmPos = HandProcessor.LeftPalmPosition;
+        Vector3 rightPalmPos = HandProcessor.RightPalmPosition;
+        calibrationCenterPoint = (leftPalmPos + rightPalmPos) * 0.5f;
+        isCalibrated = true; // Mark as calibrated       
+        
 
         // Initialize Y position safety floor based on a representative drone's current height
         initialCalibratedYPosition = vc.transform.position.y;
         isYPositionInitialized = true;
 
-        Debug.Log($"Automatic calibration complete! Center point set to: {calibrationCenterPoint}. Initial Y swarm position set to: {initialCalibratedYPosition:F2}m");
+        Debug.Log($"Automatic calibration complete! Center point set to: {calibrationCenterPoint}.");
         
         // Calibrate palm angle for yaw if hands are tracked - REMOVED YAW CALIBRATION LOGIC
         // if (HandProcessor.ArePalmsTracked) { // REMOVED
@@ -126,43 +132,58 @@ public class InputControl : MonoBehaviour {
 
     // Update is called once per frame
     void FixedUpdate () {
-        
+
         // Handle 'C' key calibration only if not using automatic calibration and not already calibrated by it
         if (!useAutomaticCalibrationPoint)
         {
-            HandleCalibration();
+            // HandleCalibration();
+            // PerformAutomaticCalibration(); // Automatically calibrate if automatic calibration is enabled
+        }
+
+        // With this:
+        if (Input.GetKeyDown(KeyCode.C))
+        {
+            StartCoroutine(DelayedAutomaticCalibration());
         }
         
         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS)
-        {
-            // Default velocity control for Reynolds
-            if (vc != null)
             {
-                vc.desired_vx = 0.0f; 
-                vc.desired_vy = 0.0f; 
-                vc.desired_yaw = 0.0f;
+                // Default velocity control for Reynolds
+                if (vc != null)
+                {
+                    vc.desired_vx = 0.0f;
+                    vc.desired_vy = 0.0f;
+                    vc.desired_yaw = 0.0f;
+                }
             }
-        }
         else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
-        {
-            if (olfatiSaber == null) return; // Do nothing if olfatiSaber script is not assigned
+            {
+                if (olfatiSaber == null) return; // Do nothing if olfatiSaber script is not assigned
 
-            // Hand-controlled Olfati-Saber velocity control
-            if (isCalibrated && HandProcessor.ArePalmsTracked)
-            {
-                UpdateSwarmVelocityFromHands();
+                // Hand-controlled Olfati-Saber velocity control
+                if (isCalibrated && HandProcessor.ArePalmsTracked)
+                {
+                    UpdateSwarmVelocityFromHands();
+                }
+                else
+                {
+                    // Default to zero velocity if not calibrated or hands not tracked
+                    olfatiSaber.desired_vx = 0.0f;
+                    olfatiSaber.desired_vy = 0.0f; // Corresponds to World Z (via -desired_vy in OlfatiSaber)
+                    olfatiSaber.desired_vz = 0.0f; // Corresponds to World Y
+                    olfatiSaber.desired_yaw = 0.0f; // No yaw rate
+                }
+                // The global olfatiSaber.desired_yaw = 0.0f; line that was here previously is removed
+                // as yaw is now actively controlled or zeroed within the conditions above.
             }
-            else
-            {
-                // Default to zero velocity if not calibrated or hands not tracked
-                olfatiSaber.desired_vx = 0.0f;
-                olfatiSaber.desired_vy = 0.0f; // Corresponds to World Z (via -desired_vy in OlfatiSaber)
-                olfatiSaber.desired_vz = 0.0f; // Corresponds to World Y
-                olfatiSaber.desired_yaw = 0.0f; // No yaw rate
-            }
-            // The global olfatiSaber.desired_yaw = 0.0f; line that was here previously is removed
-            // as yaw is now actively controlled or zeroed within the conditions above.
-        }
+    }
+
+    // Add this coroutine method anywhere in the class:
+    private System.Collections.IEnumerator DelayedAutomaticCalibration()
+    {
+        Debug.Log("Waiting 5 seconds before automatic calibration...");
+        yield return new WaitForSeconds(5f);
+        PerformAutomaticCalibration();
     }
 
     private void HandleCalibration()
@@ -300,6 +321,14 @@ public class InputControl : MonoBehaviour {
             {
                 targetVelocity = targetVelocity.normalized * maxVelocity;
             }
+
+            // If drone 0 print calibration center point, current midpoint, and displacement, and target velocity
+            if (transform.parent.name == "Drone 0")
+            {
+                Debug.Log($"Calibration Center: {calibrationCenterPoint}, Current Midpoint: {currentMidpoint}, Displacement: {displacement}, Target Velocity: {targetVelocity}");
+            }
+
+
             
             // Apply to Olfati-Saber desired velocities
             // Hand Z movement (targetVelocity.z) controls OlfatiSaber's local X
