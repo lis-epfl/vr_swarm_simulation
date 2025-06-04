@@ -75,11 +75,14 @@ public class VelocityControl : MonoBehaviour {
 
         float heightError = state.Altitude - desired_height;
 
+        // Low pass filter for height control
+        heightError = heightError * (1.0f - filterCoefficient) + (state.Altitude - initial_height) * filterCoefficient;
+
         // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
-        if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
+        if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS)
         {
             desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
-        } 
+        }
         else
         {
             desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);

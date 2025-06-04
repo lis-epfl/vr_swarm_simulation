@@ -6,6 +6,8 @@ TagManager:
   tags:
   - Motor
   - DroneBase
+  - SamplesInfoPanel
+  - Obstacle
   layers:
   - Default
   - TransparentFX
@@ -17,7 +19,7 @@ TagManager:
   - 
   - Minimap
   - Drone
-  - 
+  - Obstacle
   - 
   - 
   - 
