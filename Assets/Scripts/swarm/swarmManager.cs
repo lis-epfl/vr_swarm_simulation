@@ -29,7 +29,12 @@ public class SwarmManager : MonoBehaviour
     private float c;
     public float gamma = 1.0f;
     public float c_vm = 1.0f;
+    public float d_obs = 4.0f;
+    public float r0_obs = 6.0f;
+    public float lambda_obs = 1.0f;
+    public float c_obs = 4.3f;
     public float scaleFactor = 10.0f;
+    
 
     public enum AttitudeControl
     {
@@ -80,6 +85,10 @@ public class SwarmManager : MonoBehaviour
     public float GetC() => (b-a) / (2 * Mathf.Sqrt(a*b));
     public float GetGamma() => gamma;
     public float GetCVM() => c_vm;
+    public float GetDObs() => d_obs;
+    public float GetR0Obs() => r0_obs;
+    public float GetLambdaObs() => lambda_obs;
+    public float GetCObs() => c_obs;
     public float getScaleFactor() => scaleFactor;
 
     // Getters for the attitude control

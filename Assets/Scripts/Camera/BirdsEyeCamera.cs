@@ -39,20 +39,20 @@ public class BirdsEyeCamera : MonoBehaviour
     void Update()
     {
         // Update the droneObject reference if it has changed
-        if (visualiseOlfatiSaber != null && visualiseOlfatiSaber.droneObject != droneObject)
+        if (visualiseOlfatiSaber != null && visualiseOlfatiSaber.gameObject.activeInHierarchy && visualiseOlfatiSaber.droneObject != droneObject)
         {
             droneObject = visualiseOlfatiSaber.droneObject;
-        }
-        
-        // Get the position of the selected drone's "DroneParent"
-        GameObject droneChild = droneObject.transform.Find("DroneParent").gameObject;
-        Vector3 position = droneChild.transform.position;
 
-        // Set the camera position above the drone
-        transform.position = position + offset;
-        // Look at the drone
-        transform.LookAt(position);
-        
+            // Get the position of the selected drone's "DroneParent"
+            GameObject droneChild = droneObject.transform.Find("DroneParent").gameObject;
+            Vector3 position = droneChild.transform.position;
+
+            // Set the camera position above the drone
+            transform.position = position + offset;
+            // Look at the drone
+            transform.LookAt(position);
+
+        }
         
     }
 }
