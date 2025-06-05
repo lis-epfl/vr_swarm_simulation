@@ -364,16 +364,10 @@ namespace UnityEngine.XR.Hands.Samples.VisualizerSample
             if (m_ShapeInstance != null)
             {
                 m_ShapeInstance.transform.position = position;
-
+            
                 // Align the rotation based on the specified direction
-                
-                Quaternion deltaRot    = Quaternion.FromToRotation(Vector3.forward, direction);
-                Quaternion totalRotation    = transform.rotation * deltaRot; // Combine with the current transform rotation
-                m_ShapeInstance.transform.rotation = totalRotation;
-                Vector3 delta = position - transform.position;
-                delta.y = 0f; // Keep the rotation horizontal
-                Vector3 moveDir = transform.rotation * delta;
-                m_ShapeInstance.transform.position += moveDir;
+                Quaternion rotation = Quaternion.FromToRotation(Vector3.forward, direction);
+                m_ShapeInstance.transform.rotation = rotation;
             
                 // Scale the ellipsoid (X and Y are width, Z is the length)
                 m_ShapeInstance.transform.localScale = new Vector3(width * 2, width * 2, length);
