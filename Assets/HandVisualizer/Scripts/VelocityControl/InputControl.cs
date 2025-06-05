@@ -13,7 +13,7 @@ public class InputControl : MonoBehaviour {
     private float abs_height = 1;
 
     [Header("Calibration Settings")]
-    public bool useAutomaticCalibrationPoint = false; // Set to true for automatic calibration
+    public bool useAutomaticCalibrationPoint = false; // This flag is largely superseded by the new initial auto-calibration
     public Transform playerViewpointTransform; // Assign player's viewpoint transform (e.g., Main Camera or Player GameObject) for automatic calibration
 
     [Header("Hand Control Settings")]
@@ -24,10 +24,14 @@ public class InputControl : MonoBehaviour {
     
     // Calibration state
     private bool isCalibrated = false;
-    private bool isCalibrating = false;
+    private bool isCalibrating = false; // This flag was for the 3-2-1 countdown, can be repurposed or removed if that system is fully gone.
     private Vector3 calibrationCenterPoint = Vector3.zero;
-    private float calibrationTimer = 0f;
-    private int calibrationCountdown = 3;
+    private float calibrationTimer = 0f; // For 3-2-1 countdown
+    private int calibrationCountdown = 3; // For 3-2-1 countdown
+
+    // New flag for the initial 5-second auto-calibration
+    private bool initialAutoCalibrationStarted = false;
+    private bool isCalibrationCoroutineRunning = false; // To prevent coroutine overlap
 
     // Y-axis safety
     private float initialCalibratedYPosition;
@@ -81,69 +85,60 @@ public class InputControl : MonoBehaviour {
         {
             Debug.LogError("OlfatiSaber is not assigned in InputControl. Hand control might not work correctly.");
         }
-
-        if (useAutomaticCalibrationPoint)
-        {
-            PerformAutomaticCalibration();
-        }
+        // Removed: Immediate call to PerformAutomaticCalibration based on useAutomaticCalibrationPoint.
+        // The new logic in FixedUpdate will handle initial automatic calibration.
+        // if (useAutomaticCalibrationPoint)
+        // {
+        //     PerformAutomaticCalibration();
+        // }
     }
     
     void PerformAutomaticCalibration()
     {
-        if (playerViewpointTransform == null)
-        {
-            Debug.LogError("PlayerViewpointTransform not assigned in InputControl for automatic calibration. Automatic calibration failed.");
-            return;
-        }
-        if (vc == null)
-        {
-            Debug.LogError("VelocityControl (vc) not assigned. Cannot set initial Y position for automatic calibration. Automatic calibration failed.");
-            return;
-        }
+        // This method assumes HandProcessor.ArePalmsTracked was checked by the calling coroutine
+        // if it's crucial for this specific call.
+        // The primary check is done in DelayedAutomaticCalibration before calling this.
 
-        // Calculate calibration point 30cm in front and 30cm below the player's viewpoint
-        // calibrationCenterPoint = playerViewpointTransform.position + playerViewpointTransform.forward * 0.2f - playerViewpointTransform.up * 0.3f;
-        // calibrationCenterPoint = playerViewpointTransform.forward * 0.2f - playerViewpointTransform.up * 0.3f;
         // Set the calibration center point to the current hand midpoint
         Vector3 leftPalmPos = HandProcessor.LeftPalmPosition;
         Vector3 rightPalmPos = HandProcessor.RightPalmPosition;
         calibrationCenterPoint = (leftPalmPos + rightPalmPos) * 0.5f;
         isCalibrated = true; // Mark as calibrated       
         
-
         // Initialize Y position safety floor based on a representative drone's current height
-        initialCalibratedYPosition = vc.transform.position.y;
-        isYPositionInitialized = true;
+        if (vc != null)
+        {
+            initialCalibratedYPosition = vc.transform.position.y;
+            isYPositionInitialized = true;
+        }
+        else
+        {
+            Debug.LogError("VelocityControl (vc) not assigned. Cannot set initial Y position for automatic calibration's Y-safety.");
+            isYPositionInitialized = false;
+        }
 
-        Debug.Log($"Automatic calibration complete! Center point set to: {calibrationCenterPoint}.");
-        
-        // Calibrate palm angle for yaw if hands are tracked - REMOVED YAW CALIBRATION LOGIC
-        // if (HandProcessor.ArePalmsTracked) { // REMOVED
-        //     Vector3 palmConnection = HandProcessor.RightPalmPosition - HandProcessor.LeftPalmPosition; // REMOVED
-        //     initialPalmLineAngleWorld = Mathf.Atan2(palmConnection.z, palmConnection.x) * Mathf.Rad2Deg; // REMOVED
-        //     isPalmAngleCalibrated = true; // REMOVED
-        //     Debug.Log($"Automatic calibration: Initial palm line angle for yaw set to {initialPalmLineAngleWorld:F2} degrees."); // REMOVED
-        // } else { // REMOVED
-        //     isPalmAngleCalibrated = false; // REMOVED
-        //     Debug.LogWarning("Automatic calibration: Hands not tracked, palm angle for yaw not calibrated. Yaw control via hand angle will be disabled until manual calibration with hands."); // REMOVED
-        // } // REMOVED
+        Debug.Log($"Calibration complete! Center point set to: {calibrationCenterPoint}. Initial Y swarm position for safety: {initialCalibratedYPosition:F2}m.");
         Debug.Log("Swarm can now be controlled by hand movement. Yaw control is active if hands are tracked (no calibration needed).");
     }
 
     // Update is called once per frame
     void FixedUpdate () {
 
-        // Handle 'C' key calibration only if not using automatic calibration and not already calibrated by it
-        if (!useAutomaticCalibrationPoint)
+        // New: Initial automatic calibration when hands are seen for the first time
+        if (!isCalibrated && !initialAutoCalibrationStarted && HandProcessor.ArePalmsTracked)
         {
-            // HandleCalibration();
-            // PerformAutomaticCalibration(); // Automatically calibrate if automatic calibration is enabled
+            StartCoroutine(DelayedAutomaticCalibration(true)); // Pass true for initial attempt
+            initialAutoCalibrationStarted = true; // Mark that the process has been initiated
         }
 
-        // With this:
+        // 'C' key for manual re-calibration (uses the same 5-second delay mechanism)
         if (Input.GetKeyDown(KeyCode.C))
         {
-            StartCoroutine(DelayedAutomaticCalibration());
+            Debug.Log("'C' key pressed. Initiating manual re-calibration.");
+            // Reset calibration state before starting manual C-key calibration
+            // isCalibrated = false; // Allow re-calibration even if already calibrated
+            // initialAutoCalibrationStarted = true; // Prevent initial auto-cal from re-triggering if C is pressed early
+            StartCoroutine(DelayedAutomaticCalibration(false)); // Pass false for manual attempt
         }
         
         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS)
@@ -178,109 +173,75 @@ public class InputControl : MonoBehaviour {
             }
     }
 
-    // Add this coroutine method anywhere in the class:
-    private System.Collections.IEnumerator DelayedAutomaticCalibration()
+    // Modified coroutine to handle both initial and manual 5s delayed calibration
+    private System.Collections.IEnumerator DelayedAutomaticCalibration(bool isInitialAttempt = false)
     {
-        Debug.Log("Waiting 5 seconds before automatic calibration...");
-        yield return new WaitForSeconds(5f);
-        PerformAutomaticCalibration();
-    }
-
-    private void HandleCalibration()
-    {
-        // Check for C key press to start calibration if manual mode is active
-        if (!useAutomaticCalibrationPoint && Input.GetKeyDown(KeyCode.C) && !isCalibrating && !isCalibrated)
+        if (isCalibrationCoroutineRunning)
         {
-            StartCoroutine(CalibrationDelayRoutine());
+            Debug.Log("Calibration coroutine already running. New request ignored.");
+            yield break;
         }
+        isCalibrationCoroutineRunning = true;
 
-        // Handle calibration countdown (this part is shared if manual calibration was initiated
-        if (isCalibrating)
+        if (isInitialAttempt)
         {
-            calibrationTimer += Time.fixedDeltaTime;
+            Debug.Log("Initial hands detected. Automatic calibration will occur in 5 seconds. Hold hands at desired center.");
+        }
+        else
+        {
+            Debug.Log("Manual calibration: Waiting 5 seconds before calibrating to current hand midpoint...");
+        }
+        
+        yield return new WaitForSeconds(5f);
 
-            if (calibrationTimer >= 1.0f) // Every second
+        if (HandProcessor.ArePalmsTracked)
+        {
+            PerformAutomaticCalibration(); // This sets isCalibrated = true
+            if (isInitialAttempt)
             {
-                calibrationTimer = 0f;
-                calibrationCountdown--;
-
-                if (calibrationCountdown > 0)
-                {
-                    Debug.Log($"Calibration countdown: {calibrationCountdown}");
-                }
-                else
-                {
-                    CompleteCalibration();
-                }
+                Debug.Log("Initial automatic calibration successful.");
+            }
+            else
+            {
+                Debug.Log("Manual re-calibration successful.");
             }
         }
+        else
+        {
+            Debug.LogWarning($"Calibration after 5s delay failed: Hands not tracked.");
+            if (isInitialAttempt)
+            {
+                Debug.LogWarning("Initial auto-calibration will re-attempt if hands are seen again and not yet calibrated.");
+                initialAutoCalibrationStarted = false; // Allow the initial trigger to run again if it failed
+            }
+            // isCalibrated remains false or its previous state if manual calibration failed.
+        }
+        isCalibrationCoroutineRunning = false;
+    }
+
+    // The old HandleCalibration, CalibrationDelayRoutine, StartCalibration, CompleteCalibration methods
+    // for the 3-2-1 countdown are removed as 'C' key now uses DelayedAutomaticCalibration.
+    /*
+    private void HandleCalibration()
+    {
+        // ... old code ...
     }
 
     private System.Collections.IEnumerator CalibrationDelayRoutine()
     {
-        Debug.Log("Calibration will start in 2 seconds...");
-        yield return new WaitForSeconds(2f);
-        StartCalibration();
+        // ... old code ...
     }
 
-    private void StartCalibration() // This is for manual 'C' key calibration
+    private void StartCalibration() 
     {
-        if (!HandProcessor.ArePalmsTracked)
-        {
-            Debug.LogWarning("Cannot calibrate: Hands not tracked!");
-            return;
-        }
-
-        isCalibrating = true;
-        isCalibrated = false;
-        isYPositionInitialized = false; // Reset Y position initialization
-        // isPalmAngleCalibrated = false; // REMOVED Reset palm angle calibration
-        calibrationCountdown = 3;
-        calibrationTimer = 0f;
-        
-        Debug.Log("Starting hand calibration...");
-        Debug.Log($"Calibration countdown: {calibrationCountdown}");
+        // ... old code ...
     }
 
-    private void CompleteCalibration() // This is for manual 'C' key calibration
+    private void CompleteCalibration() 
     {
-        if (!HandProcessor.ArePalmsTracked)
-        {
-            Debug.LogWarning("Calibration failed: Hands not tracked!");
-            isCalibrating = false;
-            return;
-        }
-
-        // Calculate midpoint between palms
-        Vector3 leftPalmPos = HandProcessor.LeftPalmPosition;
-        Vector3 rightPalmPos = HandProcessor.RightPalmPosition;
-        calibrationCenterPoint = (leftPalmPos + rightPalmPos) * 0.5f;
-        
-        isCalibrating = false;
-        isCalibrated = true;
-
-        // Initialize Y position safety floor
-        if (vc != null)
-        {
-            initialCalibratedYPosition = vc.transform.position.y;
-            isYPositionInitialized = true;
-            Debug.Log($"Manual calibration complete! Center point: {calibrationCenterPoint}. Initial Y swarm position set to: {initialCalibratedYPosition:F2}m");
-        }
-        else
-        {
-            Debug.LogError("VelocityControl (vc) not assigned. Cannot set initial Y position for safety floor.");
-            isYPositionInitialized = false;
-            Debug.LogWarning("Calibration complete, but Y-axis safety floor is NOT active.");
-        }
-
-        // Calibrate palm angle for yaw - REMOVED YAW CALIBRATION
-        // Vector3 palmConnection = HandProcessor.RightPalmPosition - HandProcessor.LeftPalmPosition; // REMOVED
-        // initialPalmLineAngleWorld = Mathf.Atan2(palmConnection.z, palmConnection.x) * Mathf.Rad2Deg; // REMOVED
-        // isPalmAngleCalibrated = true; // REMOVED
-        // Debug.Log($"Manual calibration: Initial palm line angle for yaw set to {initialPalmLineAngleWorld:F2} degrees."); // REMOVED
-        
-        Debug.Log("Swarm can now be controlled by hand movement. Yaw control is active if hands are tracked (no calibration needed).");
+        // ... old code ...
     }
+    */
 
     private void UpdateSwarmVelocityFromHands()
     {
@@ -377,11 +338,18 @@ public class InputControl : MonoBehaviour {
     public void ResetCalibration()
     {
         isCalibrated = false;
-        isCalibrating = false;
+        // isCalibrating = false; // This flag was for the 3-2-1 system
         isYPositionInitialized = false;
-        // isPalmAngleCalibrated = false; // REMOVED
         calibrationCenterPoint = Vector3.zero;
-        Debug.Log("Calibration reset. Y-axis safety floor deactivated until next calibration. Automatic calibration will re-run if enabled and scene reloads/script re-enables, or use 'C' for manual. Yaw control remains active if hands are tracked.");
+        
+        initialAutoCalibrationStarted = false; // Allow initial auto-calibration to re-trigger
+        if(isCalibrationCoroutineRunning) // Stop any ongoing calibration coroutine
+        {
+            StopCoroutine("DelayedAutomaticCalibration"); // Use string name if it's the only one
+            isCalibrationCoroutineRunning = false;
+        }
+
+        Debug.Log("Calibration reset. Initial automatic hand calibration will re-attempt if hands are detected. Y-axis safety floor deactivated. Use 'C' for manual re-calibration.");
     }
 
     // Public method to check calibration status
