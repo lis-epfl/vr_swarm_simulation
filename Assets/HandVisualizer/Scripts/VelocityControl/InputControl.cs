@@ -17,7 +17,7 @@ public class InputControl : MonoBehaviour {
     public Transform playerViewpointTransform; // Assign player's viewpoint transform (e.g., Main Camera or Player GameObject) for automatic calibration
 
     [Header("Hand Control Settings")]
-    public float velocityScale = 5.0f; // User's value
+    public float velocityScale = 50.0f; // User's value
     public float maxVelocity = 10.0f; // Maximum velocity in m/s
     public float yawRateScale = 0.5f; // Sensitivity for yaw control (degrees of hand rotation to degrees/sec of yaw rate)
     public float handDeadZoneRadius = 0.05f; // 5cm radius for the dead zone (10cm diameter)
@@ -293,9 +293,9 @@ public class InputControl : MonoBehaviour {
             
             // Apply to Olfati-Saber desired velocities
             // Hand Z movement (targetVelocity.z) controls OlfatiSaber's local X
-            olfatiSaber.desired_vx = targetVelocity.z;
+            olfatiSaber.desired_vx = - targetVelocity.x;
             // Hand X movement (targetVelocity.x) controls OlfatiSaber's local Z (via desired_vy)
-            olfatiSaber.desired_vy = targetVelocity.x; 
+            olfatiSaber.desired_vy = targetVelocity.z; 
 
             // Y-axis (World Y / Up-Down) control with safety floor
             if (isYPositionInitialized && vc != null)

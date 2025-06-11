@@ -253,7 +253,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2699141731812529971, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: dronesAlongY
-      value: 1
+      value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 2699141731812529971, guid: b593f64d0aca3bc44a76cd3328754958, type: 3}
       propertyPath: dronesAlongZ
@@ -331,7 +331,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3860348905685144043, guid: d39de6854c2b79044b4cf39cd8db690e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 4503280217820593953, guid: d39de6854c2b79044b4cf39cd8db690e, type: 3}
       propertyPath: m_LocalPosition.x
@@ -375,11 +375,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5133487203767773902, guid: d39de6854c2b79044b4cf39cd8db690e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6013554761786472090, guid: d39de6854c2b79044b4cf39cd8db690e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6280121687359107031, guid: d39de6854c2b79044b4cf39cd8db690e, type: 3}
       propertyPath: m_Name
@@ -465,7 +465,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!65 &1243411650
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -570,7 +570,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!65 &1259524432
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -675,7 +675,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!65 &1416264290
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -881,7 +881,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!65 &2024476809
 BoxCollider:
   m_ObjectHideFlags: 0
