@@ -18,9 +18,9 @@ public class OlfatiSaber : MonoBehaviour
     
     // NEW: Axis-specific reference distances
     [Header("Axis-Specific Reference Distances")]
-    public float d_ref_x = 7.0f;
-    public float d_ref_y = 7.0f;
-    public float d_ref_z = 7.0f;
+    public float d_ref_x = 7.0f; // Base for hand's local X (sideways)
+    public float d_ref_y = 7.0f; // Base for world Y (vertical)
+    public float d_ref_z = 7.0f; // Base for hand's local Z (along direction)
     
     public float r0_coh = 20.0f;
     public float delta = 0.1f;
@@ -56,6 +56,16 @@ public class OlfatiSaber : MonoBehaviour
     private Vector3 swarmInput = Vector3.zero;
     private string droneName;
 
+    // Store initial base reference distances
+    private float base_d_ref_x;
+    private float base_d_ref_y;
+    private float base_d_ref_z;
+
+    // Public properties to expose calculated factors
+    public float CurrentWidthFactor { get; private set; } = 1.0f;
+    public float CurrentLengthFactor { get; private set; } = 1.0f;
+    private float currentHandYawAngle = 0.0f; // Stores the yaw angle of the hands
+
     void Start()
     {
         if (transform.parent != null)
@@ -67,6 +77,11 @@ public class OlfatiSaber : MonoBehaviour
             droneName = gameObject.name;
             Debug.LogWarning("OlfatiSaber script on " + gameObject.name + " does not have a parent. Using GameObject name.");
         }
+
+        // Store the initial values from the inspector to use as baselines for scaling
+        base_d_ref_x = d_ref_x;
+        base_d_ref_y = d_ref_y;
+        base_d_ref_z = d_ref_z;
     }
 
     void FixedUpdate()
@@ -82,7 +97,7 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 velocity = rb.velocity;
 
         // Calculate velocity matching
-        Vector3 desired_velocity_for_vm = new Vector3(desired_vx, desired_vz, -desired_vy);
+        Vector3 desired_velocity_for_vm = new Vector3(desired_vx, desired_vz, -desired_vy); // Assuming desired_vy from input is world Z, desired_vz is world Y
         velocityMatching = c_vm * (desired_velocity_for_vm - velocity);
 
         // Update reference distances based on hand tracking
@@ -95,17 +110,29 @@ public class OlfatiSaber : MonoBehaviour
             {
                 if (neighbourGO == null) continue;
 
-                Transform neighbourChildTransform = neighbourGO.transform.Find("DroneParent");
-                if (neighbourChildTransform == null) continue;
+                // Assuming the OlfatiSaber script is on the "DroneParent" which is a child of the main swarm list GameObjects
+                Transform neighbourChildTransform = neighbourGO.transform.Find("DroneParent"); 
+                if (neighbourChildTransform == null)
+                {
+                    // Fallback if "DroneParent" is not found, try getting OlfatiSaber from neighbourGO directly
+                    // This depends on your hierarchy. If OlfatiSaber is on neighbourGO:
+                    // OlfatiSaber neighbourOlfati = neighbourGO.GetComponent<OlfatiSaber>();
+                    // if (neighbourOlfati == null || neighbourOlfati.gameObject == gameObject) continue;
+                    // neighbourPosition = neighbourGO.transform.position;
+
+                    // Using the provided structure:
+                    // Debug.LogWarning($"DroneParent not found on {neighbourGO.name}. Skipping cohesion calculation for this neighbour.");
+                    continue;
+                }
                 GameObject neighbourChild = neighbourChildTransform.gameObject;
             
-                if (neighbourChild == gameObject) continue;
+                if (neighbourChild == gameObject) continue; // Don't calculate cohesion with self
 
                 Vector3 neighbourPosition = neighbourChild.transform.position;
                 Vector3 relativePosition = neighbourPosition - position;
                 float distance = relativePosition.magnitude;
 
-                if (distance < 0.001f) distance = 0.001f;
+                if (distance < 0.001f) distance = 0.001f; // Avoid division by zero
 
                 // Calculate cohesion force for each axis separately
                 Vector3 individualCohesionForce = GetAxisSpecificCohesionForce(relativePosition, distance);
@@ -114,13 +141,13 @@ public class OlfatiSaber : MonoBehaviour
         }
 
         swarmInput = velocityMatching + cohesion + obstacle;
-        //swarmInput.y = 0.0f; // No vertical swarm input
+        swarmInput.y = 0.0f; // RESTORED: Ensure no vertical swarm input from OlfatiSaber
 
         var vc = GetComponent<VelocityControl>();
         if (vc != null)
         {
             vc.swarm_vx = swarmInput.x;
-            vc.swarm_vy = swarmInput.y;
+            vc.swarm_vy = swarmInput.y; // This will now be 0.0f
             vc.swarm_vz = swarmInput.z;
         }
     }
@@ -135,74 +162,96 @@ public class OlfatiSaber : MonoBehaviour
             float currentHandEllipsoidLength = HandProcessor.HandEllipsoidLength;
             float currentHandEllipsoidWidth = HandProcessor.HandEllipsoidWidth;
 
-            Quaternion handOrientation = Quaternion.identity;
             Vector3 handVector = rightPalmPos - leftPalmPos;
 
-            if (handVector.sqrMagnitude > 0.001f)
-            {
-                handOrientation = Quaternion.LookRotation(handVector.normalized, Vector3.up);
-            }
-
             // Calculate scaling factors
-            float lengthFactor = (baselineLength > 0.001f && currentHandEllipsoidLength > 0) ? 
+            CurrentLengthFactor = (baselineLength > 0.001f && currentHandEllipsoidLength > 0) ? 
                 currentHandEllipsoidLength / baselineLength : 1.0f;
-            float widthFactor = (baselineWidth > 0.001f && currentHandEllipsoidWidth > 0) ? 
+            CurrentWidthFactor = (baselineWidth > 0.001f && currentHandEllipsoidWidth > 0) ? 
                 currentHandEllipsoidWidth / baselineWidth : 1.0f;
 
             // Clamp factors
-            lengthFactor = Mathf.Clamp(lengthFactor, 0.1f, 10.0f);
-            widthFactor = Mathf.Clamp(widthFactor, 0.1f, 10.0f);
+            CurrentLengthFactor = Mathf.Clamp(CurrentLengthFactor, 0.1f, 10.0f);
+            CurrentWidthFactor = Mathf.Clamp(CurrentWidthFactor, 0.1f, 10.0f);
 
-            // Transform to hand-local space to determine which axis should be affected
-            Vector3 localHandDirection = Quaternion.Inverse(handOrientation) * Vector3.forward;
-
-            // Update reference distances based on hand orientation and scaling
-            // X and Y axes scale with width factor, Z axis scales with length factor
-            d_ref_x = d_ref * widthFactor * handDistanceScaleFactor - 0.3f;
-            d_ref_y = d_ref * widthFactor * handDistanceScaleFactor - 0.3f;
-            d_ref_z = d_ref * lengthFactor * handDistanceScaleFactor;
-
-            Debug.Log($"Drone {droneName} - d_ref_x: {d_ref_x:F2}, d_ref_y: {d_ref_y:F2}, d_ref_z: {d_ref_z:F2}");
-
-            // Debug output for one drone
-            if (this.droneName == "Drone 0")
+            // Calculate hand yaw angle based on X-Z plane projection
+            Vector3 handVectorXZ = new Vector3(handVector.x, 0f, handVector.z);
+            if (handVectorXZ.sqrMagnitude > 0.001f)
             {
-                //Debug.Log($"Hand factors - Length: {lengthFactor:F2}, Width: {widthFactor:F2}");
-                //Debug.Log($"d_ref distances - X: {d_ref_x:F2}, Y: {d_ref_y:F2}, Z: {d_ref_z:F2}");
+                currentHandYawAngle = Vector3.SignedAngle(Vector3.forward, handVectorXZ.normalized, Vector3.up);
             }
+            else
+            {
+                currentHandYawAngle = 0f; // Default yaw if hands are vertically aligned or too close
+            }
+
+            // Update d_ref values based on factors
+            // d_ref_x is for the hand's local X axis (scales with width)
+            d_ref_x = base_d_ref_x * CurrentWidthFactor;
+            // d_ref_y is for the world Y axis (vertical).
+            // It's set to base_d_ref_y. If you want no vertical cohesion effect from d_ref_y,
+            // ensure base_d_ref_y is initialized from an Inspector value of d_ref_y that leads to
+            // zero force (e.g., if d_ref_y itself was 0, or handled by swarmInput.y = 0 above).
+            // For now, we rely on swarmInput.y = 0.0f to nullify vertical cohesion.
+            d_ref_y = base_d_ref_y; 
+            // d_ref_z is for the hand's local Z axis (scales with length)
+            d_ref_z = base_d_ref_z * CurrentLengthFactor;
+
+            // Ensure distances don't become negative or zero
+            d_ref_x = Mathf.Max(0.01f, d_ref_x);
+            d_ref_y = Mathf.Max(0.01f, d_ref_y);
+            d_ref_z = Mathf.Max(0.01f, d_ref_z);
+
+            // Debug.Log($"Drone {droneName} - HandYaw: {currentHandYawAngle:F2}, d_ref_x: {d_ref_x:F2}, d_ref_y: {d_ref_y:F2}, d_ref_z: {d_ref_z:F2}");
         }
         else
         {
-            // Reset to baseline when hands not tracked
-            d_ref_x = d_ref;
-            d_ref_y = d_ref;
-            d_ref_z = d_ref;
+            // Reset to initial base values and yaw when hands not tracked
+            d_ref_x = base_d_ref_x;
+            d_ref_y = base_d_ref_y; // d_ref_y will be its base value (e.g. 7.0f)
+            d_ref_z = base_d_ref_z;
+            CurrentLengthFactor = 1.0f;
+            CurrentWidthFactor = 1.0f;
+            currentHandYawAngle = 0.0f;
         }
     }
 
-    // NEW: Calculate cohesion force using axis-specific reference distances
+    // NEW: Calculate cohesion force using axis-specific reference distances and hand yaw
     private Vector3 GetAxisSpecificCohesionForce(Vector3 relativePosition, float distance)
     {
-        Vector3 normalizedRelativePos = relativePosition.normalized;
-        Vector3 cohesionForce = Vector3.zero;
+        // Create rotation based on hand yaw
+        Quaternion handYawRotation = Quaternion.Euler(0, currentHandYawAngle, 0);
+        // Transform relative position to hand-oriented local space (for X and Z axes)
+        Vector3 localRelativePosition = Quaternion.Inverse(handYawRotation) * relativePosition;
 
-        // Scale distance for function calculations
-        // float scaled_distance = distance / scaleFactor;
-        float scaled_distance_x = Mathf.Abs(relativePosition.x / scaleFactor);
-        float scaled_distance_y = Mathf.Abs(relativePosition.y / scaleFactor);
-        float scaled_distance_z = Mathf.Abs(relativePosition.z / scaleFactor);
+        // Scaled distances for cohesion functions
+        // X and Z are in the hand-rotated frame, Y is world vertical
+        float scaled_distance_hand_x = Mathf.Abs(localRelativePosition.x / scaleFactor);
+        float scaled_distance_world_y = Mathf.Abs(relativePosition.y / scaleFactor); // Use world relativePosition.y
+        float scaled_distance_hand_z = Mathf.Abs(localRelativePosition.z / scaleFactor);
 
-        // Calculate force for each axis using its specific reference distance
-        float forceX = GetCohesionForceWithCustomDRef(scaled_distance_x, d_ref_x);// / scaleFactor);
-        float forceY = GetCohesionForceWithCustomDRef(scaled_distance_y, d_ref_y);// / scaleFactor);
-        float forceZ = GetCohesionForceWithCustomDRef(scaled_distance_z, d_ref_z);// / scaleFactor);
+        // Calculate force magnitudes along each axis
+        // d_ref_ values are in world units, so divide by scaleFactor for cohesion functions
+        float forceHandX = GetCohesionForceWithCustomDRef(scaled_distance_hand_x, d_ref_x / scaleFactor);
+        float forceWorldY = GetCohesionForceWithCustomDRef(scaled_distance_world_y, d_ref_y / scaleFactor);
+        float forceHandZ = GetCohesionForceWithCustomDRef(scaled_distance_hand_z, d_ref_z / scaleFactor);
 
-        // Apply the force in the direction of each axis component
-        cohesionForce.x = forceX * normalizedRelativePos.x;
-        cohesionForce.y = forceY * normalizedRelativePos.y;
-        cohesionForce.z = forceZ * normalizedRelativePos.z;
+        // Construct force components
+        // X and Z components are in the local hand-oriented frame
+        Vector3 localXZForceComponent = Vector3.zero;
+        localXZForceComponent.x = forceHandX * Mathf.Sign(localRelativePosition.x);
+        localXZForceComponent.z = forceHandZ * Mathf.Sign(localRelativePosition.z);
+        
+        // Y component is in world frame
+        float worldYForce = forceWorldY * Mathf.Sign(relativePosition.y);
 
-        return cohesionForce;
+        // Rotate XZ force components from local hand-oriented frame back to world space
+        Vector3 worldXZForce = handYawRotation * localXZForceComponent;
+
+        // Combine with world Y force
+        Vector3 totalWorldCohesionForce = new Vector3(worldXZForce.x, worldYForce, worldXZForce.z);
+        
+        return totalWorldCohesionForce * cohesionMultiplier; // Apply cohesionMultiplier here
     }
 
     // NEW: Modified cohesion force calculation with custom d_ref

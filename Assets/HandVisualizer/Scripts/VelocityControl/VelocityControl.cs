@@ -76,14 +76,16 @@ public class VelocityControl : MonoBehaviour {
 
         // Calculate height error and the corresponding corrective velocity
         float heightError = state.Altitude - desired_height;
+        // --- RESTORED ORIGINAL LINE ---
         float heightControlVelocity = -1.0f * heightError / time_constant_z_velocity;
+        // --- END OF RESTORED LINE ---
 
         // Set the base desired velocity
         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
         {
             // For Reynolds: Use user input for horizontal (desired_vx, desired_vy)
             // AND use the height control velocity for the base vertical component.
-            desiredVelocity = new Vector3(desired_vx, heightControlVelocity, desired_vy); // Restore height control here
+            desiredVelocity = new Vector3(desired_vx, heightControlVelocity, desired_vy);
         } 
         else // Olfati-Saber or other algorithms
         {
@@ -105,7 +107,7 @@ public class VelocityControl : MonoBehaviour {
                 // If the drone is at a safe height, allow it to move horizontally
                 desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
             }
-            // desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f);
+            // desiredVelocity = new Vector3(0.0f, heightControlVelocity, 0.0f); // This commented line is redundant
         }
         
         // Get the velocity contribution from the active swarm algorithm (includes swarm_vy)
