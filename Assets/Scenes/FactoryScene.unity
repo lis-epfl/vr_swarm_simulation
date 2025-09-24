@@ -13695,7 +13695,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 1
+  swarmAlgorithm: 0
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
@@ -13706,6 +13706,10 @@ MonoBehaviour:
   b: 0.5
   gamma: 1
   c_vm: 1
+  d_obs: 4
+  r0_obs: 6
+  lambda_obs: 1
+  c_obs: 4.3
   scaleFactor: 10
   attitudeControlType: 0
   numNeighbours: 9
@@ -13744,8 +13748,8 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 4
-  dronesAlongZ: 4
+  dronesAlongX: 3
+  dronesAlongZ: 3
   droneSpacing: 3
   start_x: 60
   start_y: 10
@@ -13774,7 +13778,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 656be34a415de4b90aa6ce56b39f625d, type: 3}
   m_Name: 
@@ -13795,7 +13799,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3ce35d1160b4a4f22a5b5328a362f145, type: 3}
   m_Name: 
