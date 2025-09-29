@@ -8811,7 +8811,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 0
+  swarmAlgorithm: 2
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
@@ -8827,6 +8827,12 @@ MonoBehaviour:
   lambda_obs: 1
   c_obs: 4.3
   scaleFactor: 10
+  viewDistance: 10
+  informationGainWeight: 2
+  radius: 20
+  height: 50
+  centerPoint: {x: 50, y: 0, z: 0}
+  movementSpeed: 5
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
@@ -8864,12 +8870,12 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 2
-  dronesAlongZ: 2
-  droneSpacing: 2
-  start_x: -100
-  start_y: 10
-  start_z: 30
+  dronesAlongX: 3
+  dronesAlongZ: 3
+  droneSpacing: 3
+  start_x: -50
+  start_y: 0
+  start_z: 0
   randomYaw: 1
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897
@@ -10972,17 +10978,17 @@ PrefabInstance:
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
       propertyPath: m_LocalScale.x
-      value: 100
+      value: 20
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
       propertyPath: m_LocalScale.y
-      value: 100
+      value: 20
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
       propertyPath: m_LocalScale.z
-      value: 100
+      value: 20
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
