@@ -5,7 +5,7 @@ using UnityEngine;
 public class swarmAlgorithm : MonoBehaviour
 {
     public List<GameObject> swarm;
-    
+
     private SwarmManager swarmManager;
 
     // Use the SwarmAlgorithm enum from SwarmManager
@@ -13,6 +13,7 @@ public class swarmAlgorithm : MonoBehaviour
 
     private Reynolds reynoldsAlgorithm;
     private OlfatiSaber olfatiSaberAlgorithm;
+    private NBV nbvAlgorithm; // NEW ADVAITH NBV
     private AttitudeControl attitudeControl;
 
     // Default altitude and velocity
@@ -36,6 +37,11 @@ public class swarmAlgorithm : MonoBehaviour
     void Start()
     {
 
+        // Find the SwarmManager in the scene
+        // Add this line right at the beginning
+        Debug.Log("The swarmAlgorithm script is on this GameObject: " + this.gameObject.name);
+
+
         // Automatically assign the SwarmManager if not already set
         swarmManager = swarmManager ?? SwarmManager.Instance;
 
@@ -44,11 +50,14 @@ public class swarmAlgorithm : MonoBehaviour
         // Get references to the algorithm components
         reynoldsAlgorithm = GetComponent<Reynolds>();
         olfatiSaberAlgorithm = GetComponent<OlfatiSaber>();
+        nbvAlgorithm = GetComponent<NBV>(); // NEW ADVAITH NBV
 
         // Assign the swarm list to both algorithms
         reynoldsAlgorithm.swarm = swarm;
         olfatiSaberAlgorithm.swarm = swarm;
-        
+        nbvAlgorithm.swarm = swarm; // NEW ADVAITH NBV
+
+
         // Initialize the attitude control script
         attitudeControl = GetComponent<AttitudeControl>();
 
@@ -74,11 +83,11 @@ public class swarmAlgorithm : MonoBehaviour
         swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;
     }
 
-    
+
     // Update the swarming parameters
     void OnSwarmParamsChanged()
     {
-        
+
         // Get swarm algorithm selection
         currentAlgorithm = swarmManager.swarmAlgorithm;
 
@@ -86,9 +95,10 @@ public class swarmAlgorithm : MonoBehaviour
         switch (currentAlgorithm)
         {
             // Reynolds algorithm and parameters
-            case SwarmManager.SwarmAlgorithm.REYNOLDS:                
+            case SwarmManager.SwarmAlgorithm.REYNOLDS:
                 EnableAlgorithm(reynoldsAlgorithm);
-                DisableAlgorithm(olfatiSaberAlgorithm);
+                DisableAlgorithm(olfatiSaberAlgorithm); // NEW ADVAITH NBV
+                DisableAlgorithm(nbvAlgorithm);
                 UpdateReynoldsParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
@@ -97,14 +107,27 @@ public class swarmAlgorithm : MonoBehaviour
                 break;
 
             // Olfati-Saber algorithm and parameters
-            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:                
+            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
                 EnableAlgorithm(olfatiSaberAlgorithm);
                 DisableAlgorithm(reynoldsAlgorithm);
+                DisableAlgorithm(nbvAlgorithm); // NEW ADVAITH NBV
                 UpdateOlfatiSaberParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 break;
+
+            // NBV algorithm and parameters // NEW ADVAITH NBV
+            case SwarmManager.SwarmAlgorithm.NBV:
+                EnableAlgorithm(nbvAlgorithm);
+                DisableAlgorithm(reynoldsAlgorithm);
+                DisableAlgorithm(olfatiSaberAlgorithm);
+                UpdateNBVParameters(); // You'll create this method next
+                // Also update the controller scripts if needed
+                readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.NBV;
+                inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.NBV;
+                velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.NBV;
+                break; // END OF NEW ADVAITH NBV
         }
 
         // Get the attitude control selection
@@ -173,6 +196,21 @@ public class swarmAlgorithm : MonoBehaviour
         }
     }
 
+    // Update the NBV parameters // NEW ADVAITH NBV
+    private void UpdateNBVParameters()
+    {
+        if (nbvAlgorithm != null)
+        {
+            nbvAlgorithm.viewDistance = swarmManager.GetViewDistance(); // tentative
+            nbvAlgorithm.informationGainWeight = swarmManager.GetInformationGainWeight(); // tentative
+
+            nbvAlgorithm.radius = swarmManager.GetRadius(); // to make swarm surround a center point
+            nbvAlgorithm.height = swarmManager.GetHeight();
+            nbvAlgorithm.centerPoint = swarmManager.GetCenterPoint();
+            nbvAlgorithm.movementSpeed = swarmManager.GetMovementSpeed();
+        }
+    }
+    
     // Update the attitude control parameters
     private void UpdateAttitudeControlParameters()
     {
