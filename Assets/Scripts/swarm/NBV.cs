@@ -43,13 +43,19 @@ public class NBV : MonoBehaviour
             
             // Create the final target position vector
             Vector3 targetPosition = new Vector3(x, height, z);
+            //  debugging print
+            // Debug.Log("Drone " + i + " target position: " + targetPosition);
 
-            // Get the current drone GameObject
+            // Get the current drone GameObject and find the DroneParent child (like in Reynolds)
             GameObject drone = swarm[i];
+            GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
             
-            // Move the drone from its current position towards the target position
+            // Debug both positions to see the difference
+            // Debug.Log("Drone " + i + " parent position: " + drone.transform.position + ", child position: " + droneChild.transform.position + ", target: " + targetPosition);
+            
+            // Move the drone child from its current position towards the target position
             // Time.deltaTime makes the movement frame-rate independent
-            drone.transform.position = Vector3.MoveTowards(drone.transform.position, targetPosition, movementSpeed * Time.deltaTime);
+            droneChild.transform.position = Vector3.MoveTowards(droneChild.transform.position, targetPosition, movementSpeed * Time.deltaTime);
         }
     }
 }

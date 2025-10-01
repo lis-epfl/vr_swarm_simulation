@@ -8830,9 +8830,9 @@ MonoBehaviour:
   viewDistance: 10
   informationGainWeight: 2
   radius: 20
-  height: 50
+  height: 10
   centerPoint: {x: 50, y: 0, z: 0}
-  movementSpeed: 5
+  movementSpeed: 1
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
@@ -8870,9 +8870,9 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 3
-  dronesAlongZ: 3
-  droneSpacing: 3
+  dronesAlongX: 4
+  dronesAlongZ: 4
+  droneSpacing: 4
   start_x: -50
   start_y: 0
   start_z: 0
@@ -10978,17 +10978,17 @@ PrefabInstance:
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
       propertyPath: m_LocalScale.x
-      value: 20
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
       propertyPath: m_LocalScale.y
-      value: 20
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
       propertyPath: m_LocalScale.z
-      value: 20
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
