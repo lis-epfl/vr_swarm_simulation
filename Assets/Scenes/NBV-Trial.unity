@@ -8834,6 +8834,7 @@ MonoBehaviour:
   centerPoint: {x: 0, y: 0, z: 0}
   movementSpeed: 10
   proportionalGain: 5
+  debug_bool: 1
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
