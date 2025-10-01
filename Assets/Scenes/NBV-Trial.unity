@@ -8831,8 +8831,9 @@ MonoBehaviour:
   informationGainWeight: 2
   radius: 20
   height: 10
-  centerPoint: {x: 50, y: 0, z: 0}
-  movementSpeed: 1
+  centerPoint: {x: 0, y: 0, z: 0}
+  movementSpeed: 10
+  proportionalGain: 5
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
@@ -8870,13 +8871,13 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 4
-  dronesAlongZ: 4
+  dronesAlongX: 3
+  dronesAlongZ: 3
   droneSpacing: 4
   start_x: -50
   start_y: 0
-  start_z: 0
-  randomYaw: 1
+  start_z: -50
+  randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897
 Transform:
