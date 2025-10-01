@@ -45,7 +45,7 @@ public class SwarmManager : MonoBehaviour
     public float height = 150.0f;
     public Vector3 centerPoint = new Vector3(0, 0, 0);
     public float movementSpeed = 5.0f;
-    public float proportionalGain = 2.0f;// END OF NEW ADVAITH NBV
+    public float proportionalGain = 5.0f;// END OF NEW ADVAITH NBV
 
     public enum AttitudeControl
     {
