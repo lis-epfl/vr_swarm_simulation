@@ -17,7 +17,7 @@ public class NBV : MonoBehaviour
     public float informationGainWeight;
 
     [Header("Control Parameters")]
-    public float proportionalGain = 2.0f; // Tune this value
+    public float proportionalGain = 1.0f; // Tune this value
 
     void FixedUpdate()
     {
