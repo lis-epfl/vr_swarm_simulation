@@ -208,6 +208,12 @@ public class swarmAlgorithm : MonoBehaviour
             nbvAlgorithm.height = swarmManager.GetHeight();
             nbvAlgorithm.centerPoint = swarmManager.GetCenterPoint();
             nbvAlgorithm.movementSpeed = swarmManager.GetMovementSpeed();
+            nbvAlgorithm.proportionalGain = swarmManager.GetProportionalGain(); // NEW: Missing parameter
+            
+            // NEW: Camera control parameters
+            nbvAlgorithm.cameraPitch = swarmManager.GetCameraPitch();
+            nbvAlgorithm.enableCameraPitchControl = swarmManager.GetEnableCameraPitchControl();
+            nbvAlgorithm.debug_bool = swarmManager.GetDebugBool();
         }
     }
     
