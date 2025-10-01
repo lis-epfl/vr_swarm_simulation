@@ -35,7 +35,7 @@ public class NBV : MonoBehaviour
         string droneName = gameObject.transform.parent.name;
         string[] splitName = droneName.Split(' ');
         int i = int.Parse(splitName[1]);
-        
+
         // Calculate the angle for this specific drone
         // We multiply by Mathf.Deg2Rad to convert degrees to radians for the trig functions
         float angle = i * angleStep * Mathf.Deg2Rad;
@@ -87,5 +87,73 @@ public class NBV : MonoBehaviour
 
         // Set the desired height for VelocityControl to use
         GetComponent<VelocityControl>().desired_height = height;
+
+        // NEW: Attitude control - point toward center
+        CalculateYawTowardCenter(droneChild);
+    }
+
+    void CalculateYawTowardCenter(GameObject droneChild)
+    {
+        // Get current drone position (only X and Z matter for yaw)
+        Vector3 dronePosition = droneChild.transform.position;
+
+        // Calculate direction from drone to center point (only X and Z)
+        Vector2 dronePos2D = new Vector2(dronePosition.x, dronePosition.z);
+        Vector2 centerPos2D = new Vector2(centerPoint.x, centerPoint.z);
+        Vector2 directionToCenter = (centerPos2D - dronePos2D).normalized;
+
+        // Get current drone heading (where it's currently pointing)
+        Vector2 currentHeading = new Vector2(droneChild.transform.forward.x, droneChild.transform.forward.z);
+
+        // Calculate the angle difference between current heading and desired direction
+        float desiredYawRateDegrees = Vector2.SignedAngle(currentHeading, directionToCenter);
+
+        // NEW: Add dead zone to prevent oscillations
+        float yawDeadZone = 2.5f; // degrees - tune this value
+        if (Mathf.Abs(desiredYawRateDegrees) < yawDeadZone)
+        {
+            // Close enough - don't send yaw commands
+            GetComponent<VelocityControl>().attitude_control_yaw = 0.0f;
+    
+            // Debug visualization
+            DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+            return;
+        }
+
+        // Convert to radians
+        float desiredYawRateRadians = desiredYawRateDegrees * Mathf.Deg2Rad;
+
+        // Apply the same transformation as in attitudeControl.cs (lines 100-107)
+        if (desiredYawRateRadians > 0)
+        {
+            desiredYawRateRadians = Mathf.PI - desiredYawRateRadians;
+        }
+        else
+        {
+            desiredYawRateRadians = -Mathf.PI - desiredYawRateRadians;
+        }
+
+        // Send the yaw command to VelocityControl
+        GetComponent<VelocityControl>().attitude_control_yaw = -1 * desiredYawRateRadians;
+
+        // NEW: Visualize the drone's current heading and desired direction
+        Vector3 dronePos3D = droneChild.transform.position;
+
+        // Debug visualization
+        DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+    }
+    
+    // Debug visualization function - easy to comment out the entire function
+    void DrawYawDebugArrows(GameObject droneChild, Vector2 currentHeading, Vector2 directionToCenter)
+    {
+        Vector3 dronePos3D = droneChild.transform.position;
+        
+        // Draw current heading (RED arrow)
+        Vector3 currentHeading3D = new Vector3(currentHeading.x, 0, currentHeading.y);
+        Debug.DrawRay(dronePos3D, currentHeading3D * 5.0f, Color.red, 0.1f);
+        
+        // Draw desired direction to center (GREEN arrow)
+        Vector3 directionToCenter3D = new Vector3(directionToCenter.x, 0, directionToCenter.y);
+        Debug.DrawRay(dronePos3D, directionToCenter3D * 3.0f, Color.green, 0.1f);
     }
 }
