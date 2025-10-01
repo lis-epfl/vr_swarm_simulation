@@ -42,7 +42,7 @@ public class SwarmManager : MonoBehaviour
     public float informationGainWeight = 2.0f;
     // ... any other parameters you need
     public float radius = 20.0f;
-    public float height = 50.0f;
+    public float height = 150.0f;
     public Vector3 centerPoint = new Vector3(0, 0, 0);
     public float movementSpeed = 5.0f; // END OF NEW ADVAITH NBV
 
