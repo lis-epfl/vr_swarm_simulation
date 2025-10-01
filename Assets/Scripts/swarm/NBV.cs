@@ -19,6 +19,16 @@ public class NBV : MonoBehaviour
     [Header("Control Parameters")]
     public float proportionalGain = 1.0f; // Tune this value
 
+    [Header("Debug Options")]
+    public bool debug_bool = false; // Toggle debug arrows for yaw visualization
+
+    [Header("Camera Control")]
+    public float cameraPitch = 0.0f; // Camera pitch angle in degrees (+ = looking down, - = looking up)
+    public bool enableCameraPitchControl = false; // Toggle camera pitch control
+
+    // Private variables
+    private float lastCameraPitch = float.MinValue; // To track changes
+
     void FixedUpdate()
     {
         // Ensure there are drones in the swarm to avoid division by zero
@@ -88,8 +98,14 @@ public class NBV : MonoBehaviour
         // Set the desired height for VelocityControl to use
         GetComponent<VelocityControl>().desired_height = height;
 
-        // NEW: Attitude control - point toward center
+        // Attitude control - point toward center
         CalculateYawTowardCenter(droneChild);
+
+        // NEW: Camera pitch control
+        if (enableCameraPitchControl)
+        {
+            ControlCameraPitch(drone);
+        }
     }
 
     void CalculateYawTowardCenter(GameObject droneChild)
@@ -108,13 +124,13 @@ public class NBV : MonoBehaviour
         // Calculate the angle difference between current heading and desired direction
         float desiredYawRateDegrees = Vector2.SignedAngle(currentHeading, directionToCenter);
 
-        // NEW: Add dead zone to prevent oscillations
-        float yawDeadZone = 2.5f; // degrees - tune this value
+        // Add dead zone to prevent oscillations
+        float yawDeadZone = 5f; // degrees - tune this value
         if (Mathf.Abs(desiredYawRateDegrees) < yawDeadZone)
         {
             // Close enough - don't send yaw commands
             GetComponent<VelocityControl>().attitude_control_yaw = 0.0f;
-    
+
             // Debug visualization
             DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
             return;
@@ -136,24 +152,100 @@ public class NBV : MonoBehaviour
         // Send the yaw command to VelocityControl
         GetComponent<VelocityControl>().attitude_control_yaw = -1 * desiredYawRateRadians;
 
-        // NEW: Visualize the drone's current heading and desired direction
+        // Visualize the drone's current heading and desired direction
         Vector3 dronePos3D = droneChild.transform.position;
 
         // Debug visualization
         DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
     }
+
+    // // Camera pitch control function
+    // void ControlCameraPitch(GameObject drone)
+    // {
+    //     // Find the FPV camera similar to PyUniSharingFast.cs line 354
+    //     Camera camera = drone.transform.Find("FPV")?.GetComponent<Camera>();
+
+    //     if (camera != null)
+    //     {
+    //         // Get the camera's current rotation
+    //         Vector3 currentRotation = camera.transform.localEulerAngles;
+
+    //         // Set the pitch (X rotation) while keeping Y and Z unchanged
+    //         // Positive pitch = looking down, Negative pitch = looking up
+    //         camera.transform.localEulerAngles = new Vector3(cameraPitch, currentRotation.y, currentRotation.z);
+    //         // Debug visualization
+    //         DrawCameraPitchArrow(camera);
+    //     }
+    //     else
+    //     {
+    //         // Debug warning if camera not found (only show once per drone)
+    //         if (Time.fixedTime % 2.0f < 0.02f) // Show every 2 seconds
+    //         {
+    //             Debug.LogWarning($"FPV Camera not found on drone: {drone.name}");
+    //         }
+    //     }
+    // }
+
+    // Modified camera control - only update when needed
+    void ControlCameraPitch(GameObject drone)
+    {
+        // Find the FPV camera
+        Camera camera = drone.transform.Find("FPV")?.GetComponent<Camera>();
+        
+        if (camera != null)
+        {
+            // Get the FPVCameraScript component
+            FPVCameraScript fpvScript = camera.GetComponent<FPVCameraScript>();
+            
+            if (fpvScript != null)
+            {
+                // Set our desired pitch in the camera script
+                fpvScript.SetAdditionalPitch(cameraPitch);
+                
+                Debug.Log($"Set additional pitch to: {cameraPitch} degrees on {drone.name}");
+            }
+            else
+            {
+                Debug.LogWarning($"FPVCameraScript not found on camera of {drone.name}");
+            }
+            
+            DrawCameraPitchArrow(camera);
+        }
+    }
+
+
     
-    // Debug visualization function - easy to comment out the entire function
+
+    // Debug visualization for camera pitch direction
+    void DrawCameraPitchArrow(Camera camera)
+    {
+        if (debug_bool == true)
+        {
+            Vector3 cameraPosition = camera.transform.position;
+            Vector3 cameraForward = camera.transform.forward;
+
+            // Draw camera's forward direction (BLUE arrow for pitch)
+            Debug.DrawRay(cameraPosition, cameraForward * 5.0f, Color.blue, 0.1f);
+
+            // Draw a shorter arrow showing just the pitch component
+            Vector3 pitchDirection = new Vector3(0, cameraForward.y, Vector3.Project(cameraForward, Vector3.forward).z).normalized;
+            Debug.DrawRay(cameraPosition, pitchDirection * 1.5f, Color.cyan, 0.1f);
+        }
+    }
+     // Debug visualization function - easy to comment out the entire function
     void DrawYawDebugArrows(GameObject droneChild, Vector2 currentHeading, Vector2 directionToCenter)
     {
-        Vector3 dronePos3D = droneChild.transform.position;
-        
-        // Draw current heading (RED arrow)
-        Vector3 currentHeading3D = new Vector3(currentHeading.x, 0, currentHeading.y);
-        Debug.DrawRay(dronePos3D, currentHeading3D * 5.0f, Color.red, 0.1f);
-        
-        // Draw desired direction to center (GREEN arrow)
-        Vector3 directionToCenter3D = new Vector3(directionToCenter.x, 0, directionToCenter.y);
-        Debug.DrawRay(dronePos3D, directionToCenter3D * 3.0f, Color.green, 0.1f);
+        if (debug_bool == true)
+        {
+            Vector3 dronePos3D = droneChild.transform.position;
+
+            // Draw current heading (RED arrow)
+            Vector3 currentHeading3D = new Vector3(currentHeading.x, 0, currentHeading.y);
+            Debug.DrawRay(dronePos3D, currentHeading3D * 5.0f, Color.red, 0.1f);
+
+            // Draw desired direction to center (GREEN arrow)
+            Vector3 directionToCenter3D = new Vector3(directionToCenter.x, 0, directionToCenter.y);
+            Debug.DrawRay(dronePos3D, directionToCenter3D * 3.0f, Color.green, 0.1f);
+        }
     }
 }

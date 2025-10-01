@@ -8835,6 +8835,8 @@ MonoBehaviour:
   movementSpeed: 10
   proportionalGain: 5
   debug_bool: 1
+  cameraPitch: 45
+  enableCameraPitchControl: 1
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
@@ -8875,9 +8877,9 @@ MonoBehaviour:
   dronesAlongX: 3
   dronesAlongZ: 3
   droneSpacing: 4
-  start_x: -50
+  start_x: -10
   start_y: 0
-  start_z: -50
+  start_z: -10
   randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897

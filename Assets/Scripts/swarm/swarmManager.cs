@@ -36,7 +36,7 @@ public class SwarmManager : MonoBehaviour
     public float c_obs = 4.3f;
     public float scaleFactor = 10.0f;
 
-    
+
     [Header("NBV Parameters")] // NEW ADVAITH NBV
     public float viewDistance = 10.0f;
     public float informationGainWeight = 2.0f;
@@ -45,7 +45,14 @@ public class SwarmManager : MonoBehaviour
     public float height = 150.0f;
     public Vector3 centerPoint = new Vector3(0, 0, 0);
     public float movementSpeed = 5.0f;
-    public float proportionalGain = 5.0f;// END OF NEW ADVAITH NBV
+    public float proportionalGain = 5.0f;
+
+    [Header("Debug Options")]
+    public bool debug_bool = false; // Toggle debug arrows for yaw visualization]
+
+    [Header("NBV Camera Control")] // NEW CAMERA PARAMETERS
+    public float cameraPitch = 0.0f;
+    public bool enableCameraPitchControl = true; // END OF NEW ADVAITH NBV
 
     public enum AttitudeControl
     {
@@ -112,6 +119,13 @@ public class SwarmManager : MonoBehaviour
     public float GetRadius() => radius;
     public float GetHeight() => height;
     public Vector3 GetCenterPoint() => centerPoint;
-    public float GetMovementSpeed() => movementSpeed; // END OF NEW ADVAITH NBV
+    public float GetMovementSpeed() => movementSpeed;
+    public float GetProportionalGain() => proportionalGain;
+
+    // Getters for NBV Camera Control // NEW CAMERA PARAMETERS
+    public float GetCameraPitch() => cameraPitch;
+    public bool GetEnableCameraPitchControl() => enableCameraPitchControl;
+
+    public bool GetDebugBool() => debug_bool; // END OF NEW ADVAITH NBV
 
 }
