@@ -10,9 +10,18 @@ public class FPVCameraScript : MonoBehaviour
 	[Range(0, 1)] public float temp;
 	[Range(0, 1)] public float rpLimitRatio;
 
+	// NEW: Add pitch speed control
+    [Range(0.01f, 1.0f)] private float pitchSpeed = 0.1f; // How fast the pitch changes
+
+	// NEW: Add pitch limits
+    [Header("Pitch Limits")]
+    private float minPitch = -90.0f; // Looking down limit
+    private float maxPitch = 35.0f;  // Looking up limit
 
 	// NEW: Add pitch control variable (PRIVATE - not visible in Unity Inspector)
 	private float additionalPitch = 0.0f; // This will be set by NBV script
+	private float currentAdditionalPitch = 0.0f; // Current smoothed pitch
+
 
 	// Use this for initialization
 	void Start()
@@ -25,6 +34,9 @@ public class FPVCameraScript : MonoBehaviour
 	{
 		transform.position = droneTransform.position + droneTransform.rotation * offset;
 
+		// Smoothly interpolate the additional pitch
+        currentAdditionalPitch = Mathf.Lerp(currentAdditionalPitch, additionalPitch, pitchSpeed * Time.deltaTime * 10f);
+
 
 		Vector3 euler = droneTransform.rotation.eulerAngles;
 		float x = (euler.x > 180.0f ? euler.x - 360.0f : euler.x) * rpLimitRatio;
@@ -35,8 +47,15 @@ public class FPVCameraScript : MonoBehaviour
 
 		//		Debug.Log (nx);
 		//		Debug.Log (nz);
+		
+		// NEW: Clamp the additional pitch to limits
+        float clampedPitch = Mathf.Clamp(currentAdditionalPitch, minPitch, maxPitch);
+
 		//	
-		Vector3 newEuler = new Vector3(nx + additionalPitch, euler.y, nz);
+		// Vector3 newEuler = new Vector3(nx + additionalPitch, euler.y, nz);
+		// Use the smoothed pitch instead of the immediate value
+		Vector3 newEuler = new Vector3(nx - clampedPitch, euler.y, nz);
+
 
 		//		Debug.Log (euler);
 		//		Debug.Log (newEuler);
@@ -49,8 +68,10 @@ public class FPVCameraScript : MonoBehaviour
 	}
 	
 	// NEW: Public method to set the pitch (called from NBV script)
+    // NEW: Public method to set the pitch with limits (called from NBV script)
     public void SetAdditionalPitch(float pitch)
     {
-        additionalPitch = pitch;
+        // Clamp the incoming pitch to our limits
+        additionalPitch = Mathf.Clamp(pitch, minPitch, maxPitch);
     }
 }
