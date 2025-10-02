@@ -23,7 +23,8 @@ public class NBV : MonoBehaviour
     public bool debug_bool = false; // Toggle debug arrows for yaw visualization
 
     [Header("Camera Control")]
-    public float cameraPitch = 0.0f; // Camera pitch angle in degrees (+ = looking down, - = looking up)
+    // public float cameraPitch = 0.0f; // Camera pitch angle in degrees (+ = looking down, - = looking up)
+    [Range(-90f, 35f)] public float cameraPitch = 0.0f; // Limited range in Unity Inspector
     public bool enableCameraPitchControl = false; // Toggle camera pitch control
 
     // Private variables
@@ -159,32 +160,6 @@ public class NBV : MonoBehaviour
         DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
     }
 
-    // // Camera pitch control function
-    // void ControlCameraPitch(GameObject drone)
-    // {
-    //     // Find the FPV camera similar to PyUniSharingFast.cs line 354
-    //     Camera camera = drone.transform.Find("FPV")?.GetComponent<Camera>();
-
-    //     if (camera != null)
-    //     {
-    //         // Get the camera's current rotation
-    //         Vector3 currentRotation = camera.transform.localEulerAngles;
-
-    //         // Set the pitch (X rotation) while keeping Y and Z unchanged
-    //         // Positive pitch = looking down, Negative pitch = looking up
-    //         camera.transform.localEulerAngles = new Vector3(cameraPitch, currentRotation.y, currentRotation.z);
-    //         // Debug visualization
-    //         DrawCameraPitchArrow(camera);
-    //     }
-    //     else
-    //     {
-    //         // Debug warning if camera not found (only show once per drone)
-    //         if (Time.fixedTime % 2.0f < 0.02f) // Show every 2 seconds
-    //         {
-    //             Debug.LogWarning($"FPV Camera not found on drone: {drone.name}");
-    //         }
-    //     }
-    // }
 
     // Modified camera control - only update when needed
     void ControlCameraPitch(GameObject drone)
@@ -201,8 +176,8 @@ public class NBV : MonoBehaviour
             {
                 // Set our desired pitch in the camera script
                 fpvScript.SetAdditionalPitch(cameraPitch);
-                
-                Debug.Log($"Set additional pitch to: {cameraPitch} degrees on {drone.name}");
+
+                // Debug.Log($"Set additional pitch to: {cameraPitch} degrees on {drone.name}");
             }
             else
             {

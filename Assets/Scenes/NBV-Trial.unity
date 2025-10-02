@@ -8835,7 +8835,7 @@ MonoBehaviour:
   movementSpeed: 10
   proportionalGain: 5
   debug_bool: 1
-  cameraPitch: 45
+  cameraPitch: 30
   enableCameraPitchControl: 1
   attitudeControlType: 0
   numNeighbours: 9
