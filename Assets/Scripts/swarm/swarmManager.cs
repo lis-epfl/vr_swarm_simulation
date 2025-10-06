@@ -52,7 +52,13 @@ public class SwarmManager : MonoBehaviour
 
     [Header("NBV Camera Control")] // NEW CAMERA PARAMETERS
     public float cameraPitch = 0.0f;
-    public bool enableCameraPitchControl = true; // END OF NEW ADVAITH NBV
+    public bool enableCameraPitchControl = true;
+    
+    [Header("NBV Obstacle Avoidance")] // NEW OBSTACLE AVOIDANCE PARAMETERS
+    public LayerMask obstacleLayerMask = (1 << 10); // Set to layer 10 (Obstacle)
+    public float avoidanceDistance = 3.0f;
+    public float avoidanceForce = 2.0f;
+    public bool enableObstacleAvoidance = true; // END OF NEW ADVAITH NBV
 
     public enum AttitudeControl
     {
@@ -125,6 +131,12 @@ public class SwarmManager : MonoBehaviour
     // Getters for NBV Camera Control // NEW CAMERA PARAMETERS
     public float GetCameraPitch() => cameraPitch;
     public bool GetEnableCameraPitchControl() => enableCameraPitchControl;
+    
+    // Getters for NBV Obstacle Avoidance // NEW OBSTACLE AVOIDANCE PARAMETERS
+    public LayerMask GetObstacleLayerMask() => obstacleLayerMask;
+    public float GetAvoidanceDistance() => avoidanceDistance;
+    public float GetAvoidanceForce() => avoidanceForce;
+    public bool GetEnableObstacleAvoidance() => enableObstacleAvoidance;
 
     public bool GetDebugBool() => debug_bool; // END OF NEW ADVAITH NBV
 
