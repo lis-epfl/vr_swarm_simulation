@@ -12,12 +12,30 @@ public class NBV : MonoBehaviour
     public Vector3 centerPoint = new Vector3(0, 0, 0); // The reference point for the circle
     public float movementSpeed = 1.0f; // How fast the drones move into position
 
-    // Your NBV-specific parameters can still be used for other logic
+    // // Your NBV-specific parameters can still be used for other logic
     public float viewDistance;
     public float informationGainWeight;
 
     [Header("Control Parameters")]
     public float proportionalGain = 1.0f; // Tune this value
+
+    [Header("Obstacle Avoidance")]
+    public LayerMask obstacleLayerMask = (1 << 10); // Set to layer 10 (Obstacle layer)
+    public float avoidanceDistance = 3.0f; // How far to stay away from obstacles
+    public float avoidanceForce = 2.0f; // How strong the avoidance force is
+    public bool enableObstacleAvoidance = true; // Toggle on/off
+    
+    [Header("Advanced Avoidance Tuning")]
+    public float escapeForceMultiplier = 5.0f; // Extra force when very close to obstacle
+    public float minForceRatio = 0.5f; // Minimum force as ratio of avoidanceForce (prevents getting stuck)
+    public bool useFormationOverride = true; // Temporarily reduce formation force when avoiding obstacles
+
+
+    [Header("Inter-Drone Avoidance")]
+    public float minInterDroneDistance = 2.0f; // Minimum distance between drones
+    public float interDroneAvoidanceForce = 3.0f; // How strong the inter-drone avoidance is
+    public bool enableInterDroneAvoidance = true; // Toggle on/off
+    public LayerMask droneLayerMask = (1 << 9); // Layer for drones (you mentioned drones are on layer 9)
 
     [Header("Debug Options")]
     public bool debug_bool = false; // Toggle debug arrows for yaw visualization
@@ -29,6 +47,7 @@ public class NBV : MonoBehaviour
 
     // Private variables
     private float lastCameraPitch = float.MinValue; // To track changes
+    
 
     void FixedUpdate()
     {
@@ -68,21 +87,36 @@ public class NBV : MonoBehaviour
 
         // Debug both positions to see the difference
         // Debug.Log("Drone " + i + " parent position: " + drone.transform.position + ", child position: " + droneChild.transform.position + ", target: " + targetPosition);
-
-        // Move the drone child from its current position towards the target position
-        // Time.deltaTime makes the movement frame-rate independent
-        // droneChild.transform.position = Vector3.MoveTowards(droneChild.transform.position, targetPosition, movementSpeed * Time.deltaTime);
-
         // Get the max speed from the VelocityControl script
         float maxSpeed = droneChild.GetComponent<VelocityControl>().GetMaxSpeed();
-
-        // Compute a velocity command towards the target position
-        // Vector3 direction = (targetPosition - droneChild.transform.position).normalized;
-        // Vector3 velocityCommand = direction * maxSpeed;
 
         // Proportional control
         Vector3 positionError = targetPosition - droneChild.transform.position;
         Vector3 velocityCommand = positionError * proportionalGain;
+
+        // NEW: Add obstacle avoidance
+        Vector3 avoidanceVector = Vector3.zero;
+        bool isAvoiding = false;
+        
+        if (enableObstacleAvoidance)
+        {
+            avoidanceVector = CalculateObstacleAvoidance(droneChild);
+            isAvoiding = avoidanceVector.magnitude > 0.1f;
+            
+            // Formation override: reduce formation pull when avoiding obstacles
+            if (useFormationOverride && isAvoiding)
+            {
+                float reductionFactor = 0.3f; // Reduce formation force to 30% when avoiding
+                velocityCommand *= reductionFactor;
+                
+                if (debug_bool)
+                {
+                    Debug.Log($"Drone {droneChild.name}: Formation override active, avoidance magnitude: {avoidanceVector.magnitude:F2}");
+                }
+            }
+            
+            velocityCommand += avoidanceVector;
+        }
 
         // Clamp the velocity command to the maximum speed
         // Clamp the velocity to maximum allowed
@@ -107,6 +141,80 @@ public class NBV : MonoBehaviour
         {
             ControlCameraPitch(drone);
         }
+    }
+
+    Vector3 CalculateObstacleAvoidance(GameObject droneChild)
+    {
+        Vector3 avoidance = Vector3.zero;
+        Vector3 dronePos = droneChild.transform.position;
+        
+        // Find all colliders within avoidance distance on the obstacle layer
+        Collider[] obstacles = Physics.OverlapSphere(dronePos, avoidanceDistance, obstacleLayerMask);
+        
+        // Debug logging
+        if (debug_bool && obstacles.Length > 0)
+        {
+            Debug.Log($"Drone {droneChild.name} found {obstacles.Length} obstacles within {avoidanceDistance} units");
+        }
+        
+        foreach (Collider obstacle in obstacles)
+        {
+            // Get the closest point on the obstacle to the drone
+            Vector3 closestPoint = obstacle.ClosestPoint(dronePos);
+            
+            // Calculate direction away from the closest point
+            Vector3 directionAway = dronePos - closestPoint;
+            float distanceToObstacle = directionAway.magnitude;
+            
+            // Only apply avoidance if we're actually close to the obstacle
+            if (distanceToObstacle > 0.1f && distanceToObstacle < avoidanceDistance)
+            {
+                // Normalize direction
+                Vector3 avoidanceForceVector = directionAway.normalized;
+                
+                // IMPROVED: Multiple force calculation methods
+                float forceMultiplier = CalculateAvoidanceForce(distanceToObstacle);
+                
+                // Add the avoidance force
+                Vector3 currentAvoidance = avoidanceForceVector * forceMultiplier;
+                avoidance += currentAvoidance;
+                
+                // Debug visualization
+                if (debug_bool)
+                {
+                    DrawObstacleAvoidanceDebug(dronePos, closestPoint, directionAway, obstacle);
+                    Debug.Log($"Distance: {distanceToObstacle:F2}, Force: {forceMultiplier:F2}, Direction: {avoidanceForceVector}");
+                }
+            }
+        }
+        
+        return avoidance;
+    }
+
+    // NEW: Improved force calculation with multiple strategies
+    float CalculateAvoidanceForce(float distanceToObstacle)
+    {
+        // Method 1: Exponential decay (stronger near obstacle)
+        float exponentialForce = avoidanceForce * Mathf.Exp(-2.0f * (distanceToObstacle / avoidanceDistance));
+        
+        // Method 2: Inverse square law (physics-based)
+        float inverseSquareForce = avoidanceForce / (1.0f + distanceToObstacle * distanceToObstacle);
+        
+        // Method 3: Minimum force threshold (prevents getting stuck)
+        float minForceThreshold = avoidanceForce * minForceRatio;
+        
+        // Method 4: Escape boost (stronger force when very close)
+        float escapeBoost = distanceToObstacle < (avoidanceDistance * 0.3f) ? 
+            avoidanceForce * escapeForceMultiplier : 0.0f;
+        
+        // Combine methods: use the strongest force
+        float finalForce = Mathf.Max(
+            exponentialForce,
+            inverseSquareForce + escapeBoost,
+            minForceThreshold
+        );
+        
+        return finalForce;
     }
 
     void CalculateYawTowardCenter(GameObject droneChild)
@@ -189,7 +297,47 @@ public class NBV : MonoBehaviour
     }
 
 
-    
+    // DEBUG: Obstacle avoidance visualization
+    void DrawObstacleAvoidanceDebug(Vector3 dronePos, Vector3 closestPoint, Vector3 avoidanceDirection, Collider obstacle)
+    {
+        // Draw line from drone to closest point on obstacle (MAGENTA)
+        Debug.DrawLine(dronePos, closestPoint, Color.magenta, 0.1f);
+        
+        // Draw avoidance force direction (ORANGE)
+        if (avoidanceDirection.magnitude > 0.1f)
+        {
+            Debug.DrawRay(dronePos, avoidanceDirection.normalized * 2.0f, Color.yellow, 0.1f);
+        }
+        
+        // Draw detection sphere around drone (YELLOW)
+        DrawWireSphere(dronePos, avoidanceDistance, Color.yellow);
+        
+        // Draw small sphere at closest point (RED)
+        DrawWireSphere(closestPoint, 0.2f, Color.red);
+    }
+
+    void DrawWireSphere(Vector3 center, float radius, Color color)
+    {
+        // Simple wire sphere using Debug.DrawRay
+        int segments = 16;
+        float angleStep = 360f / segments;
+        
+        for (int i = 0; i < segments; i++)
+        {
+            float angle1 = i * angleStep * Mathf.Deg2Rad;
+            float angle2 = (i + 1) * angleStep * Mathf.Deg2Rad;
+            
+            // Draw circle on XZ plane
+            Vector3 point1 = center + new Vector3(Mathf.Cos(angle1) * radius, 0, Mathf.Sin(angle1) * radius);
+            Vector3 point2 = center + new Vector3(Mathf.Cos(angle2) * radius, 0, Mathf.Sin(angle2) * radius);
+            Debug.DrawLine(point1, point2, color, 0.1f);
+            
+            // Draw circle on XY plane
+            point1 = center + new Vector3(Mathf.Cos(angle1) * radius, Mathf.Sin(angle1) * radius, 0);
+            point2 = center + new Vector3(Mathf.Cos(angle2) * radius, Mathf.Sin(angle2) * radius, 0);
+            Debug.DrawLine(point1, point2, color, 0.1f);
+        }
+    }
 
     // Debug visualization for camera pitch direction
     void DrawCameraPitchArrow(Camera camera)

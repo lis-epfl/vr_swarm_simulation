@@ -213,6 +213,13 @@ public class swarmAlgorithm : MonoBehaviour
             // NEW: Camera control parameters
             nbvAlgorithm.cameraPitch = swarmManager.GetCameraPitch();
             nbvAlgorithm.enableCameraPitchControl = swarmManager.GetEnableCameraPitchControl();
+            
+            // NEW: Obstacle avoidance parameters
+            nbvAlgorithm.obstacleLayerMask = swarmManager.GetObstacleLayerMask();
+            nbvAlgorithm.avoidanceDistance = swarmManager.GetAvoidanceDistance();
+            nbvAlgorithm.avoidanceForce = swarmManager.GetAvoidanceForce();
+            nbvAlgorithm.enableObstacleAvoidance = swarmManager.GetEnableObstacleAvoidance();
+            
             nbvAlgorithm.debug_bool = swarmManager.GetDebugBool();
         }
     }
