@@ -220,6 +220,17 @@ public class swarmAlgorithm : MonoBehaviour
             nbvAlgorithm.avoidanceForce = swarmManager.GetAvoidanceForce();
             nbvAlgorithm.enableObstacleAvoidance = swarmManager.GetEnableObstacleAvoidance();
             
+            // NEW: Inter-drone avoidance parameters
+            nbvAlgorithm.minInterDroneDistance = swarmManager.GetMinInterDroneDistance();
+            nbvAlgorithm.interDroneAvoidanceForce = swarmManager.GetInterDroneAvoidanceForce();
+            nbvAlgorithm.enableInterDroneAvoidance = swarmManager.GetEnableInterDroneAvoidance();
+            nbvAlgorithm.droneLayerMask = swarmManager.GetDroneLayerMask();
+            
+            // NEW: Advanced tuning parameters
+            nbvAlgorithm.escapeForceMultiplier = swarmManager.GetEscapeForceMultiplier();
+            nbvAlgorithm.minForceRatio = swarmManager.GetMinForceRatio();
+            nbvAlgorithm.useFormationOverride = swarmManager.GetUseFormationOverride();
+            
             nbvAlgorithm.debug_bool = swarmManager.GetDebugBool();
         }
     }

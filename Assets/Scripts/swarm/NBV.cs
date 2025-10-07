@@ -96,27 +96,39 @@ public class NBV : MonoBehaviour
 
         // NEW: Add obstacle avoidance
         Vector3 avoidanceVector = Vector3.zero;
+        Vector3 interDroneAvoidanceVector = Vector3.zero;
         bool isAvoiding = false;
         
         if (enableObstacleAvoidance)
         {
             avoidanceVector = CalculateObstacleAvoidance(droneChild);
             isAvoiding = avoidanceVector.magnitude > 0.1f;
-            
-            // Formation override: reduce formation pull when avoiding obstacles
-            if (useFormationOverride && isAvoiding)
-            {
-                float reductionFactor = 0.3f; // Reduce formation force to 30% when avoiding
-                velocityCommand *= reductionFactor;
-                
-                if (debug_bool)
-                {
-                    Debug.Log($"Drone {droneChild.name}: Formation override active, avoidance magnitude: {avoidanceVector.magnitude:F2}");
-                }
-            }
-            
-            velocityCommand += avoidanceVector;
         }
+        
+        // NEW: Add inter-drone avoidance
+        if (enableInterDroneAvoidance)
+        {
+            interDroneAvoidanceVector = CalculateInterDroneAvoidance(droneChild);
+            if (interDroneAvoidanceVector.magnitude > 0.1f)
+            {
+                isAvoiding = true;
+            }
+        }
+        
+        // Formation override: reduce formation pull when avoiding obstacles OR other drones
+        if (useFormationOverride && isAvoiding)
+        {
+            float reductionFactor = 0.3f; // Reduce formation force to 30% when avoiding
+            velocityCommand *= reductionFactor;
+            
+            if (debug_bool)
+            {
+                Debug.Log($"Drone {droneChild.name}: Formation override active, obstacle avoidance: {avoidanceVector.magnitude:F2}, inter-drone avoidance: {interDroneAvoidanceVector.magnitude:F2}");
+            }
+        }
+        
+        // Combine all forces
+        velocityCommand += avoidanceVector + interDroneAvoidanceVector;
 
         // Clamp the velocity command to the maximum speed
         // Clamp the velocity to maximum allowed
@@ -167,7 +179,7 @@ public class NBV : MonoBehaviour
             float distanceToObstacle = directionAway.magnitude;
             
             // Only apply avoidance if we're actually close to the obstacle
-            if (distanceToObstacle > 0.1f && distanceToObstacle < avoidanceDistance)
+            if (distanceToObstacle > 0.1f && distanceToObstacle < avoidanceDistance) // TODO! Perhaps change 0.1f to a larger value
             {
                 // Normalize direction
                 Vector3 avoidanceForceVector = directionAway.normalized;
@@ -213,6 +225,86 @@ public class NBV : MonoBehaviour
             inverseSquareForce + escapeBoost,
             minForceThreshold
         );
+        
+        return finalForce;
+    }
+
+    // NEW: Calculate avoidance from other drones
+    Vector3 CalculateInterDroneAvoidance(GameObject droneChild)
+    {
+        Vector3 avoidance = Vector3.zero;
+        Vector3 dronePos = droneChild.transform.position;
+        
+        // Find all drone colliders within minimum distance
+        Collider[] nearbyDrones = Physics.OverlapSphere(dronePos, minInterDroneDistance, droneLayerMask);
+        
+        int nearbyCount = 0;
+        
+        foreach (Collider otherDroneCollider in nearbyDrones)
+        {
+            // Skip if it's the same drone or related to this drone
+            if (otherDroneCollider.transform.IsChildOf(droneChild.transform) || 
+                droneChild.transform.IsChildOf(otherDroneCollider.transform) ||
+                otherDroneCollider.transform == droneChild.transform)
+            {
+                continue;
+            }
+            
+            // Get the other drone's position
+            Vector3 otherDronePos = otherDroneCollider.transform.position;
+            
+            // Calculate direction away from the other drone
+            Vector3 directionAway = dronePos - otherDronePos;
+            float distanceToOtherDrone = directionAway.magnitude;
+            
+            // Only apply avoidance if we're too close
+            if (distanceToOtherDrone > 0.1f && distanceToOtherDrone < minInterDroneDistance)
+            {
+                // Normalize direction
+                Vector3 avoidanceForceVector = directionAway.normalized;
+                
+                // Calculate force - stronger when closer
+                float forceMultiplier = CalculateInterDroneAvoidanceForce(distanceToOtherDrone);
+                
+                // Add the avoidance force
+                Vector3 currentAvoidance = avoidanceForceVector * forceMultiplier;
+                avoidance += currentAvoidance;
+                
+                nearbyCount++;
+                
+                // Debug visualization
+                if (debug_bool)
+                {
+                    DrawInterDroneAvoidanceDebug(dronePos, otherDronePos, directionAway);
+                    Debug.Log($"Inter-drone avoidance: Distance: {distanceToOtherDrone:F2}, Force: {forceMultiplier:F2}");
+                }
+            }
+        }
+        
+        if (debug_bool && nearbyCount > 0)
+        {
+            Debug.Log($"Drone {droneChild.name} avoiding {nearbyCount} nearby drones");
+        }
+        
+        return avoidance;
+    }
+
+    // Calculate inter-drone avoidance force
+    float CalculateInterDroneAvoidanceForce(float distanceToOtherDrone)
+    {
+        // Similar to obstacle avoidance but tuned for drone-to-drone
+        
+        // Method 1: Inverse square law (physics-based)
+        float inverseSquareForce = interDroneAvoidanceForce / (1.0f + distanceToOtherDrone * distanceToOtherDrone);
+        
+        // Method 2: Linear decay with minimum threshold
+        float linearForce = interDroneAvoidanceForce * (1.0f - (distanceToOtherDrone / minInterDroneDistance));
+        
+        // Method 3: Exponential force for very close encounters
+        float exponentialForce = interDroneAvoidanceForce * Mathf.Exp(-3.0f * (distanceToOtherDrone / minInterDroneDistance));
+        
+        // Use the strongest force
+        float finalForce = Mathf.Max(inverseSquareForce, linearForce, exponentialForce);
         
         return finalForce;
     }
@@ -314,6 +406,22 @@ public class NBV : MonoBehaviour
         
         // Draw small sphere at closest point (RED)
         DrawWireSphere(closestPoint, 0.2f, Color.red);
+    }
+
+    // DEBUG: Inter-drone avoidance visualization
+    void DrawInterDroneAvoidanceDebug(Vector3 dronePos, Vector3 otherDronePos, Vector3 avoidanceDirection)
+    {
+        // Draw line between drones (CYAN)
+        Debug.DrawLine(dronePos, otherDronePos, Color.cyan, 0.1f);
+        
+        // Draw avoidance force direction (PURPLE)
+        if (avoidanceDirection.magnitude > 0.1f)
+        {
+            Debug.DrawRay(dronePos, avoidanceDirection.normalized * 1.5f, new Color(1f, 0f, 1f), 0.1f); // Magenta/Purple
+        }
+        
+        // Draw minimum distance sphere around drone (LIGHT BLUE)
+        DrawWireSphere(dronePos, minInterDroneDistance, Color.cyan);
     }
 
     void DrawWireSphere(Vector3 center, float radius, Color color)

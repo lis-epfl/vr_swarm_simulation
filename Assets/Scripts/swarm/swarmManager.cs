@@ -58,7 +58,18 @@ public class SwarmManager : MonoBehaviour
     public LayerMask obstacleLayerMask = (1 << 10); // Set to layer 10 (Obstacle)
     public float avoidanceDistance = 3.0f;
     public float avoidanceForce = 2.0f;
-    public bool enableObstacleAvoidance = true; // END OF NEW ADVAITH NBV
+    public bool enableObstacleAvoidance = true;
+    
+    [Header("NBV Inter-Drone Avoidance")] // NEW INTER-DRONE AVOIDANCE PARAMETERS
+    public float minInterDroneDistance = 2.0f;
+    public float interDroneAvoidanceForce = 3.0f;
+    public bool enableInterDroneAvoidance = true;
+    public LayerMask droneLayerMask = (1 << 9); // Layer 9 for drones
+    
+    [Header("NBV Advanced Avoidance Tuning")] // NEW ADVANCED TUNING PARAMETERS
+    public float escapeForceMultiplier = 5.0f;
+    public float minForceRatio = 0.5f;
+    public bool useFormationOverride = true; // END OF NEW ADVAITH NBV
 
     public enum AttitudeControl
     {
@@ -137,6 +148,17 @@ public class SwarmManager : MonoBehaviour
     public float GetAvoidanceDistance() => avoidanceDistance;
     public float GetAvoidanceForce() => avoidanceForce;
     public bool GetEnableObstacleAvoidance() => enableObstacleAvoidance;
+    
+    // Getters for NBV Inter-Drone Avoidance // NEW INTER-DRONE AVOIDANCE PARAMETERS
+    public float GetMinInterDroneDistance() => minInterDroneDistance;
+    public float GetInterDroneAvoidanceForce() => interDroneAvoidanceForce;
+    public bool GetEnableInterDroneAvoidance() => enableInterDroneAvoidance;
+    public LayerMask GetDroneLayerMask() => droneLayerMask;
+    
+    // Getters for NBV Advanced Tuning // NEW ADVANCED TUNING PARAMETERS
+    public float GetEscapeForceMultiplier() => escapeForceMultiplier;
+    public float GetMinForceRatio() => minForceRatio;
+    public bool GetUseFormationOverride() => useFormationOverride;
 
     public bool GetDebugBool() => debug_bool; // END OF NEW ADVAITH NBV
 
