@@ -9354,6 +9354,15 @@ MonoBehaviour:
   avoidanceDistance: 10
   avoidanceForce: 100
   enableObstacleAvoidance: 1
+  minInterDroneDistance: 5
+  interDroneAvoidanceForce: 100
+  enableInterDroneAvoidance: 1
+  droneLayerMask:
+    serializedVersion: 2
+    m_Bits: 512
+  escapeForceMultiplier: 5
+  minForceRatio: 0.5
+  useFormationOverride: 1
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
