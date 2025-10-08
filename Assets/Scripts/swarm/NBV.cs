@@ -123,7 +123,7 @@ public class NBV : MonoBehaviour
             
             if (debug_bool)
             {
-                Debug.Log($"Drone {droneChild.name}: Formation override active, obstacle avoidance: {avoidanceVector.magnitude:F2}, inter-drone avoidance: {interDroneAvoidanceVector.magnitude:F2}");
+                NBVDebugger.LogFormationOverride(droneChild.name, avoidanceVector.magnitude, interDroneAvoidanceVector.magnitude);
             }
         }
         
@@ -166,7 +166,7 @@ public class NBV : MonoBehaviour
         // Debug logging
         if (debug_bool && obstacles.Length > 0)
         {
-            Debug.Log($"Drone {droneChild.name} found {obstacles.Length} obstacles within {avoidanceDistance} units");
+            NBVDebugger.LogObstacleAvoidance(droneChild.name, obstacles.Length, avoidanceDistance, 0, 0, Vector3.zero);
         }
         
         foreach (Collider obstacle in obstacles)
@@ -194,8 +194,8 @@ public class NBV : MonoBehaviour
                 // Debug visualization
                 if (debug_bool)
                 {
-                    DrawObstacleAvoidanceDebug(dronePos, closestPoint, directionAway, obstacle);
-                    Debug.Log($"Distance: {distanceToObstacle:F2}, Force: {forceMultiplier:F2}, Direction: {avoidanceForceVector}");
+                    NBVDebugger.DrawObstacleAvoidanceDebug(dronePos, closestPoint, directionAway, obstacle, avoidanceDistance);
+                    NBVDebugger.LogObstacleAvoidance(droneChild.name, 1, avoidanceDistance, distanceToObstacle, forceMultiplier, avoidanceForceVector);
                 }
             }
         }
@@ -275,15 +275,15 @@ public class NBV : MonoBehaviour
                 // Debug visualization
                 if (debug_bool)
                 {
-                    DrawInterDroneAvoidanceDebug(dronePos, otherDronePos, directionAway);
-                    Debug.Log($"Inter-drone avoidance: Distance: {distanceToOtherDrone:F2}, Force: {forceMultiplier:F2}");
+                    NBVDebugger.DrawInterDroneAvoidanceDebug(dronePos, otherDronePos, directionAway, minInterDroneDistance);
+                    NBVDebugger.LogInterDroneAvoidance(droneChild.name, 1, distanceToOtherDrone, forceMultiplier);
                 }
             }
         }
         
         if (debug_bool && nearbyCount > 0)
         {
-            Debug.Log($"Drone {droneChild.name} avoiding {nearbyCount} nearby drones");
+            NBVDebugger.LogInterDroneAvoidance(droneChild.name, nearbyCount, 0, 0);
         }
         
         return avoidance;
@@ -333,7 +333,10 @@ public class NBV : MonoBehaviour
             GetComponent<VelocityControl>().attitude_control_yaw = 0.0f;
 
             // Debug visualization
-            DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+            if (debug_bool)
+            {
+                NBVDebugger.DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+            }
             return;
         }
 
@@ -357,7 +360,10 @@ public class NBV : MonoBehaviour
         Vector3 dronePos3D = droneChild.transform.position;
 
         // Debug visualization
-        DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+        if (debug_bool)
+        {
+            NBVDebugger.DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+        }
     }
 
 
@@ -384,99 +390,11 @@ public class NBV : MonoBehaviour
                 Debug.LogWarning($"FPVCameraScript not found on camera of {drone.name}");
             }
             
-            DrawCameraPitchArrow(camera);
+            if (debug_bool)
+            {
+                NBVDebugger.DrawCameraPitchArrow(camera);
+            }
         }
     }
 
-
-    // DEBUG: Obstacle avoidance visualization
-    void DrawObstacleAvoidanceDebug(Vector3 dronePos, Vector3 closestPoint, Vector3 avoidanceDirection, Collider obstacle)
-    {
-        // Draw line from drone to closest point on obstacle (MAGENTA)
-        Debug.DrawLine(dronePos, closestPoint, Color.magenta, 0.1f);
-        
-        // Draw avoidance force direction (ORANGE)
-        if (avoidanceDirection.magnitude > 0.1f)
-        {
-            Debug.DrawRay(dronePos, avoidanceDirection.normalized * 2.0f, Color.yellow, 0.1f);
-        }
-        
-        // Draw detection sphere around drone (YELLOW)
-        DrawWireSphere(dronePos, avoidanceDistance, Color.yellow);
-        
-        // Draw small sphere at closest point (RED)
-        DrawWireSphere(closestPoint, 0.2f, Color.red);
-    }
-
-    // DEBUG: Inter-drone avoidance visualization
-    void DrawInterDroneAvoidanceDebug(Vector3 dronePos, Vector3 otherDronePos, Vector3 avoidanceDirection)
-    {
-        // Draw line between drones (CYAN)
-        Debug.DrawLine(dronePos, otherDronePos, Color.cyan, 0.1f);
-        
-        // Draw avoidance force direction (PURPLE)
-        if (avoidanceDirection.magnitude > 0.1f)
-        {
-            Debug.DrawRay(dronePos, avoidanceDirection.normalized * 1.5f, new Color(1f, 0f, 1f), 0.1f); // Magenta/Purple
-        }
-        
-        // Draw minimum distance sphere around drone (LIGHT BLUE)
-        DrawWireSphere(dronePos, minInterDroneDistance, Color.cyan);
-    }
-
-    void DrawWireSphere(Vector3 center, float radius, Color color)
-    {
-        // Simple wire sphere using Debug.DrawRay
-        int segments = 16;
-        float angleStep = 360f / segments;
-        
-        for (int i = 0; i < segments; i++)
-        {
-            float angle1 = i * angleStep * Mathf.Deg2Rad;
-            float angle2 = (i + 1) * angleStep * Mathf.Deg2Rad;
-            
-            // Draw circle on XZ plane
-            Vector3 point1 = center + new Vector3(Mathf.Cos(angle1) * radius, 0, Mathf.Sin(angle1) * radius);
-            Vector3 point2 = center + new Vector3(Mathf.Cos(angle2) * radius, 0, Mathf.Sin(angle2) * radius);
-            Debug.DrawLine(point1, point2, color, 0.1f);
-            
-            // Draw circle on XY plane
-            point1 = center + new Vector3(Mathf.Cos(angle1) * radius, Mathf.Sin(angle1) * radius, 0);
-            point2 = center + new Vector3(Mathf.Cos(angle2) * radius, Mathf.Sin(angle2) * radius, 0);
-            Debug.DrawLine(point1, point2, color, 0.1f);
-        }
-    }
-
-    // Debug visualization for camera pitch direction
-    void DrawCameraPitchArrow(Camera camera)
-    {
-        if (debug_bool == true)
-        {
-            Vector3 cameraPosition = camera.transform.position;
-            Vector3 cameraForward = camera.transform.forward;
-
-            // Draw camera's forward direction (BLUE arrow for pitch)
-            Debug.DrawRay(cameraPosition, cameraForward * 5.0f, Color.blue, 0.1f);
-
-            // Draw a shorter arrow showing just the pitch component
-            Vector3 pitchDirection = new Vector3(0, cameraForward.y, Vector3.Project(cameraForward, Vector3.forward).z).normalized;
-            Debug.DrawRay(cameraPosition, pitchDirection * 1.5f, Color.cyan, 0.1f);
-        }
-    }
-     // Debug visualization function - easy to comment out the entire function
-    void DrawYawDebugArrows(GameObject droneChild, Vector2 currentHeading, Vector2 directionToCenter)
-    {
-        if (debug_bool == true)
-        {
-            Vector3 dronePos3D = droneChild.transform.position;
-
-            // Draw current heading (RED arrow)
-            Vector3 currentHeading3D = new Vector3(currentHeading.x, 0, currentHeading.y);
-            Debug.DrawRay(dronePos3D, currentHeading3D * 5.0f, Color.red, 0.1f);
-
-            // Draw desired direction to center (GREEN arrow)
-            Vector3 directionToCenter3D = new Vector3(directionToCenter.x, 0, directionToCenter.y);
-            Debug.DrawRay(dronePos3D, directionToCenter3D * 3.0f, Color.green, 0.1f);
-        }
-    }
 }
