@@ -38,8 +38,8 @@ public static class NBVDebugger
     public static void LogObstacleAvoidance(string droneName, int obstacleCount, float avoidanceDistance, 
         float distanceToObstacle, float forceMultiplier, Vector3 avoidanceForceVector)
     {
-        Debug.Log($"Drone {droneName} found {obstacleCount} obstacles within {avoidanceDistance} units");
-        Debug.Log($"Distance: {distanceToObstacle:F2}, Force: {forceMultiplier:F2}, Direction: {avoidanceForceVector}");
+        /// Debug.Log($"Drone {droneName} found {obstacleCount} obstacles within {avoidanceDistance} units");
+        /// Debug.Log($"Distance: {distanceToObstacle:F2}, Force: {forceMultiplier:F2}, Direction: {avoidanceForceVector}");
     }
 
     #endregion
@@ -71,8 +71,8 @@ public static class NBVDebugger
     public static void LogInterDroneAvoidance(string droneName, int nearbyCount, 
         float distanceToOtherDrone, float forceMultiplier)
     {
-        Debug.Log($"Drone {droneName} avoiding {nearbyCount} nearby drones");
-        Debug.Log($"Inter-drone avoidance: Distance: {distanceToOtherDrone:F2}, Force: {forceMultiplier:F2}");
+        /// Debug.Log($"Drone {droneName} avoiding {nearbyCount} nearby drones");
+        /// Debug.Log($"Inter-drone avoidance: Distance: {distanceToOtherDrone:F2}, Force: {forceMultiplier:F2}");
     }
 
     #endregion
@@ -85,7 +85,7 @@ public static class NBVDebugger
     public static void LogFormationOverride(string droneName, float obstacleAvoidanceMagnitude, 
         float interDroneAvoidanceMagnitude)
     {
-        Debug.Log($"Drone {droneName}: Formation override active, obstacle avoidance: {obstacleAvoidanceMagnitude:F2}, inter-drone avoidance: {interDroneAvoidanceMagnitude:F2}");
+        /// Debug.Log($"Drone {droneName}: Formation override active, obstacle avoidance: {obstacleAvoidanceMagnitude:F2}, inter-drone avoidance: {interDroneAvoidanceMagnitude:F2}");
     }
 
     #endregion
