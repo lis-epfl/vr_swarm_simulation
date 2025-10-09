@@ -301,12 +301,12 @@ public class ContinuousImageCapture : MonoBehaviour
             yield return null; // Wait a frame between captures
         }
         
-        // DISABLED: OpenCV processing for testing
+        // DISABLED: OpenCV processing for testing - no batch files needed
         // Call OpenCV processing if enabled
-        if (callOpenCVProcessing && capturedPaths.Count > 0)
-        {
-            ProcessImagesWithOpenCV(capturedPaths, timestamp);
-        }
+        // if (callOpenCVProcessing && capturedPaths.Count > 0)
+        // {
+        //     ProcessImagesWithOpenCV(capturedPaths, timestamp);
+        // }
         
         Debug.Log($"✅ Capture cycle completed. {capturedPaths.Count} images captured from {dronesToCapture.Count} selected drones.");
         Debug.Log($"📁 Images saved to: {fullSaveDirectory}");

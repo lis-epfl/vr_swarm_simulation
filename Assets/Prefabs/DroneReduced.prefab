@@ -371,8 +371,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   swarm: []
+  radius: 1
+  height: 1
+  centerPoint: {x: 0, y: 0, z: 0}
+  movementSpeed: 1
   viewDistance: 0
   informationGainWeight: 0
+  proportionalGain: 1
+  obstacleLayerMask:
+    serializedVersion: 2
+    m_Bits: 1024
+  avoidanceDistance: 3
+  avoidanceForce: 2
+  enableObstacleAvoidance: 1
+  escapeForceMultiplier: 5
+  minForceRatio: 0.5
+  useFormationOverride: 1
+  minInterDroneDistance: 2
+  interDroneAvoidanceForce: 3
+  enableInterDroneAvoidance: 1
+  droneLayerMask:
+    serializedVersion: 2
+    m_Bits: 512
+  debug_bool: 0
+  cameraPitch: 0
+  enableCameraPitchControl: 0
 --- !u!114 &3810217873681142886
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -921,7 +944,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 55
+    m_Bits: 1591
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
