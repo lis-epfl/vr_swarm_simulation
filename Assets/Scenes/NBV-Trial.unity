@@ -4826,6 +4826,101 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 792855217}
   m_Mesh: {fileID: 4300012, guid: 22aea0a14c26b414f868edb470c48f88, type: 3}
+--- !u!1 &801706980
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 801706984}
+  - component: {fileID: 801706983}
+  - component: {fileID: 801706982}
+  m_Layer: 0
+  m_Name: sharedVisionManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &801706982
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 801706980}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ca767b9b59c2f43f0b39606a995349be, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarm: []
+  radius: 1
+  height: 1
+  centerPoint: {x: 0, y: 0, z: 0}
+  movementSpeed: 1
+  viewDistance: 0
+  informationGainWeight: 0
+  proportionalGain: 1
+  obstacleLayerMask:
+    serializedVersion: 2
+    m_Bits: 1024
+  avoidanceDistance: 3
+  avoidanceForce: 2
+  enableObstacleAvoidance: 1
+  escapeForceMultiplier: 5
+  minForceRatio: 0.5
+  useFormationOverride: 1
+  minInterDroneDistance: 2
+  interDroneAvoidanceForce: 3
+  enableInterDroneAvoidance: 1
+  droneLayerMask:
+    serializedVersion: 2
+    m_Bits: 512
+  debug_bool: 0
+  cameraPitch: 0
+  enableCameraPitchControl: 0
+  enableVisionSystem: 1
+  visionInfluenceStrength: 1
+  logVisionCommands: 1
+--- !u!114 &801706983
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 801706980}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e0ff91e75920e9d4591bd473243beb20, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  imageWidth: 300
+  imageHeight: 300
+  captureInterval: 0.5
+  droneRefreshInterval: 2
+  maxDroneCount: 10
+  imageMemoryName: NBVImageSharedMemory
+  commandMemoryName: NBVCommandSharedMemory
+  enableCommandReading: 0
+  enableDebugLogging: 1
+--- !u!4 &801706984
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 801706980}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -6.822252, y: 5.669435, z: 18.176373}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &806907588
 GameObject:
   m_ObjectHideFlags: 0
@@ -9566,6 +9661,52 @@ MonoBehaviour:
   m_Script: {fileID: 0}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!1 &1478725123
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1478725125}
+  - component: {fileID: 1478725124}
+  m_Layer: 0
+  m_Name: DebugManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1478725124
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1478725123}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d900ea38cd909741a1c13e6e482e525, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  runDiagnostics: 1
+  diagnosticInterval: 3
+--- !u!4 &1478725125
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1478725123}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -6.822252, y: 5.669435, z: 18.176373}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1487266868
 GameObject:
   m_ObjectHideFlags: 0
@@ -10002,7 +10143,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1575205543
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -14428,3 +14569,5 @@ SceneRoots:
   - {fileID: 1430753897}
   - {fileID: 1761651575}
   - {fileID: 1575205544}
+  - {fileID: 801706984}
+  - {fileID: 1478725125}

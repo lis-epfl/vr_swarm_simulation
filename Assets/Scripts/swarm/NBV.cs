@@ -1,9 +1,26 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System;
+using System.Runtime.InteropServices;
 
 public class NBV : MonoBehaviour
 {
+    // Windows API for shared memory
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenFileMapping(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr MapViewOfFile(IntPtr hFileMappingObject, uint dwDesiredAccess, uint dwFileOffsetHigh, uint dwFileOffsetLow, uint dwNumberOfBytesToMap);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool UnmapViewOfFile(IntPtr lpBaseAddress);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
+
     public List<GameObject> swarm;
 
     [Header("Formation Parameters")]
@@ -45,12 +62,67 @@ public class NBV : MonoBehaviour
     [Range(-90f, 35f)] public float cameraPitch = 0.0f; // Limited range in Unity Inspector
     public bool enableCameraPitchControl = false; // Toggle camera pitch control
 
+    [Header("Vision System Integration")]
+    [SerializeField] private bool enableVisionSystem = true; // Enable/disable vision-based adjustments
+    [SerializeField] private float visionInfluenceStrength = 1.0f; // How much vision affects positions
+    [SerializeField] private bool logVisionCommands = true; // Debug logging
+
+    // Static shared vision command (all drones use the same command)
+    private static Vector3 sharedVisionCommand = Vector3.zero;
+    private static bool isVisionCoordinator = false; // Only one drone manages shared memory
+    
+    // Vision system constants
+    private const string commandMemoryName = "NBVCommandSharedMemory";
+
     // Private variables
     private float lastCameraPitch = float.MinValue; // To track changes
     
+    // Vision system private variables (for coordinator only)
+    private float lastVisionCheckTime = 0f;
+    private System.IntPtr commandFileMap;
+    private System.IntPtr commandPtr;
+    private bool visionSystemInitialized = false;
+
+    void Start()
+    {
+        if (logVisionCommands)
+            Debug.Log($"NBV.cs: Starting on GameObject '{gameObject.name}' with vision system {(enableVisionSystem ? "ENABLED" : "DISABLED")}");
+            
+        if (enableVisionSystem)
+        {
+            // Only the first drone (index 0) becomes the vision coordinator
+            string droneName = gameObject.transform.parent.name;
+            if (droneName.Contains("0")) // First drone becomes coordinator
+            {
+                isVisionCoordinator = true;
+                InitializeVisionSystem();
+                if (logVisionCommands)
+                    Debug.Log($"NBV.cs: '{gameObject.name}' designated as vision coordinator");
+            }
+            else if (logVisionCommands)
+            {
+                Debug.Log($"NBV.cs: '{gameObject.name}' will receive shared vision commands");
+            }
+        }
+    }
+
+    void OnDestroy()
+    {
+        if (isVisionCoordinator)
+        {
+            CleanupVisionSystem();
+        }
+    }
 
     void FixedUpdate()
     {
+        // Only the vision coordinator reads from shared memory
+        if (enableVisionSystem && isVisionCoordinator && Time.time - lastVisionCheckTime >= 3.0f)
+        {
+            UpdateVisionCommand();
+            lastVisionCheckTime = Time.time;
+        }
+
         // Ensure there are drones in the swarm to avoid division by zero
         if (swarm == null || swarm.Count == 0)
         {
@@ -78,6 +150,18 @@ public class NBV : MonoBehaviour
 
         // Create the final target position vector
         Vector3 targetPosition = new Vector3(x, height, z);
+        
+        // Apply vision system offset if enabled
+        if (enableVisionSystem)
+        {
+            Vector3 visionOffset = sharedVisionCommand * visionInfluenceStrength;
+            targetPosition += visionOffset;
+            
+            if (logVisionCommands && sharedVisionCommand.magnitude > 0.001f && i == 0) // Only log for first drone
+            {
+                Debug.Log($"NBV: Applying vision offset {visionOffset} to drone {i}, new target: {targetPosition}");
+            }
+        }
         //  debugging print
         // Debug.Log("Drone " + i + " target position: " + targetPosition);
 
@@ -394,6 +478,112 @@ public class NBV : MonoBehaviour
             {
                 NBVDebugger.DrawCameraPitchArrow(camera);
             }
+        }
+    }
+
+    // ==================== VISION SYSTEM METHODS ====================
+
+    private void InitializeVisionSystem()
+    {
+        try
+        {
+            // Open the shared memory for commands
+            commandFileMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, commandMemoryName);
+            if (commandFileMap == IntPtr.Zero)
+            {
+                if (logVisionCommands)
+                    Debug.LogWarning($"NBV: Could not open command shared memory '{commandMemoryName}'. Vision system disabled.");
+                enableVisionSystem = false;
+                return;
+            }
+
+            // Map the command memory
+            commandPtr = MapViewOfFile(commandFileMap, FILE_MAP_ALL_ACCESS, 0, 0, 16); // 16 bytes for command data
+            if (commandPtr == IntPtr.Zero)
+            {
+                if (logVisionCommands)
+                    Debug.LogWarning("NBV: Could not map command shared memory. Vision system disabled.");
+                CloseHandle(commandFileMap);
+                enableVisionSystem = false;
+                return;
+            }
+
+            visionSystemInitialized = true;
+            if (logVisionCommands)
+                Debug.Log("NBV: Vision system initialized successfully");
+        }
+        catch (System.Exception e)
+        {
+            if (logVisionCommands)
+                Debug.LogError($"NBV: Failed to initialize vision system: {e.Message}");
+            enableVisionSystem = false;
+        }
+    }
+
+    private void UpdateVisionCommand()
+    {
+        if (!visionSystemInitialized || commandPtr == IntPtr.Zero)
+            return;
+
+        try
+        {
+            // Read the command flag (first 4 bytes)
+            int commandFlag = Marshal.ReadInt32(commandPtr, 0);
+            
+            // Only read if there's a new command
+            if (commandFlag > 0)
+            {
+                // Read the position command (3 floats starting at byte 4)
+                byte[] commandBytes = new byte[12];
+                Marshal.Copy(IntPtr.Add(commandPtr, 4), commandBytes, 0, 12);
+                
+                float x = BitConverter.ToSingle(commandBytes, 0);
+                float y = BitConverter.ToSingle(commandBytes, 4);
+                float z = BitConverter.ToSingle(commandBytes, 8);
+                
+                Vector3 newCommand = new Vector3(x, y, z);
+                
+                // Update the shared vision command (affects all drones)
+                if (Vector3.Distance(newCommand, sharedVisionCommand) > 0.001f)
+                {
+                    sharedVisionCommand = newCommand;
+                    
+                    if (logVisionCommands)
+                    {
+                        Debug.Log($"NBV Coordinator: Broadcasting vision command to all drones: ({sharedVisionCommand.x:F2}, {sharedVisionCommand.y:F2}, {sharedVisionCommand.z:F2})");
+                    }
+                }
+            }
+        }
+        catch (System.Exception e)
+        {
+            if (logVisionCommands)
+                Debug.LogError($"NBV: Error reading vision command: {e.Message}");
+        }
+    }
+
+    private void CleanupVisionSystem()
+    {
+        try
+        {
+            if (commandPtr != IntPtr.Zero)
+            {
+                UnmapViewOfFile(commandPtr);
+                commandPtr = IntPtr.Zero;
+            }
+
+            if (commandFileMap != IntPtr.Zero)
+            {
+                CloseHandle(commandFileMap);
+                commandFileMap = IntPtr.Zero;
+            }
+
+            if (logVisionCommands)
+                Debug.Log("NBV: Vision system cleaned up");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"NBV: Error during vision system cleanup: {e.Message}");
         }
     }
 
