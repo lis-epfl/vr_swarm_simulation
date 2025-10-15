@@ -29,6 +29,9 @@ public class NBVImageCapture : MonoBehaviour
     [SerializeField] private string imageMemoryName = "NBVImageSharedMemory";
     [SerializeField] private string commandMemoryName = "NBVCommandSharedMemory";
     
+    [Header("Per-Drone Command System")]
+    [SerializeField] private bool usePerDroneCommands = true; // NEW: Enable individual drone commands
+    
     [Header("Integration Mode")]
     [SerializeField] private bool enableCommandReading = false; // DISABLED: NBV.cs now handles vision commands directly
     
@@ -150,7 +153,17 @@ public class NBVImageCapture : MonoBehaviour
     {
         imageSize = imageWidth * imageHeight * 3; // RGB format
         totalImageMemorySize = ImageDataPosition + (maxDroneCount * imageSize);
-        totalCommandMemorySize = CommandDataPosition + commandDataSize;
+        
+        if (usePerDroneCommands)
+        {
+            // NEW: Per-drone commands - one command per drone
+            totalCommandMemorySize = CommandDataPosition + (maxDroneCount * commandDataSize);
+        }
+        else
+        {
+            // OLD: Single shared command
+            totalCommandMemorySize = CommandDataPosition + commandDataSize;
+        }
         
         if (enableDebugLogging)
         {
@@ -158,6 +171,12 @@ public class NBVImageCapture : MonoBehaviour
             Debug.Log($"  Image size per drone: {imageSize} bytes");
             Debug.Log($"  Total image memory: {totalImageMemorySize} bytes");
             Debug.Log($"  Command memory: {totalCommandMemorySize} bytes");
+            Debug.Log($"  Per-drone commands: {usePerDroneCommands}");
+            if (usePerDroneCommands)
+            {
+                Debug.Log($"  Commands per drone: {commandDataSize} bytes");
+                Debug.Log($"  Total commands: {maxDroneCount} drones × {commandDataSize} bytes = {maxDroneCount * commandDataSize} bytes");
+            }
         }
     }
     
