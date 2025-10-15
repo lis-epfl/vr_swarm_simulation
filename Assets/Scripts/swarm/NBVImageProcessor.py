@@ -211,30 +211,31 @@ class NBVImageProcessor:
             self.command_mmf.seek(self.COMMAND_FLAG_POSITION)
             flag = struct.unpack('i', self.command_mmf.read(4))[0]
             
+            if self.debug:
+                print(f"🔍 Current flag state: {flag}")
+            
             if flag != 0:
+                if self.debug:
+                    print(f"⏳ Unity still processing previous command (flag={flag})")
                 return False  # Unity is still processing previous command
             
-            # Set flag to indicate we're writing
-            self.command_mmf.seek(self.COMMAND_FLAG_POSITION)
-            self.command_mmf.write(struct.pack('i', 1))
+            # Write position command first
+            self.command_mmf.seek(self.COMMAND_DATA_POSITION)
+            self.command_mmf.write(command.to_bytes())
             
-            try:
-                # Write position command
-                self.command_mmf.seek(self.COMMAND_DATA_POSITION)
-                self.command_mmf.write(command.to_bytes())
-                
-                self.commands_sent += 1
-                self.current_position_command = command
-                
-                if self.debug:
-                    print(f"📤 Sent position command: ({command.x:.2f}, {command.y:.2f}, {command.z:.2f})")
-                
-                return True
-                
-            finally:
-                # Reset flag to indicate we're done writing
-                self.command_mmf.seek(self.COMMAND_FLAG_POSITION)
-                self.command_mmf.write(struct.pack('i', 0))
+            # Set flag to 2 to indicate new command is ready (not 1!)
+            # This prevents race condition - Unity checks for >0, so 2 works
+            # Unity will reset to 0 after reading, creating a handshake
+            self.command_mmf.seek(self.COMMAND_FLAG_POSITION)
+            self.command_mmf.write(struct.pack('i', 2))
+            
+            self.commands_sent += 1
+            self.current_position_command = command
+            
+            if self.debug:
+                print(f"📤 Sent position command: ({command.x:.2f}, {command.y:.2f}, {command.z:.2f}) [flag=2]")
+            
+            return True
                 
         except Exception as e:
             if self.debug:
@@ -294,15 +295,16 @@ class NBVImageProcessor:
             # For visual confirmation that the system works
             # Generate random height adjustments every processing interval
             
-            x_movement = 0.0  # No left/right movement
-            z_movement = 0.0  # No forward/backward movement
-            
-            # Random height adjustment between -5 and +5 (Y = up/down in Unity)
+            # Smaller movements to prevent runaway behavior
             import random
-            y_movement = random.uniform(-5.0, 5.0)
+            x_movement = random.uniform(-1.0, 1.0)  # Small horizontal movement
+            z_movement = random.uniform(-1.0, 1.0)  # Small forward/backward movement
+            
+            # Random height adjustment between -2 and +2 (reduced from -5 to +5)
+            y_movement = random.uniform(-2.0, 2.0)
             
             if self.debug:
-                print(f"🎲 Random height adjustment: Y={y_movement:.2f}")
+                print(f"🎲 Generated random command: X={x_movement:.2f}, Y={y_movement:.2f}, Z={z_movement:.2f}")
             
             # Original vision-based logic (commented out for testing)
             # if avg_brightness < 100:
@@ -344,27 +346,44 @@ class NBVImageProcessor:
                     time.sleep(0.1)
                     continue
                 
-                # Read images from shared memory
+                # For testing: always generate commands even without images
+                if self.debug:
+                    print(f"🔄 Processing cycle at {current_time:.1f}")
+                
+                # Read images from shared memory (optional for testing)
                 image_data = self.read_images_from_memory()
                 
-                if image_data is not None:
-                    # Process images and get position command
-                    position_command = self.process_images(image_data)
-                    
-                    if position_command is not None:
-                        # Send command back to Unity
-                        self.send_position_command(position_command)
-                    
-                    self.images_processed += 1
-                    self.last_processed_time = current_time
-                    
-                    if self.debug and self.images_processed % 10 == 0:
-                        print(f"📊 Processed {self.images_processed} image batches, sent {self.commands_sent} commands")
+                # Generate position command regardless of image availability
+                # === RANDOM HEIGHT TESTING LOGIC ===
+                # send an x and z random movement between 10 and -10
+                import random
+                x_movement = random.uniform(-10.0, 10.0)
+                z_movement = random.uniform(-10.0, 10.0)
+
+                # Random height adjustment between -10 and +10 (Y = up/down in Unity)
+                y_movement = random.uniform(-10.0, 10.0)
+
+                command = PositionCommand(x_movement, y_movement, z_movement)
                 
+                if self.debug:
+                    print(f"🎲 Generated random command: Y={y_movement:.2f}")
+                
+                # Send command back to Unity
+                success = self.send_position_command(command)
+                
+                if success:
+                    if self.debug:
+                        print(f"✅ Command sent successfully")
                 else:
-                    # No new images, wait a bit
-                    time.sleep(0.1)
-                    
+                    if self.debug:
+                        print(f"❌ Failed to send command")
+                
+                self.images_processed += 1
+                self.last_processed_time = current_time
+                
+                if self.debug and self.images_processed % 5 == 0:
+                    print(f"📊 Processed {self.images_processed} cycles, sent {self.commands_sent} commands")
+                
             except Exception as e:
                 if self.debug:
                     print(f"⚠️ Error in processing loop: {e}")
@@ -418,7 +437,7 @@ def main():
     
     # Create processor with faster processing interval for testing
     processor = NBVImageProcessor(
-        processing_interval=3.0,  # Process every 3 seconds (faster for testing)
+        processing_interval=5.0,  # Process every 5 seconds (faster for testing)
         debug=True
     )
     

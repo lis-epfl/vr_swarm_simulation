@@ -64,7 +64,7 @@ public class NBV : MonoBehaviour
 
     [Header("Vision System Integration")]
     [SerializeField] private bool enableVisionSystem = true; // Enable/disable vision-based adjustments
-    [SerializeField] private float visionInfluenceStrength = 1.0f; // How much vision affects positions
+    [SerializeField] private float visionInfluenceStrength = 0.1f; // How much vision affects positions (reduced for safety)
     [SerializeField] private bool logVisionCommands = true; // Debug logging
 
     // Static shared vision command (all drones use the same command)
@@ -90,9 +90,9 @@ public class NBV : MonoBehaviour
             
         if (enableVisionSystem)
         {
-            // Only the first drone (index 0) becomes the vision coordinator
-            string droneName = gameObject.transform.parent.name;
-            if (droneName.Contains("0")) // First drone becomes coordinator
+            // The sharedVisionManager becomes the vision coordinator
+            string objectName = gameObject.name;
+            if (objectName.Contains("sharedVisionManager") || objectName.Contains("0"))
             {
                 isVisionCoordinator = true;
                 InitializeVisionSystem();
@@ -117,8 +117,13 @@ public class NBV : MonoBehaviour
     void FixedUpdate()
     {
         // Only the vision coordinator reads from shared memory
-        if (enableVisionSystem && isVisionCoordinator && Time.time - lastVisionCheckTime >= 3.0f)
+        // Check more frequently (every 1 second) to ensure we don't miss commands
+        if (enableVisionSystem && isVisionCoordinator && Time.time - lastVisionCheckTime >= 1.0f)
         {
+            if (logVisionCommands)
+            {
+                Debug.Log($"NBV Coordinator ({gameObject.name}): Checking for vision commands...");
+            }
             UpdateVisionCommand();
             lastVisionCheckTime = Time.time;
         }
@@ -154,13 +159,33 @@ public class NBV : MonoBehaviour
         // Apply vision system offset if enabled
         if (enableVisionSystem)
         {
-            Vector3 visionOffset = sharedVisionCommand * visionInfluenceStrength;
-            targetPosition += visionOffset;
+            // Each drone gets different commands by multiplying by drone ID + 1
+            // This allows testing individual drone control vs shared commands
+            int droneMultiplier = i + 1; // +1 to avoid multiplying by 0 for drone 0
+            Vector3 individualVisionCommand = sharedVisionCommand * droneMultiplier;
+            Vector3 visionOffset = individualVisionCommand * visionInfluenceStrength;
             
-            if (logVisionCommands && sharedVisionCommand.magnitude > 0.001f && i == 0) // Only log for first drone
+            // Apply X and Z offsets to target position (for horizontal movement)
+            targetPosition.x += visionOffset.x;
+            targetPosition.z += visionOffset.z;
+            
+            // Apply Y offset to height (for vertical movement) - TEMP OFFSET, NOT CUMULATIVE!
+            // Use a temporary variable so we don't accumulate the offset every frame
+            float adjustedHeight = height + visionOffset.y;
+            
+            if (logVisionCommands && sharedVisionCommand.magnitude > 0.001f && i < 3) // Log for first 3 drones
             {
-                Debug.Log($"NBV: Applying vision offset {visionOffset} to drone {i}, new target: {targetPosition}");
+                Debug.Log($"NBV Drone {i}: Base vision command {sharedVisionCommand}, multiplied by {droneMultiplier} = {individualVisionCommand}, final offset = {visionOffset}");
+                Debug.Log($"NBV Drone {i}: Target position = {targetPosition}, base height = {height}, adjusted height = {adjustedHeight}");
             }
+            
+            // Set the desired height with vision offset for VelocityControl to use
+            GetComponent<VelocityControl>().desired_height = adjustedHeight;
+        }
+        else
+        {
+            // No vision system - use base height
+            GetComponent<VelocityControl>().desired_height = height;
         }
         //  debugging print
         // Debug.Log("Drone " + i + " target position: " + targetPosition);
@@ -226,8 +251,7 @@ public class NBV : MonoBehaviour
         GetComponent<VelocityControl>().swarm_vz = velocityCommand.z;
         // Don't set swarm_vy - let VelocityControl handle height!
 
-        // Set the desired height for VelocityControl to use
-        GetComponent<VelocityControl>().desired_height = height;
+        // NOTE: desired_height is now set in the vision system section above
 
         // Attitude control - point toward center
         CalculateYawTowardCenter(droneChild);
@@ -523,14 +547,23 @@ public class NBV : MonoBehaviour
     private void UpdateVisionCommand()
     {
         if (!visionSystemInitialized || commandPtr == IntPtr.Zero)
+        {
+            if (logVisionCommands)
+                Debug.LogWarning("NBV Coordinator: Vision system not initialized or commandPtr is null");
             return;
+        }
 
         try
         {
             // Read the command flag (first 4 bytes)
             int commandFlag = Marshal.ReadInt32(commandPtr, 0);
             
-            // Only read if there's a new command
+            if (logVisionCommands)
+            {
+                Debug.Log($"NBV Coordinator: Read flag = {commandFlag}");
+            }
+            
+            // Only read if there's a new command (flag > 0)
             if (commandFlag > 0)
             {
                 // Read the position command (3 floats starting at byte 4)
@@ -553,6 +586,19 @@ public class NBV : MonoBehaviour
                         Debug.Log($"NBV Coordinator: Broadcasting vision command to all drones: ({sharedVisionCommand.x:F2}, {sharedVisionCommand.y:F2}, {sharedVisionCommand.z:F2})");
                     }
                 }
+                
+                // IMPORTANT: Reset flag to 0 to acknowledge we've read the command
+                // This creates a handshake with Python to prevent race conditions
+                Marshal.WriteInt32(commandPtr, 0, 0);
+                
+                if (logVisionCommands)
+                {
+                    Debug.Log($"NBV Coordinator: Acknowledged command, reset flag to 0 (was {commandFlag})");
+                }
+            }
+            else if (logVisionCommands)
+            {
+                Debug.Log("NBV Coordinator: No new command (flag = 0)");
             }
         }
         catch (System.Exception e)
