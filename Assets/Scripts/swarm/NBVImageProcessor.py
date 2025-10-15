@@ -81,6 +81,10 @@ class NBVImageProcessor:
         self.COMMAND_FLAG_POSITION = 0
         self.COMMAND_DATA_POSITION = 4
         
+        # Per-drone command system
+        self.per_drone_commands = True  # Enable individual drone commands
+        self.command_size_per_drone = 12  # 3 floats (x, y, z)
+        
         # Image settings (should match Unity settings)
         self.image_width = 300
         self.image_height = 300
@@ -110,7 +114,13 @@ class NBVImageProcessor:
         try:
             # Calculate memory sizes
             total_image_memory_size = self.IMAGE_DATA_POSITION + (self.max_drone_count * self.image_size)
-            command_memory_size = self.COMMAND_DATA_POSITION + 12  # 3 floats
+            
+            if self.per_drone_commands:
+                # Per-drone commands: one command per drone
+                command_memory_size = self.COMMAND_DATA_POSITION + (self.max_drone_count * self.command_size_per_drone)
+            else:
+                # Single shared command
+                command_memory_size = self.COMMAND_DATA_POSITION + 12  # 3 floats
             
             # Open shared memory maps
             self.image_mmf = mmap.mmap(-1, total_image_memory_size, self.image_memory_name)
@@ -120,6 +130,7 @@ class NBVImageProcessor:
                 print(f"✅ NBVImageProcessor initialized successfully")
                 print(f"   Image memory: {total_image_memory_size} bytes")
                 print(f"   Command memory: {command_memory_size} bytes")
+                print(f"   Per-drone commands: {self.per_drone_commands}")
                 print(f"   Processing interval: {self.processing_interval}s")
             
             return True
@@ -242,86 +253,136 @@ class NBVImageProcessor:
                 print(f"⚠️ Error sending position command: {e}")
             return False
     
-    def process_images(self, image_data: ImageData) -> Optional[PositionCommand]:
+    def send_per_drone_commands(self, commands: List[PositionCommand]) -> bool:
         """
-        Process drone images and determine position command
+        Send individual position commands for each drone
+        
+        Args:
+            commands: List of PositionCommand objects, one per drone
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.command_mmf:
+            return False
+            
+        try:
+            # Check if Unity is ready to receive (flag == 0)
+            self.command_mmf.seek(self.COMMAND_FLAG_POSITION)
+            flag = struct.unpack('i', self.command_mmf.read(4))[0]
+            
+            if self.debug:
+                print(f"🔍 Current flag state: {flag}")
+            
+            if flag != 0:
+                if self.debug:
+                    print(f"⏳ Unity still processing previous commands (flag={flag})")
+                return False  # Unity is still processing previous commands
+            
+            # Write all drone commands
+            for drone_id, command in enumerate(commands):
+                if drone_id >= self.max_drone_count:
+                    break
+                    
+                # Calculate position for this drone's command
+                command_position = self.COMMAND_DATA_POSITION + (drone_id * self.command_size_per_drone)
+                
+                # Write command data
+                self.command_mmf.seek(command_position)
+                self.command_mmf.write(command.to_bytes())
+                
+                if self.debug and drone_id < 3:  # Log first 3 drones
+                    print(f"📝 Drone {drone_id}: Command ({command.x:.2f}, {command.y:.2f}, {command.z:.2f}) at position {command_position}")
+            
+            # Set flag to 2 to indicate new commands are ready
+            self.command_mmf.seek(self.COMMAND_FLAG_POSITION)
+            self.command_mmf.write(struct.pack('i', 2))
+            
+            self.commands_sent += 1
+            
+            if self.debug:
+                print(f"📤 Sent {len(commands)} per-drone commands [flag=2]")
+            
+            return True
+                
+        except Exception as e:
+            if self.debug:
+                print(f"⚠️ Error sending per-drone commands: {e}")
+            return False
+    
+    def process_images(self, image_data: ImageData) -> Optional[List[PositionCommand]]:
+        """
+        Process drone images and determine individual position commands per drone
         
         This is where you would implement your computer vision algorithms.
-        For now, it's a placeholder that demonstrates the interface.
+        Now generates individual commands for each drone based on its image.
         
         Args:
             image_data: ImageData containing drone images
             
         Returns:
-            PositionCommand or None
+            List of PositionCommand objects, one per drone, or None
         """
         if not image_data.images:
             return None
             
         try:
-            # === PLACEHOLDER PROCESSING ===
-            # This is where you would implement your actual OpenCV processing
-            # Examples:
-            # - Object detection
-            # - Feature matching
-            # - Optical flow
-            # - Obstacle detection
-            # - Path planning
+            commands = []
             
-            # For demonstration, let's do some basic analysis
-            # total_brightness = 0
-            # edge_density = 0
+            # Process each drone's image individually
+            for drone_id, image in enumerate(image_data.images):
+                # === PER-DRONE PROCESSING ===
+                # This is where you would implement your actual OpenCV processing
+                # for each individual drone
+                
+                # For now, generate different random commands per drone
+                import random
+                
+                # Each drone gets different movement ranges based on its ID
+                # This makes it easy to see individual drone behavior
+                movement_scale = (drone_id + 1) * 0.5  # Drone 0: 0.5x, Drone 1: 1.0x, etc.
+                
+                x_movement = random.uniform(-1.0, 1.0) * movement_scale
+                z_movement = random.uniform(-1.0, 1.0) * movement_scale
+                y_movement = random.uniform(-2.0, 2.0) * movement_scale
+                
+                # Create command for this specific drone
+                command = PositionCommand(x_movement, y_movement, z_movement)
+                commands.append(command)
+                
+                if self.debug and drone_id < 3:  # Log first 3 drones
+                    print(f"🎲 Drone {drone_id}: Generated command X={x_movement:.2f}, Y={y_movement:.2f}, Z={z_movement:.2f} (scale={movement_scale:.1f})")
             
-            # for i, image in enumerate(image_data.images):
+            # === FUTURE: Real Computer Vision Processing ===
+            # for drone_id, image in enumerate(image_data.images):
             #     # Convert to grayscale for analysis
             #     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-                
-            #     # Calculate brightness
+            #     
+            #     # Analyze this specific drone's image
             #     brightness = np.mean(gray)
-            #     total_brightness += brightness
-                
-            #     # Calculate edge density
             #     edges = cv2.Canny(gray, 50, 150)
-            #     edge_pixels = np.sum(edges > 0)
-            #     edge_density += edge_pixels / (gray.shape[0] * gray.shape[1])
-                
-            #     if self.debug and i == 0:  # Only log for first image
-            #         print(f"🖼️ Drone {i}: Brightness={brightness:.1f}, Edges={edge_pixels}")
-            
-            # avg_brightness = total_brightness / len(image_data.images)
-            # avg_edge_density = edge_density / len(image_data.images)
-            
-            # === RANDOM HEIGHT TESTING LOGIC ===
-            # For visual confirmation that the system works
-            # Generate random height adjustments every processing interval
-            
-            # Smaller movements to prevent runaway behavior
-            import random
-            x_movement = random.uniform(-1.0, 1.0)  # Small horizontal movement
-            z_movement = random.uniform(-1.0, 1.0)  # Small forward/backward movement
-            
-            # Random height adjustment between -2 and +2 (reduced from -5 to +5)
-            y_movement = random.uniform(-2.0, 2.0)
+            #     edge_density = np.sum(edges > 0) / (gray.shape[0] * gray.shape[1])
+            #     
+            #     # Generate movement command based on this drone's vision
+            #     if brightness < 100:
+            #         x_movement = 0.5  # Move toward brighter area
+            #     elif brightness > 150:
+            #         x_movement = -0.5  # Move away from bright area
+            #     else:
+            #         x_movement = 0
+            #     
+            #     if edge_density > 0.1:
+            #         y_movement = 0.2  # Move up to get better view
+            #     else:
+            #         y_movement = -0.1  # Move down
+            #         
+            #     command = PositionCommand(x_movement, y_movement, 0)
+            #     commands.append(command)
             
             if self.debug:
-                print(f"🎲 Generated random command: X={x_movement:.2f}, Y={y_movement:.2f}, Z={z_movement:.2f}")
+                print(f"🧠 Processed {len(commands)} drone images, generated individual commands")
             
-            # Original vision-based logic (commented out for testing)
-            # if avg_brightness < 100:
-            #     x_movement = 0.1  # Move right
-            # elif avg_brightness > 150:
-            #     x_movement = -0.1  # Move left
-            # if avg_edge_density > 0.1:
-            #     z_movement = 0.1  # Move up
-            
-            # For now, keep movements small for safety
-            command = PositionCommand(x_movement, y_movement, z_movement)
-            
-            if self.debug:
-                # print(f"🧠 Analysis: Brightness={avg_brightness:.1f}, EdgeDensity={avg_edge_density:.3f}")
-                print(f"🎯 Command: Move ({command.x:.2f}, {command.y:.2f}, {command.z:.2f})")
-            
-            return command
+            return commands
             
         except Exception as e:
             if self.debug:
@@ -350,39 +411,66 @@ class NBVImageProcessor:
                 if self.debug:
                     print(f"🔄 Processing cycle at {current_time:.1f}")
                 
-                # Read images from shared memory (optional for testing)
+                # Read images from shared memory
                 image_data = self.read_images_from_memory()
                 
-                # Generate position command regardless of image availability
-                # === RANDOM HEIGHT TESTING LOGIC ===
-                # send an x and z random movement between 10 and -10
-                import random
-                x_movement = random.uniform(-10.0, 10.0)
-                z_movement = random.uniform(-10.0, 10.0)
-
-                # Random height adjustment between -10 and +10 (Y = up/down in Unity)
-                y_movement = random.uniform(-10.0, 10.0)
-
-                command = PositionCommand(x_movement, y_movement, z_movement)
+                if image_data is not None:
+                    # Process images and get individual position commands per drone
+                    position_commands = self.process_images(image_data)
+                    
+                    if position_commands is not None:
+                        # Send per-drone commands back to Unity
+                        if self.per_drone_commands:
+                            success = self.send_per_drone_commands(position_commands)
+                        else:
+                            # Fallback to single command (use first drone's command)
+                            success = self.send_position_command(position_commands[0]) if position_commands else False
+                        
+                        if success:
+                            if self.debug:
+                                print(f"✅ Commands sent successfully")
+                        else:
+                            if self.debug:
+                                print(f"❌ Failed to send commands")
+                    
+                    self.images_processed += 1
+                    self.last_processed_time = current_time
+                    
+                    if self.debug and self.images_processed % 5 == 0:
+                        print(f"📊 Processed {self.images_processed} cycles, sent {self.commands_sent} commands")
                 
-                if self.debug:
-                    print(f"🎲 Generated random command: Y={y_movement:.2f}")
-                
-                # Send command back to Unity
-                success = self.send_position_command(command)
-                
-                if success:
-                    if self.debug:
-                        print(f"✅ Command sent successfully")
                 else:
+                    # No new images available - for testing, still generate commands
                     if self.debug:
-                        print(f"❌ Failed to send command")
-                
-                self.images_processed += 1
-                self.last_processed_time = current_time
-                
-                if self.debug and self.images_processed % 5 == 0:
-                    print(f"📊 Processed {self.images_processed} cycles, sent {self.commands_sent} commands")
+                        print(f"📷 No new images available, generating test commands...")
+                    
+                    # Generate test commands for available drones (assume 9 drones for testing)
+                    test_commands = []
+                    for drone_id in range(9):  # Adjust based on your drone count
+                        import random
+                        # Each drone gets different movement ranges
+                        movement_scale = (drone_id + 1) * 5
+                        x_movement = random.uniform(-1.0, 1.0) * movement_scale
+                        z_movement = random.uniform(-1.0, 1.0) * movement_scale
+                        y_movement = random.uniform(-2.0, 2.0) * movement_scale
+                        
+                        command = PositionCommand(x_movement, y_movement, z_movement)
+                        test_commands.append(command)
+                    
+                    # Send test commands
+                    if self.per_drone_commands:
+                        success = self.send_per_drone_commands(test_commands)
+                    else:
+                        success = self.send_position_command(test_commands[0]) if test_commands else False
+                    
+                    if success:
+                        if self.debug:
+                            print(f"✅ Test commands sent successfully")
+                    else:
+                        if self.debug:
+                            print(f"❌ Failed to send test commands")
+                    
+                    self.last_processed_time = current_time
                 
             except Exception as e:
                 if self.debug:
@@ -435,9 +523,9 @@ def main():
     print("🎮 NBV Image Processor - Real-time Drone Vision Processing")
     print("=" * 60)
     
-    # Create processor with faster processing interval for testing
+    # Create processor with desired processing interval
     processor = NBVImageProcessor(
-        processing_interval=5.0,  # Process every 5 seconds (faster for testing)
+        processing_interval=3.0,  # Process every 3 seconds as requested
         debug=True
     )
     
