@@ -132,11 +132,13 @@ class NBVImageProcessor:
                 print(f"   Command memory: {command_memory_size} bytes")
                 print(f"   Per-drone commands: {self.per_drone_commands}")
                 print(f"   Processing interval: {self.processing_interval}s")
+                print(f"   NOTE: If Unity starts first, restart Python after Unity is running")
             
             return True
             
         except Exception as e:
             print(f"❌ Failed to initialize shared memory: {e}")
+            print(f"   TIP: Make sure Unity and Python start in the correct order")
             return False
     
     def read_images_from_memory(self) -> Optional[ImageData]:
@@ -450,8 +452,8 @@ class NBVImageProcessor:
                         import random
                         # Each drone gets different movement ranges
                         movement_scale = (drone_id + 1) * 5
-                        x_movement = random.uniform(-1.0, 1.0) * movement_scale
-                        z_movement = random.uniform(-1.0, 1.0) * movement_scale
+                        x_movement = random.uniform(-2.0, 2.0) * movement_scale
+                        z_movement = random.uniform(-2.0, 2.0) * movement_scale
                         y_movement = random.uniform(-2.0, 2.0) * movement_scale
                         
                         command = PositionCommand(x_movement, y_movement, z_movement)
