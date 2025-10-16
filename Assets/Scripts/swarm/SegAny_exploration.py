@@ -122,16 +122,26 @@ def load_sam_model():
     sam.to(device)
     
     # Create mask generator with GPU acceleration
+    # mask_generator = SamAutomaticMaskGenerator(
+    #     sam,
+    #     points_per_side=32,
+    #     pred_iou_thresh=0.88,
+    #     stability_score_thresh=0.95,
+    #     crop_n_layers=1,
+    #     crop_n_points_downscale_factor=2,
+    #     min_mask_region_area=1000,
+    # )
+    # Your current optimized settings:
     mask_generator = SamAutomaticMaskGenerator(
         sam,
-        points_per_side=32,
-        pred_iou_thresh=0.88,
-        stability_score_thresh=0.95,
-        crop_n_layers=1,
-        crop_n_points_downscale_factor=2,
-        min_mask_region_area=1000,
+        points_per_side=16,          # ← Reduce from 32 to 16 (big impact!)
+        pred_iou_thresh=0.90,        # ← Higher = fewer masks
+        stability_score_thresh=0.96, # ← Higher = more selective  
+        crop_n_layers=0,             # ← Disable cropping (major speedup!)
+        crop_n_points_downscale_factor=1,
+        min_mask_region_area=2000,   # ← Larger minimum
     )
-    
+
     model_end_time = time.time()
     model_load_time = model_end_time - model_start_time
     
@@ -143,6 +153,16 @@ def point_in_mask(mask, x, y):
     if 0 <= y < mask.shape[0] and 0 <= x < mask.shape[1]:
         return mask[y, x]
     return False
+
+def resize_for_processing(image_rgb, target_size=512):
+    """Resize image for faster processing, then scale results back"""
+    h, w = image_rgb.shape[:2]
+    scale = target_size / max(h, w)
+    new_w, new_h = int(w * scale), int(h * scale)
+    
+    resized = cv2.resize(image_rgb, (new_w, new_h))
+    return resized, scale
+
 
 def process_drone_image(image_path, mask_generator, drone_id):
     """
@@ -159,9 +179,13 @@ def process_drone_image(image_path, mask_generator, drone_id):
         
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         height, width, _ = image.shape
+
+        #resize for faster processing
+        # resized, scale = resize_for_processing(image_rgb, target_size=512)
         
         # Generate masks
         masks = mask_generator.generate(image_rgb)
+        # masks = mask_generator.generate(resized)
         
         # Find center building segment
         center_x = width // 2
