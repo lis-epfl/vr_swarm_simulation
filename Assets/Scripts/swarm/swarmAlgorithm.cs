@@ -146,6 +146,7 @@ public class swarmAlgorithm : MonoBehaviour
     {
         if (reynoldsAlgorithm != null)
         {
+            reynoldsAlgorithm.ThreeD = swarmManager.GetDimensions();
             reynoldsAlgorithm.cohesionWeight = swarmManager.GetCohesionWeight();
             reynoldsAlgorithm.separationWeight = swarmManager.GetSeparationWeight();
             reynoldsAlgorithm.alignmentWeight = swarmManager.GetAlignmentWeight();
@@ -157,6 +158,7 @@ public class swarmAlgorithm : MonoBehaviour
     {
         if (olfatiSaberAlgorithm != null)
         {
+            olfatiSaberAlgorithm.ThreeD = swarmManager.GetDimensions();
             olfatiSaberAlgorithm.d_ref = swarmManager.GetDRef();
             olfatiSaberAlgorithm.r0_coh = swarmManager.GetR0Coh();
             olfatiSaberAlgorithm.delta = swarmManager.GetDelta();

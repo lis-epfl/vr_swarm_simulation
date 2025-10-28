@@ -14,6 +14,7 @@ public class SwarmManager : MonoBehaviour
 
     [Header("Swarm Algorithm")]
     public SwarmAlgorithm swarmAlgorithm;
+    public bool ThreeD = true;
 
     [Header("Reynolds Parameters")]
     public float cohesionWeight = 1.0f;
@@ -71,6 +72,9 @@ public class SwarmManager : MonoBehaviour
         // Trigger the event to notify all subscribed drones
         swarmParamsChanged?.Invoke();
     }
+
+    // Getters
+    public bool GetDimensions() => ThreeD;
 
     // Getters for the Reynolds parameters
     public float GetCohesionWeight() => cohesionWeight;
