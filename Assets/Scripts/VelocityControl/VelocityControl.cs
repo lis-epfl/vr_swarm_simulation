@@ -51,7 +51,7 @@ public class VelocityControl : MonoBehaviour {
     private float filterCoefficient = 0.01f;
 
     // Use this for initialization
-    void Start () {
+    void Start() {
         state.GetState ();
         Rigidbody rb = GetComponent<Rigidbody> ();
         Vector3 desiredForce = new Vector3 (0.0f, gravity * state.Mass, 0.0f);
@@ -62,7 +62,7 @@ public class VelocityControl : MonoBehaviour {
     }
 
     // Update is called once per frame
-    void FixedUpdate () {
+    void FixedUpdate() {
         state.GetState ();
         
         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end

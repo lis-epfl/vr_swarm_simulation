@@ -180,6 +180,7 @@ public class swarmAlgorithm : MonoBehaviour
         {
             attitudeControl.numNeighbours = swarmManager.GetNumNeighbours();
             attitudeControl.numDimensions = swarmManager.GetNumDimensions();
+            attitudeControl.pointInwards = swarmManager.GetPointInwards();
         }
     }
 }
