@@ -10,6 +10,7 @@ public class AttitudeControl : MonoBehaviour
     public int numNeighbours = 3;
     public int numDimensions = 2;
     public bool boundaryEstimate = false;
+    public bool pointInwards = false;
 
     private string droneName;    
     
@@ -91,6 +92,12 @@ public class AttitudeControl : MonoBehaviour
         // Get the bisector of the first and last edge
         Vector2 bisector = (edge1 + edge2).normalized;
 
+        // If pointInwards is true, reverse the bisector
+        if (pointInwards)
+        {
+            bisector = -bisector;
+        }
+
         // Set the desired yaw rate to be the the angle between the bisector and the current heading
         float desiredYawRateDegrees = Vector2.SignedAngle(new Vector2(transform.forward.x, transform.forward.z), bisector);
 
@@ -100,10 +107,12 @@ public class AttitudeControl : MonoBehaviour
         if (desiredYawRateRadians > 0)
         {
             desiredYawRateRadians = Mathf.PI - desiredYawRateRadians;
-        } else
+        }
+        else
         {
             desiredYawRateRadians = -Mathf.PI - desiredYawRateRadians;
         }
+        
 
         // Set the desired yaw rate in the velocity control script
         vc.attitude_control_yaw = desiredYawRateRadians;

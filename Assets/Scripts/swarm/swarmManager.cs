@@ -46,6 +46,7 @@ public class SwarmManager : MonoBehaviour
     public AttitudeControl attitudeControlType;
     public int numNeighbours = 5;
     public int numDimensions = 2;
+    public bool pointInwards = true;
 
 
     public delegate void OnSwarmParamsChanged();
@@ -94,5 +95,6 @@ public class SwarmManager : MonoBehaviour
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;
     public int GetNumDimensions() => numDimensions;
+    public bool GetPointInwards() => pointInwards;  
 
 }
