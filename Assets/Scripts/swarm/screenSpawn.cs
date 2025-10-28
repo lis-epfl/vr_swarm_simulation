@@ -12,18 +12,28 @@ public class screenSpawn : MonoBehaviour
     public float circleRadius = 2.0f;
     public int width = 640;
     public int height = 360;
+    public bool pointInwards = false;
+    public float innerRadius = 0.2f;
+    public float innerScale = 0.1f;
+    public float x_offset = 0.0f;
+    private SwarmManager swarmManager;
 
 
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm)
     {
-        
+        // Get the swarm manager instance
+        swarmManager = SwarmManager.Instance;
+
+        // Add the swarmParamsChanged event listener
+        swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
+
         // Store the swarm list
         this.swarm = swarm;
 
         // Create an empty GameObject to serve as the parent for all screens
         screenParent = new GameObject("ScreenParent");
-        
+
         for (int i = 0; i < swarm.Count; i++)
         {
             GameObject drone = swarm[i];
@@ -75,14 +85,14 @@ public class screenSpawn : MonoBehaviour
             screen.GetComponent<Renderer>().material = screenMaterial;
 
             // set the scale to match the aspect ratio of the feed
-            screen.transform.localScale = new Vector3((float)width/height, 1f, 1f);
+            screen.transform.localScale = new Vector3((float)width / height, 1f, 1f);
 
             // Find the camera object on the drone called 'FPV'
             Transform camera = drone.transform.Find("FPV");
 
             // Get the camera and set the aspect ratio and field of view
             Camera cam = camera.GetComponent<Camera>();
-            cam.aspect = (float)width/height;
+            cam.aspect = (float)width / height;
             cam.fieldOfView = 82.1f;
 
             // Set the camera's target texture to the render texture
@@ -111,27 +121,47 @@ public class screenSpawn : MonoBehaviour
                 float yaw = droneChild.transform.eulerAngles.y; // Get the yaw angle of the drone (in degrees)
                 float radians = -yaw * Mathf.Deg2Rad; // Convert yaw to radians
 
-                // Calculate the position on circle relative to the arena
-                float x = arena.transform.position.x + circleRadius * Mathf.Cos(radians);
-                float z = arena.transform.position.z + circleRadius * Mathf.Sin(radians);
-                float y = arena.transform.position.y - 0.3f;
+                float x, z, y;
 
-                // Position the quad at the calculated coordinates
-                screen.transform.position = new Vector3(x, y, z);
+                if (!pointInwards)
+                {
+                    // Calculate the position on circle relative to the arena
+                    x = arena.transform.position.x + circleRadius * Mathf.Cos(radians);
+                    z = arena.transform.position.z + circleRadius * Mathf.Sin(radians);
+                    y = arena.transform.position.y - 0.3f;
 
-                // Rotate the screen to face the center of the arena
-                screen.transform.LookAt(arena.transform.position);
-                screen.transform.Rotate(0, 180f, 0); // Adjust rotation to face outward
+                    // Position the quad at the calculated coordinates
+                    screen.transform.position = new Vector3(x, y, z);
+
+                    // Rotate the screen to face the center of the arena
+                    screen.transform.LookAt(arena.transform.position);
+                    screen.transform.Rotate(0, 180f, 0); // Adjust rotation to face outward
+                }
+                else
+                {
+                    // Calculate the position on inner circle relative to the arena
+                    x = arena.transform.position.x + innerRadius * Mathf.Cos(radians) + x_offset;
+                    z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
+                    y = arena.transform.position.y;
+
+                    // Position the quad at the calculated coordinates
+                    screen.transform.position = new Vector3(x, y, z);
+
+                    // Rotate the screen to face radially outward from the center of the arena
+                    screen.transform.LookAt(arena.transform.position + new Vector3(x_offset, 0, 0));
+                }
+
+
 
                 // Ensure the screen is active
                 screen.SetActive(true);
             }
             else
-            {                
-               // Hide the screen if the drone is not on the swarm boundary
+            {
+                // Hide the screen if the drone is not on the swarm boundary
                 screen.SetActive(false);
             }
-            
+
         }
     }
 
@@ -141,4 +171,25 @@ public class screenSpawn : MonoBehaviour
         UpdateScreenPositions();
 
     }
+
+    // Update the parameters from the swarm manager
+    void OnSwarmParamsChanged()
+    {
+        pointInwards = swarmManager.GetPointInwards();
+
+        // Update the screen scales
+        UpdateScreenScale(pointInwards ? innerScale : 1.0f);
+
+    }
+
+    // Update the scale of each screen with a factor
+    public void UpdateScreenScale(float scaleFactor)
+    {
+        for (int i = 0; i < screens.Count; i++)
+        {
+            GameObject screen = screens[i];
+             screen.transform.localScale = new Vector3((float)width / height, 1f, 1f) * scaleFactor;
+        }
+    }
+
 }
