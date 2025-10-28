@@ -7,6 +7,7 @@ public class OlfatiSaber : MonoBehaviour
 {
     public List<GameObject> swarm;
 
+    public bool ThreeD = true;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
     public float delta = 0.1f;
@@ -80,10 +81,15 @@ public class OlfatiSaber : MonoBehaviour
 
             // Relative Position
             Vector3 relativePosition = neighbourPosition - position;
-            float distance = relativePosition.magnitude;
 
-            // Relative Velocity
-            Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - velocity;
+            // Set the y-component to zero if in 2D mode
+            if (!ThreeD)
+            {
+                relativePosition.y = 0;
+            }
+
+            // Get the distance to the neighbour
+            float distance = relativePosition.magnitude;
 
             // Scale the distance to fit the cohesion function
             distance = distance / scaleFactor;
@@ -105,6 +111,12 @@ public class OlfatiSaber : MonoBehaviour
         // Debug.Log($"Cohesion Force for {droneName}: {cohesion}");
         // Debug.Log($"Obstacle Avoidance Force for {droneName}: {obstacle}");
         // Debug.Log($"Swarm Input for {droneName}: {swarmInput}");
+
+        // Print the cohesion if this is drone 0
+        if (droneName == "Drone 0")
+        {
+            Debug.Log($"Cohesion Force for {droneName}: {cohesion}");
+        }
 
         GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
         GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
