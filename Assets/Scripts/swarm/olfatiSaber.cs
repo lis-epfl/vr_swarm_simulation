@@ -112,12 +112,6 @@ public class OlfatiSaber : MonoBehaviour
         // Debug.Log($"Obstacle Avoidance Force for {droneName}: {obstacle}");
         // Debug.Log($"Swarm Input for {droneName}: {swarmInput}");
 
-        // Print the cohesion if this is drone 0
-        if (droneName == "Drone 0")
-        {
-            Debug.Log($"Cohesion Force for {droneName}: {cohesion}");
-        }
-
         GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
         GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
         GetComponent<VelocityControl>().swarm_vz = swarmInput.z;        
