@@ -1,5 +1,36 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1189662443646956
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4685468158847624}
+  m_Layer: 0
+  m_Name: DroneBrain
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4685468158847624
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1189662443646956}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4198999323543592}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1194315723904280
 GameObject:
   m_ObjectHideFlags: 0
@@ -122,6 +153,7 @@ GameObject:
   - component: {fileID: 2446258279458879349}
   - component: {fileID: 467967561642582945}
   - component: {fileID: 259003137113264617}
+  - component: {fileID: 3394688948266772462}
   - component: {fileID: 3810217873681142886}
   m_Layer: 9
   m_Name: DroneParent
@@ -328,6 +360,44 @@ MonoBehaviour:
   desired_vy: 0
   desired_vz: 0
   desired_yaw: 0
+--- !u!114 &3394688948266772462
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ca767b9b59c2f43f0b39606a995349be, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarm: []
+  radius: 1
+  height: 1
+  centerPoint: {x: 0, y: 0, z: 0}
+  movementSpeed: 1
+  viewDistance: 0
+  informationGainWeight: 0
+  proportionalGain: 1
+  obstacleLayerMask:
+    serializedVersion: 2
+    m_Bits: 1024
+  avoidanceDistance: 3
+  avoidanceForce: 2
+  enableObstacleAvoidance: 1
+  escapeForceMultiplier: 5
+  minForceRatio: 0.5
+  useFormationOverride: 1
+  minInterDroneDistance: 2
+  interDroneAvoidanceForce: 3
+  enableInterDroneAvoidance: 1
+  droneLayerMask:
+    serializedVersion: 2
+    m_Bits: 512
+  debug_bool: 0
+  cameraPitch: 0
+  enableCameraPitchControl: 0
 --- !u!114 &3810217873681142886
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -704,6 +774,38 @@ WindZone:
   m_WindTurbulence: 1
   m_WindPulseMagnitude: 0.5
   m_WindPulseFrequency: 0.01
+--- !u!1 &1675488204765448
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4198999323543592}
+  m_Layer: 0
+  m_Name: DroneAcademy
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &4198999323543592
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1675488204765448}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 5.6, z: -2.257}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 4685468158847624}
+  m_Father: {fileID: 4340667180271852}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1713172099184850
 GameObject:
   m_ObjectHideFlags: 0
@@ -844,7 +946,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 567
+    m_Bits: 1591
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 1
