@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+// using System.Numerics;
 using UnityEngine;
 
 public class screenSpawn : MonoBehaviour
@@ -13,11 +14,12 @@ public class screenSpawn : MonoBehaviour
     public float circleRadius = 2.0f;
     public int width = 640;
     public int height = 360;
-    public bool pointInwards = false;
     public float innerRadius = 0.2f;
     public float innerScale = 0.1f;
-    public float x_offset = 0.0f;
+    public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
     private SwarmManager swarmManager;
+    private bool pointInwards = false;
+    private bool displayScreens = false;
 
 
     // Function to spawn screens for the drones in the swarm
@@ -114,55 +116,87 @@ public class screenSpawn : MonoBehaviour
             GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
             GameObject screen = screens.Find(s => s.name == "screen_" + i);
 
-            // Check the boundaryEstimate of the drone
-            AttitudeControl attitudeControl = droneChild.GetComponent<AttitudeControl>();
-            if (attitudeControl.boundaryEstimate)
+
+            if (!displayScreens)
             {
-                // Calculate the screen position based on the yaw of the drone
-                float yaw = droneChild.transform.eulerAngles.y; // Get the yaw angle of the drone (in degrees)
-                float radians = -yaw * Mathf.Deg2Rad; // Convert yaw to radians
+                // Hide all screens if displayScreens is false
+                screen.SetActive(false);
+                continue;
+            }
 
-                float x, z, y;
+            // Check which swarm algorithm is being used
+            SwarmManager.SwarmAlgorithm swarmAlgorithm = swarmManager.swarmAlgorithm;
 
-                if (!pointInwards)
+            // If Reynolds or Olfati-saber check the boundaryEstimate to position screens
+            if (swarmAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS || swarmAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
+            {
+                // Check the boundaryEstimate of the drone
+                AttitudeControl attitudeControl = droneChild.GetComponent<AttitudeControl>();
+                if (attitudeControl.boundaryEstimate)
                 {
-                    // Calculate the position on circle relative to the arena
-                    x = arena.transform.position.x + circleRadius * Mathf.Cos(radians);
-                    z = arena.transform.position.z + circleRadius * Mathf.Sin(radians);
-                    y = arena.transform.position.y - 0.3f;
+                    // Calculate the screen position based on the yaw of the drone
+                    float yaw = droneChild.transform.eulerAngles.y; // Get the yaw angle of the drone (in degrees)
+                    float radians = -yaw * Mathf.Deg2Rad; // Convert yaw to radians
 
-                    // Position the quad at the calculated coordinates
-                    screen.transform.position = new Vector3(x, y, z);
+                    float x, z, y;
 
-                    // Rotate the screen to face the center of the arena
-                    screen.transform.LookAt(arena.transform.position);
-                    screen.transform.Rotate(0, 180f, 0); // Adjust rotation to face outward
+                    if (!pointInwards)
+                    {
+                        // Calculate the position on circle relative to the arena
+                        x = arena.transform.position.x + circleRadius * Mathf.Cos(radians);
+                        z = arena.transform.position.z + circleRadius * Mathf.Sin(radians);
+                        y = arena.transform.position.y + offset.y;
+
+                        // Position the quad at the calculated coordinates
+                        screen.transform.position = new Vector3(x, y, z);
+
+                        // Rotate the screen to face the center of the arena
+                        screen.transform.LookAt(arena.transform.position);
+                        screen.transform.Rotate(0, 180f, 0); // Adjust rotation to face outward
+                    }
+                    else
+                    {
+                        // Calculate the position on inner circle relative to the arena
+                        x = arena.transform.position.x + innerRadius * Mathf.Cos(radians) + offset.x;
+                        z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
+                        y = arena.transform.position.y + offset.y;
+
+                        // Position the quad at the calculated coordinates
+                        screen.transform.position = new Vector3(x, y, z);
+
+                        // Rotate the screen to face radially outward from the center of the arena
+                        screen.transform.LookAt(arena.transform.position + offset);
+                    }
+
+                    // Ensure the screen is active
+                    screen.SetActive(true);
                 }
                 else
                 {
-                    // Calculate the position on inner circle relative to the arena
-                    x = arena.transform.position.x + innerRadius * Mathf.Cos(radians) + x_offset;
-                    z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
-                    y = arena.transform.position.y;
-
-                    // Position the quad at the calculated coordinates
-                    screen.transform.position = new Vector3(x, y, z);
-
-                    // Rotate the screen to face radially outward from the center of the arena
-                    screen.transform.LookAt(arena.transform.position + new Vector3(x_offset, 0, 0));
+                    // Hide the screen if the drone is not on the swarm boundary
+                    screen.SetActive(false);
                 }
+            }
+            // If NBV is selected then set all screens to active and use the inner circle positioning
+            else if (swarmAlgorithm == SwarmManager.SwarmAlgorithm.NBV)
+            {
+                // Calculate the position on inner circle relative to the arena
+                float yaw = droneChild.transform.eulerAngles.y; // Get the yaw angle of the drone (in degrees)
+                float radians = -yaw * Mathf.Deg2Rad; // Convert yaw to radians
 
+                float x = arena.transform.position.x + innerRadius * Mathf.Cos(radians) + offset.x;
+                float z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
+                float y = arena.transform.position.y + offset.y;
 
+                // Position the quad at the calculated coordinates
+                screen.transform.position = new Vector3(x, y, z);
+
+                // Rotate the screen to face radially outward from the center of the arena
+                screen.transform.LookAt(arena.transform.position + offset);
 
                 // Ensure the screen is active
                 screen.SetActive(true);
             }
-            else
-            {
-                // Hide the screen if the drone is not on the swarm boundary
-                screen.SetActive(false);
-            }
-
         }
     }
 
@@ -176,10 +210,26 @@ public class screenSpawn : MonoBehaviour
     // Update the parameters from the swarm manager
     void OnSwarmParamsChanged()
     {
+
+        // Check if the displayScreens parameter has changed
+        displayScreens = swarmManager.GetDisplayScreens();
+
+        // Check if screens should be facing inwards
         pointInwards = swarmManager.GetPointInwards();
 
+        // If NBV is selected, use the inner scale for all screens
+        SwarmManager.SwarmAlgorithm swarmAlgorithm = swarmManager.swarmAlgorithm;
+        float screenScale;
+        if (swarmAlgorithm == SwarmManager.SwarmAlgorithm.NBV)
+        {
+            screenScale = innerScale;
+        } else
+        {
+            screenScale = pointInwards ? innerScale : 1.0f;
+        }
+
         // Update the screen scales
-        UpdateScreenScale(pointInwards ? innerScale : 1.0f);
+        UpdateScreenScale(screenScale);
 
     }
 

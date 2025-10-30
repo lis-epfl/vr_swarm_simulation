@@ -6,7 +6,7 @@ public class Reynolds : MonoBehaviour
 {
     public List<GameObject> swarm;
 
-    public bool ThreeD = true;
+    public bool is3D = true;
     public float cohesionWeight = 1.0f;
     public float separationWeight = 1.0f;
     public float alignmentWeight = 1.0f;
@@ -46,7 +46,7 @@ public class Reynolds : MonoBehaviour
             Vector3 relativePosition = neighbourPosition - transform.position;
 
             // Set the y-component to zero if in 2D mode
-            if (!ThreeD)
+            if (!is3D)
             {
                 relativePosition.y = 0;
             }
@@ -58,7 +58,7 @@ public class Reynolds : MonoBehaviour
             Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - GetComponent<Rigidbody>().velocity;
             
             // Set the y-component to zero if in 2D mode
-            if (!ThreeD)
+            if (!is3D)
             {
                 relativeVelocity.y = 0;
             }

@@ -7,7 +7,7 @@ public class OlfatiSaber : MonoBehaviour
 {
     public List<GameObject> swarm;
 
-    public bool ThreeD = true;
+    public bool is3D = true;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
     public float delta = 0.1f;
@@ -83,7 +83,7 @@ public class OlfatiSaber : MonoBehaviour
             Vector3 relativePosition = neighbourPosition - position;
 
             // Set the y-component to zero if in 2D mode
-            if (!ThreeD)
+            if (!is3D)
             {
                 relativePosition.y = 0;
             }
