@@ -11,9 +11,10 @@ public class screenSpawn : MonoBehaviour
     public List<GameObject> screens = new List<GameObject>();
     public GameObject arena;
     public GameObject screenParent;
-    public float circleRadius = 2.0f;
     public int width = 640;
     public int height = 360;
+    public float outerRadius = 2.0f;
+    public float outerScale = 1.0f;
     public float innerRadius = 0.2f;
     public float innerScale = 0.1f;
     public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
@@ -143,8 +144,8 @@ public class screenSpawn : MonoBehaviour
                     if (!pointInwards)
                     {
                         // Calculate the position on circle relative to the arena
-                        x = arena.transform.position.x + circleRadius * Mathf.Cos(radians);
-                        z = arena.transform.position.z + circleRadius * Mathf.Sin(radians);
+                        x = arena.transform.position.x + outerRadius * Mathf.Cos(radians);
+                        z = arena.transform.position.z + outerRadius * Mathf.Sin(radians);
                         y = arena.transform.position.y + offset.y;
 
                         // Position the quad at the calculated coordinates
@@ -207,6 +208,11 @@ public class screenSpawn : MonoBehaviour
 
     }
 
+    void OnValidate()
+    {
+        UpdateScreenScale();
+    }
+    
     // Update the parameters from the swarm manager
     void OnSwarmParamsChanged()
     {
@@ -217,29 +223,35 @@ public class screenSpawn : MonoBehaviour
         // Check if screens should be facing inwards
         pointInwards = swarmManager.GetPointInwards();
 
-        // If NBV is selected, use the inner scale for all screens
-        SwarmManager.SwarmAlgorithm swarmAlgorithm = swarmManager.swarmAlgorithm;
-        float screenScale;
-        if (swarmAlgorithm == SwarmManager.SwarmAlgorithm.NBV)
-        {
-            screenScale = innerScale;
-        } else
-        {
-            screenScale = pointInwards ? innerScale : 1.0f;
-        }
-
         // Update the screen scales
-        UpdateScreenScale(screenScale);
+        UpdateScreenScale();
 
     }
 
     // Update the scale of each screen with a factor
-    public void UpdateScreenScale(float scaleFactor)
+    public void UpdateScreenScale()
     {
+        // Get the screen scale
+        float screenScale = GetScreenScale();
+
         for (int i = 0; i < screens.Count; i++)
         {
             GameObject screen = screens[i];
-             screen.transform.localScale = new Vector3((float)width / height, 1f, 1f) * scaleFactor;
+            screen.transform.localScale = new Vector3((float)width / height, 1f, 1f) * screenScale;
+        }
+    }
+    
+    // Get the scale of the screens by checking the swarm algorithm
+    public float GetScreenScale()
+    {
+        SwarmManager.SwarmAlgorithm swarmAlgorithm = swarmManager.swarmAlgorithm;
+        if (swarmAlgorithm == SwarmManager.SwarmAlgorithm.NBV)
+        {
+            return innerScale;
+        }
+        else
+        {
+            return pointInwards ? innerScale : outerScale;
         }
     }
 

@@ -14027,8 +14027,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   swarmAlgorithm: 2
-  is3D: 1
-  displayScreens: 0
+  is3D: 0
+  displayScreens: 1
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
@@ -14092,9 +14092,9 @@ MonoBehaviour:
   circleRadius: 2
   width: 1280
   height: 720
-  innerRadius: 0.2
-  innerScale: 0.1
-  offset: {x: 0.5, y: -0.3, z: 0}
+  innerRadius: 0.45
+  innerScale: 0.2
+  offset: {x: 1, y: -0.2, z: 0}
 --- !u!114 &590275742
 MonoBehaviour:
   m_ObjectHideFlags: 0
