@@ -16,7 +16,6 @@ public class SwarmManager : MonoBehaviour
     [Header("Swarm Algorithm")]
     public SwarmAlgorithm swarmAlgorithm;
     public bool is3D = true;
-    public bool displayScreens = false;
 
     [Header("Reynolds Parameters")]
     public float cohesionWeight = 1.0f;
@@ -111,7 +110,6 @@ public class SwarmManager : MonoBehaviour
 
     // Getters
     public bool GetDimensions() => is3D;
-    public bool GetDisplayScreens() => displayScreens;
 
     // Getters for the Reynolds parameters
     public float GetCohesionWeight() => cohesionWeight;
