@@ -1,7 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
-// using System.Numerics;
 using UnityEngine;
 
 public class screenSpawn : MonoBehaviour
@@ -11,7 +9,9 @@ public class screenSpawn : MonoBehaviour
     {
         OFF,
         OUTER_CIRCLE,
-        INNER_CIRCLE
+        INNER_CIRCLE,
+        BOTTOM_CIRCLE,
+        ROTATING_CIRCLE
     }
     [Header("Display Settings")]
     public DisplayMode displayMode = DisplayMode.OFF;
@@ -21,12 +21,20 @@ public class screenSpawn : MonoBehaviour
     public List<GameObject> screens = new List<GameObject>();
     public GameObject arena;
     public GameObject screenParent;
+    [Header("VR Parameters")]
+    public OVRPlayerController player;
     public int width = 640;
     public int height = 360;
     public float outerRadius = 2.0f;
     public float outerScale = 1.0f;
     public float innerRadius = 0.2f;
     public float innerScale = 0.1f;
+    public float bottomRadius = 1.0f;
+    public float bottomScale = 0.5f;
+    public Vector3 bottomOffset = new Vector3(0.0f, 0.0f, 0.0f);
+    public bool invertBottomScreen = false;
+    public bool doubleView = false;
+    public float rotatingCircleDistance = 2.0f;
     public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
     private SwarmManager swarmManager;
     private bool pointInwards = false;
@@ -35,6 +43,16 @@ public class screenSpawn : MonoBehaviour
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm)
     {
+        // Find the OVRPlayerController in the scene if not already assigned
+        if (player == null)
+        {
+            player = FindObjectOfType<OVRPlayerController>();
+            if (player == null)
+            {
+                Debug.LogWarning("No OVRPlayerController found in the scene!");
+            }
+        }
+
         // Get the swarm manager instance
         swarmManager = SwarmManager.Instance;
 
@@ -137,6 +155,12 @@ public class screenSpawn : MonoBehaviour
                 case DisplayMode.INNER_CIRCLE:
                     UpdateInnerCircleScreen(screen, droneChild);
                     break;
+                case DisplayMode.BOTTOM_CIRCLE:
+                    UpdateBottomCircleScreen(screen, droneChild);
+                    break;
+                case DisplayMode.ROTATING_CIRCLE:
+                    UpdateRotatingCircleScreen(screen, droneChild);
+                    break;
             }
         }
     }
@@ -188,6 +212,69 @@ public class screenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
+    // Update the bottom circle screen positions
+    private void UpdateBottomCircleScreen(GameObject screen, GameObject droneChild)
+    {        
+        float yaw = droneChild.transform.eulerAngles.y;
+        float radians = -yaw * Mathf.Deg2Rad;
+
+        // Calculate the position on bottom circle
+        float x = arena.transform.position.x + bottomRadius * Mathf.Cos(radians) + offset.x;
+        float z = arena.transform.position.z + bottomRadius * Mathf.Sin(radians) + offset.z;
+        float y = arena.transform.position.y + offset.y;
+
+        // Position and rotate the screen
+        screen.transform.position = new Vector3(x, y, z);
+        screen.transform.LookAt(arena.transform.position + bottomOffset + offset);
+        if (invertBottomScreen)
+        {
+            screen.transform.Rotate(0, 180f, 0); // Invert the screen
+        }
+
+        // If double view is true then find the screens where the relative position is in the positive x direction and reverse the direction
+        if (doubleView)
+        {
+            Vector3 relativePos = screen.transform.position - (arena.transform.position + offset);
+            if (relativePos.x > 0)
+            {
+                screen.transform.Rotate(0, 180f, 0); // Reverse the direction
+            }
+        } 
+
+        screen.SetActive(true);
+    }
+
+    private void UpdateRotatingCircleScreen(GameObject screen, GameObject droneChild)
+    {
+        if (player == null)
+        {
+            screen.SetActive(false);
+            return;
+        }
+
+        float yaw = droneChild.transform.eulerAngles.y;
+        float radians = -yaw * Mathf.Deg2Rad;
+
+        // Calculate base position on inner circle
+        float x = arena.transform.position.x + innerRadius * Mathf.Cos(radians);
+        float z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
+        float y = arena.transform.position.y + offset.y;
+        Vector3 basePosition = new Vector3(x, y, z);
+
+        // Get player's forward direction (only using horizontal direction)
+        Vector3 playerForward = player.transform.forward;
+        playerForward.y = 0; // Zero out vertical component
+        playerForward.Normalize();
+
+        // Offset the screen position in the player's forward direction
+        Vector3 offsetPosition = basePosition + playerForward * rotatingCircleDistance;
+
+        // Position and rotate the screen
+        screen.transform.position = offsetPosition;
+        screen.transform.LookAt(arena.transform.position + offsetPosition);
+        screen.SetActive(true);
+    }
+
     // Update the positions of the screens based on the drone orientation
     void Update()
     {
@@ -229,6 +316,8 @@ public class screenSpawn : MonoBehaviour
                 return innerScale;
             case DisplayMode.OUTER_CIRCLE:
                 return outerScale;
+            case DisplayMode.BOTTOM_CIRCLE:
+                return bottomScale;
             default:
                 return 1.0f;
         }

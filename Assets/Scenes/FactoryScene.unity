@@ -14028,7 +14028,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   swarmAlgorithm: 2
   is3D: 0
-  displayScreens: 1
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
@@ -14046,22 +14045,22 @@ MonoBehaviour:
   scaleFactor: 10
   viewDistance: 10
   informationGainWeight: 2
-  radius: 20
-  height: 16.7
+  radius: 24
+  height: 20
   centerPoint: {x: 35, y: 16.7, z: -67.2}
   movementSpeed: 5
   proportionalGain: 5
-  debug_bool: 1
+  debug_bool: 0
   cameraPitch: 0
   enableCameraPitchControl: 1
   obstacleLayerMask:
     serializedVersion: 2
     m_Bits: 1024
-  avoidanceDistance: 8
-  avoidanceForce: 10
+  avoidanceDistance: 10
+  avoidanceForce: 17
   enableObstacleAvoidance: 1
-  minInterDroneDistance: 2
-  interDroneAvoidanceForce: 3
+  minInterDroneDistance: 4
+  interDroneAvoidanceForce: 4
   enableInterDroneAvoidance: 1
   droneLayerMask:
     serializedVersion: 2
@@ -14085,16 +14084,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6e0d72f564d00ad46b06030601ccc2e4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  displayMode: 0
   swarm: []
   screens: []
   arena: {fileID: 2003489487}
   screenParent: {fileID: 0}
-  circleRadius: 2
   width: 1280
   height: 720
+  outerRadius: 2
+  outerScale: 1
   innerRadius: 0.45
   innerScale: 0.2
-  offset: {x: 1, y: -0.2, z: 0}
+  bottomRadius: 0.6
+  bottomScale: 0.25
+  bottomOffset: {x: 0, y: -0.5, z: 0}
+  invertBottomScreen: 0
+  doubleView: 0
+  offset: {x: 1.5, y: -0.5, z: 0}
 --- !u!114 &590275742
 MonoBehaviour:
   m_ObjectHideFlags: 0
