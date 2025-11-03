@@ -35,6 +35,7 @@ public class screenSpawn : MonoBehaviour
     public bool invertBottomScreen = false;
     public bool doubleView = false;
     public float rotatingCircleDistance = 2.0f;
+    public float rotatingVerticalOffset = -0.3f;
     public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
     private SwarmManager swarmManager;
     private bool pointInwards = false;
@@ -258,7 +259,7 @@ public class screenSpawn : MonoBehaviour
         // Calculate base position on inner circle
         float x = arena.transform.position.x + innerRadius * Mathf.Cos(radians);
         float z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
-        float y = arena.transform.position.y + offset.y;
+        float y = arena.transform.position.y + rotatingVerticalOffset;
         Vector3 basePosition = new Vector3(x, y, z);
 
         // Get player's forward direction (only using horizontal direction)
@@ -271,7 +272,7 @@ public class screenSpawn : MonoBehaviour
 
         // Position and rotate the screen
         screen.transform.position = offsetPosition;
-        screen.transform.LookAt(arena.transform.position + offsetPosition);
+        screen.transform.LookAt(arena.transform.position + playerForward * rotatingCircleDistance);
         screen.SetActive(true);
     }
 
@@ -279,7 +280,6 @@ public class screenSpawn : MonoBehaviour
     void Update()
     {
         UpdateScreenPositions();
-
     }
 
     void OnValidate()
@@ -318,6 +318,8 @@ public class screenSpawn : MonoBehaviour
                 return outerScale;
             case DisplayMode.BOTTOM_CIRCLE:
                 return bottomScale;
+            case DisplayMode.ROTATING_CIRCLE:
+                return innerScale;
             default:
                 return 1.0f;
         }
