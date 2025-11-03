@@ -14099,6 +14099,7 @@ GameObject:
   - component: {fileID: 590275739}
   - component: {fileID: 590275744}
   - component: {fileID: 590275745}
+  - component: {fileID: 590275746}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -14284,6 +14285,22 @@ MonoBehaviour:
   selectedDrone: 0
   widthScale: 0.4
   droneObject: {fileID: 0}
+--- !u!114 &590275746
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  orbiterSphere: {fileID: 585898990}
+  circleRadius: 18
+  speedDegPerSec: 30
+  circleCenter: {x: 35, y: 16.7, z: -67.2}
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
