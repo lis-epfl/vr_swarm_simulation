@@ -13855,111 +13855,6 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 584825361}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &585898990
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 585898994}
-  - component: {fileID: 585898993}
-  - component: {fileID: 585898992}
-  - component: {fileID: 585898991}
-  m_Layer: 0
-  m_Name: Sphere
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!135 &585898991
-SphereCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 585898990}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Radius: 0.5
-  m_Center: {x: 0, y: 0, z: 0}
---- !u!23 &585898992
-MeshRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 585898990}
-  m_Enabled: 1
-  m_CastShadows: 1
-  m_ReceiveShadows: 1
-  m_DynamicOccludee: 1
-  m_StaticShadowCaster: 0
-  m_MotionVectors: 1
-  m_LightProbeUsage: 1
-  m_ReflectionProbeUsage: 1
-  m_RayTracingMode: 2
-  m_RayTraceProcedural: 0
-  m_RenderingLayerMask: 1
-  m_RendererPriority: 0
-  m_Materials:
-  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
-  m_StaticBatchInfo:
-    firstSubMesh: 0
-    subMeshCount: 0
-  m_StaticBatchRoot: {fileID: 0}
-  m_ProbeAnchor: {fileID: 0}
-  m_LightProbeVolumeOverride: {fileID: 0}
-  m_ScaleInLightmap: 1
-  m_ReceiveGI: 1
-  m_PreserveUVs: 0
-  m_IgnoreNormalsForChartDetection: 0
-  m_ImportantGI: 0
-  m_StitchLightmapSeams: 1
-  m_SelectedEditorRenderState: 3
-  m_MinimumChartSize: 4
-  m_AutoUVMaxDistance: 0.5
-  m_AutoUVMaxAngle: 89
-  m_LightmapParameters: {fileID: 0}
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
-  m_SortingOrder: 0
-  m_AdditionalVertexStreams: {fileID: 0}
---- !u!33 &585898993
-MeshFilter:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 585898990}
-  m_Mesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
---- !u!4 &585898994
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 585898990}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 63.150005, y: 15.81, z: -66.92404}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &588052690
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -14151,8 +14046,8 @@ MonoBehaviour:
   scaleFactor: 10
   viewDistance: 10
   informationGainWeight: 2
-  radius: 24
-  height: 20
+  radius: 28
+  height: 22
   centerPoint: {x: 35, y: 16.7, z: -67.2}
   movementSpeed: 5
   proportionalGain: 5
@@ -14166,7 +14061,7 @@ MonoBehaviour:
   avoidanceForce: 17
   enableObstacleAvoidance: 1
   minInterDroneDistance: 6
-  interDroneAvoidanceForce: 7
+  interDroneAvoidanceForce: 8
   enableInterDroneAvoidance: 1
   droneLayerMask:
     serializedVersion: 2
@@ -14207,8 +14102,8 @@ MonoBehaviour:
   bottomOffset: {x: 0, y: -0.5, z: 0}
   invertBottomScreen: 0
   doubleView: 0
-  rotatingCircleDistance: 2
-  rotatingVerticalOffset: -0.3
+  rotatingCircleDistance: 1
+  rotatingVerticalOffset: 0
   offset: {x: 1.5, y: -0.5, z: 0}
 --- !u!114 &590275742
 MonoBehaviour:
@@ -14297,10 +14192,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  orbiterSphere: {fileID: 585898990}
-  circleRadius: 18
-  speedDegPerSec: 30
-  circleCenter: {x: 35, y: 16.7, z: -67.2}
+  walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
+    type: 3}
+  numWalkers: 6
+  minRadius: 16
+  maxRadius: 22
+  speedMetersPerSec: 4
+  circleCenter: {x: 35, y: 13.34, z: -67.2}
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -48595,4 +48493,3 @@ SceneRoots:
   - {fileID: 1757688930}
   - {fileID: 1348654473}
   - {fileID: 1393066149}
-  - {fileID: 585898994}
