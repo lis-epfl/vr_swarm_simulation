@@ -396,6 +396,10 @@ MonoBehaviour:
   debug_bool: 0
   cameraPitch: 0
   enableCameraPitchControl: 0
+  enableVisionSystem: 1
+  visionInfluenceStrength: 0.1
+  logVisionCommands: 1
+  usePerDroneCommands: 1
 --- !u!114 &3810217873681142886
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -883,6 +887,7 @@ GameObject:
   - component: {fileID: 124394260733511096}
   - component: {fileID: 81902762235554322}
   - component: {fileID: 114660381931437216}
+  - component: {fileID: 6225278697236815164}
   m_Layer: 0
   m_Name: FPV
   m_TagString: MainCamera
@@ -988,6 +993,24 @@ MonoBehaviour:
   offset: {x: 0, y: 0, z: 0}
   temp: 0.3
   rpLimitRatio: 0.2
+--- !u!114 &6225278697236815164
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1739179400309510}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 42a6a3e2b4b033e44a5679104dad6943, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  rgbCamera: {fileID: 20262607071171058}
+  depthWidth: 0
+  depthHeight: 0
+  maxDepthDistance: 50
+  minDepthDistance: 0.1
+  showDebugVisualization: 1
 --- !u!1 &1880523559110524
 GameObject:
   m_ObjectHideFlags: 0
