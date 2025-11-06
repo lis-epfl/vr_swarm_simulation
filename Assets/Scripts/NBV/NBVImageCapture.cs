@@ -4,17 +4,22 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 
 /// <summary>
-/// NBVImageCapture.cs - Real-time drone image capture with shared memory communication
+/// NBVImageCapture.cs - MAP-NBV Implementation: RGB + Depth + Pose Capture with Shared Memory
 /// 
 /// Architecture:
-/// 1. Captures images from drone FPV cameras at configurable frequency
-/// 2. Writes image data to shared memory for Python processing
-/// 3. Reads position commands from shared memory 
-/// 4. Sends position updates back to NBV.cs for drone control
+/// 1. Captures RGB images from drone FPV cameras at configurable frequency
+/// 2. Captures Depth images from drone depth cameras (DroneDepthCamera)
+/// 3. Captures drone poses (position + rotation quaternion)
+/// 4. Writes all data to shared memory for Python point cloud processing
+/// 5. Reads position commands from shared memory
+/// 6. Sends position updates back to NBV.cs for drone control
 /// 
-/// Memory Layout:
-/// - ImageSharedMemory: [flag][imageCount][imageData...]
-/// - CommandSharedMemory: [flag][commandData...]
+/// Memory Layout (NEW - MAP-NBV):
+/// - ImageDepthMemory: [flag][droneCount][width][height][RGB_0][Depth_0][RGB_1][Depth_1]...
+/// - DronePoseMemory: [droneCount][pos_0][quat_0][pos_1][quat_1]...
+/// - CommandMemory: [flag][cmd_0][cmd_1]... (per-drone commands)
+/// 
+/// Note: Camera intrinsics handled by separate CameraIntrinsics.cs component
 /// </summary>
 public class NBVImageCapture : MonoBehaviour
 {
@@ -26,14 +31,15 @@ public class NBVImageCapture : MonoBehaviour
     
     [Header("Shared Memory Settings")]
     [SerializeField] private int maxDroneCount = 10;
-    [SerializeField] private string imageMemoryName = "NBVImageSharedMemory";
-    [SerializeField] private string commandMemoryName = "NBVCommandSharedMemory";
+    [SerializeField] private string imageMemoryName = "NBVImageDepthMemory"; // NEW: Combined RGB + Depth
+    [SerializeField] private string poseMemoryName = "NBVDronePoses"; // NEW: Drone poses
+    [SerializeField] private string commandMemoryName = "NBVCommandMemory";
     
     [Header("Per-Drone Command System")]
-    [SerializeField] private bool usePerDroneCommands = true; // NEW: Enable individual drone commands
+    [SerializeField] private bool usePerDroneCommands = true; // Enable individual drone commands
     
     [Header("Integration Mode")]
-    [SerializeField] private bool enableCommandReading = false; // DISABLED: NBV.cs now handles vision commands directly
+    [SerializeField] private bool enableCommandReading = true; // Enable reading commands from Python
     
     [Header("Debug")]
     [SerializeField] private bool enableDebugLogging = true; // Enable for debugging
@@ -41,6 +47,8 @@ public class NBVImageCapture : MonoBehaviour
     // Shared Memory Management
     private IntPtr imageFileMap;
     private IntPtr imagePtr;
+    private IntPtr poseFileMap; // NEW: Drone poses
+    private IntPtr posePtr;
     private IntPtr commandFileMap;
     private IntPtr commandPtr;
     
@@ -61,9 +69,12 @@ public class NBVImageCapture : MonoBehaviour
     
     // Image capture
     private List<Camera> droneCameras;
+    private List<DroneDepthCamera> droneDepthCameras; // NEW: Depth cameras
+    private List<Transform> droneTransforms; // NEW: Drone transforms for poses
     private RenderTexture reusableTexture;
     private Texture2D captureTexture;
     private byte[] imageBuffer;
+    private byte[] depthBuffer; // NEW: Depth data buffer
     private float nextCaptureTime;
     private float nextDroneRefreshTime;
     private bool isFullyInitialized = false;
@@ -136,6 +147,9 @@ public class NBVImageCapture : MonoBehaviour
         // Capture images at specified interval
         if (Time.time >= nextCaptureTime && droneCameras != null && droneCameras.Count > 0)
         {
+            if (enableDebugLogging)
+                Debug.Log($"[NBVImageCapture] Triggering capture at time {Time.time}");
+                
             CaptureAndSendImages();
             nextCaptureTime = Time.time + captureInterval;
         }
@@ -151,54 +165,66 @@ public class NBVImageCapture : MonoBehaviour
     
     private void InitializeMemoryLayout()
     {
-        imageSize = imageWidth * imageHeight * 3; // RGB format
-        totalImageMemorySize = ImageDataPosition + (maxDroneCount * imageSize);
+        // RGB: 3 bytes per pixel, Depth: 4 bytes per pixel (float32)
+        int rgbSize = imageWidth * imageHeight * 3;
+        int depthSize = imageWidth * imageHeight * 4;
+        imageSize = rgbSize + depthSize; // Combined RGB + Depth per drone
         
-        if (usePerDroneCommands)
-        {
-            // NEW: Per-drone commands - one command per drone
-            totalCommandMemorySize = CommandDataPosition + (maxDroneCount * commandDataSize);
-        }
-        else
-        {
-            // OLD: Single shared command
-            totalCommandMemorySize = CommandDataPosition + commandDataSize;
-        }
+        // ImageDepthMemory: [flag(4)][droneCount(4)][width(4)][height(4)][RGB_0+Depth_0][RGB_1+Depth_1]...
+        totalImageMemorySize = 16 + (maxDroneCount * imageSize);
+        
+        // Per-drone commands
+        totalCommandMemorySize = CommandDataPosition + (maxDroneCount * commandDataSize);
         
         if (enableDebugLogging)
         {
-            Debug.Log($"Memory Layout:");
-            Debug.Log($"  Image size per drone: {imageSize} bytes");
-            Debug.Log($"  Total image memory: {totalImageMemorySize} bytes");
+            Debug.Log($"MAP-NBV Memory Layout:");
+            Debug.Log($"  Resolution: {imageWidth}x{imageHeight}");
+            Debug.Log($"  RGB size per drone: {rgbSize} bytes");
+            Debug.Log($"  Depth size per drone: {depthSize} bytes");
+            Debug.Log($"  Total per drone: {imageSize} bytes");
+            Debug.Log($"  ImageDepth memory: {totalImageMemorySize} bytes");
             Debug.Log($"  Command memory: {totalCommandMemorySize} bytes");
-            Debug.Log($"  Per-drone commands: {usePerDroneCommands}");
-            if (usePerDroneCommands)
-            {
-                Debug.Log($"  Commands per drone: {commandDataSize} bytes");
-                Debug.Log($"  Total commands: {maxDroneCount} drones × {commandDataSize} bytes = {maxDroneCount * commandDataSize} bytes");
-            }
+            Debug.Log($"  Max drones: {maxDroneCount}");
         }
     }
     
     private void CreateSharedMemory()
     {
-        // Create image shared memory
+        // Create image+depth shared memory
         imageFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalImageMemorySize, imageMemoryName);
         if (imageFileMap == IntPtr.Zero)
         {
-            Debug.LogError($"Failed to create image shared memory: {imageMemoryName}");
+            Debug.LogError($"Failed to create image+depth shared memory: {imageMemoryName}");
             return;
         }
         
         imagePtr = MapViewOfFile(imageFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
         if (imagePtr == IntPtr.Zero)
         {
-            Debug.LogError("Failed to map image memory view");
+            Debug.LogError("Failed to map image+depth memory view");
             CloseHandle(imageFileMap);
             return;
         }
         
-        // Create command shared memory (only if enabled)
+        // Create pose shared memory (4 bytes count + 28 bytes per drone)
+        int poseMemorySize = 4 + (maxDroneCount * 28);
+        poseFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)poseMemorySize, poseMemoryName);
+        if (poseFileMap == IntPtr.Zero)
+        {
+            Debug.LogError($"Failed to create pose shared memory: {poseMemoryName}");
+            return;
+        }
+        
+        posePtr = MapViewOfFile(poseFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
+        if (posePtr == IntPtr.Zero)
+        {
+            Debug.LogError("Failed to map pose memory view");
+            CloseHandle(poseFileMap);
+            return;
+        }
+        
+        // Create command shared memory
         if (enableCommandReading)
         {
             commandFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalCommandMemorySize, commandMemoryName);
@@ -215,19 +241,17 @@ public class NBVImageCapture : MonoBehaviour
                 CloseHandle(commandFileMap);
                 return;
             }
-        }
-        else
-        {
-            if (enableDebugLogging)
-                Debug.Log("NBVImageCapture: Command reading disabled - NBV.cs handles vision commands directly");
+            
+            // Initialize command flag
+            Marshal.WriteInt32(commandPtr, CommandFlagPosition, 0);
         }
         
         // Initialize memory flags
         Marshal.WriteInt32(imagePtr, FlagPosition, 0);
-        Marshal.WriteInt32(commandPtr, CommandFlagPosition, 0);
+        Marshal.WriteInt32(posePtr, 0, 0); // Write initial drone count
         
         if (enableDebugLogging)
-            Debug.Log("Shared memory created successfully");
+            Debug.Log($"MAP-NBV shared memory created successfully");
     }
     
     private void DestroySharedMemory()
@@ -242,6 +266,18 @@ public class NBVImageCapture : MonoBehaviour
         {
             CloseHandle(imageFileMap);
             imageFileMap = IntPtr.Zero;
+        }
+        
+        if (posePtr != IntPtr.Zero)
+        {
+            UnmapViewOfFile(posePtr);
+            posePtr = IntPtr.Zero;
+        }
+        
+        if (poseFileMap != IntPtr.Zero)
+        {
+            CloseHandle(poseFileMap);
+            poseFileMap = IntPtr.Zero;
         }
         
         if (commandPtr != IntPtr.Zero)
@@ -265,46 +301,71 @@ public class NBVImageCapture : MonoBehaviour
     {
         reusableTexture = new RenderTexture(imageWidth, imageHeight, 24);
         captureTexture = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
-        imageBuffer = new byte[maxDroneCount * imageSize];
+        
+        int rgbSize = imageWidth * imageHeight * 3;
+        int depthSize = imageWidth * imageHeight * 4;
+        
+        imageBuffer = new byte[maxDroneCount * rgbSize];
+        depthBuffer = new byte[maxDroneCount * depthSize];
         
         if (enableDebugLogging)
-            Debug.Log($"NBVImageCapture: Image capture initialized - buffer size: {imageBuffer.Length}, image size: {imageSize}");
+            Debug.Log($"MAP-NBV capture initialized - RGB buffer: {imageBuffer.Length}, Depth buffer: {depthBuffer.Length}");
     }
     
     private void FindDroneCameras()
     {
         droneCameras = new List<Camera>();
+        droneDepthCameras = new List<DroneDepthCamera>();
+        droneTransforms = new List<Transform>();
         
         GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase");
         
         foreach (GameObject drone in drones)
         {
+            // Find FPV camera
             Camera fpvCamera = drone.transform.Find("FPV")?.GetComponent<Camera>();
-            if (fpvCamera != null)
+            if (fpvCamera == null)
+                continue;
+            
+            // Find depth camera component
+            DroneDepthCamera depthCamera = fpvCamera.GetComponent<DroneDepthCamera>();
+            if (depthCamera == null)
             {
-                droneCameras.Add(fpvCamera);
-                if (droneCameras.Count >= maxDroneCount)
-                    break;
+                if (enableDebugLogging)
+                    Debug.LogWarning($"Drone {drone.name} missing DroneDepthCamera component!");
+                continue;
             }
+            
+            // Force depth camera to match our capture resolution
+            depthCamera.SetResolution(imageWidth, imageHeight);
+            
+            droneCameras.Add(fpvCamera);
+            droneDepthCameras.Add(depthCamera);
+            droneTransforms.Add(drone.transform);
+            
+            if (droneCameras.Count >= maxDroneCount)
+                break;
         }
         
         if (enableDebugLogging)
-            Debug.Log($"Found {droneCameras.Count} drone cameras");
+            Debug.Log($"Found {droneCameras.Count} drones with RGB+Depth cameras");
     }
     
     private void CaptureAndSendImages()
     {
-        if (!isFullyInitialized || imagePtr == IntPtr.Zero || droneCameras == null || droneCameras.Count == 0 || imageBuffer == null)
+        if (!isFullyInitialized || imagePtr == IntPtr.Zero || posePtr == IntPtr.Zero || 
+            droneCameras == null || droneCameras.Count == 0 || 
+            droneDepthCameras == null || droneDepthCameras.Count == 0)
         {
             if (enableDebugLogging)
             {
                 string missingComponents = "";
                 if (!isFullyInitialized) missingComponents += "not-initialized ";
                 if (imagePtr == IntPtr.Zero) missingComponents += "imagePtr ";
-                if (droneCameras == null) missingComponents += "droneCameras ";
-                if (droneCameras?.Count == 0) missingComponents += "no-cameras ";
-                if (imageBuffer == null) missingComponents += "imageBuffer ";
-                Debug.LogWarning($"NBVImageCapture: Cannot capture images - missing: {missingComponents}");
+                if (posePtr == IntPtr.Zero) missingComponents += "posePtr ";
+                if (droneCameras == null || droneCameras.Count == 0) missingComponents += "no-RGB-cameras ";
+                if (droneDepthCameras == null || droneDepthCameras.Count == 0) missingComponents += "no-depth-cameras ";
+                Debug.LogWarning($"MAP-NBV: Cannot capture - missing: {missingComponents}");
             }
             return;
         }
@@ -312,46 +373,86 @@ public class NBVImageCapture : MonoBehaviour
         // Check if Python is ready to receive (flag == 0)
         int flag = Marshal.ReadInt32(imagePtr, FlagPosition);
         if (flag != 0)
-            return; // Python is still processing previous images
+        {
+            if (enableDebugLogging)
+                Debug.Log($"[NBVImageCapture] Python not ready (flag={flag}), skipping capture");
+            return; // Python is still processing previous data
+        }
         
-        // Set flag to indicate we're writing
+        if (enableDebugLogging)
+            Debug.Log($"[NBVImageCapture] Python ready (flag={flag}), starting capture...");
+        
+        // Set flag to indicate we're writing (flag = 1)
         Marshal.WriteInt32(imagePtr, FlagPosition, 1);
         
         try
         {
-            // Write image count
-            Marshal.WriteInt32(imagePtr, ImageCountPosition, droneCameras.Count);
+            int droneCount = droneCameras.Count;
+            int rgbSize = imageWidth * imageHeight * 3;
+            int depthSize = imageWidth * imageHeight * 4;
             
-            // Capture and write each drone image
-            for (int i = 0; i < droneCameras.Count; i++)
+            // Write header: [flag(4)][droneCount(4)][width(4)][height(4)]
+            Marshal.WriteInt32(imagePtr, 4, droneCount);
+            Marshal.WriteInt32(imagePtr, 8, imageWidth);
+            Marshal.WriteInt32(imagePtr, 12, imageHeight);
+            
+            // Capture and write each drone's RGB + Depth
+            for (int i = 0; i < droneCount; i++)
             {
-                byte[] imageData = CaptureCameraImage(droneCameras[i]);
-                if (imageData != null && imageData.Length == imageSize)
+                if (enableDebugLogging)
+                    Debug.Log($"Capturing data for drone {i}...");
+                
+                // Capture RGB
+                byte[] rgbData = CaptureCameraImage(droneCameras[i]);
+                if (rgbData != null && rgbData.Length == rgbSize)
                 {
-                    Array.Copy(imageData, 0, imageBuffer, i * imageSize, imageData.Length);
+                    int rgbOffset = 16 + (i * (rgbSize + depthSize));
+                    Marshal.Copy(rgbData, 0, IntPtr.Add(imagePtr, rgbOffset), rgbSize);
+                    
+                    if (enableDebugLogging)
+                        Debug.Log($"  ✓ RGB captured: {rgbData.Length} bytes");
                 }
                 else if (enableDebugLogging)
                 {
-                    Debug.LogWarning($"Failed to capture image from drone {i}");
+                    Debug.LogWarning($"Failed to capture RGB from drone {i} (data: {(rgbData == null ? "null" : rgbData.Length.ToString())} bytes, expected: {rgbSize})");
+                }
+                
+                // Capture Depth
+                if (enableDebugLogging)
+                    Debug.Log($"  Calling CaptureDepthData for drone {i}...");
+                    
+                byte[] depthData = CaptureDepthData(droneDepthCameras[i]);
+                
+                if (enableDebugLogging)
+                    Debug.Log($"  CaptureDepthData returned: {(depthData == null ? "null" : depthData.Length + " bytes")}");
+                
+                if (depthData != null && depthData.Length == depthSize)
+                {
+                    int depthOffset = 16 + (i * (rgbSize + depthSize)) + rgbSize;
+                    Marshal.Copy(depthData, 0, IntPtr.Add(imagePtr, depthOffset), depthSize);
+                    
+                    if (enableDebugLogging)
+                        Debug.Log($"  ✓ Depth captured: {depthData.Length} bytes");
+                }
+                else if (enableDebugLogging)
+                {
+                    Debug.LogWarning($"Failed to capture depth from drone {i} (data: {(depthData == null ? "null" : depthData.Length.ToString())} bytes, expected: {depthSize})");
                 }
             }
             
-            // Write all image data to shared memory (only if buffer is valid)
-            if (imageBuffer != null && imageBuffer.Length >= droneCameras.Count * imageSize)
-            {
-                Marshal.Copy(imageBuffer, 0, IntPtr.Add(imagePtr, ImageDataPosition), droneCameras.Count * imageSize);
-                
-                if (enableDebugLogging)
-                    Debug.Log($"Sent {droneCameras.Count} drone images to shared memory");
-            }
-            else if (enableDebugLogging)
-            {
-                Debug.LogError("Image buffer is invalid - cannot send to shared memory");
-            }
+            // Write drone poses to separate memory
+            WriteDronePoses(droneCount);
+            
+            // Set flag to indicate data ready (flag = 2)
+            Marshal.WriteInt32(imagePtr, FlagPosition, 2);
+            
+            if (enableDebugLogging)
+                Debug.Log($"Sent RGB+Depth+Pose data for {droneCount} drones");
         }
-        finally
+        catch (Exception e)
         {
-            // Reset flag to indicate we're done writing
+            Debug.LogError($"Error capturing data: {e.Message}");
+            // Reset flag on error
             Marshal.WriteInt32(imagePtr, FlagPosition, 0);
         }
     }
@@ -361,7 +462,7 @@ public class NBVImageCapture : MonoBehaviour
         if (camera == null || reusableTexture == null || captureTexture == null)
         {
             if (enableDebugLogging)
-                Debug.LogWarning("NBVImageCapture: Cannot capture image - camera or texture is null");
+                Debug.LogWarning("Cannot capture RGB - camera or texture is null");
             return null;
         }
         
@@ -384,8 +485,81 @@ public class NBVImageCapture : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to capture camera image: {e.Message}");
+            Debug.LogError($"Failed to capture RGB: {e.Message}");
             return null;
+        }
+    }
+    
+    private byte[] CaptureDepthData(DroneDepthCamera depthCamera)
+    {
+        if (depthCamera == null)
+        {
+            if (enableDebugLogging)
+                Debug.LogWarning("Cannot capture depth - depthCamera is null");
+            return null;
+        }
+        
+        try
+        {
+            // Get depth data as byte array (float32 format)
+            byte[] depthBytes = depthCamera.GetDepthDataBytes();
+            
+            if (depthBytes == null && enableDebugLogging)
+            {
+                Debug.LogWarning("DroneDepthCamera.GetDepthDataBytes() returned null!");
+            }
+            else if (enableDebugLogging && depthBytes != null)
+            {
+                // Debug first few bytes to see if there's actual data
+                if (depthBytes.Length >= 16)
+                {
+                    float testValue = BitConverter.ToSingle(depthBytes, 0);
+                    Debug.Log($"Depth data captured: {depthBytes.Length} bytes, first value: {testValue}");
+                }
+            }
+            
+            return depthBytes;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to capture depth: {e.Message}");
+            return null;
+        }
+    }
+    
+    private void WriteDronePoses(int droneCount)
+    {
+        if (posePtr == IntPtr.Zero || droneTransforms == null || droneTransforms.Count != droneCount)
+        {
+            if (enableDebugLogging)
+                Debug.LogWarning("Cannot write poses - invalid state");
+            return;
+        }
+        
+        try
+        {
+            // Write drone count
+            Marshal.WriteInt32(posePtr, 0, droneCount);
+            
+            // Write each drone's pose
+            for (int i = 0; i < droneCount; i++)
+            {
+                Transform droneTransform = droneTransforms[i];
+                
+                int offset = 4 + (i * 28); // 4 bytes count + 28 bytes per drone
+                
+                // Write position (12 bytes)
+                Vector3 pos = droneTransform.position;
+                Marshal.Copy(new float[] { pos.x, pos.y, pos.z }, 0, IntPtr.Add(posePtr, offset), 3);
+                
+                // Write quaternion (16 bytes)
+                Quaternion rot = droneTransform.rotation;
+                Marshal.Copy(new float[] { rot.x, rot.y, rot.z, rot.w }, 0, IntPtr.Add(posePtr, offset + 12), 4);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to write poses: {e.Message}");
         }
     }
     
@@ -410,42 +584,49 @@ public class NBVImageCapture : MonoBehaviour
     
     private void ReadPositionCommands()
     {
-        if (commandPtr == IntPtr.Zero)
+        if (commandPtr == IntPtr.Zero || droneCameras == null || droneCameras.Count == 0)
             return;
         
-        // Check if Python has written new commands (flag == 0)
+        // Check if Python has written new commands (flag == 2)
         int flag = Marshal.ReadInt32(commandPtr, CommandFlagPosition);
-        if (flag != 0)
+        if (flag != 2)
             return; // No new commands available
         
-        // Set flag to indicate we're reading
+        // Set flag to indicate we're reading (flag = 1)
         Marshal.WriteInt32(commandPtr, CommandFlagPosition, 1);
         
         try
         {
-            // Read position command (3 floats: x, y, z)
-            byte[] commandBytes = new byte[commandDataSize];
-            Marshal.Copy(IntPtr.Add(commandPtr, CommandDataPosition), commandBytes, 0, commandDataSize);
+            int droneCount = droneCameras.Count;
             
-            float x = BitConverter.ToSingle(commandBytes, 0);
-            float y = BitConverter.ToSingle(commandBytes, 4);
-            float z = BitConverter.ToSingle(commandBytes, 8);
-            
-            Vector3 newCommand = new Vector3(x, y, z);
-            
-            // Apply position command if it's different from current
-            if (Vector3.Distance(newCommand, currentPositionCommand) > 0.01f)
+            // Read per-drone commands
+            for (int i = 0; i < droneCount; i++)
             {
-                currentPositionCommand = newCommand;
-                ApplyPositionCommand(newCommand);
+                int offset = CommandDataPosition + (i * commandDataSize);
                 
-                if (enableDebugLogging)
-                    Debug.Log($"Received position command: {newCommand}");
+                byte[] commandBytes = new byte[commandDataSize];
+                Marshal.Copy(IntPtr.Add(commandPtr, offset), commandBytes, 0, commandDataSize);
+                
+                float x = BitConverter.ToSingle(commandBytes, 0);
+                float y = BitConverter.ToSingle(commandBytes, 4);
+                float z = BitConverter.ToSingle(commandBytes, 8);
+                
+                Vector3 command = new Vector3(x, y, z);
+                
+                // Apply command to specific drone
+                ApplyPositionCommandToDrone(i, command);
             }
+            
+            if (enableDebugLogging)
+                Debug.Log($"Received {droneCount} position commands from Python");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to read commands: {e.Message}");
         }
         finally
         {
-            // Reset flag to indicate we're done reading
+            // Reset flag to indicate we're done reading (flag = 0)
             Marshal.WriteInt32(commandPtr, CommandFlagPosition, 0);
         }
     }
@@ -463,6 +644,22 @@ public class NBVImageCapture : MonoBehaviour
             // or
             // nbvScript.AddPositionOffset(positionCommand);
         }
+    }
+    
+    private void ApplyPositionCommandToDrone(int droneIndex, Vector3 command)
+    {
+        // TODO: Integrate with NBV.cs to apply per-drone commands
+        // For now, just log for debugging
+        if (enableDebugLogging && Vector3.Distance(command, Vector3.zero) > 0.01f)
+        {
+            Debug.Log($"Drone {droneIndex} command: {command}");
+        }
+        
+        // Future integration example:
+        // if (nbvScript != null)
+        // {
+        //     nbvScript.ApplyCommandToDrone(droneIndex, command);
+        // }
     }
     
     #endregion

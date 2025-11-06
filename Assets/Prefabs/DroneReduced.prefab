@@ -888,6 +888,7 @@ GameObject:
   - component: {fileID: 81902762235554322}
   - component: {fileID: 114660381931437216}
   - component: {fileID: 6225278697236815164}
+  - component: {fileID: 6285619423511718035}
   m_Layer: 0
   m_Name: FPV
   m_TagString: MainCamera
@@ -1011,6 +1012,21 @@ MonoBehaviour:
   maxDepthDistance: 50
   minDepthDistance: 0.1
   showDebugVisualization: 1
+--- !u!114 &6285619423511718035
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1739179400309510}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9da4ce05a15ca8d448a7d7be8e0f61dc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetCamera: {fileID: 0}
+  memoryName: NBVCameraIntrinsics
+  debugMode: 0
 --- !u!1 &1880523559110524
 GameObject:
   m_ObjectHideFlags: 0

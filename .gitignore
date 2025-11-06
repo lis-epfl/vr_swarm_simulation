@@ -43,3 +43,9 @@ Logs/
 Assets/Text*
 Assets/DroneImages/
 vrswarm_env/
+
+Assets/ProcessedImages/PointClouds/*.png
+Assets/ProcessedImages/PointClouds/*.png.meta
+Assets/ProcessedImages/PointClouds/*.ply
+Assets/ProcessedImages/PointClouds/*.ply.meta
+vrswarm_env*
