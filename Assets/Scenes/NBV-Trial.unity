@@ -4885,6 +4885,7 @@ MonoBehaviour:
   enableVisionSystem: 1
   visionInfluenceStrength: 1
   logVisionCommands: 1
+  usePerDroneCommands: 1
 --- !u!114 &801706983
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4897,14 +4898,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e0ff91e75920e9d4591bd473243beb20, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  imageWidth: 300
-  imageHeight: 300
+  imageWidth: 640
+  imageHeight: 480
   captureInterval: 0.5
   droneRefreshInterval: 2
   maxDroneCount: 10
-  imageMemoryName: NBVImageSharedMemory
-  commandMemoryName: NBVCommandSharedMemory
-  enableCommandReading: 0
+  imageMemoryName: NBVImageDepthMemory
+  poseMemoryName: NBVDronePoses
+  commandMemoryName: NBVCommandMemory
+  usePerDroneCommands: 1
+  enableCommandReading: 1
   enableDebugLogging: 1
 --- !u!4 &801706984
 Transform:
@@ -8985,7 +8988,7 @@ MonoBehaviour:
     type: 3}
   swarm: []
   dronesAlongX: 3
-  dronesAlongZ: 3
+  dronesAlongZ: 1
   droneSpacing: 4
   start_x: 30
   start_y: 0
