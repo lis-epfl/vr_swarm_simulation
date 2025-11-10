@@ -38,6 +38,10 @@ public class NBVImageCapture : MonoBehaviour
     [Header("Per-Drone Command System")]
     [SerializeField] private bool usePerDroneCommands = true; // Enable individual drone commands
     
+    [Header("Camera Pose Calculation")]
+    [SerializeField] private float cameraPitchAngle = 0.0f; // Camera pitch in degrees (from swarmManager)
+    [SerializeField] private Vector3 cameraOffset = new Vector3(0f, 0f, 0.4299991f); // Camera offset from DroneParent
+    
     [Header("Integration Mode")]
     [SerializeField] private bool enableCommandReading = true; // Enable reading commands from Python
     
@@ -81,6 +85,7 @@ public class NBVImageCapture : MonoBehaviour
     
     // NBV Integration
     private NBV nbvScript;
+    private SwarmManager swarmManagerScript;
     private Vector3 currentPositionCommand = Vector3.zero;
     
     // Windows API imports
@@ -102,6 +107,7 @@ public class NBVImageCapture : MonoBehaviour
         CreateSharedMemory();
         InitializeImageCapture();
         FindNBVScript();
+        FindSwarmManager();
         FindDroneCameras();
         
         nextCaptureTime = Time.time + captureInterval;
@@ -341,7 +347,8 @@ public class NBVImageCapture : MonoBehaviour
             
             droneCameras.Add(fpvCamera);
             droneDepthCameras.Add(depthCamera);
-            droneTransforms.Add(drone.transform);
+            // Store FPV camera transform directly - Unity handles all parent transforms!
+            droneTransforms.Add(fpvCamera.transform);
             
             if (droneCameras.Count >= maxDroneCount)
                 break;
@@ -541,20 +548,27 @@ public class NBVImageCapture : MonoBehaviour
             // Write drone count
             Marshal.WriteInt32(posePtr, 0, droneCount);
             
-            // Write each drone's pose
+            // Send FPV camera's actual world transform (Unity handles all parent transforms automatically)
             for (int i = 0; i < droneCount; i++)
             {
-                Transform droneTransform = droneTransforms[i];
+                Transform fpvTransform = droneTransforms[i]; // FPV camera transform
                 
-                int offset = 4 + (i * 28); // 4 bytes count + 28 bytes per drone
+                Vector3 cameraPos = fpvTransform.position;
+                Quaternion cameraRot = fpvTransform.rotation;
                 
-                // Write position (12 bytes)
-                Vector3 pos = droneTransform.position;
-                Marshal.Copy(new float[] { pos.x, pos.y, pos.z }, 0, IntPtr.Add(posePtr, offset), 3);
+                // Debug for first drone
+                if (i == 0 && enableDebugLogging)
+                {
+                    Debug.Log($"Drone 0 FPV Camera (Unity Transform):");
+                    Debug.Log($"  Position: {cameraPos}");
+                    Debug.Log($"  Rotation: {cameraRot.eulerAngles}");
+                }
                 
-                // Write quaternion (16 bytes)
-                Quaternion rot = droneTransform.rotation;
-                Marshal.Copy(new float[] { rot.x, rot.y, rot.z, rot.w }, 0, IntPtr.Add(posePtr, offset + 12), 4);
+                int offset = 4 + (i * 28);
+                
+                // Write camera position and rotation
+                Marshal.Copy(new float[] { cameraPos.x, cameraPos.y, cameraPos.z }, 0, IntPtr.Add(posePtr, offset), 3);
+                Marshal.Copy(new float[] { cameraRot.x, cameraRot.y, cameraRot.z, cameraRot.w }, 0, IntPtr.Add(posePtr, offset + 12), 4);
             }
         }
         catch (Exception e)
@@ -579,6 +593,26 @@ public class NBVImageCapture : MonoBehaviour
         else if (enableDebugLogging)
         {
             Debug.Log("NBV script found successfully");
+        }
+    }
+    
+    private void FindSwarmManager()
+    {
+        // Try to find SwarmManager script to get camera pitch
+        swarmManagerScript = FindObjectOfType<SwarmManager>();
+        
+        if (swarmManagerScript == null)
+        {
+            Debug.LogWarning("SwarmManager not found. Using hardcoded camera pitch angle.");
+        }
+        else 
+        {
+            // Update camera pitch from SwarmManager
+            cameraPitchAngle = swarmManagerScript.GetCameraPitch();
+            if (enableDebugLogging)
+            {
+                Debug.Log($"SwarmManager found - Camera pitch: {cameraPitchAngle}°");
+            }
         }
     }
     

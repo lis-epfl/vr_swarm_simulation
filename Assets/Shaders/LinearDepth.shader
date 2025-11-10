@@ -33,7 +33,9 @@ Shader "Custom/LinearDepth"
 
             float frag(v2f i) : SV_Target
             {
-                return i.depth; // Output linear depth directly
+                // Clamp depth to camera's near/far range (0.1m to 100m)
+                // This prevents invalid values from skybox/infinity
+                return clamp(i.depth, 0.1, 100.0);
             }
             ENDCG
         }
