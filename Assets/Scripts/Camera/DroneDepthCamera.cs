@@ -24,7 +24,7 @@ public class DroneDepthCamera : MonoBehaviour
     public int depthHeight = 0; // 0 = auto-match RGB camera
     
     [Tooltip("Maximum depth distance in meters")]
-    public float maxDepthDistance = 50f;
+    public float maxDepthDistance = 100.0f;
     
     [Tooltip("Minimum depth distance in meters")]
     public float minDepthDistance = 0.1f;
@@ -39,53 +39,6 @@ public class DroneDepthCamera : MonoBehaviour
     private Texture2D depthTexture;
     private Material depthMaterial;
     private bool isInitialized = false;
-    
-    // Depth shader
-    private const string DEPTH_SHADER_CODE = @"
-        Shader ""Custom/DepthCapture""
-        {
-            SubShader
-            {
-                Tags { ""RenderType""=""Opaque"" }
-                Pass
-                {
-                    CGPROGRAM
-                    #pragma vertex vert
-                    #pragma fragment frag
-                    #include ""UnityCG.cginc""
-                    
-                    struct appdata
-                    {
-                        float4 vertex : POSITION;
-                    };
-                    
-                    struct v2f
-                    {
-                        float4 pos : SV_POSITION;
-                        float depth : TEXCOORD0;
-                    };
-                    
-                    v2f vert(appdata v)
-                    {
-                        v2f o;
-                        o.pos = UnityObjectToClipPos(v.vertex);
-                        // Calculate linear depth
-                        o.depth = -UnityObjectToViewPos(v.vertex).z;
-                        return o;
-                    }
-                    
-                    fixed4 frag(v2f i) : SV_Target
-                    {
-                        // Output depth as grayscale (normalized to 0-1 range)
-                        // This will be converted to actual meters when read
-                        float normalizedDepth = saturate(i.depth / 50.0); // 50m max range
-                        return fixed4(normalizedDepth, normalizedDepth, normalizedDepth, 1);
-                    }
-                    ENDCG
-                }
-            }
-        }
-    ";
     
     void Start()
     {
@@ -232,7 +185,9 @@ public class DroneDepthCamera : MonoBehaviour
 
                         float frag(v2f i) : SV_Target
                         {
-                            return i.depth; // Output linear depth directly
+                            // Clamp depth to camera's near/far range (0.1m to 100m)
+                            // This prevents invalid values from skybox/infinity
+                            return clamp(i.depth, 0.1, 100.0);
                         }
                         ENDCG
                     }
@@ -295,12 +250,12 @@ public class DroneDepthCamera : MonoBehaviour
             }
             
             // Recreate with new resolution
-            depthRenderTexture = new RenderTexture(depthWidth, depthHeight, 24, RenderTextureFormat.ARGBFloat);
+            depthRenderTexture = new RenderTexture(depthWidth, depthHeight, 24, RenderTextureFormat.RFloat);
             depthRenderTexture.filterMode = FilterMode.Point;
             depthRenderTexture.Create();
             depthCamera.targetTexture = depthRenderTexture;
             
-            depthTexture = new Texture2D(depthWidth, depthHeight, TextureFormat.RGBAFloat, false);
+            depthTexture = new Texture2D(depthWidth, depthHeight, TextureFormat.RFloat, false);
             
             Debug.Log($"[DroneDepthCamera] Resolution changed to {depthWidth}x{depthHeight}");
         }

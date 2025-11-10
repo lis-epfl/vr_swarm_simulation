@@ -94,8 +94,17 @@ class NBVPointCloudProcessor:
         self.output_folder = "../../ProcessedImages/PointClouds"
         os.makedirs(self.output_folder, exist_ok=True)
         
-        # SAM settings
-        self.sam_model_path = "../../segmentAnything/sam_vit_b_01ec64.pth"
+        # SAM settings - Easy model switching
+        # Available models: "vit_b" (fast, 375MB), "vit_l" (balanced, 1.2GB), "vit_h" (best quality, 2.4GB)
+        self.sam_model_type = "vit_h"  # Change this to "vit_b", "vit_l", or "vit_h"
+        
+        # Model checkpoint paths (auto-selected based on model_type)
+        self.sam_model_paths = {
+            "vit_b": "../../segmentAnything/sam_vit_b_01ec64.pth",
+            "vit_l": "../../segmentAnything/sam_vit_l_0b3195.pth",
+            "vit_h": "../../segmentAnything/sam_vit_h_4b8939.pth",
+        }
+        
         self.min_building_area = 1000  # pixels (reduced from 7500 for smaller images)
         
         # Memory objects
@@ -143,8 +152,15 @@ class NBVPointCloudProcessor:
         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
+        # Get checkpoint path for selected model
+        if self.sam_model_type not in self.sam_model_paths:
+            raise ValueError(f"Invalid model type: {self.sam_model_type}. Choose from: {list(self.sam_model_paths.keys())}")
+        
+        checkpoint_path = self.sam_model_paths[self.sam_model_type]
+        print(f"   Model: {self.sam_model_type} ({checkpoint_path})")
+        
         # Load model
-        sam = sam_model_registry["vit_b"](checkpoint=self.sam_model_path)
+        sam = sam_model_registry[self.sam_model_type](checkpoint=checkpoint_path)
         sam.to(self.device)
         
         # Create mask generator
@@ -292,6 +308,9 @@ class NBVPointCloudProcessor:
             quat_data = self.pose_mmf.read(16)
             qx, qy, qz, qw = struct.unpack('ffff', quat_data)
             
+            if self.debug and drone_id == 0:
+                print(f"   📍 Drone {drone_id} Camera Pose: pos=({px:.2f}, {py:.2f}, {pz:.2f}), quat=({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f})")
+            
             return DronePose(
                 position=np.array([px, py, pz]),
                 quaternion=np.array([qx, qy, qz, qw])
@@ -395,23 +414,30 @@ class NBVPointCloudProcessor:
         depth_valid = depth_masked[valid_mask]
         
         # Pinhole camera model: X = (u - cx) * Z / fx
+        # Unity camera coordinates: X=right, Y=up, Z=forward
         X_cam = (u_valid - self.intrinsics.cx) * depth_valid / self.intrinsics.fx
-        Y_cam = (v_valid - self.intrinsics.cy) * depth_valid / self.intrinsics.fy
+        # Note: v increases downward in images, but Y is up in Unity, so negate
+        Y_cam = -(v_valid - self.intrinsics.cy) * depth_valid / self.intrinsics.fy  
         Z_cam = depth_valid
         
-        # Stack into point cloud
+        # Stack into point cloud (X, Y, Z in Unity's left-handed system)
         points = np.stack([X_cam, Y_cam, Z_cam], axis=-1)
         
         # Get corresponding colors from RGB image
-        rgb_valid = rgb_image[valid_mask]
+        # Need to index into 3D array properly
+        rgb_valid = rgb_image[v_valid, u_valid, :]  # Use pixel coordinates directly
         colors = rgb_valid.astype(np.float32) / 255.0  # Normalize to 0-1
         
         return points, colors
     
     def quaternion_to_rotation_matrix(self, q: np.ndarray) -> np.ndarray:
-        """Convert quaternion to 3x3 rotation matrix"""
+        """
+        Convert quaternion to 3x3 rotation matrix
+        Returns the rotation matrix that transforms from world to camera frame
+        """
         qx, qy, qz, qw = q
         
+        # Standard quaternion to rotation matrix formula
         R = np.array([
             [1 - 2*(qy**2 + qz**2),     2*(qx*qy - qw*qz),     2*(qx*qz + qw*qy)],
             [    2*(qx*qy + qw*qz), 1 - 2*(qx**2 + qz**2),     2*(qy*qz - qw*qx)],
@@ -424,32 +450,63 @@ class NBVPointCloudProcessor:
                                  points_local: np.ndarray,
                                  pose: DronePose) -> np.ndarray:
         """
-        Transform points from camera frame to global world frame
+        Transform from camera local frame to world frame
+        
+        Key insight: Points in camera space need to be rotated by the INVERSE
+        of the camera's rotation to get them into world space, then translated.
         
         Args:
-            points_local: (N, 3) points in camera frame
-            pose: Drone pose in world
+            points_local: (N, 3) points in camera local frame
+            pose: Camera pose in world frame
             
         Returns:
             points_global: (N, 3) points in world frame
         """
-        # Create rotation matrix from quaternion
-        R = self.quaternion_to_rotation_matrix(pose.quaternion)
+        # Get rotation matrix (world → camera)
+        R_world_to_cam = self.quaternion_to_rotation_matrix(pose.quaternion)
         
-        # Create 4x4 transformation matrix
-        T = np.eye(4)
-        T[:3, :3] = R
-        T[:3, 3] = pose.position
+        # We need camera → world, which is the transpose (inverse for rotation matrices)
+        R_cam_to_world = R_world_to_cam.T
         
-        # Convert points to homogeneous coordinates
-        N = points_local.shape[0]
-        points_homo = np.hstack([points_local, np.ones((N, 1))])
+        # Transform: points_world = R_cam_to_world @ points_local + camera_position
+        points_global = (R_cam_to_world @ points_local.T).T + pose.position
         
-        # Apply transformation
-        points_global_homo = (T @ points_homo.T).T
-        points_global = points_global_homo[:, :3]
+        if self.debug and points_local.shape[0] > 0:
+            print(f"      Local bounds: X=[{points_local[:,0].min():.2f},{points_local[:,0].max():.2f}] "
+                  f"Y=[{points_local[:,1].min():.2f},{points_local[:,1].max():.2f}] "
+                  f"Z=[{points_local[:,2].min():.2f},{points_local[:,2].max():.2f}]")
+            print(f"      Global bounds: X=[{points_global[:,0].min():.2f},{points_global[:,0].max():.2f}] "
+                  f"Y=[{points_global[:,1].min():.2f},{points_global[:,1].max():.2f}] "
+                  f"Z=[{points_global[:,2].min():.2f},{points_global[:,2].max():.2f}]")
+            print(f"      Camera: pos={pose.position}, quat={pose.quaternion}")
+            
+            # Test: 10m straight ahead in camera space
+            test = np.array([[0, 0, 10]])
+            test_global = (R_cam_to_world @ test.T).T + pose.position
+            print(f"      Test: (0,0,10) → ({test_global[0,0]:.2f}, {test_global[0,1]:.2f}, {test_global[0,2]:.2f})")
         
         return points_global
+    
+    def quaternion_to_euler(self, q: np.ndarray) -> np.ndarray:
+        """Convert quaternion to euler angles (pitch, yaw, roll) in degrees"""
+        qx, qy, qz, qw = q
+        
+        # Pitch (X-axis rotation)
+        sinp = 2 * (qw * qx + qy * qz)
+        cosp = 1 - 2 * (qx * qx + qy * qy)
+        pitch = np.arctan2(sinp, cosp) * 180 / np.pi
+        
+        # Yaw (Y-axis rotation)
+        siny = 2 * (qw * qy - qz * qx)
+        cosy = 1 - 2 * (qy * qy + qz * qz)
+        yaw = np.arctan2(siny, cosy) * 180 / np.pi
+        
+        # Roll (Z-axis rotation)
+        sinr = 2 * (qw * qz + qx * qy)
+        cosr = 1 - 2 * (qz * qz + qx * qx)
+        roll = np.arctan2(sinr, cosr) * 180 / np.pi
+        
+        return np.array([pitch, yaw, roll])
     
     def fuse_point_clouds(self, 
                          drone_data_list: List[DroneData]) -> Tuple[np.ndarray, np.ndarray]:
@@ -462,6 +519,16 @@ class NBVPointCloudProcessor:
         """
         all_points = []
         all_colors = []
+        
+        # Debug: Print all drone poses first
+        if self.debug:
+            print(f"\n📍 All Drone Poses:")
+            for drone_data in drone_data_list:
+                pos = drone_data.pose.position
+                quat = drone_data.pose.quaternion
+                euler = self.quaternion_to_euler(quat)
+                print(f"   Drone {drone_data.drone_id}: pos=({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}), "
+                      f"rot=(pitch={euler[0]:.1f}°, yaw={euler[1]:.1f}°, roll={euler[2]:.1f}°)")
         
         for drone_data in drone_data_list:
             if self.debug:
@@ -542,16 +609,20 @@ class NBVPointCloudProcessor:
         filename = f"pointcloud_frame{frame_id:04d}_{timestamp}.ply"
         filepath = os.path.join(self.output_folder, filename)
         
+        # Convert from Unity left-handed (Z-forward) to right-handed (Z-backward) for visualization
+        points_viz = points.copy()
+        points_viz[:, 2] = -points_viz[:, 2]
+        
         try:
             if HAS_OPEN3D:
                 # Use Open3D (better performance, binary format)
                 pcd = o3d.geometry.PointCloud()
-                pcd.points = o3d.utility.Vector3dVector(points)
+                pcd.points = o3d.utility.Vector3dVector(points_viz)
                 pcd.colors = o3d.utility.Vector3dVector(colors)
                 o3d.io.write_point_cloud(filepath, pcd)
             else:
                 # Fallback: Write ASCII PLY
-                self.save_ply_ascii(filepath, points, colors)
+                self.save_ply_ascii(filepath, points_viz, colors)
             
             if self.debug:
                 print(f"💾 Saved point cloud: {filename}")
