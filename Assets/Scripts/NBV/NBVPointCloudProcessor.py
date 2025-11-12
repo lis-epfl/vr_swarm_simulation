@@ -30,7 +30,7 @@ import os
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 import random
-
+from scipy.spatial.transform import Rotation
 # SAM imports
 import torch
 from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
@@ -196,6 +196,12 @@ class NBVPointCloudProcessor:
                 print(f"   fx={fx:.2f}, fy={fy:.2f}")
                 print(f"   cx={cx:.2f}, cy={cy:.2f}")
                 print(f"   Resolution: {int(width)}x{int(height)}")
+                print(f"\n   Intrinsic Matrix K:")
+                print(f"   ┌                      ┐")
+                print(f"   │ {fx:8.2f}    0.00  {cx:8.2f} │")
+                print(f"   │    0.00  {fy:8.2f}  {cy:8.2f} │")
+                print(f"   │    0.00     0.00     1.00 │")
+                print(f"   └                      ┘")
             
             return intrinsics
             
@@ -415,10 +421,11 @@ class NBVPointCloudProcessor:
         
         # Pinhole camera model: X = (u - cx) * Z / fx
         # Unity camera coordinates: X=right, Y=up, Z=forward
+        # Unity cameras look down -Z axis, so depth d means point is at Z=-d
         X_cam = (u_valid - self.intrinsics.cx) * depth_valid / self.intrinsics.fx
         # Note: v increases downward in images, but Y is up in Unity, so negate
-        Y_cam = -(v_valid - self.intrinsics.cy) * depth_valid / self.intrinsics.fy  
-        Z_cam = depth_valid
+        Y_cam = -(v_valid - self.intrinsics.cy) * depth_valid / self.intrinsics.fy
+        Z_cam = depth_valid  # Negative because cameras look down -Z axis
         
         # Stack into point cloud (X, Y, Z in Unity's left-handed system)
         points = np.stack([X_cam, Y_cam, Z_cam], axis=-1)
@@ -430,61 +437,60 @@ class NBVPointCloudProcessor:
         
         return points, colors
     
-    def quaternion_to_rotation_matrix(self, q: np.ndarray) -> np.ndarray:
-        """
-        Convert quaternion to 3x3 rotation matrix
-        Returns the rotation matrix that transforms from world to camera frame
-        """
-        qx, qy, qz, qw = q
-        
-        # Standard quaternion to rotation matrix formula
-        R = np.array([
-            [1 - 2*(qy**2 + qz**2),     2*(qx*qy - qw*qz),     2*(qx*qz + qw*qy)],
-            [    2*(qx*qy + qw*qz), 1 - 2*(qx**2 + qz**2),     2*(qy*qz - qw*qx)],
-            [    2*(qx*qz - qw*qy),     2*(qy*qz + qw*qx), 1 - 2*(qx**2 + qy**2)]
-        ])
-        
-        return R
-    
     def transform_to_global_frame(self, 
                                  points_local: np.ndarray,
-                                 pose: DronePose) -> np.ndarray:
+                                 pose: DronePose,
+                                 drone_id: int = 0) -> np.ndarray:
         """
         Transform from camera local frame to world frame
         
-        Key insight: Points in camera space need to be rotated by the INVERSE
-        of the camera's rotation to get them into world space, then translated.
-        
         Args:
-            points_local: (N, 3) points in camera local frame
-            pose: Camera pose in world frame
+            points_local: (N, 3) points in camera local frame (Unity conventions)
+            pose: Camera pose in world frame (Unity conventions)
+            drone_id: For debugging output
             
         Returns:
-            points_global: (N, 3) points in world frame
+            points_global: (N, 3) points in world frame (Unity left-handed)
         """
-        # Get rotation matrix (world → camera)
-        R_world_to_cam = self.quaternion_to_rotation_matrix(pose.quaternion)
+        if points_local.shape[0] == 0:
+            return points_local
+
+        # Get drone pose components
+        position = pose.position
+        quaternion = pose.quaternion
+
+        # Create a rotation object from the quaternion.
+        # Unity's transform.rotation represents the camera's orientation in world space
+        # This directly gives us the camera-to-world rotation (NO inverse needed!)
+        rotation = Rotation.from_quat(quaternion)
+
+        # Create a 4x4 transformation matrix
+        transform_matrix = np.eye(4)
+        transform_matrix[:3, :3] = rotation.as_matrix()
+        # DEBUG: Set position to zero to render all clouds at the origin
+        transform_matrix[:3, 3] = np.zeros(3)
+        transform_matrix[:3, 3] = position
+
+        if self.debug and drone_id == 0:
+            print(f"\n      🔍 DEBUG Drone {drone_id}:")
+            print(f"      Quaternion: [{quaternion[0]:.3f}, {quaternion[1]:.3f}, {quaternion[2]:.3f}, {quaternion[3]:.3f}]")
+            print(f"      Rotation matrix (direct, NO inverse):")
+            print(f"        [{rotation.as_matrix()[0,0]:7.3f}, {rotation.as_matrix()[0,1]:7.3f}, {rotation.as_matrix()[0,2]:7.3f}]")
+            print(f"        [{rotation.as_matrix()[1,0]:7.3f}, {rotation.as_matrix()[1,1]:7.3f}, {rotation.as_matrix()[1,2]:7.3f}]")
+            print(f"        [{rotation.as_matrix()[2,0]:7.3f}, {rotation.as_matrix()[2,1]:7.3f}, {rotation.as_matrix()[2,2]:7.3f}]")
+
+        # Convert local points to homogeneous coordinates
+        points_local_hom = np.hstack((points_local, np.ones((points_local.shape[0], 1))))
+
+        # Apply the transformation
+        points_global_hom = (transform_matrix @ points_local_hom.T).T
+
+        # Convert back from homogeneous coordinates
+        points_global = points_global_hom[:, :3]
         
-        # We need camera → world, which is the transpose (inverse for rotation matrices)
-        R_cam_to_world = R_world_to_cam.T
-        
-        # Transform: points_world = R_cam_to_world @ points_local + camera_position
-        points_global = (R_cam_to_world @ points_local.T).T + pose.position
-        
-        if self.debug and points_local.shape[0] > 0:
-            print(f"      Local bounds: X=[{points_local[:,0].min():.2f},{points_local[:,0].max():.2f}] "
-                  f"Y=[{points_local[:,1].min():.2f},{points_local[:,1].max():.2f}] "
-                  f"Z=[{points_local[:,2].min():.2f},{points_local[:,2].max():.2f}]")
-            print(f"      Global bounds: X=[{points_global[:,0].min():.2f},{points_global[:,0].max():.2f}] "
-                  f"Y=[{points_global[:,1].min():.2f},{points_global[:,1].max():.2f}] "
-                  f"Z=[{points_global[:,2].min():.2f},{points_global[:,2].max():.2f}]")
-            print(f"      Camera: pos={pose.position}, quat={pose.quaternion}")
-            
-            # Test: 10m straight ahead in camera space
-            test = np.array([[0, 0, 10]])
-            test_global = (R_cam_to_world @ test.T).T + pose.position
-            print(f"      Test: (0,0,10) → ({test_global[0,0]:.2f}, {test_global[0,1]:.2f}, {test_global[0,2]:.2f})")
-        
+        if self.debug:
+            print(f"      Transformed {points_local.shape[0]} points for drone {drone_id} (at origin, direct rotation).")
+
         return points_global
     
     def quaternion_to_euler(self, q: np.ndarray) -> np.ndarray:
@@ -570,13 +576,21 @@ class NBVPointCloudProcessor:
                     print(f"         Valid pixels: {valid_depth}/{drone_data.depth_image.size}")
                     print(f"         Masked pixels: {np.sum(mask):.0f}")
             
+            # Save local point cloud (before transformation)
+            if len(points_local) > 0:
+                self.save_individual_drone_cloud(points_local, colors, drone_data.drone_id, self.frames_processed, is_local=True)
+            
             # Transform to global frame
             transform_start = time.time()
-            points_global = self.transform_to_global_frame(points_local, drone_data.pose)
+            points_global = self.transform_to_global_frame(points_local, drone_data.pose, drone_data.drone_id)
             transform_time = time.time() - transform_start
             
             if self.debug:
                 print(f"   🌍 Transformed to global frame ({transform_time:.2f}s)")
+            
+            # Save global point cloud (after transformation)
+            if len(points_global) > 0:
+                self.save_individual_drone_cloud(points_global, colors, drone_data.drone_id, self.frames_processed, is_local=False)
             
             all_points.append(points_global)
             all_colors.append(colors)
@@ -600,33 +614,182 @@ class NBVPointCloudProcessor:
         
         return global_points, global_colors
     
+    def save_individual_drone_cloud(self,
+                                    points: np.ndarray,
+                                    colors: np.ndarray,
+                                    drone_id: int,
+                                    frame_id: int,
+                                    is_local: bool = False):
+        """
+        Save individual drone's point cloud (local or global frame)
+        
+        Args:
+            points: Drone's point cloud
+            colors: Point colors
+            drone_id: ID of the drone
+            frame_id: Frame number
+            is_local: If True, saves as local (camera frame), if False saves as global (world frame)
+        """
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        frame_type = "local" if is_local else "global"
+        filename_ply = f"drone{drone_id:02d}_{frame_type}_frame{frame_id:04d}_{timestamp}.ply"
+        filename_pcd = f"drone{drone_id:02d}_{frame_type}_frame{frame_id:04d}_{timestamp}.pcd"
+        filepath_ply = os.path.join(self.output_folder, filename_ply)
+        filepath_pcd = os.path.join(self.output_folder, filename_pcd)
+        
+        try:
+            if HAS_OPEN3D:
+                pcd = o3d.geometry.PointCloud()
+                pcd.points = o3d.utility.Vector3dVector(points)
+                pcd.colors = o3d.utility.Vector3dVector(colors)
+                o3d.io.write_point_cloud(filepath_ply, pcd)
+                o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
+            else:
+                self.save_ply_ascii(filepath_ply, points, colors)
+                self.save_pcd_ascii(filepath_pcd, points, colors)
+            
+            if self.debug:
+                print(f"      💾 Saved {frame_type} cloud: drone{drone_id:02d}_{frame_type}_frame{frame_id:04d}")
+            
+        except Exception as e:
+            print(f"      ❌ Failed to save drone {drone_id} {frame_type} cloud: {e}")
+    
+    def create_pose_axes(self, pose: DronePose, axis_length: float = 5.0) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Create coordinate frame axes for visualizing camera pose
+        
+        Args:
+            pose: Camera pose (position + quaternion)
+            axis_length: Length of each axis line
+            
+        Returns:
+            points: (N, 3) array of axis points
+            colors: (N, 3) array of RGB colors (red=X, green=Y, blue=Z)
+        """
+        # Define unit axes in camera local frame
+        origin = np.array([0.0, 0.0, 0.0])
+        x_axis = np.array([axis_length, 0.0, 0.0])
+        y_axis = np.array([0.0, axis_length, 0.0])
+        z_axis = np.array([0.0, 0.0, axis_length])
+        
+        # Stack all axis points
+        local_points = np.array([origin, x_axis, origin, y_axis, origin, z_axis])
+        
+        # Transform to world frame using the same transformation as point clouds
+        rotation = Rotation.from_quat(pose.quaternion)
+        transform_matrix = np.eye(4)
+        transform_matrix[:3, :3] = rotation.as_matrix()
+        transform_matrix[:3, 3] = pose.position  # Use actual position for axes
+        
+        # Apply transformation
+        local_hom = np.hstack((local_points, np.ones((local_points.shape[0], 1))))
+        global_hom = (transform_matrix @ local_hom.T).T
+        global_points = global_hom[:, :3]
+        
+        # Colors: Red for X, Green for Y, Blue for Z (each axis is 2 points: origin + endpoint)
+        colors = np.array([
+            [1.0, 0.0, 0.0],  # X-axis start (red)
+            [1.0, 0.0, 0.0],  # X-axis end (red)
+            [0.0, 1.0, 0.0],  # Y-axis start (green)
+            [0.0, 1.0, 0.0],  # Y-axis end (green)
+            [0.0, 0.0, 1.0],  # Z-axis start (blue)
+            [0.0, 0.0, 1.0],  # Z-axis end (blue)
+        ])
+        
+        return global_points, colors
+    
+    def save_point_cloud_with_axes(self,
+                                   points: np.ndarray,
+                                   colors: np.ndarray,
+                                   drone_poses: List[DronePose],
+                                   frame_id: int):
+        """
+        Save point cloud with camera coordinate frames for debugging
+        
+        Args:
+            points: Point cloud points
+            colors: Point cloud colors
+            drone_poses: List of drone poses to visualize
+            frame_id: Frame number for filename
+        """
+        # Generate axes for all drone poses
+        all_axes_points = []
+        all_axes_colors = []
+        
+        for pose in drone_poses:
+            axes_points, axes_colors = self.create_pose_axes(pose, axis_length=5.0)
+            all_axes_points.append(axes_points)
+            all_axes_colors.append(axes_colors)
+        
+        # Combine point cloud with axes
+        if len(all_axes_points) > 0:
+            axes_points = np.vstack(all_axes_points)
+            axes_colors = np.vstack(all_axes_colors)
+            combined_points = np.vstack([points, axes_points])
+            combined_colors = np.vstack([colors, axes_colors])
+        else:
+            combined_points = points
+            combined_colors = colors
+        
+        # Save with special filename indicating axes are included
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename_ply = f"pointcloud_with_axes_frame{frame_id:04d}_{timestamp}.ply"
+        filename_pcd = f"pointcloud_with_axes_frame{frame_id:04d}_{timestamp}.pcd"
+        filepath_ply = os.path.join(self.output_folder, filename_ply)
+        filepath_pcd = os.path.join(self.output_folder, filename_pcd)
+        
+        try:
+            if HAS_OPEN3D:
+                pcd = o3d.geometry.PointCloud()
+                pcd.points = o3d.utility.Vector3dVector(combined_points)
+                pcd.colors = o3d.utility.Vector3dVector(combined_colors)
+                o3d.io.write_point_cloud(filepath_ply, pcd)
+                o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
+            else:
+                self.save_ply_ascii(filepath_ply, combined_points, combined_colors)
+                self.save_pcd_ascii(filepath_pcd, combined_points, combined_colors)
+            
+            if self.debug:
+                print(f"💾 Saved point cloud WITH AXES:")
+                print(f"   PLY: {filename_ply}")
+                print(f"   PCD: {filename_pcd}")
+                print(f"   Camera axes: {len(drone_poses)} coordinate frames")
+            
+        except Exception as e:
+            print(f"❌ Failed to save point cloud with axes: {e}")
+    
     def save_point_cloud(self, 
                         points: np.ndarray,
                         colors: np.ndarray,
                         frame_id: int):
-        """Save point cloud to PLY file"""
+        """Save point cloud to PLY and PCD files"""
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = f"pointcloud_frame{frame_id:04d}_{timestamp}.ply"
-        filepath = os.path.join(self.output_folder, filename)
+        filename_ply = f"pointcloud_frame{frame_id:04d}_{timestamp}.ply"
+        filename_pcd = f"pointcloud_frame{frame_id:04d}_{timestamp}.pcd"
+        filepath_ply = os.path.join(self.output_folder, filename_ply)
+        filepath_pcd = os.path.join(self.output_folder, filename_pcd)
         
-        # Convert from Unity left-handed (Z-forward) to right-handed (Z-backward) for visualization
-        points_viz = points.copy()
-        points_viz[:, 2] = -points_viz[:, 2]
+        # Points are already in correct coordinate system from transformation
+        # NO additional Z negation needed!
         
         try:
             if HAS_OPEN3D:
                 # Use Open3D (better performance, binary format)
                 pcd = o3d.geometry.PointCloud()
-                pcd.points = o3d.utility.Vector3dVector(points_viz)
+                pcd.points = o3d.utility.Vector3dVector(points)
                 pcd.colors = o3d.utility.Vector3dVector(colors)
-                o3d.io.write_point_cloud(filepath, pcd)
+                o3d.io.write_point_cloud(filepath_ply, pcd)
+                o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
             else:
-                # Fallback: Write ASCII PLY
-                self.save_ply_ascii(filepath, points_viz, colors)
+                # Fallback: Write ASCII PLY and PCD
+                self.save_ply_ascii(filepath_ply, points, colors)
+                self.save_pcd_ascii(filepath_pcd, points, colors)
             
             if self.debug:
-                print(f"💾 Saved point cloud: {filename}")
-                print(f"   Location: {filepath}")
+                print(f"💾 Saved point cloud:")
+                print(f"   PLY: {filename_ply}")
+                print(f"   PCD: {filename_pcd}")
+                print(f"   Location: {self.output_folder}")
             
         except Exception as e:
             print(f"❌ Failed to save point cloud: {e}")
@@ -651,6 +814,31 @@ class NBVPointCloudProcessor:
                 x, y, z = points[i]
                 r, g, b = (colors[i] * 255).astype(np.uint8)
                 f.write(f"{x} {y} {z} {r} {g} {b}\n")
+    
+    def save_pcd_ascii(self, filepath: str, points: np.ndarray, colors: np.ndarray):
+        """Save point cloud as ASCII PCD (Point Cloud Data format)"""
+        with open(filepath, 'w') as f:
+            # Write header
+            f.write("# .PCD v0.7 - Point Cloud Data file format\n")
+            f.write("VERSION 0.7\n")
+            f.write("FIELDS x y z rgb\n")
+            f.write("SIZE 4 4 4 4\n")
+            f.write("TYPE F F F F\n")
+            f.write("COUNT 1 1 1 1\n")
+            f.write(f"WIDTH {len(points)}\n")
+            f.write("HEIGHT 1\n")
+            f.write("VIEWPOINT 0 0 0 1 0 0 0\n")
+            f.write(f"POINTS {len(points)}\n")
+            f.write("DATA ascii\n")
+            
+            # Write points (convert RGB to single float value)
+            for i in range(len(points)):
+                x, y, z = points[i]
+                r, g, b = (colors[i] * 255).astype(np.uint8)
+                # Pack RGB into a single 32-bit float (standard PCD format)
+                rgb_packed = (int(r) << 16) | (int(g) << 8) | int(b)
+                rgb_float = np.float32(rgb_packed)
+                f.write(f"{x} {y} {z} {rgb_float}\n")
     
     def send_random_commands(self, drone_count: int) -> bool:
         """Send random movement commands to Unity (placeholder for NBV planning)"""
@@ -719,6 +907,10 @@ class NBVPointCloudProcessor:
                 # Read camera intrinsics (once)
                 if self.intrinsics is None:
                     self.intrinsics = self.read_camera_intrinsics()
+                    # print intrinsics for debugging
+                    if self.intrinsics is not None and self.debug:
+                        print(f"   🎯 Camera Intrinsics: fx={self.intrinsics.fx:.2f}, fy={self.intrinsics.fy:.2f}, "
+                              f"cx={self.intrinsics.cx:.2f}, cy={self.intrinsics.cy:.2f}")
                     if self.intrinsics is None:
                         print("⏳ Waiting for camera intrinsics from Unity...")
                         time.sleep(1.0)
@@ -740,8 +932,12 @@ class NBVPointCloudProcessor:
                 if len(global_points) > 0:
                     print(f"\n✅ Point cloud fusion completed in {fusion_time:.2f}s")
                     
-                    # Save point cloud
+                    # Save regular point cloud
                     self.save_point_cloud(global_points, global_colors, self.frames_processed)
+                    
+                    # Save point cloud WITH camera axes for debugging transformations
+                    drone_poses = [drone.pose for drone in drone_data_list]
+                    self.save_point_cloud_with_axes(global_points, global_colors, drone_poses, self.frames_processed)
                     
                     # Send random commands
                     self.send_random_commands(len(drone_data_list))

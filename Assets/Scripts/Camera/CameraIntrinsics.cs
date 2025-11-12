@@ -99,24 +99,38 @@ public class CameraIntrinsics : MonoBehaviour
         width = targetCamera.pixelWidth;
         height = targetCamera.pixelHeight;
 
-        // Get field of view (vertical FOV in degrees)
-        float fovVertical = targetCamera.fieldOfView;
+        // Fixed parameters
+        float fovDiagonal = 84.0f; // Diagonal FOV in degrees
+        float aspectRatio = 4.0f / 3.0f; // 4:3 aspect ratio
 
-        // Compute aspect ratio
-        float aspectRatio = (float)width / height;
+        // Convert diagonal FOV to radians
+        float fovDiagonalRadians = fovDiagonal * Mathf.Deg2Rad;
 
-        // Convert FOV to radians
-        float fovVerticalRadians = fovVertical * Mathf.Deg2Rad;
+        // Compute horizontal and vertical FOV using:
+        // tan²(FOVd/2) = tan²(FOVx/2) + tan²(FOVy/2)
+        // Combined with: tan(FOVx/2) = aspectRatio * tan(FOVy/2)
+        
+        float tanHalfDiagonal = Mathf.Tan(fovDiagonalRadians / 2.0f);
+        float tanHalfDiagonalSquared = tanHalfDiagonal * tanHalfDiagonal;
+        
+        // Solve for tan(FOVy/2): tan²(FOVy/2) = tan²(FOVd/2) / (1 + aspectRatio²)
+        float tanHalfFovY = Mathf.Sqrt(tanHalfDiagonalSquared / (1.0f + aspectRatio * aspectRatio));
+        float fovVerticalRadians = 2.0f * Mathf.Atan(tanHalfFovY);
+        float fovVertical = fovVerticalRadians * Mathf.Rad2Deg;
+        
+        // Compute tan(FOVx/2) using aspect ratio relationship
+        float tanHalfFovX = aspectRatio * tanHalfFovY;
+        float fovHorizontalRadians = 2.0f * Mathf.Atan(tanHalfFovX);
+        float fovHorizontal = fovHorizontalRadians * Mathf.Rad2Deg;
 
         // Compute focal lengths using pinhole camera model
-        // For vertical FOV: fy = height / (2 * tan(fov_y / 2))
-        fy = height / (2.0f * Mathf.Tan(fovVerticalRadians / 2.0f));
+        // fx = width / (2 * tan(FOVx / 2))
+        fx = width / (2.0f * tanHalfFovX);
+        
+        // fy = height / (2 * tan(FOVy / 2))
+        fy = height / (2.0f * tanHalfFovY);
 
-        // For horizontal focal length, use aspect ratio
-        // fx = fy * aspect_ratio (for square pixels)
-        fx = fy * aspectRatio;
-
-        // Principal point (typically at image center)
+        // Principal point (at image center)
         cx = width / 2.0f;
         cy = height / 2.0f;
 
@@ -124,8 +138,10 @@ public class CameraIntrinsics : MonoBehaviour
         {
             Debug.Log($"[CameraIntrinsics] Computed parameters:");
             Debug.Log($"  Resolution: {width} x {height}");
-            Debug.Log($"  FOV: {fovVertical}° vertical");
             Debug.Log($"  Aspect Ratio: {aspectRatio:F3}");
+            Debug.Log($"  FOV Diagonal: {fovDiagonal}°");
+            Debug.Log($"  FOV Horizontal: {fovHorizontal:F2}°");
+            Debug.Log($"  FOV Vertical: {fovVertical:F2}°");
             Debug.Log($"  Focal Lengths: fx={fx:F2}, fy={fy:F2}");
             Debug.Log($"  Principal Point: cx={cx:F2}, cy={cy:F2}");
         }

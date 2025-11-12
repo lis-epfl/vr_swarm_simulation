@@ -555,6 +555,10 @@ public class NBVImageCapture : MonoBehaviour
                 
                 Vector3 cameraPos = fpvTransform.position;
                 Quaternion cameraRot = fpvTransform.rotation;
+
+                // // Adjust for coordinate system differences (Unity to Python)
+                // cameraPos.z = -cameraPos.z;
+                // cameraRot = new Quaternion(-cameraRot.x, -cameraRot.y, cameraRot.z, cameraRot.w);
                 
                 // Debug for first drone
                 if (i == 0 && enableDebugLogging)
@@ -741,8 +745,8 @@ public class NBVImageCapture : MonoBehaviour
     void OnValidate()
     {
         // Ensure reasonable values
-        imageWidth = Mathf.Clamp(imageWidth, 64, 1024);
-        imageHeight = Mathf.Clamp(imageHeight, 64, 1024);
+        imageWidth = Mathf.Clamp(imageWidth, 64, 2048);
+        imageHeight = Mathf.Clamp(imageHeight, 64, 2048);
         captureInterval = Mathf.Clamp(captureInterval, 0.1f, 5.0f);
         maxDroneCount = Mathf.Clamp(maxDroneCount, 1, 20);
     }
