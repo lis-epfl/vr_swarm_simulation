@@ -83,7 +83,7 @@ public class screenSpawn : MonoBehaviour
             // Get the camera and set the aspect ratio and field of view
             Camera cam = camera.GetComponent<Camera>();
             cam.aspect = (float)width/height;
-            cam.fieldOfView = 82.1f;
+            cam.fieldOfView = 56.6f;
 
             // Set the camera's target texture to the render texture
             camera.GetComponent<Camera>().targetTexture = rt;
