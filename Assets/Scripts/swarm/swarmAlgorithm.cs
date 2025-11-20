@@ -14,6 +14,7 @@ public class swarmAlgorithm : MonoBehaviour
     private Reynolds reynoldsAlgorithm;
     private OlfatiSaber olfatiSaberAlgorithm;
     private AttitudeControl attitudeControl;
+    private singleFPV singleFPVControl;
 
     // Default altitude and velocity
     public float desired_height = 4.0f;
@@ -54,6 +55,12 @@ public class swarmAlgorithm : MonoBehaviour
 
         // Assign the swarm list to the attitude control script
         attitudeControl.swarm = swarm;
+
+        // Initialize the singleFPV script
+        singleFPVControl = GetComponent<singleFPV>();
+
+        // Assign the swarm list to the singleFPV script
+        singleFPVControl.swarm = swarm;
 
         // Get the controller scripts
         controller = transform.parent.Find("Controller").gameObject;
@@ -115,10 +122,16 @@ public class swarmAlgorithm : MonoBehaviour
         {
             case SwarmManager.AttitudeControl.NONE:
                 DisableAlgorithm(attitudeControl);
+                DisableAlgorithm(singleFPVControl);
                 break;
             case SwarmManager.AttitudeControl.CONVEXHULL:
                 EnableAlgorithm(attitudeControl);
+                DisableAlgorithm(singleFPVControl);
                 UpdateAttitudeControlParameters();
+                break;
+            case SwarmManager.AttitudeControl.FPV:
+                DisableAlgorithm(attitudeControl);
+                EnableAlgorithm(singleFPVControl);
                 break;
         }
 

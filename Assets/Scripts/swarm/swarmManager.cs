@@ -40,6 +40,7 @@ public class SwarmManager : MonoBehaviour
     {
         NONE,
         CONVEXHULL,
+        FPV,
     }
 
     [Header("Attitude Control")]
