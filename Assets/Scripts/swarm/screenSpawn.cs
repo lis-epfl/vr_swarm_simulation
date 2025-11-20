@@ -105,7 +105,8 @@ public class screenSpawn : MonoBehaviour
 
             // Check the boundaryEstimate of the drone
             AttitudeControl attitudeControl = droneChild.GetComponent<AttitudeControl>();
-            if (attitudeControl.boundaryEstimate)
+            singleFPV singleFPVControl = droneChild.GetComponent<singleFPV>();
+            if (attitudeControl.boundaryEstimate || (singleFPVControl != null && singleFPVControl.frontDrone))
             {
                 // Calculate the screen position based on the yaw of the drone
                 float yaw = droneChild.transform.eulerAngles.y; // Get the yaw angle of the drone (in degrees)
