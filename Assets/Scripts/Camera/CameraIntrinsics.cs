@@ -99,51 +99,27 @@ public class CameraIntrinsics : MonoBehaviour
         width = targetCamera.pixelWidth;
         height = targetCamera.pixelHeight;
 
-        // Fixed parameters
-        float fovDiagonal = 84.0f; // Diagonal FOV in degrees
-        float aspectRatio = 4.0f / 3.0f; // 4:3 aspect ratio
+        // Get Unity's projection matrix
+        Matrix4x4 P = targetCamera.projectionMatrix;
 
-        // Convert diagonal FOV to radians
-        float fovDiagonalRadians = fovDiagonal * Mathf.Deg2Rad;
-
-        // Compute horizontal and vertical FOV using:
-        // tan²(FOVd/2) = tan²(FOVx/2) + tan²(FOVy/2)
-        // Combined with: tan(FOVx/2) = aspectRatio * tan(FOVy/2)
-        
-        float tanHalfDiagonal = Mathf.Tan(fovDiagonalRadians / 2.0f);
-        float tanHalfDiagonalSquared = tanHalfDiagonal * tanHalfDiagonal;
-        
-        // Solve for tan(FOVy/2): tan²(FOVy/2) = tan²(FOVd/2) / (1 + aspectRatio²)
-        float tanHalfFovY = Mathf.Sqrt(tanHalfDiagonalSquared / (1.0f + aspectRatio * aspectRatio));
-        float fovVerticalRadians = 2.0f * Mathf.Atan(tanHalfFovY);
-        float fovVertical = fovVerticalRadians * Mathf.Rad2Deg;
-        
-        // Compute tan(FOVx/2) using aspect ratio relationship
-        float tanHalfFovX = aspectRatio * tanHalfFovY;
-        float fovHorizontalRadians = 2.0f * Mathf.Atan(tanHalfFovX);
-        float fovHorizontal = fovHorizontalRadians * Mathf.Rad2Deg;
-
-        // Compute focal lengths using pinhole camera model
-        // fx = width / (2 * tan(FOVx / 2))
-        fx = width / (2.0f * tanHalfFovX);
-        
-        // fy = height / (2 * tan(FOVy / 2))
-        fy = height / (2.0f * tanHalfFovY);
-
-        // Principal point (at image center)
-        cx = width / 2.0f;
-        cy = height / 2.0f;
+        // See: https://stackoverflow.com/questions/6652253/getting-the-projection-matrix-parameters-back
+        // Unity's projection matrix is in NDC, so we need to extract fx, fy, cx, cy
+        // fx = P[0,0] * width / 2
+        // fy = P[1,1] * height / 2
+        // cx = (1 - P[0,2]) * width / 2
+        // cy = (1 - P[1,2]) * height / 2
+        fx = P[0,0] * width / 2.0f;
+        fy = P[1,1] * height / 2.0f;
+        cx = (1.0f - P[0,2]) * width / 2.0f;
+        cy = (1.0f - P[1,2]) * height / 2.0f;
 
         if (debugMode)
         {
-            Debug.Log($"[CameraIntrinsics] Computed parameters:");
+            Debug.Log($"[CameraIntrinsics] Computed from projectionMatrix:");
             Debug.Log($"  Resolution: {width} x {height}");
-            Debug.Log($"  Aspect Ratio: {aspectRatio:F3}");
-            Debug.Log($"  FOV Diagonal: {fovDiagonal}°");
-            Debug.Log($"  FOV Horizontal: {fovHorizontal:F2}°");
-            Debug.Log($"  FOV Vertical: {fovVertical:F2}°");
-            Debug.Log($"  Focal Lengths: fx={fx:F2}, fy={fy:F2}");
-            Debug.Log($"  Principal Point: cx={cx:F2}, cy={cy:F2}");
+            Debug.Log($"  fx: {fx:F2}, fy: {fy:F2}");
+            Debug.Log($"  cx: {cx:F2}, cy: {cy:F2}");
+            Debug.Log($"  ProjectionMatrix: \n{P}");
         }
     }
 
