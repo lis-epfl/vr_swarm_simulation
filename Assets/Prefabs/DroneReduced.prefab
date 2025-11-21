@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4685468158847624}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: DroneBrain
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -701,7 +701,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4340667180271852}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: DroneReduced
   m_TagString: DroneBase
   m_Icon: {fileID: 0}
@@ -785,7 +785,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4198999323543592}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: DroneAcademy
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -819,7 +819,7 @@ GameObject:
   - component: {fileID: 4501315699650070}
   - component: {fileID: 114673619509455136}
   - component: {fileID: 6727076729497765368}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: Controller
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -889,7 +889,7 @@ GameObject:
   - component: {fileID: 114660381931437216}
   - component: {fileID: 6225278697236815164}
   - component: {fileID: 6285619423511718035}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: FPV
   m_TagString: MainCamera
   m_Icon: {fileID: 0}
@@ -950,7 +950,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 1591
+    m_Bits: 1024
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
@@ -1010,8 +1010,8 @@ MonoBehaviour:
   depthWidth: 0
   depthHeight: 0
   maxDepthDistance: 50
-  minDepthDistance: 0.1
-  showDebugVisualization: 1
+  minDepthDistance: 1
+  showDebugVisualization: 0
 --- !u!114 &6285619423511718035
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1127,7 +1127,7 @@ GameObject:
   - component: {fileID: 124562338361067552}
   - component: {fileID: 114551180855207278}
   - component: {fileID: 114143011881528890}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: WatchingCam
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1246,7 +1246,7 @@ GameObject:
   m_Component:
   - component: {fileID: 4612442369227954}
   - component: {fileID: 114271859555978516}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: StateFinder
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1434,7 +1434,7 @@ GameObject:
   m_Component:
   - component: {fileID: 4218606295102432}
   - component: {fileID: 114060934375135842}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: RigidBodyWind
   m_TagString: Untagged
   m_Icon: {fileID: 0}

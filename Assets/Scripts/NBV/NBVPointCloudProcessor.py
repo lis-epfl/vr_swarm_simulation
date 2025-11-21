@@ -44,6 +44,8 @@ except ImportError:
     print("   Point clouds will be saved as PLY text files (can be viewed in MeshLab/CloudCompare)")
     HAS_OPEN3D = False
 
+MIN_DISTANCE_FROM_DRONE = 1.1  # meters
+
 @dataclass
 class CameraIntrinsics:
     """Camera intrinsic parameters"""
@@ -69,6 +71,24 @@ class DroneData:
     pose: DronePose
 
 class NBVPointCloudProcessor:
+    def print_closest_points_to_drone(self, points, drone_pose, drone_id, num_points=10):
+        """
+        Print the closest N points to the drone position for debugging.
+        Args:
+            points: (N, 3) array of point cloud points
+            drone_pose: DronePose object (with .position)
+            drone_id: ID of the drone
+            num_points: Number of closest points to print
+        """
+        if points.shape[0] == 0:
+            print(f"Drone {drone_id}: No points in cloud.")
+            return
+        drone_pos = drone_pose.position
+        dists = np.linalg.norm(points - drone_pos, axis=1)
+        idx = np.argsort(dists)[:num_points]
+        print(f"Drone {drone_id}: Closest {num_points} points to position {drone_pos}")
+        for i in idx:
+            print(f"  Point {i}: {points[i]}, dist={dists[i]:.3f}")
     """Main processor for MAP-NBV point cloud reconstruction"""
     
     def __init__(self,
@@ -576,13 +596,19 @@ class NBVPointCloudProcessor:
                     print(f"         Valid pixels: {valid_depth}/{drone_data.depth_image.size}")
                     print(f"         Masked pixels: {np.sum(mask):.0f}")
             
-            # Save local point cloud (before transformation)
-            if len(points_local) > 0:
-                self.save_individual_drone_cloud(points_local, colors, drone_data.drone_id, self.frames_processed, is_local=True)
+            # Filter out points close to the drone origin (likely drone mesh)
+            # filter out points that are within MIN_DISTANCE_FROM_DRONE meters from origin in z axis only
+            mask = np.abs(points_local[:, 2]) > MIN_DISTANCE_FROM_DRONE  # Only keep points farther than threshold in z
+            filtered_points = points_local[mask]
+            filtered_colors = colors[mask]
             
+            # Save local point cloud (before transformation)
+            if len(filtered_points) > 0:
+                self.save_individual_drone_cloud(filtered_points, filtered_colors, drone_data.drone_id, self.frames_processed, is_local=True)
+
             # Transform to global frame
             transform_start = time.time()
-            points_global = self.transform_to_global_frame(points_local, drone_data.pose, drone_data.drone_id)
+            points_global = self.transform_to_global_frame(filtered_points, drone_data.pose, drone_data.drone_id)
             transform_time = time.time() - transform_start
             
             if self.debug:
@@ -590,10 +616,10 @@ class NBVPointCloudProcessor:
             
             # Save global point cloud (after transformation)
             if len(points_global) > 0:
-                self.save_individual_drone_cloud(points_global, colors, drone_data.drone_id, self.frames_processed, is_local=False)
+                self.save_individual_drone_cloud(points_global, filtered_colors, drone_data.drone_id, self.frames_processed, is_local=False)
             
             all_points.append(points_global)
-            all_colors.append(colors)
+            all_colors.append(filtered_colors)
         
         if len(all_points) == 0:
             if self.debug:
@@ -636,20 +662,24 @@ class NBVPointCloudProcessor:
         filename_pcd = f"drone{drone_id:02d}_{frame_type}_frame{frame_id:04d}_{timestamp}.pcd"
         filepath_ply = os.path.join(self.output_folder, filename_ply)
         filepath_pcd = os.path.join(self.output_folder, filename_pcd)
+
+        # print the points closest to the drone for debugging
+        # self.print_closest_points_to_drone(points, DronePose(np.zeros(3), np.array([0,0,0,1])), drone_id, num_points=10)
         
+
         try:
             if HAS_OPEN3D:
                 pcd = o3d.geometry.PointCloud()
                 pcd.points = o3d.utility.Vector3dVector(points)
                 pcd.colors = o3d.utility.Vector3dVector(colors)
-                o3d.io.write_point_cloud(filepath_ply, pcd)
-                o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
+                # o3d.io.write_point_cloud(filepath_ply, pcd)
+                # o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
             else:
                 self.save_ply_ascii(filepath_ply, points, colors)
-                self.save_pcd_ascii(filepath_pcd, points, colors)
+                # self.save_pcd_ascii(filepath_pcd, points, colors)
             
-            if self.debug:
-                print(f"      💾 Saved {frame_type} cloud: drone{drone_id:02d}_{frame_type}_frame{frame_id:04d}")
+            # if self.debug:
+            #     print(f"      💾 Saved {frame_type} cloud: drone{drone_id:02d}_{frame_type}_frame{frame_id:04d}")
             
         except Exception as e:
             print(f"      ❌ Failed to save drone {drone_id} {frame_type} cloud: {e}")
@@ -713,23 +743,23 @@ class NBVPointCloudProcessor:
             frame_id: Frame number for filename
         """
         # Generate axes for all drone poses
-        all_axes_points = []
-        all_axes_colors = []
-        
-        for pose in drone_poses:
-            axes_points, axes_colors = self.create_pose_axes(pose, axis_length=5.0)
-            all_axes_points.append(axes_points)
-            all_axes_colors.append(axes_colors)
-        
+        # all_axes_points = []
+        # all_axes_colors = []
+        # 
+        # for pose in drone_poses:
+        #     axes_points, axes_colors = self.create_pose_axes(pose, axis_length=5.0)
+        #     all_axes_points.append(axes_points)
+        #     all_axes_colors.append(axes_colors)
+        # 
         # Combine point cloud with axes
-        if len(all_axes_points) > 0:
-            axes_points = np.vstack(all_axes_points)
-            axes_colors = np.vstack(all_axes_colors)
-            combined_points = np.vstack([points, axes_points])
-            combined_colors = np.vstack([colors, axes_colors])
-        else:
-            combined_points = points
-            combined_colors = colors
+        # if len(all_axes_points) > 0:
+        #     axes_points = np.vstack(all_axes_points)
+        #     axes_colors = np.vstack(all_axes_colors)
+        #     combined_points = np.vstack([points, axes_points])
+        #     combined_colors = np.vstack([colors, axes_colors])
+        # else:
+        combined_points = points
+        combined_colors = colors
         
         # Save with special filename indicating axes are included
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -743,8 +773,8 @@ class NBVPointCloudProcessor:
                 pcd = o3d.geometry.PointCloud()
                 pcd.points = o3d.utility.Vector3dVector(combined_points)
                 pcd.colors = o3d.utility.Vector3dVector(combined_colors)
-                o3d.io.write_point_cloud(filepath_ply, pcd)
-                o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
+                # o3d.io.write_point_cloud(filepath_ply, pcd)
+                # o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
             else:
                 self.save_ply_ascii(filepath_ply, combined_points, combined_colors)
                 self.save_pcd_ascii(filepath_pcd, combined_points, combined_colors)
@@ -765,9 +795,9 @@ class NBVPointCloudProcessor:
         """Save point cloud to PLY and PCD files"""
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename_ply = f"pointcloud_frame{frame_id:04d}_{timestamp}.ply"
-        filename_pcd = f"pointcloud_frame{frame_id:04d}_{timestamp}.pcd"
+        # filename_pcd = f"pointcloud_frame{frame_id:04d}_{timestamp}.pcd"
         filepath_ply = os.path.join(self.output_folder, filename_ply)
-        filepath_pcd = os.path.join(self.output_folder, filename_pcd)
+        # filepath_pcd = os.path.join(self.output_folder, filename_pcd)
         
         # Points are already in correct coordinate system from transformation
         # NO additional Z negation needed!
@@ -779,16 +809,16 @@ class NBVPointCloudProcessor:
                 pcd.points = o3d.utility.Vector3dVector(points)
                 pcd.colors = o3d.utility.Vector3dVector(colors)
                 o3d.io.write_point_cloud(filepath_ply, pcd)
-                o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
+                # o3d.io.write_point_cloud(filepath_pcd, pcd, write_ascii=True)
             else:
                 # Fallback: Write ASCII PLY and PCD
                 self.save_ply_ascii(filepath_ply, points, colors)
-                self.save_pcd_ascii(filepath_pcd, points, colors)
+                # self.save_pcd_ascii(filepath_pcd, points, colors)
             
             if self.debug:
                 print(f"💾 Saved point cloud:")
                 print(f"   PLY: {filename_ply}")
-                print(f"   PCD: {filename_pcd}")
+                # print(f"   PCD: {filename_pcd}")
                 print(f"   Location: {self.output_folder}")
             
         except Exception as e:
@@ -936,8 +966,8 @@ class NBVPointCloudProcessor:
                     self.save_point_cloud(global_points, global_colors, self.frames_processed)
                     
                     # Save point cloud WITH camera axes for debugging transformations
-                    drone_poses = [drone.pose for drone in drone_data_list]
-                    self.save_point_cloud_with_axes(global_points, global_colors, drone_poses, self.frames_processed)
+                    # drone_poses = [drone.pose for drone in drone_data_list]
+                    # self.save_point_cloud_with_axes(global_points, global_colors, drone_poses, self.frames_processed)
                     
                     # Send random commands
                     self.send_random_commands(len(drone_data_list))

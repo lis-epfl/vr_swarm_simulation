@@ -27,7 +27,7 @@ public class DroneDepthCamera : MonoBehaviour
     public float maxDepthDistance = 100.0f;
     
     [Tooltip("Minimum depth distance in meters")]
-    public float minDepthDistance = 0.1f;
+    public float minDepthDistance = 0.2f;
     
     [Header("Debug")]
     [Tooltip("Enable debug visualization")]
@@ -117,6 +117,9 @@ public class DroneDepthCamera : MonoBehaviour
         depthCamera.farClipPlane = maxDepthDistance;
         depthCamera.aspect = rgbCamera.aspect;
         
+        // Exclude the 'Drone' layer from depth camera rendering
+        int droneLayer = LayerMask.NameToLayer("Drone");
+        depthCamera.cullingMask &= ~(1 << droneLayer);
         // Configure for depth rendering
         depthCamera.enabled = false; // Manual rendering
         depthCamera.clearFlags = CameraClearFlags.SolidColor;
