@@ -142,7 +142,9 @@ public class NBV : MonoBehaviour
 
         // Calculate the angle between each drone
         // 360 degrees in a circle, divided by the number of drones
-        float angleStep = 360.0f / swarm.Count;
+        // float angleStep = 360.0f / swarm.Count;
+        float angleStep = 30.0f;
+        
 
         // Get the name of the parent of this gameObject
         string droneName = gameObject.transform.parent.name;
@@ -151,7 +153,10 @@ public class NBV : MonoBehaviour
 
         // Calculate the angle for this specific drone
         // We multiply by Mathf.Deg2Rad to convert degrees to radians for the trig functions
-        float angle = i * angleStep * Mathf.Deg2Rad;
+        // add +45 degrees buffer so that drone 0 starts at 45 degrees (northeast) instead of 0 degrees (east)
+        // Add buffer_angle as variable
+        float buffer_angle = 45.0f;
+        float angle = (i * angleStep + buffer_angle) * Mathf.Deg2Rad;
 
         // Calculate the target position using trigonometry
         // x = center.x + radius * cos(angle)
