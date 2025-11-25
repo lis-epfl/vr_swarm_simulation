@@ -16,7 +16,13 @@ except ImportError:
     HAS_OPEN3D = False
 from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
 
-# Data classes
+#import candidate_positions
+sys.path.append("/Users/advaithsriram/pointr-nbv/scripts")
+from candidate_positions import main as candidate_positions_main
+sys.path.remove("/Users/advaithsriram/pointr-nbv/scripts")
+
+DOWN_SAMPLE_SIZE = 2000
+
 @dataclass
 class CameraIntrinsics:
     fx: float
@@ -39,6 +45,83 @@ class DroneData:
     pose: DronePose
 
 class MAP_NBV_Trial:
+
+    def send_nbv_commands(self, selected_nbvs):
+        """Send selected NBV positions to Unity via shared memory."""
+        try:
+            drone_count = len(selected_nbvs)
+            command_size = 4 + (drone_count * 12)  # flag + commands
+            
+            if self.command_mmf is None:
+                self.command_mmf = mmap.mmap(-1, command_size, self.command_memory_name)
+            
+            self.command_mmf.seek(0)
+            flag = struct.unpack('i', self.command_mmf.read(4))[0]
+            
+            # Check if Unity is ready
+            if flag != 0:
+                return False
+            
+            # Write commands
+            self.command_mmf.seek(4)
+            for pos, euler in selected_nbvs:
+                # Send x, y, z from pos
+                self.command_mmf.write(struct.pack('fff', pos[0], pos[1], pos[2]))
+                # CHECK, WHEN THE DRONES MOVE, IF THE YAW IS CORRECT
+                # DO THEY NEED ORIENTATION?
+            
+            # Set flag to 2 (commands ready)
+            self.command_mmf.seek(0)
+            self.command_mmf.write(struct.pack('i', 2))
+            print(f"Sent NBV commands: {selected_nbvs}")
+            return True
+        except Exception as e:
+            print(f"Failed to send NBV commands: {e}")
+            return False
+
+    def quaternion_to_euler(self, q):
+        """Convert quaternion (x, y, z, w) to Euler angles (roll, pitch, yaw) in radians."""
+        rotation = Rotation.from_quat(q)
+        roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
+        return [roll, pitch, yaw]
+    
+    def run_pointr_inference(self, downsampled_file):
+        """Run PoinTr inference on the downsampled PLY file using subprocess."""
+        import subprocess
+        pointr_dir = "/Users/advaith/pointr-nbv"
+        inference_script = os.path.join(pointr_dir, "tools/inference.py")
+        config_path = os.path.join(pointr_dir, "cfgs/ShapeNet55_models/PoinTr.yaml")
+        checkpoint_path = os.path.join(pointr_dir, "models/checkpoint55.pth")
+        cmd = [
+            "python3",
+            inference_script,
+            config_path,
+            checkpoint_path,
+            "--pc", downsampled_file,
+            "--out_pc_root", "../../ProcessedImages/PointClouds",
+            "--save_ply"
+        ]
+        print(f"Running inference on {downsampled_file} ...")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        print("PoinTr STDOUT:", result.stdout)
+        print("PoinTr STDERR:", result.stderr)
+
+
+    def random_downsample(self, points, colors, size=DOWN_SAMPLE_SIZE, seed=42):
+        np.random.seed(seed)
+        if len(points) <= size:
+            return points, colors
+        if not HAS_OPEN3D:
+            return points, colors
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+        ratio = size / len(points)
+        downsampled = pcd.random_down_sample(ratio)
+        down_points = np.asarray(downsampled.points)
+        down_colors = np.asarray(downsampled.colors)
+        return down_points, down_colors
+    
     def __init__(self, processing_interval=3.0):
         self.processing_interval = processing_interval
         self.image_memory_name = "NBVImageDepthMemory"
@@ -65,32 +148,6 @@ class MAP_NBV_Trial:
         self.last_processed_time = 0
         self.frames_processed = 0
         
-    def send_predicted_commands(self, drone_count):
-        """Send random movement commands to Unity (placeholder for NBV planning)"""
-        import random
-        try:
-            command_size = 4 + (drone_count * 12)  # flag + commands
-            if self.command_mmf is None:
-                self.command_mmf = mmap.mmap(-1, command_size, self.command_memory_name)
-            self.command_mmf.seek(0)
-            flag = struct.unpack('i', self.command_mmf.read(4))[0]
-            if flag != 0:
-                return False
-            commands = []
-            for drone_id in range(drone_count):
-                movement_scale = (drone_id + 1) * 5.0
-                x = random.uniform(-2.0, 2.0) * movement_scale
-                y = random.uniform(-2.0, 2.0) * movement_scale
-                z = random.uniform(-2.0, 2.0) * movement_scale
-                commands.append((x, y, z))
-            self.command_mmf.seek(4)
-            for x, y, z in commands:
-                self.command_mmf.write(struct.pack('fff', x, y, z))
-            self.command_mmf.seek(0)
-            self.command_mmf.write(struct.pack('i', 2))
-            return True
-        except Exception:
-            return False
 
     def initialize(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -248,6 +305,7 @@ class MAP_NBV_Trial:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename_ply = f"pointcloud_frame{frame_id:04d}_{timestamp}.ply"
         filepath_ply = os.path.join(self.output_folder, filename_ply)
+        # Save full point cloud first
         if HAS_OPEN3D:
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(points)
@@ -270,6 +328,35 @@ class MAP_NBV_Trial:
                     r, g, b = (colors[i] * 255).astype(np.uint8)
                     f.write(f"{x} {y} {z} {r} {g} {b}\n")
 
+        # Downsample and save downsampled point cloud
+        down_points, down_colors = self.random_downsample(points, colors, size=DOWN_SAMPLE_SIZE, seed=42)
+        filename_down = f"pointcloud_downsampled_frame{frame_id:04d}_{timestamp}.ply"
+        filepath_down = os.path.join(self.output_folder, filename_down)
+        if HAS_OPEN3D:
+            pcd_down = o3d.geometry.PointCloud()
+            pcd_down.points = o3d.utility.Vector3dVector(down_points)
+            pcd_down.colors = o3d.utility.Vector3dVector(down_colors)
+            o3d.io.write_point_cloud(filepath_down, pcd_down)
+        else:
+            with open(filepath_down, 'w') as f:
+                f.write("ply\n")
+                f.write("format ascii 1.0\n")
+                f.write(f"element vertex {len(down_points)}\n")
+                f.write("property float x\n")
+                f.write("property float y\n")
+                f.write("property float z\n")
+                f.write("property uchar red\n")
+                f.write("property uchar green\n")
+                f.write("property uchar blue\n")
+                f.write("end_header\n")
+                for i in range(len(down_points)):
+                    x, y, z = down_points[i]
+                    r, g, b = (down_colors[i] * 255).astype(np.uint8)
+                    f.write(f"{x} {y} {z} {r} {g} {b}\n")
+
+        # Run PoinTr inference on the downsampled file
+        self.run_pointr_inference(filepath_down)
+
     def processing_loop(self):
         self.running = True
         while self.running:
@@ -286,12 +373,38 @@ class MAP_NBV_Trial:
             if drone_data_list is None or len(drone_data_list) == 0:
                 time.sleep(1.0)
                 continue
+
             global_points, global_colors = self.fuse_point_clouds(drone_data_list)
+
+
             if len(global_points) > 0:
                 self.save_point_cloud(global_points, global_colors, self.frames_processed)
-                self.send_predicted_commands(len(drone_data_list))
+
+                # After inference, run candidate_positions.py main on fine.ply
+                try:
+                    fine_ply_path = os.path.join(self.output_folder, "fine.ply")
+                    drone_positions = []
+                    for drone_data in drone_data_list:
+                        pos = drone_data.pose.position.tolist()
+                        quat = drone_data.pose.quaternion
+                        euler = self.quaternion_to_euler(quat)
+                        drone_positions.append((pos, euler))
+
+                    selected_nbvs = candidate_positions_main(
+                        fine_ply_path,
+                        visualize=False,
+                        drone_count=len(drone_data_list),
+                        drone_positions=drone_positions
+                    )
+                    
+                    self.send_nbv_commands(selected_nbvs)
+                except Exception as e:
+                    print(f"Error running candidate_positions.py: {e}")
                 self.frames_processed += 1
             self.last_processed_time = current_time
+
+
+            
 
     def start(self):
         if not self.initialize():
