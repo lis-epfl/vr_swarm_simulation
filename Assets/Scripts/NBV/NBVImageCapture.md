@@ -432,7 +432,7 @@ public class NBVImageCapture : MonoBehaviour
                 
                 // if (enableDebugLogging)
                 //     Debug.Log($"  CaptureDepthData returned: {(depthData == null ? "null" : depthData.Length + " bytes")}");
-                
+
                 if (depthData != null && depthData.Length == depthSize)
                 {
                     int depthOffset = 16 + (i * (rgbSize + depthSize)) + rgbSize;
@@ -624,49 +624,43 @@ public class NBVImageCapture : MonoBehaviour
     {
         if (commandPtr == IntPtr.Zero || droneCameras == null || droneCameras.Count == 0)
             return;
-        
-        // Check if Python has written new commands (flag == 2)
+        // Read the flag
         int flag = Marshal.ReadInt32(commandPtr, CommandFlagPosition);
-        if (flag != 2)
-            return; // No new commands available
-        
-        // Set flag to indicate we're reading (flag = 1)
-        Marshal.WriteInt32(commandPtr, CommandFlagPosition, 1);
-        
-        try
+        // New flag logic:
+        // 9: Move to formation
+        // 3: Move to NBV position
+        // 0: Hold position
+        // 1/2: Busy/data ready (ignore for movement)
+        if (flag == 9 || flag == 3)
         {
-            int droneCount = droneCameras.Count;
-            
-            // Read per-drone commands
-            for (int i = 0; i < droneCount; i++)
+            // Set flag to indicate we're reading (flag = 1)
+            Marshal.WriteInt32(commandPtr, CommandFlagPosition, 1);
+            try
             {
-                int offset = CommandDataPosition + (i * commandDataSize);
-                
-                byte[] commandBytes = new byte[commandDataSize];
-                Marshal.Copy(IntPtr.Add(commandPtr, offset), commandBytes, 0, commandDataSize);
-                
-                float x = BitConverter.ToSingle(commandBytes, 0);
-                float y = BitConverter.ToSingle(commandBytes, 4);
-                float z = BitConverter.ToSingle(commandBytes, 8);
-                
-                Vector3 command = new Vector3(x, y, z);
-                
-                // Apply command to specific drone
-                ApplyPositionCommandToDrone(i, command);
+                int droneCount = droneCameras.Count;
+                for (int i = 0; i < droneCount; i++)
+                {
+                    int offset = CommandDataPosition + (i * commandDataSize);
+                    byte[] commandBytes = new byte[commandDataSize];
+                    Marshal.Copy(IntPtr.Add(commandPtr, offset), commandBytes, 0, commandDataSize);
+                    float x = BitConverter.ToSingle(commandBytes, 0);
+                    float y = BitConverter.ToSingle(commandBytes, 4);
+                    float z = BitConverter.ToSingle(commandBytes, 8);
+                    Vector3 command = new Vector3(x, y, z);
+                    ApplyPositionCommandToDrone(i, command);
+                }
             }
-            
-            if (enableDebugLogging)
-                Debug.Log($"Received {droneCount} position commands from Python");
+            catch (Exception e)
+            {
+                Debug.LogError($"Failed to read commands: {e.Message}");
+            }
+            finally
+            {
+                // Reset flag to 0 (hold) after reading
+                Marshal.WriteInt32(commandPtr, CommandFlagPosition, 0);
+            }
         }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to read commands: {e.Message}");
-        }
-        finally
-        {
-            // Reset flag to indicate we're done reading (flag = 0)
-            Marshal.WriteInt32(commandPtr, CommandFlagPosition, 0);
-        }
+        // If flag is 0, just hold position (do nothing)
     }
     
     private void ApplyPositionCommand(Vector3 positionCommand)
@@ -727,41 +721,4 @@ public class NBVImageCapture : MonoBehaviour
     /// </summary>
     public int GetDroneCameraCount()
     {
-        return droneCameras?.Count ?? 0;
-    }
-    
-    /// <summary>
-    /// Force refresh of drone cameras (useful if drones are added/removed dynamically)
-    /// </summary>
-    public void RefreshDroneCameras()
-    {
-        FindDroneCameras();
-    }
-    
-    #endregion
-    
-    #region Unity Lifecycle
-    
-    void OnValidate()
-    {
-        // Ensure reasonable values
-        imageWidth = Mathf.Clamp(imageWidth, 64, 2048);
-        imageHeight = Mathf.Clamp(imageHeight, 64, 2048);
-        captureInterval = Mathf.Clamp(captureInterval, 0.1f, 5.0f);
-        maxDroneCount = Mathf.Clamp(maxDroneCount, 1, 20);
-    }
-    
-    void OnDestroy()
-    {
-        DestroySharedMemory();
-    }
-    
-    void OnApplicationQuit()
-    {
-        DestroySharedMemory();
-        // if (enableDebugLogging)
-        //     Debug.Log("NBVImageCapture: Shared memory cleaned up on application quit");
-    }
-    
-    #endregion
-}
+        return droneCameras?.Count

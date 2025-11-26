@@ -89,6 +89,12 @@ public class NBV : MonoBehaviour
     private System.IntPtr commandPtr;
     private bool visionSystemInitialized = false;
 
+    // Add NBVMode enum for clarity
+    private enum NBVMode { Hold, Formation, NBVCommand }
+    private NBVMode currentMode = NBVMode.Hold;
+    private int lastCommandFlag = -1;
+    private float vicinityThreshold = 1.0f; // meters
+
     void Start()
     {
         // if (logVisionCommands)
@@ -110,6 +116,16 @@ public class NBV : MonoBehaviour
             //     Debug.Log($"NBV.cs: '{gameObject.name}' will receive shared vision commands");
             // }
         }
+
+        // Set initial mode and flag to formation (9)
+        currentMode = NBVMode.Formation;
+        lastCommandFlag = 9;
+        // If vision system is enabled and initialized, set flag in shared memory
+        if (enableVisionSystem && isVisionCoordinator && visionSystemInitialized && commandPtr != IntPtr.Zero)
+        {
+            Marshal.WriteInt32(commandPtr, 0, 9);
+            Debug.Log("[NBV] Set initial shared memory flag to 9 (Formation mode)");
+        }
     }
 
     void OnDestroy()
@@ -123,16 +139,34 @@ public class NBV : MonoBehaviour
     void FixedUpdate()
     {
         // Only the vision coordinator reads from shared memory
-        // Check frequently (every 0.1 seconds) for immediate response to Python commands
         if (enableVisionSystem && isVisionCoordinator && Time.time - lastVisionCheckTime >= 0.1f)
         {
-            // if (logVisionCommands)
-            // {
-            //     Debug.Log($"NBV Coordinator ({gameObject.name}): Checking for vision commands...");
-            // }
             UpdateVisionCommand();
             lastVisionCheckTime = Time.time;
         }
+
+        // Check command flag from shared memory (if vision system is enabled and initialized)
+        int commandFlag = 0;
+        if (visionSystemInitialized && commandPtr != IntPtr.Zero)
+        {
+            commandFlag = Marshal.ReadInt32(commandPtr, 0);
+        }
+
+        // Switch mode based on flag
+        if (commandFlag != lastCommandFlag)
+        {
+            lastCommandFlag = commandFlag;
+            if (commandFlag == 9)
+                currentMode = NBVMode.Formation;
+            else if (commandFlag == 3)
+                currentMode = NBVMode.NBVCommand;
+            else if (commandFlag == 0)
+                currentMode = NBVMode.Hold;
+            // 1 and 2 are busy/data ready, don't change mode
+        }
+
+        // Debug: print current mode and flag
+        Debug.Log($"[NBV] Frame: Mode={currentMode}, SharedMemoryFlag={lastCommandFlag}");
 
         // Ensure there are drones in the swarm to avoid division by zero
         if (swarm == null || swarm.Count == 0)
@@ -140,112 +174,66 @@ public class NBV : MonoBehaviour
             return;
         }
 
-        // Calculate the angle between each drone
-        // 360 degrees in a circle, divided by the number of drones
-        // float angleStep = 360.0f / swarm.Count;
-        float angleStep = 30.0f;
-        
-
-        // Get the name of the parent of this gameObject
+        // Get drone index
         string droneName = gameObject.transform.parent.name;
         string[] splitName = droneName.Split(' ');
         int i = int.Parse(splitName[1]);
 
-        // Calculate the angle for this specific drone
-        // We multiply by Mathf.Deg2Rad to convert degrees to radians for the trig functions
-        // add +45 degrees buffer so that drone 0 starts at 45 degrees (northeast) instead of 0 degrees (east)
-        // Add buffer_angle as variable
-        float buffer_angle = 45.0f;
-        float angle = (i * angleStep + buffer_angle) * Mathf.Deg2Rad;
+        Vector3 targetPosition = Vector3.zero;
+        float adjustedHeight = height;
 
-        // Calculate the target position using trigonometry
-        // x = center.x + radius * cos(angle)
-        // z = center.z + radius * sin(angle)
-        float x = centerPoint.x + radius * Mathf.Cos(angle);
-        float z = centerPoint.z + radius * Mathf.Sin(angle);
-
-        // Create the final target position vector
-        Vector3 targetPosition = new Vector3(x, height, z);
-        
-        // Apply vision system offset if enabled
-        if (enableVisionSystem)
+        if (currentMode == NBVMode.Formation)
         {
-            Vector3 visionCommand = Vector3.zero;
-            Vector3 visionOffset = Vector3.zero;
-            
+            // Formation logic
+            float angleStep = 30.0f;
+            float buffer_angle = 45.0f;
+            float angle = (i * angleStep + buffer_angle) * Mathf.Deg2Rad;
+            float x = centerPoint.x + radius * Mathf.Cos(angle);
+            float z = centerPoint.z + radius * Mathf.Sin(angle);
+            targetPosition = new Vector3(x, height, z);
+        }
+        else if (currentMode == NBVMode.NBVCommand)
+        {
+            // Use NBV command as target
             if (usePerDroneCommands && i < perDroneVisionCommands.Length)
             {
-                // NEW: Use individual drone command
-                visionCommand = perDroneVisionCommands[i];
-                visionOffset = visionCommand * visionInfluenceStrength;
-                
-                if (logVisionCommands && visionCommand.magnitude > 0.001f && i < 3) // Log for first 3 drones
-                {
-                    Debug.Log($"NBV Drone {i}: Individual vision command = {visionCommand}, offset = {visionOffset}");
-                }
+                targetPosition = perDroneVisionCommands[i];
+                adjustedHeight = targetPosition.y;
             }
             else
             {
-                // LEGACY: Use shared command with multiplier
-                int droneMultiplier = i + 1; // +1 to avoid multiplying by 0 for drone 0
-                Vector3 individualVisionCommand = sharedVisionCommand * droneMultiplier;
-                visionOffset = individualVisionCommand * visionInfluenceStrength;
-                
-                if (logVisionCommands && sharedVisionCommand.magnitude > 0.001f && i < 3) // Log for first 3 drones
-                {
-                    Debug.Log($"NBV Drone {i}: Shared vision command {sharedVisionCommand}, multiplied by {droneMultiplier} = {individualVisionCommand}, offset = {visionOffset}");
-                }
+                targetPosition = sharedVisionCommand;
+                adjustedHeight = targetPosition.y;
             }
-            
-            // Apply X and Z offsets to target position (for horizontal movement)
-            targetPosition.x += visionOffset.x;
-            targetPosition.z += visionOffset.z;
-            
-            // Apply Y offset to height (for vertical movement) - TEMP OFFSET, NOT CUMULATIVE!
-            // Use a temporary variable so we don't accumulate the offset every frame
-            float adjustedHeight = height + visionOffset.y;
-            
-            if (logVisionCommands && visionOffset.magnitude > 0.001f && i < 3) // Log for first 3 drones
-            {
-                Debug.Log($"NBV Drone {i}: Target position = {targetPosition}, base height = {height}, adjusted height = {adjustedHeight}");
-            }
-            
-            // Set the desired height with vision offset for VelocityControl to use
-            GetComponent<VelocityControl>().desired_height = adjustedHeight;
         }
-        else
+        else if (currentMode == NBVMode.Hold)
         {
-            // No vision system - use base height
-            GetComponent<VelocityControl>().desired_height = height;
+            // Hold current position
+            targetPosition = transform.position;
+            adjustedHeight = transform.position.y;
         }
-        //  debugging print
-        // Debug.Log("Drone " + i + " target position: " + targetPosition);
 
-        // Get the current drone GameObject and find the DroneParent child (like in Reynolds)
+        // Set desired height for VelocityControl
+        GetComponent<VelocityControl>().desired_height = adjustedHeight;
+
+        // Get the current drone GameObject and find the DroneParent child
         GameObject drone = swarm[i];
         GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
-
-        // Debug both positions to see the difference
-        // Debug.Log("Drone " + i + " parent position: " + drone.transform.position + ", child position: " + droneChild.transform.position + ", target: " + targetPosition);
-        // Get the max speed from the VelocityControl script
         float maxSpeed = droneChild.GetComponent<VelocityControl>().GetMaxSpeed();
 
         // Proportional control
         Vector3 positionError = targetPosition - droneChild.transform.position;
         Vector3 velocityCommand = positionError * proportionalGain;
 
-        // NEW: Add obstacle avoidance
+        // Obstacle/inter-drone avoidance (unchanged)
         Vector3 avoidanceVector = Vector3.zero;
         Vector3 interDroneAvoidanceVector = Vector3.zero;
         bool isAvoiding = false;
-        
         if (enableObstacleAvoidance)
         {
             avoidanceVector = CalculateObstacleAvoidance(droneChild);
             isAvoiding = avoidanceVector.magnitude > 0.1f;
         }
-        
-        // NEW: Add inter-drone avoidance
         if (enableInterDroneAvoidance)
         {
             interDroneAvoidanceVector = CalculateInterDroneAvoidance(droneChild);
@@ -254,43 +242,49 @@ public class NBV : MonoBehaviour
                 isAvoiding = true;
             }
         }
-        
-        // Formation override: reduce formation pull when avoiding obstacles OR other drones
         if (useFormationOverride && isAvoiding)
         {
-            float reductionFactor = 0.3f; // Reduce formation force to 30% when avoiding
+            float reductionFactor = 0.3f;
             velocityCommand *= reductionFactor;
-            
-            if (debug_bool)
-            {
-                NBVDebugger.LogFormationOverride(droneChild.name, avoidanceVector.magnitude, interDroneAvoidanceVector.magnitude);
-            }
         }
-        
-        // Combine all forces
         velocityCommand += avoidanceVector + interDroneAvoidanceVector;
-
-        // Clamp the velocity command to the maximum speed
-        // Clamp the velocity to maximum allowed
         if (velocityCommand.magnitude > maxSpeed)
         {
             velocityCommand = velocityCommand.normalized * maxSpeed;
         }
-
-        // Send commands to VelocityControl - ONLY X and Z
         GetComponent<VelocityControl>().swarm_vx = velocityCommand.x;
         GetComponent<VelocityControl>().swarm_vz = velocityCommand.z;
-        // Don't set swarm_vy - let VelocityControl handle height!
-
-        // NOTE: desired_height is now set in the vision system section above
-
-        // Attitude control - point toward center
+        // desired_height is already set above
         CalculateYawTowardCenter(droneChild);
-
-        // NEW: Camera pitch control
         if (enableCameraPitchControl)
         {
             ControlCameraPitch(drone);
+        }
+
+        // Vicinity check for mode transitions
+        if (currentMode == NBVMode.Formation || currentMode == NBVMode.NBVCommand)
+        {
+            bool allInVicinity = true;
+            for (int idx = 0; idx < swarm.Count; idx++)
+            {
+                GameObject d = swarm[idx];
+                GameObject dChild = d.transform.Find("DroneParent").gameObject;
+                Vector3 target = currentMode == NBVMode.Formation ?
+                    new Vector3(centerPoint.x + radius * Mathf.Cos((idx * 30.0f + 45.0f) * Mathf.Deg2Rad), height, centerPoint.z + radius * Mathf.Sin((idx * 30.0f + 45.0f) * Mathf.Deg2Rad)) :
+                    (usePerDroneCommands && idx < perDroneVisionCommands.Length ? perDroneVisionCommands[idx] : sharedVisionCommand);
+                float dist = Vector3.Distance(dChild.transform.position, target);
+                if (dist > vicinityThreshold)
+                {
+                    allInVicinity = false;
+                    break;
+                }
+            }
+            // If all drones are in vicinity, switch flag to 0 (hold)
+            if (allInVicinity && visionSystemInitialized && commandPtr != IntPtr.Zero)
+            {
+                Marshal.WriteInt32(commandPtr, 0, 0);
+                currentMode = NBVMode.Hold;
+            }
         }
     }
 
@@ -576,13 +570,17 @@ public class NBV : MonoBehaviour
             }
 
             visionSystemInitialized = true;
-            // if (logVisionCommands)
-            //     Debug.Log($"NBV: Vision system initialized successfully (memory size: {commandMemorySize} bytes, per-drone: {usePerDroneCommands})");
+            Debug.Log($"[NBV] Vision system initialized: isVisionCoordinator={isVisionCoordinator}, commandPtr={(commandPtr != IntPtr.Zero)}");
+            if (enableVisionSystem && isVisionCoordinator && commandPtr != IntPtr.Zero)
+            {
+                Marshal.WriteInt32(commandPtr, 0, 9);
+                Debug.Log("[NBV] Set initial shared memory flag to 9 (Formation mode) in InitializeVisionSystem");
+            }
         }
         catch (System.Exception e)
         {
-            // if (logVisionCommands)
-            //     Debug.LogError($"NBV: Failed to initialize vision system: {e.Message}");
+            if (logVisionCommands)
+                Debug.LogError($"NBV: Failed to initialize vision system: {e.Message}");
             enableVisionSystem = false;
         }
     }
