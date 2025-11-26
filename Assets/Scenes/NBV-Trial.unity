@@ -583,11 +583,11 @@ MonoBehaviour:
     type: 3}
   swarm: []
   dronesAlongX: 2
-  dronesAlongZ: 2
+  dronesAlongZ: 1
   droneSpacing: 5
   start_x: 30
   start_y: 0
-  start_z: -50
+  start_z: 50
   randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897

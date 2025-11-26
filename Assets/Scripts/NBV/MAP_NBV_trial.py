@@ -17,9 +17,12 @@ except ImportError:
 from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
 
 #import candidate_positions
-sys.path.append("/Users/advaithsriram/pointr-nbv/scripts")
+# sys.path.append("/Users/advaithsriram/pointr-nbv/scripts") #MAC
+sys.path.append(r"C:/Users/sriram/PoinTr/scripts") #WINDOWS
+
 from candidate_positions import main as candidate_positions_main
-sys.path.remove("/Users/advaithsriram/pointr-nbv/scripts")
+# sys.path.remove("/Users/advaithsriram/pointr-nbv/scripts") #MAC
+sys.path.remove(r"C:/Users/sriram/PoinTr/scripts") #WINDOWS
 
 DOWN_SAMPLE_SIZE = 2000
 
@@ -45,35 +48,29 @@ class DroneData:
     pose: DronePose
 
 class MAP_NBV_Trial:
+    MIN_DISTANCE_FROM_DRONE = 1.1  # meters
+    timestamp = None
 
-    def send_nbv_commands(self, selected_nbvs):
-        """Send selected NBV positions to Unity via shared memory."""
+    def send_nbv_commands(self, selected_nbvs, flag=3):
+        """Send selected NBV positions to Unity via shared memory, with mode flag."""
         try:
             drone_count = len(selected_nbvs)
             command_size = 4 + (drone_count * 12)  # flag + commands
-            
             if self.command_mmf is None:
                 self.command_mmf = mmap.mmap(-1, command_size, self.command_memory_name)
-            
             self.command_mmf.seek(0)
-            flag = struct.unpack('i', self.command_mmf.read(4))[0]
-            
-            # Check if Unity is ready
-            if flag != 0:
+            current_flag = struct.unpack('i', self.command_mmf.read(4))[0]
+            # Only send if Unity is ready (flag == 0 or flag == 9)
+            if current_flag not in [0, 9]:
                 return False
-            
             # Write commands
             self.command_mmf.seek(4)
             for pos, euler in selected_nbvs:
-                # Send x, y, z from pos
                 self.command_mmf.write(struct.pack('fff', pos[0], pos[1], pos[2]))
-                # CHECK, WHEN THE DRONES MOVE, IF THE YAW IS CORRECT
-                # DO THEY NEED ORIENTATION?
-            
-            # Set flag to 2 (commands ready)
+            # Set flag to desired mode (default 3 for NBV)
             self.command_mmf.seek(0)
-            self.command_mmf.write(struct.pack('i', 2))
-            print(f"Sent NBV commands: {selected_nbvs}")
+            self.command_mmf.write(struct.pack('i', flag))
+            print(f"Sent NBV commands with flag {flag}: {selected_nbvs}")
             return True
         except Exception as e:
             print(f"Failed to send NBV commands: {e}")
@@ -88,21 +85,24 @@ class MAP_NBV_Trial:
     def run_pointr_inference(self, downsampled_file):
         """Run PoinTr inference on the downsampled PLY file using subprocess."""
         import subprocess
-        pointr_dir = "/Users/advaith/pointr-nbv"
+        pointr_dir = "C:/Users/sriram/PoinTr" # WINDOWS
         inference_script = os.path.join(pointr_dir, "tools/inference.py")
         config_path = os.path.join(pointr_dir, "cfgs/ShapeNet55_models/PoinTr.yaml")
         checkpoint_path = os.path.join(pointr_dir, "models/checkpoint55.pth")
+        abs_downsampled_file = os.path.abspath(downsampled_file)
+        abs_out_pc_root = "C:/Users/sriram/vr_swarm_simulation/Assets/ProcessedImages/PointClouds"
+        os.makedirs(abs_out_pc_root, exist_ok=True)
         cmd = [
-            "python3",
+            "python", # WINDOWS
             inference_script,
             config_path,
             checkpoint_path,
-            "--pc", downsampled_file,
-            "--out_pc_root", "../../ProcessedImages/PointClouds",
+            "--pc", abs_downsampled_file,
+            "--out_pc_root", abs_out_pc_root,
             "--save_ply"
         ]
-        print(f"Running inference on {downsampled_file} ...")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        print(f"Running inference on {abs_downsampled_file} ...")
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=pointr_dir)
         print("PoinTr STDOUT:", result.stdout)
         print("PoinTr STDERR:", result.stderr)
 
@@ -127,7 +127,8 @@ class MAP_NBV_Trial:
         self.image_memory_name = "NBVImageDepthMemory"
         self.intrinsics_memory_name = "NBVCameraIntrinsics"
         self.pose_memory_name = "NBVDronePoses"
-        self.command_memory_name = "NBVCommandMemory"
+        # self.command_memory_name = "NBVCommandMemory"
+        self.command_memory_name = "NBVCommandSharedMemory"
         self.output_folder = "../../ProcessedImages/PointClouds"
         os.makedirs(self.output_folder, exist_ok=True)
         self.sam_model_type = "vit_h"
@@ -277,7 +278,6 @@ class MAP_NBV_Trial:
         return points_global
 
     def fuse_point_clouds(self, drone_data_list):
-        MIN_DISTANCE_FROM_DRONE = 0.2
         all_points = []
         all_colors = []
         for drone_data in drone_data_list:
@@ -289,7 +289,8 @@ class MAP_NBV_Trial:
                 mask,
                 drone_data.rgb_image
             )
-            mask_dist = np.abs(points_local[:, 2]) > MIN_DISTANCE_FROM_DRONE
+            # Filter out points close to the drone origin (likely drone mesh)
+            mask_dist = np.abs(points_local[:, 2]) > self.MIN_DISTANCE_FROM_DRONE
             filtered_points = points_local[mask_dist]
             filtered_colors = colors[mask_dist]
             points_global = self.transform_to_global_frame(filtered_points, drone_data.pose)
@@ -302,8 +303,8 @@ class MAP_NBV_Trial:
         return global_points, global_colors
 
     def save_point_cloud(self, points, colors, frame_id):
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename_ply = f"pointcloud_frame{frame_id:04d}_{timestamp}.ply"
+        self.timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename_ply = f"pointcloud_frame{frame_id:04d}_{self.timestamp}.ply"
         filepath_ply = os.path.join(self.output_folder, filename_ply)
         # Save full point cloud first
         if HAS_OPEN3D:
@@ -330,7 +331,7 @@ class MAP_NBV_Trial:
 
         # Downsample and save downsampled point cloud
         down_points, down_colors = self.random_downsample(points, colors, size=DOWN_SAMPLE_SIZE, seed=42)
-        filename_down = f"pointcloud_downsampled_frame{frame_id:04d}_{timestamp}.ply"
+        filename_down = f"pointcloud_downsampled_frame{frame_id:04d}_{self.timestamp}.ply"
         filepath_down = os.path.join(self.output_folder, filename_down)
         if HAS_OPEN3D:
             pcd_down = o3d.geometry.PointCloud()
@@ -382,7 +383,10 @@ class MAP_NBV_Trial:
 
                 # After inference, run candidate_positions.py main on fine.ply
                 try:
-                    fine_ply_path = os.path.join(self.output_folder, "fine.ply")
+                    # Get the downsampled file name (used for inference)
+                    filename_down = f"pointcloud_downsampled_frame{self.frames_processed:04d}_{self.timestamp}.ply"
+                    downsampled_folder = os.path.splitext(filename_down)[0]  # Remove .ply extension
+                    fine_ply_path = os.path.join(self.output_folder, downsampled_folder, "fine.ply")
                     drone_positions = []
                     for drone_data in drone_data_list:
                         pos = drone_data.pose.position.tolist()
@@ -392,12 +396,31 @@ class MAP_NBV_Trial:
 
                     selected_nbvs = candidate_positions_main(
                         fine_ply_path,
-                        visualize=False,
+                        visualize=True,
                         drone_count=len(drone_data_list),
                         drone_positions=drone_positions
                     )
                     
                     self.send_nbv_commands(selected_nbvs)
+
+                    # Wait until all drones are within vicinity of their NBV poses before next loop
+                    vicinity_threshold = 1.0  # meters
+                    all_in_vicinity = False
+                    while not all_in_vicinity:
+                        # Read latest drone positions from shared memory
+                        current_drone_data = self.read_drone_data_from_memory()
+                        if current_drone_data is None or len(current_drone_data) != len(selected_nbvs):
+                            time.sleep(0.5)
+                            continue
+                        all_in_vicinity = True
+                        for idx, (nbv_pos, _) in enumerate(selected_nbvs):
+                            drone_pos = current_drone_data[idx].pose.position
+                            dist = np.linalg.norm(np.array(nbv_pos) - drone_pos)
+                            if dist > vicinity_threshold:
+                                all_in_vicinity = False
+                                break
+                        if not all_in_vicinity:
+                            time.sleep(0.5)
                 except Exception as e:
                     print(f"Error running candidate_positions.py: {e}")
                 self.frames_processed += 1
