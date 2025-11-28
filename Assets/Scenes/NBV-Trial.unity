@@ -288,6 +288,8 @@ MonoBehaviour:
   visionInfluenceStrength: 1
   logVisionCommands: 1
   usePerDroneCommands: 1
+  useNBVMode: 1
+  logNBVCommands: 1
 --- !u!114 &801706983
 MonoBehaviour:
   m_ObjectHideFlags: 0
