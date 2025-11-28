@@ -10,9 +10,6 @@ public class NBV : MonoBehaviour
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenFileMapping(uint dwDesiredAccess, bool bInheritHandle, string lpName);
 
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    private static extern IntPtr CreateFileMapping(IntPtr hFile, IntPtr lpAttributes, uint protect, uint maxSizeHigh, uint maxSizeLow, string name);
-
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr MapViewOfFile(IntPtr hFileMappingObject, uint dwDesiredAccess, uint dwFileOffsetHigh, uint dwFileOffsetLow, uint dwNumberOfBytesToMap);
 
@@ -23,7 +20,6 @@ public class NBV : MonoBehaviour
     private static extern bool CloseHandle(IntPtr hObject);
 
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
-    private const uint PAGE_READWRITE = 0x04;
 
     public List<GameObject> swarm;
 
@@ -69,12 +65,8 @@ public class NBV : MonoBehaviour
     [Header("Vision System Integration")]
     [SerializeField] private bool enableVisionSystem = true; // Enable/disable vision-based adjustments
     [SerializeField] private float visionInfluenceStrength = 0.1f; // How much vision affects positions (reduced for safety)
-    [SerializeField] private bool logVisionCommands = true; // Debug logging - ENABLED FOR DEBUGGING
+    [SerializeField] private bool logVisionCommands = false; // Debug logging
     [SerializeField] private bool usePerDroneCommands = true; // NEW: Use individual drone commands instead of shared
-    
-    [Header("NBV Mode")]
-    [SerializeField] private bool useNBVMode = false; // Toggle: false = vision offsets, true = absolute NBV targets
-    [SerializeField] private bool logNBVCommands = true; // Debug logging for NBV commands
 
     // Static shared vision command (legacy mode - all drones use the same command)
     private static Vector3 sharedVisionCommand = Vector3.zero;
@@ -82,10 +74,6 @@ public class NBV : MonoBehaviour
     // Per-drone vision commands (new mode - each drone has its own command)
     private static Vector3[] perDroneVisionCommands = new Vector3[10]; // Max 10 drones
     private static bool perDroneCommandsUpdated = false;
-    
-    // NBV target positions (absolute positions from Python)
-    private static Vector3[] nbvTargetPositions = new Vector3[10]; // Max 10 drones
-    private static bool hasNBVTargets = false;
     
     private static bool isVisionCoordinator = false; // Only one drone manages shared memory
     
@@ -103,24 +91,24 @@ public class NBV : MonoBehaviour
 
     void Start()
     {
-        if (logVisionCommands || logNBVCommands)
-            Debug.Log($"NBV.cs: Starting on GameObject '{gameObject.name}' with vision system {(enableVisionSystem ? "ENABLED" : "DISABLED")}, NBV mode {(useNBVMode ? "ENABLED" : "DISABLED")}");
+        // if (logVisionCommands)
+        //     Debug.Log($"NBV.cs: Starting on GameObject '{gameObject.name}' with vision system {(enableVisionSystem ? "ENABLED" : "DISABLED")}");
             
         if (enableVisionSystem)
         {
             // The sharedVisionManager becomes the vision coordinator
             string objectName = gameObject.name;
-            if (objectName.Contains("sharedVisionManager") || objectName.Contains("0") || objectName.Contains("DroneParent"))
+            if (objectName.Contains("sharedVisionManager") || objectName.Contains("0"))
             {
                 isVisionCoordinator = true;
                 InitializeVisionSystem();
-                if (logVisionCommands || logNBVCommands)
-                    Debug.Log($"NBV.cs: '{gameObject.name}' designated as vision coordinator");
+                // if (logVisionCommands)
+                //     Debug.Log($"NBV.cs: '{gameObject.name}' designated as vision coordinator");
             }
-            else if (logVisionCommands || logNBVCommands)
-            {
-                Debug.Log($"NBV.cs: '{gameObject.name}' will receive shared vision commands");
-            }
+            // else if (logVisionCommands)
+            // {
+            //     Debug.Log($"NBV.cs: '{gameObject.name}' will receive shared vision commands");
+            // }
         }
     }
 
@@ -138,10 +126,10 @@ public class NBV : MonoBehaviour
         // Check frequently (every 0.1 seconds) for immediate response to Python commands
         if (enableVisionSystem && isVisionCoordinator && Time.time - lastVisionCheckTime >= 0.1f)
         {
-            if (logVisionCommands || logNBVCommands)
-            {
-                Debug.Log($"NBV Coordinator ({gameObject.name}): Checking for commands... (NBV mode: {useNBVMode})");
-            }
+            // if (logVisionCommands)
+            // {
+            //     Debug.Log($"NBV Coordinator ({gameObject.name}): Checking for vision commands...");
+            // }
             UpdateVisionCommand();
             lastVisionCheckTime = Time.time;
         }
@@ -179,34 +167,9 @@ public class NBV : MonoBehaviour
         // Create the final target position vector
         Vector3 targetPosition = new Vector3(x, height, z);
         
-        // Apply NBV mode or vision system offset if enabled
-        if (enableVisionSystem && useNBVMode && hasNBVTargets && i < nbvTargetPositions.Length)
+        // Apply vision system offset if enabled
+        if (enableVisionSystem)
         {
-            // NBV MODE: Use absolute target position from Python
-            Vector3 nbvTarget = nbvTargetPositions[i];
-            
-            // Only use NBV target if it's not zero (valid target)
-            if (nbvTarget.magnitude > 0.001f)
-            {
-                targetPosition = nbvTarget;
-                
-                if (logNBVCommands && i < 3) // Log for first 3 drones
-                {
-                    Debug.Log($"NBV Drone {i}: Using absolute NBV target = {nbvTarget}");
-                }
-                
-                // Set desired height from NBV target
-                GetComponent<VelocityControl>().desired_height = nbvTarget.y;
-            }
-            else
-            {
-                // No valid NBV target, use base height
-                GetComponent<VelocityControl>().desired_height = height;
-            }
-        }
-        else if (enableVisionSystem && !useNBVMode)
-        {
-            // VISION OFFSET MODE: Apply vision-based adjustments
             Vector3 visionCommand = Vector3.zero;
             Vector3 visionOffset = Vector3.zero;
             
@@ -252,7 +215,7 @@ public class NBV : MonoBehaviour
         }
         else
         {
-            // No vision system or NBV mode - use base height
+            // No vision system - use base height
             GetComponent<VelocityControl>().desired_height = height;
         }
         //  debugging print
@@ -579,10 +542,17 @@ public class NBV : MonoBehaviour
     {
         try
         {
-            // CREATE the shared memory for commands (instead of opening)
-            // This way Unity creates it first, and Python can open it later
-            
-            // Calculate size based on command mode
+            // Open the shared memory for commands
+            commandFileMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, commandMemoryName);
+            if (commandFileMap == IntPtr.Zero)
+            {
+                // if (logVisionCommands)
+                //     Debug.LogWarning($"NBV: Could not open command shared memory '{commandMemoryName}'. Vision system disabled.");
+                enableVisionSystem = false;
+                return;
+            }
+
+            // Map the command memory - calculate size based on command mode
             uint commandMemorySize;
             if (usePerDroneCommands)
             {
@@ -595,37 +565,24 @@ public class NBV : MonoBehaviour
                 commandMemorySize = 16; // 16 bytes total
             }
             
-            // CREATE shared memory (not open)
-            commandFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, commandMemorySize, commandMemoryName);
-            if (commandFileMap == IntPtr.Zero)
-            {
-                if (logVisionCommands || logNBVCommands)
-                    Debug.LogWarning($"NBV: Could not create command shared memory '{commandMemoryName}'. Vision system disabled.");
-                enableVisionSystem = false;
-                return;
-            }
-            
             commandPtr = MapViewOfFile(commandFileMap, FILE_MAP_ALL_ACCESS, 0, 0, commandMemorySize);
             if (commandPtr == IntPtr.Zero)
             {
-                if (logVisionCommands || logNBVCommands)
-                    Debug.LogWarning("NBV: Could not map command shared memory. Vision system disabled.");
+                // if (logVisionCommands)
+                //     Debug.LogWarning("NBV: Could not map command shared memory. Vision system disabled.");
                 CloseHandle(commandFileMap);
                 enableVisionSystem = false;
                 return;
             }
-            
-            // Initialize command flag to 0
-            Marshal.WriteInt32(commandPtr, 0, 0);
 
             visionSystemInitialized = true;
-            if (logVisionCommands || logNBVCommands)
-                Debug.Log($"NBV: Vision system initialized successfully (memory size: {commandMemorySize} bytes, per-drone: {usePerDroneCommands})");
+            // if (logVisionCommands)
+            //     Debug.Log($"NBV: Vision system initialized successfully (memory size: {commandMemorySize} bytes, per-drone: {usePerDroneCommands})");
         }
         catch (System.Exception e)
         {
-            if (logVisionCommands || logNBVCommands)
-                Debug.LogError($"NBV: Failed to initialize vision system: {e.Message}");
+            // if (logVisionCommands)
+            //     Debug.LogError($"NBV: Failed to initialize vision system: {e.Message}");
             enableVisionSystem = false;
         }
     }
@@ -634,8 +591,8 @@ public class NBV : MonoBehaviour
     {
         if (!visionSystemInitialized || commandPtr == IntPtr.Zero)
         {
-            if (logVisionCommands || logNBVCommands)
-                Debug.LogWarning("NBV Coordinator: Vision system not initialized or commandPtr is null");
+            // if (logVisionCommands)
+            //     Debug.LogWarning("NBV Coordinator: Vision system not initialized or commandPtr is null");
             return;
         }
 
@@ -644,20 +601,14 @@ public class NBV : MonoBehaviour
             // Read the command flag (first 4 bytes)
             int commandFlag = Marshal.ReadInt32(commandPtr, 0);
             
-            // DEBUG: Read first 16 bytes to see what's actually in memory
-            byte[] debugBytes = new byte[16];
-            Marshal.Copy(commandPtr, debugBytes, 0, 16);
-            
-            if (logVisionCommands || logNBVCommands)
-            {
-                Debug.Log($"NBV Coordinator: Read flag = {commandFlag}, Memory dump: {BitConverter.ToString(debugBytes)}");
-            }
+            // if (logVisionCommands)
+            // {
+            //     Debug.Log($"NBV Coordinator: Read flag = {commandFlag}");
+            // }
             
             // Only read if there's a new command (flag > 0)
             if (commandFlag > 0)
             {
-                Debug.Log($"NBV Coordinator: New command detected! Flag = {commandFlag}, useNBVMode = {useNBVMode}");
-                
                 if (usePerDroneCommands)
                 {
                     // NEW: Read individual commands for each drone
@@ -673,10 +624,14 @@ public class NBV : MonoBehaviour
                 // This creates a handshake with Python to prevent race conditions
                 Marshal.WriteInt32(commandPtr, 0, 0);
                 
-                if (logVisionCommands || logNBVCommands)
-                {
-                    Debug.Log($"NBV Coordinator: Acknowledged command(s), reset flag to 0 (was {commandFlag})");
-                }
+                // if (logVisionCommands)
+                // {
+                //     Debug.Log($"NBV Coordinator: Acknowledged command(s), reset flag to 0 (was {commandFlag})");
+                // }
+            }
+            else if (logVisionCommands)
+            {
+                Debug.Log("NBV Coordinator: No new command (flag = 0)");
             }
         }
         catch (System.Exception e)
@@ -713,7 +668,7 @@ public class NBV : MonoBehaviour
     private void ReadPerDroneCommands()
     {
         int commandSize = 12; // 3 floats (x, y, z)
-        int maxDrones = useNBVMode ? nbvTargetPositions.Length : perDroneVisionCommands.Length;
+        int maxDrones = perDroneVisionCommands.Length;
         
         // Read commands for all drones
         for (int droneId = 0; droneId < maxDrones; droneId++)
@@ -731,44 +686,23 @@ public class NBV : MonoBehaviour
             
             Vector3 newCommand = new Vector3(x, y, z);
             
-            if (useNBVMode)
+            // Update this drone's command
+            if (Vector3.Distance(newCommand, perDroneVisionCommands[droneId]) > 0.001f)
             {
-                // NBV MODE: Store as absolute target position
-                if (Vector3.Distance(newCommand, nbvTargetPositions[droneId]) > 0.001f)
-                {
-                    nbvTargetPositions[droneId] = newCommand;
-                    hasNBVTargets = true;
-                    
-                    if (logNBVCommands && droneId < 3) // Log first 3 drones
-                    {
-                        Debug.Log($"NBV Coordinator: Drone {droneId} NBV target updated: ({newCommand.x:F2}, {newCommand.y:F2}, {newCommand.z:F2})");
-                    }
-                }
-            }
-            else
-            {
-                // VISION OFFSET MODE: Store as vision offset (existing behavior)
-                if (Vector3.Distance(newCommand, perDroneVisionCommands[droneId]) > 0.001f)
-                {
-                    perDroneVisionCommands[droneId] = newCommand;
-                    perDroneCommandsUpdated = true;
-                    
-                    if (logVisionCommands && droneId < 3) // Log first 3 drones
-                    {
-                        Debug.Log($"NBV Coordinator: Updated drone {droneId} vision offset: ({newCommand.x:F2}, {newCommand.y:F2}, {newCommand.z:F2})");
-                    }
-                }
+                perDroneVisionCommands[droneId] = newCommand;
+                perDroneCommandsUpdated = true;
+                
+                // if (logVisionCommands && droneId < 3) // Log first 3 drones
+                // {
+                //     Debug.Log($"NBV Coordinator: Updated drone {droneId} command: ({newCommand.x:F2}, {newCommand.y:F2}, {newCommand.z:F2})");
+                // }
             }
         }
         
-        if (useNBVMode && hasNBVTargets && logNBVCommands)
-        {
-            Debug.Log($"NBV Coordinator: Updated NBV targets for {maxDrones} drones");
-        }
-        else if (!useNBVMode && perDroneCommandsUpdated && logVisionCommands)
-        {
-            Debug.Log($"NBV Coordinator: Updated per-drone vision commands for {maxDrones} drones");
-        }
+        // if (logVisionCommands && perDroneCommandsUpdated)
+        // {
+        //     Debug.Log($"NBV Coordinator: Updated per-drone vision commands for {maxDrones} drones");
+        // }
     }
 
     private void CleanupVisionSystem()

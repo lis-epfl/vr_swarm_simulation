@@ -9,6 +9,9 @@ import sys
 from typing import List, Optional, Tuple
 from scipy.spatial.transform import Rotation
 from dataclasses import dataclass
+import ctypes
+from ctypes import wintypes
+
 try:
     import open3d as o3d
     HAS_OPEN3D = True
@@ -25,6 +28,28 @@ from candidate_positions import main as candidate_positions_main
 sys.path.remove(r"C:/Users/sriram/PoinTr/scripts") #WINDOWS
 
 DOWN_SAMPLE_SIZE = 2000
+
+# Windows API for shared memory
+kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+
+FILE_MAP_ALL_ACCESS = 0xF001F
+INVALID_HANDLE_VALUE = -1
+
+OpenFileMapping = kernel32.OpenFileMappingW
+OpenFileMapping.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+OpenFileMapping.restype = wintypes.HANDLE
+
+MapViewOfFile = kernel32.MapViewOfFile
+MapViewOfFile.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_size_t]
+MapViewOfFile.restype = wintypes.LPVOID
+
+UnmapViewOfFile = kernel32.UnmapViewOfFile
+UnmapViewOfFile.argtypes = [wintypes.LPCVOID]
+UnmapViewOfFile.restype = wintypes.BOOL
+
+CloseHandle = kernel32.CloseHandle
+CloseHandle.argtypes = [wintypes.HANDLE]
+CloseHandle.restype = wintypes.BOOL
 
 @dataclass
 class CameraIntrinsics:
@@ -52,7 +77,7 @@ class MAP_NBV_Trial:
     timestamp = None
 
     def send_nbv_commands(self, selected_nbvs, flag=1):
-        """Send selected NBV positions to Unity via shared memory.
+        """Send selected NBV positions to Unity via shared memory using Windows API.
         
         Args:
             selected_nbvs: List of (position, euler) tuples for each drone
@@ -63,30 +88,75 @@ class MAP_NBV_Trial:
         """
         try:
             drone_count = len(selected_nbvs)
-            command_size = 4 + (drone_count * 12)  # flag + (drone_count × 12 bytes per command)
+            # Unity creates memory with size for 10 drones (124 bytes)
+            command_size = 4 + (10 * 12)  # flag + (10 drones × 12 bytes per command)
             
-            # Create or reopen shared memory
+            # OPEN existing shared memory created by Unity using Windows API
             if self.command_mmf is None:
-                self.command_mmf = mmap.mmap(-1, command_size, self.command_memory_name)
-                print(f"Created command shared memory: {self.command_memory_name} ({command_size} bytes)")
+                try:
+                    # Open the existing shared memory (created by Unity)
+                    handle = OpenFileMapping(FILE_MAP_ALL_ACCESS, False, self.command_memory_name)
+                    
+                    if not handle or handle == INVALID_HANDLE_VALUE:
+                        error = ctypes.get_last_error()
+                        print(f"✗ Failed to open command shared memory '{self.command_memory_name}' (error {error})")
+                        print(f"   Unity may not have created it yet. Make sure Unity is running first!")
+                        return False
+                    
+                    # Map the memory into our process
+                    ptr = MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, command_size)
+                    
+                    if not ptr:
+                        error = ctypes.get_last_error()
+                        CloseHandle(handle)
+                        print(f"✗ Failed to map command shared memory view (error {error})")
+                        return False
+                    
+                    # Store handle and pointer for later use
+                    self.command_handle = handle
+                    self.command_ptr = ptr
+                    self.command_size = command_size
+                    
+                    print(f"✓ Opened existing command shared memory: {self.command_memory_name} ({command_size} bytes)")
+                    print(f"   Handle: {handle}, Pointer: {ptr}")
+                    
+                except Exception as e:
+                    print(f"✗ Exception opening command shared memory: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return False
             
-            # Check if Unity is ready (flag should be 0)
-            self.command_mmf.seek(0)
-            current_flag = struct.unpack('i', self.command_mmf.read(4))[0]
+            # Read current flag from shared memory
+            flag_bytes = ctypes.string_at(self.command_ptr, 4)
+            current_flag = struct.unpack('i', flag_bytes)[0]
             
             if current_flag != 0:
                 print(f"Unity not ready (flag={current_flag}), waiting...")
                 return False
             
             # Write NBV positions for each drone
-            self.command_mmf.seek(4)
+            offset = 4  # Start after flag
             for idx, (pos, euler) in enumerate(selected_nbvs):
-                self.command_mmf.write(struct.pack('fff', pos[0], pos[1], pos[2]))
+                # Pack position as 3 floats
+                pos_bytes = struct.pack('fff', pos[0], pos[1], pos[2])
+                # Write to shared memory
+                ctypes.memmove(self.command_ptr + offset, pos_bytes, 12)
+                offset += 12
                 print(f"  Drone {idx}: NBV target = ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
             
+            # Fill remaining drone slots with zeros (if less than 10 drones)
+            for idx in range(drone_count, 10):
+                zero_bytes = struct.pack('fff', 0.0, 0.0, 0.0)
+                ctypes.memmove(self.command_ptr + offset, zero_bytes, 12)
+                offset += 12
+            
             # Set flag to signal new commands (flag = 1)
-            self.command_mmf.seek(0)
-            self.command_mmf.write(struct.pack('i', flag))
+            flag_bytes = struct.pack('i', flag)
+            ctypes.memmove(self.command_ptr, flag_bytes, 4)
+            
+            # DEBUG: Read back what we just wrote
+            verify_bytes = ctypes.string_at(self.command_ptr, 16)
+            print(f"   DEBUG: Memory after write: {verify_bytes.hex()}")
             
             print(f"✓ Sent NBV commands (flag={flag}) for {drone_count} drones")
             return True
@@ -162,7 +232,11 @@ class MAP_NBV_Trial:
         self.image_mmf = None
         self.intrinsics_mmf = None
         self.pose_mmf = None
-        self.command_mmf = None
+        self.command_mmf = None  # Legacy mmap (not used anymore)
+        # Windows API shared memory for commands
+        self.command_handle = None
+        self.command_ptr = None
+        self.command_size = 0
         self.mask_generator = None
         self.device = None
         self.intrinsics = None
@@ -432,7 +506,7 @@ class MAP_NBV_Trial:
                     else:
                         # Wait until all drones are within vicinity of their NBV poses
                         print("\nWaiting for drones to reach NBV positions...")
-                        vicinity_threshold = 1.0  # meters
+                        vicinity_threshold = 3.5  # meters (increased to account for height offset)
                         max_wait_time = 30.0  # seconds
                         start_time = time.time()
                         check_interval = 0.5  # seconds
@@ -495,6 +569,13 @@ class MAP_NBV_Trial:
             self.intrinsics_mmf.close()
         if self.pose_mmf:
             self.pose_mmf.close()
+        # Cleanup Windows API shared memory
+        if self.command_ptr:
+            UnmapViewOfFile(self.command_ptr)
+            self.command_ptr = None
+        if self.command_handle:
+            CloseHandle(self.command_handle)
+            self.command_handle = None
         print("Cleaned up MAP_NBV_Trial")
 
 def main():

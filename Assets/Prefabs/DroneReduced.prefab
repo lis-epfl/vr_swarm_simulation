@@ -398,8 +398,10 @@ MonoBehaviour:
   enableCameraPitchControl: 0
   enableVisionSystem: 1
   visionInfluenceStrength: 0.1
-  logVisionCommands: 1
+  logVisionCommands: 0
   usePerDroneCommands: 1
+  useNBVMode: 1
+  logNBVCommands: 0
 --- !u!114 &3810217873681142886
 MonoBehaviour:
   m_ObjectHideFlags: 0
