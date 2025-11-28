@@ -51,29 +51,50 @@ class MAP_NBV_Trial:
     MIN_DISTANCE_FROM_DRONE = 1.1  # meters
     timestamp = None
 
-    def send_nbv_commands(self, selected_nbvs, flag=3):
-        """Send selected NBV positions to Unity via shared memory, with mode flag."""
+    def send_nbv_commands(self, selected_nbvs, flag=1):
+        """Send selected NBV positions to Unity via shared memory.
+        
+        Args:
+            selected_nbvs: List of (position, euler) tuples for each drone
+            flag: Command flag (1 = new NBV commands)
+        
+        Returns:
+            True if commands were sent successfully, False otherwise
+        """
         try:
             drone_count = len(selected_nbvs)
-            command_size = 4 + (drone_count * 12)  # flag + commands
+            command_size = 4 + (drone_count * 12)  # flag + (drone_count × 12 bytes per command)
+            
+            # Create or reopen shared memory
             if self.command_mmf is None:
                 self.command_mmf = mmap.mmap(-1, command_size, self.command_memory_name)
+                print(f"Created command shared memory: {self.command_memory_name} ({command_size} bytes)")
+            
+            # Check if Unity is ready (flag should be 0)
             self.command_mmf.seek(0)
             current_flag = struct.unpack('i', self.command_mmf.read(4))[0]
-            # Only send if Unity is ready (flag == 0 or flag == 9)
-            if current_flag not in [0, 9]:
+            
+            if current_flag != 0:
+                print(f"Unity not ready (flag={current_flag}), waiting...")
                 return False
-            # Write commands
+            
+            # Write NBV positions for each drone
             self.command_mmf.seek(4)
-            for pos, euler in selected_nbvs:
+            for idx, (pos, euler) in enumerate(selected_nbvs):
                 self.command_mmf.write(struct.pack('fff', pos[0], pos[1], pos[2]))
-            # Set flag to desired mode (default 3 for NBV)
+                print(f"  Drone {idx}: NBV target = ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+            
+            # Set flag to signal new commands (flag = 1)
             self.command_mmf.seek(0)
             self.command_mmf.write(struct.pack('i', flag))
-            print(f"Sent NBV commands with flag {flag}: {selected_nbvs}")
+            
+            print(f"✓ Sent NBV commands (flag={flag}) for {drone_count} drones")
             return True
+            
         except Exception as e:
-            print(f"Failed to send NBV commands: {e}")
+            print(f"✗ Failed to send NBV commands: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def quaternion_to_euler(self, q):
@@ -401,26 +422,51 @@ class MAP_NBV_Trial:
                         drone_positions=drone_positions
                     )
                     
-                    self.send_nbv_commands(selected_nbvs)
-
-                    # Wait until all drones are within vicinity of their NBV poses before next loop
-                    vicinity_threshold = 1.0  # meters
-                    all_in_vicinity = False
-                    while not all_in_vicinity:
-                        # Read latest drone positions from shared memory
-                        current_drone_data = self.read_drone_data_from_memory()
-                        if current_drone_data is None or len(current_drone_data) != len(selected_nbvs):
-                            time.sleep(0.5)
-                            continue
-                        all_in_vicinity = True
-                        for idx, (nbv_pos, _) in enumerate(selected_nbvs):
-                            drone_pos = current_drone_data[idx].pose.position
-                            dist = np.linalg.norm(np.array(nbv_pos) - drone_pos)
-                            if dist > vicinity_threshold:
-                                all_in_vicinity = False
-                                break
-                        if not all_in_vicinity:
-                            time.sleep(0.5)
+                    print(f"\n{'='*60}")
+                    print(f"NBV Planning Complete - Moving drones to NBV positions")
+                    print(f"{'='*60}")
+                    
+                    # Send NBV commands to Unity
+                    if not self.send_nbv_commands(selected_nbvs):
+                        print("⚠ Failed to send NBV commands, skipping wait")
+                    else:
+                        # Wait until all drones are within vicinity of their NBV poses
+                        print("\nWaiting for drones to reach NBV positions...")
+                        vicinity_threshold = 1.0  # meters
+                        max_wait_time = 30.0  # seconds
+                        start_time = time.time()
+                        check_interval = 0.5  # seconds
+                        
+                        all_in_vicinity = False
+                        while not all_in_vicinity and (time.time() - start_time) < max_wait_time:
+                            # Read latest drone positions from shared memory
+                            current_drone_data = self.read_drone_data_from_memory()
+                            
+                            if current_drone_data is None or len(current_drone_data) != len(selected_nbvs):
+                                time.sleep(check_interval)
+                                continue
+                            
+                            # Check distance for each drone
+                            all_in_vicinity = True
+                            for idx, (nbv_pos, _) in enumerate(selected_nbvs):
+                                drone_pos = current_drone_data[idx].pose.position
+                                dist = np.linalg.norm(np.array(nbv_pos) - drone_pos)
+                                
+                                if dist > vicinity_threshold:
+                                    all_in_vicinity = False
+                                    print(f"  Drone {idx}: {dist:.2f}m from target (target: {nbv_pos}, current: {drone_pos})")
+                                    break
+                            
+                            if not all_in_vicinity:
+                                time.sleep(check_interval)
+                        
+                        elapsed_time = time.time() - start_time
+                        if all_in_vicinity:
+                            print(f"✓ All drones reached NBV positions in {elapsed_time:.1f}s!")
+                        else:
+                            print(f"⚠ Timeout after {elapsed_time:.1f}s - drones did not reach NBV positions")
+                    
+                    print(f"{'='*60}\n")
                 except Exception as e:
                     print(f"Error running candidate_positions.py: {e}")
                 self.frames_processed += 1
