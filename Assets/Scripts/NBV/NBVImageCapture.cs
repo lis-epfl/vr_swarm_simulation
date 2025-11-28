@@ -33,7 +33,7 @@ public class NBVImageCapture : MonoBehaviour
     [SerializeField] private int maxDroneCount = 10;
     [SerializeField] private string imageMemoryName = "NBVImageDepthMemory"; // NEW: Combined RGB + Depth
     [SerializeField] private string poseMemoryName = "NBVDronePoses"; // NEW: Drone poses
-    [SerializeField] private string commandMemoryName = "NBVCommandMemory";
+    [SerializeField] private string commandMemoryName = "NBVCommandSharedMemory";
     
     [Header("Per-Drone Command System")]
     [SerializeField] private bool usePerDroneCommands = true; // Enable individual drone commands
