@@ -34,6 +34,15 @@ public class VisionSystemDebugger : MonoBehaviour
 
     private void RunFullDiagnostics()
     {
+        // Check if we're in NBV mode first
+        SwarmManager swarmManager = FindObjectOfType<SwarmManager>();
+        if (swarmManager != null && swarmManager.swarmAlgorithm != SwarmManager.SwarmAlgorithm.NBV)
+        {
+            // Not in NBV mode, skip diagnostics silently
+            Debug.Log($"🔍 VisionSystemDebugger: Skipping diagnostics (current mode: {swarmManager.swarmAlgorithm}, NBV mode required)");
+            return;
+        }
+        
         Debug.Log("==================== VISION SYSTEM DIAGNOSTICS ====================");
         
         CheckSwarmManager();

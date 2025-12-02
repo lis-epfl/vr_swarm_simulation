@@ -245,7 +245,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &801706982
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -548,10 +548,10 @@ MonoBehaviour:
   escapeForceMultiplier: 5
   minForceRatio: 0.5
   useFormationOverride: 1
-  attitudeControlType: 0
+  attitudeControlType: 1
   numNeighbours: 9
   numDimensions: 2
-  invertAngle: 0
+  invertAngle: 1
 --- !u!114 &1430753895
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -586,8 +586,8 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 3
-  dronesAlongZ: 3
+  dronesAlongX: 2
+  dronesAlongZ: 2
   droneSpacing: 5
   start_x: 20
   start_y: 0
@@ -625,7 +625,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1478725124
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1007,6 +1007,56 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1918555506
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1918555508}
+  - component: {fileID: 1918555507}
+  m_Layer: 0
+  m_Name: SwarmImageCapture
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1918555507
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1918555506}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b2fcac19ad4be42f2a613a443364eb95, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  captureInterval: 5
+  imageWidth: 1280
+  imageHeight: 720
+  outputFolder: Assets/ProcessedImages/SwarmCapture
+  onlyRunInOlfatiSaberMode: 1
+  enableDebugLogging: 1
+--- !u!4 &1918555508
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1918555506}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.34013268, y: -0.5805093, z: -7.9158406}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &2142663200
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1126,3 +1176,4 @@ SceneRoots:
   - {fileID: 1478725125}
   - {fileID: 2142663200}
   - {fileID: 242729996}
+  - {fileID: 1918555508}
