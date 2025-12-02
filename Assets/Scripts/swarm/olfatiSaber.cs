@@ -80,6 +80,10 @@ public class OlfatiSaber : MonoBehaviour
 
             // Relative Position
             Vector3 relativePosition = neighbourPosition - position;
+
+            // Mask out the y component of the relative position
+            relativePosition.y = 0;
+            
             float distance = relativePosition.magnitude;
 
             // Relative Velocity
@@ -133,19 +137,22 @@ public class OlfatiSaber : MonoBehaviour
             Vector3 directionToObstacle = closestPoint - transform.position;
             float distanceToObstacle = directionToObstacle.magnitude;
 
-            // Scale the distance to fit the obstacle avoidance function
-            distanceToObstacle = distanceToObstacle / scaleFactor;
-
-            // If the distance is less than d_obs, calculate the obstacle avoidance force
+            // If the distance is less than r0_obs, calculate the obstacle avoidance force
             if (distanceToObstacle < r0_obs)
-            {
+            {   
+
+                // Scale the distance to fit the obstacle avoidance function
+                distanceToObstacle = distanceToObstacle / scaleFactor;
+                droneVelocity = droneVelocity / scaleFactor;
+                
                 // Calculate the obstacle velocity, vel_obs, using the logic above
                 float s = 1 / (distanceToObstacle + 1);
                 Vector3 pos_obs = s * transform.position + (1 - s) * closestPoint;
                 float s_der = 1 * Vector3.Dot(droneVelocity, (pos_obs - transform.position).normalized) / Mathf.Pow(1 + distanceToObstacle, 2);
                 Vector3 vel_obs = s * droneVelocity - 1 * (s_der / s) * (pos_obs - transform.position).normalized;
 
-                ObsCoh += GetCohesionForce(distanceToObstacle, d_obs, r0_obs) * directionToObstacle.normalized;
+                // FIXED: Negate direction to repel from obstacle instead of attract
+                ObsCoh += GetCohesionForce(distanceToObstacle, d_obs, r0_obs) * (directionToObstacle.normalized);
                 ObsVel += (vel_obs - droneVelocity);
             }
 
@@ -167,7 +174,8 @@ public class OlfatiSaber : MonoBehaviour
         float neighbourWeight = GetNeighbourWeight(r, r0);
         float cohesionIntensityDerivative = GetCohesionIntensityDerivative(r, ref_d);
 
-        return 1 / r0_coh * neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
+        // FIXED: Use the passed r0 parameter instead of always using r0_coh
+        return 1 / r0 * neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
     }
 
     // Cohesion intensity function
