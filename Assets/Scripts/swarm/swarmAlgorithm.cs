@@ -188,6 +188,7 @@ public class swarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.c = swarmManager.GetC();
             olfatiSaberAlgorithm.gamma = swarmManager.GetGamma();
             olfatiSaberAlgorithm.c_vm = swarmManager.GetCVM();
+            olfatiSaberAlgorithm.c_migration = swarmManager.GetCMigration();
             olfatiSaberAlgorithm.d_obs = swarmManager.GetDObs();
             olfatiSaberAlgorithm.r0_obs = swarmManager.GetR0Obs();
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
@@ -242,6 +243,7 @@ public class swarmAlgorithm : MonoBehaviour
         {
             attitudeControl.numNeighbours = swarmManager.GetNumNeighbours();
             attitudeControl.numDimensions = swarmManager.GetNumDimensions();
+            attitudeControl.invertAngle = swarmManager.GetInvertAngle();
         }
     }
 }
