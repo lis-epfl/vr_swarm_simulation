@@ -506,21 +506,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 2
+  swarmAlgorithm: 1
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
-  d_ref: 1
+  d_ref: 2.5
   r0_coh: 10
   delta: 0.2
   a: 0.3
   b: 0.5
   gamma: 1
-  c_vm: 1
-  d_obs: 4
-  r0_obs: 6
+  c_vm: 0
+  c_migration: 1.5
+  d_obs: 12
+  r0_obs: 25
   lambda_obs: 1
-  c_obs: 4.3
+  c_obs: 5
   scaleFactor: 10
   viewDistance: 10
   informationGainWeight: 2
@@ -550,6 +551,7 @@ MonoBehaviour:
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
+  invertAngle: 0
 --- !u!114 &1430753895
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -584,12 +586,12 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 2
-  dronesAlongZ: 1
+  dronesAlongX: 3
+  dronesAlongZ: 3
   droneSpacing: 5
-  start_x: 30
+  start_x: 20
   start_y: 0
-  start_z: 50
+  start_z: 20
   randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897
