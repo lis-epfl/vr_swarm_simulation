@@ -7,20 +7,20 @@ public class OlfatiSaber : MonoBehaviour
 {
     public List<GameObject> swarm;
 
-    public float d_ref = 7.0f;
+    public float d_ref = 2.0f;
     public float r0_coh = 150.0f;
     public float delta = 0.1f;
     public float a = 0.9f;
     public float b = 1.5f;
-    public float c;
+    public float c = 0.2f;  // Initialize c parameter for cohesion intensity function
     public float gamma = 1.0f;
-    public float c_vm = 1.0f;
+    public float c_vm = 3.0f;  // Increased for faster velocity matching
     public float d_obs = 5.0f;
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
-    public float c_obs = 4.3f;
+    public float c_obs = 10.0f;  // Increased for stronger obstacle avoidance
     public float scaleFactor = 10.0f;
-
+    public float c_migration = 6.0f;  // Migration force strength
 
     public float maxMigrationDistance = 10.0f;
 
@@ -32,10 +32,13 @@ public class OlfatiSaber : MonoBehaviour
     public float desired_vz = 0.0f;
     public float desired_yaw = 0.0f;
     
-    private Vector3 velocityMatching = new Vector3(0, 0, 0);
-    private Vector3 cohesion = new Vector3(0, 0, 0);
-    private Vector3 obstacle = new Vector3(0, 0, 0);
-    private Vector3 swarmInput = new Vector3(0, 0, 0);
+    public Vector3 velocityMatching = new Vector3(0, 0, 0);
+    public Vector3 cohesion = new Vector3(0, 0, 0);
+    public Vector3 obstacle = new Vector3(0, 0, 0);
+    public Vector3 migration = new Vector3(0, 0, 0);
+    public Vector3 swarmInput = new Vector3(0, 0, 0);
+    
+    private Vector3 migrationPoint = new Vector3(-30, 10, -30);  // Target point for swarm
 
     private string droneName;
 
@@ -54,6 +57,7 @@ public class OlfatiSaber : MonoBehaviour
         velocityMatching = new Vector3(0, 0, 0);
         cohesion = new Vector3(0, 0, 0);
         obstacle = new Vector3(0, 0, 0);
+        migration = new Vector3(0, 0, 0);
 
         // Get the position and velocity of the current drone
         Vector3 position = transform.position;
@@ -100,9 +104,19 @@ public class OlfatiSaber : MonoBehaviour
 
         // Get the obstacle avoidance force
         obstacle = GetObstacleForce();
+        
+        // Calculate migration force toward target point
+        Vector3 directionToMigration = migrationPoint - position;
+        float distanceToMigration = directionToMigration.magnitude;
+        
+        // Only apply migration force if not too close to target
+        if (distanceToMigration > d_ref)
+        {
+            migration = c_migration * directionToMigration.normalized;
+        }
 
         // Get the total velocity command
-        swarmInput = velocityMatching + cohesion + obstacle;
+        swarmInput = velocityMatching + cohesion + obstacle + migration;
 
         // Log the forces for debugging and the overall swarm input
         // Debug.Log($"Velocity Matching Force for {droneName}: {velocityMatching}");
