@@ -1,10 +1,5 @@
 Shader "Custom/LinearDepth"
 {
-    Properties
-    {
-        _NearClip ("Near Clip", Float) = 0.2
-        _FarClip ("Far Clip", Float) = 100.0
-    }
     SubShader
     {
         Tags { "RenderType"="Opaque" }
@@ -14,9 +9,6 @@ Shader "Custom/LinearDepth"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
-
-            float _NearClip;
-            float _FarClip;
 
             struct appdata
             {
@@ -41,9 +33,9 @@ Shader "Custom/LinearDepth"
 
             float frag(v2f i) : SV_Target
             {
-                // Clamp depth to camera's actual near/far range (dynamic)
+                // Clamp depth to camera's near/far range (0.1m to 100m)
                 // This prevents invalid values from skybox/infinity
-                return clamp(i.depth, _NearClip, _FarClip);
+                return clamp(i.depth, 0.1, 100.0);
             }
             ENDCG
         }

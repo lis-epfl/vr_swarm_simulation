@@ -91,7 +91,6 @@ class SwarmPointCloudBuilder:
         self.mask_generator = None
         self.device = None
         self.processed_captures = set()  # Track processed capture folders
-        self.last_processed_timestamp = None  # Track last processed timestamp to prevent reprocessing
         
         # Accumulated point cloud state
         self.accumulated_points = None
@@ -117,42 +116,31 @@ class SwarmPointCloudBuilder:
         sam = sam_model_registry[self.sam_model_type](checkpoint=checkpoint_path)
         sam.to(self.device)
         
-        # SAM parameters matching MAP_NBV_trial.py for consistency
+        # Optimized SAM parameters for faster processing
         self.mask_generator = SamAutomaticMaskGenerator(
             sam,
-            points_per_side=16,  # Match MAP_NBV_trial.py for accuracy
-            pred_iou_thresh=0.90,  # Match MAP_NBV_trial.py
-            stability_score_thresh=0.96,  # Match MAP_NBV_trial.py
+            points_per_side=8,  # Reduced from 16 for 4x speedup
+            pred_iou_thresh=0.86,  # Slightly lower for speed
+            stability_score_thresh=0.92,  # Slightly lower for speed
             crop_n_layers=0,
             crop_n_points_downscale_factor=1,
-            min_mask_region_area=2000,  # Match MAP_NBV_trial.py
+            min_mask_region_area=5000,  # Increased to filter small segments
         )
         
         print("✓ SAM model initialized")
         return True
     
     def find_new_captures(self) -> List[Path]:
-        """Find new capture folders that haven't been processed yet.
-        
-        Only returns captures newer than the last processed timestamp to prevent
-        reprocessing old captures when Unity is paused.
-        """
+        """Find new capture folders that haven't been processed yet."""
         if not self.capture_dir.exists():
             return []
         
         new_captures = []
         for folder in sorted(self.capture_dir.iterdir()):
             if folder.is_dir() and folder.name.startswith("capture_"):
-                # Check if capture is complete (has metadata.json)
-                if not (folder / "metadata.json").exists():
-                    continue
-                
-                # Extract timestamp from folder name (capture_YYYYMMDD_HHMMSS)
-                timestamp_str = folder.name.replace("capture_", "")
-                
-                # Only process if newer than last processed or if this is first capture
-                if self.last_processed_timestamp is None or timestamp_str > self.last_processed_timestamp:
-                    if folder.name not in self.processed_captures:
+                if folder.name not in self.processed_captures:
+                    # Check if capture is complete (has metadata.json)
+                    if (folder / "metadata.json").exists():
                         new_captures.append(folder)
         
         return new_captures
@@ -288,55 +276,6 @@ class SwarmPointCloudBuilder:
         
         return points, colors
     
-    def validate_depth_data(self, depth_image: np.ndarray, drone_id: int = -1) -> bool:
-        """Validate depth data for corruption or invalid values.
-        
-        Args:
-            depth_image: Depth image to validate
-            drone_id: Optional drone ID for logging
-            
-        Returns:
-            True if depth data is valid, False if corrupted
-        """
-        # Check for NaN or Inf values
-        nan_count = np.isnan(depth_image).sum()
-        inf_count = np.isinf(depth_image).sum()
-        
-        if nan_count > 0 or inf_count > 0:
-            print(f"  ⚠ Depth validation warning (drone {drone_id}): {nan_count} NaN, {inf_count} Inf values")
-        
-        # Check for valid depth values (should be > 0 and < max_depth)
-        valid_mask = (depth_image > 0) & ~np.isnan(depth_image) & ~np.isinf(depth_image)
-        valid_count = valid_mask.sum()
-        total_count = depth_image.size
-        valid_percentage = (valid_count / total_count) * 100
-        
-        # Get depth statistics for valid values
-        if valid_count > 0:
-            valid_depths = depth_image[valid_mask]
-            min_depth = valid_depths.min()
-            max_depth = valid_depths.max()
-            mean_depth = valid_depths.mean()
-            
-            print(f"  Depth stats (drone {drone_id}): {valid_percentage:.1f}% valid, "
-                  f"range [{min_depth:.2f}, {max_depth:.2f}]m, mean {mean_depth:.2f}m")
-            
-            # Consider corrupted if less than 10% valid pixels
-            if valid_percentage < 10.0:
-                print(f"  ⚠ WARNING: Only {valid_percentage:.1f}% valid depth values - may be corrupted")
-                return False
-            
-            # Check for suspicious depth ranges (all values too close or too far)
-            if max_depth < 0.5:  # Everything closer than 0.5m (suspicious)
-                print(f"  ⚠ WARNING: All depth values < 0.5m - likely corrupted")
-                return False
-                
-        else:
-            print(f"  ✗ ERROR: No valid depth values found (drone {drone_id})")
-            return False
-        
-        return True
-    
     def transform_to_global_frame(self, 
                                   points_local: np.ndarray, 
                                   pose: DronePose) -> np.ndarray:
@@ -366,11 +305,6 @@ class SwarmPointCloudBuilder:
         
         for drone_data in drone_data_list:
             print(f"  Processing drone {drone_data.drone_id}...")
-            
-            # Validate depth data before processing
-            if not self.validate_depth_data(drone_data.depth_image, drone_data.drone_id):
-                print(f"    ⚠ Skipping drone {drone_data.drone_id} due to invalid depth data")
-                continue
             
             # Segment RGB image
             mask = self.segment_rgb_image(drone_data.rgb_image)
@@ -413,34 +347,7 @@ class SwarmPointCloudBuilder:
     def merge_with_accumulated(self, 
                                new_points: np.ndarray, 
                                new_colors: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Merge new point cloud with accumulated point cloud.
-        
-        Validates new points before merging to prevent corruption propagation.
-        """
-        # Validate new points before merging
-        if len(new_points) == 0:
-            print("  ⚠ No new points to merge")
-            if self.accumulated_points is not None:
-                return self.accumulated_points, self.accumulated_colors
-            else:
-                return np.array([]), np.array([])
-        
-        # Check for invalid coordinates
-        invalid_mask = np.isnan(new_points).any(axis=1) | np.isinf(new_points).any(axis=1)
-        invalid_count = invalid_mask.sum()
-        if invalid_count > 0:
-            print(f"  ⚠ Filtering {invalid_count} invalid points before merging")
-            valid_mask = ~invalid_mask
-            new_points = new_points[valid_mask]
-            new_colors = new_colors[valid_mask]
-        
-        if len(new_points) == 0:
-            print("  ⚠ All new points were invalid")
-            if self.accumulated_points is not None:
-                return self.accumulated_points, self.accumulated_colors
-            else:
-                return np.array([]), np.array([])
-        
+        """Merge new point cloud with accumulated point cloud."""
         if self.accumulated_points is None or len(self.accumulated_points) == 0:
             # First capture, just store it
             print("  First capture - initializing accumulated cloud")
@@ -467,7 +374,7 @@ class SwarmPointCloudBuilder:
             merged_points = np.asarray(pcd_voxelized.points)
             merged_colors = np.asarray(pcd_voxelized.colors)
             
-                print(f"  After voxelization: {len(merged_points)} points")
+            print(f"  After voxelization: {len(merged_points)} points")
         
         return merged_points, merged_colors
     
@@ -590,10 +497,8 @@ class SwarmPointCloudBuilder:
         print(f"  Raw: {len(merged_points)} points")
         print(f"  Downsampled: {len(down_points)} points")
         
-        # Mark as processed and update timestamp
+        # Mark as processed
         self.processed_captures.add(capture_folder.name)
-        timestamp = capture_folder.name.replace("capture_", "")
-        self.last_processed_timestamp = timestamp
     
     def run(self, poll_interval: float = 2.0):
         """Main processing loop - polls for new captures."""
@@ -610,14 +515,6 @@ class SwarmPointCloudBuilder:
             while True:
                 # Find new captures
                 new_captures = self.find_new_captures()
-                
-                if len(new_captures) == 0:
-                    # No new captures, wait before polling again
-                    if self.last_processed_timestamp is not None:
-                        # We've processed at least one capture, so we're waiting for new ones
-                        print("  Waiting for new captures...", end='\r')
-                    time.sleep(poll_interval)
-                    continue
                 
                 # Process each new capture
                 for capture_folder in new_captures:

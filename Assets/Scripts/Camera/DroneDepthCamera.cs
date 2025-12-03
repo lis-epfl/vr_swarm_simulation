@@ -152,15 +152,9 @@ public class DroneDepthCamera : MonoBehaviour
     void CreateAndApplyDepthShader()
     {
         // Create a shader that outputs linear depth directly
-        // Uses dynamic near/far clip planes from the camera to prevent corruption
         string shaderCode = @"
             Shader ""Custom/LinearDepth""
             {
-                Properties
-                {
-                    _NearClip (""Near Clip"", Float) = 0.2
-                    _FarClip (""Far Clip"", Float) = 100.0
-                }
                 SubShader
                 {
                     Tags { ""RenderType""=""Opaque"" }
@@ -170,9 +164,6 @@ public class DroneDepthCamera : MonoBehaviour
                         #pragma vertex vert
                         #pragma fragment frag
                         #include ""UnityCG.cginc""
-
-                        float _NearClip;
-                        float _FarClip;
 
                         struct appdata
                         {
@@ -197,9 +188,9 @@ public class DroneDepthCamera : MonoBehaviour
 
                         float frag(v2f i) : SV_Target
                         {
-                            // Clamp depth to camera's actual near/far range (dynamic)
+                            // Clamp depth to camera's near/far range (0.1m to 100m)
                             // This prevents invalid values from skybox/infinity
-                            return clamp(i.depth, _NearClip, _FarClip);
+                            return clamp(i.depth, 0.1, 100.0);
                         }
                         ENDCG
                     }
@@ -218,16 +209,9 @@ public class DroneDepthCamera : MonoBehaviour
         if (shader != null)
         {
             depthMaterial = new Material(shader);
-            
-            // Set shader properties to match camera's clip planes
-            depthMaterial.SetFloat("_NearClip", depthCamera.nearClipPlane);
-            depthMaterial.SetFloat("_FarClip", depthCamera.farClipPlane);
-            
             depthCamera.SetReplacementShader(shader, "RenderType");
-            
             Debug.Log($"[DroneDepthCamera] Using depth shader: {shader.name}");
             Debug.Log($"[DroneDepthCamera] Shader isSupported: {shader.isSupported}");
-            Debug.Log($"[DroneDepthCamera] Depth range: [{depthCamera.nearClipPlane}, {depthCamera.farClipPlane}]");
             Debug.Log($"[DroneDepthCamera] Camera cullingMask: {depthCamera.cullingMask}");
         }
         else
@@ -240,20 +224,6 @@ public class DroneDepthCamera : MonoBehaviour
     {
         // Deprecated - kept for compatibility
         return Shader.Find("Hidden/Internal-DepthNormalsTexture");
-    }
-    
-    /// <summary>
-    /// Update shader properties to match current camera clip planes
-    /// Call this if you change the camera's near/far clip distances
-    /// </summary>
-    void UpdateShaderProperties()
-    {
-        if (depthMaterial != null && depthCamera != null)
-        {
-            depthMaterial.SetFloat("_NearClip", depthCamera.nearClipPlane);
-            depthMaterial.SetFloat("_FarClip", depthCamera.farClipPlane);
-            Debug.Log($"[DroneDepthCamera] Updated shader clip planes: [{depthCamera.nearClipPlane}, {depthCamera.farClipPlane}]");
-        }
     }
     
     /// <summary>
@@ -289,9 +259,6 @@ public class DroneDepthCamera : MonoBehaviour
             depthCamera.targetTexture = depthRenderTexture;
             
             depthTexture = new Texture2D(depthWidth, depthHeight, TextureFormat.RFloat, false);
-            
-            // Update shader properties to match camera settings
-            UpdateShaderProperties();
             
             Debug.Log($"[DroneDepthCamera] Resolution changed to {depthWidth}x{depthHeight}");
         }
