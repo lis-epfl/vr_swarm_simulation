@@ -23,11 +23,15 @@ def get_point_cloud_scale(point_cloud):
     scale = max_pt - min_pt
     return scale, min_pt, max_pt
 
-def main(cloud1_path, cloud2_path, output_path):
-    # Load both point clouds
-    pcd1 = o3d.io.read_point_cloud(cloud1_path)
-    pcd2 = o3d.io.read_point_cloud(cloud2_path)
-
+def merge_pcds(pcd1, pcd2):
+    """
+    Merges two Open3D point clouds and voxelizes the result.
+    Args:
+        pcd1: open3d.geometry.PointCloud
+        pcd2: open3d.geometry.PointCloud
+    Returns:
+        voxelized_pcd: open3d.geometry.PointCloud
+    """
     # Merge points
     points1 = np.asarray(pcd1.points)
     points2 = np.asarray(pcd2.points)
@@ -48,16 +52,26 @@ def main(cloud1_path, cloud2_path, output_path):
 
     # Print scale/size of merged point cloud
     scale, min_pt, max_pt = get_point_cloud_scale(merged_pcd)
-    print(f"Merged point cloud bounding box:")
-    print(f"  Min: {min_pt}")
-    print(f"  Max: {max_pt}")
-    print(f"  Scale (x, y, z): {scale}")
-    print(f"  Largest dimension: {scale.max()}")
+    # print(f"Merged point cloud bounding box:")
+    # print(f"  Min: {min_pt}")
+    # print(f"  Max: {max_pt}")
+    # print(f"  Scale (x, y, z): {scale}")
+    # print(f"  Largest dimension: {scale.max()}")
 
     # Voxelize to remove duplicates/overlaps
     avg_scale = scale.mean()
     voxel_size = 0.02 * avg_scale  # Adjust as needed
     voxelized_pcd = voxelize_with_open3d(merged_pcd, voxel_size)
+    
+    return voxelized_pcd
+
+def main(cloud1_path, cloud2_path, output_path):
+    # Load both point clouds
+    pcd1 = o3d.io.read_point_cloud(cloud1_path)
+    pcd2 = o3d.io.read_point_cloud(cloud2_path)
+
+    # Merge
+    voxelized_pcd = merge_pcds(pcd1, pcd2)
 
     # Save voxelized point cloud
     o3d.io.write_point_cloud(output_path, voxelized_pcd)
