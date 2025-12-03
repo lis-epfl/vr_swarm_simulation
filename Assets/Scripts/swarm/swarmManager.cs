@@ -30,6 +30,7 @@ public class SwarmManager : MonoBehaviour
     private float c;
     public float gamma = 1.0f;
     public float c_vm = 1.0f;
+    public float c_migration = 1.0f;
     public float d_obs = 4.0f;
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
@@ -81,6 +82,7 @@ public class SwarmManager : MonoBehaviour
     public AttitudeControl attitudeControlType;
     public int numNeighbours = 5;
     public int numDimensions = 2;
+    public bool invertAngle = false;
 
 
     public delegate void OnSwarmParamsChanged();
@@ -120,6 +122,7 @@ public class SwarmManager : MonoBehaviour
     public float GetC() => (b - a) / (2 * Mathf.Sqrt(a * b));
     public float GetGamma() => gamma;
     public float GetCVM() => c_vm;
+    public float GetCMigration() => c_migration;
     public float GetDObs() => d_obs;
     public float GetR0Obs() => r0_obs;
     public float GetLambdaObs() => lambda_obs;
@@ -129,6 +132,7 @@ public class SwarmManager : MonoBehaviour
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;
     public int GetNumDimensions() => numDimensions;
+    public bool GetInvertAngle() => invertAngle;
 
     // Getters for NBV parameters // NEW ADVAITH NBV
     public float GetViewDistance() => viewDistance;
