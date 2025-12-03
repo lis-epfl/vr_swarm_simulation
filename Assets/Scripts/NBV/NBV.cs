@@ -487,38 +487,55 @@ public class NBV : MonoBehaviour
 
     void CalculateYawTowardCenter(GameObject droneChild)
     {
-        // Get current drone position (only X and Z matter for yaw)
+        // NEW: Orient toward closest object point instead of center
+        CalculateYawTowardClosestObject(droneChild);
+    }
+    
+    void CalculateYawTowardClosestObject(GameObject droneChild)
+    {
+        // Get current drone position
         Vector3 dronePosition = droneChild.transform.position;
-
-        // Calculate direction from drone to center point (only X and Z)
+        
+        // Try to find the closest point on any obstacle/building
+        Vector3 targetPoint = FindClosestObjectPoint(dronePosition);
+        
+        // If no object found, fall back to center point
+        if (targetPoint == Vector3.zero)
+        {
+            targetPoint = centerPoint;
+        }
+        
+        // Calculate direction from drone to target point (only X and Z for yaw)
         Vector2 dronePos2D = new Vector2(dronePosition.x, dronePosition.z);
-        Vector2 centerPos2D = new Vector2(centerPoint.x, centerPoint.z);
-        Vector2 directionToCenter = (centerPos2D - dronePos2D).normalized;
-
+        Vector2 targetPos2D = new Vector2(targetPoint.x, targetPoint.z);
+        Vector2 directionToTarget = (targetPos2D - dronePos2D).normalized;
+        
         // Get current drone heading (where it's currently pointing)
         Vector2 currentHeading = new Vector2(droneChild.transform.forward.x, droneChild.transform.forward.z);
-
+        
         // Calculate the angle difference between current heading and desired direction
-        float desiredYawRateDegrees = Vector2.SignedAngle(currentHeading, directionToCenter);
-
+        float desiredYawRateDegrees = Vector2.SignedAngle(currentHeading, directionToTarget);
+        
         // Add dead zone to prevent oscillations
         float yawDeadZone = 5f; // degrees - tune this value
         if (Mathf.Abs(desiredYawRateDegrees) < yawDeadZone)
         {
             // Close enough - don't send yaw commands
             GetComponent<VelocityControl>().attitude_control_yaw = 0.0f;
-
+            
             // Debug visualization
             if (debug_bool)
             {
-                NBVDebugger.DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+                NBVDebugger.DrawYawDebugArrows(droneChild, currentHeading, directionToTarget);
+                // Draw line to target point
+                Debug.DrawLine(dronePosition, targetPoint, Color.cyan, 0.1f);
             }
             return;
         }
-
+        
         // Convert to radians
         float desiredYawRateRadians = desiredYawRateDegrees * Mathf.Deg2Rad;
-
+        
         // Apply the same transformation as in attitudeControl.cs (lines 100-107)
         if (desiredYawRateRadians > 0)
         {
@@ -528,18 +545,59 @@ public class NBV : MonoBehaviour
         {
             desiredYawRateRadians = -Mathf.PI - desiredYawRateRadians;
         }
-
+        
         // Send the yaw command to VelocityControl
         GetComponent<VelocityControl>().attitude_control_yaw = -1 * desiredYawRateRadians;
-
-        // Visualize the drone's current heading and desired direction
-        Vector3 dronePos3D = droneChild.transform.position;
-
+        
         // Debug visualization
         if (debug_bool)
         {
-            NBVDebugger.DrawYawDebugArrows(droneChild, currentHeading, directionToCenter);
+            NBVDebugger.DrawYawDebugArrows(droneChild, currentHeading, directionToTarget);
+            // Draw line to target point
+            Debug.DrawLine(dronePosition, targetPoint, Color.yellow, 0.1f);
         }
+    }
+    
+    Vector3 FindClosestObjectPoint(Vector3 dronePosition)
+    {
+        // Strategy: Use sphere overlap to find nearby obstacles, then get closest point
+        float searchRadius = 50f; // Search within 50m radius
+        
+        // Find all obstacles within search radius
+        Collider[] obstacles = Physics.OverlapSphere(dronePosition, searchRadius, obstacleLayerMask);
+        
+        if (obstacles.Length == 0)
+        {
+            // No obstacles found, return zero (will fall back to center)
+            return Vector3.zero;
+        }
+        
+        // Find the closest point among all obstacles
+        Vector3 closestPoint = Vector3.zero;
+        float closestDistance = float.MaxValue;
+        
+        foreach (Collider obstacle in obstacles)
+        {
+            // Get the closest point on this obstacle's surface
+            Vector3 pointOnObstacle = obstacle.ClosestPoint(dronePosition);
+            float distance = Vector3.Distance(dronePosition, pointOnObstacle);
+            
+            // Update if this is closer
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestPoint = pointOnObstacle;
+            }
+        }
+        
+        // Debug visualization
+        if (debug_bool && closestPoint != Vector3.zero)
+        {
+            Debug.DrawLine(dronePosition, closestPoint, Color.green, 0.1f);
+            Debug.DrawSphere(closestPoint, 0.3f, Color.red);
+        }
+        
+        return closestPoint;
     }
 
 
