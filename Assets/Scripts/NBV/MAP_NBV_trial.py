@@ -11,6 +11,7 @@ from scipy.spatial.transform import Rotation
 from dataclasses import dataclass
 import ctypes
 from ctypes import wintypes
+import merge_point_clouds
 
 try:
     import open3d as o3d
@@ -243,6 +244,7 @@ class MAP_NBV_Trial:
         self.running = False
         self.last_processed_time = 0
         self.frames_processed = 0
+        self.previous_pcd = None  # Track accumulated point cloud
         
 
     def initialize(self):
@@ -424,16 +426,40 @@ class MAP_NBV_Trial:
                     r, g, b = (colors[i] * 255).astype(np.uint8)
                     f.write(f"{x} {y} {z} {r} {g} {b}\n")
 
+
+# ... (imports)
+
+    def save_point_cloud(self, points, colors, frame_id):
+        # ... (saving full pcd) ...
+
         # Downsample and save downsampled point cloud
         down_points, down_colors = self.random_downsample(points, colors, size=DOWN_SAMPLE_SIZE, seed=42)
         filename_down = f"pointcloud_downsampled_frame{frame_id:04d}_{self.timestamp}.ply"
         filepath_down = os.path.join(self.output_folder, filename_down)
+
         if HAS_OPEN3D:
-            pcd_down = o3d.geometry.PointCloud()
-            pcd_down.points = o3d.utility.Vector3dVector(down_points)
-            pcd_down.colors = o3d.utility.Vector3dVector(down_colors)
-            o3d.io.write_point_cloud(filepath_down, pcd_down)
+            # Create current PCD
+            pcd_current = o3d.geometry.PointCloud()
+            pcd_current.points = o3d.utility.Vector3dVector(down_points)
+            pcd_current.colors = o3d.utility.Vector3dVector(down_colors)
+
+            # Merge with previous if exists
+            if self.previous_pcd is not None:
+                # Use the logic from merge_point_clouds.py directly!
+                pcd_final = merge_point_clouds.merge_pcds(self.previous_pcd, pcd_current)
+                print(f"Merged frame {frame_id} with previous using merge_point_clouds.py logic.")
+            else:
+                pcd_final = pcd_current
+                print(f"Frame {frame_id}: Initial point cloud. Points: {len(down_points)}")
+            
+            # Update previous accumulated cloud
+            self.previous_pcd = pcd_final
+            
+            # Save the (merged) point cloud
+            o3d.io.write_point_cloud(filepath_down, pcd_final)
         else:
+            # ... (fallback) ...
+            # Fallback if no Open3D (no merging)
             with open(filepath_down, 'w') as f:
                 f.write("ply\n")
                 f.write("format ascii 1.0\n")
@@ -450,7 +476,7 @@ class MAP_NBV_Trial:
                     r, g, b = (down_colors[i] * 255).astype(np.uint8)
                     f.write(f"{x} {y} {z} {r} {g} {b}\n")
 
-        # Run PoinTr inference on the downsampled file
+        # Run PoinTr inference on the downsampled (and potentially merged) file
         self.run_pointr_inference(filepath_down)
 
     def processing_loop(self):
