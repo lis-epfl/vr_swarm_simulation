@@ -406,7 +406,7 @@ class SwarmPointCloudBuilder:
             # Add more points
             remaining = target_size - current_size
             all_indices = set(range(len(points)))
-            sampled_indices = set(np.asarray(pcd_downsampled.points).tolist())
+            sampled_indices = set(tuple(pt) for pt in np.asarray(pcd_downsampled.points))
             # This is approximate, but good enough
             pcd_downsampled = pcd.random_down_sample(ratio * 1.1)
         
