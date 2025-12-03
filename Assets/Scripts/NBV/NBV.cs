@@ -594,7 +594,7 @@ public class NBV : MonoBehaviour
         if (debug_bool && closestPoint != Vector3.zero)
         {
             Debug.DrawLine(dronePosition, closestPoint, Color.green, 0.1f);
-            Debug.DrawSphere(closestPoint, 0.3f, Color.red);
+            // Debug.DrawSphere(closestPoint, 0.3f, Color.red);
         }
         
         return closestPoint;

@@ -502,12 +502,13 @@ class MAP_NBV_Trial:
             if len(global_points) > 0:
                 self.save_point_cloud(global_points, global_colors, self.frames_processed)
 
-                # After inference, run candidate_positions.py main on fine.ply
+                # After inference, run candidate_positions.py main on fine_new.ply
                 try:
                     # Get the downsampled file name (used for inference)
                     filename_down = f"pointcloud_downsampled_frame{self.frames_processed:04d}_{self.timestamp}.ply"
                     downsampled_folder = os.path.splitext(filename_down)[0]  # Remove .ply extension
-                    fine_ply_path = os.path.join(self.output_folder, downsampled_folder, "fine.ply")
+                    # fine_ply_path = os.path.join(self.output_folder, downsampled_folder, "fine.ply")
+                    fine_ply_path = os.path.join(self.output_folder, downsampled_folder, "fine_new_unexplored.ply")
                     drone_positions = []
                     for drone_data in drone_data_list:
                         pos = drone_data.pose.position.tolist()
