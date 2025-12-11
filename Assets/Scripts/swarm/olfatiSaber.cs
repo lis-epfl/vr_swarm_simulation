@@ -38,7 +38,7 @@ public class OlfatiSaber : MonoBehaviour
     public Vector3 migration = new Vector3(0, 0, 0);
     public Vector3 swarmInput = new Vector3(0, 0, 0);
     
-    private Vector3 migrationPoint = new Vector3(-30, 10, -30);  // Target point for swarm
+    private Vector3 migrationPoint = new Vector3(-30, 15, -30);  // Target point for swarm
 
     private string droneName;
 
