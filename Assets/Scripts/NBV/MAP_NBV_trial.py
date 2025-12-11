@@ -244,6 +244,8 @@ class MAP_NBV_Trial:
         self.running = False
         self.last_processed_time = 0
         self.frames_processed = 0
+        self.accumulated_points = None  # Store accumulated raw point cloud
+        self.accumulated_colors = None
         self.previous_pcd = None  # Track accumulated point cloud
         
 
@@ -401,16 +403,19 @@ class MAP_NBV_Trial:
 
     def save_point_cloud(self, points, colors, frame_id):
         self.timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename_ply = f"pointcloud_frame{frame_id:04d}_{self.timestamp}.ply"
-        filepath_ply = os.path.join(self.output_folder, filename_ply)
-        # Save full point cloud first
+        
+        # Save RAW accumulated point cloud
+        filename_raw = f"pointcloud_raw_frame{frame_id:04d}_{self.timestamp}.ply"
+        filepath_raw = os.path.join(self.output_folder, filename_raw)
+        print(f"\nSaving raw accumulated point cloud: {len(points)} points")
+        
         if HAS_OPEN3D:
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(points)
-            pcd.colors = o3d.utility.Vector3dVector(colors)
-            o3d.io.write_point_cloud(filepath_ply, pcd)
+            pcd_raw = o3d.geometry.PointCloud()
+            pcd_raw.points = o3d.utility.Vector3dVector(points)
+            pcd_raw.colors = o3d.utility.Vector3dVector(colors)
+            o3d.io.write_point_cloud(filepath_raw, pcd_raw)
         else:
-            with open(filepath_ply, 'w') as f:
+            with open(filepath_raw, 'w') as f:
                 f.write("ply\n")
                 f.write("format ascii 1.0\n")
                 f.write(f"element vertex {len(points)}\n")
@@ -425,41 +430,23 @@ class MAP_NBV_Trial:
                     x, y, z = points[i]
                     r, g, b = (colors[i] * 255).astype(np.uint8)
                     f.write(f"{x} {y} {z} {r} {g} {b}\n")
+        
+        print(f"  Saved raw: {filepath_raw}")
 
 
-# ... (imports)
-
-    def save_point_cloud(self, points, colors, frame_id):
-        # ... (saving full pcd) ...
-
-        # Downsample and save downsampled point cloud
+        
+        # Downsample the accumulated point cloud for PoinTr processing
+        print(f"\nDownsampling to {DOWN_SAMPLE_SIZE} points for PoinTr...")
         down_points, down_colors = self.random_downsample(points, colors, size=DOWN_SAMPLE_SIZE, seed=42)
         filename_down = f"pointcloud_downsampled_frame{frame_id:04d}_{self.timestamp}.ply"
         filepath_down = os.path.join(self.output_folder, filename_down)
 
         if HAS_OPEN3D:
-            # Create current PCD
-            pcd_current = o3d.geometry.PointCloud()
-            pcd_current.points = o3d.utility.Vector3dVector(down_points)
-            pcd_current.colors = o3d.utility.Vector3dVector(down_colors)
-
-            # Merge with previous if exists
-            if self.previous_pcd is not None:
-                # Use the logic from merge_point_clouds.py directly!
-                pcd_final = merge_point_clouds.merge_pcds(self.previous_pcd, pcd_current)
-                print(f"Merged frame {frame_id} with previous using merge_point_clouds.py logic.")
-            else:
-                pcd_final = pcd_current
-                print(f"Frame {frame_id}: Initial point cloud. Points: {len(down_points)}")
-            
-            # Update previous accumulated cloud
-            self.previous_pcd = pcd_final
-            
-            # Save the (merged) point cloud
-            o3d.io.write_point_cloud(filepath_down, pcd_final)
+            pcd_down = o3d.geometry.PointCloud()
+            pcd_down.points = o3d.utility.Vector3dVector(down_points)
+            pcd_down.colors = o3d.utility.Vector3dVector(down_colors)
+            o3d.io.write_point_cloud(filepath_down, pcd_down)
         else:
-            # ... (fallback) ...
-            # Fallback if no Open3D (no merging)
             with open(filepath_down, 'w') as f:
                 f.write("ply\n")
                 f.write("format ascii 1.0\n")
@@ -475,8 +462,10 @@ class MAP_NBV_Trial:
                     x, y, z = down_points[i]
                     r, g, b = (down_colors[i] * 255).astype(np.uint8)
                     f.write(f"{x} {y} {z} {r} {g} {b}\n")
+        
+        print(f"  Saved downsampled: {filepath_down} ({len(down_points)} points)")
 
-        # Run PoinTr inference on the downsampled (and potentially merged) file
+        # Run PoinTr inference on the downsampled file
         self.run_pointr_inference(filepath_down)
 
     def processing_loop(self):
@@ -496,10 +485,26 @@ class MAP_NBV_Trial:
                 time.sleep(1.0)
                 continue
 
-            global_points, global_colors = self.fuse_point_clouds(drone_data_list)
+            # Fuse current drone images into a point cloud
+            current_points, current_colors = self.fuse_point_clouds(drone_data_list)
 
-
-            if len(global_points) > 0:
+            if len(current_points) > 0:
+                # Merge with accumulated point cloud BEFORE downsampling
+                if self.accumulated_points is not None:
+                    print(f"\nMerging with accumulated cloud ({len(self.accumulated_points)} points)...")
+                    global_points = np.vstack([self.accumulated_points, current_points])
+                    global_colors = np.vstack([self.accumulated_colors, current_colors])
+                    print(f"Merged cloud: {len(global_points)} points")
+                else:
+                    print(f"\nFirst capture - initializing accumulated cloud")
+                    global_points = current_points
+                    global_colors = current_colors
+                
+                # Update accumulated cloud
+                self.accumulated_points = global_points
+                self.accumulated_colors = global_colors
+                
+                # Save both raw and processed versions
                 self.save_point_cloud(global_points, global_colors, self.frames_processed)
 
                 # After inference, run candidate_positions.py main on fine_new.ply

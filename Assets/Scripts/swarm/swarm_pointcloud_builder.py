@@ -65,7 +65,7 @@ class SwarmPointCloudBuilder:
     """Processes swarm capture data and builds incremental point clouds."""
     
     MIN_DISTANCE_FROM_DRONE = 1.1  # meters (filter out drone mesh)
-    TARGET_DOWNSAMPLE_SIZE = 16000  # Target number of points for downsampled cloud
+    TARGET_DOWNSAMPLE_SIZE = 8000  # Target number of points for downsampled cloud
     
     def __init__(self, 
                  capture_dir: str = "../../ProcessedImages/SwarmCapture",
@@ -459,51 +459,64 @@ class SwarmPointCloudBuilder:
     
     def process_capture(self, capture_folder: Path):
         """Process a single capture folder."""
+        # Check if already processed (safety check)
+        if capture_folder.name in self.processed_captures:
+            print(f"⏭ Skipping {capture_folder.name} - already processed")
+            return
+        
+        # Mark as processing immediately to prevent duplicate processing
+        self.processed_captures.add(capture_folder.name)
+        
         print(f"\n{'='*60}")
         print(f"Processing: {capture_folder.name}")
         print(f"{'='*60}")
         
-        # Load data
-        drone_data_list, intrinsics = self.load_capture_data(capture_folder)
-        
-        # Fuse point clouds from all drones
-        print("\nFusing point clouds...")
-        new_points, new_colors = self.fuse_point_clouds(drone_data_list, intrinsics)
-        
-        if len(new_points) == 0:
-            print("⚠ No points generated from this capture")
-            return
-        
-        # Merge with accumulated point cloud
-        print("\nMerging with accumulated cloud...")
-        merged_points, merged_colors = self.merge_with_accumulated(new_points, new_colors)
-        
-        # Update accumulated state
-        self.accumulated_points = merged_points
-        self.accumulated_colors = merged_colors
-        
-        # Save raw merged point cloud
-        timestamp = capture_folder.name.replace("capture_", "")
-        raw_filename = f"pointcloud_raw_{timestamp}.ply"
-        print(f"\nSaving raw point cloud...")
-        self.save_point_cloud(merged_points, merged_colors, raw_filename)
-        
-        # Downsample and save
-        print(f"\nDownsampling to {self.TARGET_DOWNSAMPLE_SIZE} points...")
-        down_points, down_colors = self.downsample_point_cloud(
-            merged_points, merged_colors, self.TARGET_DOWNSAMPLE_SIZE
-        )
-        
-        down_filename = f"pointcloud_downsampled_{timestamp}.ply"
-        print(f"Saving downsampled point cloud...")
-        self.save_point_cloud(down_points, down_colors, down_filename)
-        
-        print(f"\n✓ Processing complete!")
-        print(f"  Raw: {len(merged_points)} points")
-        print(f"  Downsampled: {len(down_points)} points")
-        
-        # Mark as processed
-        self.processed_captures.add(capture_folder.name)
+        try:
+            # Load data
+            drone_data_list, intrinsics = self.load_capture_data(capture_folder)
+            
+            # Fuse point clouds from all drones
+            print("\nFusing point clouds...")
+            new_points, new_colors = self.fuse_point_clouds(drone_data_list, intrinsics)
+            
+            if len(new_points) == 0:
+                print("⚠ No points generated from this capture")
+                return
+            
+            # Merge with accumulated point cloud
+            print("\nMerging with accumulated cloud...")
+            merged_points, merged_colors = self.merge_with_accumulated(new_points, new_colors)
+            
+            # Update accumulated state
+            self.accumulated_points = merged_points
+            self.accumulated_colors = merged_colors
+            
+            # Save raw merged point cloud
+            timestamp = capture_folder.name.replace("capture_", "")
+            raw_filename = f"pointcloud_raw_{timestamp}.ply"
+            print(f"\nSaving raw point cloud...")
+            self.save_point_cloud(merged_points, merged_colors, raw_filename)
+            
+            # Downsample and save
+            print(f"\nDownsampling to {self.TARGET_DOWNSAMPLE_SIZE} points...")
+            down_points, down_colors = self.downsample_point_cloud(
+                merged_points, merged_colors, self.TARGET_DOWNSAMPLE_SIZE
+            )
+            
+            down_filename = f"pointcloud_downsampled_{timestamp}.ply"
+            print(f"Saving downsampled point cloud...")
+            self.save_point_cloud(down_points, down_colors, down_filename)
+            
+            print(f"\n✓ Processing complete!")
+            print(f"  Raw: {len(merged_points)} points")
+            print(f"  Downsampled: {len(down_points)} points")
+            
+        except Exception as e:
+            print(f"\n❌ Error processing {capture_folder.name}: {e}")
+            print(f"   This capture will be skipped.")
+            # Keep it marked as processed to avoid infinite retry loop
+            import traceback
+            traceback.print_exc()
     
     def run(self, poll_interval: float = 2.0):
         """Main processing loop - polls for new captures."""

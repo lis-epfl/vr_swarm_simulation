@@ -114,10 +114,13 @@ public class SwarmImageCapture : MonoBehaviour
     void InitializeCaptureResources()
     {
         reusableTexture = new RenderTexture(imageWidth, imageHeight, 24);
+        reusableTexture.antiAliasing = 4; // Enable 4x MSAA for smoother textures
+        reusableTexture.filterMode = FilterMode.Trilinear; // Better texture filtering
         captureTexture = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
+        captureTexture.filterMode = FilterMode.Trilinear;
         
         if (enableDebugLogging)
-            Debug.Log($"[SwarmImageCapture] Initialized capture resources ({imageWidth}x{imageHeight})");
+            Debug.Log($"[SwarmImageCapture] Initialized capture resources ({imageWidth}x{imageHeight}) with 4x AA");
     }
     
     void FindDroneCameras()
