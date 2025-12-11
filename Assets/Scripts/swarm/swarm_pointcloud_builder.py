@@ -22,6 +22,11 @@ from scipy.spatial.transform import Rotation
 from dataclasses import dataclass
 from pathlib import Path
 
+# import torch
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"CUDA version: {torch.version.cuda}")
+
 try:
     import open3d as o3d
     HAS_OPEN3D = True
@@ -265,7 +270,7 @@ class SwarmPointCloudBuilder:
         
         # Unproject to 3D camera coordinates
         X_cam = (u_valid - intrinsics.cx) * depth_valid / intrinsics.fx
-        Y_cam = -(v_valid - intrinsics.cy) * depth_valid / intrinsics.fy
+        Y_cam = (v_valid - intrinsics.cy) * depth_valid / intrinsics.fy
         Z_cam = depth_valid
         
         points = np.stack([X_cam, Y_cam, Z_cam], axis=-1)

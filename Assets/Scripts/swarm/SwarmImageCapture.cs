@@ -22,7 +22,7 @@ using UnityEngine;
 public class SwarmImageCapture : MonoBehaviour
 {
     [Header("Capture Settings")]
-    [SerializeField] private float captureInterval = 5.0f; // Capture every 5 seconds
+    [SerializeField] private float captureInterval = 5.0f; // Capture every 5.0 seconds
     [SerializeField] private int imageWidth = 1280;
     [SerializeField] private int imageHeight = 720;
     
