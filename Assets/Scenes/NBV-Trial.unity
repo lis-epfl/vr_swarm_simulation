@@ -245,7 +245,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &801706982
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -506,7 +506,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 1
+  swarmAlgorithm: 2
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
@@ -548,7 +548,7 @@ MonoBehaviour:
   escapeForceMultiplier: 5
   minForceRatio: 0.5
   useFormationOverride: 1
-  attitudeControlType: 1
+  attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
   invertAngle: 1
@@ -1023,7 +1023,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1918555507
 MonoBehaviour:
   m_ObjectHideFlags: 0
