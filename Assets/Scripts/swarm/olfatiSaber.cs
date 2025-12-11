@@ -20,7 +20,7 @@ public class OlfatiSaber : MonoBehaviour
     public float lambda_obs = 1.0f;
     public float c_obs = 10.0f;  // Increased for stronger obstacle avoidance
     public float scaleFactor = 10.0f;
-    public float c_migration = 6.0f;  // Migration force strength
+    public float c_migration = 2.5f;  // Migration force strength (increased for faster movement)
 
     public float maxMigrationDistance = 10.0f;
 
