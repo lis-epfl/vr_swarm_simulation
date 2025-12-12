@@ -29,6 +29,8 @@ try:
 except ImportError:
     HAS_TRIMESH = False
 
+TARGET_POINTS = 50000  # Target points for adaptive downsampling
+
 
 class SilentMeshComparator:
     """Silent version of MeshComparator - no print statements."""
@@ -139,6 +141,12 @@ class SilentMeshComparator:
     def compare(self, reconstructed_path: str, coverage_threshold: float = 0.1) -> dict:
         """Run comparison pipeline."""
         recon_pcd = o3d.io.read_point_cloud(reconstructed_path)
+        original_size = len(recon_pcd.points)
+        
+        # Voxelize FIRST to remove duplicate/overlapping points (before alignment)
+        voxel_size = 0.05  # 5cm voxels (same as swarm_pointcloud_builder.py)
+        recon_pcd = recon_pcd.voxel_down_sample(voxel_size)
+        voxelized_size = len(recon_pcd.points)
         
         # Apply X-flip to GT mesh (Unity coordinate system)
         flip_transform = np.eye(4)
@@ -171,52 +179,83 @@ class SilentMeshComparator:
         gt_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
         recon_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
         
-        # Coarse alignment
+        # Coarse alignment (reduced iterations for speed)
         coarse_result = o3d.pipelines.registration.registration_icp(
             recon_down, gt_down, 0.2, np.eye(4),
             o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=100)
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=30)
         )
         recon_pcd.transform(coarse_result.transformation)
         
-        # Fine alignment
+        # Fine alignment (reduced iterations for speed)
         fine_result = o3d.pipelines.registration.registration_icp(
             recon_pcd, self.gt_pcd, 0.05, np.eye(4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=200)
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50)
         )
         recon_pcd.transform(fine_result.transformation)
         
-        # Compute metrics
+        # Compute metrics on voxelized point clouds
         visibility = self.compute_mesh_visibility(recon_pcd, coverage_threshold)
         overlap = self.compute_mesh_overlap(recon_pcd)
         
         return {
             'visibility': visibility,
-            'overlap': overlap
+            'overlap': overlap,
+            'original_size': original_size,
+            'voxelized_size': voxelized_size
         }
+
+
+def adaptive_downsample(pcd: o3d.geometry.PointCloud, target_points: int = 50000) -> o3d.geometry.PointCloud:
+    """
+    Adaptively downsample point cloud to target number of points.
+    Only downsamples if current point count exceeds target.
+    
+    Args:
+        pcd: Input point cloud
+        target_points: Target number of points (default: 50000)
+    
+    Returns:
+        Downsampled point cloud (or original if already small enough)
+    """
+    current_points = len(pcd.points)
+    if current_points <= target_points:
+        return pcd
+    
+    # Calculate voxel size to achieve approximately target_points
+    volume = pcd.get_oriented_bounding_box().volume()
+    voxel_size = np.cbrt(volume / target_points)
+    
+    # Ensure minimum voxel size to avoid over-downsampling
+    voxel_size = max(voxel_size, 0.01)
+    
+    downsampled = pcd.voxel_down_sample(voxel_size)
+    return downsampled
 
 
 def parse_filename(filename: str) -> tuple:
     """
-    Parse filename to extract drone count and iteration count.
-    Expected format: raw_3_drones_1_iterations.ply
+    Parse filename to extract type, drone count and iteration count.
+    Expected formats: 
+      - NBV_raw_3_drones_iteration_1.ply
+      - swarm_raw_3_drones_iteration_1.ply
     
     Returns:
-        (num_drones, num_iterations) or (None, None) if parsing fails
+        (type, num_drones, num_iterations) or (None, None, None) if parsing fails
     """
-    # Pattern: raw_{num}_drones_{num}_iterations.ply
-    match = re.match(r'raw_(\d+)_drones_(\d+)_iterations\.ply', filename)
+    # Pattern: (NBV|swarm)_raw_{num}_drones_iteration_{num}.ply
+    match = re.match(r'(NBV|swarm)_raw_(\d+)_drones_iteration_(\d+)\.ply', filename)
     if match:
-        return int(match.group(1)), int(match.group(2))
-    return None, None
+        return match.group(1), int(match.group(2)), int(match.group(3))
+    return None, None, None
 
 
 def main():
     # Paths
     final_pc_folder = Path("Assets/FinalPointClouds")
     gt_path = "Assets/Comparisons/House_with_Texture3.obj"
-    output_csv = "mesh_comparison_results.csv"
+    output_csv = "mesh_comparison_results_downsampled2.csv"
     
     if not final_pc_folder.exists():
         print(f"Error: Folder not found: {final_pc_folder}")
@@ -226,8 +265,8 @@ def main():
         print(f"Error: Ground truth not found: {gt_path}")
         return 1
     
-    # Find all raw PLY files
-    ply_files = sorted([f for f in final_pc_folder.glob("raw_*.ply")])
+    # Find all raw PLY files (NBV or swarm)
+    ply_files = sorted([f for f in final_pc_folder.glob("*_raw_*.ply")])
     
     if not ply_files:
         print(f"No PLY files found in {final_pc_folder}")
@@ -236,14 +275,32 @@ def main():
     print(f"Found {len(ply_files)} point clouds to process")
     print(f"Ground truth: {gt_path}")
     print(f"Output: {output_csv}")
-    print(f"\nProcessing...")
+    print(f"\nProcessing and writing results incrementally...\n")
     
-    # Prepare CSV
+    # Initialize CSV file with headers
+    fieldnames = [
+        'filename',
+        'type',
+        'drones', 
+        'iterations',
+        'num_points',
+        'mesh_visibility', 
+        'mesh_overlap', 
+        'chamfer_distance', 
+        'mean_distance_to_gt', 
+        'accuracy_threshold'
+    ]
+    
+    with open(output_csv, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+    
+    # Prepare results list for summary
     results = []
     
     for i, ply_file in enumerate(ply_files, 1):
         filename = ply_file.name
-        num_drones, num_iterations = parse_filename(filename)
+        file_type, num_drones, num_iterations = parse_filename(filename)
         
         if num_drones is None:
             print(f"  [{i}/{len(ply_files)}] Skipping {filename} (cannot parse)")
@@ -252,6 +309,11 @@ def main():
         print(f"  [{i}/{len(ply_files)}] Processing {filename}... ", end='', flush=True)
         
         try:
+            # Load point cloud to check size
+            import open3d as o3d
+            test_pcd = o3d.io.read_point_cloud(str(ply_file))
+            num_points = len(test_pcd.points)
+            
             # Create fresh comparator for each file
             comparator = SilentMeshComparator(gt_path)
             
@@ -259,10 +321,13 @@ def main():
             comparison_results = comparator.compare(str(ply_file), coverage_threshold=0.1)
             
             # Extract metrics
+            voxelized_pts = comparison_results['voxelized_size']
             row = {
                 'filename': filename,
+                'type': file_type,
                 'drones': num_drones,
                 'iterations': num_iterations,
+                'num_points': num_points,
                 'mesh_visibility': comparison_results['visibility']['coverage_percentage'],
                 'mesh_overlap': comparison_results['overlap']['accuracy_percentage'],
                 'chamfer_distance': comparison_results['overlap']['chamfer_distance'],
@@ -270,8 +335,13 @@ def main():
                 'accuracy_threshold': comparison_results['overlap']['accuracy_threshold']
             }
             
+            # Write to CSV immediately
+            with open(output_csv, 'a', newline='') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writerow(row)
+            
             results.append(row)
-            print(f"✓")
+            print(f"✓ pts={num_points:,}→{voxelized_pts:,} vis={row['mesh_visibility']:.1f}% overlap={row['mesh_overlap']:.1f}%")
             
         except Exception as e:
             print(f"✗ Error: {e}")
@@ -280,28 +350,6 @@ def main():
     if not results:
         print("\nNo results to save")
         return 1
-    
-    # Write CSV
-    print(f"\nWriting results to {output_csv}...")
-    
-    with open(output_csv, 'w', newline='') as csvfile:
-        fieldnames = [
-            'filename', 
-            'drones', 
-            'iterations', 
-            'mesh_visibility', 
-            'mesh_accuracy', 
-            'chamfer_distance', 
-            'mean_distance_to_gt', 
-            'accuracy_threshold'
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        
-        writer.writeheader()
-        for row in results:
-            writer.writerow(row)
-    
-    print(f"✓ Saved {len(results)} results to {output_csv}")
     
     # Print summary
     print(f"\n{'='*70}")
@@ -313,11 +361,11 @@ def main():
     print(f"  Min: {min(vis_values):.2f}%")
     print(f"  Max: {max(vis_values):.2f}%")
     print(f"  Avg: {np.mean(vis_values):.2f}%")
-    print(f"\nMesh Accuracy (Overlap) Range:")
-    acc_values = [r['mesh_accuracy'] for r in results]
-    print(f"  Min: {min(acc_values):.2f}%")
-    print(f"  Max: {max(acc_values):.2f}%")
-    print(f"  Avg: {np.mean(acc_values):.2f}%")
+    print(f"\nMesh Overlap (Accuracy) Range:")
+    overlap_values = [r['mesh_overlap'] for r in results]
+    print(f"  Min: {min(overlap_values):.2f}%")
+    print(f"  Max: {max(overlap_values):.2f}%")
+    print(f"  Avg: {np.mean(overlap_values):.2f}%")
     print(f"{'='*70}\n")
     
     return 0
