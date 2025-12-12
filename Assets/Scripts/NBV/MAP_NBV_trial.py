@@ -703,6 +703,9 @@ class MAP_NBV_Trial:
                 # Save both raw and processed versions
                 self.save_point_cloud(global_points, global_colors, self.frames_processed)
                 
+                # NEW: Save to FinalPointClouds after each iteration for progression tracking
+                self.save_iteration_milestone(global_points, global_colors, self.frames_processed, len(drone_data_list))
+                
                 # Store current frame for file paths
                 current_frame = self.frames_processed
                 self.frames_processed += 1
@@ -719,8 +722,8 @@ class MAP_NBV_Trial:
                     print(f"Total captures: {self.frames_processed}")
                     print(f"Stopping NBV pipeline...")
                     
-                    # Save final point clouds and cleanup
-                    self.save_final_point_clouds_and_cleanup(len(drone_data_list), self.max_iterations)
+                    # Cleanup temporary files (milestones already saved)
+                    self.cleanup_temporary_files()
                     
                     # Trigger Unity to stop Play mode
                     self.trigger_unity_stop()
@@ -738,8 +741,8 @@ class MAP_NBV_Trial:
                     print(f"Total captures: {self.frames_processed}")
                     print(f"Stopping NBV pipeline...")
                     
-                    # Save final point clouds and cleanup
-                    self.save_final_point_clouds_and_cleanup(len(drone_data_list), self.max_iterations)
+                    # Cleanup temporary files (milestones already saved)
+                    self.cleanup_temporary_files()
                     
                     # Trigger Unity to stop Play mode
                     self.trigger_unity_stop()
@@ -823,8 +826,86 @@ class MAP_NBV_Trial:
                 # No points captured - update time and continue
                 self.last_processed_time = current_time
 
-
+    def save_iteration_milestone(self, points, colors, iteration_num, num_drones):
+        """Save point cloud to FinalPointClouds after each iteration for progression tracking."""
+        import shutil
+        
+        # Create FinalPointClouds directory if it doesn't exist
+        final_folder = r"C:\Users\sriram\vr_swarm_simulation\Assets\FinalPointClouds"
+        os.makedirs(final_folder, exist_ok=True)
+        
+        # Save with iteration number in filename
+        milestone_name = f"NBV_raw_{num_drones}_drones_iteration_{iteration_num}.ply"
+        milestone_path = os.path.join(final_folder, milestone_name)
+        
+        try:
+            if HAS_OPEN3D:
+                pcd = o3d.geometry.PointCloud()
+                pcd.points = o3d.utility.Vector3dVector(points)
+                pcd.colors = o3d.utility.Vector3dVector(colors)
+                o3d.io.write_point_cloud(milestone_path, pcd)
+            else:
+                with open(milestone_path, 'w') as f:
+                    f.write("ply\n")
+                    f.write("format ascii 1.0\n")
+                    f.write(f"element vertex {len(points)}\n")
+                    f.write("property float x\n")
+                    f.write("property float y\n")
+                    f.write("property float z\n")
+                    f.write("property uchar red\n")
+                    f.write("property uchar green\n")
+                    f.write("property uchar blue\n")
+                    f.write("end_header\n")
+                    for i in range(len(points)):
+                        x, y, z = points[i]
+                        r, g, b = (colors[i] * 255).astype(np.uint8)
+                        f.write(f"{x} {y} {z} {r} {g} {b}\n")
             
+            print(f"  ✓ Saved iteration {iteration_num} milestone: {milestone_name} ({len(points)} points)")
+        except Exception as e:
+            print(f"  ⚠ Warning: Could not save iteration milestone: {e}")
+    
+    def cleanup_temporary_files(self):
+        """Delete temporary files in ProcessedImages/PointClouds folder."""
+        # Try to import send2trash for safe deletion
+        try:
+            from send2trash import send2trash
+            use_recycle_bin = True
+        except ImportError:
+            print("  Warning: send2trash not installed, files will be deleted permanently")
+            print("  Install with: pip install send2trash")
+            use_recycle_bin = False
+        
+        print(f"\n{'='*60}")
+        print(f"CLEANING UP TEMPORARY FILES")
+        print(f"{'='*60}")
+        
+        deleted_files = 0
+        deleted_folders = 0
+        
+        try:
+            # Only delete files/folders in the output_folder
+            if use_recycle_bin:
+                for item in os.listdir(self.output_folder):
+                    item_path = os.path.join(self.output_folder, item)
+                    try:
+                        # Send to recycle bin (safer)
+                        send2trash(item_path)
+                        if os.path.isfile(item_path):
+                            deleted_files += 1
+                        else:
+                            deleted_folders += 1
+                    except Exception as e:
+                        print(f"  Warning: Could not move {item} to recycle bin: {e}")
+            else:
+                print(f"  ⚠ Skipping cleanup - send2trash not installed")
+            
+            if use_recycle_bin:
+                print(f"  ✓ Moved {deleted_files} files and {deleted_folders} folders to Recycle Bin")
+                print(f"  ✓ Cleanup complete")
+            print(f"{'='*60}\n")
+        except Exception as e:
+            print(f"  ⚠ Error during cleanup: {e}")
 
     def save_final_point_clouds_and_cleanup(self, num_drones, num_iterations):
         """Save final point clouds to FinalPointClouds folder and cleanup temporary files."""

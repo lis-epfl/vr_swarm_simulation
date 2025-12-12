@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
 Automated NBV Experiment Runner
-Runs launch_nbv_experiment.py multiple times with different drone counts and iteration counts.
+Runs launch_nbv_experiment.py multiple times with different drone counts.
+Each experiment runs with max_iterations and saves progressive milestones (0, 1, 2, ..., max_iterations).
 """
 
 """TO RUN:
-# default run (1-5 drones, 0-5 iterations)
+# Run with 1-5 drones, each doing 5 iterations (saves milestones 0, 1, 2, 3, 4, 5)
 python run_nbv_experiments.py --max-drones 5 --max-iterations 5 --skip-existing --delay 5
 
-# Custom run (3-4 drones, 3-4 iterations)
-python run_nbv_experiments.py --min-drones 3 --max-drones 4 --min-iterations 3 --max-iterations 4 --skip-existing --delay 5
+# Custom run with 3-4 drones, each doing 10 iterations
+python run_nbv_experiments.py --min-drones 3 --max-drones 4 --max-iterations 10 --skip-existing --delay 5
 
 # Longer timeout for complex experiments (1200 seconds = 20 minutes)
-python run_nbv_experiments.py --max-drones 5 --max-iterations 5 --timeout 1200 --skip-existing --delay 5
+python run_nbv_experiments.py --max-drones 5 --max-iterations 10 --timeout 1200 --skip-existing --delay 5
 """
 
 import subprocess
@@ -82,21 +83,22 @@ def run_experiment(num_drones, num_iterations, skip_unity=True, timeout=600):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run multiple NBV experiments with varying drone counts and iterations",
+        description="Run multiple NBV experiments with varying drone counts. Each experiment runs with max_iterations and saves progressive milestones.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run experiments with 1-3 drones and 0-2 iterations (9 total experiments)
-  python run_nbv_experiments.py --max-drones 3 --max-iterations 2
+  # Run experiments with 1-3 drones, each doing 10 iterations (3 total experiments)
+  # Each will save milestones: iteration_0.ply, iteration_1.ply, ..., iteration_10.ply
+  python run_nbv_experiments.py --max-drones 3 --max-iterations 10
   
-  # Start with 2 drones, go up to 5 drones, with 0-3 iterations
-  python run_nbv_experiments.py --min-drones 2 --max-drones 5 --max-iterations 3
+  # Start with 2 drones, go up to 5 drones, each doing 5 iterations
+  python run_nbv_experiments.py --min-drones 2 --max-drones 5 --max-iterations 5
   
-  # Skip experiments that already have saved results
-  python run_nbv_experiments.py --max-drones 3 --max-iterations 2 --skip-existing
+  # Skip experiments that already have final iteration saved
+  python run_nbv_experiments.py --max-drones 3 --max-iterations 10 --skip-existing
   
   # Add delay between experiments (useful for Unity to settle)
-  python run_nbv_experiments.py --max-drones 3 --max-iterations 2 --delay 5
+  python run_nbv_experiments.py --max-drones 3 --max-iterations 10 --delay 5
         """
     )
     
@@ -115,17 +117,10 @@ Examples:
     )
     
     parser.add_argument(
-        "--min-iterations",
-        type=int,
-        default=0,
-        help="Minimum number of iterations (default: 0)"
-    )
-    
-    parser.add_argument(
         "--max-iterations",
         type=int,
         required=True,
-        help="Maximum number of iterations (required)"
+        help="Number of NBV iterations to run (will save milestones 0, 1, 2, ..., max_iterations)"
     )
     
     parser.add_argument(
@@ -172,28 +167,23 @@ Examples:
         print("Error: --max-drones must be >= --min-drones")
         return 1
     
-    if args.min_iterations < 0:
-        print("Error: --min-iterations must be >= 0")
-        return 1
-    
-    if args.max_iterations < args.min_iterations:
-        print("Error: --max-iterations must be >= --min-iterations")
+    if args.max_iterations < 0:
+        print("Error: --max-iterations must be >= 0")
         return 1
     
     # Determine skip_unity setting
     skip_unity = not args.no_skip_unity if args.no_skip_unity else args.skip_unity
     
-    # Calculate total experiments
+    # Calculate total experiments (only varying drone count now)
     num_drone_configs = args.max_drones - args.min_drones + 1
-    num_iteration_configs = args.max_iterations - args.min_iterations + 1
-    total_experiments = num_drone_configs * num_iteration_configs
+    total_experiments = num_drone_configs
     
     # Print experiment plan
     print(f"\n{'='*70}")
     print(f"NBV EXPERIMENT BATCH")
     print(f"{'='*70}")
     print(f"Drone range: {args.min_drones} to {args.max_drones} ({num_drone_configs} configs)")
-    print(f"Iteration range: {args.min_iterations} to {args.max_iterations} ({num_iteration_configs} configs)")
+    print(f"Max iterations per experiment: {args.max_iterations}")
     print(f"Total experiments: {total_experiments}")
     print(f"Skip Unity launch: {skip_unity}")
     print(f"Skip existing results: {args.skip_existing}")
@@ -209,33 +199,34 @@ Examples:
     failed = 0
     skipped = 0
     experiment_num = 0
+
+    start_time = time.time()
     
     try:
         for num_drones in range(args.min_drones, args.max_drones + 1):
-            for num_iterations in range(args.min_iterations, args.max_iterations + 1):
-                experiment_num += 1
-                
-                # Check if results already exist
-                if args.skip_existing:
-                    expected_file = final_pc_folder / f"raw_{num_drones}_drones_{num_iterations}_iterations.ply"
-                    if expected_file.exists():
-                        print(f"\n[{experiment_num}/{total_experiments}] Skipping {num_drones} drones, {num_iterations} iterations (result exists)")
-                        skipped += 1
-                        continue
-                
-                print(f"\n[{experiment_num}/{total_experiments}] Running experiment...")
-                
-                success = run_experiment(num_drones, num_iterations, skip_unity, timeout=args.timeout)
-                
-                if success:
-                    completed += 1
-                else:
-                    failed += 1
-                
-                # Wait between experiments (except after last one)
-                if experiment_num < total_experiments:
-                    print(f"Waiting {args.delay} seconds before next experiment...\n")
-                    time.sleep(args.delay)
+            experiment_num += 1
+            
+            # Check if final iteration result already exists
+            if args.skip_existing:
+                expected_file = final_pc_folder / f"NBV_raw_{num_drones}_drones_iteration_{args.max_iterations}.ply"
+                if expected_file.exists():
+                    print(f"\n[{experiment_num}/{total_experiments}] Skipping {num_drones} drones (final iteration {args.max_iterations} exists)")
+                    skipped += 1
+                    continue
+            
+            print(f"\n[{experiment_num}/{total_experiments}] Running experiment...")
+            
+            success = run_experiment(num_drones, args.max_iterations, skip_unity, timeout=args.timeout)
+            
+            if success:
+                completed += 1
+            else:
+                failed += 1
+            
+            # Wait between experiments (except after last one)
+            if experiment_num < total_experiments:
+                print(f"Waiting {args.delay} seconds before next experiment...\n")
+                time.sleep(args.delay)
         
         # Print summary
         print(f"\n{'='*70}")
@@ -247,6 +238,10 @@ Examples:
         if args.skip_existing:
             print(f"Skipped (already exist): {skipped}")
         print(f"{'='*70}\n")
+
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"\nTotal batch time: {elapsed_time:.2f} seconds for {total_experiments} experiments.\n")
         
         return 0 if failed == 0 else 1
         
@@ -261,6 +256,8 @@ Examples:
         print(f"Remaining: {total_experiments - experiment_num}")
         print(f"{'='*70}\n")
         return 130  # Standard exit code for SIGINT
+    
+
 
 
 if __name__ == "__main__":
