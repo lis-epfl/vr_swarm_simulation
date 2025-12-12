@@ -324,51 +324,55 @@ class MeshComparator:
         print("Visualization")
         print(f"{'='*60}")
         
-        # Color ground truth mesh (gray)
-        self.gt_mesh.paint_uniform_color([0.7, 0.7, 0.7])
+        # Color ground truth mesh (gray) and reconstruction (red)
+        self.gt_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray for GT
+        reconstructed_pcd.paint_uniform_color([1.0, 0.2, 0.2])  # Red for reconstruction
         
-        # Find unseen GT points (not covered by reconstruction)
-        if visibility_results:
-            threshold = visibility_results['adjusted_threshold']
-            recon_kdtree = o3d.geometry.KDTreeFlann(reconstructed_pcd)
-            gt_points = np.asarray(self.gt_pcd.points)
-            
-            unseen_points = []
-            print(f"  Identifying unseen areas (threshold: {threshold:.6f})...")
-            
-            for i, gt_point in enumerate(gt_points):
-                if i % 100000 == 0 and i > 0:
-                    print(f"    Progress: {i}/{len(gt_points)} ({100*i/len(gt_points):.1f}%)")
-                
-                [k, idx, dist_sq] = recon_kdtree.search_knn_vector_3d(gt_point, 1)
-                distance = np.sqrt(dist_sq[0])
-                
-                if distance >= threshold:  # Not covered
-                    unseen_points.append(gt_point)
-            
-            # Create point cloud for unseen areas
-            unseen_pcd = o3d.geometry.PointCloud()
-            unseen_pcd.points = o3d.utility.Vector3dVector(np.array(unseen_points))
-            unseen_pcd.paint_uniform_color([0.8, 0.2, 0.8])  # Purple
-            
-            print(f"  Unseen points: {len(unseen_points):,} / {len(gt_points):,} ({100*len(unseen_points)/len(gt_points):.1f}%)")
-            print("\nShowing ground truth (gray) and unseen areas (purple)...")
-            print("  Close the window to continue")
-            
-            o3d.visualization.draw_geometries(
-                [self.gt_mesh, unseen_pcd],
-                window_name="Ground Truth (gray) - Unseen Areas (purple)",
-                width=1280,
-                height=720
-            )
-        else:
-            print("  No visibility results available, showing GT only")
-            o3d.visualization.draw_geometries(
-                [self.gt_mesh],
-                window_name="Ground Truth",
-                width=1280,
-                height=720
-            )
+        print("\nShowing ground truth (gray) and reconstruction (red)...")
+        print("  Close the window to continue")
+        
+        o3d.visualization.draw_geometries(
+            [self.gt_mesh, reconstructed_pcd],
+            window_name="Ground Truth (gray) - Reconstruction (red)",
+            width=1280,
+            height=720
+        )
+        
+        # # Commented out: unseen points visualization
+        # # Find unseen GT points (not covered by reconstruction)
+        # if visibility_results:
+        #     threshold = visibility_results['adjusted_threshold']
+        #     recon_kdtree = o3d.geometry.KDTreeFlann(reconstructed_pcd)
+        #     gt_points = np.asarray(self.gt_pcd.points)
+        #     
+        #     unseen_points = []
+        #     print(f"  Identifying unseen areas (threshold: {threshold:.6f})...")
+        #     
+        #     for i, gt_point in enumerate(gt_points):
+        #         if i % 100000 == 0 and i > 0:
+        #             print(f"    Progress: {i}/{len(gt_points)} ({100*i/len(gt_points):.1f}%)")
+        #         
+        #         [k, idx, dist_sq] = recon_kdtree.search_knn_vector_3d(gt_point, 1)
+        #         distance = np.sqrt(dist_sq[0])
+        #         
+        #         if distance >= threshold:  # Not covered
+        #             unseen_points.append(gt_point)
+        #     
+        #     # Create point cloud for unseen areas
+        #     unseen_pcd = o3d.geometry.PointCloud()
+        #     unseen_pcd.points = o3d.utility.Vector3dVector(np.array(unseen_points))
+        #     unseen_pcd.paint_uniform_color([0.8, 0.2, 0.8])  # Purple
+        #     
+        #     print(f"  Unseen points: {len(unseen_points):,} / {len(gt_points):,} ({100*len(unseen_points)/len(gt_points):.1f}%)")
+        #     print("\nShowing ground truth (gray) and unseen areas (purple)...")
+        #     print("  Close the window to continue")
+        #     
+        #     o3d.visualization.draw_geometries(
+        #         [self.gt_mesh, unseen_pcd],
+        #         window_name="Ground Truth (gray) - Unseen Areas (purple)",
+        #         width=1280,
+        #         height=720
+        #     )
     
     def compare(self, reconstructed_path: str, coverage_threshold: float = 0.1) -> dict:
         """
@@ -410,81 +414,63 @@ class MeshComparator:
             self.gt_mesh.transform(flip_transform)
             print(f"  Applied X-flip to GT mesh")
             
-            # Normalize GT mesh: center + scale to unit sphere
-            gt_center = self.gt_mesh.get_center()
-            self.gt_mesh.translate(-gt_center)
-            gt_max_bound = np.max(self.gt_mesh.get_max_bound() - self.gt_mesh.get_min_bound())
-            self.gt_mesh.scale(1.0 / gt_max_bound, center=[0, 0, 0])
+            # Scale GT to half size (GT is 2x the size of recon)
+            # Scale around origin to preserve center position
+            gt_center_before = self.gt_mesh.get_center()
+            print(f"  GT center before scaling: [{gt_center_before[0]:.2f}, {gt_center_before[1]:.2f}, {gt_center_before[2]:.2f}]")
+            self.gt_mesh.scale(0.5, center=[0, 0, 0])
+            gt_center_after_scale = self.gt_mesh.get_center()
+            print(f"  GT center after scaling: [{gt_center_after_scale[0]:.2f}, {gt_center_after_scale[1]:.2f}, {gt_center_after_scale[2]:.2f}]")
+            print(f"  ✓ Scaled GT to 0.5x (half size)")
             
-            # Rebuild GT point cloud and KDTree after normalization
+            # Rebuild GT point cloud and KDTree after scaling
             num_samples = max(100000, len(self.gt_mesh.vertices) * 10)
             self.gt_pcd = self.gt_mesh.sample_points_uniformly(number_of_points=num_samples)
             self.gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
             
-            # Normalize reconstruction: center + scale to unit sphere
+            # Get new centers after scaling
+            gt_center_after = self.gt_pcd.get_center()
             recon_center = recon_pcd.get_center()
-            recon_pcd.translate(-recon_center)
-            recon_max_bound = np.max(recon_pcd.get_max_bound() - recon_pcd.get_min_bound())
-            recon_pcd.scale(1.0 / recon_max_bound, center=[0, 0, 0])
             
-            # Store the larger of the two original scales for threshold adjustment
-            self.normalization_scale = min(gt_max_bound, recon_max_bound)
-            print(f"  ✓ Both meshes normalized to unit scale (original scale: {self.normalization_scale:.2f}m)")
+            print(f"  GT center after scaling: [{gt_center_after[0]:.2f}, {gt_center_after[1]:.2f}, {gt_center_after[2]:.2f}]")
+            print(f"  Recon center: [{recon_center[0]:.2f}, {recon_center[1]:.2f}, {recon_center[2]:.2f}]")
+            
+            # Store normalization scale for threshold adjustment (no normalization in this case)
+            self.normalization_scale = 1.0
+            print(f"  ✓ Scale correction applied")
         
-        # Advanced alignment after normalization
+        # Manual alignment using translation vector
         if self.align:
             print(f"\n{'='*60}")
-            print("Multi-scale ICP alignment...")
+            print("Manual Translation Alignment...")
             print(f"{'='*60}")
             
-            # Downsample for coarse alignment
-            gt_down = self.gt_pcd.voxel_down_sample(voxel_size=0.05)
-            recon_down = recon_pcd.voxel_down_sample(voxel_size=0.05)
-            
-            # Estimate normals
-            gt_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-            recon_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-            
-            # Coarse alignment with larger threshold
-            print(f"  Coarse alignment...")
-            coarse_result = o3d.pipelines.registration.registration_icp(
-                recon_down, gt_down, 0.2, np.eye(4),
-                o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-                o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=100)
-            )
-            print(f"    Fitness: {coarse_result.fitness:.4f}, RMSE: {coarse_result.inlier_rmse:.4f}")
-            
-            # Apply coarse transformation
-            recon_pcd.transform(coarse_result.transformation)
-            
-            # Fine alignment with smaller threshold
-            print(f"  Fine alignment...")
-            fine_result = o3d.pipelines.registration.registration_icp(
-                recon_pcd, self.gt_pcd, 0.05, np.eye(4),
-                o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-                o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=200)
-            )
-            print(f"    Fitness: {fine_result.fitness:.4f}, RMSE: {fine_result.inlier_rmse:.4f}")
-            
-            # Apply fine transformation
-            recon_pcd.transform(fine_result.transformation)
-            
-            # Verify alignment
+            # Calculate translation vector (GT center → Recon center)
             gt_center = self.gt_pcd.get_center()
             recon_center = recon_pcd.get_center()
-            center_dist = np.linalg.norm(gt_center - recon_center)
+            translation_vector = recon_center - gt_center
             
-            print(f"\n  Alignment verification:")
-            print(f"    GT center: [{gt_center[0]:.6f}, {gt_center[1]:.6f}, {gt_center[2]:.6f}]")
-            print(f"    Recon center: [{recon_center[0]:.6f}, {recon_center[1]:.6f}, {recon_center[2]:.6f}]")
-            print(f"    Center distance: {center_dist:.6f}")
+            print(f"  GT center: [{gt_center[0]:.2f}, {gt_center[1]:.2f}, {gt_center[2]:.2f}]")
+            print(f"  Recon center: [{recon_center[0]:.2f}, {recon_center[1]:.2f}, {recon_center[2]:.2f}]")
+            print(f"  Translation vector: [{translation_vector[0]:.2f}, {translation_vector[1]:.2f}, {translation_vector[2]:.2f}]")
             
-            if center_dist < 0.01:
-                print(f"  ✓ Centers aligned within tolerance")
-            else:
-                print(f"  ⚠ Centers have {center_dist:.6f} offset (may indicate partial reconstruction)")
+            # Apply translation to GT (only translate once - both mesh and pcd share same space)
+            self.gt_mesh.translate(translation_vector)
             
-            print(f"  ✓ Multi-scale ICP complete")
+            # Resample GT point cloud from the translated mesh (ensures consistency)
+            num_samples = max(100000, len(self.gt_mesh.vertices) * 10)
+            self.gt_pcd = self.gt_mesh.sample_points_uniformly(number_of_points=num_samples)
+            
+            # Rebuild KDTree after translation
+            self.gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
+            
+            # Verify alignment
+            gt_center_after = self.gt_pcd.get_center()
+            center_dist = np.linalg.norm(gt_center_after - recon_center)
+            
+            print(f"  GT center after translation: [{gt_center_after[0]:.2f}, {gt_center_after[1]:.2f}, {gt_center_after[2]:.2f}]")
+            print(f"  Center distance: {center_dist:.4f}m")
+            print(f"  ✓ Manual alignment complete")
         
         # Check bounding boxes for scale/alignment issues
         recon_bbox = recon_pcd.get_axis_aligned_bounding_box()
