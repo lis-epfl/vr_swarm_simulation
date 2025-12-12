@@ -60,6 +60,15 @@ public class NBV : MonoBehaviour
 
     [Header("Debug Options")]
     public bool debug_bool = false; // Toggle debug arrows for yaw visualization
+    
+    [Header("Waypoint System")]
+    public float waypointReachDistance = 3.0f; // How close to get before considering waypoint reached
+    public float waypointLockDuration = 2.0f; // Minimum time to commit to a waypoint (seconds)
+    
+    // Private waypoint tracking
+    private Vector3 currentWaypoint = Vector3.zero;
+    private float waypointSetTime = 0f;
+    private bool hasActiveWaypoint = false;
 
     [Header("Camera Control")]
     // public float cameraPitch = 0.0f; // Camera pitch angle in degrees (+ = looking down, - = looking up)
@@ -292,10 +301,119 @@ public class NBV : MonoBehaviour
             }
         }
         
-        // Formation override: reduce formation pull when avoiding obstacles OR other drones
-        if (useFormationOverride && isAvoiding)
+        // IMPROVED SINGULARITY FIX: Waypoint system with hysteresis to prevent oscillation
+        bool pathBlocked = false;
+        Vector3 bypassWaypoint = Vector3.zero;
+        bool shouldUseWaypoint = false;
+        
+        // Check if we have an active waypoint that we're still committed to
+        if (hasActiveWaypoint && currentWaypoint != Vector3.zero)
         {
-            float reductionFactor = 0.3f; // Reduce formation force to 30% when avoiding
+            float distanceToWaypoint = Vector3.Distance(droneChild.transform.position, currentWaypoint);
+            float timeSinceWaypointSet = Time.time - waypointSetTime;
+            
+            // Keep using waypoint if:
+            // 1. We haven't reached it yet (with some tolerance)
+            // 2. AND we're still within the minimum lock duration
+            bool waypointReached = distanceToWaypoint < waypointReachDistance;
+            bool lockExpired = timeSinceWaypointSet > waypointLockDuration;
+            
+            if (!waypointReached && !lockExpired)
+            {
+                // Continue using existing waypoint
+                shouldUseWaypoint = true;
+                bypassWaypoint = currentWaypoint;
+                
+                if (debug_bool)
+                {
+                    Debug.Log($"{droneChild.name}: Using existing waypoint (dist: {distanceToWaypoint:F2}m, time: {timeSinceWaypointSet:F2}s)");
+                }
+            }
+            else
+            {
+                // Waypoint reached or lock expired - clear it
+                hasActiveWaypoint = false;
+                currentWaypoint = Vector3.zero;
+                
+                if (debug_bool)
+                {
+                    Debug.Log($"{droneChild.name}: Waypoint cleared (reached: {waypointReached}, expired: {lockExpired})");
+                }
+            }
+        }
+        
+        // Only create NEW waypoint if we don't have an active one
+        if (!shouldUseWaypoint && isAvoiding && positionError.magnitude > 5.0f)
+        {
+            // Check if obstacle is roughly between drone and target
+            Vector3 directionToTarget = positionError.normalized;
+            Vector3 avoidanceDirection = avoidanceVector.normalized;
+            
+            // If avoidance pushes opposite to target direction, path is blocked
+            float alignment = Vector3.Dot(directionToTarget, avoidanceDirection);
+            pathBlocked = alignment < -0.3f; // Avoidance opposes target direction
+            
+            if (pathBlocked)
+            {
+                // Create a waypoint to the SIDE of the obstacle
+                // Use cross product to find perpendicular direction
+                Vector3 perpDir = Vector3.Cross(directionToTarget, Vector3.up).normalized;
+                
+                // Determine which side is better (left or right)
+                // Choose the side that aligns with current avoidance direction
+                float leftAlignment = Vector3.Dot(avoidanceDirection, perpDir);
+                float rightAlignment = Vector3.Dot(avoidanceDirection, -perpDir);
+                
+                Vector3 sideDir = (leftAlignment > rightAlignment) ? perpDir : -perpDir;
+                
+                // Create waypoint: current position + sideways + forward
+                float sideDistance = avoidanceDistance * 2.5f; // Go far enough to clear obstacle
+                float forwardDistance = positionError.magnitude * 0.4f; // Progress toward target
+                
+                bypassWaypoint = droneChild.transform.position + 
+                                (sideDir * sideDistance) + 
+                                (directionToTarget * forwardDistance);
+                
+                // Keep waypoint at reasonable height
+                bypassWaypoint.y = Mathf.Max(targetPosition.y, droneChild.transform.position.y);
+                
+                // Lock onto this waypoint
+                currentWaypoint = bypassWaypoint;
+                waypointSetTime = Time.time;
+                hasActiveWaypoint = true;
+                shouldUseWaypoint = true;
+                
+                if (debug_bool)
+                {
+                    Debug.Log($"{droneChild.name}: Path blocked! Creating NEW bypass waypoint (locked for {waypointLockDuration}s)");
+                    Debug.DrawLine(droneChild.transform.position, bypassWaypoint, Color.yellow, 0.1f);
+                    Debug.DrawLine(bypassWaypoint, targetPosition, Color.cyan, 0.1f);
+                }
+            }
+        }
+        
+        // If we should use waypoint (either existing or new), navigate to it
+        if (shouldUseWaypoint && bypassWaypoint != Vector3.zero)
+        {
+            // Recalculate velocity command toward waypoint
+            positionError = bypassWaypoint - droneChild.transform.position;
+            velocityCommand = positionError * proportionalGain;
+            
+            // Reduce avoidance influence when we have a clear waypoint
+            avoidanceVector *= 0.3f;
+            
+            // Debug visualization
+            if (debug_bool)
+            {
+                Debug.DrawLine(droneChild.transform.position, bypassWaypoint, Color.yellow, 0.1f);
+                Debug.DrawLine(bypassWaypoint, targetPosition, Color.cyan, 0.1f);
+            }
+        }
+        
+        // Formation override: reduce formation pull when avoiding obstacles OR other drones
+        if (useFormationOverride && isAvoiding && !pathBlocked) // Only apply if not using waypoint
+        {
+            float reductionFactor = 0.3f; // 30% formation force
             velocityCommand *= reductionFactor;
             
             if (debug_bool)
@@ -317,9 +435,30 @@ public class NBV : MonoBehaviour
         // Send commands to VelocityControl - ONLY X and Z
         GetComponent<VelocityControl>().swarm_vx = velocityCommand.x;
         GetComponent<VelocityControl>().swarm_vz = velocityCommand.z;
-        // Don't set swarm_vy - let VelocityControl handle height!
+        
+        // FIX: Apply vertical avoidance to desired height
+        // If there's significant vertical avoidance force, adjust the target height
+        float totalVerticalAvoidance = avoidanceVector.y + interDroneAvoidanceVector.y;
+        if (Mathf.Abs(totalVerticalAvoidance) > 0.1f)
+        {
+            // Get current desired height
+            float currentDesiredHeight = GetComponent<VelocityControl>().desired_height;
+            
+            // Apply vertical avoidance as height adjustment (reduced scale factor)
+            float heightAdjustment = totalVerticalAvoidance * 0.2f; // Reduced from 0.5 to 0.2
+            
+            // Clamp vertical adjustment to prevent excessive climb
+            heightAdjustment = Mathf.Clamp(heightAdjustment, -2.0f, 3.0f); // Max 3m up, 2m down per frame
+            
+            GetComponent<VelocityControl>().desired_height = currentDesiredHeight + heightAdjustment;
+            
+            if (debug_bool)
+            {
+                Debug.Log($"Vertical avoidance applied to {droneChild.name}: {heightAdjustment:F2}m (from {currentDesiredHeight:F2} to {GetComponent<VelocityControl>().desired_height:F2})");
+            }
+        }
 
-        // NOTE: desired_height is now set in the vision system section above
+        // NOTE: desired_height is now set in the vision system section above (and adjusted for avoidance above)
 
         // Attitude control - point toward center
         CalculateYawTowardCenter(droneChild);
@@ -355,7 +494,7 @@ public class NBV : MonoBehaviour
             float distanceToObstacle = directionAway.magnitude;
             
             // Only apply avoidance if we're actually close to the obstacle
-            if (distanceToObstacle > 0.1f && distanceToObstacle < avoidanceDistance) // TODO! Perhaps change 0.1f to a larger value
+            if (distanceToObstacle > 0.1f && distanceToObstacle < avoidanceDistance)
             {
                 // Normalize direction
                 Vector3 avoidanceForceVector = directionAway.normalized;
@@ -363,8 +502,33 @@ public class NBV : MonoBehaviour
                 // IMPROVED: Multiple force calculation methods
                 float forceMultiplier = CalculateAvoidanceForce(distanceToObstacle);
                 
-                // Add the avoidance force
+                // FIX FOR DESCENT: Check if obstacle is ABOVE drone (ceiling/overhang)
+                // If obstacle is below and we're trying to descend, reduce vertical avoidance
+                float verticalDiff = closestPoint.y - dronePos.y;
+                bool obstacleIsBelow = verticalDiff < -0.5f; // Obstacle is significantly below drone
+                
                 Vector3 currentAvoidance = avoidanceForceVector * forceMultiplier;
+                
+                // Reduce vertical component more aggressively
+                if (obstacleIsBelow)
+                {
+                    if (Mathf.Abs(verticalDiff) > 2.0f)
+                    {
+                        // Far above obstacle - eliminate upward force
+                        currentAvoidance.y = Mathf.Min(currentAvoidance.y, 0);
+                    }
+                    else if (Mathf.Abs(verticalDiff) > 1.0f)
+                    {
+                        // Moderately above - reduce upward force by 70%
+                        currentAvoidance.y *= 0.3f;
+                    }
+                }
+                else
+                {
+                    // Obstacle is at same height or above - reduce upward force by 50%
+                    currentAvoidance.y *= 0.5f;
+                }
+                
                 avoidance += currentAvoidance;
                 
                 // Debug visualization

@@ -282,6 +282,8 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 512
   debug_bool: 0
+  waypointReachDistance: 3
+  waypointLockDuration: 2
   cameraPitch: 0
   enableCameraPitchControl: 0
   enableVisionSystem: 1
@@ -587,8 +589,8 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 1
-  dronesAlongZ: 2
+  dronesAlongX: 3
+  dronesAlongZ: 1
   droneSpacing: 5
   start_x: 0
   start_y: 0
@@ -623,14 +625,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   defaultConfig:
-    numDrones: 2
-    dronesAlongX: 2
+    numDrones: 5
+    dronesAlongX: 5
     dronesAlongZ: 1
     droneSpeed: 12
     maxIterations: 5
   currentConfig:
-    numDrones: 2
-    dronesAlongX: 2
+    numDrones: 5
+    dronesAlongX: 5
     dronesAlongZ: 1
     droneSpeed: 12
     maxIterations: 5
@@ -839,7 +841,7 @@ GameObject:
     type: 3}
   m_PrefabInstance: {fileID: 1685899703}
   m_PrefabAsset: {fileID: 0}
---- !u!65 &1683081779
+--- !u!65 &1683081783
 BoxCollider:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -849,7 +851,7 @@ BoxCollider:
   m_Material: {fileID: 0}
   m_IncludeLayers:
     serializedVersion: 2
-    m_Bits: 1024
+    m_Bits: 0
   m_ExcludeLayers:
     serializedVersion: 2
     m_Bits: 0
@@ -962,7 +964,7 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 4866b41a6146843f6b9ccfdfca4d535c,
         type: 3}
       insertIndex: -1
-      addedObject: {fileID: 1683081779}
+      addedObject: {fileID: 1683081783}
   m_SourcePrefab: {fileID: 100100000, guid: 4866b41a6146843f6b9ccfdfca4d535c, type: 3}
 --- !u!1 &1761651572
 GameObject:
