@@ -30,6 +30,8 @@ sys.path.remove(r"C:/Users/sriram/PoinTr/scripts") #WINDOWS
 
 DOWN_SAMPLE_SIZE = 2000
 
+VISUALIZE_BOOL = False
+
 # Windows API for shared memory
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
@@ -221,14 +223,38 @@ class MAP_NBV_Trial:
         self.pose_memory_name = "NBVDronePoses"
         # self.command_memory_name = "NBVCommandMemory"
         self.command_memory_name = "NBVCommandSharedMemory"
-        self.output_folder = "../../ProcessedImages/PointClouds"
-        os.makedirs(self.output_folder, exist_ok=True)
+        
+        # Try relative path first, fallback to absolute
+        relative_output = "../../ProcessedImages/PointClouds"
+        absolute_output = r"C:\Users\sriram\vr_swarm_simulation\Assets\ProcessedImages\PointClouds"
+        
+        if os.path.exists(os.path.dirname(relative_output) if ".." in relative_output else relative_output):
+            self.output_folder = relative_output
+        else:
+            self.output_folder = absolute_output
+            os.makedirs(self.output_folder, exist_ok=True)
+        
+        print(f"  Output folder: {os.path.abspath(self.output_folder)}")
+        
         self.sam_model_type = "vit_h"
-        self.sam_model_paths = {
+        
+        # Try relative paths first, fallback to absolute
+        relative_sam = {
             "vit_b": "../../segmentAnything/sam_vit_b_01ec64.pth",
             "vit_l": "../../segmentAnything/sam_vit_l_0b3195.pth",
             "vit_h": "../../segmentAnything/sam_vit_h_4b8939.pth",
         }
+        absolute_sam = {
+            "vit_b": r"C:\Users\sriram\vr_swarm_simulation\Assets\segmentAnything\sam_vit_b_01ec64.pth",
+            "vit_l": r"C:\Users\sriram\vr_swarm_simulation\Assets\segmentAnything\sam_vit_l_0b3195.pth",
+            "vit_h": r"C:\Users\sriram\vr_swarm_simulation\Assets\segmentAnything\sam_vit_h_4b8939.pth",
+        }
+        
+        # Check if relative paths work
+        if os.path.exists(relative_sam[self.sam_model_type]):
+            self.sam_model_paths = relative_sam
+        else:
+            self.sam_model_paths = absolute_sam
         self.min_building_area = 1000
         self.image_mmf = None
         self.intrinsics_mmf = None
@@ -248,6 +274,34 @@ class MAP_NBV_Trial:
         self.accumulated_colors = None
         self.previous_pcd = None  # Track accumulated point cloud
         
+        # Read max iterations from config file if available
+        self.max_iterations = self.read_max_iterations_from_config()
+        
+
+    def read_max_iterations_from_config(self):
+        """Read max iterations from nbv_config.json."""
+        # Try multiple paths
+        possible_paths = [
+            "nbv_config.json",
+            "../../nbv_config.json",
+            "../../../nbv_config.json",
+            r"C:\Users\sriram\vr_swarm_simulation\nbv_config.json"
+        ]
+        
+        for config_path in possible_paths:
+            if os.path.exists(config_path):
+                try:
+                    import json
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                        max_iter = config.get('maxIterations', 5)
+                        print(f"✓ Max iterations from config: {max_iter} (from {config_path})")
+                        return max_iter
+                except Exception as e:
+                    print(f"  Warning: Could not read config at {config_path}: {e}")
+        
+        print(f"  Warning: Config file not found, using default max_iterations=5")
+        return 5  # Default
 
     def initialize(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -407,7 +461,7 @@ class MAP_NBV_Trial:
         # Save RAW accumulated point cloud
         filename_raw = f"pointcloud_raw_frame{frame_id:04d}_{self.timestamp}.ply"
         filepath_raw = os.path.join(self.output_folder, filename_raw)
-        print(f"\nSaving raw accumulated point cloud: {len(points)} points")
+        # print(f"\nSaving raw accumulated point cloud: {len(points)} points")
         
         if HAS_OPEN3D:
             pcd_raw = o3d.geometry.PointCloud()
@@ -431,12 +485,10 @@ class MAP_NBV_Trial:
                     r, g, b = (colors[i] * 255).astype(np.uint8)
                     f.write(f"{x} {y} {z} {r} {g} {b}\n")
         
-        print(f"  Saved raw: {filepath_raw}")
+        print(f"✓ Saved frame {frame_id}: {len(points)} points")
 
-
-        
         # Downsample the accumulated point cloud for PoinTr processing
-        print(f"\nDownsampling to {DOWN_SAMPLE_SIZE} points for PoinTr...")
+        # print(f"\nDownsampling to {DOWN_SAMPLE_SIZE} points for PoinTr...")
         down_points, down_colors = self.random_downsample(points, colors, size=DOWN_SAMPLE_SIZE, seed=42)
         filename_down = f"pointcloud_downsampled_frame{frame_id:04d}_{self.timestamp}.ply"
         filepath_down = os.path.join(self.output_folder, filename_down)
@@ -463,7 +515,7 @@ class MAP_NBV_Trial:
                     r, g, b = (down_colors[i] * 255).astype(np.uint8)
                     f.write(f"{x} {y} {z} {r} {g} {b}\n")
         
-        print(f"  Saved downsampled: {filepath_down} ({len(down_points)} points)")
+        # print(f"  Saved downsampled: {filepath_down} ({len(down_points)} points)")
 
         # Run PoinTr inference on the downsampled file
         self.run_pointr_inference(filepath_down)
@@ -491,10 +543,10 @@ class MAP_NBV_Trial:
             if len(current_points) > 0:
                 # Merge with accumulated point cloud BEFORE downsampling
                 if self.accumulated_points is not None:
-                    print(f"\nMerging with accumulated cloud ({len(self.accumulated_points)} points)...")
+                    prev_count = len(self.accumulated_points)
                     global_points = np.vstack([self.accumulated_points, current_points])
                     global_colors = np.vstack([self.accumulated_colors, current_colors])
-                    print(f"Merged cloud: {len(global_points)} points")
+                    print(f"Fusion: {prev_count} (prev) + {len(current_points)} (new) = {len(global_points)} (total)")
                 else:
                     print(f"\nFirst capture - initializing accumulated cloud")
                     global_points = current_points
@@ -506,11 +558,49 @@ class MAP_NBV_Trial:
                 
                 # Save both raw and processed versions
                 self.save_point_cloud(global_points, global_colors, self.frames_processed)
+                
+                # Store current frame for file paths
+                current_frame = self.frames_processed
+                self.frames_processed += 1
+                
+                print(f"\n{'='*60}")
+                print(f"Capture {self.frames_processed} completed")
+                print(f"{'='*60}")
+                
+                # Check if max_iterations is 0 (no NBV movements at all)
+                if self.max_iterations == 0:
+                    print(f"\n{'='*60}")
+                    print(f"🛑 MAX ITERATIONS = 0 (no NBV movements)")
+                    print(f"{'='*60}")
+                    print(f"Total captures: {self.frames_processed}")
+                    print(f"Stopping NBV pipeline...")
+                    
+                    # Trigger Unity to stop Play mode
+                    self.trigger_unity_stop()
+                    
+                    self.running = False
+                    break
+                
+                # Check if we've already completed max_iterations NBV movements
+                # frames_processed - 1 = completed NBV movements so far
+                nbv_movements_so_far = self.frames_processed - 1
+                if nbv_movements_so_far >= self.max_iterations:
+                    print(f"\n{'='*60}")
+                    print(f"🛑 MAX NBV MOVEMENTS COMPLETE ({nbv_movements_so_far}/{self.max_iterations})")
+                    print(f"{'='*60}")
+                    print(f"Total captures: {self.frames_processed}")
+                    print(f"Stopping NBV pipeline...")
+                    
+                    # Trigger Unity to stop Play mode
+                    self.trigger_unity_stop()
+                    
+                    self.running = False
+                    break
 
                 # After inference, run candidate_positions.py main on fine_new.ply
                 try:
-                    # Get the downsampled file name (used for inference)
-                    filename_down = f"pointcloud_downsampled_frame{self.frames_processed:04d}_{self.timestamp}.ply"
+                    # Get the downsampled file name (used for inference) - use CURRENT frame number
+                    filename_down = f"pointcloud_downsampled_frame{current_frame:04d}_{self.timestamp}.ply"
                     downsampled_folder = os.path.splitext(filename_down)[0]  # Remove .ply extension
                     # fine_ply_path = os.path.join(self.output_folder, downsampled_folder, "fine.ply")
                     fine_ply_path = os.path.join(self.output_folder, downsampled_folder, "fine_new_unexplored.ply")
@@ -523,7 +613,7 @@ class MAP_NBV_Trial:
 
                     selected_nbvs = candidate_positions_main(
                         fine_ply_path,
-                        visualize=True,
+                        visualize=VISUALIZE_BOOL,
                         drone_count=len(drone_data_list),
                         drone_positions=drone_positions
                     )
@@ -560,7 +650,7 @@ class MAP_NBV_Trial:
                                 
                                 if dist > vicinity_threshold:
                                     all_in_vicinity = False
-                                    print(f"  Drone {idx}: {dist:.2f}m from target (target: {nbv_pos}, current: {drone_pos})")
+                                    # print(f"  Drone {idx}: {dist:.2f}m from target (target: {nbv_pos}, current: {drone_pos})")
                                     break
                             
                             if not all_in_vicinity:
@@ -573,13 +663,31 @@ class MAP_NBV_Trial:
                             print(f"⚠ Timeout after {elapsed_time:.1f}s - drones did not reach NBV positions")
                     
                     print(f"{'='*60}\n")
+                    
+                    # Update last processed time after NBV movement completes
+                    self.last_processed_time = current_time
+                        
                 except Exception as e:
                     print(f"Error running candidate_positions.py: {e}")
-                self.frames_processed += 1
-            self.last_processed_time = current_time
+            else:
+                # No points captured - update time and continue
+                self.last_processed_time = current_time
 
 
             
+
+    def trigger_unity_stop(self):
+        """Write trigger file to stop Unity Play mode."""
+        # Unity looks in project root (Assets/../nbv_play_trigger.txt)
+        trigger_file = r"C:\Users\sriram\vr_swarm_simulation\nbv_play_trigger.txt"
+        
+        try:
+            with open(trigger_file, 'w') as f:
+                f.write("stop")
+            print(f"  ✓ Unity stop trigger sent: {trigger_file}")
+            print(f"  Unity should stop Play mode within a few seconds...")
+        except Exception as e:
+            print(f"  ⚠ Failed to write Unity stop trigger: {e}")
 
     def start(self):
         if not self.initialize():

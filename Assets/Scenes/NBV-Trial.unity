@@ -437,6 +437,7 @@ GameObject:
   - component: {fileID: 1430753893}
   - component: {fileID: 1430753892}
   - component: {fileID: 1430753891}
+  - component: {fileID: 1430753898}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -586,12 +587,12 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  dronesAlongX: 2
+  dronesAlongX: 1
   dronesAlongZ: 2
   droneSpacing: 5
-  start_x: 20
+  start_x: 0
   start_y: 0
-  start_z: 20
+  start_z: 30
   randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897
@@ -609,6 +610,30 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1430753898
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1430753890}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2685664283716db42a7d590cb46acfd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  defaultConfig:
+    numDrones: 2
+    dronesAlongX: 2
+    dronesAlongZ: 1
+    droneSpeed: 12
+    maxIterations: 5
+  currentConfig:
+    numDrones: 2
+    dronesAlongX: 2
+    dronesAlongZ: 1
+    droneSpeed: 12
+    maxIterations: 5
 --- !u!1 &1478725123
 GameObject:
   m_ObjectHideFlags: 0
