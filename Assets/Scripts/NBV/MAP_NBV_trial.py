@@ -379,19 +379,157 @@ class MAP_NBV_Trial:
         masks = self.mask_generator.generate(rgb_image)
         if len(masks) == 0:
             return None
+        
         height, width = rgb_image.shape[:2]
         center_x, center_y = width // 2, height // 2
-        center_segments = []
+        
+        # Define multiple sample points across a wider region (not just center)
+        # This helps catch buildings that are off to the side
+        sample_points = [
+            (center_x, center_y),  # Center
+            (center_x - width//6, center_y),  # Left
+            (center_x + width//6, center_y),  # Right
+            (center_x - width//4, center_y),  # Further left
+            (center_x + width//4, center_y),  # Further right
+            (center_x, center_y - height//8),  # Above center
+            (center_x, center_y + height//8),  # Below center
+            (center_x - width//8, center_y - height//8),  # Upper left
+            (center_x + width//8, center_y - height//8),  # Upper right
+        ]
+        
+        candidate_segments = []
         for mask_info in masks:
             mask = mask_info['segmentation']
             area = mask_info['area']
-            if (0 <= center_y < mask.shape[0] and 0 <= center_x < mask.shape[1] and
-                mask[center_y, center_x] and area >= self.min_building_area):
-                center_segments.append(mask_info)
-        if not center_segments:
+            
+            # Skip small segments
+            if area < self.min_building_area:
+                continue
+            
+            # Filter out sky - more aggressive detection
+            y_coords = np.where(mask)[0]
+            x_coords = np.where(mask)[1]
+            
+            if len(y_coords) > 0:
+                mean_y = np.mean(y_coords)
+                max_y = np.max(y_coords)
+                min_y = np.min(y_coords)
+                y_span = max_y - min_y
+                
+                # Sky characteristics:
+                # 1. Predominantly in upper portion (mean < 30% of height)
+                # 2. OR extends to the very top edge (min_y < 10 pixels)
+                # 3. AND spans a large vertical area (indicates it's not just a small object)
+                is_in_upper_region = mean_y < height * 0.3
+                touches_top_edge = min_y < 10
+                large_vertical_span = y_span > height * 0.4
+                
+                if (is_in_upper_region and large_vertical_span) or (touches_top_edge and large_vertical_span):
+                    continue
+            
+            # Filter out ground (typically in lower portion, large horizontal area)
+            if len(y_coords) > 0 and len(x_coords) > 0:
+                mean_y_ground = np.mean(y_coords)
+                min_y_ground = np.min(y_coords)
+                x_spread = np.max(x_coords) - np.min(x_coords)
+                y_spread = np.max(y_coords) - np.min(y_coords)
+                
+                # Ground characteristics:
+                # 1. In bottom half with very wide horizontal spread
+                # 2. OR very flat (wide but not tall)
+                is_in_bottom = mean_y_ground > height * 0.6
+                spans_wide = x_spread > width * 0.65
+                is_flat = y_spread < height * 0.2 and x_spread > width * 0.5
+                
+                if (is_in_bottom and spans_wide) or is_flat:
+                    continue
+            
+            # Check if any sample point falls within this segment
+            hits_sample_point = False
+            for sx, sy in sample_points:
+                if 0 <= sy < mask.shape[0] and 0 <= sx < mask.shape[1] and mask[sy, sx]:
+                    hits_sample_point = True
+                    break
+            
+            # Include segments that:
+            # 1. Hit any sample point, OR
+            # 2. Are large and stable (building might be off-center), OR
+            # 3. Are in the middle vertical band (left-center-right) even if not hitting sample points
+            in_middle_band = False
+            if len(x_coords) > 0:
+                centroid_x = np.mean(x_coords)
+                # Middle 70% of image horizontally
+                in_middle_band = width * 0.15 < centroid_x < width * 0.85
+            
+            is_large_stable = area > self.min_building_area * 2 and mask_info['stability_score'] > 0.95
+            is_medium_stable_centered = area > self.min_building_area and mask_info['stability_score'] > 0.90 and in_middle_band
+            
+            if hits_sample_point or is_large_stable or is_medium_stable_centered:
+                candidate_segments.append(mask_info)
+        
+        if not candidate_segments:
             return None
-        best_segment = max(center_segments,
-                         key=lambda x: x['stability_score'] * min(x['area']/10000, 10))
+        
+        # STEP 1: Filter by size - keep only large segments (likely buildings)
+        # Calculate areas and find reasonable threshold
+        areas = [seg['area'] for seg in candidate_segments]
+        max_area = max(areas)
+        
+        # Keep segments that are at least 30% of the largest segment
+        # This filters out small objects while keeping building-sized segments
+        size_threshold = max_area * 0.3
+        large_segments = [seg for seg in candidate_segments if seg['area'] >= size_threshold]
+        
+        if not large_segments:
+            # If filtering is too aggressive, fall back to top 5 largest
+            large_segments = sorted(candidate_segments, key=lambda x: x['area'], reverse=True)[:5]
+        
+        # STEP 2: Among large segments, find the one with centroid closest to vertical center
+        # Calculate centroids for all large segments
+        segments_with_centroids = []
+        for seg in large_segments:
+            mask = seg['segmentation']
+            y_coords, x_coords = np.where(mask)
+            
+            if len(y_coords) == 0:
+                continue
+            
+            centroid_x = np.mean(x_coords)
+            centroid_y = np.mean(y_coords)
+            
+            # Calculate vertical position (0 = top, 1 = bottom)
+            vertical_position = centroid_y / height
+            
+            # Distance from ideal vertical center (0.5 = perfect middle)
+            # Buildings typically have centroids around 0.4-0.6
+            vertical_distance = abs(vertical_position - 0.5)
+            
+            segments_with_centroids.append({
+                'segment': seg,
+                'centroid_x': centroid_x,
+                'centroid_y': centroid_y,
+                'vertical_position': vertical_position,
+                'vertical_distance': vertical_distance,
+                'area': seg['area']
+            })
+        
+        if not segments_with_centroids:
+            return None
+        
+        # Find segment with centroid closest to vertical middle
+        best_candidate = min(segments_with_centroids, key=lambda x: x['vertical_distance'])
+        best_segment = best_candidate['segment']
+        
+        # Optional: Log candidates for debugging
+        if False:  # Set to True for debugging
+            print(f"\nSegment selection (filtered to {len(large_segments)} large segments):")
+            sorted_candidates = sorted(segments_with_centroids, key=lambda x: x['vertical_distance'])
+            for i, cand in enumerate(sorted_candidates[:3]):
+                print(f"  {i+1}. Area: {cand['area']}, "
+                      f"Centroid: ({cand['centroid_x']:.0f}, {cand['centroid_y']:.0f}), "
+                      f"Vertical pos: {cand['vertical_position']:.2f}, "
+                      f"Dist from middle: {cand['vertical_distance']:.2f}")
+        
         binary_mask = best_segment['segmentation'].astype(np.float32)
         return binary_mask
 
@@ -537,6 +675,12 @@ class MAP_NBV_Trial:
                 time.sleep(1.0)
                 continue
 
+            # Debug: Print drone positions to verify they're updating
+            print(f"\nDrone positions at capture:")
+            for idx, drone_data in enumerate(drone_data_list):
+                pos = drone_data.pose.position
+                print(f"  Drone {idx}: ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+            
             # Fuse current drone images into a point cloud
             current_points, current_colors = self.fuse_point_clouds(drone_data_list)
 
@@ -575,6 +719,9 @@ class MAP_NBV_Trial:
                     print(f"Total captures: {self.frames_processed}")
                     print(f"Stopping NBV pipeline...")
                     
+                    # Save final point clouds and cleanup
+                    self.save_final_point_clouds_and_cleanup(len(drone_data_list), self.max_iterations)
+                    
                     # Trigger Unity to stop Play mode
                     self.trigger_unity_stop()
                     
@@ -590,6 +737,9 @@ class MAP_NBV_Trial:
                     print(f"{'='*60}")
                     print(f"Total captures: {self.frames_processed}")
                     print(f"Stopping NBV pipeline...")
+                    
+                    # Save final point clouds and cleanup
+                    self.save_final_point_clouds_and_cleanup(len(drone_data_list), self.max_iterations)
                     
                     # Trigger Unity to stop Play mode
                     self.trigger_unity_stop()
@@ -676,6 +826,87 @@ class MAP_NBV_Trial:
 
             
 
+    def save_final_point_clouds_and_cleanup(self, num_drones, num_iterations):
+        """Save final point clouds to FinalPointClouds folder and cleanup temporary files."""
+        import shutil
+        
+        # Try to import send2trash for safe deletion
+        try:
+            from send2trash import send2trash
+            use_recycle_bin = True
+        except ImportError:
+            print("  Warning: send2trash not installed, files will be deleted permanently")
+            print("  Install with: pip install send2trash")
+            use_recycle_bin = False
+        
+        # Create FinalPointClouds directory if it doesn't exist
+        final_folder = r"C:\Users\sriram\vr_swarm_simulation\Assets\FinalPointClouds"
+        os.makedirs(final_folder, exist_ok=True)
+        
+        # Find the most recent raw and downsampled point clouds
+        try:
+            files = os.listdir(self.output_folder)
+            raw_files = sorted([f for f in files if f.startswith('pointcloud_raw_')])
+            down_files = sorted([f for f in files if f.startswith('pointcloud_downsampled_')])
+            
+            if raw_files and down_files:
+                latest_raw = os.path.join(self.output_folder, raw_files[-1])
+                # latest_down = os.path.join(self.output_folder, down_files[-1])
+                
+                # Copy to FinalPointClouds with new names
+                raw_final_name = f"NBV_raw_{num_drones}_drones_{num_iterations}_iterations.ply"
+                # down_final_name = f"NBV_downsampled_{num_drones}_drones_{num_iterations}_iterations.ply"
+                
+                raw_final_path = os.path.join(final_folder, raw_final_name)
+                # down_final_path = os.path.join(final_folder, down_final_name)
+                
+                shutil.copy2(latest_raw, raw_final_path)
+                # shutil.copy2(latest_down, down_final_path)
+                
+                print(f"\n{'='*60}")
+                print(f"FINAL POINT CLOUDS SAVED")
+                print(f"{'='*60}")
+                print(f"  Raw: {raw_final_name}")
+                # print(f"  Downsampled: {down_final_name}")
+                print(f"  Location: {final_folder}")
+                
+                # Cleanup: Delete all files in ProcessedImages/PointClouds EXCEPT the final ones we just copied
+                print(f"\n{'='*60}")
+                print(f"CLEANING UP TEMPORARY FILES")
+                print(f"{'='*60}")
+                
+                deleted_files = 0
+                deleted_folders = 0
+                
+                # Only delete files/folders in the output_folder
+                if use_recycle_bin:
+                    for item in os.listdir(self.output_folder):
+                        item_path = os.path.join(self.output_folder, item)
+                        try:
+                            # Send to recycle bin (safer)
+                            send2trash(item_path)
+                            if os.path.isfile(item_path):
+                                deleted_files += 1
+                            else:
+                                deleted_folders += 1
+                        except Exception as e:
+                            print(f"  Warning: Could not move {item} to recycle bin: {e}")
+                else:
+                    print(f"  ⚠ Skipping cleanup - send2trash not installed")
+                
+                if use_recycle_bin:
+                    print(f"  ✓ Moved {deleted_files} files and {deleted_folders} folders to Recycle Bin")
+                    print(f"  ✓ Cleanup complete")
+                print(f"{'='*60}\n")
+                
+            else:
+                print(f"  ⚠ Warning: Could not find final point clouds to save")
+                
+        except Exception as e:
+            print(f"  ⚠ Error saving final point clouds: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def trigger_unity_stop(self):
         """Write trigger file to stop Unity Play mode."""
         # Unity looks in project root (Assets/../nbv_play_trigger.txt)

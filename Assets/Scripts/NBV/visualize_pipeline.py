@@ -84,21 +84,115 @@ class PipelineVisualizer:
             
             print(f"      🔍 SAM found {len(all_masks)} total segments")
             
-            # Filter for building masks (center point + min area)
+            # Use the updated segmentation logic from MAP_NBV_trial.py
             height, width = rgb_image.shape[:2]
             center_x, center_y = width // 2, height // 2
             
-            building_masks = []
+            # Define multiple sample points
+            sample_points = [
+                (center_x, center_y),
+                (center_x - width//6, center_y),
+                (center_x + width//6, center_y),
+                (center_x - width//4, center_y),
+                (center_x + width//4, center_y),
+                (center_x, center_y - height//8),
+                (center_x, center_y + height//8),
+                (center_x - width//8, center_y - height//8),
+                (center_x + width//8, center_y - height//8),
+            ]
+            
+            candidate_segments = []
             for mask_info in all_masks:
                 mask = mask_info['segmentation']
                 area = mask_info['area']
                 
-                # Check if center point is in mask and meets area requirement
-                if (0 <= center_y < mask.shape[0] and 0 <= center_x < mask.shape[1] and
-                    mask[center_y, center_x] and area >= self.processor.min_building_area):
-                    building_masks.append(mask)
+                # Skip small segments
+                if area < self.processor.min_building_area:
+                    continue
+                
+                # Filter out sky and ground
+                y_coords = np.where(mask)[0]
+                x_coords = np.where(mask)[1]
+                
+                if len(y_coords) > 0:
+                    mean_y = np.mean(y_coords)
+                    max_y = np.max(y_coords)
+                    min_y = np.min(y_coords)
+                    y_span = max_y - min_y
+                    
+                    # Sky filter
+                    is_in_upper_region = mean_y < height * 0.3
+                    touches_top_edge = min_y < 10
+                    large_vertical_span = y_span > height * 0.4
+                    
+                    if (is_in_upper_region and large_vertical_span) or (touches_top_edge and large_vertical_span):
+                        continue
+                
+                # Ground filter
+                if len(y_coords) > 0 and len(x_coords) > 0:
+                    mean_y_ground = np.mean(y_coords)
+                    x_spread = np.max(x_coords) - np.min(x_coords)
+                    y_spread = np.max(y_coords) - np.min(y_coords)
+                    
+                    is_in_bottom = mean_y_ground > height * 0.6
+                    spans_wide = x_spread > width * 0.65
+                    is_flat = y_spread < height * 0.2 and x_spread > width * 0.5
+                    
+                    if (is_in_bottom and spans_wide) or is_flat:
+                        continue
+                
+                # Check sample points and middle band
+                hits_sample_point = any(
+                    0 <= sy < mask.shape[0] and 0 <= sx < mask.shape[1] and mask[sy, sx]
+                    for sx, sy in sample_points
+                )
+                
+                in_middle_band = False
+                if len(x_coords) > 0:
+                    centroid_x = np.mean(x_coords)
+                    in_middle_band = width * 0.15 < centroid_x < width * 0.85
+                
+                is_large_stable = area > self.processor.min_building_area * 2 and mask_info['stability_score'] > 0.95
+                is_medium_stable_centered = area > self.processor.min_building_area and mask_info['stability_score'] > 0.90 and in_middle_band
+                
+                if hits_sample_point or is_large_stable or is_medium_stable_centered:
+                    candidate_segments.append(mask_info)
             
-            print(f"  Found {len(building_masks)} building segments (center + area filter)")
+            # Filter by size and select by centroid
+            building_masks = []
+            if candidate_segments:
+                # Size filter
+                areas = [seg['area'] for seg in candidate_segments]
+                max_area = max(areas)
+                size_threshold = max_area * 0.3
+                large_segments = [seg for seg in candidate_segments if seg['area'] >= size_threshold]
+                
+                if not large_segments:
+                    large_segments = sorted(candidate_segments, key=lambda x: x['area'], reverse=True)[:5]
+                
+                # Find best by vertical centroid position
+                segments_with_centroids = []
+                for seg in large_segments:
+                    mask = seg['segmentation']
+                    y_coords, x_coords = np.where(mask)
+                    
+                    if len(y_coords) == 0:
+                        continue
+                    
+                    centroid_y = np.mean(y_coords)
+                    vertical_position = centroid_y / height
+                    vertical_distance = abs(vertical_position - 0.5)
+                    
+                    segments_with_centroids.append({
+                        'mask': mask,
+                        'vertical_distance': vertical_distance
+                    })
+                
+                if segments_with_centroids:
+                    best = min(segments_with_centroids, key=lambda x: x['vertical_distance'])
+                    building_masks = [best['mask']]
+            
+            print(f"  Found {len(building_masks)} building segment(s) using updated logic")
             
             # Create segmented RGB visualization
             segmented_rgb = rgb_image.copy()
