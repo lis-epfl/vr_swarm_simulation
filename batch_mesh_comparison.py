@@ -97,7 +97,7 @@ class SilentMeshComparator:
             'adjusted_threshold': adjusted_threshold
         }
     
-    def compute_mesh_overlap(self, reconstructed_pcd: o3d.geometry.PointCloud) -> dict:
+    def compute_mesh_overlap(self, reconstructed_pcd: o3d.geometry.PointCloud, threshold: float = 0.1) -> dict:
         """Compute mesh overlap (accuracy) metric."""
         recon_points = np.asarray(reconstructed_pcd.points)
         distances_to_gt = []
@@ -124,18 +124,19 @@ class SilentMeshComparator:
         chamfer_distance = (np.mean(distances_to_gt) + np.mean(distances_from_gt)) / 2
         
         # Accuracy percentage
-        accuracy_threshold = 0.1
+        adjusted_threshold = threshold
         if self.normalization_scale is not None:
-            accuracy_threshold = 0.1 / self.normalization_scale
+            adjusted_threshold = threshold / self.normalization_scale
         
-        accurate_points = np.sum(distances_to_gt < accuracy_threshold)
+        accurate_points = np.sum(distances_to_gt < adjusted_threshold)
         accuracy_percentage = (accurate_points / len(distances_to_gt)) * 100
         
         return {
             'mean_distance_to_gt': np.mean(distances_to_gt),
             'chamfer_distance': chamfer_distance,
             'accuracy_percentage': accuracy_percentage,
-            'accuracy_threshold': accuracy_threshold,
+            'threshold': threshold,
+            'adjusted_threshold': adjusted_threshold,
         }
     
     def compare(self, reconstructed_path: str, coverage_threshold: float = 0.1) -> dict:
@@ -153,51 +154,81 @@ class SilentMeshComparator:
         flip_transform[0, 0] = -1
         self.gt_mesh.transform(flip_transform)
         
+        # Scale GT to half size (GT is 2x too big)
+        self.gt_mesh.scale(0.5, center=[0, 0, 0])
+        
         # Normalize GT mesh
         gt_center = self.gt_mesh.get_center()
         self.gt_mesh.translate(-gt_center)
         gt_max_bound = np.max(self.gt_mesh.get_max_bound() - self.gt_mesh.get_min_bound())
-        self.gt_mesh.scale(1.0 / gt_max_bound, center=[0, 0, 0])
+        normalization_scale_factor = 1.0 / gt_max_bound
+        self.gt_mesh.scale(normalization_scale_factor, center=[0, 0, 0])
         
-        # Rebuild GT point cloud and KDTree
+        # Rebuild GT point cloud and KDTree after all transformations
         num_samples = max(100000, len(self.gt_mesh.vertices) * 10)
         self.gt_pcd = self.gt_mesh.sample_points_uniformly(number_of_points=num_samples)
         self.gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
         
-        # Normalize reconstruction
+        # Normalize reconstruction (use same scale factor as GT)
         recon_center = recon_pcd.get_center()
         recon_pcd.translate(-recon_center)
-        recon_max_bound = np.max(recon_pcd.get_max_bound() - recon_pcd.get_min_bound())
-        recon_pcd.scale(1.0 / recon_max_bound, center=[0, 0, 0])
+        recon_pcd.scale(normalization_scale_factor, center=[0, 0, 0])
         
-        self.normalization_scale = min(gt_max_bound, recon_max_bound)
+        self.normalization_scale = gt_max_bound
         
-        # Multi-scale ICP alignment
-        gt_down = self.gt_pcd.voxel_down_sample(voxel_size=0.05)
-        recon_down = recon_pcd.voxel_down_sample(voxel_size=0.05)
+        # Apply manual initial translation
+        manual_translation = np.array([0.3, 0.0, 0.15])
+        recon_pcd.translate(manual_translation)
         
-        gt_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-        recon_down.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        # Translation-only ICP alignment (no rotation)
+        gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
+        best_translation = manual_translation.copy()
+        prev_avg_distance = float('inf')
+        correspondence_threshold = 0.3
         
-        # Coarse alignment (reduced iterations for speed)
-        coarse_result = o3d.pipelines.registration.registration_icp(
-            recon_down, gt_down, 0.2, np.eye(4),
-            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=30)
-        )
-        recon_pcd.transform(coarse_result.transformation)
-        
-        # Fine alignment (reduced iterations for speed)
-        fine_result = o3d.pipelines.registration.registration_icp(
-            recon_pcd, self.gt_pcd, 0.05, np.eye(4),
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=50)
-        )
-        recon_pcd.transform(fine_result.transformation)
+        for iteration in range(100):
+            recon_points = np.asarray(recon_pcd.points)
+            valid_correspondences = []
+            distances = []
+            
+            for recon_pt in recon_points:
+                [k, idx, dist_sq] = gt_kdtree.search_knn_vector_3d(recon_pt, 1)
+                distance = np.sqrt(dist_sq[0])
+                
+                if distance < correspondence_threshold:
+                    gt_pt = np.asarray(self.gt_pcd.points)[idx[0]]
+                    valid_correspondences.append((recon_pt, gt_pt))
+                    distances.append(distance)
+            
+            if len(valid_correspondences) < 1000:
+                if correspondence_threshold < 1.0:
+                    correspondence_threshold *= 1.5
+                    continue
+                else:
+                    break
+            
+            avg_distance = np.mean(distances)
+            recon_pts = np.array([c[0] for c in valid_correspondences])
+            gt_pts = np.array([c[1] for c in valid_correspondences])
+            translation_step = np.mean(gt_pts - recon_pts, axis=0)
+            
+            recon_pcd.translate(translation_step)
+            best_translation += translation_step
+            
+            if np.linalg.norm(translation_step) < 1e-9:
+                break
+            
+            if abs(prev_avg_distance - avg_distance) < 1e-9:
+                break
+            
+            prev_avg_distance = avg_distance
+            
+            if iteration > 20 and correspondence_threshold > 0.1:
+                correspondence_threshold *= 0.95
         
         # Compute metrics on voxelized point clouds
         visibility = self.compute_mesh_visibility(recon_pcd, coverage_threshold)
-        overlap = self.compute_mesh_overlap(recon_pcd)
+        overlap = self.compute_mesh_overlap(recon_pcd, coverage_threshold)
         
         return {
             'visibility': visibility,
@@ -288,7 +319,8 @@ def main():
         'mesh_overlap', 
         'chamfer_distance', 
         'mean_distance_to_gt', 
-        'accuracy_threshold'
+        'threshold',
+        'adjusted_threshold'
     ]
     
     with open(output_csv, 'w', newline='') as csvfile:
@@ -332,7 +364,8 @@ def main():
                 'mesh_overlap': comparison_results['overlap']['accuracy_percentage'],
                 'chamfer_distance': comparison_results['overlap']['chamfer_distance'],
                 'mean_distance_to_gt': comparison_results['overlap']['mean_distance_to_gt'],
-                'accuracy_threshold': comparison_results['overlap']['accuracy_threshold']
+                'threshold': comparison_results['overlap']['threshold'],
+                'adjusted_threshold': comparison_results['overlap']['adjusted_threshold']
             }
             
             # Write to CSV immediately

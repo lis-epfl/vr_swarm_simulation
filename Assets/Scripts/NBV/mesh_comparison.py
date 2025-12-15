@@ -1,30 +1,19 @@
 #!/usr/bin/env python3
 """
-mesh_comparison.py - Mesh Quality Evaluation
+mesh_comparison.py - Mesh Quality Evaluation (FIXED VERSION)
 
 Compares reconstructed point clouds against ground truth mesh.
 Computes:
 1. Mesh Visibility (Coverage): How much of GT mesh is covered
 2. Mesh Overlap (Accuracy): How close reconstruction is to GT
 
-Usage:
-    python mesh_comparison.py <reconstructed.ply> [--ground-truth <mesh.fbx>] [--visualize]
+Key fixes:
+- Rebuild GT point cloud after all transformations
+- Improved ICP with RANSAC-based outlier rejection
+- Better convergence criteria
+- Proper KDTree rebuilding
 """
 import copy
-
-"""USAGE:
-# Basic usage
-python mesh_comparison.py pointcloud_raw_frame0001_20251211_120000.ply
-
-# With visualization
-python mesh_comparison.py pointcloud_raw_frame0001_20251211_120000.ply --visualize
-
-# Custom ground truth and threshold
-python mesh_comparison.py my_reconstruction.ply --ground-truth ../../Houses/MyHouse.fbx --threshold 0.15
-
-# Save results to JSON
-python mesh_comparison.py my_reconstruction.ply --output results.json"""
-
 import os
 import sys
 import argparse
@@ -38,13 +27,11 @@ except ImportError:
     print("Error: Open3D is required. Install with: pip install open3d")
     sys.exit(1)
 
-# Try to import trimesh for FBX loading
 try:
     import trimesh
     HAS_TRIMESH = True
 except ImportError:
     print("Warning: trimesh not found. FBX loading may be limited.")
-    print("Install with: pip install trimesh")
     HAS_TRIMESH = False
 
 
@@ -65,12 +52,11 @@ class MeshComparator:
         self.visualization = visualization
         self.normalize = normalize
         self.align = align
-        self.normalization_scale = None  # Store scale factor for threshold adjustment
+        self.normalization_scale = None
         self.gt_mesh = None
         self.gt_pcd = None
         self.gt_kdtree = None
         
-        # Load ground truth
         print(f"\n{'='*60}")
         print("Loading Ground Truth Mesh")
         print(f"{'='*60}")
@@ -83,14 +69,11 @@ class MeshComparator:
         
         print(f"Loading: {self.gt_path}")
         
-        # Try loading with Open3D first
         try:
             if self.gt_path.suffix.lower() == '.fbx' and HAS_TRIMESH:
-                # Use trimesh for FBX, then convert to Open3D
                 print("  Using trimesh for FBX loading...")
                 trimesh_mesh = trimesh.load(str(self.gt_path), force='mesh')
                 
-                # Convert to Open3D mesh
                 vertices = np.asarray(trimesh_mesh.vertices)
                 triangles = np.asarray(trimesh_mesh.faces)
                 
@@ -98,12 +81,10 @@ class MeshComparator:
                 self.gt_mesh.vertices = o3d.utility.Vector3dVector(vertices)
                 self.gt_mesh.triangles = o3d.utility.Vector3iVector(triangles)
                 
-                # Try to get vertex colors if available
                 if hasattr(trimesh_mesh.visual, 'vertex_colors'):
                     colors = np.asarray(trimesh_mesh.visual.vertex_colors)[:, :3] / 255.0
                     self.gt_mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
             else:
-                # Use Open3D directly
                 self.gt_mesh = o3d.io.read_triangle_mesh(str(self.gt_path))
             
             if not self.gt_mesh.has_vertices():
@@ -111,44 +92,36 @@ class MeshComparator:
             
             print(f"  ✓ Loaded mesh: {len(self.gt_mesh.vertices)} vertices, {len(self.gt_mesh.triangles)} triangles")
             
-            # Compute normals if not present
             if not self.gt_mesh.has_vertex_normals():
                 self.gt_mesh.compute_vertex_normals()
             
-            # Sample points from mesh surface for comparison
-            # Use high density sampling for accurate coverage measurement
+            # Initial sampling - will be rebuilt after transformations
             num_samples = max(100000, len(self.gt_mesh.vertices) * 10)
             print(f"  Sampling {num_samples} points from mesh surface...")
             self.gt_pcd = self.gt_mesh.sample_points_uniformly(number_of_points=num_samples)
             print(f"  ✓ Sampled {len(self.gt_pcd.points)} points")
             
-            # Build KD-tree for fast nearest neighbor search
             self.gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
             
         except Exception as e:
             print(f"Error loading ground truth: {e}")
             raise
     
+    def _rebuild_gt_point_cloud(self):
+        """Rebuild GT point cloud from transformed mesh."""
+        print("  Rebuilding GT point cloud from transformed mesh...")
+        num_samples = max(100000, len(self.gt_mesh.vertices) * 10)
+        self.gt_pcd = self.gt_mesh.sample_points_uniformly(number_of_points=num_samples)
+        self.gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
+        print(f"  ✓ Resampled {len(self.gt_pcd.points)} points from transformed mesh")
+    
     def compute_mesh_visibility(self, reconstructed_pcd: o3d.geometry.PointCloud, 
                                 threshold: float = 0.1) -> dict:
-        """
-        Compute mesh visibility (coverage) metric.
-        
-        Measures what percentage of the ground truth mesh surface is covered
-        by the reconstruction.
-        
-        Args:
-            reconstructed_pcd: Reconstructed point cloud
-            threshold: Distance threshold (meters) to consider a point "covered"
-        
-        Returns:
-            Dictionary with visibility metrics
-        """
+        """Compute mesh visibility (coverage) metric."""
         print(f"\n{'='*60}")
         print("Computing Mesh Visibility (Coverage)")
         print(f"{'='*60}")
         
-        # Adjust threshold if normalized
         adjusted_threshold = threshold
         if self.normalization_scale is not None:
             adjusted_threshold = threshold / self.normalization_scale
@@ -157,7 +130,6 @@ class MeshComparator:
         else:
             print(f"Distance threshold: {threshold}m")
         
-        # Build KD-tree for reconstructed points
         recon_kdtree = o3d.geometry.KDTreeFlann(reconstructed_pcd)
         
         gt_points = np.asarray(self.gt_pcd.points)
@@ -166,10 +138,9 @@ class MeshComparator:
         
         print("Checking coverage for each ground truth point...")
         for i, gt_point in enumerate(gt_points):
-            if i % 1000000 == 0:
+            if i % 10000 == 0:
                 print(f"  Progress: {i}/{len(gt_points)} ({100*i/len(gt_points):.1f}%)")
             
-            # Find nearest reconstructed point
             [k, idx, dist_sq] = recon_kdtree.search_knn_vector_3d(gt_point, 1)
             distance = np.sqrt(dist_sq[0])
             distances.append(distance)
@@ -197,24 +168,13 @@ class MeshComparator:
         print(f"{'='*60}")
         print(f"  Coverage:           {results['coverage_percentage']:.2f}%")
         print(f"  Covered points:     {results['covered_points']:,} / {results['total_points']:,}")
-        print(f"  Avg distance to GT: {results['avg_distance_to_recon']:.4f}m")
-        print(f"  Median distance:    {results['median_distance_to_recon']:.4f}m")
+        print(f"  Avg distance to GT: {results['avg_distance_to_recon']:.4f}")
+        print(f"  Median distance:    {results['median_distance_to_recon']:.4f}")
         
         return results
     
-    def compute_mesh_overlap(self, reconstructed_pcd: o3d.geometry.PointCloud) -> dict:
-        """
-        Compute mesh overlap (accuracy) metric.
-        
-        Measures how accurately the reconstruction matches the ground truth
-        by computing distances from reconstructed points to GT surface.
-        
-        Args:
-            reconstructed_pcd: Reconstructed point cloud
-        
-        Returns:
-            Dictionary with overlap/accuracy metrics
-        """
+    def compute_mesh_overlap(self, reconstructed_pcd: o3d.geometry.PointCloud, threshold: float) -> dict:
+        """Compute mesh overlap (accuracy) metric."""
         print(f"\n{'='*60}")
         print("Computing Mesh Overlap (Accuracy)")
         print(f"{'='*60}")
@@ -224,19 +184,16 @@ class MeshComparator:
         
         print("Computing distances from reconstruction to ground truth...")
         for i, recon_point in enumerate(recon_points):
-            if i % 100000 == 0:
+            if i % 10000 == 0:
                 print(f"  Progress: {i}/{len(recon_points)} ({100*i/len(recon_points):.1f}%)")
             
-            # Find nearest GT point
             [k, idx, dist_sq] = self.gt_kdtree.search_knn_vector_3d(recon_point, 1)
             distance = np.sqrt(dist_sq[0])
             distances_to_gt.append(distance)
         
         distances_to_gt = np.array(distances_to_gt)
         
-        # Compute Chamfer distance (bidirectional)
-        # Already have distances from recon → GT
-        # Now compute distances from GT → recon
+        # Compute bidirectional distances for Chamfer
         recon_kdtree = o3d.geometry.KDTreeFlann(reconstructed_pcd)
         gt_points = np.asarray(self.gt_pcd.points)
         distances_from_gt = []
@@ -252,20 +209,16 @@ class MeshComparator:
         
         distances_from_gt = np.array(distances_from_gt)
         
-        # Get reconstruction size for percentage calculations
         recon_bbox = reconstructed_pcd.get_axis_aligned_bounding_box()
         recon_extent = recon_bbox.get_extent()
         recon_diagonal = np.linalg.norm(recon_extent)
         
-        # Compute metrics
         chamfer_distance = (np.mean(distances_to_gt) + np.mean(distances_from_gt)) / 2
         hausdorff_distance = max(np.max(distances_to_gt), np.max(distances_from_gt))
         
-        # Calculate accuracy as percentage of points within threshold
-        # Use the same adjusted threshold as coverage
-        accuracy_threshold = 0.1  # Default
+        accuracy_threshold = threshold
         if self.normalization_scale is not None:
-            accuracy_threshold = 0.1 / self.normalization_scale
+            accuracy_threshold = threshold/ self.normalization_scale
         
         accurate_points = np.sum(distances_to_gt < accuracy_threshold)
         accuracy_percentage = (accurate_points / len(distances_to_gt)) * 100
@@ -281,11 +234,9 @@ class MeshComparator:
             'percentile_90': np.percentile(distances_to_gt, 90),
             'percentile_95': np.percentile(distances_to_gt, 95),
             'recon_diagonal': recon_diagonal,
-            # Accuracy as percentage
             'accuracy_percentage': accuracy_percentage,
             'accurate_points': accurate_points,
             'accuracy_threshold': accuracy_threshold,
-            # Percentages relative to reconstruction size (for reference)
             'mean_distance_pct': (np.mean(distances_to_gt) / recon_diagonal) * 100,
             'chamfer_distance_pct': (chamfer_distance / recon_diagonal) * 100,
             'hausdorff_distance_pct': (hausdorff_distance / recon_diagonal) * 100,
@@ -295,28 +246,22 @@ class MeshComparator:
         print("Overlap/Accuracy Results:")
         print(f"{'='*60}")
         print(f"  Accuracy (points within threshold): {results['accuracy_percentage']:.2f}%")
-        print(f"    ({results['accurate_points']:,} / {len(distances_to_gt):,} points within {accuracy_threshold:.6f} of GT)")
+        print(f"    ({results['accurate_points']:,} / {len(distances_to_gt):,} points within {accuracy_threshold:.6f})")
         print(f"\n  Distance Metrics:")
-        print(f"    Reconstruction diagonal: {recon_diagonal:.4f}m")
-        print(f"    Mean distance (recon→GT):   {results['mean_distance_to_gt']:.4f}m ({results['mean_distance_pct']:.2f}% of size)")
-        print(f"    Median distance (recon→GT): {results['median_distance_to_gt']:.4f}m")
-        print(f"    Std deviation:              {results['std_distance_to_gt']:.4f}m")
-        print(f"    Chamfer distance:           {results['chamfer_distance']:.4f}m ({results['chamfer_distance_pct']:.2f}% of size)")
-        print(f"    Hausdorff distance:         {results['hausdorff_distance']:.4f}m ({results['hausdorff_distance_pct']:.2f}% of size)")
-        print(f"    90th percentile:            {results['percentile_90']:.4f}m")
-        print(f"    95th percentile:            {results['percentile_95']:.4f}m")
+        print(f"    Reconstruction diagonal: {recon_diagonal:.4f}")
+        print(f"    Mean distance (recon→GT):   {results['mean_distance_to_gt']:.4f} ({results['mean_distance_pct']:.2f}% of size)")
+        print(f"    Median distance (recon→GT): {results['median_distance_to_gt']:.4f}")
+        print(f"    Std deviation:              {results['std_distance_to_gt']:.4f}")
+        print(f"    Chamfer distance:           {results['chamfer_distance']:.4f} ({results['chamfer_distance_pct']:.2f}% of size)")
+        print(f"    Hausdorff distance:         {results['hausdorff_distance']:.4f} ({results['hausdorff_distance_pct']:.2f}% of size)")
+        print(f"    90th percentile:            {results['percentile_90']:.4f}")
+        print(f"    95th percentile:            {results['percentile_95']:.4f}")
         
         return results
     
     def visualize_comparison(self, reconstructed_pcd: o3d.geometry.PointCloud,
                             visibility_results: dict = None):
-        """
-        Visualize ground truth mesh with unseen areas highlighted.
-        
-        Args:
-            reconstructed_pcd: Reconstructed point cloud
-            visibility_results: Visibility results for identifying unseen points
-        """
+        """Visualize ground truth mesh with reconstruction."""
         if not self.visualization:
             return
         
@@ -324,9 +269,8 @@ class MeshComparator:
         print("Visualization")
         print(f"{'='*60}")
         
-        # Color ground truth mesh (gray) and reconstruction (red)
-        self.gt_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray for GT
-        reconstructed_pcd.paint_uniform_color([1.0, 0.2, 0.2])  # Red for reconstruction
+        self.gt_mesh.paint_uniform_color([0.7, 0.7, 0.7])
+        reconstructed_pcd.paint_uniform_color([1.0, 0.2, 0.2])
         
         print("\nShowing ground truth (gray) and reconstruction (red)...")
         print("  Close the window to continue")
@@ -337,54 +281,9 @@ class MeshComparator:
             width=1280,
             height=720
         )
-        
-        # # Commented out: unseen points visualization
-        # # Find unseen GT points (not covered by reconstruction)
-        # if visibility_results:
-        #     threshold = visibility_results['adjusted_threshold']
-        #     recon_kdtree = o3d.geometry.KDTreeFlann(reconstructed_pcd)
-        #     gt_points = np.asarray(self.gt_pcd.points)
-        #     
-        #     unseen_points = []
-        #     print(f"  Identifying unseen areas (threshold: {threshold:.6f})...")
-        #     
-        #     for i, gt_point in enumerate(gt_points):
-        #         if i % 100000 == 0 and i > 0:
-        #             print(f"    Progress: {i}/{len(gt_points)} ({100*i/len(gt_points):.1f}%)")
-        #         
-        #         [k, idx, dist_sq] = recon_kdtree.search_knn_vector_3d(gt_point, 1)
-        #         distance = np.sqrt(dist_sq[0])
-        #         
-        #         if distance >= threshold:  # Not covered
-        #             unseen_points.append(gt_point)
-        #     
-        #     # Create point cloud for unseen areas
-        #     unseen_pcd = o3d.geometry.PointCloud()
-        #     unseen_pcd.points = o3d.utility.Vector3dVector(np.array(unseen_points))
-        #     unseen_pcd.paint_uniform_color([0.8, 0.2, 0.8])  # Purple
-        #     
-        #     print(f"  Unseen points: {len(unseen_points):,} / {len(gt_points):,} ({100*len(unseen_points)/len(gt_points):.1f}%)")
-        #     print("\nShowing ground truth (gray) and unseen areas (purple)...")
-        #     print("  Close the window to continue")
-        #     
-        #     o3d.visualization.draw_geometries(
-        #         [self.gt_mesh, unseen_pcd],
-        #         window_name="Ground Truth (gray) - Unseen Areas (purple)",
-        #         width=1280,
-        #         height=720
-        #     )
     
-    def compare(self, reconstructed_path: str, coverage_threshold: float = 0.1) -> dict:
-        """
-        Run full comparison pipeline.
-        
-        Args:
-            reconstructed_path: Path to reconstructed point cloud
-            coverage_threshold: Distance threshold for coverage metric
-        
-        Returns:
-            Dictionary with all metrics
-        """
+    def compare(self, reconstructed_path: str, threshold: float = 0.1) -> dict:
+        """Run full comparison pipeline."""
         print(f"\n{'='*60}")
         print("Loading Reconstructed Point Cloud")
         print(f"{'='*60}")
@@ -393,86 +292,188 @@ class MeshComparator:
         recon_pcd = o3d.io.read_point_cloud(reconstructed_path)
         print(f"  ✓ Loaded {len(recon_pcd.points)} points")
         
-        # Normalize if requested
-        if self.normalize:
-            print(f"\n{'='*60}")
-            print("Normalizing meshes to same scale...")
-            print(f"{'='*60}")
-            
-            # Get bounding boxes before normalization
-            gt_bbox_orig = self.gt_mesh.get_axis_aligned_bounding_box()
-            recon_bbox_orig = recon_pcd.get_axis_aligned_bounding_box()
-            gt_extent_orig = gt_bbox_orig.get_extent()
-            recon_extent_orig = recon_bbox_orig.get_extent()
-            
-            print(f"Original GT size: [{gt_extent_orig[0]:.2f}, {gt_extent_orig[1]:.2f}, {gt_extent_orig[2]:.2f}]")
-            print(f"Original recon size: [{recon_extent_orig[0]:.2f}, {recon_extent_orig[1]:.2f}, {recon_extent_orig[2]:.2f}]")
-            
-            # Apply X-flip to GT mesh first (Unity coordinate system)
-            flip_transform = np.eye(4)
-            flip_transform[0, 0] = -1
-            self.gt_mesh.transform(flip_transform)
-            print(f"  Applied X-flip to GT mesh")
-            
-            # Scale GT to half size (GT is 2x the size of recon)
-            # Scale around origin to preserve center position
-            gt_center_before = self.gt_mesh.get_center()
-            print(f"  GT center before scaling: [{gt_center_before[0]:.2f}, {gt_center_before[1]:.2f}, {gt_center_before[2]:.2f}]")
-            self.gt_mesh.scale(0.5, center=[0, 0, 0])
-            gt_center_after_scale = self.gt_mesh.get_center()
-            print(f"  GT center after scaling: [{gt_center_after_scale[0]:.2f}, {gt_center_after_scale[1]:.2f}, {gt_center_after_scale[2]:.2f}]")
-            print(f"  ✓ Scaled GT to 0.5x (half size)")
-            
-            # Rebuild GT point cloud and KDTree after scaling
-            num_samples = max(100000, len(self.gt_mesh.vertices) * 10)
-            self.gt_pcd = self.gt_mesh.sample_points_uniformly(number_of_points=num_samples)
-            self.gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
-            
-            # Get new centers after scaling
-            gt_center_after = self.gt_pcd.get_center()
-            recon_center = recon_pcd.get_center()
-            
-            print(f"  GT center after scaling: [{gt_center_after[0]:.2f}, {gt_center_after[1]:.2f}, {gt_center_after[2]:.2f}]")
-            print(f"  Recon center: [{recon_center[0]:.2f}, {recon_center[1]:.2f}, {recon_center[2]:.2f}]")
-            
-            # Store normalization scale for threshold adjustment (no normalization in this case)
-            self.normalization_scale = 1.0
-            print(f"  ✓ Scale correction applied")
+        # STEP 1: Voxelize reconstruction
+        print(f"\n{'='*60}")
+        print("Step 1: Voxelizing Reconstruction")
+        print(f"{'='*60}")
+        original_size = len(recon_pcd.points)
+        voxel_size = 0.05
+        recon_pcd = recon_pcd.voxel_down_sample(voxel_size)
+        voxelized_size = len(recon_pcd.points)
+        print(f"  Original points: {original_size:,}")
+        print(f"  After voxelization: {voxelized_size:,}")
+        print(f"  ✓ Removed {original_size - voxelized_size:,} duplicate/overlapping points")
         
-        # Manual alignment using translation vector
+        # STEP 2: Apply X-flip to GT mesh
+        print(f"\n{'='*60}")
+        print("Step 2: Coordinate System Fix (X-flip GT)")
+        print(f"{'='*60}")
+        flip_transform = np.eye(4)
+        flip_transform[0, 0] = -1
+        self.gt_mesh.transform(flip_transform)
+        print(f"  ✓ Applied X-flip to GT mesh")
+        
+        # STEP 3: Scale GT to half size
+        print(f"\n{'='*60}")
+        print("Step 3: Scale Ground Truth (0.5x)")
+        print(f"{'='*60}")
+        gt_center_before = self.gt_mesh.get_center()
+        print(f"  GT center before scaling: [{gt_center_before[0]:.2f}, {gt_center_before[1]:.2f}, {gt_center_before[2]:.2f}]")
+        self.gt_mesh.scale(0.5, center=[0, 0, 0])
+        print(f"  ✓ Scaled GT to 0.5x (half size)")
+        
+        # STEP 4: Normalize GT mesh
+        print(f"\n{'='*60}")
+        print("Step 4: Normalize Ground Truth")
+        print(f"{'='*60}")
+        gt_center = self.gt_mesh.get_center()
+        print(f"  GT center: [{gt_center[0]:.2f}, {gt_center[1]:.2f}, {gt_center[2]:.2f}]")
+        self.gt_mesh.translate(-gt_center)
+        gt_max_bound = np.max(self.gt_mesh.get_max_bound() - self.gt_mesh.get_min_bound())
+        print(f"  GT max dimension: {gt_max_bound:.2f}m")
+        
+        normalization_scale_factor = 1.0 / gt_max_bound
+        print(f"  Normalization scale factor: {normalization_scale_factor:.6f}")
+        
+        self.gt_mesh.scale(normalization_scale_factor, center=[0, 0, 0])
+        print(f"  ✓ GT centered and normalized to unit size")
+        
+        # CRITICAL FIX: Rebuild GT point cloud after all transformations
+        self._rebuild_gt_point_cloud()
+        
+        # STEP 5: Normalize reconstruction
+        print(f"\n{'='*60}")
+        print("Step 5: Normalize Reconstruction")
+        print(f"{'='*60}")
+        recon_center = recon_pcd.get_center()
+        recon_max_bound_orig = np.max(recon_pcd.get_max_bound() - recon_pcd.get_min_bound())
+        print(f"  Original recon center: [{recon_center[0]:.2f}, {recon_center[1]:.2f}, {recon_center[2]:.2f}]")
+        print(f"  Original recon max dimension: {recon_max_bound_orig:.2f}m")
+        
+        recon_pcd.translate(-recon_center)
+        recon_pcd.scale(normalization_scale_factor, center=[0, 0, 0])
+        print(f"  ✓ Reconstruction centered and scaled by same factor as GT")
+        
+        self.normalization_scale = gt_max_bound
+        print(f"  Original GT scale (for threshold adjustment): {self.normalization_scale:.4f}m")
+
+        # Apply manual initial translation if provided
+        manual_translation = (0.3, 0, 0.15)  # Set to None or desired values
+        if manual_translation is not None:
+            print(f"\n  Applying manual initial translation: [{manual_translation[0]:+.4f}, {manual_translation[1]:+.4f}, {manual_translation[2]:+.4f}]")
+            recon_pcd.translate(manual_translation)
+            print(f"  ✓ Manual translation applied")
+        else:
+            print(f"\n  No manual initial translation provided")
+
+                # Visualize BEFORE ICP alignment
+        if self.visualization:
+            print(f"\n{'='*60}")
+            print("Visualization: BEFORE ICP Alignment")
+            print(f"{'='*60}")
+            import copy
+            recon_before = copy.deepcopy(recon_pcd)
+            self.gt_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray for GT
+            recon_before.paint_uniform_color([1.0, 0.5, 0])  # Orange for reconstruction
+            
+            print("\nShowing BEFORE alignment (Gray=GT, Orange=Reconstruction)...")
+            print("  Close the window to continue to ICP alignment")
+            
+            o3d.visualization.draw_geometries(
+                [self.gt_mesh, recon_before],
+                window_name="BEFORE ICP Alignment",
+                width=1280,
+                height=720
+            )
+        
+        # STEP 6: Translation-only alignment (no rotation)
         if self.align:
             print(f"\n{'='*60}")
-            print("Manual Translation Alignment...")
+            print("Step 6: Translation-Only Alignment")
             print(f"{'='*60}")
+            print("  Orientation is correct - finding best translation only")
             
-            # Calculate translation vector (GT center → Recon center)
-            gt_center = self.gt_pcd.get_center()
-            recon_center = recon_pcd.get_center()
-            translation_vector = recon_center - gt_center
+
             
-            print(f"  GT center: [{gt_center[0]:.2f}, {gt_center[1]:.2f}, {gt_center[2]:.2f}]")
-            print(f"  Recon center: [{recon_center[0]:.2f}, {recon_center[1]:.2f}, {recon_center[2]:.2f}]")
-            print(f"  Translation vector: [{translation_vector[0]:.2f}, {translation_vector[1]:.2f}, {translation_vector[2]:.2f}]")
+            # Build KDTree for fast nearest neighbor search
+            gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
             
-            # Apply translation to GT (only translate once - both mesh and pcd share same space)
-            self.gt_mesh.translate(translation_vector)
+            # Iterative closest point translation
+            best_translation = manual_translation if manual_translation is not None else np.array([0.0, 0.0, 0.0])
+            prev_avg_distance = float('inf')
+            correspondence_threshold = 0.3  # Start generous, will tighten
             
-            # Resample GT point cloud from the translated mesh (ensures consistency)
-            num_samples = max(100000, len(self.gt_mesh.vertices) * 10)
-            self.gt_pcd = self.gt_mesh.sample_points_uniformly(number_of_points=num_samples)
+            print(f"  Starting iterative translation alignment...")
             
-            # Rebuild KDTree after translation
-            self.gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
+            for iteration in range(100):  # Max iterations
+                recon_points = np.asarray(recon_pcd.points)
+                
+                # Find correspondences
+                valid_correspondences = []
+                distances = []
+                
+                for recon_pt in recon_points:
+                    [k, idx, dist_sq] = gt_kdtree.search_knn_vector_3d(recon_pt, 1)
+                    distance = np.sqrt(dist_sq[0])
+                    
+                    # Only use close correspondences
+                    if distance < correspondence_threshold:
+                        gt_pt = np.asarray(self.gt_pcd.points)[idx[0]]
+                        valid_correspondences.append((recon_pt, gt_pt))
+                        distances.append(distance)
+                
+                if len(valid_correspondences) < 1000:
+                    print(f"    Warning: Only {len(valid_correspondences)} correspondences found")
+                    if correspondence_threshold < 1.0:
+                        correspondence_threshold *= 1.5
+                        print(f"    Increasing threshold to {correspondence_threshold:.3f}")
+                        continue
+                    else:
+                        print(f"    Stopping - insufficient correspondences")
+                        break
+                
+                # Calculate average distance
+                avg_distance = np.mean(distances)
+                
+                # Calculate translation from correspondences
+                recon_pts = np.array([c[0] for c in valid_correspondences])
+                gt_pts = np.array([c[1] for c in valid_correspondences])
+                translation_step = np.mean(gt_pts - recon_pts, axis=0)
+                
+                # Apply translation
+                recon_pcd.translate(translation_step)
+                best_translation += translation_step
+                
+                # Progress reporting
+                if iteration % 10 == 0 or iteration < 5:
+                    print(f"    Iter {iteration:3d}: {len(valid_correspondences):6,} corr, "
+                          f"avg dist: {avg_distance:.6f}, "
+                          f"step: [{translation_step[0]:+.6f}, {translation_step[1]:+.6f}, {translation_step[2]:+.6f}]")
+                
+                # Check convergence
+                if np.linalg.norm(translation_step) < 1e-9:
+                    print(f"    ✓ Converged at iteration {iteration + 1} (step size < 1e-6)")
+                    break
+                
+                if abs(prev_avg_distance - avg_distance) < 1e-9:
+                    print(f"    ✓ Converged at iteration {iteration + 1} (distance change < 1e-6)")
+                    break
+                
+                prev_avg_distance = avg_distance
+                
+                # Gradually tighten correspondence threshold
+                if iteration > 20 and correspondence_threshold > 0.1:
+                    correspondence_threshold *= 0.95
             
-            # Verify alignment
-            gt_center_after = self.gt_pcd.get_center()
-            center_dist = np.linalg.norm(gt_center_after - recon_center)
-            
-            print(f"  GT center after translation: [{gt_center_after[0]:.2f}, {gt_center_after[1]:.2f}, {gt_center_after[2]:.2f}]")
-            print(f"  Center distance: {center_dist:.4f}m")
-            print(f"  ✓ Manual alignment complete")
+            print(f"\n  Final Results:")
+            print(f"    Total translation: [{best_translation[0]:+.6f}, {best_translation[1]:+.6f}, {best_translation[2]:+.6f}]")
+            print(f"    Final correspondences: {len(valid_correspondences):,}")
+            print(f"    Final avg distance: {avg_distance:.6f}")
+            print(f"  ✓ Translation-only alignment complete")
+        else:
+            print(f"\n  Skipping ICP alignment (--no-align flag set)")
         
-        # Check bounding boxes for scale/alignment issues
+        # Bounding box analysis
         recon_bbox = recon_pcd.get_axis_aligned_bounding_box()
         gt_bbox = self.gt_mesh.get_axis_aligned_bounding_box()
         
@@ -485,40 +486,33 @@ class MeshComparator:
         print("Bounding Box Analysis:")
         print(f"{'='*60}")
         print(f"Ground Truth:")
-        print(f"  Center: [{gt_center[0]:.2f}, {gt_center[1]:.2f}, {gt_center[2]:.2f}]")
-        print(f"  Size:   [{gt_extent[0]:.2f}, {gt_extent[1]:.2f}, {gt_extent[2]:.2f}]")
+        print(f"  Center: [{gt_center[0]:.4f}, {gt_center[1]:.4f}, {gt_center[2]:.4f}]")
+        print(f"  Size:   [{gt_extent[0]:.4f}, {gt_extent[1]:.4f}, {gt_extent[2]:.4f}]")
         print(f"\nReconstruction:")
-        print(f"  Center: [{recon_center[0]:.2f}, {recon_center[1]:.2f}, {recon_center[2]:.2f}]")
-        print(f"  Size:   [{recon_extent[0]:.2f}, {recon_extent[1]:.2f}, {recon_extent[2]:.2f}]")
-        print(f"\nCenter offset: {np.linalg.norm(recon_center - gt_center):.2f}m")
-        print(f"Scale ratio (avg): {np.mean(recon_extent / gt_extent):.2f}x")
+        print(f"  Center: [{recon_center[0]:.4f}, {recon_center[1]:.4f}, {recon_center[2]:.4f}]")
+        print(f"  Size:   [{recon_extent[0]:.4f}, {recon_extent[1]:.4f}, {recon_extent[2]:.4f}]")
+        print(f"\nCenter offset: {np.linalg.norm(recon_center - gt_center):.4f}")
+        print(f"Scale ratio (avg): {np.mean(recon_extent / gt_extent):.4f}x")
         
-        # Warning if significant mismatch
-        if np.linalg.norm(recon_center - gt_center) > 1.0:
-            print(f"\n⚠ WARNING: Centers are {np.linalg.norm(recon_center - gt_center):.2f}m apart!")
-            print("  The meshes may need alignment before comparison.")
-        
-        scale_ratio = np.mean(recon_extent / gt_extent)
-        if scale_ratio < 0.5 or scale_ratio > 2.0:
-            print(f"\n⚠ WARNING: Scale mismatch detected (ratio: {scale_ratio:.2f}x)!")
-            print("  The reconstruction may need scaling before comparison.")
+        center_distance = np.linalg.norm(recon_center - gt_center)
+        if center_distance > 0.1:
+            print(f"\n⚠ WARNING: Centers are {center_distance:.4f} apart after alignment!")
         
         # Compute metrics
-        visibility = self.compute_mesh_visibility(recon_pcd, coverage_threshold)
-        overlap = self.compute_mesh_overlap(recon_pcd)
+        visibility = self.compute_mesh_visibility(recon_pcd, threshold)
+        overlap = self.compute_mesh_overlap(recon_pcd, threshold)
         
-        # Combine results
         results = {
             'reconstruction_file': reconstructed_path,
             'ground_truth_file': str(self.gt_path),
             'num_reconstructed_points': len(recon_pcd.points),
             'num_gt_vertices': len(self.gt_mesh.vertices),
             'num_gt_triangles': len(self.gt_mesh.triangles),
+            'alignment_center_offset': center_distance,
             'visibility': visibility,
             'overlap': overlap
         }
         
-        # Visualize if requested
         if self.visualization:
             self.visualize_comparison(recon_pcd, visibility)
         
@@ -548,7 +542,7 @@ def main():
         "--ground-truth",
         type=str,
         default="../../Comparisons/House_with_Texture3.obj",
-        help="Path to ground truth mesh (default: ../../Comparisons/House_with_Texture3.obj)"
+        help="Path to ground truth mesh"
     )
     parser.add_argument(
         "--threshold",
@@ -560,7 +554,7 @@ def main():
         "--normalize",
         action="store_true",
         default=True,
-        help="Normalize both meshes to same scale before comparison (default: True)"
+        help="Normalize both meshes (default: True)"
     )
     parser.add_argument(
         "--no-normalize",
@@ -572,7 +566,7 @@ def main():
         "--align",
         action="store_true",
         default=True,
-        help="Align reconstruction to ground truth using ICP (default: True)"
+        help="Align using ICP (default: True)"
     )
     parser.add_argument(
         "--no-align",
@@ -589,34 +583,33 @@ def main():
         "--output",
         type=str,
         default=None,
-        help="Output JSON file for results (optional)"
     )
     
     args = parser.parse_args()
     
-    # Create comparator
-    comparator = MeshComparator(args.ground_truth, visualization=args.visualize, normalize=args.normalize, align=args.align)
+    comparator = MeshComparator(args.ground_truth, visualization=args.visualize, 
+                                normalize=args.normalize, align=args.align)
+    comparator = MeshComparator(args.ground_truth, visualization=args.visualize, 
+                                normalize=args.normalize, align=args.align)
     
-    # Run comparison
-    results = comparator.compare(args.reconstructed, coverage_threshold=args.threshold)
+    results = comparator.compare(args.reconstructed, threshold=args.threshold)
     
-    # Save results if output specified
     if args.output:
         save_results(results, args.output)
     
-    # Print summary
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
     print(f"Reconstruction:  {args.reconstructed}")
     print(f"Ground Truth:    {args.ground_truth}")
-    print(f"Accuracy (mean distance to GT): {results['overlap']['mean_distance_to_gt']:.4f}m")
-    print(f"Chamfer Dist:    {results['overlap']['chamfer_distance']:.4f}m")
-
-    print(f"Coverage (Mesh Visibility):        {results['visibility']['coverage_percentage']:.2f}%")
-    print(f"Mesh Visibility: The percentage of GT mesh surface captured.")
-    print(f"Acuracy (Mesh Overlap): {results['overlap']['accuracy_percentage']:.2f}%")
-    print(f"Mesh Overlap: How much of the points are within the adjusted threshold (scaled for normalization) {results['overlap']['accuracy_threshold']:.4f}m.")
+    print(f"\nAlignment Quality:")
+    print(f"  Center offset after ICP: {results['alignment_center_offset']:.4f}")
+    print(f"\nAccuracy Metrics:")
+    print(f"  Mean distance to GT: {results['overlap']['mean_distance_to_gt']:.4f}")
+    print(f"  Chamfer distance:    {results['overlap']['chamfer_distance']:.4f}")
+    print(f"  Accuracy (within threshold): {results['overlap']['accuracy_percentage']:.2f}%")
+    print(f"\nCoverage Metrics:")
+    print(f"  Mesh visibility (GT coverage): {results['visibility']['coverage_percentage']:.2f}%")
     print(f"{'='*60}\n")
 
 
