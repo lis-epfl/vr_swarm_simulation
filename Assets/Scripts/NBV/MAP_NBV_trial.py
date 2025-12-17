@@ -304,19 +304,21 @@ class MAP_NBV_Trial:
         return 5  # Default
 
     def initialize(self):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        checkpoint_path = self.sam_model_paths[self.sam_model_type]
-        sam = sam_model_registry[self.sam_model_type](checkpoint=checkpoint_path)
-        sam.to(self.device)
-        self.mask_generator = SamAutomaticMaskGenerator(
-            sam,
-            points_per_side=16,
-            pred_iou_thresh=0.90,
-            stability_score_thresh=0.96,
-            crop_n_layers=0,
-            crop_n_points_downscale_factor=1,
-            min_mask_region_area=2000,
-        )
+        # Segmentation disabled - using depth values only
+        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # checkpoint_path = self.sam_model_paths[self.sam_model_type]
+        # sam = sam_model_registry[self.sam_model_type](checkpoint=checkpoint_path)
+        # sam.to(self.device)
+        # self.mask_generator = SamAutomaticMaskGenerator(
+        #     sam,
+        #     points_per_side=16,
+        #     pred_iou_thresh=0.90,
+        #     stability_score_thresh=0.96,
+        #     crop_n_layers=0,
+        #     crop_n_points_downscale_factor=1,
+        #     min_mask_region_area=2000,
+        # )
+        print("  ✓ Segmentation disabled - using depth values only")
         return True
 
     def read_camera_intrinsics(self):
@@ -572,14 +574,22 @@ class MAP_NBV_Trial:
         all_points = []
         all_colors = []
         for drone_data in drone_data_list:
-            mask = self.segment_rgb_image(drone_data.rgb_image)
-            if mask is None:
-                continue
+            # Segmentation disabled - use depth values only
+            # mask = self.segment_rgb_image(drone_data.rgb_image)
+            # if mask is None:
+            #     continue
+            
+            # Pass None for mask to use all depth values
             points_local, colors = self.depth_to_point_cloud(
                 drone_data.depth_image,
-                mask,
+                None,  # No segmentation mask - use all depth values
                 drone_data.rgb_image
             )
+            
+            # Skip if no points generated
+            if len(points_local) == 0:
+                continue
+            
             # Filter out points close to the drone origin (likely drone mesh)
             mask_dist = np.abs(points_local[:, 2]) > self.MIN_DISTANCE_FROM_DRONE
             filtered_points = points_local[mask_dist]
@@ -782,9 +792,9 @@ class MAP_NBV_Trial:
                         # Wait until all drones are within vicinity of their NBV poses
                         print("\nWaiting for drones to reach NBV positions...")
                         vicinity_threshold = 3.5  # meters (increased to account for height offset)
-                        max_wait_time = 30.0  # seconds
+                        max_wait_time = 45.0  # seconds
                         start_time = time.time()
-                        check_interval = 0.5  # seconds
+                        check_interval = 1.0  # seconds
                         
                         all_in_vicinity = False
                         while not all_in_vicinity and (time.time() - start_time) < max_wait_time:

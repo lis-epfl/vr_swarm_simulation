@@ -103,36 +103,38 @@ class SwarmPointCloudBuilder:
         
     def initialize(self):
         """Initialize SAM model."""
-        print("Initializing Segment Anything model...")
-        
-        # Try to use GPU (CUDA only - MPS has compatibility issues with SAM)
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda')
-            print(f"Using device: cuda (NVIDIA GPU)")
-        else:
-            self.device = torch.device('cpu')
-            print(f"Using device: cpu (WARNING: This will be slow!)")
-        
-        checkpoint_path = self.sam_model_paths[self.sam_model_type]
-        if not os.path.exists(checkpoint_path):
-            print(f"Error: SAM checkpoint not found at {checkpoint_path}")
-            return False
-        
-        sam = sam_model_registry[self.sam_model_type](checkpoint=checkpoint_path)
-        sam.to(self.device)
-        
-        # Optimized SAM parameters for faster processing
-        self.mask_generator = SamAutomaticMaskGenerator(
-            sam,
-            points_per_side=8,  # Reduced from 16 for 4x speedup
-            pred_iou_thresh=0.86,  # Slightly lower for speed
-            stability_score_thresh=0.92,  # Slightly lower for speed
-            crop_n_layers=0,
-            crop_n_points_downscale_factor=1,
-            min_mask_region_area=5000,  # Increased to filter small segments
-        )
-        
-        print("✓ SAM model initialized")
+        # Segmentation disabled - using depth values only
+        # print("Initializing Segment Anything model...")
+        # 
+        # # Try to use GPU (CUDA only - MPS has compatibility issues with SAM)
+        # if torch.cuda.is_available():
+        #     self.device = torch.device('cuda')
+        #     print(f"Using device: cuda (NVIDIA GPU)")
+        # else:
+        #     self.device = torch.device('cpu')
+        #     print(f"Using device: cpu (WARNING: This will be slow!)")
+        # 
+        # checkpoint_path = self.sam_model_paths[self.sam_model_type]
+        # if not os.path.exists(checkpoint_path):
+        #     print(f"Error: SAM checkpoint not found at {checkpoint_path}")
+        #     return False
+        # 
+        # sam = sam_model_registry[self.sam_model_type](checkpoint=checkpoint_path)
+        # sam.to(self.device)
+        # 
+        # # Optimized SAM parameters for faster processing
+        # self.mask_generator = SamAutomaticMaskGenerator(
+        #     sam,
+        #     points_per_side=8,  # Reduced from 16 for 4x speedup
+        #     pred_iou_thresh=0.86,  # Slightly lower for speed
+        #     stability_score_thresh=0.92,  # Slightly lower for speed
+        #     crop_n_layers=0,
+        #     crop_n_points_downscale_factor=1,
+        #     min_mask_region_area=5000,  # Increased to filter small segments
+        # )
+        # 
+        # print("✓ SAM model initialized")
+        print("✓ Segmentation disabled - using depth values only")
         return True
     
     def find_new_captures(self) -> List[Path]:
@@ -145,8 +147,31 @@ class SwarmPointCloudBuilder:
             if folder.is_dir() and folder.name.startswith("capture_"):
                 if folder.name not in self.processed_captures:
                     # Check if capture is complete (has metadata.json)
-                    if (folder / "metadata.json").exists():
-                        new_captures.append(folder)
+                    metadata_path = folder / "metadata.json"
+                    if not metadata_path.exists():
+                        continue
+                    
+                    # Verify all expected drone files exist
+                    try:
+                        with open(metadata_path, 'r') as f:
+                            metadata = json.load(f)
+                        drone_count = metadata.get('drone_count', 0)
+                        
+                        # Check if all required files exist for each drone
+                        all_files_exist = True
+                        for i in range(drone_count):
+                            depth_file = folder / f"drone_{i}_depth.raw"
+                            pose_file = folder / f"drone_{i}_pose.json"
+                            
+                            if not depth_file.exists() or not pose_file.exists():
+                                all_files_exist = False
+                                break
+                        
+                        if all_files_exist:
+                            new_captures.append(folder)
+                    except:
+                        # If we can't read metadata or it's malformed, skip for now
+                        pass
         
         return new_captures
     
@@ -176,10 +201,10 @@ class SwarmPointCloudBuilder:
         # Load data for each drone
         drone_data_list = []
         for i in range(drone_count):
-            # Load RGB
-            rgb_path = capture_folder / f"drone_{i}_rgb.png"
-            rgb_image = cv2.imread(str(rgb_path))
-            rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
+            # RGB not needed - using depth only
+            # rgb_path = capture_folder / f"drone_{i}_rgb.png"
+            # rgb_image = cv2.imread(str(rgb_path))
+            # rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
             
             # Load Depth (raw float32 binary)
             depth_path = capture_folder / f"drone_{i}_depth.raw"
@@ -187,6 +212,9 @@ class SwarmPointCloudBuilder:
                 depth_bytes = f.read()
             depth_image = np.frombuffer(depth_bytes, dtype=np.float32)
             depth_image = depth_image.reshape((intrinsics.height, intrinsics.width))
+            
+            # Create dummy RGB for compatibility (we'll generate colors from depth)
+            rgb_image = np.zeros((intrinsics.height, intrinsics.width, 3), dtype=np.uint8)
             
             # Load Pose
             pose_path = capture_folder / f"drone_{i}_pose.json"
@@ -209,7 +237,7 @@ class SwarmPointCloudBuilder:
             drone_data = DroneData(i, rgb_image, depth_image, pose)
             drone_data_list.append(drone_data)
             
-            print(f"  Drone {i}: RGB {rgb_image.shape}, Depth {depth_image.shape}, Pos {position}")
+            print(f"  Drone {i}: Depth {depth_image.shape}, Pos {position}")
         
         return drone_data_list, intrinsics
     
@@ -275,9 +303,10 @@ class SwarmPointCloudBuilder:
         
         points = np.stack([X_cam, Y_cam, Z_cam], axis=-1)
         
-        # Get corresponding colors
-        rgb_valid = rgb_image[v_valid, u_valid, :]
-        colors = rgb_valid.astype(np.float32) / 255.0
+        # Generate colors from depth (grayscale based on distance)
+        # Normalize depth to 0-1 range for visualization
+        depth_normalized = np.clip((depth_valid - depth_valid.min()) / (depth_valid.max() - depth_valid.min() + 1e-6), 0, 1)
+        colors = np.stack([depth_normalized, depth_normalized, depth_normalized], axis=-1)
         
         return points, colors
     
@@ -311,19 +340,24 @@ class SwarmPointCloudBuilder:
         for drone_data in drone_data_list:
             print(f"  Processing drone {drone_data.drone_id}...")
             
-            # Segment RGB image
-            mask = self.segment_rgb_image(drone_data.rgb_image)
-            if mask is None:
-                print(f"    No valid segmentation found")
-                continue
+            # Segmentation disabled - use depth values only
+            # mask = self.segment_rgb_image(drone_data.rgb_image)
+            # if mask is None:
+            #     print(f"    No valid segmentation found")
+            #     continue
             
-            # Convert depth to point cloud
+            # Convert depth to point cloud (pass None for mask to use all depth values)
             points_local, colors = self.depth_to_point_cloud(
                 drone_data.depth_image,
-                mask,
+                None,  # No segmentation mask - use all depth values
                 drone_data.rgb_image,
                 intrinsics
             )
+            
+            # Skip if no points generated
+            if len(points_local) == 0:
+                print(f"    No valid points generated")
+                continue
             
             # Filter out points close to drone (likely drone mesh)
             mask_dist = np.abs(points_local[:, 2]) > self.MIN_DISTANCE_FROM_DRONE
@@ -497,19 +531,19 @@ class SwarmPointCloudBuilder:
             print(f"\nSaving raw point cloud...")
             self.save_point_cloud(merged_points, merged_colors, raw_filename)
             
-            # Downsample and save
-            print(f"\nDownsampling to {self.TARGET_DOWNSAMPLE_SIZE} points...")
-            down_points, down_colors = self.downsample_point_cloud(
-                merged_points, merged_colors, self.TARGET_DOWNSAMPLE_SIZE
-            )
-            
-            down_filename = f"pointcloud_downsampled_{timestamp}.ply"
-            print(f"Saving downsampled point cloud...")
-            self.save_point_cloud(down_points, down_colors, down_filename)
+            # Downsampling disabled - not used in pipeline
+            # print(f"\nDownsampling to {self.TARGET_DOWNSAMPLE_SIZE} points...")
+            # down_points, down_colors = self.downsample_point_cloud(
+            #     merged_points, merged_colors, self.TARGET_DOWNSAMPLE_SIZE
+            # )
+            # 
+            # down_filename = f"pointcloud_downsampled_{timestamp}.ply"
+            # print(f"Saving downsampled point cloud...")
+            # self.save_point_cloud(down_points, down_colors, down_filename)
             
             print(f"\n✓ Processing complete!")
             print(f"  Raw: {len(merged_points)} points")
-            print(f"  Downsampled: {len(down_points)} points")
+            # print(f"  Downsampled: {len(down_points)} points")
             
         except Exception as e:
             print(f"\n❌ Error processing {capture_folder.name}: {e}")
@@ -527,10 +561,36 @@ class SwarmPointCloudBuilder:
         print(f"Output directory: {self.output_dir}")
         print(f"Poll interval: {poll_interval}s")
         print(f"\nWaiting for captures from Unity...")
-        print("(Press Ctrl+C to stop)\n")
+        print("(Press Ctrl+C to stop, or Unity will signal when done)\n")
+        
+        # Path to done file that Unity writes when experiment ends
+        done_file = os.path.join(os.path.dirname(self.capture_dir), "../../swarm_done.txt")
+        done_file = os.path.normpath(done_file)
         
         try:
             while True:
+                # Check if Unity signaled completion
+                if os.path.exists(done_file):
+                    # Read completion info
+                    try:
+                        with open(done_file, 'r') as f:
+                            content = f.read().strip()
+                        
+                        if content.startswith('done,'):
+                            completion_time = float(content.split(',')[1])
+                            print(f"\n✓ Swarm converged in {completion_time:.2f}s - shutting down...")
+                        elif content.startswith('timeout,'):
+                            timeout_val = float(content.split(',')[1])
+                            print(f"\n⚠ Timeout reached ({timeout_val:.0f}s) - shutting down...")
+                        else:
+                            print("\n✓ Unity experiment completed - shutting down...")
+                    except:
+                        print("\n✓ Unity experiment completed - shutting down...")
+                    
+                    print(f"Processed {len(self.processed_captures)} captures total")
+                    # Don't delete done file - let launcher read it first
+                    break
+                
                 # Find new captures
                 new_captures = self.find_new_captures()
                 
