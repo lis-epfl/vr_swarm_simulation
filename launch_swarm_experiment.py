@@ -19,10 +19,12 @@ def launch_python_only(
     python_script: str = r"Assets\Scripts\swarm\swarm_pointcloud_builder.py",
     python_venv: str = r"vrswarm_env\Scripts\python.exe",
     num_drones: int = 2,
-    capture_interval: int = 2
+    max_interval: int = 5,
+    cleanup: bool = True
 ):
     """
-    Launch only the Python swarm script (assumes Unity already running).
+    Launch Python swarm script and Unity (assumes Unity already running).
+    Unity captures at 1Hz, then we post-process for multiple intervals.
     Also triggers Unity to enter Play mode automatically.
     
     Args:
@@ -31,7 +33,8 @@ def launch_python_only(
         python_script: Relative path to Python swarm script
         python_venv: Path to Python executable in venv
         num_drones: Number of drones in swarm
-        capture_interval: Seconds between captures (integer)
+        max_interval: Maximum capture interval - will process intervals 1 through max_interval
+        cleanup: Whether to delete capture folders after processing (default: True)
     """
     
     print("=" * 70)
@@ -62,15 +65,17 @@ def launch_python_only(
         "numDrones": num_drones,
         "dronesAlongX": num_drones,
         "dronesAlongZ": 1,
-        "captureInterval": float(capture_interval)  # Convert to float for Unity
+        "captureInterval": 1.0  # Always capture at 1Hz for multi-interval processing
     }
     
     print(f"\n{'='*70}")
     print("Writing experiment configuration...")
     print("=" * 70)
     print(f"  Drones: {num_drones} ({num_drones}x1 grid)")
-    print(f"  Capture interval: {capture_interval}s")
+    print(f"  Unity capture: 1Hz (1 second intervals)")
+    print(f"  Post-process intervals: 1 through {max_interval}s")
     print(f"  Auto-stop when converged (max 300s timeout)")
+    print(f"  Cleanup captures: {cleanup}")
     
     with open(config_file, 'w') as f:
         json.dump(config, f, indent=2)
@@ -106,53 +111,30 @@ def launch_python_only(
     script_dir = os.path.dirname(script_path)
     
     print(f"\n{'='*70}")
-    print("Launching Python swarm script...")
+    print("PHASE 1: Unity Capture at 1Hz")
     print("=" * 70)
-    print(f"  Script: {python_script}")
-    print(f"  Working directory: {script_dir}")
-    print(f"  Python: {python_exe}")
+    print("  Waiting for Unity to converge and create swarm_done.txt...")
+    print("  (Unity is capturing at 1Hz in the background)")
+    print("=" * 70)
+    
+    # Wait for Unity to complete (indicated by swarm_done.txt)
+    start_time = time.time()
+    timeout = 320  # 300s max experiment + 20s buffer
     
     try:
-        python_process = subprocess.Popen(
-            [python_exe, os.path.basename(script_path)],
-            cwd=script_dir,
-            creationflags=subprocess.CREATE_NEW_CONSOLE  # Open in new window
-        )
-        print(f"  ✓ Python script launched (PID: {python_process.pid})")
-    except Exception as e:
-        print(f"\n❌ ERROR launching Python script: {e}")
-        return
-    
-    # Monitor process
-    print(f"\n{'='*70}")
-    print("EXPERIMENT RUNNING")
-    print("=" * 70)
-    print("  Python swarm script is running in separate window")
-    print("  Check Unity for swarm movements and captures")
-    print(f"\n  Experiment will run until swarm converges (max 300s timeout)")
-    print("  Press Ctrl+C here to stop Python script")
-    print("=" * 70)
-    
-    try:
-        # Wait for Python script to finish or timeout
-        start_time = time.time()
-        timeout = 320  # 300s max experiment + 20s buffer
-        
         while True:
-            returncode = python_process.poll()
-            if returncode is not None:
-                print(f"\n✓ Python script completed (exit code: {returncode})")
+            if os.path.exists(done_file):
+                print(f"\n✓ Unity convergence detected (swarm_done.txt exists)")
                 break
             
             elapsed = time.time() - start_time
             if elapsed > timeout:
-                print(f"\n⚠ Timeout after {elapsed:.0f}s - stopping Python script...")
-                python_process.terminate()
-                break
+                print(f"\n⚠ Timeout after {elapsed:.0f}s - Unity may not have completed")
+                return
             
             time.sleep(1)
         
-        # Read convergence time from done file if it exists
+        # Read convergence time from done file
         convergence_time = None
         if os.path.exists(done_file):
             try:
@@ -160,85 +142,119 @@ def launch_python_only(
                     content = f.read().strip()
                 if content.startswith('done,'):
                     convergence_time = float(content.split(',')[1])
-                    print(f"\n✓ Swarm converged in {convergence_time:.2f}s")
+                    print(f"✓ Swarm converged in {convergence_time:.2f}s")
                 elif content.startswith('timeout,'):
-                    print(f"\n⚠ Experiment reached timeout")
-                
-                # Clean up done file after reading
-                os.remove(done_file)
+                    print(f"⚠ Experiment reached timeout")
             except Exception as e:
                 print(f"  Warning: Could not parse convergence time: {e}")
         
-        print("\n" + "="*70)
-        print("Copying final point cloud to FinalPointClouds...")
-        print("="*70)
+        print(f"\n{'='*70}")
+        print(f"PHASE 2: Post-Processing at Multiple Intervals (1-{max_interval})")
+        print("=" * 70)
         
-        # Find the latest point cloud in SwarmPointClouds
         os.makedirs(final_pc_folder, exist_ok=True)
         
-        if os.path.exists(swarm_pc_folder):
-            raw_files = sorted([f for f in os.listdir(swarm_pc_folder) if f.startswith('pointcloud_raw_')])
-            if raw_files:
-                latest_raw = raw_files[-1]
-                src = os.path.join(swarm_pc_folder, latest_raw)
-                
-                # New naming format: swarm_raw_{num_drones}_drones_{interval}_interval_{time}s.ply
-                if convergence_time is not None:
-                    dst_name = f"swarm_raw_{num_drones}_drones_{capture_interval}_interval_{convergence_time:.2f}s.ply"
-                else:
-                    dst_name = f"swarm_raw_{num_drones}_drones_{capture_interval}_interval.ply"
-                dst = os.path.join(final_pc_folder, dst_name)
-                
-                shutil.copy2(src, dst)
-                print(f"  ✓ Copied {latest_raw} → {dst_name}")
-            else:
-                print("  ⚠ No point cloud files found in SwarmPointClouds")
-        else:
-            print("  ⚠ SwarmPointClouds folder not found")
-        
-        # Cleanup SwarmCapture folder
-        print("\n" + "="*70)
-        print("Cleaning up SwarmCapture folder...")
-        print("="*70)
-        
-        try:
-            from send2trash import send2trash
-            use_recycle_bin = True
-        except ImportError:
-            print("  Warning: send2trash not installed, using permanent delete")
-            use_recycle_bin = False
-        
-        if os.path.exists(swarm_capture_folder):
-            deleted_items = 0
-            for item in os.listdir(swarm_capture_folder):
-                item_path = os.path.join(swarm_capture_folder, item)
-                try:
-                    if use_recycle_bin:
-                        send2trash(item_path)
-                    else:
-                        if os.path.isfile(item_path):
-                            os.remove(item_path)
-                        else:
-                            shutil.rmtree(item_path)
-                    deleted_items += 1
-                except Exception as e:
-                    print(f"  Warning: Could not delete {item}: {e}")
+        # Process each interval
+        for interval in range(1, max_interval + 1):
+            print(f"\n--- Processing Interval {interval}s ---")
             
-            print(f"  ✓ Cleaned up {deleted_items} items from SwarmCapture")
+            # Run swarm_pointcloud_builder.py in batch mode with specific interval
+            try:
+                result = subprocess.run(
+                    [
+                        python_exe,
+                        os.path.basename(script_path),
+                        "--batch-mode",
+                        "--capture-interval", str(interval)
+                    ],
+                    cwd=script_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0:
+                    print(f"  ✓ Processing complete for interval {interval}s")
+                else:
+                    print(f"  ⚠ Processing failed for interval {interval}s (exit code: {result.returncode})")
+                    if result.stderr:
+                        print(f"    Error: {result.stderr[:200]}")
+            except subprocess.TimeoutExpired:
+                print(f"  ⚠ Processing timed out for interval {interval}s")
+            except Exception as e:
+                print(f"  ⚠ Error processing interval {interval}s: {e}")
+                continue
+            
+            # Find and rename the generated point cloud
+            if os.path.exists(swarm_pc_folder):
+                raw_files = sorted([f for f in os.listdir(swarm_pc_folder) if f.startswith('pointcloud_raw_')])
+                if raw_files:
+                    latest_raw = raw_files[-1]
+                    src = os.path.join(swarm_pc_folder, latest_raw)
+                    
+                    # New naming format: swarm_raw_{num_drones}_drones_{interval}_interval_{time}s.ply
+                    if convergence_time is not None:
+                        dst_name = f"swarm_raw_{num_drones}_drones_{interval}_interval_{convergence_time:.2f}s.ply"
+                    else:
+                        dst_name = f"swarm_raw_{num_drones}_drones_{interval}_interval.ply"
+                    dst = os.path.join(final_pc_folder, dst_name)
+                    
+                    shutil.copy2(src, dst)
+                    print(f"  ✓ Saved: {dst_name}")
+                    
+                    # Clean up intermediate point cloud
+                    try:
+                        os.remove(src)
+                    except:
+                        pass
+        
+        print(f"\n{'='*70}")
+        print(f"All {max_interval} intervals processed successfully")
+        print("=" * 70)
+        
+        # Conditional cleanup of captures and done file
+        if cleanup:
+            print("\n" + "="*70)
+            print("Cleaning up SwarmCapture folder...")
+            print("="*70)
+            
+            try:
+                from send2trash import send2trash
+                use_recycle_bin = True
+            except ImportError:
+                print("  Warning: send2trash not installed, using permanent delete")
+                use_recycle_bin = False
+            
+            if os.path.exists(swarm_capture_folder):
+                deleted_items = 0
+                for item in os.listdir(swarm_capture_folder):
+                    item_path = os.path.join(swarm_capture_folder, item)
+                    try:
+                        if use_recycle_bin:
+                            send2trash(item_path)
+                        else:
+                            if os.path.isfile(item_path):
+                                os.remove(item_path)
+                            else:
+                                shutil.rmtree(item_path)
+                        deleted_items += 1
+                    except Exception as e:
+                        print(f"  Warning: Could not delete {item}: {e}")
+                
+                print(f"  ✓ Cleaned up {deleted_items} items from SwarmCapture")
+            else:
+                print("  ⚠ SwarmCapture folder not found")
         else:
-            print("  ⚠ SwarmCapture folder not found")
+            print(f"\n  Skipping cleanup (--no-cleanup flag set)")
+        
+        # Clean up done file after reading
+        if os.path.exists(done_file):
+            os.remove(done_file)
         
         print("\nExperiment complete!")
         
     except KeyboardInterrupt:
         print("\n\n⚠ Interrupted by user")
-        print("Stopping Python script...")
-        
-        try:
-            python_process.terminate()
-            print("  ✓ Python script stopped")
-        except:
-            pass
         
     print("\n" + "="*70)
     print("Launcher finished")
@@ -264,10 +280,15 @@ if __name__ == "__main__":
         help="Number of drones in swarm (default: 2)"
     )
     parser.add_argument(
-        "--capture-interval",
+        "--max-interval",
         type=int,
-        default=2,
-        help="Capture interval in seconds (default: 2)"
+        default=5,
+        help="Maximum capture interval - will process 1 through max (default: 5)"
+    )
+    parser.add_argument(
+        "--no-cleanup",
+        action="store_true",
+        help="Keep capture folders after processing (default: cleanup enabled)"
     )
     
     args = parser.parse_args()
@@ -275,5 +296,6 @@ if __name__ == "__main__":
     launch_python_only(
         unity_scene=args.scene,
         num_drones=args.num_drones,
-        capture_interval=args.capture_interval
+        max_interval=args.max_interval,
+        cleanup=not args.no_cleanup
     )
