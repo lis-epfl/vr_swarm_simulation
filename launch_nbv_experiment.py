@@ -88,8 +88,8 @@ def launch_python_only(
     print("  (Make sure Unity editor is open with NBV-Trial scene loaded)")
     
     # Wait a moment for Unity to respond
-    print("\n  Waiting 15 seconds for Unity to start playing...")
-    time.sleep(15)
+    print("\n  Waiting 30 seconds for Unity to start playing...")
+    time.sleep(30)
     
     script_dir = os.path.dirname(script_path)
     
@@ -156,7 +156,7 @@ def find_unity_executable():
 
 def launch_nbv_experiment(
     project_path: str = r"C:\Users\sriram\vr_swarm_simulation",
-    unity_scene: str = r"Assets\Scenes\NBV-Trial.unity",
+    unity_scene: str = r"Assets\Scenes\NBV-House2.unity",
     python_script: str = r"Assets\Scripts\NBV\MAP_NBV_trial.py",
     wait_for_unity: int = 15,  # seconds to wait for Unity to fully start
     python_venv: str = r"vrswarm_env\Scripts\python.exe"
@@ -312,8 +312,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wait",
         type=int,
-        default=15,
-        help="Seconds to wait for Unity to start (default: 15)"
+        default=45,
+        help="Seconds to wait for Unity to start (default: 45)"
     )
     parser.add_argument(
         "--no-wait",
