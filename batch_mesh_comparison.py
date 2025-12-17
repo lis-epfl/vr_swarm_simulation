@@ -29,7 +29,7 @@ try:
 except ImportError:
     HAS_TRIMESH = False
 
-TARGET_POINTS = 50000  # Target points for adaptive downsampling
+# TARGET_POINTS = 50000  # Target points for adaptive downsampling
 
 
 class SilentMeshComparator:
@@ -159,7 +159,7 @@ class SilentMeshComparator:
         
         # Normalize GT mesh
         gt_center = self.gt_mesh.get_center()
-        self.gt_mesh.translate(-gt_center)
+        # self.gt_mesh.translate(-gt_center)  # Commented out - not needed
         gt_max_bound = np.max(self.gt_mesh.get_max_bound() - self.gt_mesh.get_min_bound())
         normalization_scale_factor = 1.0 / gt_max_bound
         self.gt_mesh.scale(normalization_scale_factor, center=[0, 0, 0])
@@ -171,60 +171,60 @@ class SilentMeshComparator:
         
         # Normalize reconstruction (use same scale factor as GT)
         recon_center = recon_pcd.get_center()
-        recon_pcd.translate(-recon_center)
+        # recon_pcd.translate(-recon_center)  # Commented out - not needed
         recon_pcd.scale(normalization_scale_factor, center=[0, 0, 0])
         
         self.normalization_scale = gt_max_bound
         
-        # Apply manual initial translation
-        manual_translation = np.array([0.3, 0.0, 0.15])
-        recon_pcd.translate(manual_translation)
-        
-        # Translation-only ICP alignment (no rotation)
-        gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
-        best_translation = manual_translation.copy()
-        prev_avg_distance = float('inf')
-        correspondence_threshold = 0.3
-        
-        for iteration in range(100):
-            recon_points = np.asarray(recon_pcd.points)
-            valid_correspondences = []
-            distances = []
-            
-            for recon_pt in recon_points:
-                [k, idx, dist_sq] = gt_kdtree.search_knn_vector_3d(recon_pt, 1)
-                distance = np.sqrt(dist_sq[0])
-                
-                if distance < correspondence_threshold:
-                    gt_pt = np.asarray(self.gt_pcd.points)[idx[0]]
-                    valid_correspondences.append((recon_pt, gt_pt))
-                    distances.append(distance)
-            
-            if len(valid_correspondences) < 1000:
-                if correspondence_threshold < 1.0:
-                    correspondence_threshold *= 1.5
-                    continue
-                else:
-                    break
-            
-            avg_distance = np.mean(distances)
-            recon_pts = np.array([c[0] for c in valid_correspondences])
-            gt_pts = np.array([c[1] for c in valid_correspondences])
-            translation_step = np.mean(gt_pts - recon_pts, axis=0)
-            
-            recon_pcd.translate(translation_step)
-            best_translation += translation_step
-            
-            if np.linalg.norm(translation_step) < 1e-9:
-                break
-            
-            if abs(prev_avg_distance - avg_distance) < 1e-9:
-                break
-            
-            prev_avg_distance = avg_distance
-            
-            if iteration > 20 and correspondence_threshold > 0.1:
-                correspondence_threshold *= 0.95
+        # # Apply manual initial translation
+        # manual_translation = np.array([0.3, 0.0, 0.15])
+        # recon_pcd.translate(manual_translation)
+        # 
+        # # Translation-only ICP alignment (no rotation)
+        # gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
+        # best_translation = manual_translation.copy()
+        # prev_avg_distance = float('inf')
+        # correspondence_threshold = 0.3
+        # 
+        # for iteration in range(100):
+        #     recon_points = np.asarray(recon_pcd.points)
+        #     valid_correspondences = []
+        #     distances = []
+        #     
+        #     for recon_pt in recon_points:
+        #         [k, idx, dist_sq] = gt_kdtree.search_knn_vector_3d(recon_pt, 1)
+        #         distance = np.sqrt(dist_sq[0])
+        #         
+        #         if distance < correspondence_threshold:
+        #             gt_pt = np.asarray(self.gt_pcd.points)[idx[0]]
+        #             valid_correspondences.append((recon_pt, gt_pt))
+        #             distances.append(distance)
+        #     
+        #     if len(valid_correspondences) < 1000:
+        #         if correspondence_threshold < 1.0:
+        #             correspondence_threshold *= 1.5
+        #             continue
+        #         else:
+        #             break
+        #     
+        #     avg_distance = np.mean(distances)
+        #     recon_pts = np.array([c[0] for c in valid_correspondences])
+        #     gt_pts = np.array([c[1] for c in valid_correspondences])
+        #     translation_step = np.mean(gt_pts - recon_pts, axis=0)
+        #     
+        #     recon_pcd.translate(translation_step)
+        #     best_translation += translation_step
+        #     
+        #     if np.linalg.norm(translation_step) < 1e-9:
+        #         break
+        #     
+        #     if abs(prev_avg_distance - avg_distance) < 1e-9:
+        #         break
+        #     
+        #     prev_avg_distance = avg_distance
+        #     
+        #     if iteration > 20 and correspondence_threshold > 0.1:
+        #         correspondence_threshold *= 0.95
         
         # Compute metrics on voxelized point clouds
         visibility = self.compute_mesh_visibility(recon_pcd, coverage_threshold)
@@ -238,55 +238,40 @@ class SilentMeshComparator:
         }
 
 
-def adaptive_downsample(pcd: o3d.geometry.PointCloud, target_points: int = 50000) -> o3d.geometry.PointCloud:
-    """
-    Adaptively downsample point cloud to target number of points.
-    Only downsamples if current point count exceeds target.
-    
-    Args:
-        pcd: Input point cloud
-        target_points: Target number of points (default: 50000)
-    
-    Returns:
-        Downsampled point cloud (or original if already small enough)
-    """
-    current_points = len(pcd.points)
-    if current_points <= target_points:
-        return pcd
-    
-    # Calculate voxel size to achieve approximately target_points
-    volume = pcd.get_oriented_bounding_box().volume()
-    voxel_size = np.cbrt(volume / target_points)
-    
-    # Ensure minimum voxel size to avoid over-downsampling
-    voxel_size = max(voxel_size, 0.01)
-    
-    downsampled = pcd.voxel_down_sample(voxel_size)
-    return downsampled
-
-
 def parse_filename(filename: str) -> tuple:
     """
-    Parse filename to extract type, drone count and iteration count.
+    Parse filename to extract type, drone count and iteration/interval count.
     Expected formats: 
       - NBV_raw_3_drones_iteration_1.ply
-      - swarm_raw_3_drones_iteration_1.ply
+      - swarm_raw_3_drones_3_interval.ply
+      - swarm_raw_3_drones_3_interval_42.53s.ply (with convergence time)
     
     Returns:
         (type, num_drones, num_iterations) or (None, None, None) if parsing fails
     """
-    # Pattern: (NBV|swarm)_raw_{num}_drones_iteration_{num}.ply
-    match = re.match(r'(NBV|swarm)_raw_(\d+)_drones_iteration_(\d+)\.ply', filename)
+    # Pattern for NBV: NBV_raw_{num}_drones_iteration_{num}.ply
+    match = re.match(r'NBV_raw_(\d+)_drones_iteration_(\d+)\.ply', filename)
     if match:
-        return match.group(1), int(match.group(2)), int(match.group(3))
+        return 'NBV', int(match.group(1)), int(match.group(2))
+    
+    # Pattern for swarm with time: swarm_raw_{num}_drones_{num}_interval_{time}s.ply
+    match = re.match(r'swarm_raw_(\d+)_drones_(\d+)_interval_[\d.]+s\.ply', filename)
+    if match:
+        return 'swarm', int(match.group(1)), int(match.group(2))
+    
+    # Pattern for swarm without time: swarm_raw_{num}_drones_{num}_interval.ply
+    match = re.match(r'swarm_raw_(\d+)_drones_(\d+)_interval\.ply', filename)
+    if match:
+        return 'swarm', int(match.group(1)), int(match.group(2))
+    
     return None, None, None
 
 
 def main():
     # Paths
     final_pc_folder = Path("Assets/FinalPointClouds")
-    gt_path = "Assets/Comparisons/House_with_Texture3.obj"
-    output_csv = "mesh_comparison_results_downsampled2.csv"
+    gt_path = "Assets/Comparisons/House_with_Texture3.obj" # Ground truth mesh path House_with_Texture3.obj original
+    output_csv = "mesh_comparison_results_nbv_house2.csv"
     
     if not final_pc_folder.exists():
         print(f"Error: Folder not found: {final_pc_folder}")
@@ -329,6 +314,10 @@ def main():
     
     # Prepare results list for summary
     results = []
+
+    # Time take totallyn
+    import time
+    start_time = time.time()
     
     for i, ply_file in enumerate(ply_files, 1):
         filename = ply_file.name
@@ -380,6 +369,10 @@ def main():
             print(f"✗ Error: {e}")
             continue
     
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"\nTotal processing time: {elapsed_time:.2f} seconds for {len(ply_files)} point clouds, {elapsed_time/len(ply_files):.2f} seconds per point cloud on average.\n")
+
     if not results:
         print("\nNo results to save")
         return 1

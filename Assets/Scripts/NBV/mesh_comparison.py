@@ -326,9 +326,9 @@ class MeshComparator:
         print(f"\n{'='*60}")
         print("Step 4: Normalize Ground Truth")
         print(f"{'='*60}")
-        gt_center = self.gt_mesh.get_center()
-        print(f"  GT center: [{gt_center[0]:.2f}, {gt_center[1]:.2f}, {gt_center[2]:.2f}]")
-        self.gt_mesh.translate(-gt_center)
+        # gt_center = self.gt_mesh.get_center()
+        # print(f"  GT center: [{gt_center[0]:.2f}, {gt_center[1]:.2f}, {gt_center[2]:.2f}]")
+        # self.gt_mesh.translate(-gt_center)
         gt_max_bound = np.max(self.gt_mesh.get_max_bound() - self.gt_mesh.get_min_bound())
         print(f"  GT max dimension: {gt_max_bound:.2f}m")
         
@@ -350,128 +350,129 @@ class MeshComparator:
         print(f"  Original recon center: [{recon_center[0]:.2f}, {recon_center[1]:.2f}, {recon_center[2]:.2f}]")
         print(f"  Original recon max dimension: {recon_max_bound_orig:.2f}m")
         
-        recon_pcd.translate(-recon_center)
+        # recon_pcd.translate(-recon_center)
         recon_pcd.scale(normalization_scale_factor, center=[0, 0, 0])
         print(f"  ✓ Reconstruction centered and scaled by same factor as GT")
         
         self.normalization_scale = gt_max_bound
         print(f"  Original GT scale (for threshold adjustment): {self.normalization_scale:.4f}m")
 
-        # Apply manual initial translation if provided
-        manual_translation = (0.3, 0, 0.15)  # Set to None or desired values
-        if manual_translation is not None:
-            print(f"\n  Applying manual initial translation: [{manual_translation[0]:+.4f}, {manual_translation[1]:+.4f}, {manual_translation[2]:+.4f}]")
-            recon_pcd.translate(manual_translation)
-            print(f"  ✓ Manual translation applied")
-        else:
-            print(f"\n  No manual initial translation provided")
+        # # Apply manual initial translation if provided
+        # # manual_translation = (0.3, 0, 0.15)  # Set to None or desired values
+        # manual_translation = None  # Disable manual translation
+        # if manual_translation is not None:
+        #     print(f"\n  Applying manual initial translation: [{manual_translation[0]:+.4f}, {manual_translation[1]:+.4f}, {manual_translation[2]:+.4f}]")
+        #     recon_pcd.translate(manual_translation)
+        #     print(f"  ✓ Manual translation applied")
+        # else:
+        #     print(f"\n  No manual initial translation provided")
 
-                # Visualize BEFORE ICP alignment
-        if self.visualization:
-            print(f"\n{'='*60}")
-            print("Visualization: BEFORE ICP Alignment")
-            print(f"{'='*60}")
-            import copy
-            recon_before = copy.deepcopy(recon_pcd)
-            self.gt_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray for GT
-            recon_before.paint_uniform_color([1.0, 0.5, 0])  # Orange for reconstruction
-            
-            print("\nShowing BEFORE alignment (Gray=GT, Orange=Reconstruction)...")
-            print("  Close the window to continue to ICP alignment")
-            
-            o3d.visualization.draw_geometries(
-                [self.gt_mesh, recon_before],
-                window_name="BEFORE ICP Alignment",
-                width=1280,
-                height=720
-            )
-        
-        # STEP 6: Translation-only alignment (no rotation)
-        if self.align:
-            print(f"\n{'='*60}")
-            print("Step 6: Translation-Only Alignment")
-            print(f"{'='*60}")
-            print("  Orientation is correct - finding best translation only")
-            
+        #         # Visualize BEFORE ICP alignment
+        # if self.visualization:
+        #     print(f"\n{'='*60}")
+        #     print("Visualization: BEFORE ICP Alignment")
+        #     print(f"{'='*60}")
+        #     import copy
+        #     recon_before = copy.deepcopy(recon_pcd)
+        #     self.gt_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray for GT
+        #     recon_before.paint_uniform_color([1.0, 0.5, 0])  # Orange for reconstruction
+        #     
+        #     print("\nShowing BEFORE alignment (Gray=GT, Orange=Reconstruction)...")
+        #     print("  Close the window to continue to ICP alignment")
+        #     
+        #     o3d.visualization.draw_geometries(
+        #         [self.gt_mesh, recon_before],
+        #         window_name="BEFORE ICP Alignment",
+        #         width=1280,
+        #         height=720
+        #     )
+        # 
+        # # STEP 6: Translation-only alignment (no rotation)
+        # if self.align:
+        #     print(f"\n{'='*60}")
+        #     print("Step 6: Translation-Only Alignment")
+        #     print(f"{'='*60}")
+        #     print("  Orientation is correct - finding best translation only")
+        #     
 
-            
-            # Build KDTree for fast nearest neighbor search
-            gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
-            
-            # Iterative closest point translation
-            best_translation = manual_translation if manual_translation is not None else np.array([0.0, 0.0, 0.0])
-            prev_avg_distance = float('inf')
-            correspondence_threshold = 0.3  # Start generous, will tighten
-            
-            print(f"  Starting iterative translation alignment...")
-            
-            for iteration in range(100):  # Max iterations
-                recon_points = np.asarray(recon_pcd.points)
-                
-                # Find correspondences
-                valid_correspondences = []
-                distances = []
-                
-                for recon_pt in recon_points:
-                    [k, idx, dist_sq] = gt_kdtree.search_knn_vector_3d(recon_pt, 1)
-                    distance = np.sqrt(dist_sq[0])
-                    
-                    # Only use close correspondences
-                    if distance < correspondence_threshold:
-                        gt_pt = np.asarray(self.gt_pcd.points)[idx[0]]
-                        valid_correspondences.append((recon_pt, gt_pt))
-                        distances.append(distance)
-                
-                if len(valid_correspondences) < 1000:
-                    print(f"    Warning: Only {len(valid_correspondences)} correspondences found")
-                    if correspondence_threshold < 1.0:
-                        correspondence_threshold *= 1.5
-                        print(f"    Increasing threshold to {correspondence_threshold:.3f}")
-                        continue
-                    else:
-                        print(f"    Stopping - insufficient correspondences")
-                        break
-                
-                # Calculate average distance
-                avg_distance = np.mean(distances)
-                
-                # Calculate translation from correspondences
-                recon_pts = np.array([c[0] for c in valid_correspondences])
-                gt_pts = np.array([c[1] for c in valid_correspondences])
-                translation_step = np.mean(gt_pts - recon_pts, axis=0)
-                
-                # Apply translation
-                recon_pcd.translate(translation_step)
-                best_translation += translation_step
-                
-                # Progress reporting
-                if iteration % 10 == 0 or iteration < 5:
-                    print(f"    Iter {iteration:3d}: {len(valid_correspondences):6,} corr, "
-                          f"avg dist: {avg_distance:.6f}, "
-                          f"step: [{translation_step[0]:+.6f}, {translation_step[1]:+.6f}, {translation_step[2]:+.6f}]")
-                
-                # Check convergence
-                if np.linalg.norm(translation_step) < 1e-9:
-                    print(f"    ✓ Converged at iteration {iteration + 1} (step size < 1e-6)")
-                    break
-                
-                if abs(prev_avg_distance - avg_distance) < 1e-9:
-                    print(f"    ✓ Converged at iteration {iteration + 1} (distance change < 1e-6)")
-                    break
-                
-                prev_avg_distance = avg_distance
-                
-                # Gradually tighten correspondence threshold
-                if iteration > 20 and correspondence_threshold > 0.1:
-                    correspondence_threshold *= 0.95
-            
-            print(f"\n  Final Results:")
-            print(f"    Total translation: [{best_translation[0]:+.6f}, {best_translation[1]:+.6f}, {best_translation[2]:+.6f}]")
-            print(f"    Final correspondences: {len(valid_correspondences):,}")
-            print(f"    Final avg distance: {avg_distance:.6f}")
-            print(f"  ✓ Translation-only alignment complete")
-        else:
-            print(f"\n  Skipping ICP alignment (--no-align flag set)")
+        #     
+        #     # Build KDTree for fast nearest neighbor search
+        #     gt_kdtree = o3d.geometry.KDTreeFlann(self.gt_pcd)
+        #     
+        #     # Iterative closest point translation
+        #     best_translation = manual_translation if manual_translation is not None else np.array([0.0, 0.0, 0.0])
+        #     prev_avg_distance = float('inf')
+        #     correspondence_threshold = 0.3  # Start generous, will tighten
+        #     
+        #     print(f"  Starting iterative translation alignment...")
+        #     
+        #     for iteration in range(100):  # Max iterations
+        #         recon_points = np.asarray(recon_pcd.points)
+        #         
+        #         # Find correspondences
+        #         valid_correspondences = []
+        #         distances = []
+        #         
+        #         for recon_pt in recon_points:
+        #             [k, idx, dist_sq] = gt_kdtree.search_knn_vector_3d(recon_pt, 1)
+        #             distance = np.sqrt(dist_sq[0])
+        #             
+        #             # Only use close correspondences
+        #             if distance < correspondence_threshold:
+        #                 gt_pt = np.asarray(self.gt_pcd.points)[idx[0]]
+        #                 valid_correspondences.append((recon_pt, gt_pt))
+        #                 distances.append(distance)
+        #         
+        #         if len(valid_correspondences) < 1000:
+        #             print(f"    Warning: Only {len(valid_correspondences)} correspondences found")
+        #             if correspondence_threshold < 1.0:
+        #                 correspondence_threshold *= 1.5
+        #                 print(f"    Increasing threshold to {correspondence_threshold:.3f}")
+        #                 continue
+        #             else:
+        #                 print(f"    Stopping - insufficient correspondences")
+        #                 break
+        #         
+        #         # Calculate average distance
+        #         avg_distance = np.mean(distances)
+        #         
+        #         # Calculate translation from correspondences
+        #         recon_pts = np.array([c[0] for c in valid_correspondences])
+        #         gt_pts = np.array([c[1] for c in valid_correspondences])
+        #         translation_step = np.mean(gt_pts - recon_pts, axis=0)
+        #         
+        #         # Apply translation
+        #         recon_pcd.translate(translation_step)
+        #         best_translation += translation_step
+        #         
+        #         # Progress reporting
+        #         if iteration % 10 == 0 or iteration < 5:
+        #             print(f"    Iter {iteration:3d}: {len(valid_correspondences):6,} corr, "
+        #                   f"avg dist: {avg_distance:.6f}, "
+        #                   f"step: [{translation_step[0]:+.6f}, {translation_step[1]:+.6f}, {translation_step[2]:+.6f}]")
+        #         
+        #         # Check convergence
+        #         if np.linalg.norm(translation_step) < 1e-9:
+        #             print(f"    ✓ Converged at iteration {iteration + 1} (step size < 1e-6)")
+        #             break
+        #         
+        #         if abs(prev_avg_distance - avg_distance) < 1e-9:
+        #             print(f"    ✓ Converged at iteration {iteration + 1} (distance change < 1e-6)")
+        #             break
+        #         
+        #         prev_avg_distance = avg_distance
+        #         
+        #         # Gradually tighten correspondence threshold
+        #         if iteration > 20 and correspondence_threshold > 0.1:
+        #             correspondence_threshold *= 0.95
+        #     
+        #     print(f"\n  Final Results:")
+        #     print(f"    Total translation: [{best_translation[0]:+.6f}, {best_translation[1]:+.6f}, {best_translation[2]:+.6f}]")
+        #     print(f"    Final correspondences: {len(valid_correspondences):,}")
+        #     print(f"    Final avg distance: {avg_distance:.6f}")
+        #     print(f"  ✓ Translation-only alignment complete")
+        # else:
+        #     print(f"\n  Skipping ICP alignment (--no-align flag set)")
         
         # Bounding box analysis
         recon_bbox = recon_pcd.get_axis_aligned_bounding_box()
@@ -565,14 +566,8 @@ def main():
     parser.add_argument(
         "--align",
         action="store_true",
-        default=True,
-        help="Align using ICP (default: True)"
-    )
-    parser.add_argument(
-        "--no-align",
-        dest="align",
-        action="store_false",
-        help="Disable ICP alignment"
+        default=False,
+        help="Align using ICP (default: False)"
     )
     parser.add_argument(
         "--visualize",
