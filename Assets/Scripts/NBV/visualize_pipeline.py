@@ -28,10 +28,11 @@ class PipelineVisualizer:
         self.output_dir = Path("Assets/ProcessedImages")
         self.pointcloud_dir = self.output_dir / "PointClouds"
         
-        # Initialize SAM model
-        print("🔄 Initializing SAM model...")
-        self.processor.initialize()
-        print("✅ SAM model ready")
+        # Segmentation disabled - using depth values only
+        # print("🔄 Initializing SAM model...")
+        # self.processor.initialize()
+        # print("✅ SAM model ready")
+        print("✅ Segmentation disabled - using depth values only")
         
     def find_latest_pointcloud(self):
         """Find the most recent point cloud file"""
@@ -62,8 +63,8 @@ class PipelineVisualizer:
         
         num_drones = len(drone_data_list)
         
-        # Create figure with subplots: 4 columns (RGB, Segmented RGB, Depth, Segmented Depth) × N rows (drones)
-        fig, axes = plt.subplots(num_drones, 4, figsize=(16, 4 * num_drones))
+        # Simplified: 2 columns (RGB, Depth) × N rows (drones) - no segmentation
+        fig, axes = plt.subplots(num_drones, 2, figsize=(12, 4 * num_drones))
         
         # Handle single drone case
         if num_drones == 1:
@@ -76,178 +77,23 @@ class PipelineVisualizer:
             rgb_image = drone_data.rgb_image
             depth_image = drone_data.depth_image
             
-            # Process with SAM to get ALL building masks (not just the best one)
-            print(f"  Running SAM segmentation...")
+            # Segmentation disabled - skip SAM processing
+            # print(f"  Running SAM segmentation...")
+            # all_masks = self.processor.mask_generator.generate(rgb_image)
             
-            # Run SAM directly to get all masks
-            all_masks = self.processor.mask_generator.generate(rgb_image)
-            
-            print(f"      🔍 SAM found {len(all_masks)} total segments")
-            
-            # Use the updated segmentation logic from MAP_NBV_trial.py
-            height, width = rgb_image.shape[:2]
-            center_x, center_y = width // 2, height // 2
-            
-            # Define multiple sample points
-            sample_points = [
-                (center_x, center_y),
-                (center_x - width//6, center_y),
-                (center_x + width//6, center_y),
-                (center_x - width//4, center_y),
-                (center_x + width//4, center_y),
-                (center_x, center_y - height//8),
-                (center_x, center_y + height//8),
-                (center_x - width//8, center_y - height//8),
-                (center_x + width//8, center_y - height//8),
-            ]
-            
-            candidate_segments = []
-            for mask_info in all_masks:
-                mask = mask_info['segmentation']
-                area = mask_info['area']
-                
-                # Skip small segments
-                if area < self.processor.min_building_area:
-                    continue
-                
-                # Filter out sky and ground
-                y_coords = np.where(mask)[0]
-                x_coords = np.where(mask)[1]
-                
-                if len(y_coords) > 0:
-                    mean_y = np.mean(y_coords)
-                    max_y = np.max(y_coords)
-                    min_y = np.min(y_coords)
-                    y_span = max_y - min_y
-                    
-                    # Sky filter
-                    is_in_upper_region = mean_y < height * 0.3
-                    touches_top_edge = min_y < 10
-                    large_vertical_span = y_span > height * 0.4
-                    
-                    if (is_in_upper_region and large_vertical_span) or (touches_top_edge and large_vertical_span):
-                        continue
-                
-                # Ground filter
-                if len(y_coords) > 0 and len(x_coords) > 0:
-                    mean_y_ground = np.mean(y_coords)
-                    x_spread = np.max(x_coords) - np.min(x_coords)
-                    y_spread = np.max(y_coords) - np.min(y_coords)
-                    
-                    is_in_bottom = mean_y_ground > height * 0.6
-                    spans_wide = x_spread > width * 0.65
-                    is_flat = y_spread < height * 0.2 and x_spread > width * 0.5
-                    
-                    if (is_in_bottom and spans_wide) or is_flat:
-                        continue
-                
-                # Check sample points and middle band
-                hits_sample_point = any(
-                    0 <= sy < mask.shape[0] and 0 <= sx < mask.shape[1] and mask[sy, sx]
-                    for sx, sy in sample_points
-                )
-                
-                in_middle_band = False
-                if len(x_coords) > 0:
-                    centroid_x = np.mean(x_coords)
-                    in_middle_band = width * 0.15 < centroid_x < width * 0.85
-                
-                is_large_stable = area > self.processor.min_building_area * 2 and mask_info['stability_score'] > 0.95
-                is_medium_stable_centered = area > self.processor.min_building_area and mask_info['stability_score'] > 0.90 and in_middle_band
-                
-                if hits_sample_point or is_large_stable or is_medium_stable_centered:
-                    candidate_segments.append(mask_info)
-            
-            # Filter by size and select by centroid
-            building_masks = []
-            if candidate_segments:
-                # Size filter
-                areas = [seg['area'] for seg in candidate_segments]
-                max_area = max(areas)
-                size_threshold = max_area * 0.3
-                large_segments = [seg for seg in candidate_segments if seg['area'] >= size_threshold]
-                
-                if not large_segments:
-                    large_segments = sorted(candidate_segments, key=lambda x: x['area'], reverse=True)[:5]
-                
-                # Find best by vertical centroid position
-                segments_with_centroids = []
-                for seg in large_segments:
-                    mask = seg['segmentation']
-                    y_coords, x_coords = np.where(mask)
-                    
-                    if len(y_coords) == 0:
-                        continue
-                    
-                    centroid_y = np.mean(y_coords)
-                    vertical_position = centroid_y / height
-                    vertical_distance = abs(vertical_position - 0.5)
-                    
-                    segments_with_centroids.append({
-                        'mask': mask,
-                        'vertical_distance': vertical_distance
-                    })
-                
-                if segments_with_centroids:
-                    best = min(segments_with_centroids, key=lambda x: x['vertical_distance'])
-                    building_masks = [best['mask']]
-            
-            print(f"  Found {len(building_masks)} building segment(s) using updated logic")
-            
-            # Create segmented RGB visualization
-            segmented_rgb = rgb_image.copy()
-            if len(building_masks) > 0:
-                # Overlay masks with different colors
-                colors = plt.cm.rainbow(np.linspace(0, 1, len(building_masks)))
-                for mask, color in zip(building_masks, colors):
-                    # Ensure mask is boolean and matches image shape
-                    mask_bool = mask.astype(bool) if not mask.dtype == bool else mask
-                    
-                    # Check if mask shape matches image shape, transpose if needed
-                    if mask_bool.shape != rgb_image.shape[:2]:
-                        print(f"    ⚠️  Mask shape {mask_bool.shape} doesn't match image {rgb_image.shape[:2]}, transposing...")
-                        mask_bool = mask_bool.T
-                    
-                    color_rgb = (np.array(color[:3]) * 255).astype(np.uint8)
-                    segmented_rgb[mask_bool] = segmented_rgb[mask_bool] * 0.5 + color_rgb * 0.5
-            
-            # Create segmented depth (combined mask)
-            segmented_depth = depth_image.copy()
-            if len(building_masks) > 0:
-                combined_mask = np.zeros(rgb_image.shape[:2], dtype=bool)
-                for mask in building_masks:
-                    mask_bool = mask.astype(bool) if not mask.dtype == bool else mask
-                    
-                    # Check if mask shape matches image shape, transpose if needed
-                    if mask_bool.shape != depth_image.shape:
-                        mask_bool = mask_bool.T
-                    
-                    combined_mask |= mask_bool
-                # Zero out non-building areas
-                segmented_depth[~combined_mask] = 0
+            # Simplified visualization - no segmentation
             
             # Plot RGB
             axes[drone_id, 0].imshow(cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB))
             axes[drone_id, 0].set_title(f'Drone {drone_id}: RGB Image')
             axes[drone_id, 0].axis('off')
             
-            # Plot Segmented RGB
-            axes[drone_id, 1].imshow(cv2.cvtColor(segmented_rgb.astype(np.uint8), cv2.COLOR_BGR2RGB))
-            axes[drone_id, 1].set_title(f'Drone {drone_id}: Segmented RGB ({len(building_masks)} buildings)')
-            axes[drone_id, 1].axis('off')
-            
             # Plot Depth
-            depth_display = axes[drone_id, 2].imshow(depth_image, cmap='turbo', vmin=0, vmax=50)
-            axes[drone_id, 2].set_title(f'Drone {drone_id}: Depth Image\n(min={depth_image.min():.2f}m, max={depth_image.max():.2f}m)')
-            axes[drone_id, 2].axis('off')
-            plt.colorbar(depth_display, ax=axes[drone_id, 2], fraction=0.046, pad=0.04)
-            
-            # Plot Segmented Depth
-            seg_depth_display = axes[drone_id, 3].imshow(segmented_depth, cmap='turbo', vmin=0, vmax=50)
-            valid_pixels = np.sum(segmented_depth > 0)
-            axes[drone_id, 3].set_title(f'Drone {drone_id}: Segmented Depth\n({valid_pixels} valid pixels)')
-            axes[drone_id, 3].axis('off')
-            plt.colorbar(seg_depth_display, ax=axes[drone_id, 3], fraction=0.046, pad=0.04)
+            depth_display = axes[drone_id, 1].imshow(depth_image, cmap='turbo', vmin=0, vmax=50)
+            valid_pixels = np.sum((depth_image > 0) & ~np.isnan(depth_image))
+            axes[drone_id, 1].set_title(f'Drone {drone_id}: Depth Image\n(min={depth_image[depth_image>0].min():.2f}m, max={depth_image.max():.2f}m, {valid_pixels:,} valid pixels)')
+            axes[drone_id, 1].axis('off')
+            plt.colorbar(depth_display, ax=axes[drone_id, 1], fraction=0.046, pad=0.04)
         
         plt.tight_layout()
         
