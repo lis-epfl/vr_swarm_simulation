@@ -54,9 +54,13 @@ public class SwarmConfig : MonoBehaviour
             {
                 string json = File.ReadAllText(configFilePath);
                 currentConfig = JsonUtility.FromJson<SwarmExperimentConfig>(json);
+                
+                // ALWAYS force capture interval to 1Hz for multi-interval processing
+                currentConfig.captureInterval = 1.0f;
+                
                 Debug.Log($"[SwarmConfig] Loaded config from {configFilePath}");
                 Debug.Log($"  Drones: {currentConfig.numDrones}");
-                Debug.Log($"  Capture interval: {currentConfig.captureInterval}s");
+                Debug.Log($"  Capture interval: {currentConfig.captureInterval}s (forced to 1Hz for multi-interval processing)");
                 Debug.Log($"  Auto-stop when all drones within 3.5 units of migration point");
             }
             catch (System.Exception e)
@@ -64,12 +68,14 @@ public class SwarmConfig : MonoBehaviour
                 Debug.LogWarning($"[SwarmConfig] Failed to load config: {e.Message}");
                 Debug.LogWarning($"[SwarmConfig] Using default configuration");
                 currentConfig = defaultConfig;
+                currentConfig.captureInterval = 1.0f;  // Force 1Hz even for defaults
             }
         }
         else
         {
             Debug.Log($"[SwarmConfig] No config file found, using defaults");
             currentConfig = defaultConfig;
+            currentConfig.captureInterval = 1.0f;  // Force 1Hz even for defaults
             
             // Create default config file for reference
             SaveConfiguration(currentConfig);

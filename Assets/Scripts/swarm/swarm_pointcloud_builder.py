@@ -71,7 +71,8 @@ class SwarmPointCloudBuilder:
                  capture_dir: str = "../../ProcessedImages/SwarmCapture",
                  output_dir: str = "../../ProcessedImages/SwarmPointClouds",
                  sam_model_type: str = "vit_h",
-                 min_building_area: int = 1000):
+                 min_building_area: int = 1000,
+                 capture_interval: int = 1):
         """
         Initialize the point cloud builder.
         
@@ -80,6 +81,7 @@ class SwarmPointCloudBuilder:
             output_dir: Directory to save point clouds
             sam_model_type: SAM model type (vit_b, vit_l, vit_h)
             min_building_area: Minimum area for segmentation masks
+            capture_interval: Process every Nth capture (1=all, 2=every 2nd, 3=every 3rd, etc.)
         """
         self.capture_dir = Path(capture_dir)
         self.output_dir = Path(output_dir)
@@ -92,6 +94,7 @@ class SwarmPointCloudBuilder:
             "vit_h": "../../segmentAnything/sam_vit_h_4b8939.pth",
         }
         self.min_building_area = min_building_area
+        self.capture_interval = capture_interval
         
         self.mask_generator = None
         self.device = None
@@ -133,8 +136,8 @@ class SwarmPointCloudBuilder:
         #     min_mask_region_area=5000,  # Increased to filter small segments
         # )
         # 
-        # print("✓ SAM model initialized")
-        print("✓ Segmentation disabled - using depth values only")
+        # print("[OK] SAM model initialized")
+        print("[OK] Segmentation disabled - using depth values only")
         return True
     
     def find_new_captures(self) -> List[Path]:
@@ -172,6 +175,15 @@ class SwarmPointCloudBuilder:
                     except:
                         # If we can't read metadata or it's malformed, skip for now
                         pass
+        
+        # Filter by capture interval (use index-based subsampling)
+        if self.capture_interval > 1:
+            filtered_captures = []
+            for idx, capture in enumerate(new_captures):
+                if idx % self.capture_interval == 0:
+                    filtered_captures.append(capture)
+            print(f"[Interval Filter] Processing every {self.capture_interval}th capture: {len(filtered_captures)}/{len(new_captures)} captures")
+            return filtered_captures
         
         return new_captures
     
@@ -514,7 +526,7 @@ class SwarmPointCloudBuilder:
             new_points, new_colors = self.fuse_point_clouds(drone_data_list, intrinsics)
             
             if len(new_points) == 0:
-                print("⚠ No points generated from this capture")
+                print("[WARNING] No points generated from this capture")
                 return
             
             # Merge with accumulated point cloud
@@ -541,12 +553,12 @@ class SwarmPointCloudBuilder:
             # print(f"Saving downsampled point cloud...")
             # self.save_point_cloud(down_points, down_colors, down_filename)
             
-            print(f"\n✓ Processing complete!")
+            print(f"\n[OK] Processing complete!")
             print(f"  Raw: {len(merged_points)} points")
             # print(f"  Downsampled: {len(down_points)} points")
             
         except Exception as e:
-            print(f"\n❌ Error processing {capture_folder.name}: {e}")
+            print(f"\n[ERROR] Error processing {capture_folder.name}: {e}")
             print(f"   This capture will be skipped.")
             # Keep it marked as processed to avoid infinite retry loop
             import traceback
@@ -578,14 +590,14 @@ class SwarmPointCloudBuilder:
                         
                         if content.startswith('done,'):
                             completion_time = float(content.split(',')[1])
-                            print(f"\n✓ Swarm converged in {completion_time:.2f}s - shutting down...")
+                            print(f"\n[OK] Swarm converged in {completion_time:.2f}s - shutting down...")
                         elif content.startswith('timeout,'):
                             timeout_val = float(content.split(',')[1])
-                            print(f"\n⚠ Timeout reached ({timeout_val:.0f}s) - shutting down...")
+                            print(f"\n[WARNING] Timeout reached ({timeout_val:.0f}s) - shutting down...")
                         else:
-                            print("\n✓ Unity experiment completed - shutting down...")
+                            print("\n[OK] Unity experiment completed - shutting down...")
                     except:
-                        print("\n✓ Unity experiment completed - shutting down...")
+                        print("\n[OK] Unity experiment completed - shutting down...")
                     
                     print(f"Processed {len(self.processed_captures)} captures total")
                     # Don't delete done file - let launcher read it first
@@ -604,6 +616,28 @@ class SwarmPointCloudBuilder:
         except KeyboardInterrupt:
             print("\n\nStopping...")
             print(f"Processed {len(self.processed_captures)} captures total")
+    
+    def process_all_captures(self):
+        """Batch process all existing captures (no polling, process once and exit)."""
+        print(f"\n=== Batch Processing Mode (Interval={self.capture_interval}) ===")
+        print(f"Capture directory: {self.capture_dir}")
+        print(f"Output directory: {self.output_dir}")
+        
+        # Find all captures to process
+        all_captures = self.find_new_captures()
+        
+        if not all_captures:
+            print("No captures found to process.")
+            return
+        
+        print(f"Found {len(all_captures)} captures to process\n")
+        
+        # Process each capture
+        for capture_folder in all_captures:
+            self.process_capture(capture_folder)
+        
+        print(f"\n=== Batch Processing Complete ===")
+        print(f"Processed {len(self.processed_captures)} captures total")
 
 
 def main():
@@ -615,10 +649,14 @@ def main():
                        default="../../ProcessedImages/SwarmPointClouds", 
                        help="Directory to save point clouds")
     parser.add_argument("--poll-interval", type=float, default=2.0,
-                       help="Polling interval in seconds")
+                       help="Polling interval in seconds (ignored in batch mode)")
     parser.add_argument("--sam-model", type=str, default="vit_h",
                        choices=["vit_b", "vit_l", "vit_h"],
                        help="SAM model type")
+    parser.add_argument("--capture-interval", type=int, default=1,
+                       help="Process every Nth capture (1=all, 2=every 2nd, 3=every 3rd)")
+    parser.add_argument("--batch-mode", action="store_true",
+                       help="Process all existing captures once and exit (no polling)")
     
     args = parser.parse_args()
     
@@ -626,7 +664,8 @@ def main():
     builder = SwarmPointCloudBuilder(
         capture_dir=args.capture_dir,
         output_dir=args.output_dir,
-        sam_model_type=args.sam_model
+        sam_model_type=args.sam_model,
+        capture_interval=args.capture_interval
     )
     
     # Initialize
@@ -634,8 +673,11 @@ def main():
         print("Failed to initialize. Exiting.")
         return
     
-    # Run
-    builder.run(poll_interval=args.poll_interval)
+    # Run in batch mode or polling mode
+    if args.batch_mode:
+        builder.process_all_captures()
+    else:
+        builder.run(poll_interval=args.poll_interval)
 
 
 if __name__ == "__main__":
