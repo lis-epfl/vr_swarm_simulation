@@ -244,17 +244,17 @@ PrefabInstance:
     - target: {fileID: -8679921383154817045, guid: c24fcdeeea2954a79b7b31364a3231ee,
         type: 3}
       propertyPath: m_LocalScale.x
-      value: 100
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: c24fcdeeea2954a79b7b31364a3231ee,
         type: 3}
       propertyPath: m_LocalScale.y
-      value: 100
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: c24fcdeeea2954a79b7b31364a3231ee,
         type: 3}
       propertyPath: m_LocalScale.z
-      value: 100
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: c24fcdeeea2954a79b7b31364a3231ee,
         type: 3}
@@ -672,8 +672,8 @@ MonoBehaviour:
   scaleFactor: 10
   viewDistance: 10
   informationGainWeight: 2
-  radius: 60
-  height: 15
+  radius: 40
+  height: 5
   centerPoint: {x: 0, y: 0, z: 0}
   movementSpeed: 10
   proportionalGain: 5
@@ -738,7 +738,7 @@ MonoBehaviour:
   droneSpacing: 5
   start_x: 0
   start_y: 0
-  start_z: 100
+  start_z: 30
   randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897
