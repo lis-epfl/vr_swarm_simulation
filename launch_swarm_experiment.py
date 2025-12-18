@@ -119,7 +119,7 @@ def launch_python_only(
     
     # Wait for Unity to complete (indicated by swarm_done.txt)
     start_time = time.time()
-    timeout = 420  # 400s max experiment + 20s buffer
+    timeout = 520  # 500s max experiment + 20s buffer
     
     try:
         while True:
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--scene",
         type=str,
-        default=r"Assets\Scenes\Swarm_House2.unity",
+        default=r"Assets\Scenes\Swarm_House3.unity",
         help="Path to Unity scene (default: Assets\\Scenes\\Swarm_Trial.unity)"
     )
     parser.add_argument(
