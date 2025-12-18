@@ -24,14 +24,14 @@ import argparse
 from pathlib import Path
 
 
-def run_experiment(num_drones, max_interval, timeout=320):
+def run_experiment(num_drones, max_interval, timeout=520):
     """Run a single swarm experiment with specified parameters.
     Unity captures at 1Hz, then processes intervals 1 through max_interval.
     
     Args:
         num_drones: Number of drones in swarm
         max_interval: Maximum interval - will process 1 through max_interval
-        timeout: Maximum time in seconds to wait for experiment (default: 320 = 300s max + 20s buffer)
+        timeout: Maximum time in seconds to wait for experiment (default: 520 = 500s max + 20s buffer)
     
     Returns:
         True if experiment succeeded, False otherwise
@@ -137,8 +137,8 @@ Examples:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=320,
-        help="Maximum time in seconds per experiment before timeout (default: 320 = 300s max + 20s buffer)"
+        default=520,
+        help="Maximum time in seconds per experiment before timeout (default: 520 = 500s max + 20s buffer)"
     )
     
     args = parser.parse_args()
