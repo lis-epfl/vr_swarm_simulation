@@ -267,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--scene",
         type=str,
-        default=r"Assets\Scenes\Swarm_House4.unity",
+        default=r"Assets\Scenes\Swarm_House5.unity",
         help="Path to Unity scene (default: Assets\\Scenes\\Swarm_Trial.unity)"
     )
     parser.add_argument(
