@@ -119,7 +119,7 @@ def launch_python_only(
     
     # Wait for Unity to complete (indicated by swarm_done.txt)
     start_time = time.time()
-    timeout = 320  # 300s max experiment + 20s buffer
+    timeout = 420  # 400s max experiment + 20s buffer
     
     try:
         while True:
@@ -169,8 +169,7 @@ def launch_python_only(
                     ],
                     cwd=script_dir,
                     capture_output=True,
-                    text=True,
-                    timeout=60
+                    text=True
                 )
                 
                 if result.returncode == 0:
@@ -179,8 +178,6 @@ def launch_python_only(
                     print(f"  ⚠ Processing failed for interval {interval}s (exit code: {result.returncode})")
                     if result.stderr:
                         print(f"    Error: {result.stderr[:200]}")
-            except subprocess.TimeoutExpired:
-                print(f"  ⚠ Processing timed out for interval {interval}s")
             except Exception as e:
                 print(f"  ⚠ Error processing interval {interval}s: {e}")
                 continue

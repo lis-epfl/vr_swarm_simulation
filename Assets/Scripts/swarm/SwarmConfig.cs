@@ -61,7 +61,7 @@ public class SwarmConfig : MonoBehaviour
                 Debug.Log($"[SwarmConfig] Loaded config from {configFilePath}");
                 Debug.Log($"  Drones: {currentConfig.numDrones}");
                 Debug.Log($"  Capture interval: {currentConfig.captureInterval}s (forced to 1Hz for multi-interval processing)");
-                Debug.Log($"  Auto-stop when all drones within 3.5 units of migration point");
+                Debug.Log($"  Auto-stop threshold: 3.5 * (numDrones/2) units");
             }
             catch (System.Exception e)
             {
@@ -128,7 +128,7 @@ public class SwarmConfig : MonoBehaviour
     {
         // Migration point from olfatiSaber.cs
         Vector3 migrationPoint = new Vector3(-30, 15, -30);
-        float convergenceThreshold = 3.5f;
+        float convergenceThreshold = 3.5f * (currentConfig.numDrones / 2.0f);
         float maxTimeout = 300f; // 5 minutes max
         float checkInterval = 0.5f;
         
@@ -136,7 +136,7 @@ public class SwarmConfig : MonoBehaviour
         float elapsedTime = 0f;
         
         Debug.Log($"[SwarmConfig] Monitoring swarm convergence to {migrationPoint}");
-        Debug.Log($"  Threshold: {convergenceThreshold} units");
+        Debug.Log($"  Threshold: {convergenceThreshold} units (3.5 * {currentConfig.numDrones}/2)");
         Debug.Log($"  Max timeout: {maxTimeout}s");
         
         // Wait for drones to spawn
