@@ -156,7 +156,7 @@ def find_unity_executable():
 
 def launch_nbv_experiment(
     project_path: str = r"C:\Users\sriram\vr_swarm_simulation",
-    unity_scene: str = r"Assets\Scenes\NBV-House4.unity",
+    unity_scene: str = r"Assets\Scenes\NBV-House5.unity",
     python_script: str = r"Assets\Scripts\NBV\MAP_NBV_trial.py",
     wait_for_unity: int = 15,  # seconds to wait for Unity to fully start
     python_venv: str = r"vrswarm_env\Scripts\python.exe"
