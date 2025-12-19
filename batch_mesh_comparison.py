@@ -270,8 +270,8 @@ def parse_filename(filename: str) -> tuple:
 def main():
     # Paths
     final_pc_folder = Path("Assets/FinalPointClouds")
-    gt_path = "Assets/Comparisons/House4_GT.obj" # Ground truth mesh path House_with_Texture3.obj original
-    output_csv = "comparison_nbv_house4.csv"
+    gt_path = "Assets/Comparisons/House5_GT.obj" # Ground truth mesh path House_with_Texture3.obj original
+    output_csv = "comparison_nbv_house5.csv"
     
     if not final_pc_folder.exists():
         print(f"Error: Folder not found: {final_pc_folder}")
