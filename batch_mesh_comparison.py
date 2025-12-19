@@ -271,7 +271,7 @@ def main():
     # Paths
     final_pc_folder = Path("Assets/FinalPointClouds")
     gt_path = "Assets/Comparisons/House_with_Texture3.obj" # Ground truth mesh path House_with_Texture3.obj original
-    output_csv = "mesh_comparison_results_nbv_house2.csv"
+    output_csv = "comparison_nbv_house1.csv"
     
     if not final_pc_folder.exists():
         print(f"Error: Folder not found: {final_pc_folder}")
