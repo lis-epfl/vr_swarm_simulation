@@ -23,7 +23,7 @@ if os.path.exists("D:\\"):
 
 def launch_python_only(
     project_path: str = r"C:\Users\sriram\vr_swarm_simulation",
-    unity_scene: str = r"Assets\Scenes\Swarm_House4.unity",
+    unity_scene: str = r"Assets\Scenes\Swarm_House5.unity",
     python_script: str = r"Assets\Scripts\swarm\swarm_pointcloud_builder.py",
     python_venv: str = r"vrswarm_env\Scripts\python.exe",
     num_drones: int = 2,
