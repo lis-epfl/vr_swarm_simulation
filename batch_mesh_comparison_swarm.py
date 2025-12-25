@@ -212,9 +212,9 @@ def parse_swarm_filename(filename: str) -> tuple:
 
 def main():
     # Paths
-    final_pc_folder = Path("D:\\advaith\\unity-run-files\\FinalPointClouds_House2_Swarm")
-    gt_path = "Assets/Comparisons/House2_GT.obj"  # House2 ground truth
-    output_csv = "D:\\advaith\\unity-run-files\\comparison_swarm_house2.csv"
+    final_pc_folder = Path("D:\\advaith\\unity-run-files\\FinalPointClouds_House3_Swarm")
+    gt_path = "Assets/Comparisons/House3_GT.obj"  # House3 ground truth
+    output_csv = "D:\\advaith\\unity-run-files\\comparison_swarm_house3.csv"
     
     if not final_pc_folder.exists():
         print(f"Error: Folder not found: {final_pc_folder}")
