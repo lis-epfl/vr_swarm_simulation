@@ -13,6 +13,13 @@ import ctypes
 from ctypes import wintypes
 import merge_point_clouds
 
+# Check and create D:/ drive directories if they don't exist
+D_DRIVE_BASE = r"D:\advaith\unity-run-files"
+if os.path.exists("D:\\"):
+    os.makedirs(os.path.join(D_DRIVE_BASE, "FinalPointClouds_NBV"), exist_ok=True)
+    os.makedirs(os.path.join(D_DRIVE_BASE, "ProcessedImages", "PointClouds"), exist_ok=True)
+    print(f"✓ D:/ drive directories ready at {D_DRIVE_BASE}")
+
 try:
     import open3d as o3d
     HAS_OPEN3D = True
@@ -224,15 +231,9 @@ class MAP_NBV_Trial:
         # self.command_memory_name = "NBVCommandMemory"
         self.command_memory_name = "NBVCommandSharedMemory"
         
-        # Try relative path first, fallback to absolute
-        relative_output = "../../ProcessedImages/PointClouds"
-        absolute_output = r"C:\Users\sriram\vr_swarm_simulation\Assets\ProcessedImages\PointClouds"
-        
-        if os.path.exists(os.path.dirname(relative_output) if ".." in relative_output else relative_output):
-            self.output_folder = relative_output
-        else:
-            self.output_folder = absolute_output
-            os.makedirs(self.output_folder, exist_ok=True)
+        # Use D:/ drive for output to save space on C:/
+        self.output_folder = r"D:\advaith\unity-run-files\ProcessedImages\PointClouds"
+        os.makedirs(self.output_folder, exist_ok=True)
         
         print(f"  Output folder: {os.path.abspath(self.output_folder)}")
         
@@ -840,8 +841,8 @@ class MAP_NBV_Trial:
         """Save point cloud to FinalPointClouds after each iteration for progression tracking."""
         import shutil
         
-        # Create FinalPointClouds directory if it doesn't exist
-        final_folder = r"C:\Users\sriram\vr_swarm_simulation\Assets\FinalPointClouds"
+        # Create FinalPointClouds_NBV directory on D:/ drive if it doesn't exist
+        final_folder = r"D:\advaith\unity-run-files\FinalPointClouds_NBV"
         os.makedirs(final_folder, exist_ok=True)
         
         # Save with iteration number in filename
@@ -930,8 +931,8 @@ class MAP_NBV_Trial:
             print("  Install with: pip install send2trash")
             use_recycle_bin = False
         
-        # Create FinalPointClouds directory if it doesn't exist
-        final_folder = r"C:\Users\sriram\vr_swarm_simulation\Assets\FinalPointClouds"
+        # Create FinalPointClouds_NBV directory on D:/ drive if it doesn't exist
+        final_folder = r"D:\advaith\unity-run-files\FinalPointClouds_NBV"
         os.makedirs(final_folder, exist_ok=True)
         
         # Find the most recent raw and downsampled point clouds

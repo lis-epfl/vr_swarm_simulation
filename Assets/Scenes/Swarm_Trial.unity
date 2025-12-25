@@ -592,9 +592,9 @@ MonoBehaviour:
   dronesAlongX: 2
   dronesAlongZ: 2
   droneSpacing: 5
-  start_x: 37
+  start_x: 50
   start_y: 0
-  start_z: 30
+  start_z: 50
   randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &1430753897
@@ -1067,7 +1067,6 @@ MonoBehaviour:
   captureInterval: 5
   imageWidth: 1280
   imageHeight: 720
-  outputFolder: Assets/ProcessedImages/SwarmCapture
   onlyRunInOlfatiSaberMode: 1
   enableDebugLogging: 1
 --- !u!4 &1918555508
