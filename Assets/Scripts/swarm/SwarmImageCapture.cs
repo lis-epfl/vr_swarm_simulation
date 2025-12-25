@@ -27,7 +27,7 @@ public class SwarmImageCapture : MonoBehaviour
     [SerializeField] private int imageHeight = 720;
     
     [Header("Output Settings")]
-    [SerializeField] private string outputFolder = "Assets/ProcessedImages/SwarmCapture";
+    private string outputFolder = "D:/advaith/unity-run-files/ProcessedImages/SwarmCapture";
     
     [Header("Swarm Mode Check")]
     [SerializeField] private bool onlyRunInOlfatiSaberMode = true;
@@ -51,6 +51,9 @@ public class SwarmImageCapture : MonoBehaviour
     
     void Start()
     {
+        // Force D:/ drive path to avoid Unity Inspector overrides
+        outputFolder = "D:/advaith/unity-run-files/ProcessedImages/SwarmCapture";
+        
         // Find SwarmManager
         swarmManager = FindObjectOfType<SwarmManager>();
         if (swarmManager == null)

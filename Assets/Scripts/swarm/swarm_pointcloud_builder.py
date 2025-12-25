@@ -22,6 +22,13 @@ from scipy.spatial.transform import Rotation
 from dataclasses import dataclass
 from pathlib import Path
 
+# Check and create D:/ drive directories if they don't exist
+D_DRIVE_BASE = r"D:\advaith\unity-run-files"
+if os.path.exists("D:\\"):
+    os.makedirs(os.path.join(D_DRIVE_BASE, "ProcessedImages", "SwarmPointClouds"), exist_ok=True)
+    os.makedirs(os.path.join(D_DRIVE_BASE, "ProcessedImages", "SwarmCapture"), exist_ok=True)
+    print(f"D:/ drive directories ready at {D_DRIVE_BASE}")
+
 # import torch
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
@@ -68,8 +75,8 @@ class SwarmPointCloudBuilder:
     TARGET_DOWNSAMPLE_SIZE = 8000  # Target number of points for downsampled cloud
     
     def __init__(self, 
-                 capture_dir: str = "../../ProcessedImages/SwarmCapture",
-                 output_dir: str = "../../ProcessedImages/SwarmPointClouds",
+                 capture_dir: str = r"D:\advaith\unity-run-files\ProcessedImages\SwarmCapture",
+                 output_dir: str = r"D:\advaith\unity-run-files\ProcessedImages\SwarmPointClouds",
                  sam_model_type: str = "vit_h",
                  min_building_area: int = 1000,
                  capture_interval: int = 1):

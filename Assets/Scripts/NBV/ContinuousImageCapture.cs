@@ -29,7 +29,7 @@ public class ContinuousImageCapture : MonoBehaviour
     public bool rotateThroughDrones = true; // If true, cycles through different drones each capture
     public int imageWidth = 640;
     public int imageHeight = 480;
-    public string saveDirectory = "DroneImages"; // Folder relative to Assets
+    public string saveDirectory = "D:/advaith/unity-run-files/DroneImages"; // Absolute path to save to D:/ drive
     
     [Header("Continuous Capture")]
     public bool enableContinuousCapture = true;
@@ -56,8 +56,8 @@ public class ContinuousImageCapture : MonoBehaviour
     
     void Start()
     {
-        // Setup save directory
-        fullSaveDirectory = Path.Combine(Application.dataPath, saveDirectory);
+        // Setup save directory - now using absolute path
+        fullSaveDirectory = saveDirectory;
         if (!Directory.Exists(fullSaveDirectory))
         {
             Directory.CreateDirectory(fullSaveDirectory);

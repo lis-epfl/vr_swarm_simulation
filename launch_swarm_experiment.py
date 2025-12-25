@@ -13,6 +13,14 @@ import os
 import shutil
 from pathlib import Path
 
+# Check and create D:/ drive directories if they don't exist
+D_DRIVE_BASE = r"D:\advaith\unity-run-files"
+if os.path.exists("D:\\"):
+    os.makedirs(os.path.join(D_DRIVE_BASE, "FinalPointClouds"), exist_ok=True)
+    os.makedirs(os.path.join(D_DRIVE_BASE, "ProcessedImages", "SwarmPointClouds"), exist_ok=True)
+    os.makedirs(os.path.join(D_DRIVE_BASE, "ProcessedImages", "SwarmCapture"), exist_ok=True)
+    print(f"D:/ drive directories ready at {D_DRIVE_BASE}")
+
 def launch_python_only(
     project_path: str = r"C:\Users\sriram\vr_swarm_simulation",
     unity_scene: str = r"Assets\Scenes\Swarm_Trial.unity",
@@ -51,9 +59,9 @@ def launch_python_only(
     trigger_file = os.path.join(project_path, "swarm_play_trigger.txt")
     done_file = os.path.join(project_path, "swarm_done.txt")
     config_file = os.path.join(project_path, "swarm_config.json")
-    final_pc_folder = os.path.join(project_path, "Assets", "FinalPointClouds")
-    swarm_pc_folder = os.path.join(project_path, "Assets", "ProcessedImages", "SwarmPointClouds")
-    swarm_capture_folder = os.path.join(project_path, "Assets", "ProcessedImages", "SwarmCapture")
+    final_pc_folder = r"D:\advaith\unity-run-files\FinalPointClouds"
+    swarm_pc_folder = r"D:\advaith\unity-run-files\ProcessedImages\SwarmPointClouds"
+    swarm_capture_folder = r"D:\advaith\unity-run-files\ProcessedImages\SwarmCapture"
     
     # Clean up any leftover done file from previous run
     if os.path.exists(done_file):
@@ -80,11 +88,11 @@ def launch_python_only(
     with open(config_file, 'w') as f:
         json.dump(config, f, indent=2)
     
-    print(f"  ✓ Config saved to {config_file}")
+    print(f"  Config saved to {config_file}")
     
     # Verify files exist
     if not os.path.exists(script_path):
-        print(f"\n❌ ERROR: Python script not found: {script_path}")
+        print(f"\n ERROR: Python script not found: {script_path}")
         return
     
     if not os.path.exists(python_exe):
@@ -101,7 +109,7 @@ def launch_python_only(
     with open(trigger_file, 'w') as f:
         f.write("play")
     
-    print("  ✓ Trigger sent - Unity should enter Play mode automatically")
+    print("  Trigger sent - Unity should enter Play mode automatically")
     print(f"  (Make sure Unity editor is open with '{unity_scene}' loaded)")
     
     # Wait a moment for Unity to respond
@@ -124,7 +132,7 @@ def launch_python_only(
     try:
         while True:
             if os.path.exists(done_file):
-                print(f"\n✓ Unity convergence detected (swarm_done.txt exists)")
+                print(f"\n Unity convergence detected (swarm_done.txt exists)")
                 break
             
             elapsed = time.time() - start_time
@@ -142,7 +150,7 @@ def launch_python_only(
                     content = f.read().strip()
                 if content.startswith('done,'):
                     convergence_time = float(content.split(',')[1])
-                    print(f"✓ Swarm converged in {convergence_time:.2f}s")
+                    print(f" Swarm converged in {convergence_time:.2f}s")
                 elif content.startswith('timeout,'):
                     print(f"⚠ Experiment reached timeout")
             except Exception as e:
@@ -165,7 +173,9 @@ def launch_python_only(
                         python_exe,
                         os.path.basename(script_path),
                         "--batch-mode",
-                        "--capture-interval", str(interval)
+                        "--capture-interval", str(interval),
+                        "--capture-dir", swarm_capture_folder,
+                        "--output-dir", swarm_pc_folder
                     ],
                     cwd=script_dir,
                     capture_output=True,
@@ -173,13 +183,13 @@ def launch_python_only(
                 )
                 
                 if result.returncode == 0:
-                    print(f"  ✓ Processing complete for interval {interval}s")
+                    print(f"   Processing complete for interval {interval}s")
                 else:
-                    print(f"  ⚠ Processing failed for interval {interval}s (exit code: {result.returncode})")
+                    print(f"   Processing failed for interval {interval}s (exit code: {result.returncode})")
                     if result.stderr:
                         print(f"    Error: {result.stderr[:200]}")
             except Exception as e:
-                print(f"  ⚠ Error processing interval {interval}s: {e}")
+                print(f"   Error processing interval {interval}s: {e}")
                 continue
             
             # Find and rename the generated point cloud
@@ -197,7 +207,7 @@ def launch_python_only(
                     dst = os.path.join(final_pc_folder, dst_name)
                     
                     shutil.copy2(src, dst)
-                    print(f"  ✓ Saved: {dst_name}")
+                    print(f"   Saved: {dst_name}")
                     
                     # Clean up intermediate point cloud
                     try:
@@ -238,9 +248,9 @@ def launch_python_only(
                     except Exception as e:
                         print(f"  Warning: Could not delete {item}: {e}")
                 
-                print(f"  ✓ Cleaned up {deleted_items} items from SwarmCapture")
+                print(f"   Cleaned up {deleted_items} items from SwarmCapture")
             else:
-                print("  ⚠ SwarmCapture folder not found")
+                print("   SwarmCapture folder not found")
         else:
             print(f"\n  Skipping cleanup (--no-cleanup flag set)")
         

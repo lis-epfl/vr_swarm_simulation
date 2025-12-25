@@ -127,8 +127,9 @@ public class SwarmConfig : MonoBehaviour
     IEnumerator MonitorSwarmConvergence()
     {
         // Migration point from olfatiSaber.cs
-        Vector3 migrationPoint = new Vector3(-30, 15, -30);
-        float convergenceThreshold = 3.5f * (currentConfig.numDrones / 2.0f);
+        Vector3 migrationPoint = new Vector3(-50, 15, -50);
+        // convergence threshold is max of 3.5 * (numDrones/2) and 4.0f
+        float convergenceThreshold = Mathf.Max(3.5f * (currentConfig.numDrones / 2.0f), 4.0f);
         float maxTimeout = 300f; // 5 minutes max
         float checkInterval = 0.5f;
         

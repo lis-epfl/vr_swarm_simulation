@@ -1195,7 +1195,7 @@ MonoBehaviour:
   captureInterval: 5
   imageWidth: 1280
   imageHeight: 720
-  outputFolder: Assets/ProcessedImages/SwarmCapture
+  outputFolder: D:/advaith/unity-run-files/ProcessedImages/SwarmCapture
   onlyRunInOlfatiSaberMode: 1
   enableDebugLogging: 1
 --- !u!4 &1918555508

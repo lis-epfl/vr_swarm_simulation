@@ -178,8 +178,8 @@ Examples:
     print(f"Timeout per experiment: {timeout}s")
     print(f"{'='*70}\n")
     
-    # Check for existing results if requested
-    final_pc_folder = Path("Assets/FinalPointClouds")
+    # Check for existing results if requested (on D:/ drive)
+    final_pc_folder = Path(r"D:\advaith\unity-run-files\FinalPointClouds")
     
     # Run experiments
     completed = 0
