@@ -88,6 +88,12 @@ public class NBVImageCapture : MonoBehaviour
     private SwarmManager swarmManagerScript;
     private Vector3 currentPositionCommand = Vector3.zero;
     
+    // CSV Position Logging
+    private System.IO.StreamWriter csvWriter;
+    private string csvFilePath;
+    [SerializeField] private bool enableCSVLogging = true;
+    private bool csvInitialized = false;
+    
     // Windows API imports
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern IntPtr CreateFileMapping(IntPtr hFile, IntPtr lpAttributes, uint protect, uint maxSizeHigh, uint maxSizeLow, string name);
@@ -101,11 +107,51 @@ public class NBVImageCapture : MonoBehaviour
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
+    private void InitializeCSVLogging()
+    {
+        if (!enableCSVLogging)
+        {
+            return;
+        }
+        
+        try
+        {
+            // Create D:/ drive directory if it doesn't exist
+            string baseFolder = @"D:\advaith\unity-run-files";
+            if (!System.IO.Directory.Exists(baseFolder))
+            {
+                System.IO.Directory.CreateDirectory(baseFolder);
+            }
+            
+            // Generate filename with timestamp and drone count (will update drone count on first capture)
+            string timestamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string filename = $"drone_positions_{timestamp}.csv";
+            csvFilePath = System.IO.Path.Combine(baseFolder, filename);
+            
+            // Create CSV file with headers
+            csvWriter = new System.IO.StreamWriter(csvFilePath, false);
+            csvWriter.WriteLine("timestamp,drone_id,pos_x,pos_y,pos_z,quat_x,quat_y,quat_z,quat_w");
+            csvWriter.Flush();
+            
+            csvInitialized = true;
+            
+            if (enableDebugLogging)
+                Debug.Log($"CSV logging initialized: {csvFilePath}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to initialize CSV logging: {e.Message}");
+            csvInitialized = false;
+            enableCSVLogging = false;
+        }
+    }
+
     void Start()
     {
         InitializeMemoryLayout();
         CreateSharedMemory();
         InitializeImageCapture();
+        InitializeCSVLogging();
         FindNBVScript();
         FindSwarmManager();
         FindDroneCameras();
@@ -548,6 +594,9 @@ public class NBVImageCapture : MonoBehaviour
             // Write drone count
             Marshal.WriteInt32(posePtr, 0, droneCount);
             
+            // Get current timestamp for CSV logging
+            float timestamp = Time.time;
+            
             // Send FPV camera's actual world transform (Unity handles all parent transforms automatically)
             for (int i = 0; i < droneCount; i++)
             {
@@ -570,9 +619,24 @@ public class NBVImageCapture : MonoBehaviour
                 
                 int offset = 4 + (i * 28);
                 
-                // Write camera position and rotation
+                // Write camera position and rotation to shared memory
                 Marshal.Copy(new float[] { cameraPos.x, cameraPos.y, cameraPos.z }, 0, IntPtr.Add(posePtr, offset), 3);
                 Marshal.Copy(new float[] { cameraRot.x, cameraRot.y, cameraRot.z, cameraRot.w }, 0, IntPtr.Add(posePtr, offset + 12), 4);
+                
+                // Write to CSV log
+                if (enableCSVLogging && csvInitialized && csvWriter != null)
+                {
+                    try
+                    {
+                        string csvLine = $"{timestamp:F3},{i},{cameraPos.x:F6},{cameraPos.y:F6},{cameraPos.z:F6},{cameraRot.x:F6},{cameraRot.y:F6},{cameraRot.z:F6},{cameraRot.w:F6}";
+                        csvWriter.WriteLine(csvLine);
+                        csvWriter.Flush(); // Ensure data is written immediately
+                    }
+                    catch (Exception csvEx)
+                    {
+                        Debug.LogError($"Failed to write to CSV: {csvEx.Message}");
+                    }
+                }
             }
         }
         catch (Exception e)
@@ -753,11 +817,44 @@ public class NBVImageCapture : MonoBehaviour
     
     void OnDestroy()
     {
+        // Close CSV writer
+        if (csvWriter != null)
+        {
+            try
+            {
+                csvWriter.Flush();
+                csvWriter.Close();
+                csvWriter.Dispose();
+                
+                if (enableDebugLogging)
+                    Debug.Log($"CSV logging closed: {csvFilePath}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error closing CSV writer: {e.Message}");
+            }
+        }
+        
         DestroySharedMemory();
     }
     
     void OnApplicationQuit()
     {
+        // Close CSV writer
+        if (csvWriter != null)
+        {
+            try
+            {
+                csvWriter.Flush();
+                csvWriter.Close();
+                csvWriter.Dispose();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error closing CSV writer on quit: {e.Message}");
+            }
+        }
+        
         DestroySharedMemory();
         // if (enableDebugLogging)
         //     Debug.Log("NBVImageCapture: Shared memory cleaned up on application quit");

@@ -43,10 +43,59 @@ public class OlfatiSaber : MonoBehaviour
     private string droneName;
 
     private string obstacleLayer = "Obstacle";
+    
+    // CSV Position Logging
+    private System.IO.StreamWriter csvWriter;
+    private string csvFilePath;
+    private bool csvInitialized = false;
+    private static bool csvHeaderWritten = false;
+    private static object csvLock = new object();
 
     void Start()
     {
         droneName = transform.parent.name;
+        InitializeCSVLogging();
+    }
+    
+    private void InitializeCSVLogging()
+    {
+        try
+        {
+            // Create D:/ drive directory if it doesn't exist
+            string baseFolder = @"D:\advaith\unity-run-files";
+            if (!System.IO.Directory.Exists(baseFolder))
+            {
+                System.IO.Directory.CreateDirectory(baseFolder);
+            }
+            
+            // Generate shared filename with timestamp
+            string timestamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string filename = $"swarm_positions_{timestamp}.csv";
+            csvFilePath = System.IO.Path.Combine(baseFolder, filename);
+            
+            // Use lock to prevent race conditions when multiple drones initialize
+            lock (csvLock)
+            {
+                // Open in append mode so all drones write to same file
+                csvWriter = new System.IO.StreamWriter(csvFilePath, true);
+                
+                // Write header only once (first drone)
+                if (!csvHeaderWritten)
+                {
+                    csvWriter.WriteLine("timestamp,drone_name,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z");
+                    csvWriter.Flush();
+                    csvHeaderWritten = true;
+                }
+            }
+            
+            csvInitialized = true;
+            Debug.Log($"[{droneName}] CSV logging initialized: {csvFilePath}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[{droneName}] Failed to initialize CSV logging: {e.Message}");
+            csvInitialized = false;
+        }
     }
 
 
@@ -126,8 +175,29 @@ public class OlfatiSaber : MonoBehaviour
 
         GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
         GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
-        GetComponent<VelocityControl>().swarm_vz = swarmInput.z;        
+        GetComponent<VelocityControl>().swarm_vz = swarmInput.z;
         
+        // Log position and velocity to CSV
+        if (csvInitialized && csvWriter != null)
+        {
+            try
+            {
+                Vector3 pos = transform.position;
+                Vector3 vel = GetComponent<Rigidbody>().velocity;
+                float timestamp = Time.time;
+                string csvLine = $"{timestamp:F3},{droneName},{pos.x:F6},{pos.y:F6},{pos.z:F6},{vel.x:F6},{vel.y:F6},{vel.z:F6}";
+                
+                lock (csvLock)
+                {
+                    csvWriter.WriteLine(csvLine);
+                    csvWriter.Flush();
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[{droneName}] Failed to write to CSV: {e.Message}");
+            }
+        }
     }
 
     private Vector3 GetObstacleForce()
@@ -257,6 +327,24 @@ public class OlfatiSaber : MonoBehaviour
         else
         {
             return 0.0f;
+        }
+    }
+    
+    void OnDestroy()
+    {
+        if (csvWriter != null)
+        {
+            try
+            {
+                csvWriter.Flush();
+                csvWriter.Close();
+                csvWriter.Dispose();
+                Debug.Log($"[{droneName}] CSV logging closed");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[{droneName}] Error closing CSV writer: {e.Message}");
+            }
         }
     }
 }

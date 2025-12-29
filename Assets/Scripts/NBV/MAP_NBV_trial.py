@@ -183,6 +183,88 @@ class MAP_NBV_Trial:
         roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
         return [roll, pitch, yaw]
     
+    def wait_for_drones_to_reach_positions(self, target_positions, threshold, timeout):
+        """Wait for all drones to reach their target positions within threshold distance.
+        
+        Args:
+            target_positions: List of (position, euler) tuples for each drone
+            threshold: Distance threshold in meters (drones must be within this distance)
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            True if all drones reached positions within timeout, False otherwise
+        """
+        print(f"\nWaiting for drones to reach positions (threshold: {threshold:.1f}m, timeout: {timeout:.0f}s)...")
+        start_time = time.time()
+        check_interval = 1.0  # seconds
+        
+        all_in_vicinity = False
+        while not all_in_vicinity and (time.time() - start_time) < timeout:
+            # Read latest drone positions from shared memory
+            current_drone_data = self.read_drone_data_from_memory()
+            
+            if current_drone_data is None or len(current_drone_data) != len(target_positions):
+                time.sleep(check_interval)
+                continue
+            
+            # Check distance for each drone
+            all_in_vicinity = True
+            for idx, (target_pos, _) in enumerate(target_positions):
+                drone_pos = current_drone_data[idx].pose.position
+                dist = np.linalg.norm(np.array(target_pos) - drone_pos)
+                
+                if dist > threshold:
+                    all_in_vicinity = False
+                    break
+            
+            if not all_in_vicinity:
+                time.sleep(check_interval)
+        
+        elapsed_time = time.time() - start_time
+        if all_in_vicinity:
+            print(f"✓ All drones reached positions in {elapsed_time:.1f}s!")
+            return True
+        else:
+            print(f"⚠ Timeout after {elapsed_time:.1f}s - drones did not reach positions")
+            return False
+    
+    def move_to_end_position(self, num_drones):
+        """Move all drones to final end position (-50, 15, -50) after NBV iterations complete.
+        
+        Args:
+            num_drones: Number of drones to send commands for
+        """
+        print(f"\n{'='*60}")
+        print(f"MOVING DRONES TO END POSITION")
+        print(f"{'='*60}")
+        
+        # Create end position commands for all drones
+        end_pos = [-50, 15, -50]
+        end_euler = [0, 0, 0]
+        end_positions = [(end_pos, end_euler) for _ in range(num_drones)]
+        
+        print(f"End position: ({end_pos[0]}, {end_pos[1]}, {end_pos[2]})")
+        print(f"Number of drones: {num_drones}")
+        
+        # Calculate convergence threshold using swarm formula
+        convergence_threshold = max(3.5 * (num_drones / 2.0), 4.0)
+        print(f"Convergence threshold: {convergence_threshold:.1f}m")
+        
+        # Send end position commands
+        if not self.send_nbv_commands(end_positions, flag=1):
+            print("⚠ Failed to send end position commands")
+            return False
+        
+        # Wait for drones to reach end position (200 second timeout)
+        success = self.wait_for_drones_to_reach_positions(
+            end_positions, 
+            convergence_threshold, 
+            timeout=200.0
+        )
+        
+        print(f"{'='*60}\n")
+        return success
+    
     def run_pointr_inference(self, downsampled_file):
         """Run PoinTr inference on the downsampled PLY file using subprocess."""
         import subprocess
@@ -733,6 +815,9 @@ class MAP_NBV_Trial:
                     print(f"Total captures: {self.frames_processed}")
                     print(f"Stopping NBV pipeline...")
                     
+                    # Move drones to end position before stopping
+                    self.move_to_end_position(len(drone_data_list))
+                    
                     # Cleanup temporary files (milestones already saved)
                     self.cleanup_temporary_files()
                     
@@ -751,6 +836,9 @@ class MAP_NBV_Trial:
                     print(f"{'='*60}")
                     print(f"Total captures: {self.frames_processed}")
                     print(f"Stopping NBV pipeline...")
+                    
+                    # Move drones to end position before stopping
+                    self.move_to_end_position(len(drone_data_list))
                     
                     # Cleanup temporary files (milestones already saved)
                     self.cleanup_temporary_files()
@@ -790,41 +878,12 @@ class MAP_NBV_Trial:
                     if not self.send_nbv_commands(selected_nbvs):
                         print("⚠ Failed to send NBV commands, skipping wait")
                     else:
-                        # Wait until all drones are within vicinity of their NBV poses
-                        print("\nWaiting for drones to reach NBV positions...")
-                        vicinity_threshold = 3.5  # meters (increased to account for height offset)
-                        max_wait_time = 45.0  # seconds
-                        start_time = time.time()
-                        check_interval = 1.0  # seconds
-                        
-                        all_in_vicinity = False
-                        while not all_in_vicinity and (time.time() - start_time) < max_wait_time:
-                            # Read latest drone positions from shared memory
-                            current_drone_data = self.read_drone_data_from_memory()
-                            
-                            if current_drone_data is None or len(current_drone_data) != len(selected_nbvs):
-                                time.sleep(check_interval)
-                                continue
-                            
-                            # Check distance for each drone
-                            all_in_vicinity = True
-                            for idx, (nbv_pos, _) in enumerate(selected_nbvs):
-                                drone_pos = current_drone_data[idx].pose.position
-                                dist = np.linalg.norm(np.array(nbv_pos) - drone_pos)
-                                
-                                if dist > vicinity_threshold:
-                                    all_in_vicinity = False
-                                    # print(f"  Drone {idx}: {dist:.2f}m from target (target: {nbv_pos}, current: {drone_pos})")
-                                    break
-                            
-                            if not all_in_vicinity:
-                                time.sleep(check_interval)
-                        
-                        elapsed_time = time.time() - start_time
-                        if all_in_vicinity:
-                            print(f"✓ All drones reached NBV positions in {elapsed_time:.1f}s!")
-                        else:
-                            print(f"⚠ Timeout after {elapsed_time:.1f}s - drones did not reach NBV positions")
+                        # Wait for drones to reach NBV positions (45 second timeout)
+                        self.wait_for_drones_to_reach_positions(
+                            selected_nbvs,
+                            threshold=3.5,
+                            timeout=45.0
+                        )
                     
                     print(f"{'='*60}\n")
                     
