@@ -111,6 +111,70 @@ class SwarmPointCloudBuilder:
         self.accumulated_points = None
         self.accumulated_colors = None
         
+        # CSV logging
+        self.csv_file = None
+        self.csv_writer = None
+        self.initialize_csv_logging()
+    
+    def initialize_csv_logging(self):
+        """Initialize CSV file for drone position logging."""
+        import csv
+        from datetime import datetime
+        
+        try:
+            # Create output directory in D:/ drive
+            csv_dir = r"D:\advaith\unity-run-files"
+            os.makedirs(csv_dir, exist_ok=True)
+            
+            # Generate timestamped CSV filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            csv_filename = f"swarm_positions_{timestamp}.csv"
+            csv_path = os.path.join(csv_dir, csv_filename)
+            
+            # Open CSV file for writing
+            self.csv_file = open(csv_path, 'w', newline='')
+            self.csv_writer = csv.writer(self.csv_file)
+            
+            # Write header
+            self.csv_writer.writerow(['capture_time', 'drone_id', 'pos_x', 'pos_y', 'pos_z', 'quat_x', 'quat_y', 'quat_z', 'quat_w'])
+            self.csv_file.flush()
+            
+            print(f"[CSV] Logging initialized: {csv_path}")
+        except Exception as e:
+            print(f"[CSV] Warning: Failed to initialize CSV logging: {e}")
+            self.csv_writer = None
+    
+    def log_drone_positions(self, capture_name: str, drone_data_list: List[DroneData]):
+        """Log all drone positions for this capture to CSV."""
+        if self.csv_writer is None:
+            return
+        
+        try:
+            # Extract timestamp from capture name (capture_YYYYMMDD_HHMMSS)
+            capture_time = capture_name.replace('capture_', '')
+            
+            # Log each drone
+            for drone_data in drone_data_list:
+                pos = drone_data.pose.position
+                quat = drone_data.pose.quaternion
+                
+                self.csv_writer.writerow([
+                    capture_time,
+                    f"Drone {drone_data.drone_id}",
+                    f"{pos[0]:.6f}",
+                    f"{pos[1]:.6f}",
+                    f"{pos[2]:.6f}",
+                    f"{quat[0]:.6f}",
+                    f"{quat[1]:.6f}",
+                    f"{quat[2]:.6f}",
+                    f"{quat[3]:.6f}"
+                ])
+            
+            # Flush to ensure data is written immediately
+            self.csv_file.flush()
+        except Exception as e:
+            print(f"[CSV] Warning: Failed to log positions: {e}")
+        
     def initialize(self):
         """Initialize SAM model."""
         # Segmentation disabled - using depth values only
@@ -528,6 +592,9 @@ class SwarmPointCloudBuilder:
             # Load data
             drone_data_list, intrinsics = self.load_capture_data(capture_folder)
             
+            # Log drone positions to CSV
+            self.log_drone_positions(capture_folder.name, drone_data_list)
+            
             # Fuse point clouds from all drones
             print("\nFusing point clouds...")
             new_points, new_colors = self.fuse_point_clouds(drone_data_list, intrinsics)
@@ -608,6 +675,12 @@ class SwarmPointCloudBuilder:
                     
                     print(f"Processed {len(self.processed_captures)} captures total")
                     # Don't delete done file - let launcher read it first
+                    
+                    # Close CSV file
+                    if self.csv_file:
+                        self.csv_file.close()
+                        print("[CSV] Logging closed")
+                    
                     break
                 
                 # Find new captures
@@ -623,6 +696,11 @@ class SwarmPointCloudBuilder:
         except KeyboardInterrupt:
             print("\n\nStopping...")
             print(f"Processed {len(self.processed_captures)} captures total")
+            
+            # Close CSV file
+            if self.csv_file:
+                self.csv_file.close()
+                print("[CSV] Logging closed")
     
     def process_all_captures(self):
         """Batch process all existing captures (no polling, process once and exit)."""
@@ -642,6 +720,11 @@ class SwarmPointCloudBuilder:
         # Process each capture
         for capture_folder in all_captures:
             self.process_capture(capture_folder)
+        
+        # Close CSV file
+        if self.csv_file:
+            self.csv_file.close()
+            print("[CSV] Logging closed")
         
         print(f"\n=== Batch Processing Complete ===")
         print(f"Processed {len(self.processed_captures)} captures total")
