@@ -5,7 +5,7 @@ using UnityEngine;
 public class swarmAlgorithm : MonoBehaviour
 {
     public List<GameObject> swarm;
-    
+
     private SwarmManager swarmManager;
 
     // Use the SwarmAlgorithm enum from SwarmManager
@@ -36,6 +36,11 @@ public class swarmAlgorithm : MonoBehaviour
     void Start()
     {
 
+        // Find the SwarmManager in the scene
+        // Add this line right at the beginning
+        Debug.Log("The swarmAlgorithm script is on this GameObject: " + this.gameObject.name);
+
+
         // Automatically assign the SwarmManager if not already set
         swarmManager = swarmManager ?? SwarmManager.Instance;
 
@@ -48,7 +53,8 @@ public class swarmAlgorithm : MonoBehaviour
         // Assign the swarm list to both algorithms
         reynoldsAlgorithm.swarm = swarm;
         olfatiSaberAlgorithm.swarm = swarm;
-        
+
+
         // Initialize the attitude control script
         attitudeControl = GetComponent<AttitudeControl>();
 
@@ -74,11 +80,11 @@ public class swarmAlgorithm : MonoBehaviour
         swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;
     }
 
-    
+
     // Update the swarming parameters
     void OnSwarmParamsChanged()
     {
-        
+
         // Get swarm algorithm selection
         currentAlgorithm = swarmManager.swarmAlgorithm;
 
@@ -86,18 +92,17 @@ public class swarmAlgorithm : MonoBehaviour
         switch (currentAlgorithm)
         {
             // Reynolds algorithm and parameters
-            case SwarmManager.SwarmAlgorithm.REYNOLDS:                
+            case SwarmManager.SwarmAlgorithm.REYNOLDS:
                 EnableAlgorithm(reynoldsAlgorithm);
                 DisableAlgorithm(olfatiSaberAlgorithm);
                 UpdateReynoldsParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
-
                 break;
 
             // Olfati-Saber algorithm and parameters
-            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:                
+            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
                 EnableAlgorithm(olfatiSaberAlgorithm);
                 DisableAlgorithm(reynoldsAlgorithm);
                 UpdateOlfatiSaberParameters();
@@ -105,6 +110,7 @@ public class swarmAlgorithm : MonoBehaviour
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 break;
+
         }
 
         // Get the attitude control selection
@@ -146,6 +152,7 @@ public class swarmAlgorithm : MonoBehaviour
     {
         if (reynoldsAlgorithm != null)
         {
+            reynoldsAlgorithm.is3D = swarmManager.GetDimensions();
             reynoldsAlgorithm.cohesionWeight = swarmManager.GetCohesionWeight();
             reynoldsAlgorithm.separationWeight = swarmManager.GetSeparationWeight();
             reynoldsAlgorithm.alignmentWeight = swarmManager.GetAlignmentWeight();
@@ -157,6 +164,7 @@ public class swarmAlgorithm : MonoBehaviour
     {
         if (olfatiSaberAlgorithm != null)
         {
+            olfatiSaberAlgorithm.is3D = swarmManager.GetDimensions();
             olfatiSaberAlgorithm.d_ref = swarmManager.GetDRef();
             olfatiSaberAlgorithm.r0_coh = swarmManager.GetR0Coh();
             olfatiSaberAlgorithm.delta = swarmManager.GetDelta();
@@ -172,7 +180,7 @@ public class swarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.scaleFactor = swarmManager.getScaleFactor();
         }
     }
-
+    
     // Update the attitude control parameters
     private void UpdateAttitudeControlParameters()
     {
@@ -180,6 +188,7 @@ public class swarmAlgorithm : MonoBehaviour
         {
             attitudeControl.numNeighbours = swarmManager.GetNumNeighbours();
             attitudeControl.numDimensions = swarmManager.GetNumDimensions();
+            attitudeControl.pointInwards = swarmManager.GetPointInwards();
         }
     }
 }

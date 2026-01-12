@@ -7,6 +7,7 @@ public class OlfatiSaber : MonoBehaviour
 {
     public List<GameObject> swarm;
 
+    public bool is3D = true;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
     public float delta = 0.1f;
@@ -80,10 +81,15 @@ public class OlfatiSaber : MonoBehaviour
 
             // Relative Position
             Vector3 relativePosition = neighbourPosition - position;
-            float distance = relativePosition.magnitude;
 
-            // Relative Velocity
-            Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - velocity;
+            // Set the y-component to zero if in 2D mode
+            if (!is3D)
+            {
+                relativePosition.y = 0;
+            }
+
+            // Get the distance to the neighbour
+            float distance = relativePosition.magnitude;
 
             // Scale the distance to fit the cohesion function
             distance = distance / scaleFactor;
