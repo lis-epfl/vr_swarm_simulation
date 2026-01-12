@@ -74,11 +74,7 @@ public class swarmSpawn : MonoBehaviour
 
             // Add the swarm to the swarmAlgorithm script
             droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;            
-        }
-
-        visualiseOlfatiSaber = GetComponent<visualiseOlfatiSaber>();
-        visualiseOlfatiSaber.swarm = swarm;
-        
+        }        
         
         // Spawn screens for each drone in the swarm
         screenSpawn.SpawnScreens(swarm);
