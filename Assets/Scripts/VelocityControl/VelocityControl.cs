@@ -94,12 +94,6 @@ public class VelocityControl : MonoBehaviour
             desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
             swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vz);
         }
-        // Get the velocity commands from NBV, user commands are ignored
-        else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.NBV)
-        {
-            desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
-            swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vz);
-        }
         else
         {
             desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);

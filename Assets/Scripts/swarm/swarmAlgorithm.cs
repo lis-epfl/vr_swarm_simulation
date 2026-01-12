@@ -13,7 +13,6 @@ public class swarmAlgorithm : MonoBehaviour
 
     private Reynolds reynoldsAlgorithm;
     private OlfatiSaber olfatiSaberAlgorithm;
-    private NBV nbvAlgorithm; // NEW ADVAITH NBV
     private AttitudeControl attitudeControl;
 
     // Default altitude and velocity
@@ -50,12 +49,10 @@ public class swarmAlgorithm : MonoBehaviour
         // Get references to the algorithm components
         reynoldsAlgorithm = GetComponent<Reynolds>();
         olfatiSaberAlgorithm = GetComponent<OlfatiSaber>();
-        nbvAlgorithm = GetComponent<NBV>(); // NEW ADVAITH NBV
 
         // Assign the swarm list to both algorithms
         reynoldsAlgorithm.swarm = swarm;
         olfatiSaberAlgorithm.swarm = swarm;
-        nbvAlgorithm.swarm = swarm; // NEW ADVAITH NBV
 
 
         // Initialize the attitude control script
@@ -97,37 +94,23 @@ public class swarmAlgorithm : MonoBehaviour
             // Reynolds algorithm and parameters
             case SwarmManager.SwarmAlgorithm.REYNOLDS:
                 EnableAlgorithm(reynoldsAlgorithm);
-                DisableAlgorithm(olfatiSaberAlgorithm); // NEW ADVAITH NBV
-                DisableAlgorithm(nbvAlgorithm);
+                DisableAlgorithm(olfatiSaberAlgorithm);
                 UpdateReynoldsParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
-
                 break;
 
             // Olfati-Saber algorithm and parameters
             case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
                 EnableAlgorithm(olfatiSaberAlgorithm);
                 DisableAlgorithm(reynoldsAlgorithm);
-                DisableAlgorithm(nbvAlgorithm); // NEW ADVAITH NBV
                 UpdateOlfatiSaberParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 break;
 
-            // NBV algorithm and parameters // NEW ADVAITH NBV
-            case SwarmManager.SwarmAlgorithm.NBV:
-                EnableAlgorithm(nbvAlgorithm);
-                DisableAlgorithm(reynoldsAlgorithm);
-                DisableAlgorithm(olfatiSaberAlgorithm);
-                UpdateNBVParameters(); // You'll create this method next
-                // Also update the controller scripts if needed
-                readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.NBV;
-                inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.NBV;
-                velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.NBV;
-                break; // END OF NEW ADVAITH NBV
         }
 
         // Get the attitude control selection
@@ -195,45 +178,6 @@ public class swarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
             olfatiSaberAlgorithm.c_obs = swarmManager.GetCObs();
             olfatiSaberAlgorithm.scaleFactor = swarmManager.getScaleFactor();
-        }
-    }
-
-    // Update the NBV parameters // NEW ADVAITH NBV
-    private void UpdateNBVParameters()
-    {
-        if (nbvAlgorithm != null)
-        {
-            nbvAlgorithm.viewDistance = swarmManager.GetViewDistance(); // tentative
-            nbvAlgorithm.informationGainWeight = swarmManager.GetInformationGainWeight(); // tentative
-
-            nbvAlgorithm.radius = swarmManager.GetRadius(); // to make swarm surround a center point
-            nbvAlgorithm.height = swarmManager.GetHeight();
-            nbvAlgorithm.centerPoint = swarmManager.GetCenterPoint();
-            nbvAlgorithm.movementSpeed = swarmManager.GetMovementSpeed();
-            nbvAlgorithm.proportionalGain = swarmManager.GetProportionalGain(); // NEW: Missing parameter
-            
-            // NEW: Camera control parameters
-            nbvAlgorithm.cameraPitch = swarmManager.GetCameraPitch();
-            nbvAlgorithm.enableCameraPitchControl = swarmManager.GetEnableCameraPitchControl();
-            
-            // NEW: Obstacle avoidance parameters
-            nbvAlgorithm.obstacleLayerMask = swarmManager.GetObstacleLayerMask();
-            nbvAlgorithm.avoidanceDistance = swarmManager.GetAvoidanceDistance();
-            nbvAlgorithm.avoidanceForce = swarmManager.GetAvoidanceForce();
-            nbvAlgorithm.enableObstacleAvoidance = swarmManager.GetEnableObstacleAvoidance();
-            
-            // NEW: Inter-drone avoidance parameters
-            nbvAlgorithm.minInterDroneDistance = swarmManager.GetMinInterDroneDistance();
-            nbvAlgorithm.interDroneAvoidanceForce = swarmManager.GetInterDroneAvoidanceForce();
-            nbvAlgorithm.enableInterDroneAvoidance = swarmManager.GetEnableInterDroneAvoidance();
-            nbvAlgorithm.droneLayerMask = swarmManager.GetDroneLayerMask();
-            
-            // NEW: Advanced tuning parameters
-            nbvAlgorithm.escapeForceMultiplier = swarmManager.GetEscapeForceMultiplier();
-            nbvAlgorithm.minForceRatio = swarmManager.GetMinForceRatio();
-            nbvAlgorithm.useFormationOverride = swarmManager.GetUseFormationOverride();
-            
-            nbvAlgorithm.debug_bool = swarmManager.GetDebugBool();
         }
     }
     

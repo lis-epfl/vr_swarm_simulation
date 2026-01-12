@@ -13992,9 +13992,6 @@ GameObject:
   - component: {fileID: 590275741}
   - component: {fileID: 590275740}
   - component: {fileID: 590275739}
-  - component: {fileID: 590275744}
-  - component: {fileID: 590275745}
-  - component: {fileID: 590275746}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -14044,31 +14041,6 @@ MonoBehaviour:
   lambda_obs: 1
   c_obs: 4.3
   scaleFactor: 10
-  viewDistance: 10
-  informationGainWeight: 2
-  radius: 28
-  height: 22
-  centerPoint: {x: 35, y: 16.7, z: -67.2}
-  movementSpeed: 5
-  proportionalGain: 5
-  debug_bool: 0
-  cameraPitch: 0
-  enableCameraPitchControl: 1
-  obstacleLayerMask:
-    serializedVersion: 2
-    m_Bits: 1024
-  avoidanceDistance: 10
-  avoidanceForce: 17
-  enableObstacleAvoidance: 1
-  minInterDroneDistance: 6
-  interDroneAvoidanceForce: 8
-  enableInterDroneAvoidance: 1
-  droneLayerMask:
-    serializedVersion: 2
-    m_Bits: 512
-  escapeForceMultiplier: 5
-  minForceRatio: 0.5
-  useFormationOverride: 1
   attitudeControlType: 0
   numNeighbours: 9
   numDimensions: 2
@@ -14143,62 +14115,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &590275744
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590275738}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 656be34a415de4b90aa6ce56b39f625d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  olfatiSaber: {fileID: 0}
-  textureWidth: 900
-  textureHeight: 400
-  maxDistance: 30
-  minDistance: 0
-  xTickCount: 5
-  yTickCount: 5
-  plotType: 0
-  forceRange: 2
---- !u!114 &590275745
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590275738}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3ce35d1160b4a4f22a5b5328a362f145, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  swarm: []
-  selectedDrone: 0
-  widthScale: 0.4
-  droneObject: {fileID: 0}
---- !u!114 &590275746
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
-    type: 3}
-  numWalkers: 6
-  minRadius: 16
-  maxRadius: 22
-  speedMetersPerSec: 4
-  circleCenter: {x: 35, y: 13.34, z: -67.2}
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -32536,7 +32452,6 @@ GameObject:
   - component: {fileID: 1393066149}
   - component: {fileID: 1393066148}
   - component: {fileID: 1393066147}
-  - component: {fileID: 1393066146}
   m_Layer: 0
   m_Name: birdsEyeCamera
   m_TagString: Untagged
@@ -32544,22 +32459,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1393066146
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1393066145}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fe1d2c7abc1da4ece8b6dd28cf383805, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  gameManager: {fileID: 590275738}
-  offset: {x: 0, y: 20, z: 0}
-  visualiseOlfatiSaber: {fileID: 0}
-  droneObject: {fileID: 0}
 --- !u!81 &1393066147
 AudioListener:
   m_ObjectHideFlags: 0
