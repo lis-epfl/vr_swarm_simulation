@@ -1,8 +1,9 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class VelocityControl : MonoBehaviour {
+public class VelocityControl : MonoBehaviour
+{
 
     public StateFinder state;
 
@@ -20,7 +21,10 @@ public class VelocityControl : MonoBehaviour {
 
     private float max_pitch = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies 
     private float max_roll = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies
+    private float max_yaw_rate = 0.5f;
     private float max_alpha = 10.0f;
+    private float max_speed = 5.0f;
+
     //must set this
     public float desired_height = 4.0f;
     public float desired_vx = 0.0f;
@@ -30,7 +34,7 @@ public class VelocityControl : MonoBehaviour {
 
     private float targetYawRate = 0.0f;
     private float filteredYawRate = 0.0f;
-    public float yawFilterCoefficient = 0.2f;
+    public float yawFilterCoefficient = 0.15f;
 
     public float swarm_vx = 0.0f;
     public float swarm_vy = 0.0f;
@@ -46,8 +50,11 @@ public class VelocityControl : MonoBehaviour {
 
     private float speedScale = 500.0f;
 
+    private Vector3 filteredVelocity = Vector3.zero;
+    private float filterCoefficient = 0.01f;
+
     // Use this for initialization
-    void Start () {
+    void Start() {
         state.GetState ();
         Rigidbody rb = GetComponent<Rigidbody> ();
         Vector3 desiredForce = new Vector3 (0.0f, gravity * state.Mass, 0.0f);
@@ -58,28 +65,42 @@ public class VelocityControl : MonoBehaviour {
     }
 
     // Update is called once per frame
-    void FixedUpdate () {
+    void FixedUpdate() {
         state.GetState ();
         
         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
-        
+
         Vector3 desiredTheta;
         Vector3 desiredOmega;
         Vector3 desiredVelocity;
+        Vector3 swarmVelocity;
+
+        desired_height = desired_height + swarm_vy * Time.deltaTime;
 
         float heightError = state.Altitude - desired_height;
 
-        // If reynolds algorithm is selected add the velocity commands from the user, otherwise handled in Olfati-Saber Script
-        if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS) 
+        // Low pass filter for height control
+        heightError = heightError * (1.0f - filterCoefficient) + (state.Altitude - initial_height) * filterCoefficient;
+
+        // Get the velocity commands from Reynolds and add the user commands
+        if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS)
         {
             desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
-        } 
-        else
+            swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vy);
+        }
+        // Get the velocity commands from Olfati-Saber, user commands are already included
+        else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
         {
             desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
+            swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vz);
         }
-        
-        Vector3 swarmVelocity = new Vector3 (swarm_vx, 0.0f, swarm_vz);
+        else
+        {
+            desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
+            swarmVelocity = new Vector3(0.0f, 0.0f, 0.0f);
+        }
+
+
 
         // NOTE: In world frame y is up
 
@@ -90,27 +111,18 @@ public class VelocityControl : MonoBehaviour {
         Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
 
 
-        // Get the name of the drone
-        string droneName = transform.parent.name;
+        // Apply the low-pass filter to reduce oscillations in velocity control
+        filteredVelocity = filteredVelocity * (1.0f - filterCoefficient) + totalTargetVelocity * filterCoefficient;
 
-
-        
-
-        Vector3 velocityError = state.VelocityVector - totalTargetVelocity;
+        Vector3 velocityError = state.VelocityVector - filteredVelocity;
 
         Vector3 desiredAcceleration = velocityError * -1.0f / time_constant_acceleration;
 
-        desiredTheta = new Vector3 (desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
-        if (desiredTheta.x > max_pitch) {
-            desiredTheta.x = max_pitch;
-        } else if (desiredTheta.x < -1.0f * max_pitch) {
-            desiredTheta.x = -1.0f * max_pitch;
-        }
-        if (desiredTheta.z > max_roll) {
-            desiredTheta.z = max_roll;
-        } else if (desiredTheta.z < -1.0f * max_roll) {
-            desiredTheta.z = -1.0f * max_roll;
-        }
+        desiredTheta = new Vector3(desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
+
+        // Clamp the desired angles to the maximum allowed values
+        desiredTheta.x = Mathf.Clamp(desiredTheta.x, -max_pitch, max_pitch);
+        desiredTheta.z = Mathf.Clamp(desiredTheta.z, -max_roll, max_roll);
 
         Vector3 thetaError = state.Angles - desiredTheta;
 
@@ -122,26 +134,29 @@ public class VelocityControl : MonoBehaviour {
         // Apply the low-pass filter to reduce oscillations in yaw control
         filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
 
+        // Clamp the filtered yaw rate to the maximum allowed value
+        filteredYawRate = Mathf.Clamp(filteredYawRate, -max_yaw_rate, max_yaw_rate);
+
         // Use the filtered yaw rate for further calculations
         desiredOmega.y = filteredYawRate;
 
         Vector3 omegaError = state.AngularVelocityVector - desiredOmega;
 
-        Vector3 desiredAlpha = Vector3.Scale(omegaError, new Vector3(-1.0f/time_constant_alpha_xy_rate, -1.0f/time_constant_alpha_z_rate, -1.0f/time_constant_alpha_xy_rate));
-        desiredAlpha = Vector3.Min (desiredAlpha, Vector3.one * max_alpha);
-        desiredAlpha = Vector3.Max (desiredAlpha, Vector3.one * max_alpha * -1.0f);
+        Vector3 desiredAlpha = Vector3.Scale(omegaError, new Vector3(-1.0f / time_constant_alpha_xy_rate, -1.0f / time_constant_alpha_z_rate, -1.0f / time_constant_alpha_xy_rate));
+        desiredAlpha = Vector3.Min(desiredAlpha, Vector3.one * max_alpha);
+        desiredAlpha = Vector3.Max(desiredAlpha, Vector3.one * max_alpha * -1.0f);
 
-        float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos (state.Angles.z) * Mathf.Cos (state.Angles.x));
-        desiredThrust = Mathf.Min (desiredThrust, 2.0f * gravity);
-        desiredThrust = Mathf.Max (desiredThrust, 0.0f);
+        float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos(state.Angles.z) * Mathf.Cos(state.Angles.x));
+        desiredThrust = Mathf.Min(desiredThrust, 2.7f * gravity);
+        desiredThrust = Mathf.Max(desiredThrust, 0.0f);
 
-        Vector3 desiredTorque = Vector3.Scale (desiredAlpha, state.Inertia);
-        Vector3 desiredForce = new Vector3 (0.0f, desiredThrust * state.Mass, 0.0f);
+        Vector3 desiredTorque = Vector3.Scale(desiredAlpha, state.Inertia);
+        Vector3 desiredForce = new Vector3(0.0f, desiredThrust * state.Mass, 0.0f);
 
         Rigidbody rb = GetComponent<Rigidbody>();
 
-        rb.AddRelativeTorque (desiredTorque, ForceMode.Acceleration);
-        rb.AddRelativeForce (desiredForce , ForceMode.Acceleration);
+        rb.AddRelativeTorque(desiredTorque, ForceMode.Acceleration);
+        rb.AddRelativeForce(desiredForce, ForceMode.Acceleration);
 
         //prop transforms
         propFL.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
@@ -151,7 +166,8 @@ public class VelocityControl : MonoBehaviour {
 
     }
 
-    public void Reset() {
+    public void Reset()
+    {
 
         state.VelocityVector = Vector3.zero;
         state.AngularVelocityVector = Vector3.zero;
@@ -161,14 +177,22 @@ public class VelocityControl : MonoBehaviour {
         desired_yaw = 0.0f;
         desired_height = initial_height;
 
-        state.Reset ();
-    
+        state.Reset();
+
         enabled = true;
     }
 
-    IEnumerator Waiting(float time) {
+    IEnumerator Waiting(float time)
+    {
         wait = true;
         yield return new WaitForSeconds(time);
         wait = false;
+    }
+
+    // Return max speed
+    public float GetMaxSpeed()
+    {
+        return max_speed;
+
     }
 }
