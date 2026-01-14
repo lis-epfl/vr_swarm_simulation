@@ -18,27 +18,48 @@ from PIL import Image
 
 from BaseStitcher import *
 
-sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
-import UDIS2_main.Warp.Codes.utils_udis as udis_utils
-import UDIS2_main.Warp.Codes.utils_udis.torch_DLT as torch_DLT
-import UDIS2_main.Warp.Codes.grid_res as grid_res
-from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
-from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
-from UDISStitcher import *
+# --- UDIS ---
+HAS_UDIS = False
+try:
+    sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
+    import UDIS2_main.Warp.Codes.utils_udis as udis_utils
+    import UDIS2_main.Warp.Codes.utils_udis.torch_DLT as torch_DLT
+    import UDIS2_main.Warp.Codes.grid_res as grid_res
+    from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
+    from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
+    from UDISStitcher import *
+    HAS_UDIS = True
+except ImportError as e:
+    print("UDIS modules could not be imported. UDIS stitcher will not be available.")
+    print(e)
 
-sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
-import Neural_Image_Stitching_main.srwarp
-import Neural_Image_Stitching_main.utils as nis_utils
-from Neural_Image_Stitching_main.models.ihn import *
-from Neural_Image_Stitching_main.models import *
-from Neural_Image_Stitching_main import stitch
-import Neural_Image_Stitching_main.pretrained
-from NISStitcher import *
+# --- NIS ---
+HAS_NIS = False
+try:
+    sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
+    import Neural_Image_Stitching_main.srwarp
+    import Neural_Image_Stitching_main.utils as nis_utils
+    from Neural_Image_Stitching_main.models.ihn import *
+    from Neural_Image_Stitching_main.models import *
+    from Neural_Image_Stitching_main import stitch
+    import Neural_Image_Stitching_main.pretrained
+    from NISStitcher import *
+    HAS_NIS = True
+except ImportError as e:
+    print("NIS modules could not be imported. NIS stitcher will not be available.")
+    print(e)
 
-sys.path.append(os.path.abspath("Residual_Elastic_Warp_main"))
-import Residual_Elastic_Warp_main.models
-import Residual_Elastic_Warp_main.utils
-from REStitcher import *
+# --- REWARP ---
+HAS_REWARP = False
+try:
+    sys.path.append(os.path.abspath("Residual_Elastic_Warp_main"))
+    import Residual_Elastic_Warp_main.models
+    import Residual_Elastic_Warp_main.utils
+    from REStitcher import *
+    HAS_REWARP = True
+except ImportError as e:
+    print("REWARP modules could not be imported. REWARP stitcher will not be available.")
+    print(e)
 
 # Activate environnement
 # cmd
@@ -50,13 +71,15 @@ class StitcherManager:
 
         self.stitchers = {
             "CLASSIC": BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device=device),
-            "UDIS": UDISStitcher(),
-            "NIS": NISStitcher(),  # Replace with your NISStitcher instance if implemented
-            "REWARP": REStitcher(),
+            "UDIS": UDISStitcher() if HAS_UDIS else None,
+            "NIS": NISStitcher() if HAS_NIS else None,
+            "REWARP": REStitcher() if HAS_REWARP else None,
         }
+        
 
         # Manually remove models of NIS from GPU because they load them directly on GPU
-        self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
+        if HAS_NIS:
+            self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
 
         self.active_stitcher = self.stitchers["CLASSIC"]
         self.active_stitcher_type = "CLASSIC"
@@ -67,9 +90,9 @@ class StitcherManager:
         self.switching_lock2 = threading.Lock()
         self.info_lock = threading.Lock()
 
-        self.stitcherTypes = ["CLASSIC", "UDIS", "NIS", "REWARP"]
+        self.stitcherTypes = list(self.stitchers.keys())
         self.cylidnricalWarp = False
-        self.isRANSAC = False
+        self.isRANSAC = False   
         self.headAngle = 0
         self.shared_images = None
         self.shared_images_bool = None
@@ -257,7 +280,7 @@ def first_thread(manager: StitcherManager, debug = False):
         except:
             print("problem opening/reading batched memory")
             continue
-        
+
         # droneImInd = np.arange(0, images_bool.shape[0])[images_bool]
         # print(f"Index of the drone images to stitch: {droneImInd}")
         with manager.info_lock:
@@ -565,9 +588,15 @@ def main():
     verbose_thrid_thread = True
     debug = False
 
-    # To test only stitch time when order is known
+    # Print the keys of available stitchers
+    print("Available stitchers:")
     for key in manager.stitchers.keys():
-        manager.stitchers[key].known_order = [ 0 , 1 , 2 , 3 , 5 , 7 , 11,  10 , 9 , 8 , 6 , 4] 
+        print(f"- {key}")
+
+    # To test only stitch time when order is known
+    # for key in manager.stitchers.keys():
+    #     if manager.stitchers[key] is not None:
+    #         manager.stitchers[key].known_order = [ 0 , 1 , 2 , 3 , 5 , 7 , 11,  10 , 9 , 8 , 6 , 4] 
 
     first_t = threading.Thread(target=first_thread, args=(manager, debug))
     first_t.daemon = True
