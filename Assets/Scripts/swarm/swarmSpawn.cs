@@ -15,6 +15,7 @@ public class swarmSpawn : MonoBehaviour
     public bool randomYaw = true;
     public GameObject swarmParent;
     private screenSpawn screenSpawn;
+    private visualiseOlfatiSaber visualiseOlfatiSaber;
     private int droneNumber = 0;
 
     // Start is called before the first frame update
@@ -73,8 +74,8 @@ public class swarmSpawn : MonoBehaviour
 
             // Add the swarm to the swarmAlgorithm script
             droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;            
-        }
-
+        }        
+        
         // Spawn screens for each drone in the swarm
         // screenSpawn.SpawnScreens(swarm);
         
