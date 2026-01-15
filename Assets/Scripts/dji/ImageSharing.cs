@@ -32,6 +32,9 @@ public class ImageSharing : MonoBehaviour
     [SerializeField] private float readInterval = 0.05f;
     private float nextReceiveTime = 0f;
 
+    // Debug logging toggle
+    [SerializeField] private bool enableDebugLogging = true;
+
     // Memory mapped file handles
     private IntPtr processedFileMap = IntPtr.Zero;
     private IntPtr processedPtr = IntPtr.Zero;
@@ -46,6 +49,11 @@ public class ImageSharing : MonoBehaviour
     }
     // Dictionary mapping image index to its corresponding screen data
     private Dictionary<int, ScreenData> screens = new Dictionary<int, ScreenData>();
+
+    // Debug tracking
+    private int totalReadsAttempted = 0;
+    private int successfulReads = 0;
+    private int skippedReads = 0;
 
     // Import Windows API functions
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
@@ -64,47 +72,81 @@ public class ImageSharing : MonoBehaviour
 
     void Start()
     {
+        if (enableDebugLogging) Debug.Log("[ImageSharing] Starting ImageSharing component...");
+        
         // Compute total size of shared memory based on number of images
         TotalProcessedSize = numImages * BlockSize;
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({numImages} images x {BlockSize} bytes per block)");
 
         // Create (or open) the memory-mapped file for the processed images and metadata
         processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
             (uint)TotalProcessedSize, processedMapName);
         if (processedFileMap == IntPtr.Zero)
         {
-            Debug.LogError("Unable to create processed image memory map.");
+            int error = Marshal.GetLastWin32Error();
+            Debug.LogError($"[ImageSharing] Unable to create processed image memory map. Error code: {error}");
             return;
         }
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Memory map '{processedMapName}' created successfully. Handle: {processedFileMap}");
 
         processedPtr = MapViewOfFile(processedFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)TotalProcessedSize);
         if (processedPtr == IntPtr.Zero)
         {
-            Debug.LogError("Unable to map view of processed image memory map.");
+            int error = Marshal.GetLastWin32Error();
+            Debug.LogError($"[ImageSharing] Unable to map view of processed image memory map. Error code: {error}");
             return;
         }
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Memory view mapped successfully. Pointer: {processedPtr}");
+
+        // Initialize all memory blocks to zero (especially the flags)
+        if (enableDebugLogging) Debug.Log("[ImageSharing] Initializing memory blocks to zero...");
+        for (int block = 0; block < numImages; block++)
+        {
+            IntPtr blockPtr = IntPtr.Add(processedPtr, block * BlockSize);
+            // Set flag to 0 (ready)
+            Marshal.WriteInt32(blockPtr, 0, 0);
+            // Set imageIndex to 0
+            Marshal.WriteInt32(blockPtr, 4, 0);
+            // Set yaw to 0.0f
+            Marshal.WriteInt32(blockPtr, 8, 0);
+            if (enableDebugLogging) Debug.Log($"[ImageSharing] Initialized block {block}: flag=0");
+        }
+        if (enableDebugLogging) Debug.Log("[ImageSharing] Memory initialization complete.");
 
         // Get the screenSpawn script if it hasn't been set
         if (screenSpawn == null)
         {
+            if (enableDebugLogging) Debug.Log("[ImageSharing] Getting screenSpawn component...");
             screenSpawn = GetComponent<screenSpawn>();
+            screenSpawn.numScreens = numImages;
+
+            // Spawn screens
+            screenSpawn.SpawnScreens();
         }
 
         // Find all screens in the scene
         FindAndSetupScreens();
+        
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Initialization complete. Read interval: {readInterval}s");
     }
 
     // Finds all GameObjects with the tag "Screen" and initializes their textures.
     // Assumes each screen's name is in the format "screen_{i}" where i is an integer.
     private void FindAndSetupScreens()
     {
+        if (enableDebugLogging) Debug.Log("[ImageSharing] Finding and setting up screens...");
         screens.Clear();
         GameObject[] screenObjects = GameObject.FindGameObjectsWithTag("Screen");
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Found {screenObjects.Length} GameObjects with 'Screen' tag");
+        
         foreach (GameObject go in screenObjects)
         {
             int index = ParseIndexFromName(go.name);
+            if (enableDebugLogging) Debug.Log($"[ImageSharing] Processing screen '{go.name}' with index {index}");
+            
             if (screens.ContainsKey(index))
             {
-                Debug.LogWarning($"Multiple screens found with index {index}. Only one will be updated.");
+                Debug.LogWarning($"[ImageSharing] Multiple screens found with index {index}. Only one will be updated.");
                 continue;
             }
 
@@ -118,10 +160,11 @@ public class ImageSharing : MonoBehaviour
             {
                 renderer.material.mainTexture = tex;
                 renderer.material.SetTexture("_EmissionMap", tex);
+                if (enableDebugLogging) Debug.Log($"[ImageSharing] Texture assigned to screen '{go.name}'");
             }
             else
             {
-                Debug.LogWarning($"GameObject '{go.name}' tagged as 'Screen' does not have a MeshRenderer component.");
+                Debug.LogWarning($"[ImageSharing] GameObject '{go.name}' tagged as 'Screen' does not have a MeshRenderer component.");
             }
 
             ScreenData data = new ScreenData
@@ -134,6 +177,8 @@ public class ImageSharing : MonoBehaviour
 
             screens.Add(index, data);
         }
+        
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Screen setup complete. {screens.Count} screens ready.");
     }
 
     // Helper method to extract an integer index from a GameObject's name.
@@ -154,10 +199,16 @@ public class ImageSharing : MonoBehaviour
     {
         // (Optionally) refresh screens if needed (for example, if new ones are added at runtime)
         if (screens.Count == 0)
+        {
+            if (enableDebugLogging) Debug.LogWarning("[ImageSharing] No screens found, attempting to find and setup screens...");
             FindAndSetupScreens();
+        }
 
         if (Time.time >= nextReceiveTime && processedPtr != IntPtr.Zero)
         {
+            totalReadsAttempted++;
+            bool anyDataRead = false;
+            
             // Loop through each image block in the memory mapped file
             for (int block = 0; block < numImages; block++)
             {
@@ -166,25 +217,37 @@ public class ImageSharing : MonoBehaviour
 
                 // Check if the block is ready (flag is 0)
                 int flag = Marshal.ReadInt32(blockPtr, 0);
+                
+                if (enableDebugLogging) Debug.Log($"[ImageSharing] Block {block}: flag={flag}, offset={block * BlockSize}");
+                
                 if (flag == 0)
                 {
+                    anyDataRead = true;
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Block {block} is ready (flag=0), reading data...");
+                    
                     // Set flag to busy (1) so producer knows we're reading it
                     Marshal.WriteInt32(blockPtr, 0, 1);
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Set flag to 1 (busy)");
 
                     // Read the image index (offset 4) and yaw angle (offset 8)
                     int imageIndex = Marshal.ReadInt32(blockPtr, 4);
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Read imageIndex: {imageIndex}");
 
                     byte[] yawBytes = new byte[4];
                     Marshal.Copy(IntPtr.Add(blockPtr, 8), yawBytes, 0, 4);
                     float yaw = BitConverter.ToSingle(yawBytes, 0);
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Read yaw: {yaw}");
 
                     // Copy image data from shared memory (starting at offset 12)
                     byte[] imageBytes = new byte[ImageSize];
                     Marshal.Copy(IntPtr.Add(blockPtr, MetadataSize), imageBytes, 0, ImageSize);
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Copied {ImageSize} bytes of image data");
 
                     // If a screen with the matching index exists, update its texture and orientation
                     if (screens.TryGetValue(imageIndex, out ScreenData screenData))
                     {
+                        if (enableDebugLogging) Debug.Log($"[ImageSharing] Updating screen with index {imageIndex}");
+                        
                         // Convert raw bytes (RGB24) to Color32 array
                         for (int i = 0; i < screenData.pixels.Length; i++)
                         {
@@ -201,35 +264,56 @@ public class ImageSharing : MonoBehaviour
                         // Update texture
                         screenData.texture.SetPixels32(screenData.pixels);
                         screenData.texture.Apply();
+                        if (enableDebugLogging) Debug.Log($"[ImageSharing] Texture updated for screen {imageIndex}");
 
-                        // Update screen using the
-                        screenSpawn.UpdateScreenPosition(imageIndex, yaw);
+                        // Update screen orientation
+                        screenSpawn.UpdateRealDroneScreen(imageIndex, yaw);
+                        
+                        successfulReads++;
                     }
                     else
                     {
-                        Debug.LogWarning($"No screen found for image index {imageIndex}");
+                        Debug.LogWarning($"[ImageSharing] No screen found for image index {imageIndex}");
                     }
 
                     // Reset the flag to 0 so the producer can write a new image block
                     Marshal.WriteInt32(blockPtr, 0, 0);
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Reset flag to 0 (ready for next write)");
+                }
+                else
+                {
+                    skippedReads++;
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Block {block} is busy (flag={flag}), skipping...");
                 }
             }
+            
+            if (!anyDataRead && enableDebugLogging)
+            {
+                Debug.LogWarning($"[ImageSharing] No data read this cycle. Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
+            }
+            
             nextReceiveTime = Time.time + readInterval;
         }
     }
 
     void OnDestroy()
     {
+        if (enableDebugLogging) Debug.Log("[ImageSharing] Cleaning up resources...");
+        
         // Clean up memory mapped file resources
         if (processedPtr != IntPtr.Zero)
         {
             UnmapViewOfFile(processedPtr);
             processedPtr = IntPtr.Zero;
+            if (enableDebugLogging) Debug.Log("[ImageSharing] Unmapped view of file");
         }
         if (processedFileMap != IntPtr.Zero)
         {
             CloseHandle(processedFileMap);
             processedFileMap = IntPtr.Zero;
+            if (enableDebugLogging) Debug.Log("[ImageSharing] Closed file mapping handle");
         }
+        
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Final stats - Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
     }
 }

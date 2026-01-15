@@ -6,12 +6,7 @@ TagManager:
   tags:
   - Motor
   - DroneBase
-<<<<<<< HEAD
   - Screen
-=======
-  - SamplesInfoPanel
-  - Obstacle
->>>>>>> stitchers
   layers:
   - Default
   - TransparentFX
@@ -21,13 +16,9 @@ TagManager:
   - UI
   - 
   - 
-  - Minimap
-  - Drone
-<<<<<<< HEAD
   - 
-=======
-  - Obstacle
->>>>>>> stitchers
+  - 
+  - 
   - 
   - 
   - 
