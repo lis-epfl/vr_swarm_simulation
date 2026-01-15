@@ -44,7 +44,6 @@ Assets/Text*
 Assets/DroneImages/
 
 # Ignore Image Stitching project files
-<<<<<<< HEAD
 Assets/Scripts/ImageStitching/UDIS2_main*[Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
@@ -91,6 +90,5 @@ Assets/Text*
 Assets/DroneImages/
 
 # Ignore Image Stitching project files
-=======
->>>>>>> stitchers
 Assets/Scripts/ImageStitching/UDIS2_main*
+Assets/Scripts/ImageStitching/Neural_Image_Stitching_main*
