@@ -42,4 +42,6 @@ sysinfo.txt
 Logs/
 Assets/Text*
 Assets/DroneImages/
-vrswarm_env/
+
+# Ignore Image Stitching project files
+Assets/Scripts/ImageStitching/UDIS2_main*
