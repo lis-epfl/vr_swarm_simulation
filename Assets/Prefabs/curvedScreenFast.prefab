@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 6847994249360662215}
   - component: {fileID: 2717412797243224930}
   - component: {fileID: 4569969383672726205}
-  - component: {fileID: 8746412676752082}
+  - component: {fileID: 2809280313436123246}
   m_Layer: 0
   m_Name: curvedScreenFast
   m_TagString: Untagged
@@ -84,7 +84,7 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!114 &8746412676752082
+--- !u!114 &2809280313436123246
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -93,7 +93,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 7801098587108508533}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d499e0d28d13c5b438471bd274497fe3, type: 3}
+  m_Script: {fileID: 11500000, guid: afc009acad950df4ca680c00ef4682ee, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   batchImageWidth: 300
@@ -102,7 +102,7 @@ MonoBehaviour:
   processedImageHeight: 400
   sendInterval: 0.05
   readInterval: 0.05
-  typeOfStitcher: 1
+  typeOfStitcher: 0
   cylindrical: 0
   typeOfMatcher: 0
   ransac: 0

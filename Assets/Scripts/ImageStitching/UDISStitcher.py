@@ -120,6 +120,13 @@ class UDISStitcher(BaseStitcher):
         h, w, _ = images[0].shape
         test= True
 
+        # Save the images to disk to verify
+        cv2.imwrite("right_first.jpg", images[subset2[0]])
+        cv2.imwrite("right_second.jpg", images[subset2[1]])
+        cv2.imwrite("left_first.jpg", images[subset1[0]])
+        cv2.imwrite("left_second.jpg", images[subset1[1]])
+
+        
         right_warp, right_mask = self.UDIS_warping(images[subset2[0]], images[subset2[1]], test)
 
         # We have to flip the images to warp the left image and keep central image as the reference

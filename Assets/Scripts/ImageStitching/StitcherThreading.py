@@ -106,6 +106,9 @@ class StitcherManager:
 
         self.panoram_queue = queue.Queue(1)
 
+        # Set the stitcher to setup the device properly
+        self.set_stitcher(self.active_stitcher_type, onlyIHN=False)
+
     def set_stitcher(self, stitcher_type, onlyIHN):
         """
         Safely switch the active stitcher.
@@ -227,7 +230,7 @@ class StitcherManager:
         
         odd = num_pano_img % 2
 
-        print("HERE1", ref_idx, order, num_pano_img, num_images, self.headAngle)
+        # print("HERE1", ref_idx, order, num_pano_img, num_images, self.headAngle)
         
         if odd:
             offset = num_pano_img // 2
@@ -303,6 +306,11 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     
     output = readMetadataMemory(metadataMMF)
     batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
+
+    # ----------------- TODO: Remove hardcoding -----------------
+    batchImageWidth = 960
+    batchImageHeight = 540
+    
     
     # Calculate block-based memory layout
     metadataSize_per_block = 12  # flag (4) + droneId (4) + heading (4)
@@ -326,7 +334,13 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
         manager.checkHyperparaChanges(output)
 
-        print(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
+        # ----------------- TODO: Remove hardcoding -----------------
+        batchImageWidth = 960
+        batchImageHeight = 540
+        imageCount = num_images
+        manager.processedImageWidth = 1920
+        manager.processedImageHeight = 1080
+        # print(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
         
         # Read images from block-based memory
         try:
@@ -359,7 +373,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 manager.shared_drone_ids = sorted_drone_ids
                 manager.shared_headings = sorted_headings
                 # Create known order based on sorted drone IDs
-                manager.known_order = list(range(len(sorted_images)))
+                manager.known_order = [1,2,0]#list(range(len(sorted_images)))
                 # Use the first heading as the overall head angle (or compute average)
                 manager.headAngle = sorted_headings[0] if len(sorted_headings) > 0 else 0
             
@@ -370,9 +384,12 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         if not manager.panoram_queue.empty():
             panorama = manager.panoram_queue.get()
             H, W, _ = panorama.shape
+            print(f"Panorama size: {W}x{H}")
             if H != manager.processedImageHeight or W != manager.processedImageWidth:
                 try:
                     panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
+                    # Save the panorama to disk for verification
+                    cv2.imwrite("stitched_panorama.jpg", panorama)
                 except:
                     continue
             
@@ -406,6 +423,9 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
     images = []
     drone_ids = []
     headings = []
+
+    if enable_debug:
+        print(f"Reading {num_blocks} blocks from mmmf... blockSize={blockSize}, imageSize={imageSize}, imageWidth={imageWidth}, imageHeight={imageHeight}")
     
     for block_idx in range(num_blocks):
         blockOffset = block_idx * blockSize
@@ -542,9 +562,9 @@ def main():
     """
 
     manager = StitcherManager("cuda")
-    verbose_stitching_thread = False
+    verbose_stitching_thread = True
     debug = False
-    enable_debug_logging = True  # Set to True for debugging
+    enable_debug_logging = False  # Set to True for debugging
 
     # Print the keys of available stitchers
     print("Available stitchers:")
