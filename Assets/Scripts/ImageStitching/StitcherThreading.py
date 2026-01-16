@@ -82,7 +82,7 @@ class StitcherManager:
             self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
 
         self.active_stitcher = self.stitchers["CLASSIC"]
-        self.active_stitcher_type = "CLASSIC"
+        self.active_stitcher_type = "UDIS"
         self.active_matcher_type = "BF"
         self.device = device
         
@@ -96,6 +96,8 @@ class StitcherManager:
         self.headAngle = 0
         self.shared_images = None
         self.shared_images_bool = None
+        self.shared_drone_ids = None
+        self.shared_headings = None
 
         self.processedImageWidth = None
         self.processedImageHeight = None
@@ -203,7 +205,9 @@ class StitcherManager:
             try:
                 Hs, order, inverted = self.active_stitcher.findHomographyOrder(images, front_image_index, Hs, verbose, debug)
                 # print(order)
-            except:
+            except Exception as e:
+                if verbose:
+                    print(f"Error in process_thread2: {e}")
                 return None
             self.order_queue.put(order)
             self.homography_queue.put(Hs)
@@ -214,6 +218,9 @@ class StitcherManager:
         """
         Thread 3 operation. Uses lock_thread3 for thread-safe access. Stitch the images by using information from the queues
         """
+        # print active stitcher
+        print(f"[third_thread] Using stitcher: {self.active_stitcher_type}")
+
         with self.switching_lock2:
             # if self.active_stitcher:
             if self.active_stitcher_type == "CLASSIC":
@@ -247,47 +254,74 @@ class StitcherManager:
         self.active_stitcher.points_remap = None
         pass
 
-def first_thread(manager: StitcherManager, debug = False):
-    """""
-    This method read the images coming from the software. They have three shared memory files to store the images, the panorama and the metadatas.
-    """""
-    flagPosition = 0
-    processedDataPosition = 4
-    metadataSize = 20 + 64 + 1+ 64+ 1 + 4*4 +1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
+def first_thread(manager: StitcherManager, num_images=1, debug=False, enable_debug_logging=False):
+    """
+    This method reads images from the block-based shared memory structure.
+    Each block contains: flag (4 bytes), droneId (4 bytes), heading (4 bytes), image data
+    """
+    
+    # Read metadata first to get image dimensions
+    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
-
-    # Read first time metadata to initialize the memories:
+    
     output = readMetadataMemory(metadataMMF)
+    batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
     
-    batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth , manager.processedImageHeight= output["Sizes"]
+    # Calculate block-based memory layout
+    metadataSize_per_block = 12  # flag (4) + droneId (4) + heading (4)
+    imageSize = batchImageWidth * batchImageHeight * 3  # RGB24
+    blockSize = metadataSize_per_block + imageSize
+    totalProcessedSize = num_images * blockSize
     
-    imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
-    batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
-    processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
-
+    if enable_debug_logging:
+        print(f"[first_thread] Initializing with {num_images} image blocks")
+        print(f"[first_thread] Block size: {blockSize} bytes (metadata: {metadataSize_per_block}, image: {imageSize})")
+        print(f"[first_thread] Total memory size: {totalProcessedSize} bytes")
+    
+    # Open the block-based shared memory (same one ImageSharing.cs uses)
+    processedMMF = mmap.mmap(-1, totalProcessedSize, "ProcessedImageSharedMemory")
+    
     first_loop = True
+    
     while True:
-
-        ### New part
+        # Update metadata
         output = readMetadataMemory(metadataMMF)
-        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight= output["Sizes"]
-        imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
+        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
         manager.checkHyperparaChanges(output)
-
+        
+        # Read images from block-based memory
         try:
-            batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
-            images, images_bool, headAngle = readMemory(batchMMF, flagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, batchImageWidth, batchImageHeight)
-        except:
-            print("problem opening/reading batched memory")
+            images, drone_ids, headings = read_block_memory(
+                processedMMF, 
+                num_images, 
+                blockSize, 
+                metadataSize_per_block,
+                imageSize, 
+                batchImageWidth, 
+                batchImageHeight,
+                enable_debug_logging
+            )
+        except Exception as e:
+            if enable_debug_logging:
+                print(f"[first_thread] Error reading block memory: {e}")
+            time.sleep(0.05)
             continue
-
-        # droneImInd = np.arange(0, images_bool.shape[0])[images_bool]
-        # print(f"Index of the drone images to stitch: {droneImInd}")
+        
+        # Store the images and metadata
         with manager.info_lock:
             manager.shared_images = images
-            manager.shared_images_bool = images_bool
-            manager.headAngle = headAngle
-
+            manager.shared_drone_ids = drone_ids
+            manager.shared_headings = headings
+            # Use the first heading as the overall head angle (or compute average)
+            if len(headings) > 0:
+                manager.headAngle = headings[0]
+            # Create a boolean array indicating which images are valid
+            manager.shared_images_bool = np.ones(len(images), dtype=bool)
+        
+        if enable_debug_logging and len(images) > 0:
+            print(f"[first_thread] Read {len(images)} images, drone IDs: {drone_ids}, headings: {headings}")
+        
+        # Write panorama if available
         if not manager.panoram_queue.empty():
             panorama = manager.panoram_queue.get()
             H, W, _ = panorama.shape
@@ -296,25 +330,88 @@ def first_thread(manager: StitcherManager, debug = False):
                     panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
                 except:
                     continue
-            try:
-                processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
-                write_memory(processedMMF, flagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
-                del panorama
-            except:
-                print("problem opening/reading processed memory")
-                continue
-
-
+            
+            # Write panorama back to a separate output memory (you can use the old processedMMF structure)
+            # For now, we'll skip writing back since ImageSharing.cs is reading individual images
+            # If you need to write panorama back, create a separate memory mapped file
+            del panorama
+        
         time.sleep(0.05)
-
-        # print(headAngle, typeOfStitcher, isCylindrical)
-
+        
         if first_loop:
             first_loop = False
             time.sleep(1.)
-
+        
         if debug:
             break
+
+def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSize, imageWidth, imageHeight, enable_debug=False):
+    """
+    Reads images from block-based shared memory.
+    
+    Block layout for each image:
+        - int flag (4 bytes)
+        - int droneId (4 bytes) 
+        - float heading (4 bytes)
+        - image data (imageSize bytes)
+    
+    Returns:
+        - images: list of numpy arrays
+        - drone_ids: list of drone IDs
+        - headings: list of heading angles
+    """
+    images = []
+    drone_ids = []
+    headings = []
+    
+    for block_idx in range(num_blocks):
+        blockOffset = block_idx * blockSize
+        
+        # Read flag
+        processedMMF.seek(blockOffset)
+        flag_bytes = processedMMF.read(4)
+        if len(flag_bytes) != 4:
+            continue
+        flag = struct.unpack('i', flag_bytes)[0]
+        
+        if enable_debug:
+            print(f"[read_block_memory] Block {block_idx}: flag={flag}, offset={blockOffset}")
+        
+        # Only read if flag is 0 (ready)
+        if flag == 0:
+            # Set flag to 1 (busy reading)
+            processedMMF.seek(blockOffset)
+            processedMMF.write(struct.pack('i', 1))
+            
+            # Read droneId
+            processedMMF.seek(blockOffset + 4)
+            droneId = struct.unpack('i', processedMMF.read(4))[0]
+            
+            # Read heading
+            processedMMF.seek(blockOffset + 8)
+            heading = struct.unpack('f', processedMMF.read(4))[0]
+            
+            # Read image data
+            processedMMF.seek(blockOffset + metadataSize)
+            image_data = processedMMF.read(imageSize)
+            
+            if len(image_data) == imageSize:
+                # Convert to numpy array
+                image = np.frombuffer(image_data, dtype=np.uint8)
+                image = image.reshape((imageHeight, imageWidth, 3))
+                
+                images.append(image)
+                drone_ids.append(droneId)
+                headings.append(heading)
+                
+                if enable_debug:
+                    print(f"[read_block_memory] Successfully read block {block_idx}: droneId={droneId}, heading={heading:.2f}")
+            
+            # Reset flag to 0 (ready for next write)
+            processedMMF.seek(blockOffset)
+            processedMMF.write(struct.pack('i', 0))
+    
+    return images, drone_ids, headings
 
 def second_thread(manager: StitcherManager, front_image_index=0, verbose = False, debug= False):
     """""
@@ -454,128 +551,13 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "onlyIHN" : onlyIHN,
     }
 
-@jit(nopython=True) 
-def UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight):
-    """
-    Calculates and updates various values based on input image dimensions and counts.
-
-    Parameters:
-    - batchImageWidth (int): Width of the batch image.
-    - batchImageHeight (int): Height of the batch image.
-    - imageCount (int): Total number of images in the batch.
-    - processedImageWidth (int): Width of the processed image.
-    - processedImageHeight (int): Height of the processed image.
-
-    Returns:
-    - tuple: A tuple containing:
-        - imageSize (int): Size of a batch image in bytes (batchImageWidth * batchImageHeight * 3 for RGB).
-        - headAnglePosition (int): The starting position for head angle data (fixed at 5).
-        - batchDataPosition (int): The starting position for batch data (headAnglePosition + imageCount).
-        - processedImageSize (int): Size of a processed image in bytes (processedImageWidth * processedImageHeight * 3 for RGB).
-    """
-    
-    imageSize = batchImageWidth*batchImageHeight*3
-    headAnglePosition = 5
-    batchDataPosition = headAnglePosition+ imageCount
-
-    processedImageSize = processedImageWidth*processedImageHeight*3
-
-    return imageSize, headAnglePosition, batchDataPosition, processedImageSize
-    
- 
-def readMemory(batchMMF, batchFlagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight):
-    """
-        Read Memory shared with Unity code. If the flag is 0, we can access data.
-
-        Input:
-            - batchMMF: mmap object for the shared memory
-            - batchFlagPosition: position of the flag in the memory. In our case: 0
-            - imageCount: number of images
-            - batchDataPosition: position of the first image in memory. In our case: 1 + imageCount (1 byte for the flag + imageCount bytes for the boolean)
-            - imageSize: The full image size (imageHeight * imageWidth * 3)
-            - imageWidth
-            - imageHeight
-    """
-    
-    images = []
-    while True:
-        # Read the flag to check if Unity has written new images
-        batchMMF.seek(batchFlagPosition)
-        flag = struct.unpack('B', batchMMF.read(1))[0]
-
-        if flag == 0:  # Unity isn't writing new images
-            
-            # Flag to 1, indicating we are reading
-            batchMMF.seek(batchFlagPosition)
-            batchMMF.write(struct.pack('B', 1))
-
-            batchMMF.seek(1)
-            boolean_list = [bool(b) for b in batchMMF.read(imageCount)]
-            boolean_array=np.array(boolean_list)
-
-            batchMMF.seek(headANglePosition)
-            headAngle = struct.unpack('f', batchMMF.read(4))[0]
-
-            for i in range(imageCount):
-                if not boolean_array[i]:
-                    continue
-                # Read each image sequentially from the shared memory
-                batchMMF.seek(batchDataPosition + i * imageSize)
-                image_data = batchMMF.read(imageSize)
-
-                # Convert the byte array into a numpy array
-                image = np.frombuffer(image_data, dtype=np.uint8)
-                image = image.reshape((imageHeight, imageWidth, 3))  # Reshape to RGB format
-                images.append(cv2.flip(image, 0))
-
-            # Reset flag to 0, indicating we've read the images
-            batchMMF.seek(batchFlagPosition)
-            batchMMF.write(struct.pack('B', 0))
-
-            return images, boolean_array, headAngle
-
-def write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, image_data):
-    """
-    Write an image to shared memory with Unity.
-
-    Inputs:
-        - processedMMF: mmap object for the shared memory.
-        - processedFlagPosition: position of the flag in the memory
-        - processedDataPosition: position to start writing the image data.
-        - processedImageSize: expected size of the image data.
-        - image_data: numpy array of the image to write.
-    """
-    while True:
-        # Read the flag to check if Unity is ready for new data
-        processedMMF.seek(processedFlagPosition)
-        flag = struct.unpack('i', processedMMF.read(4))[0]
-
-        if flag == 0:  # Unity isn't writing new images
-            # Set flag to 1, indicating we're writing
-            processedMMF.seek(processedFlagPosition)
-            processedMMF.write(struct.pack('i', 1))
-
-            # Convert image to byte array and check size
-            image_bytes = image_data.tobytes()
-            if len(image_bytes) != processedImageSize:
-                raise ValueError(f"Image size mismatch: expected {processedImageSize}, got {len(image_bytes)}")
-
-            # Write the image bytes to shared memory
-            processedMMF.seek(processedDataPosition)
-            processedMMF.write(image_bytes)
-
-            # Reset flag to 0, indicating we've written the image
-            processedMMF.seek(processedFlagPosition)
-            processedMMF.write(struct.pack('i', 0))
-            break
-
 def main():
     """
     Activates the three threads and initialize the STitcherManager.
     """
 
-    imageWidth = 300
-    imageHeight = 300
+    imageWidth = 1920
+    imageHeight = 1080
 
     f = 160
 
@@ -584,9 +566,10 @@ def main():
                         [0, 0, 1]])
     
     manager = StitcherManager("cuda")
-    verbose_second_thread = False
+    verbose_second_thread = True
     verbose_thrid_thread = True
     debug = False
+    enable_debug_logging = False  # Set to True for debugging
 
     # Print the keys of available stitchers
     print("Available stitchers:")
@@ -594,11 +577,15 @@ def main():
         print(f"- {key}")
 
     # To test only stitch time when order is known
-    # for key in manager.stitchers.keys():
-    #     if manager.stitchers[key] is not None:
-    #         manager.stitchers[key].known_order = [ 0 , 1 , 2 , 3 , 5 , 7 , 11,  10 , 9 , 8 , 6 , 4] 
+    for key in manager.stitchers.keys():
+        if manager.stitchers[key] is not None:
+            manager.stitchers[key].known_order = [0,1,2]
+            print(f"Set known_order for {key} stitcher.")
 
-    first_t = threading.Thread(target=first_thread, args=(manager, debug))
+    # Number of image blocks to read (should match numImages in ImageSharing.cs)
+    num_images = 1  # Update this to match your configuration
+
+    first_t = threading.Thread(target=first_thread, args=(manager, num_images, debug, enable_debug_logging))
     first_t.daemon = True
     first_t.start()
 
