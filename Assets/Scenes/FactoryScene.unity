@@ -470,6 +470,7 @@ MonoBehaviour:
   numImages: 1
   processedMapName: ProcessedImageSharedMemory
   readInterval: 0.05
+  enableDebugLogging: 0
 --- !u!1 &818182995
 GameObject:
   m_ObjectHideFlags: 0
