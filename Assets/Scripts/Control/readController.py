@@ -24,16 +24,16 @@ def get_joystick_data(joystick, center_ang_x, current_ang_x):
 
     # Get specific axes data (from the controller mapping)
     data['linear'] = {
-        'x': joystick.get_axis(3),  # Axis 2: linear.x
+        'x': joystick.get_axis(1),  # Axis 2: linear.x
         'y': -joystick.get_axis(2),  # Axis 1: linear.y (negated)
-        'z': 0.5 * joystick.get_axis(1) * abs(joystick.get_axis(1)),  # Axis 0: quadratic scaled linear.z
+        'z': 0.5 * joystick.get_axis(0) * abs(joystick.get_axis(0)),  # Axis 0: quadratic scaled linear.z
     }
 
     # Angular velocities
     data['angular'] = {
         'x': filter(center_ang_x + joystick.get_axis(4) * 0.4, current_ang_x),  # Axis 5: angular.x with filtering
         'y': 0.0,  # angular.y is fixed
-        'z': -joystick.get_axis(0),  # Axis 3: angular.z (negated)
+        'z': -joystick.get_axis(3),  # Axis 3: angular.z (negated)
     }
 
     return data

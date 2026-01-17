@@ -43,3 +43,6 @@ Logs/
 Assets/Text*
 Assets/DroneImages/
 vrswarm_env/
+
+# Python
+.venv/
