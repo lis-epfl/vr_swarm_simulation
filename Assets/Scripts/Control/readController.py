@@ -36,6 +36,11 @@ def get_joystick_data(joystick, center_ang_x, current_ang_x):
         'z': -joystick.get_axis(3),  # Axis 3: angular.z (negated)
     }
 
+    data['switches'] = {
+        's1': round(joystick.get_axis(5), 0),
+        's2': round(joystick.get_axis(6), 0)
+    }
+
     return data
 
 # Main loop
@@ -55,8 +60,8 @@ try:
             joystick_data = get_joystick_data(joystick, center_ang_x, current_ang_x)
 
             # Print the data for debugging
-            # print(joystick_data)
-            
+            # print("\n\r" + json.dumps(joystick_data, indent=2), end="")
+
             # Convert data to JSON string
             message = json.dumps(joystick_data)
             
