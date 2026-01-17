@@ -13992,6 +13992,7 @@ GameObject:
   - component: {fileID: 590275741}
   - component: {fileID: 590275740}
   - component: {fileID: 590275739}
+  - component: {fileID: 590275744}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -14006,7 +14007,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 590275738}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6eabc2e9deeebef44a646ed83f64fda1, type: 3}
   m_Name: 
@@ -14024,7 +14025,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 2
+  swarmAlgorithm: 1
   is3D: 0
   cohesionWeight: 0.8
   separationWeight: 16
@@ -14115,6 +14116,22 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &590275744
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3ce35d1160b4a4f22a5b5328a362f145, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  swarm: []
+  selectedDrone: 5
+  widthScale: 0.1
+  droneObject: {fileID: 0}
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -32452,6 +32469,7 @@ GameObject:
   - component: {fileID: 1393066149}
   - component: {fileID: 1393066148}
   - component: {fileID: 1393066147}
+  - component: {fileID: 1393066150}
   m_Layer: 0
   m_Name: birdsEyeCamera
   m_TagString: Untagged
@@ -32533,6 +32551,22 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1393066150
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1393066145}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe1d2c7abc1da4ece8b6dd28cf383805, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 0}
+  offset: {x: 0, y: 20, z: 0}
+  visualiseOlfatiSaber: {fileID: 0}
+  droneObject: {fileID: 0}
 --- !u!4 &1394003599 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4000013041734426, guid: d803e729730d97a4e89edf13b602b3f4,

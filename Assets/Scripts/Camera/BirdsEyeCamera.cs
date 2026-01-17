@@ -6,9 +6,10 @@ public class BirdsEyeCamera : MonoBehaviour
 {
 
     public GameObject gameManager;
+    public int selected_drone = 0;
     public Vector3 offset = new Vector3(0, 20, 0);
-    public visualiseOlfatiSaber visualiseOlfatiSaber;
-    public GameObject droneObject;
+    private GameObject droneObject;
+    private List<GameObject> swarm_ref;
     private Vector3 dronePosition;
 
 
@@ -17,20 +18,19 @@ public class BirdsEyeCamera : MonoBehaviour
     {
         if (gameManager != null)
         {
-            visualiseOlfatiSaber = gameManager.GetComponent<visualiseOlfatiSaber>();
+            swarmSpawn swarmSpawn = gameManager.GetComponent<swarmSpawn>();
+            if (swarmSpawn != null)
+            {
+                swarm_ref = swarmSpawn.swarm;
+            }
+            else
+            {
+                Debug.LogError("SwarmSpawn is not assigned.");
+            }
         } 
         else
         {
             Debug.LogError("GameManager is not assigned.");
-        }
-
-        if (visualiseOlfatiSaber != null)
-        {
-            droneObject = visualiseOlfatiSaber.droneObject;
-        }
-        else
-        {
-            Debug.LogError("VisualiseOlfatiSaber is not assigned.");
         }
 
     }
@@ -38,11 +38,18 @@ public class BirdsEyeCamera : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        // Update the droneObject reference if it has changed
-        if (visualiseOlfatiSaber != null && visualiseOlfatiSaber.gameObject.activeInHierarchy && visualiseOlfatiSaber.droneObject != droneObject)
+        if (swarm_ref != null)
         {
-            droneObject = visualiseOlfatiSaber.droneObject;
-
+            // Select the right drone from the swarm
+            if (selected_drone < 0 || selected_drone >= swarm_ref.Count)
+            {
+                return;
+            }
+            droneObject = swarm_ref[selected_drone];
+            if (droneObject == null)
+            {
+                return;
+            }
             // Get the position of the selected drone's "DroneParent"
             GameObject droneChild = droneObject.transform.Find("DroneParent").gameObject;
             Vector3 position = droneChild.transform.position;
