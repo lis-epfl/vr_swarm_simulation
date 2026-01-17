@@ -114,7 +114,9 @@ public class OlfatiSaber : MonoBehaviour
 
         GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
         GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
-        GetComponent<VelocityControl>().swarm_vz = swarmInput.z;        
+        GetComponent<VelocityControl>().swarm_vz = swarmInput.z; 
+        GetComponent<VelocityControl>().desired_height = desired_height; 
+
         
     }
 
