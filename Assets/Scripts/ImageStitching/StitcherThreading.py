@@ -324,7 +324,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         print(f"[first_thread] Total memory size: {totalProcessedSize} bytes")
     
     # Open the block-based shared memory (same one ImageSharing.cs uses)
-    processedMMF = mmap.mmap(-1, totalProcessedSize, "ProcessedImageSharedMemory")
+    processedMMF = mmap.mmap(-1, totalProcessedSize, "BlockSharedMemory")
     
     first_loop = True
     
@@ -393,8 +393,18 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 except:
                     continue
             
-            # If you need to write panorama back to a different memory-mapped file, implement here
-            del panorama
+            try:
+                panoramaMMF = mmap.mmap(-1, manager.processedImageWidth * manager.processedImageHeight * 3 + 4 + 4, "PanoramaSharedMemory")
+                
+                # Flip the panorama because unity texture starts bottom left
+                panorama = cv2.flip(panorama, 0)
+
+                write_memory(panoramaMMF, 0, 4, manager.processedImageWidth * manager.processedImageHeight * 3, panorama)
+                del panorama
+            except Exception as e:
+                if enable_debug_logging:
+                    print(f"[first_thread] Error writing panorama to memory: {e}")
+                continue
         
         time.sleep(0.05)
         
@@ -475,6 +485,41 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
             processedMMF.write(struct.pack('i', 0))
     
     return images, drone_ids, headings
+
+def write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, image_data):
+    """
+    Write an image to shared memory with Unity.
+
+    Inputs:
+        - processedMMF: mmap object for the shared memory.
+        - processedFlagPosition: position of the flag in the memory
+        - processedDataPosition: position to start writing the image data.
+        - processedImageSize: expected size of the image data.
+        - image_data: numpy array of the image to write.
+    """
+    while True:
+        # Read the flag to check if Unity is ready for new data
+        processedMMF.seek(processedFlagPosition)
+        flag = struct.unpack('i', processedMMF.read(4))[0]
+
+        if flag == 0:  # Unity isn't writing new images
+            # Set flag to 1, indicating we're writing
+            processedMMF.seek(processedFlagPosition)
+            processedMMF.write(struct.pack('i', 1))
+
+            # Convert image to byte array and check size
+            image_bytes = image_data.tobytes()
+            if len(image_bytes) != processedImageSize:
+                raise ValueError(f"Image size mismatch: expected {processedImageSize}, got {len(image_bytes)}")
+
+            # Write the image bytes to shared memory
+            processedMMF.seek(processedDataPosition)
+            processedMMF.write(image_bytes)
+
+            # Reset flag to 0, indicating we've written the image
+            processedMMF.seek(processedFlagPosition)
+            processedMMF.write(struct.pack('i', 0))
+            break
 
 def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, debug=False):
     """
