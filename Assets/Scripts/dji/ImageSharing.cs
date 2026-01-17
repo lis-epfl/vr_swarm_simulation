@@ -26,7 +26,7 @@ public class ImageSharing : MonoBehaviour
     private int TotalProcessedSize;
 
     // Memory mapped file name
-    [SerializeField] private string processedMapName = "ProcessedImageSharedMemory";
+    [SerializeField] private string processedMapName = "BlockSharedMemory";
 
     // Update interval for reading from the memory mapped file
     [SerializeField] private float readInterval = 0.05f;
@@ -34,6 +34,11 @@ public class ImageSharing : MonoBehaviour
 
     // Debug logging toggle
     [SerializeField] private bool enableDebugLogging = true;
+
+    // Debug image validation and saving
+    [SerializeField] private bool enableImageValidation = true;
+    [SerializeField] private bool saveDebugImages = false;
+    [SerializeField] private string debugImagePath = "Assets/DebugImages/";
 
     // Memory mapped file handles
     private IntPtr processedFileMap = IntPtr.Zero;
@@ -243,6 +248,21 @@ public class ImageSharing : MonoBehaviour
                     Marshal.Copy(IntPtr.Add(blockPtr, MetadataSize), imageBytes, 0, ImageSize);
                     if (enableDebugLogging) Debug.Log($"[ImageSharing] Copied {ImageSize} bytes of image data");
 
+                    // Validate image data
+                    bool isValidImage = enableImageValidation ? ValidateImageData(imageBytes, imageIndex) : true;
+                    if (!isValidImage)
+                    {
+                        Debug.LogWarning($"[ImageSharing] Image {imageIndex} failed validation");
+                        Marshal.WriteInt32(blockPtr, 0, 0);
+                        continue;
+                    }
+
+                    // Save debug image if enabled
+                    if (saveDebugImages)
+                    {
+                        SaveDebugImage(imageBytes, imageIndex, yaw);
+                    }
+
                     // If a screen with the matching index exists, update its texture and orientation
                     if (screens.TryGetValue(imageIndex, out ScreenData screenData))
                     {
@@ -315,5 +335,108 @@ public class ImageSharing : MonoBehaviour
         }
         
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Final stats - Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
+    }
+
+    // Validates image data to check if it looks reasonable
+    private bool ValidateImageData(byte[] imageBytes, int imageIndex)
+    {
+        if (imageBytes == null || imageBytes.Length == 0)
+        {
+            Debug.LogWarning($"[ImageSharing] Image {imageIndex}: NULL or empty image data");
+            return false;
+        }
+
+        if (imageBytes.Length != ImageSize)
+        {
+            Debug.LogWarning($"[ImageSharing] Image {imageIndex}: Size mismatch. Expected {ImageSize}, got {imageBytes.Length}");
+            return false;
+        }
+
+        // Check if all bytes are zero (likely uninitialized or corrupt)
+        bool allZero = true;
+        for (int i = 0; i < imageBytes.Length; i++)
+        {
+            if (imageBytes[i] != 0)
+            {
+                allZero = false;
+                break;
+            }
+        }
+        if (allZero)
+        {
+            Debug.LogWarning($"[ImageSharing] Image {imageIndex}: All bytes are zero (likely uninitialized)");
+            return false;
+        }
+
+        // Calculate statistics for debug info
+        int minVal = 255, maxVal = 0;
+        long sum = 0;
+        for (int i = 0; i < imageBytes.Length; i++)
+        {
+            minVal = Mathf.Min(minVal, imageBytes[i]);
+            maxVal = Mathf.Max(maxVal, imageBytes[i]);
+            sum += imageBytes[i];
+        }
+        double avgVal = (double)sum / imageBytes.Length;
+
+        if (enableDebugLogging)
+        {
+            Debug.Log($"[ImageSharing] Image {imageIndex}: VALID - Stats: Min={minVal}, Max={maxVal}, Avg={avgVal:F2}");
+        }
+
+        return true;
+    }
+
+    // Saves image data to disk as PNG for inspection
+    private void SaveDebugImage(byte[] imageBytes, int imageIndex, float yaw)
+    {
+        if (!saveDebugImages || imageBytes == null) return;
+
+        try
+        {
+            // Convert raw bytes to Color32 array
+            Color32[] tempPixels = new Color32[ImageWidth * ImageHeight];
+            for (int i = 0; i < tempPixels.Length; i++)
+            {
+                int byteIndex = i * 3;
+                if (byteIndex + 2 < imageBytes.Length)
+                {
+                    tempPixels[i] = new Color32(
+                        imageBytes[byteIndex],
+                        imageBytes[byteIndex + 1],
+                        imageBytes[byteIndex + 2],
+                        255);
+                }
+            }
+
+            // Create temporary texture
+            Texture2D tempTexture = new Texture2D(ImageWidth, ImageHeight, TextureFormat.RGB24, false);
+            tempTexture.SetPixels32(tempPixels);
+            tempTexture.Apply();
+
+            // Encode to PNG
+            byte[] pngData = tempTexture.EncodeToPNG();
+            Destroy(tempTexture);
+
+            // Create directory if needed
+            if (!System.IO.Directory.Exists(debugImagePath))
+            {
+                System.IO.Directory.CreateDirectory(debugImagePath);
+            }
+
+            // Generate filename with timestamp
+            string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss-fff");
+            string filename = $"{debugImagePath}image_{imageIndex}_yaw_{yaw:F2}_{timestamp}.png";
+            
+            System.IO.File.WriteAllBytes(filename, pngData);
+            if (enableDebugLogging)
+            {
+                Debug.Log($"[ImageSharing] Saved debug image to: {filename}");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[ImageSharing] Failed to save debug image: {ex.Message}");
+        }
     }
 }
