@@ -6,17 +6,35 @@ public class ReadController : MonoBehaviour
     public VelocityControl vc;
     public OlfatiSaber olfatiSaber;
 
+    // Thrust modes
+    public enum ThrustMode
+    {
+        HEIGHT_VARIABLE = -1,
+        HEIGHT_CONSTANT
+    }
+
+    // View modes
+    public enum ViewMode
+    {
+        FRONT = -1,
+        BIRDSEYE,
+        BACK
+    }
+
+    public float height_min = 10;
+    public float height_max = 20;
+
     // Use the SwarmAlgorithm enum from SwarmManager
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
     // Current algorithm selected
     private SwarmManager.AttitudeControl attitudeControlType;
-    
-    private float abs_height = 1;
+
+    private float abs_height = 14;
 
     void Start()
     {
-
+        
     }
 
     void Update()
@@ -51,7 +69,24 @@ public class ReadController : MonoBehaviour
                     olfatiSaber.desired_vx = linearVelocity.x;
                     olfatiSaber.desired_vy = linearVelocity.y;
                     olfatiSaber.desired_yaw = angularVelocity.z;
+                    olfatiSaber.d_ref = angularVelocity.x;
+                    
+                    switch ((ThrustMode)joystickData.switches.s1)
+                    {
+                        case ThrustMode.HEIGHT_CONSTANT:
+                            abs_height = height_min + (height_max - height_min) * (linearVelocity.z + 1.0f) / 2;
+                            break;
+                        case ThrustMode.HEIGHT_VARIABLE:
+                            abs_height += linearVelocity.z * 0.1f;
+                            break;
+                    }
                     olfatiSaber.desired_height = abs_height;
+
+                    // Debug.Log($"Olfati desired vx: {linearVelocity.x}");
+                    // Debug.Log($"Olfati desired vy: {linearVelocity.y}");
+                    // Debug.Log($"Olfati desired yaw: {angularVelocity.z}");
+                    // Debug.Log($"Olfati desired height: {abs_height}");
+                    // Debug.Log($"Olfati switch: {joystickData.switches.s1}");
                 }
 
             }
