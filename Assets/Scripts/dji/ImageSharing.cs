@@ -16,8 +16,8 @@ public class ImageSharing : MonoBehaviour
     private const int MetadataSize = 12;  // flag (4) + index (4) + yaw (4)
 
     // Processed image dimensions and sizes (RGB24)
-    private const int ImageWidth = 1920;
-    private const int ImageHeight = 1080;
+    private const int ImageWidth = 640;
+    private const int ImageHeight = 360;
     private const int ImageSize = ImageWidth * ImageHeight * 3; // 3 bytes per pixel
     private int BlockSize = MetadataSize + ImageSize; // size per image block
 
@@ -268,19 +268,10 @@ public class ImageSharing : MonoBehaviour
                     {
                         if (enableDebugLogging) Debug.Log($"[ImageSharing] Updating screen with index {imageIndex}");
                         
-                        // Convert raw bytes (RGB24) to Color32 array
-                        for (int i = 0; i < screenData.pixels.Length; i++)
-                        {
-                            int byteIndex = i * 3;
-                            if (byteIndex + 2 < imageBytes.Length)
-                            {
-                                screenData.pixels[i] = new Color32(
-                                    imageBytes[byteIndex],
-                                    imageBytes[byteIndex + 1],
-                                    imageBytes[byteIndex + 2],
-                                    255);
-                            }
-                        }
+                        // Convert raw bytes (RGB24) to Color32 array with vertical flip
+                        // SetPixels32 expects bottom-left origin, so we flip the image
+                        ConvertAndFlipImage(imageBytes, screenData.pixels);
+                        
                         // Update texture
                         screenData.texture.SetPixels32(screenData.pixels);
                         screenData.texture.Apply();
@@ -313,6 +304,35 @@ public class ImageSharing : MonoBehaviour
             }
             
             nextReceiveTime = Time.time + readInterval;
+        }
+    }
+
+    // Efficiently converts RGB24 byte array to Color32 array with vertical flip
+    // This is optimized to process row-by-row for better cache performance
+    private void ConvertAndFlipImage(byte[] imageBytes, Color32[] pixels)
+    {
+        int rowBytes = ImageWidth * 3; // Number of bytes per row
+        
+        // Process each row
+        for (int y = 0; y < ImageHeight; y++)
+        {
+            // Calculate source row (top to bottom) and destination row (bottom to top)
+            int srcRowStart = y * rowBytes;
+            int destRowStart = (ImageHeight - 1 - y) * ImageWidth;
+            
+            // Process each pixel in the row
+            for (int x = 0; x < ImageWidth; x++)
+            {
+                int srcIndex = srcRowStart + x * 3;
+                int destIndex = destRowStart + x;
+                
+                pixels[destIndex] = new Color32(
+                    imageBytes[srcIndex],
+                    imageBytes[srcIndex + 1],
+                    imageBytes[srcIndex + 2],
+                    255
+                );
+            }
         }
     }
 
@@ -394,20 +414,9 @@ public class ImageSharing : MonoBehaviour
 
         try
         {
-            // Convert raw bytes to Color32 array
+            // Create temporary pixel array and convert with flip
             Color32[] tempPixels = new Color32[ImageWidth * ImageHeight];
-            for (int i = 0; i < tempPixels.Length; i++)
-            {
-                int byteIndex = i * 3;
-                if (byteIndex + 2 < imageBytes.Length)
-                {
-                    tempPixels[i] = new Color32(
-                        imageBytes[byteIndex],
-                        imageBytes[byteIndex + 1],
-                        imageBytes[byteIndex + 2],
-                        255);
-                }
-            }
+            ConvertAndFlipImage(imageBytes, tempPixels);
 
             // Create temporary texture
             Texture2D tempTexture = new Texture2D(ImageWidth, ImageHeight, TextureFormat.RGB24, false);

@@ -308,8 +308,8 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
     # ----------------- TODO: Remove hardcoding -----------------
-    batchImageWidth = 960
-    batchImageHeight = 540
+    batchImageWidth = 640
+    batchImageHeight = 360
     
     
     # Calculate block-based memory layout
@@ -335,8 +335,8 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         manager.checkHyperparaChanges(output)
 
         # ----------------- TODO: Remove hardcoding -----------------
-        batchImageWidth = 960
-        batchImageHeight = 540
+        batchImageWidth = 640
+        batchImageHeight = 360
         imageCount = num_images
         manager.processedImageWidth = 1920
         manager.processedImageHeight = 1080
