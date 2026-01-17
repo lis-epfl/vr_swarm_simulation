@@ -25,6 +25,9 @@ public class swarmSpawn : MonoBehaviour
         // Get the screenSpawn script
         screenSpawn = GetComponent<screenSpawn>();
 
+        //Get the visualize olfati-saber script if any
+        visualiseOlfatiSaber = GetComponent<visualiseOlfatiSaber>();
+
         // Create an empty GameObject to serve as the parent for all drones
         swarmParent = new GameObject("SwarmParent");
         
@@ -74,6 +77,12 @@ public class swarmSpawn : MonoBehaviour
 
             // Add the swarm to the swarmAlgorithm script
             droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;            
+        }
+
+        // Add the swarm ref to the visualization script if not null
+        if (visualiseOlfatiSaber != null)
+        {
+            visualiseOlfatiSaber.swarm = swarm;
         }        
         
         // Spawn screens for each drone in the swarm
