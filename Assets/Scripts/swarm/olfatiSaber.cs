@@ -113,9 +113,9 @@ public class OlfatiSaber : MonoBehaviour
         // Debug.Log($"Swarm Input for {droneName}: {swarmInput}");
 
         GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
-        GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
+        // GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
         GetComponent<VelocityControl>().swarm_vz = swarmInput.z; 
-        GetComponent<VelocityControl>().desired_height = desired_height; 
+        // GetComponent<VelocityControl>().desired_height = desired_height; 
 
         
     }
