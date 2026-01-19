@@ -39,6 +39,7 @@ public class SwarmManager : MonoBehaviour
     public enum AttitudeControl
     {
         NONE,
+        GLOBAL,
         CONVEXHULL,
     }
 
