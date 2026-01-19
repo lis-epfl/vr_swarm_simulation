@@ -16,6 +16,7 @@ public class swarmSpawn : MonoBehaviour
     public GameObject swarmParent;
     private screenSpawn screenSpawn;
     private visualiseOlfatiSaber visualiseOlfatiSaber;
+    private ViewManager viewManager;
     private int droneNumber = 0;
 
     // Start is called before the first frame update
@@ -24,6 +25,8 @@ public class swarmSpawn : MonoBehaviour
         
         // Get the screenSpawn script
         screenSpawn = GetComponent<screenSpawn>();
+
+        viewManager = GetComponent<ViewManager>();
 
         //Get the visualize olfati-saber script if any
         visualiseOlfatiSaber = GetComponent<visualiseOlfatiSaber>();
@@ -84,6 +87,10 @@ public class swarmSpawn : MonoBehaviour
         {
             visualiseOlfatiSaber.swarm = swarm;
         }        
+        if (viewManager != null)
+        {
+            viewManager.swarm = swarm;
+        }
         
         // Spawn screens for each drone in the swarm
         screenSpawn.SpawnScreens(swarm);
