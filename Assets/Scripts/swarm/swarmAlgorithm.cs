@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+ using Unity.Mathematics;
 
 public class swarmAlgorithm : MonoBehaviour
 {
@@ -190,5 +191,22 @@ public class swarmAlgorithm : MonoBehaviour
             attitudeControl.numDimensions = swarmManager.GetNumDimensions();
             attitudeControl.pointInwards = swarmManager.GetPointInwards();
         }
+    }
+
+    public Vector3 GetSwarmCenter()
+    {
+        Vector3 center = Vector3.zero;
+        foreach (GameObject drone in swarm)
+        {
+            center += drone.transform.position;
+        }
+        center /= swarm.Count;
+        return center;
+    }
+
+    public Vector3 GetSwarmHeading()
+    {
+        Vector3 heading = new Vector3(math.cos(desired_yaw), 0, math.sin(desired_yaw));
+        return heading;
     }
 }
