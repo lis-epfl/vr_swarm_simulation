@@ -14,7 +14,7 @@ public class ViewManager : MonoBehaviour
         public float dot;
         public float cross;
     }
-    private List<int> views_idx; // front, right, back, left
+    private List<int> views_idx; // front, left, back, right
     private List<DroneInfo> droneInfos;
     // Start is called before the first frame update
     void Start()
@@ -35,7 +35,7 @@ public class ViewManager : MonoBehaviour
         for (int i = 0; i < swarm.Count; i++)
         {
             GameObject drone = swarm[i];
-            Vector3 toDrone = drone.transform.position - center;
+            Vector3 toDrone = drone.transform.Find("DroneParent").position - center;
             float dot = Vector3.Dot(los, toDrone);
             Vector3 crossProduct = Vector3.Cross(toDrone, los);
             float cross = crossProduct.y; // Assuming a 2D swarm and y is up
@@ -49,7 +49,7 @@ public class ViewManager : MonoBehaviour
             droneInfos.Add(info);
         }
         // Sort drones based on dot product descending (front to back))
-        droneInfos.Sort((a, b) => b.dot.CompareTo(a.dot));
+        droneInfos.Sort((a, b) => b.dot >= a.dot ? 1 : -1);
         // Select first (front most) and last (back most) drones
         if (droneInfos.Count >= 2)
         {
@@ -57,20 +57,42 @@ public class ViewManager : MonoBehaviour
             views_idx[2] = droneInfos[droneInfos.Count - 1].droneIdx; // Back most
         }
         // Sort drones based on cross product descending (right to left)
-        droneInfos.Sort((a, b) => b.cross.CompareTo(a.cross));
+        droneInfos.Sort((a, b) => b.cross >= a.cross ? 1 : -1);
         // Select first (right most) and last (left most) drones
         if (droneInfos.Count >= 2)
         {
-            views_idx[1] = droneInfos[0].droneIdx; // Right most
-            views_idx[3] = droneInfos[droneInfos.Count - 1].droneIdx; // Left most
+            views_idx[1] = droneInfos[0].droneIdx; // Left most
+            views_idx[3] = droneInfos[droneInfos.Count - 1].droneIdx; // Right most
         }
         // Clear the droneInfos list for the next update
         droneInfos.Clear();
+
+        // Apply views to corresponding drone FPV camera
+        for (int i = 0; i < views_idx.Count; i++)
+        {
+            int droneIdx = views_idx[i];
+            if (droneIdx != -1)
+            {
+                GameObject drone = swarm[droneIdx];
+                Camera fpvCamera = drone.transform.Find("FPV").GetComponent<Camera>();
+                if (fpvCamera != null)
+                {
+                    fpvCamera.targetDisplay = i;
+                }
+            }
+        }
+
         if (visualize)
         {
             visualizeViews();
         }
-        Debug.Log("Views idx: " + string.Join(", ", views_idx));
+        // Debug.Log("Views idx: " + string.Join(", ", views_idx));
+    }
+
+    void Reset()
+    {
+        views_idx = new List<int>() { -1, -1, -1, -1 };
+        droneInfos = new List<DroneInfo>();
     }
 
     private Vector3 GetSwarmCenter()
@@ -78,7 +100,7 @@ public class ViewManager : MonoBehaviour
         Vector3 center = Vector3.zero;
         foreach (GameObject drone in swarm)
         {
-            center += drone.transform.position;
+            center += drone.transform.Find("DroneParent").position;
         }
         center /= swarm.Count;
         return center;
@@ -105,8 +127,8 @@ public class ViewManager : MonoBehaviour
             if (droneIdx != -1)
             {
                 GameObject drone = swarm[droneIdx];
-                Vector3 position = drone.transform.position;
-                Debug.DrawLine(position, position + Vector3.up * 2, colors[i]);
+                Vector3 position = drone.transform.Find("DroneParent").position;
+                Debug.DrawLine(position, position + Vector3.up * 2, colors[i], 0, false);
             }
         }
     }

@@ -14125,13 +14125,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 590275738}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3ce35d1160b4a4f22a5b5328a362f145, type: 3}
+  m_Script: {fileID: 11500000, guid: ecd7a48b61072e14daccce7f9b3de1fe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   swarm: []
-  selectedDrone: 5
-  widthScale: 0.1
-  droneObject: {fileID: 0}
+  visualize: 1
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -32527,7 +32525,7 @@ Camera:
     m_Bits: 4294967295
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
-  m_TargetDisplay: 1
+  m_TargetDisplay: 4
   m_TargetEye: 3
   m_HDR: 1
   m_AllowMSAA: 1
@@ -32563,10 +32561,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe1d2c7abc1da4ece8b6dd28cf383805, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gameManager: {fileID: 0}
+  gameManager: {fileID: 590275738}
+  selected_drone: 4
   offset: {x: 0, y: 20, z: 0}
-  visualiseOlfatiSaber: {fileID: 0}
-  droneObject: {fileID: 0}
 --- !u!4 &1394003599 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4000013041734426, guid: d803e729730d97a4e89edf13b602b3f4,
