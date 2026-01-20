@@ -40,7 +40,7 @@ public class InputControl : MonoBehaviour {
 			olfatiSaber.desired_vx = Input.GetAxisRaw("Pitch") * speedCoeff;
 			olfatiSaber.desired_vy = Input.GetAxisRaw("Roll") * speedCoeff;
 			olfatiSaber.desired_yaw = Input.GetAxisRaw("Yaw") * yawRateCoeff;
-			vc.swarm_vy = Input.GetAxisRaw("Throttle") * altCoeff;
+			vc.swarm_vy = Input.GetAxisRaw("Throttle") * speedCoeff;
 		}
 
 		else if (currentAlgorithm != SwarmManager.SwarmAlgorithm.NBV) // NEW ADVAITH NBV

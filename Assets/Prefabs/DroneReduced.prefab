@@ -196,6 +196,9 @@ MonoBehaviour:
   desired_vy: 0
   desired_yaw: 0
   attitude_control_yaw: 0
+  HeightKp: 1.5
+  HeightKd: 1
+  HeightKi: 0.2
   yawFilterCoefficient: 0.2
   swarm_vx: 0
   swarm_vy: 0
@@ -753,7 +756,7 @@ MonoBehaviour:
   currentAlgorithm: 1
   speedCoeff: 4
   yawRateCoeff: 0.5
-  altCoeff: 0.5
+  altCoeff: 0.1
 --- !u!114 &6727076729497765368
 MonoBehaviour:
   m_ObjectHideFlags: 0

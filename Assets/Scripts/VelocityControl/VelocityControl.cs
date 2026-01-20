@@ -32,6 +32,13 @@ public class VelocityControl : MonoBehaviour
     public float desired_yaw = 0.0f;
     public float attitude_control_yaw = 0.0f;
 
+    // PD coeff for height control
+    public float HeightKp = 2.0f;
+    public float HeightKd = 1.0f;
+    public float HeightKi = 0.1f;
+    private float previousHeightError = 0.0f;
+    private float cumulativeHeightError = 0.0f;
+
     private float targetYawRate = 0.0f;
     private float filteredYawRate = 0.0f;
     public float yawFilterCoefficient = 0.15f;
@@ -77,26 +84,30 @@ public class VelocityControl : MonoBehaviour
 
         desired_height = desired_height + swarm_vy * Time.deltaTime;
 
-        float heightError = state.Altitude - desired_height;
+        float currentHeightError = desired_height - state.Altitude;
 
         // Low pass filter for height control
-        heightError = heightError * (1.0f - filterCoefficient) + (state.Altitude - initial_height) * filterCoefficient;
+        // heightError = heightError * (1.0f - filterCoefficient) + (state.Altitude - initial_height) * filterCoefficient;
+        float heightErrorDerivative = (currentHeightError - previousHeightError) / Time.deltaTime;
+        cumulativeHeightError += currentHeightError * Time.deltaTime;
+        float altitudeCommand = HeightKp * currentHeightError + HeightKd * heightErrorDerivative + HeightKi * cumulativeHeightError;
 
         // Get the velocity commands from Reynolds and add the user commands
         if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS)
         {
-            desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
+            desiredVelocity = new Vector3(desired_vx, -1.0f * currentHeightError / time_constant_z_velocity, desired_vy);
             swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vy);
         }
         // Get the velocity commands from Olfati-Saber, user commands are already included
         else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
         {
-            desiredVelocity = new Vector3(0.0f, -1.0f * heightError / time_constant_z_velocity, 0.0f);
+            //desiredVelocity = new Vector3(0.0f, -1.0f * currentHeightError / time_constant_z_velocity, 0.0f);
+            desiredVelocity = Vector3.zero;
             swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vz);
         }
         else
         {
-            desiredVelocity = new Vector3(desired_vx, -1.0f * heightError / time_constant_z_velocity, desired_vy);
+            desiredVelocity = new Vector3(desired_vx, -1.0f * currentHeightError / time_constant_z_velocity, desired_vy);
             swarmVelocity = new Vector3(0.0f, 0.0f, 0.0f);
         }
 
@@ -146,7 +157,8 @@ public class VelocityControl : MonoBehaviour
         desiredAlpha = Vector3.Min(desiredAlpha, Vector3.one * max_alpha);
         desiredAlpha = Vector3.Max(desiredAlpha, Vector3.one * max_alpha * -1.0f);
 
-        float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos(state.Angles.z) * Mathf.Cos(state.Angles.x));
+        // float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos(state.Angles.z) * Mathf.Cos(state.Angles.x));
+        float desiredThrust = (gravity + altitudeCommand) / (Mathf.Cos(state.Angles.z) * Mathf.Cos(state.Angles.x));
         desiredThrust = Mathf.Min(desiredThrust, 2.7f * gravity);
         desiredThrust = Mathf.Max(desiredThrust, 0.0f);
 
@@ -163,6 +175,9 @@ public class VelocityControl : MonoBehaviour
         propFR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRR.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
         propRL.transform.Rotate(Vector3.forward * Time.deltaTime * desiredThrust * speedScale);
+
+        // Update previous values
+        previousHeightError = currentHeightError;
 
     }
 
