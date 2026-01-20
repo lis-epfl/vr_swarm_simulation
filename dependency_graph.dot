@@ -1,0 +1,58 @@
+digraph G 
+{
+    node [shape=rect];
+    SwarmAlgorithm [color="#9292fc", style=filled]
+    OlfatiSaber [color="#9292fc", style=filled]
+    Reynolds [color="#9292fc", style=filled]
+    StateFinder [color="#9292fc", style=filled]
+    VelocityControl [color="#9292fc", style=filled]
+    AttitudeAlgorithm [color="#9292fc", style=filled]
+
+    subgraph cluster_swarm {
+        label="Swarming";
+        style=filled;
+        color="#c0ffdf";
+
+        SwarmAlgorithm -> OlfatiSaber;
+        SwarmAlgorithm -> Reynolds;
+    }
+
+    subgraph cluster_attitude {
+        label="Attitude";
+        style=filled;
+        color="#ffcc99";
+
+        AttitudeAlgorithm -> ConvexHull;
+        AttitudeAlgorithm -> Simple;
+    }
+
+    subgraph cluster_input {
+        label="Input";
+        style=filled;
+        color=lightgray;
+
+        InterfaceManager -> Input;
+        InterfaceManager -> Visual;
+        Input -> ReadController;
+        Visual -> VR;
+        Visual -> Monitor;
+        Visual -> BirdsEyeCamera;
+    }
+
+    SwarmManager -> SwarmAlgorithm;
+    SwarmManager -> AttitudeAlgorithm;
+    VelocityControl -> StateFinder;
+
+    Input -> AttitudeAlgorithm;
+    Input -> SwarmAlgorithm;
+
+    ReadController -> UDPReceiver;
+
+    AttitudeAlgorithm -> VelocityControl [ltail="cluster_attitude"];
+    SwarmAlgorithm -> VelocityControl [ltail="cluster_swarm"];
+
+    SwarmSpawn -> VisualizeOlfatiSaber;
+
+    VisualizeOlfatiSaber -> OlfatiSaber;
+
+}
