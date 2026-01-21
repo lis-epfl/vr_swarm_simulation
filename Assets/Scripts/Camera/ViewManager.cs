@@ -111,7 +111,7 @@ public class ViewManager : MonoBehaviour
         Vector3 heading = Vector3.zero;
         foreach (GameObject drone in swarm)
         {
-            swarmAlgorithm swarmAlgo = drone.transform.Find("DroneParent").GetComponent<swarmAlgorithm>();
+            SwarmAlgorithm swarmAlgo = drone.transform.Find("DroneParent").GetComponent<SwarmAlgorithm>();
             heading += new Vector3(Mathf.Cos(swarmAlgo.desired_yaw), 0, Mathf.Sin(swarmAlgo.desired_yaw));
         }
         return heading.normalized;
