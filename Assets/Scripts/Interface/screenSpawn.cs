@@ -11,7 +11,8 @@ public class screenSpawn : MonoBehaviour
         OUTER_CIRCLE,
         INNER_CIRCLE,
         BOTTOM_CIRCLE,
-        ROTATING_CIRCLE
+        ROTATING_CIRCLE,
+        REAL_DRONE
     }
     [Header("Display Settings")]
     public DisplayMode displayMode = DisplayMode.OFF;
@@ -37,12 +38,16 @@ public class screenSpawn : MonoBehaviour
     public float rotatingCircleDistance = 2.0f;
     public float rotatingVerticalOffset = -0.3f;
     public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
+    [Header("Real Drone Settings")]
+    public float realDroneRadius = 2.0f;
+    public float realDroneScale = 1.0f;
     private SwarmManager swarmManager;
     private bool pointInwards = false;
+    public int numScreens = 2;
 
 
     // Function to spawn screens for the drones in the swarm
-    public void SpawnScreens(List<GameObject> swarm)
+    public void SpawnScreens(List<GameObject> swarm = null)
     {
         // Find the OVRPlayerController in the scene if not already assigned
         if (player == null)
@@ -54,11 +59,14 @@ public class screenSpawn : MonoBehaviour
             }
         }
 
+        if (swarm != null)
+        {
         // Get the swarm manager instance
         swarmManager = SwarmManager.Instance;
 
         // Add the swarmParamsChanged event listener
         swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
+        }
 
         // Store the swarm list
         this.swarm = swarm;
@@ -66,9 +74,11 @@ public class screenSpawn : MonoBehaviour
         // Create an empty GameObject to serve as the parent for all screens
         screenParent = new GameObject("ScreenParent");
 
-        for (int i = 0; i < swarm.Count; i++)
+        // Determine how many screens to create
+        int count = (swarm != null) ? swarm.Count : numScreens;
+
+        for (int i = 0; i < count; i++)
         {
-            GameObject drone = swarm[i];
             int droneNumber = i;
 
             // Create a screen using a quad
@@ -79,6 +89,9 @@ public class screenSpawn : MonoBehaviour
 
             // Parent the screen under the screenParent GameObject
             screen.transform.parent = screenParent.transform;
+
+            // Set the tag of the screen to 'Screen'
+            screen.tag = "Screen";
 
             // Add the screen to the screens list
             screens.Add(screen);
@@ -119,16 +132,20 @@ public class screenSpawn : MonoBehaviour
             // set the scale to match the aspect ratio of the feed
             screen.transform.localScale = new Vector3((float)width / height, 1f, 1f);
 
-            // Find the camera object on the drone called 'FPV'
-            Transform camera = drone.transform.Find("FPV");
+            if (swarm != null && i < swarm.Count)
+            {
+                // Find the camera object on the drone called 'FPV'
+                GameObject drone = swarm[i];
+                Transform camera = drone.transform.Find("FPV");
 
-            // Get the camera and set the aspect ratio and field of view
-            Camera cam = camera.GetComponent<Camera>();
-            cam.aspect = (float)width / height;
-            cam.fieldOfView = 82.1f;
+                // Get the camera and set the aspect ratio and field of view
+                Camera cam = camera.GetComponent<Camera>();
+                cam.aspect = (float)width / height;
+                cam.fieldOfView = 82.1f;
 
-            // Set the camera's target texture to the render texture
-            camera.GetComponent<Camera>().targetTexture = rt;
+                // Set the camera's target texture to the render texture
+                camera.GetComponent<Camera>().targetTexture = rt;
+            }
         }
 
         // Place the screens based on the orientation of the drones
@@ -138,6 +155,12 @@ public class screenSpawn : MonoBehaviour
     // Function to update the positions and orientations of the screens
     private void UpdateScreenPositions()
     {
+        // Skip if the swarm is null, the update will be called from ImageSharing.cs
+        if (swarm == null)
+        {
+            return;
+        }
+
         for (int i = 0; i < swarm.Count; i++)
         {
             // Find the drone and screen by name, seems like the order in swarm changes, hence the need to find the drone by name
@@ -276,6 +299,28 @@ public class screenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
+    // Update the position of the screens based on real drone orientation, called from ImageSharing.cs
+    public void UpdateRealDroneScreen(int i, float yaw)
+    {
+        // Find the screen
+        GameObject screen = screens.Find(s => s.name == "screen_" + i);
+
+        // Calculate the screen position based on the yaw of the real drone
+        float radians = -yaw * Mathf.Deg2Rad;
+
+        // Calculate the position on real drone circle
+        float x = arena.transform.position.x + realDroneRadius * Mathf.Cos(radians);
+        float z = arena.transform.position.z + realDroneRadius * Mathf.Sin(radians);
+        float y = arena.transform.position.y;
+
+        // Position and rotate the screen
+        screen.transform.position = new Vector3(x, y, z);
+        screen.transform.LookAt(arena.transform.position);
+        screen.transform.Rotate(0, 180f, 0); // Face outward
+        screen.SetActive(true);
+    }
+
+
     // Update the positions of the screens based on the drone orientation
     void Update()
     {
@@ -320,6 +365,8 @@ public class screenSpawn : MonoBehaviour
                 return bottomScale;
             case DisplayMode.ROTATING_CIRCLE:
                 return innerScale;
+            case DisplayMode.REAL_DRONE:
+                return realDroneScale;
             default:
                 return 1.0f;
         }
