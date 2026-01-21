@@ -14,8 +14,6 @@ public class swarmAlgorithm : MonoBehaviour
 
     private Reynolds reynoldsAlgorithm;
     private OlfatiSaber olfatiSaberAlgorithm;
-    private AttitudeAlgorithm attitudeControl;
-
     // Default altitude and velocity
     public float desired_height = 4.0f;
     public float desired_vx = 0.0f;
@@ -51,13 +49,6 @@ public class swarmAlgorithm : MonoBehaviour
         // Assign the swarm list to both algorithms
         reynoldsAlgorithm.swarm = swarm;
         olfatiSaberAlgorithm.swarm = swarm;
-
-
-        // Initialize the attitude control script
-        attitudeControl = GetComponent<AttitudeAlgorithm>();
-
-        // Assign the swarm list to the attitude control script
-        attitudeControl.swarm = swarm;
 
         // Get the controller scripts
         controller = transform.parent.Find("Controller").gameObject;
