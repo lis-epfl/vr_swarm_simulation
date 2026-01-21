@@ -380,7 +380,7 @@ public class PyUniSharingFast : MonoBehaviour
                 
         foreach (GameObject drone in drones)
         {
-            AttitudeControl attitudeScript = drone.transform.Find("DroneParent").GetComponent<AttitudeControl>();
+            AttitudeAlgorithm attitudeScript = drone.transform.Find("DroneParent").GetComponent<AttitudeAlgorithm>();
 
             if (attitudeScript != null)
             {
