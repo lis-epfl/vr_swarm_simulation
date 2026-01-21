@@ -203,7 +203,7 @@ public class screenSpawn : MonoBehaviour
     private void UpdateOuterCircleScreen(GameObject screen, GameObject droneChild)
     {
         // Check if the drone is on the boundary
-        AttitudeControl attitudeControl = droneChild.GetComponent<AttitudeControl>();
+        AttitudeAlgorithm attitudeControl = droneChild.GetComponent<AttitudeAlgorithm>();
         if (!attitudeControl.boundaryEstimate)
         {
             screen.SetActive(false);
