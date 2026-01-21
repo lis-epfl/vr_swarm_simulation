@@ -4,7 +4,7 @@ public class ReadController : MonoBehaviour
 {
 
     public VelocityControl vc;
-    public OlfatiSaber olfatiSaber;
+    public SwarmAlgorithm SwarmAlgorithm;
 
     // Thrust modes
     public enum ThrustMode
@@ -64,10 +64,10 @@ public class ReadController : MonoBehaviour
                 else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
                 {
                     // Apply the velocities to the Olfati-Saber velocity control script
-                    olfatiSaber.desired_vx = linearVelocity.x;
-                    olfatiSaber.desired_vy = linearVelocity.y;
-                    olfatiSaber.desired_yaw = angularVelocity.z;
-                    olfatiSaber.d_ref = angularVelocity.x;
+                    SwarmAlgorithm.desired_vx = linearVelocity.x;
+                    SwarmAlgorithm.desired_vy = linearVelocity.y;
+                    SwarmAlgorithm.desired_yaw = angularVelocity.z;
+                    SwarmAlgorithm.SetSwarmSpread(angularVelocity.x);
                     
                     switch ((ThrustMode)joystickData.switches.s1)
                     {
@@ -78,7 +78,7 @@ public class ReadController : MonoBehaviour
                             abs_height += linearVelocity.z * 0.1f;
                             break;
                     }
-                    olfatiSaber.desired_height = abs_height;
+                    SwarmAlgorithm.desired_height = abs_height;
 
                     // Debug.Log($"Olfati desired vx: {linearVelocity.x}");
                     // Debug.Log($"Olfati desired vy: {linearVelocity.y}");

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
  using Unity.Mathematics;
 
-public class swarmAlgorithm : MonoBehaviour
+public class SwarmAlgorithm : MonoBehaviour
 {
     public List<GameObject> swarm;
 
@@ -34,7 +34,7 @@ public class swarmAlgorithm : MonoBehaviour
 
         // Find the SwarmManager in the scene
         // Add this line right at the beginning
-        Debug.Log("The swarmAlgorithm script is on this GameObject: " + this.gameObject.name);
+        Debug.Log("The SwarmAlgorithm script is on this GameObject: " + this.gameObject.name);
 
 
         // Automatically assign the SwarmManager if not already set
@@ -46,10 +46,6 @@ public class swarmAlgorithm : MonoBehaviour
         reynoldsAlgorithm = GetComponent<Reynolds>();
         olfatiSaberAlgorithm = GetComponent<OlfatiSaber>();
 
-        // Assign the swarm list to both algorithms
-        reynoldsAlgorithm.swarm = swarm;
-        olfatiSaberAlgorithm.swarm = swarm;
-
         // Get the controller scripts
         controller = transform.parent.Find("Controller").gameObject;
         readController = controller.GetComponent<ReadController>();
@@ -60,6 +56,26 @@ public class swarmAlgorithm : MonoBehaviour
 
         // Initialize parameters for the first time
         OnSwarmParamsChanged();
+
+    }
+
+    void FixedUpdate()
+    {
+        Vector3 velocityCommand = Vector3.zero;
+        switch (currentAlgorithm)
+        {
+            case SwarmManager.SwarmAlgorithm.REYNOLDS:
+                velocityCommand = reynoldsAlgorithm.GetSwarmVelocityCommand(swarm);
+                break;
+
+            case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
+                velocityCommand = olfatiSaberAlgorithm.GetSwarmVelocityCommand(swarm, new Vector3(desired_vx, 0, -desired_vy));
+                break;
+        }
+        // Set the desired velocities in the velocity control script
+        velocityControl.swarm_vx = velocityCommand.x;
+        velocityControl.swarm_vy = velocityCommand.y;
+        velocityControl.swarm_vz = velocityCommand.z;
 
     }
 
@@ -82,8 +98,6 @@ public class swarmAlgorithm : MonoBehaviour
         {
             // Reynolds algorithm and parameters
             case SwarmManager.SwarmAlgorithm.REYNOLDS:
-                EnableAlgorithm(reynoldsAlgorithm);
-                DisableAlgorithm(olfatiSaberAlgorithm);
                 UpdateReynoldsParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
@@ -92,8 +106,6 @@ public class swarmAlgorithm : MonoBehaviour
 
             // Olfati-Saber algorithm and parameters
             case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
-                EnableAlgorithm(olfatiSaberAlgorithm);
-                DisableAlgorithm(reynoldsAlgorithm);
                 UpdateOlfatiSaberParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
@@ -102,6 +114,14 @@ public class swarmAlgorithm : MonoBehaviour
 
         }
 
+    }
+
+    public void SetSwarmSpread(float spread)
+    {
+        if (olfatiSaberAlgorithm != null)
+        {
+            olfatiSaberAlgorithm.d_ref = spread;
+        }
     }
     // Enable an algorithm script
     private void EnableAlgorithm(MonoBehaviour algorithm)

@@ -79,7 +79,7 @@ public class swarmSpawn : MonoBehaviour
             Transform droneParent = drone.transform.Find("DroneParent");
 
             // Add the swarm to the necessary scripts
-            droneParent.GetComponent<swarmAlgorithm>().swarm = swarm;       
+            droneParent.GetComponent<SwarmAlgorithm>().swarm = swarm;       
             droneParent.GetComponent<AttitudeAlgorithm>().swarm = swarm;     
         }
 

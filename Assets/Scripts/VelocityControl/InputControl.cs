@@ -5,7 +5,7 @@ using UnityEngine;
 public class InputControl : MonoBehaviour {
 
 	public VelocityControl vc;
-	public OlfatiSaber olfatiSaber;
+	public SwarmAlgorithm swarmAlgorithm;
 
 	public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
@@ -37,9 +37,9 @@ public class InputControl : MonoBehaviour {
 		else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
 		{
 			// Olfati-Saber velocity control
-			olfatiSaber.desired_vx = Input.GetAxisRaw("Pitch") * speedCoeff;
-			olfatiSaber.desired_vy = Input.GetAxisRaw("Roll") * speedCoeff;
-			olfatiSaber.desired_yaw = Input.GetAxisRaw("Yaw") * yawRateCoeff;
+			swarmAlgorithm.desired_vx = Input.GetAxisRaw("Pitch") * speedCoeff;
+			swarmAlgorithm.desired_vy = Input.GetAxisRaw("Roll") * speedCoeff;
+			swarmAlgorithm.desired_yaw = Input.GetAxisRaw("Yaw") * yawRateCoeff;
 			vc.swarm_vy = Input.GetAxisRaw("Throttle") * speedCoeff;
 		}
 
