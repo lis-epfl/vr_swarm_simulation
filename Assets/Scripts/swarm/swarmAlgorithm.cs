@@ -22,9 +22,6 @@ public class swarmAlgorithm : MonoBehaviour
     public float desired_vy = 0.0f;
     public float desired_yaw = 0.0f;
 
-    // Get the AttitudeControl enum from SwarmManager
-    private SwarmManager.AttitudeControl attitudeControlType;
-
     // Controller scripts
     private GameObject controller;
     private ReadController readController;
@@ -114,21 +111,6 @@ public class swarmAlgorithm : MonoBehaviour
 
         }
 
-        // Get the attitude control selection
-        attitudeControlType = swarmManager.attitudeControlType;
-
-        // Check the attitude control type and enable/disable the corresponding algorithm
-        switch (attitudeControlType)
-        {
-            case SwarmManager.AttitudeControl.NONE:
-                DisableAlgorithm(attitudeControl);
-                break;
-            case SwarmManager.AttitudeControl.CONVEXHULL:
-                EnableAlgorithm(attitudeControl);
-                UpdateAttitudeControlParameters();
-                break;
-        }
-
     }
     // Enable an algorithm script
     private void EnableAlgorithm(MonoBehaviour algorithm)
@@ -178,20 +160,10 @@ public class swarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.r0_obs = swarmManager.GetR0Obs();
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
             olfatiSaberAlgorithm.c_obs = swarmManager.GetCObs();
-            olfatiSaberAlgorithm.scaleFactor = swarmManager.getScaleFactor();
+            olfatiSaberAlgorithm.scaleFactor = swarmManager.GetScaleFactor();
         }
     }
-    
-    // Update the attitude control parameters
-    private void UpdateAttitudeControlParameters()
-    {
-        if (attitudeControl != null)
-        {
-            attitudeControl.numNeighbours = swarmManager.GetNumNeighbours();
-            attitudeControl.numDimensions = swarmManager.GetNumDimensions();
-            attitudeControl.pointInwards = swarmManager.GetPointInwards();
-        }
-    }
+
 
     public Vector3 GetSwarmCenter()
     {
