@@ -51,6 +51,24 @@ public static class ConvexHull
         return hull;
     }
 
+    public static Vector2 ComputeBisector(IList<Vector2> convexHull, Vector2 currentPosition, bool pointInwards)
+    {
+        // Find the location of the current drone in the convex hull
+        int locationInConvexHull = convexHull.IndexOf(currentPosition);
+
+        // Get the edges adjacent to the current drone
+        int nextIndex = (locationInConvexHull + 1) % convexHull.Count;
+        int previousIndex = ((locationInConvexHull - 1) + convexHull.Count) % convexHull.Count;
+
+        Vector2 edge1 = convexHull[nextIndex] - convexHull[locationInConvexHull];
+        Vector2 edge2 = convexHull[previousIndex] - convexHull[locationInConvexHull];
+
+        // Get the bisector of the first and last edge
+        Vector2 bisector = (edge1 + edge2).normalized;
+
+        return pointInwards ? -bisector : bisector;
+    }
+
     private static Vector2 Sub(this Vector2 a, Vector2 b)
     {
         return a - b;
