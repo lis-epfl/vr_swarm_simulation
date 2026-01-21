@@ -798,7 +798,7 @@ Transform:
   m_GameObject: {fileID: 1739179400309510}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0.4299991}
+  m_LocalPosition: {x: 0, y: 0, z: 0.4}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -884,7 +884,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   droneTransform: {fileID: 4357867903532992}
-  offset: {x: 0, y: 0, z: 0}
+  offset: {x: 0, y: 0, z: 0.4}
   temp: 0.3
   rpLimitRatio: 0.2
 --- !u!1 &1880523559110524
