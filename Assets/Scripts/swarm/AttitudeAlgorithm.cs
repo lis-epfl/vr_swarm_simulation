@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class AttitudeControl : MonoBehaviour
+public class AttitudeAlgorithm : MonoBehaviour
 {
     public VelocityControl vc;
     public List<GameObject> swarm;
