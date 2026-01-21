@@ -27,8 +27,6 @@ public class ReadController : MonoBehaviour
     // Use the SwarmAlgorithm enum from SwarmManager
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
-    // Current algorithm selected
-    private SwarmManager.AttitudeControl attitudeControlType;
 
     private float abs_height = 14;
 
