@@ -36,15 +36,15 @@ public class SwarmManager : MonoBehaviour
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
     public float scaleFactor = 10.0f;
-    public enum AttitudeControl
+    public enum AttitudeAlgorithm
     {
         NONE,
-        GLOBAL,
+        SIMPLE,
         CONVEXHULL,
     }
 
     [Header("Attitude Control")]
-    public AttitudeControl attitudeControlType;
+    public AttitudeAlgorithm SelectedAttitudeAlgorithm;
     public int numNeighbours = 5;
     public int numDimensions = 2;
     public bool pointInwards = true;
@@ -94,11 +94,12 @@ public class SwarmManager : MonoBehaviour
     public float GetR0Obs() => r0_obs;
     public float GetLambdaObs() => lambda_obs;
     public float GetCObs() => c_obs;
-    public float getScaleFactor() => scaleFactor;
+    public float GetScaleFactor() => scaleFactor;
 
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;
     public int GetNumDimensions() => numDimensions;
     public bool GetPointInwards() => pointInwards;  
+    public AttitudeAlgorithm GetSelectedAttitudeAlgorithm() => SelectedAttitudeAlgorithm;
 
 }
