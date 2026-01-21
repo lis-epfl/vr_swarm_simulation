@@ -13,20 +13,66 @@ public class AttitudeControl : MonoBehaviour
     public bool pointInwards = false;
 
     private string droneName;    
+    private SwarmManager swarmManager;
+    private SwarmManager.AttitudeAlgorithm selectedAttitudeAlgorithm;
+    private float inputYawRate = 0.0f;
     
     void Start()
     {
         droneName = transform.parent.name;
+
+        // Automatically assign the SwarmManager if not already set
+        swarmManager = swarmManager ?? SwarmManager.Instance;
+        swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
+        // Initialize all parameters from current values in SwarmManager
+        OnSwarmParamsChanged();
     }
 
     void FixedUpdate()
     {
+        float desiredYawRateRadians = 0.0f;
+        switch(selectedAttitudeAlgorithm)
+        {
+            case SwarmManager.AttitudeAlgorithm.NONE:
+                // Force yaw rate to zero
+                desiredYawRateRadians = 0.0f;
+                break;
+            case SwarmManager.AttitudeAlgorithm.SIMPLE:
+                desiredYawRateRadians = inputYawRate;
+                break;
+            case SwarmManager.AttitudeAlgorithm.CONVEXHULL:
+                desiredYawRateRadians = getYawRateFromConvexHull();
+                break;
+            default:
+                Debug.LogError("Unknown Attitude Control Algorithm selected.");
+                break;
+        }
         
-        // Log an error if the number of dimensions is not 2
+        // Set the desired yaw rate in the velocity control script
+        vc.attitude_control_yaw = desiredYawRateRadians;
+
+    }
+
+    /// <summary>
+    /// Sets the desired yaw rate from an external controller (in radians)
+    /// </summary>
+    /// <param name="yawRateRadians"></param>
+    public void SetYawRateFromCommand(float yawRateRadians)
+    {
+        inputYawRate = yawRateRadians;
+    }
+
+    /// <summary>
+    /// Computes the desired yaw rate based on the convex hull algorithm.
+    /// </summary>
+    /// <returns>The desired yaw rate in radians based on the convex hull algorithm.</returns>
+    private float getYawRateFromConvexHull()
+    {
+         // Log an error if the number of dimensions is not 2
         if (numDimensions != 2)
         {
             Debug.LogError("The number of dimensions must be 2");
-            return;
+            return 0.0f;
         }
         
         // Sort the swarm by the distance to the current drone and get the closest numNeighbours
@@ -44,10 +90,11 @@ public class AttitudeControl : MonoBehaviour
         neighbours = swarm.GetRange(1, (int)Mathf.Min(numNeighbours, swarm.Count - 1));
 
         // Collect positions of the current drone and its neighbours
-        List<Vector2> positions2D = new List<Vector2>();
-
-        // Add the position of the current drone
-        positions2D.Add(new Vector2(transform.position.x, transform.position.z));
+        List<Vector2> positions2D = new List<Vector2>
+        {
+            // Add the position of the current drone
+            new Vector2(transform.position.x, transform.position.z)
+        };
 
         // Add the positions of the neighbours
         foreach (GameObject neighbour in neighbours)
@@ -72,31 +119,11 @@ public class AttitudeControl : MonoBehaviour
         {
             // Set the boundary estimate to false
             boundaryEstimate = false;
-
-            // Set the desired yaw rate to 0
-            vc.attitude_control_yaw = 0;
-            
-            return;
+            return 0.0f;
         }
 
-        // Find the location of the current drone in the convex hull
-        int locationInConvexHull = convexHull.IndexOf(currentDronePosition);
-
-        // Get the edges adjacent to the current drone
-        int nextIndex = (locationInConvexHull + 1) % convexHull.Count;
-        int previousIndex = ((locationInConvexHull - 1) + convexHull.Count) % convexHull.Count;
-
-        Vector2 edge1 = convexHull[nextIndex] - convexHull[locationInConvexHull];
-        Vector2 edge2 = convexHull[previousIndex] - convexHull[locationInConvexHull];
-
-        // Get the bisector of the first and last edge
-        Vector2 bisector = (edge1 + edge2).normalized;
-
-        // If pointInwards is true, reverse the bisector
-        if (pointInwards)
-        {
-            bisector = -bisector;
-        }
+        // Compute the bisector at the current drone's position
+        Vector2 bisector = ConvexHull.ComputeBisector(convexHull, currentDronePosition, pointInwards);
 
         // Set the desired yaw rate to be the the angle between the bisector and the current heading
         float desiredYawRateDegrees = Vector2.SignedAngle(new Vector2(transform.forward.x, transform.forward.z), bisector);
@@ -112,14 +139,21 @@ public class AttitudeControl : MonoBehaviour
         {
             desiredYawRateRadians = -Mathf.PI - desiredYawRateRadians;
         }
-        
 
-        // Set the desired yaw rate in the velocity control script
-        vc.attitude_control_yaw = desiredYawRateRadians;
-
-        // Set the boundary estimate to true
         boundaryEstimate = true;
+        return desiredYawRateRadians;
+    }
 
+    void OnSwarmParamsChanged()
+    {
+        selectedAttitudeAlgorithm = swarmManager.GetSelectedAttitudeAlgorithm();
+        numNeighbours = swarmManager.GetNumNeighbours();
+        numDimensions = swarmManager.GetNumDimensions();
+        pointInwards = swarmManager.GetPointInwards();
+    }
 
+    void OnDestroy()
+    {
+        swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;        
     }
 }
