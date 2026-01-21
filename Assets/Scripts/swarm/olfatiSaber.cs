@@ -5,8 +5,6 @@ using UnityEngine;
 
 public class OlfatiSaber : MonoBehaviour
 {
-    public List<GameObject> swarm;
-
     public bool is3D = true;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
@@ -22,47 +20,31 @@ public class OlfatiSaber : MonoBehaviour
     public float c_obs = 4.3f;
     public float scaleFactor = 10.0f;
 
-
     public float maxMigrationDistance = 10.0f;
-
-
-
-    public float desired_height = 4.0f;
-    public float desired_vx = 0.0f;
-    public float desired_vy = 0.0f;
-    public float desired_vz = 0.0f;
-    public float desired_yaw = 0.0f;
-    
-    private Vector3 velocityMatching = new Vector3(0, 0, 0);
-    private Vector3 cohesion = new Vector3(0, 0, 0);
-    private Vector3 obstacle = new Vector3(0, 0, 0);
-    private Vector3 swarmInput = new Vector3(0, 0, 0);
 
     private string droneName;
 
-    private string obstacleLayer = "Obstacle";
+    private const string k_ObstacleLayerName = "Obstacle";
 
     void Start()
     {
         droneName = transform.parent.name;
     }
 
-
-    void FixedUpdate()
+    public Vector3 GetSwarmVelocityCommand(List<GameObject> swarm, Vector3 desiredVelocity)
     {
 
         // Reset the vectors
-        velocityMatching = new Vector3(0, 0, 0);
-        cohesion = new Vector3(0, 0, 0);
-        obstacle = new Vector3(0, 0, 0);
+        Vector3 velocityMatching = new Vector3(0, 0, 0);
+        Vector3 cohesion = new Vector3(0, 0, 0);
+        Vector3 obstacle = new Vector3(0, 0, 0);
 
         // Get the position and velocity of the current drone
         Vector3 position = transform.position;
         Vector3 velocity = GetComponent<Rigidbody>().velocity;
 
         //Calculate the velocity matching force given the difference between the desired v_x, v_y, and v_z and the current velocity
-        Vector3 desired_velocity = new Vector3(desired_vx, desired_vz, -desired_vy);
-        velocityMatching = c_vm * (desired_velocity - velocity);           
+        velocityMatching = c_vm * (desiredVelocity - velocity);           
         
         // Calculate the cohesion force for each of the neighbours
         foreach (GameObject neighbour in swarm)
@@ -104,7 +86,7 @@ public class OlfatiSaber : MonoBehaviour
         obstacle = GetObstacleForce();
 
         // Get the total velocity command
-        swarmInput = velocityMatching + cohesion + obstacle;
+        Vector3 swarmInput = velocityMatching + cohesion + obstacle;
 
         // Log the forces for debugging and the overall swarm input
         // Debug.Log($"Velocity Matching Force for {droneName}: {velocityMatching}");
@@ -112,12 +94,7 @@ public class OlfatiSaber : MonoBehaviour
         // Debug.Log($"Obstacle Avoidance Force for {droneName}: {obstacle}");
         // Debug.Log($"Swarm Input for {droneName}: {swarmInput}");
 
-        GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
-        // GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
-        GetComponent<VelocityControl>().swarm_vz = swarmInput.z; 
-        // GetComponent<VelocityControl>().desired_height = desired_height; 
-
-        
+        return swarmInput;
     }
 
     private Vector3 GetObstacleForce()
@@ -131,7 +108,7 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 droneVelocity = GetComponent<Rigidbody>().velocity;
 
         // Find the closest point on each obstacle with the 'Obstacle' tag and log the distance
-        Collider[] obstacles = Physics.OverlapSphere(transform.position, d_obs, LayerMask.GetMask(obstacleLayer));
+        Collider[] obstacles = Physics.OverlapSphere(transform.position, d_obs, LayerMask.GetMask(k_ObstacleLayerName));
         foreach (Collider obstacleCollider in obstacles)
         {
             // Find the closest point on the obstacle

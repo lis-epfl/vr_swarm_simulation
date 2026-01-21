@@ -4,8 +4,6 @@ using UnityEngine;
 
 public class Reynolds : MonoBehaviour
 {
-    public List<GameObject> swarm;
-
     public bool is3D = true;
     public float cohesionWeight = 1.0f;
     public float separationWeight = 1.0f;
@@ -18,7 +16,7 @@ public class Reynolds : MonoBehaviour
 
 
     // Update is called once per frame
-    void FixedUpdate()
+    public Vector3 GetSwarmVelocityCommand(List<GameObject> swarm)
     {
 
         // Reset the vectors
@@ -81,9 +79,7 @@ public class Reynolds : MonoBehaviour
 
         // Sum the total and send it to the velocity control script as the swarm input
         swarmInput = cohesion + separation + alignment;
-        GetComponent<VelocityControl>().swarm_vx = swarmInput.x;
-        GetComponent<VelocityControl>().swarm_vy = swarmInput.y;
-        GetComponent<VelocityControl>().swarm_vz = swarmInput.z;
 
+        return swarmInput;
     }
 }
