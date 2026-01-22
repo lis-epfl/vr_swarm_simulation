@@ -150,6 +150,13 @@ public class screenSpawn : MonoBehaviour
 
         // Place the screens based on the orientation of the drones
         UpdateScreenPositions();
+
+        // Move the player to the centre of the arena
+        if (player != null && arena != null)
+        {
+            player.transform.position = arena.transform.position;
+        }
+
     }
 
     // Function to update the positions and orientations of the screens
