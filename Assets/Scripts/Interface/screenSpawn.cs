@@ -175,7 +175,7 @@ public class screenSpawn : MonoBehaviour
     {
         // Check if the drone is on the boundary
         AttitudeAlgorithm attitudeControl = droneChild.GetComponent<AttitudeAlgorithm>();
-        if (!attitudeControl.boundaryEstimate)
+        if (!attitudeControl.BoundaryEstimate)
         {
             screen.SetActive(false);
             return;
