@@ -354,7 +354,7 @@ public class PyUniSharingFast : MonoBehaviour
         for (int i = 0; i < pixels.Length; i++)
         {
             int byteIndex = i * 3;
-            pixels[i] = new Color32(imageData[byteIndex], imageData[byteIndex + 1], imageData[byteIndex + 2], 255);
+            pixels[i] = new Color32(imageData[byteIndex + 2], imageData[byteIndex + 1], imageData[byteIndex], 255);
         }
 
         panoTexture.SetPixels32(pixels);
