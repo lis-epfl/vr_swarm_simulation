@@ -391,7 +391,7 @@ public class PyUniSharingFast : MonoBehaviour
 
             if (attitudeScript != null)
             {
-                bool estimate = attitudeScript.boundaryEstimate;
+                bool estimate = attitudeScript.BoundaryEstimate;
                 camerasToStitch.Add(estimate);
             }
             else
