@@ -204,44 +204,55 @@ class StitcherManager:
                 # Use simplified compose method that doesn't need homographies
                 pano = self.stitch_with_known_order(images, order, num_pano_img)
             elif self.active_stitcher_type == "UDIS":
+                # Get subsets based on head angle and known order
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
                 # UDIS uses direct image warping
-                subset1, subset2 = self.get_subsets_from_order(order, num_pano_img, len(images))
                 pano = self.active_stitcher.UDIS_pano(images, subset1, subset2)
+
             elif self.active_stitcher_type == "NIS":
-                subset1, subset2 = self.get_subsets_from_order(order, num_pano_img, len(images))
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
                 # NIS stitch implementation would go here
                 pano = None  # Placeholder
             elif self.active_stitcher_type == "REWARP":
-                subset1, subset2 = self.get_subsets_from_order(order, num_pano_img, len(images))
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
                 # REWARP stitch implementation would go here
                 pano = None  # Placeholder
             
             if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put(pano)
 
-    def get_subsets_from_order(self, order, num_pano_img, num_images):
+    def get_subsets_from_order(self, order, num_images):
         """
         Get image subsets based on head angle and known order.
-        Simplified version that uses the headAngle to determine which images to use.
+        Selects 3 images centered around the head direction (left, center, right).
+        Reference image is the one with heading closest to headAngle.
         """
-        # Use the headAngle to determine reference image
-        angle_per_image = 360.0 / num_images
-        ref_idx = int((self.headAngle / angle_per_image) + 0.5) % num_images
+        # Find the drone with heading closest to headAngle
+        min_diff = float('inf')
+        closest_drone_idx = 0
         
-        odd = num_pano_img % 2
+        for i, heading in enumerate(self.shared_headings):
+            # Calculate circular distance (handling wraparound)
+            diff = abs(heading - self.headAngle)
+            if diff > 180:
+                diff = 360 - diff
+            
+            if diff < min_diff:
+                min_diff = diff
+                closest_drone_idx = i
+        
+        # Find the position of this drone in the order array
+        ref_idx = int(np.where(order == closest_drone_idx)[0][0])
+        
+        # Get indices for left, center, and right
+        left_idx = (ref_idx - 1) % num_images
+        right_idx = (ref_idx + 1) % num_images
+        
+        # Create subsets: left subset is [left, center], right subset is [center, right]
+        subset1 = np.array([order[left_idx], order[ref_idx]])
+        subset2 = np.array([order[ref_idx], order[right_idx]])
+        
 
-        # print("HERE1", ref_idx, order, num_pano_img, num_images, self.headAngle)
-        
-        if odd:
-            offset = num_pano_img // 2
-            subset1 = order[ref_idx-offset:ref_idx+1][::-1] if ref_idx >= offset else np.concatenate([order[ref_idx-offset:], order[:ref_idx+1]])[::-1]
-            subset2 = order[ref_idx:ref_idx+offset+1] if ref_idx + offset + 1 <= num_images else np.concatenate([order[ref_idx:], order[:ref_idx+offset+1-num_images]])
-        else:
-            right_offset = int((self.headAngle % angle_per_image) >= angle_per_image/2)
-            offset = num_pano_img // 2
-            subset1 = order[ref_idx-offset+1:ref_idx+1][::-1] if ref_idx >= offset-1 else np.concatenate([order[ref_idx-offset+1:], order[:ref_idx+1]])[::-1]
-            subset2 = order[ref_idx:ref_idx+offset+right_offset] if ref_idx + offset + right_offset <= num_images else np.concatenate([order[ref_idx:], order[:ref_idx+offset+right_offset-num_images]])
-        
         return subset1, subset2
 
     def stitch_with_known_order(self, images, order, num_pano_img):
@@ -249,7 +260,7 @@ class StitcherManager:
         Simplified stitching for when order is known.
         Just arranges images side by side without complex homography computation.
         """
-        subset1, subset2 = self.get_subsets_from_order(order, num_pano_img, len(images))
+        subset1, subset2 = self.get_subsets_from_order(order, len(images))
         
         # Simple horizontal concatenation
         selected_indices = np.concatenate([subset1[::-1], subset2[1:]])  # Avoid duplicate ref image
@@ -293,6 +304,33 @@ class StitcherManager:
         self.batchImageWidth, self.batchImageHeight = output["Sizes"][:2]
         self.active_stitcher.points_remap = None
         pass
+
+def get_drone_order(drone_ids, headings):
+    """
+    Calculates the order of drones based on their heading angles.
+    Arranges drones by heading in ascending order, handling wrap-around at ±180°.
+    
+    Parameters:
+    - drone_ids: list of drone IDs
+    - headings: list of heading angles (between -180 and 180)
+    
+    Returns:
+    - list of indices representing the sorted order of drones by heading
+    """
+    if len(drone_ids) != len(headings):
+        raise ValueError("drone_ids and headings must have the same length")
+    
+    # Normalize headings: convert negative angles to their positive equivalents
+    normalized_headings = [h if h >= 0 else h + 360 for h in headings]
+    
+    # Create tuples of (index, normalized_heading) and sort
+    indexed_headings = [(i, normalized_headings[i]) for i in range(len(headings))]
+    sorted_indexed_headings = sorted(indexed_headings, key=lambda x: x[1])
+    
+    # Extract just the indices in sorted order
+    sorted_indices = [idx for idx, _ in sorted_indexed_headings]
+    
+    return sorted_indices
 
 def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_debug_logging=False):
     """
@@ -373,9 +411,11 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 manager.shared_drone_ids = sorted_drone_ids
                 manager.shared_headings = sorted_headings
                 # Create known order based on sorted drone IDs
-                manager.known_order = [1,2,0]#list(range(len(sorted_images)))
-                # Use the first heading as the overall head angle (or compute average)
-                manager.headAngle = sorted_headings[0] if len(sorted_headings) > 0 else 0
+                manager.known_order = get_drone_order(sorted_drone_ids, sorted_headings)
+                # Set the head angle to the heading of the centre drone in the order
+                center_idx = len(sorted_headings) // 2
+                drone_id = manager.known_order[center_idx]
+                manager.headAngle = sorted_headings[drone_id]
             
             if enable_debug_logging:
                 print(f"[first_thread] Read {len(images)} images, sorted drone IDs: {sorted_drone_ids}, headings: {sorted_headings}")
