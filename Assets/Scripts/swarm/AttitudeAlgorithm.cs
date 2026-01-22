@@ -7,10 +7,10 @@ public class AttitudeAlgorithm : MonoBehaviour
     public VelocityControl vc;
     public List<GameObject> swarm;
     public List<GameObject> neighbours;
-    public int numNeighbours = 3;
-    public int numDimensions = 2;
-    public bool boundaryEstimate = false;
-    public bool pointInwards = false;
+    public int NumNeighbours = 3;
+    public int NumDimensions = 2;
+    public bool BoundaryEstimate = false;
+    public bool PointInwards = false;
 
     private string droneName;    
     private SwarmManager swarmManager;
@@ -69,7 +69,7 @@ public class AttitudeAlgorithm : MonoBehaviour
     private float getYawRateFromConvexHull()
     {
          // Log an error if the number of dimensions is not 2
-        if (numDimensions != 2)
+        if (NumDimensions != 2)
         {
             Debug.LogError("The number of dimensions must be 2");
             return 0.0f;
@@ -87,7 +87,7 @@ public class AttitudeAlgorithm : MonoBehaviour
         });
 
         // Get the closest numNeighbours
-        neighbours = swarm.GetRange(1, (int)Mathf.Min(numNeighbours, swarm.Count - 1));
+        neighbours = swarm.GetRange(1, (int)Mathf.Min(NumNeighbours, swarm.Count - 1));
 
         // Collect positions of the current drone and its neighbours
         List<Vector2> positions2D = new List<Vector2>
@@ -118,12 +118,12 @@ public class AttitudeAlgorithm : MonoBehaviour
         if (!isInConvexHull)
         {
             // Set the boundary estimate to false
-            boundaryEstimate = false;
+            BoundaryEstimate = false;
             return 0.0f;
         }
 
         // Compute the bisector at the current drone's position
-        Vector2 bisector = ConvexHull.ComputeBisector(convexHull, currentDronePosition, pointInwards);
+        Vector2 bisector = ConvexHull.ComputeBisector(convexHull, currentDronePosition, PointInwards);
 
         // Set the desired yaw rate to be the the angle between the bisector and the current heading
         float desiredYawRateDegrees = Vector2.SignedAngle(new Vector2(transform.forward.x, transform.forward.z), bisector);
@@ -140,16 +140,16 @@ public class AttitudeAlgorithm : MonoBehaviour
             desiredYawRateRadians = -Mathf.PI - desiredYawRateRadians;
         }
 
-        boundaryEstimate = true;
+        BoundaryEstimate = true;
         return desiredYawRateRadians;
     }
 
     void OnSwarmParamsChanged()
     {
         selectedAttitudeAlgorithm = swarmManager.GetSelectedAttitudeAlgorithm();
-        numNeighbours = swarmManager.GetNumNeighbours();
-        numDimensions = swarmManager.GetNumDimensions();
-        pointInwards = swarmManager.GetPointInwards();
+        NumNeighbours = swarmManager.GetNumNeighbours();
+        NumDimensions = swarmManager.GetNumDimensions();
+        PointInwards = swarmManager.GetPointInwards();
     }
 
     void OnDestroy()
