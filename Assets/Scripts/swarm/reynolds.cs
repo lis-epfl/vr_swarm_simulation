@@ -23,6 +23,8 @@ public class Reynolds : MonoBehaviour
         cohesion = new Vector3(0, 0, 0);
         separation = new Vector3(0, 0, 0);
         alignment = new Vector3(0, 0, 0);       
+
+        StateFinder currentDroneState = GetComponent<VelocityControl>().State;
         
         // Calculate the relative position and velocity of each drone to the current drone
         foreach (GameObject neighbour in swarm)
@@ -38,10 +40,11 @@ public class Reynolds : MonoBehaviour
             }
 
             // Get the position of the neighbour
-            Vector3 neighbourPosition = neighbourChild.transform.position;
+            StateFinder neighbourState = neighbourChild.GetComponent<VelocityControl>().State;
+            Vector3 neighbourPosition = neighbourState.Position;
 
             // Relative Position
-            Vector3 relativePosition = neighbourPosition - transform.position;
+            Vector3 relativePosition = neighbourPosition - currentDroneState.Position;
 
             // Set the y-component to zero if in 2D mode
             if (!Is3D)
@@ -53,7 +56,7 @@ public class Reynolds : MonoBehaviour
             float distance = relativePosition.magnitude;
 
             // Relative Velocity
-            Vector3 relativeVelocity = neighbourChild.GetComponent<Rigidbody>().velocity - GetComponent<Rigidbody>().velocity;
+            Vector3 relativeVelocity = transform.TransformDirection(neighbourState.VelocityVector) - transform.TransformDirection(currentDroneState.VelocityVector);
             
             // Set the y-component to zero if in 2D mode
             if (!Is3D)
