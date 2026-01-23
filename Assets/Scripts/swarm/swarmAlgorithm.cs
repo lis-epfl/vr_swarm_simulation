@@ -82,7 +82,10 @@ public class SwarmAlgorithm : MonoBehaviour
     // Cleanup when the script is destroyed
     void OnDestroy()
     {
-        swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;
+        if (swarmManager != null)
+        {
+            swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;        
+        }
     }
 
 
