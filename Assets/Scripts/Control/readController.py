@@ -24,8 +24,8 @@ def get_joystick_data(joystick, center_ang_x, current_ang_x):
 
     # Get specific axes data (from the controller mapping)
     data['linear'] = {
-        'x': joystick.get_axis(1),  # Axis 2: linear.x
-        'y': -joystick.get_axis(2),  # Axis 1: linear.y (negated)
+        'x': joystick.get_axis(2),  # Axis 2: linear.x
+        'y': joystick.get_axis(1),  # Axis 1: linear.y (negated)
         'z': 0.5 * joystick.get_axis(0) * abs(joystick.get_axis(0)),  # Axis 0: quadratic scaled linear.z
     }
 
@@ -37,8 +37,8 @@ def get_joystick_data(joystick, center_ang_x, current_ang_x):
     }
 
     data['switches'] = {
-        's1': round(joystick.get_axis(5), 0),
-        's2': round(joystick.get_axis(6), 0)
+        's1': int(round(joystick.get_axis(5), 0)),
+        's2': int(round(joystick.get_axis(6), 0))
     }
 
     return data

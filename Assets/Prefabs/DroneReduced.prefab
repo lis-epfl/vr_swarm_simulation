@@ -739,7 +739,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1713172099184850}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ec3b2d78ab3414b538a10156593fb2e9, type: 3}
   m_Name: 
@@ -749,7 +749,7 @@ MonoBehaviour:
   currentAlgorithm: 1
   speedCoeff: 4
   yawRateCoeff: 0.5
-  altCoeff: 0.1
+  altCoeff: 1
 --- !u!114 &6727076729497765368
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -757,7 +757,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1713172099184850}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b489a38bd9672774ca5bb8a28b33fa11, type: 3}
   m_Name: 
@@ -1017,6 +1017,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Altitude: 0
+  Position: {x: 0, y: 0, z: 0}
   Angles: {x: 0, y: 0, z: 0}
   VelocityVector: {x: 0, y: 0, z: 0}
   AngularVelocityVector: {x: 0, y: 0, z: 0}
