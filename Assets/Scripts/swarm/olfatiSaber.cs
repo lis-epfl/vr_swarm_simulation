@@ -40,8 +40,10 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 obstacle = new Vector3(0, 0, 0);
 
         // Get the position and velocity of the current drone
-        Vector3 position = transform.position;
-        Vector3 velocity = GetComponent<Rigidbody>().velocity;
+        StateFinder currentDroneState = GetComponent<VelocityControl>().State;
+        Vector3 position = currentDroneState.Position;
+        Vector3 localVelocity = currentDroneState.VelocityVector;
+        Vector3 velocity = transform.TransformDirection(localVelocity);
 
         //Calculate the velocity matching force given the difference between the desired v_x, v_y, and v_z and the current velocity
         velocityMatching = c_vm * (desiredVelocity - velocity);           
@@ -58,8 +60,10 @@ public class OlfatiSaber : MonoBehaviour
                 continue;
             }
 
+            // Get state of the neighbour
+            StateFinder neighbourState = neighbourChild.GetComponent<VelocityControl>().State;
             // Get the position of the neighbour
-            Vector3 neighbourPosition = neighbourChild.transform.position;
+            Vector3 neighbourPosition = neighbourState.Position;
 
             // Relative Position
             Vector3 relativePosition = neighbourPosition - position;
@@ -83,7 +87,7 @@ public class OlfatiSaber : MonoBehaviour
         }
 
         // Get the obstacle avoidance force
-        obstacle = GetObstacleForce();
+        obstacle = GetObstacleForce(position, velocity);
 
         // Get the total velocity command
         Vector3 swarmInput = velocityMatching + cohesion + obstacle;
@@ -97,25 +101,19 @@ public class OlfatiSaber : MonoBehaviour
         return swarmInput;
     }
 
-    private Vector3 GetObstacleForce()
+    private Vector3 GetObstacleForce(Vector3 dronePosition, Vector3 droneVelocity)
     {
-
-
         Vector3 ObsCoh = Vector3.zero;
         Vector3 ObsVel = Vector3.zero;
 
-        // Get the drone velocity
-        Vector3 droneVelocity = GetComponent<Rigidbody>().velocity;
-
         // Find the closest point on each obstacle with the 'Obstacle' tag and log the distance
-        Collider[] obstacles = Physics.OverlapSphere(transform.position, d_obs, LayerMask.GetMask(k_ObstacleLayerName));
+        Collider[] obstacles = Physics.OverlapSphere(dronePosition, d_obs, LayerMask.GetMask(k_ObstacleLayerName));
         foreach (Collider obstacleCollider in obstacles)
         {
             // Find the closest point on the obstacle
-            Vector3 closestPoint = obstacleCollider.ClosestPointOnBounds(transform.position);
-
+            Vector3 closestPoint = obstacleCollider.ClosestPointOnBounds(dronePosition);
             // Calculate the distance to the closest point
-            Vector3 directionToObstacle = closestPoint - transform.position;
+            Vector3 directionToObstacle = closestPoint - dronePosition;
             float distanceToObstacle = directionToObstacle.magnitude;
 
             // Scale the distance to fit the obstacle avoidance function
@@ -126,9 +124,9 @@ public class OlfatiSaber : MonoBehaviour
             {
                 // Calculate the obstacle velocity, vel_obs, using the logic above
                 float s = 1 / (distanceToObstacle + 1);
-                Vector3 pos_obs = s * transform.position + (1 - s) * closestPoint;
-                float s_der = 1 * Vector3.Dot(droneVelocity, (pos_obs - transform.position).normalized) / Mathf.Pow(1 + distanceToObstacle, 2);
-                Vector3 vel_obs = s * droneVelocity - 1 * (s_der / s) * (pos_obs - transform.position).normalized;
+                Vector3 pos_obs = s * dronePosition + (1 - s) * closestPoint;
+                float s_der = 1 * Vector3.Dot(droneVelocity, (pos_obs - dronePosition).normalized) / Mathf.Pow(1 + distanceToObstacle, 2);
+                Vector3 vel_obs = s * droneVelocity - 1 * (s_der / s) * (pos_obs - dronePosition).normalized;
 
                 ObsCoh += GetCohesionForce(distanceToObstacle, d_obs, r0_obs) * directionToObstacle.normalized;
                 ObsVel += (vel_obs - droneVelocity);
