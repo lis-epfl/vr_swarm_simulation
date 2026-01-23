@@ -146,10 +146,10 @@ public class SwarmAlgorithm : MonoBehaviour
     {
         if (reynoldsAlgorithm != null)
         {
-            reynoldsAlgorithm.is3D = swarmManager.GetDimensions();
-            reynoldsAlgorithm.cohesionWeight = swarmManager.GetCohesionWeight();
-            reynoldsAlgorithm.separationWeight = swarmManager.GetSeparationWeight();
-            reynoldsAlgorithm.alignmentWeight = swarmManager.GetAlignmentWeight();
+            reynoldsAlgorithm.Is3D = swarmManager.GetDimensions();
+            reynoldsAlgorithm.CohesionWeight = swarmManager.GetCohesionWeight();
+            reynoldsAlgorithm.SeparationWeight = swarmManager.GetSeparationWeight();
+            reynoldsAlgorithm.AlignmentWeight = swarmManager.GetAlignmentWeight();
         }
     }
 
@@ -158,7 +158,7 @@ public class SwarmAlgorithm : MonoBehaviour
     {
         if (olfatiSaberAlgorithm != null)
         {
-            olfatiSaberAlgorithm.is3D = swarmManager.GetDimensions();
+            olfatiSaberAlgorithm.Is3D = swarmManager.GetDimensions();
             olfatiSaberAlgorithm.d_ref = swarmManager.GetDRef();
             olfatiSaberAlgorithm.r0_coh = swarmManager.GetR0Coh();
             olfatiSaberAlgorithm.delta = swarmManager.GetDelta();
@@ -171,7 +171,7 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.r0_obs = swarmManager.GetR0Obs();
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
             olfatiSaberAlgorithm.c_obs = swarmManager.GetCObs();
-            olfatiSaberAlgorithm.scaleFactor = swarmManager.GetScaleFactor();
+            olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();
         }
     }
 
