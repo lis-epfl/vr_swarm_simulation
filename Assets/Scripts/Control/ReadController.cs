@@ -23,6 +23,25 @@ public class ReadController : MonoBehaviour
 
     public float height_min = 10;
     public float height_max = 20;
+    public SwarmAlgorithm SwarmAlgorithm;
+
+    // Thrust modes
+    public enum ThrustMode
+    {
+        HEIGHT_VARIABLE = -1,
+        HEIGHT_CONSTANT
+    }
+
+    // View modes
+    public enum ViewMode
+    {
+        FRONT = -1,
+        BIRDSEYE,
+        BACK
+    }
+
+    public float height_min = 10;
+    public float height_max = 20;
 
     // Use the SwarmAlgorithm enum from SwarmManager
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
@@ -30,8 +49,11 @@ public class ReadController : MonoBehaviour
 
     private float abs_height = 14;
 
+    private float abs_height = 14;
+
     void Start()
     {
+        
         
     }
 
