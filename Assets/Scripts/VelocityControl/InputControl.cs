@@ -40,7 +40,7 @@ public class InputControl : MonoBehaviour {
 			swarmAlgorithm.desired_vx = Input.GetAxisRaw("Pitch") * speedCoeff;
 			swarmAlgorithm.desired_vy = Input.GetAxisRaw("Roll") * speedCoeff;
 			swarmAlgorithm.desired_yaw = Input.GetAxisRaw("Yaw") * yawRateCoeff;
-			vc.swarm_vy = Input.GetAxisRaw("Throttle") * speedCoeff;
+			vc.swarm_vy = Input.GetAxisRaw("Throttle") * altCoeff;
 		}
 
 		else if (currentAlgorithm != SwarmManager.SwarmAlgorithm.NBV) // NEW ADVAITH NBV

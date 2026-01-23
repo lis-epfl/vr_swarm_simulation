@@ -64,8 +64,8 @@ public class ReadController : MonoBehaviour
                 else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
                 {
                     // Apply the velocities to the Olfati-Saber velocity control script
-                    SwarmAlgorithm.desired_vx = linearVelocity.x;
-                    SwarmAlgorithm.desired_vy = linearVelocity.y;
+                    SwarmAlgorithm.desired_vx = linearVelocity.x * 4.0f;
+                    SwarmAlgorithm.desired_vy = linearVelocity.y * 4.0f;
                     SwarmAlgorithm.desired_yaw = angularVelocity.z;
                     SwarmAlgorithm.SetSwarmSpread(angularVelocity.x);
                     
@@ -75,10 +75,10 @@ public class ReadController : MonoBehaviour
                             abs_height = height_min + (height_max - height_min) * (linearVelocity.z + 1.0f) / 2;
                             break;
                         case ThrustMode.HEIGHT_VARIABLE:
-                            abs_height += linearVelocity.z * 0.1f;
+                            vc.swarm_vy = linearVelocity.z;
                             break;
                     }
-                    SwarmAlgorithm.desired_height = abs_height;
+                    //SwarmAlgorithm.desired_height = abs_height;
 
                     // Debug.Log($"Olfati desired vx: {linearVelocity.x}");
                     // Debug.Log($"Olfati desired vy: {linearVelocity.y}");

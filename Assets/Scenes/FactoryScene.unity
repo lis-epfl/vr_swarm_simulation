@@ -14042,7 +14042,7 @@ MonoBehaviour:
   lambda_obs: 1
   c_obs: 4.3
   scaleFactor: 10
-  attitudeControlType: 0
+  SelectedAttitudeAlgorithm: 0
   numNeighbours: 9
   numDimensions: 2
   pointInwards: 0
