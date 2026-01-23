@@ -62,6 +62,8 @@ try:
             # Print the data for debugging
             # print("\n\r" + json.dumps(joystick_data, indent=2), end="")
 
+            # print("\n\r" + json.dumps(joystick_data, indent=2), end="")
+
             # Convert data to JSON string
             message = json.dumps(joystick_data)
             
