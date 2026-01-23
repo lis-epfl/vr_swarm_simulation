@@ -142,6 +142,7 @@ public class screenSpawn : MonoBehaviour
                 Camera cam = camera.GetComponent<Camera>();
                 cam.aspect = (float)width / height;
                 cam.fieldOfView = 82.1f;
+            }
 
             // Set the camera's target texture to the render texture
             //camera.GetComponent<Camera>().targetTexture = rt;

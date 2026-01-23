@@ -739,7 +739,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1713172099184850}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ec3b2d78ab3414b538a10156593fb2e9, type: 3}
   m_Name: 
@@ -757,7 +757,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1713172099184850}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b489a38bd9672774ca5bb8a28b33fa11, type: 3}
   m_Name: 
@@ -885,6 +885,7 @@ MonoBehaviour:
   offset: {x: 0, y: 0, z: 0.4}
   temp: 0.3
   rpLimitRatio: 0.2
+  pitchOffset: 0
 --- !u!1 &1880523559110524
 GameObject:
   m_ObjectHideFlags: 0
