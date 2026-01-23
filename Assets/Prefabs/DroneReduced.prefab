@@ -186,11 +186,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9fd9cf0a203549e98e27622302c103a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  state: {fileID: 114271859555978516}
-  propFL: {fileID: 1194315723904280}
-  propFR: {fileID: 1552398028780994}
-  propRR: {fileID: 1519630155678512}
-  propRL: {fileID: 1958779810228456}
+  State: {fileID: 114271859555978516}
+  PropFL: {fileID: 1194315723904280}
+  PropFR: {fileID: 1552398028780994}
+  PropRR: {fileID: 1519630155678512}
+  PropRL: {fileID: 1958779810228456}
   desired_height: 14
   desired_vx: 0
   desired_vy: 0
@@ -276,10 +276,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 55712efd78ef9cc4c9d59db3a83f6ddd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  is3D: 1
-  cohesionWeight: 1
-  separationWeight: 15
-  alignmentWeight: 1
+  Is3D: 1
+  CohesionWeight: 1
+  SeparationWeight: 1
+  AlignmentWeight: 1
 --- !u!114 &259003137113264617
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -292,7 +292,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 417cbf70288a14145a0db9262ab405ff, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  is3D: 1
+  Is3D: 1
   d_ref: 1
   r0_coh: 20
   delta: 0.1
@@ -305,8 +305,8 @@ MonoBehaviour:
   r0_obs: 6
   lambda_obs: 1
   c_obs: 4.3
-  scaleFactor: 10
-  maxMigrationDistance: 10
+  ScaleFactor: 10
+  MaxMigrationDistance: 10
 --- !u!114 &3810217873681142886
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -322,10 +322,10 @@ MonoBehaviour:
   vc: {fileID: 114202773416505472}
   swarm: []
   neighbours: []
-  numNeighbours: 3
-  numDimensions: 2
-  boundaryEstimate: 0
-  pointInwards: 0
+  NumNeighbours: 3
+  NumDimensions: 2
+  BoundaryEstimate: 0
+  PointInwards: 0
 --- !u!114 &474059409597466468
 MonoBehaviour:
   m_ObjectHideFlags: 0

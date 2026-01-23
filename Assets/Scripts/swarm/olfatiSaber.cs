@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class OlfatiSaber : MonoBehaviour
 {
-    public bool is3D = true;
+    public bool Is3D = true;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
     public float delta = 0.1f;
@@ -18,9 +18,9 @@ public class OlfatiSaber : MonoBehaviour
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
-    public float scaleFactor = 10.0f;
+    public float ScaleFactor = 10.0f;
 
-    public float maxMigrationDistance = 10.0f;
+    public float MaxMigrationDistance = 10.0f;
 
     private string droneName;
 
@@ -65,7 +65,7 @@ public class OlfatiSaber : MonoBehaviour
             Vector3 relativePosition = neighbourPosition - position;
 
             // Set the y-component to zero if in 2D mode
-            if (!is3D)
+            if (!Is3D)
             {
                 relativePosition.y = 0;
             }
@@ -74,7 +74,7 @@ public class OlfatiSaber : MonoBehaviour
             float distance = relativePosition.magnitude;
 
             // Scale the distance to fit the cohesion function
-            distance = distance / scaleFactor;
+            distance = distance / ScaleFactor;
             
             // Cohesion
             Vector3 thisCohesion = GetCohesionForce(distance, d_ref, r0_coh) * relativePosition.normalized;
@@ -119,7 +119,7 @@ public class OlfatiSaber : MonoBehaviour
             float distanceToObstacle = directionToObstacle.magnitude;
 
             // Scale the distance to fit the obstacle avoidance function
-            distanceToObstacle = distanceToObstacle / scaleFactor;
+            distanceToObstacle = distanceToObstacle / ScaleFactor;
 
             // If the distance is less than d_obs, calculate the obstacle avoidance force
             if (distanceToObstacle < r0_obs)
