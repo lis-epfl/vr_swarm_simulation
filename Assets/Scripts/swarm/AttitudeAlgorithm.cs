@@ -154,6 +154,9 @@ public class AttitudeAlgorithm : MonoBehaviour
 
     void OnDestroy()
     {
-        swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;        
+        if (swarmManager != null)
+        {
+            swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;        
+        }
     }
 }
