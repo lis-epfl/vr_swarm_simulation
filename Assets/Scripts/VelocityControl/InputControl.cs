@@ -6,7 +6,6 @@ public class InputControl : MonoBehaviour {
 
 	public VelocityControl vc;
 	public SwarmAlgorithm swarmAlgorithm;
-	public SwarmAlgorithm swarmAlgorithm;
 
 	public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
@@ -14,7 +13,6 @@ public class InputControl : MonoBehaviour {
 	public float yawRateCoeff = 0.5f;
 	public float altCoeff = 0.1f;
 
-	private float abs_height = 14;
 	private float abs_height = 14;
 
 	// Use this for initialization
