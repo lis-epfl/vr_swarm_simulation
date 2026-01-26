@@ -9,6 +9,7 @@ TagManager:
   - Screen
   - Obstacle
   - BirdsEyeCamera
+  - Arena
   layers:
   - Default
   - TransparentFX
