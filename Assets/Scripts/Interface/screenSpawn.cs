@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class screenSpawn : MonoBehaviour
+public class ScreenSpawn : MonoBehaviour
 {
 
     public enum DisplayMode

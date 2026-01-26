@@ -14,7 +14,7 @@ public class swarmSpawn : MonoBehaviour
     public int start_z = 0;
     public bool randomYaw = true;
     public GameObject swarmParent;
-    private screenSpawn screenSpawn;
+    private ScreenSpawn ScreenSpawn;
     private visualiseOlfatiSaber visualiseOlfatiSaber;
     private ViewManager viewManager;
     private int droneNumber = 0;
@@ -23,8 +23,8 @@ public class swarmSpawn : MonoBehaviour
     void Start()
     {
         
-        // Get the screenSpawn script
-        screenSpawn = GetComponent<screenSpawn>();
+        // Get the ScreenSpawn script
+        ScreenSpawn = GetComponent<ScreenSpawn>();
 
         viewManager = GetComponent<ViewManager>();
 
@@ -94,7 +94,7 @@ public class swarmSpawn : MonoBehaviour
         }
         
         // Spawn screens for each drone in the swarm
-        screenSpawn.SpawnScreens(swarm);
+        ScreenSpawn.SpawnScreens(swarm);
         
     }
 
