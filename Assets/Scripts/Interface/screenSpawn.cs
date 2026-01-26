@@ -4,7 +4,6 @@ using UnityEngine;
 
 public class ScreenSpawn : MonoBehaviour
 {
-
     public enum DisplayMode
     {
         OFF,
@@ -14,6 +13,7 @@ public class ScreenSpawn : MonoBehaviour
         ROTATING_CIRCLE,
         REAL_DRONE
     }
+
     [Header("Display Settings")]
     public DisplayMode displayMode = DisplayMode.OFF;
 
@@ -22,29 +22,55 @@ public class ScreenSpawn : MonoBehaviour
     public List<GameObject> screens = new List<GameObject>();
     public GameObject arena;
     public GameObject screenParent;
+
     [Header("VR Parameters")]
     public OVRPlayerController player;
     public int width = 640;
     public int height = 360;
-    public float outerRadius = 2.0f;
-    public float outerScale = 1.0f;
-    public float innerRadius = 0.2f;
-    public float innerScale = 0.1f;
-    public float bottomRadius = 1.0f;
-    public float bottomScale = 0.5f;
-    public Vector3 bottomOffset = new Vector3(0.0f, 0.0f, 0.0f);
+
+    [Header("Active Display Parameters")]
+    public float radius = 2.0f;
+    public float scale = 1.0f;
+    public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
+    public Vector3 lookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
+
+    [Header("Special Settings")]
     public bool invertBottomScreen = false;
     public bool doubleView = false;
     public float rotatingCircleDistance = 2.0f;
-    public float rotatingVerticalOffset = -0.3f;
-    public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
-    [Header("Real Drone Settings")]
-    public float realDroneRadius = 2.0f;
-    public float realDroneScale = 1.0f;
+
+    // Default parameters for each display mode
+    private float outerCircleRadius = 2.0f;
+    private float outerCircleScale = 1.0f;
+    private Vector3 outerCircleOffset = new Vector3(0.0f, 0.0f, 0.0f);
+    private Vector3 outerCircleLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
+
+
+    private float innerCircleRadius = 0.45f;
+    private float innerCircleScale = 0.2f;
+    private Vector3 innerCircleOffset = new Vector3(0.0f, -0.3f, 0.0f);
+    private Vector3 innerCircleLookAtOffset = new Vector3(0.5f, -0.3f, 0.0f);
+
+
+    private float bottomCircleRadius = 0.6f;
+    private float bottomCircleScale = 0.25f;
+    private Vector3 bottomCircleOffset = new Vector3(0.0f, -0.5f, 0.0f);
+    private Vector3 bottomCircleLookAtOffset = new Vector3(0.0f, -0.5f, 0.0f);
+
+    private float rotatingCircleRadius = 0.2f;
+    private float rotatingCircleScale = 0.1f;
+    private Vector3 rotatingCircleOffset = new Vector3(0.0f, -0.3f, 0.0f);
+    private Vector3 rotatingCircleLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
+
+    private float realDroneRadius = 2.0f;
+    private float realDroneScale = 1.0f;
+    private Vector3 realDroneOffset = new Vector3(0.0f, 0.0f, 0.0f);
+    private Vector3 realDroneLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
+
     private SwarmManager swarmManager;
     private bool pointInwards = false;
     public int numScreens = 2;
-
+    private DisplayMode previousDisplayMode;
 
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm = null)
@@ -61,11 +87,11 @@ public class ScreenSpawn : MonoBehaviour
 
         if (swarm != null)
         {
-        // Get the swarm manager instance
-        swarmManager = SwarmManager.Instance;
+            // Get the swarm manager instance
+            swarmManager = SwarmManager.Instance;
 
-        // Add the swarmParamsChanged event listener
-        swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
+            // Add the swarmParamsChanged event listener
+            swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
         }
 
         // Store the swarm list
@@ -148,9 +174,7 @@ public class ScreenSpawn : MonoBehaviour
                 {
                     cam.GetComponent<Camera>().targetTexture = rt;
                 }
-
             }
-
 
         }
 
@@ -162,7 +186,45 @@ public class ScreenSpawn : MonoBehaviour
         {
             player.transform.position = arena.transform.position;
         }
+    }
 
+    // Update display parameters when display mode changes
+    private void UpdateDisplayParameters()
+    {
+        switch (displayMode)
+        {
+            case DisplayMode.OUTER_CIRCLE:
+                radius = outerCircleRadius;
+                scale = outerCircleScale;
+                offset = outerCircleOffset;
+                lookAtOffset = outerCircleLookAtOffset;
+                break;
+            case DisplayMode.INNER_CIRCLE:
+                radius = innerCircleRadius;
+                scale = innerCircleScale;
+                offset = innerCircleOffset;
+                lookAtOffset = innerCircleLookAtOffset;
+                break;
+            case DisplayMode.BOTTOM_CIRCLE:
+                radius = bottomCircleRadius;
+                scale = bottomCircleScale;
+                offset = bottomCircleOffset;
+                lookAtOffset = bottomCircleLookAtOffset;
+                break;
+            case DisplayMode.ROTATING_CIRCLE:
+                radius = rotatingCircleRadius;
+                scale = rotatingCircleScale;
+                offset = rotatingCircleOffset;
+                lookAtOffset = rotatingCircleLookAtOffset;
+                break;
+            case DisplayMode.REAL_DRONE:
+                radius = realDroneRadius;
+                scale = realDroneScale;
+                offset = realDroneOffset;
+                lookAtOffset = realDroneLookAtOffset;
+                break;
+        }
+        UpdateScreenScale();
     }
 
     // Function to update the positions and orientations of the screens
@@ -222,13 +284,13 @@ public class ScreenSpawn : MonoBehaviour
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate the position on outer circle
-        float x = arena.transform.position.x + outerRadius * Mathf.Cos(radians);
-        float z = arena.transform.position.z + outerRadius * Mathf.Sin(radians);
+        float x = arena.transform.position.x + radius * Mathf.Cos(radians);
+        float z = arena.transform.position.z + radius * Mathf.Sin(radians);
         float y = arena.transform.position.y + offset.y;
 
         // Position and rotate the screen
         screen.transform.position = new Vector3(x, y, z);
-        screen.transform.LookAt(arena.transform.position);
+        screen.transform.LookAt(arena.transform.position + lookAtOffset);
         screen.transform.Rotate(0, 180f, 0); // Face outward
         screen.SetActive(true);
     }
@@ -239,30 +301,30 @@ public class ScreenSpawn : MonoBehaviour
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate the position on inner circle
-        float x = arena.transform.position.x + innerRadius * Mathf.Cos(radians) + offset.x;
-        float z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
+        float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
+        float z = arena.transform.position.z + radius * Mathf.Sin(radians);
         float y = arena.transform.position.y + offset.y;
 
         // Position and rotate the screen
         screen.transform.position = new Vector3(x, y, z);
-        screen.transform.LookAt(arena.transform.position + offset);
+        screen.transform.LookAt(arena.transform.position + lookAtOffset);
         screen.SetActive(true);
     }
 
     // Update the bottom circle screen positions
     private void UpdateBottomCircleScreen(GameObject screen, GameObject droneChild)
-    {        
+    {
         float yaw = droneChild.transform.eulerAngles.y;
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate the position on bottom circle
-        float x = arena.transform.position.x + bottomRadius * Mathf.Cos(radians) + offset.x;
-        float z = arena.transform.position.z + bottomRadius * Mathf.Sin(radians) + offset.z;
+        float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
+        float z = arena.transform.position.z + radius * Mathf.Sin(radians) + offset.z;
         float y = arena.transform.position.y + offset.y;
 
         // Position and rotate the screen
         screen.transform.position = new Vector3(x, y, z);
-        screen.transform.LookAt(arena.transform.position + bottomOffset + offset);
+        screen.transform.LookAt(arena.transform.position + lookAtOffset + offset);
         if (invertBottomScreen)
         {
             screen.transform.Rotate(0, 180f, 0); // Invert the screen
@@ -276,7 +338,7 @@ public class ScreenSpawn : MonoBehaviour
             {
                 screen.transform.Rotate(0, 180f, 0); // Reverse the direction
             }
-        } 
+        }
 
         screen.SetActive(true);
     }
@@ -293,9 +355,9 @@ public class ScreenSpawn : MonoBehaviour
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate base position on inner circle
-        float x = arena.transform.position.x + innerRadius * Mathf.Cos(radians);
-        float z = arena.transform.position.z + innerRadius * Mathf.Sin(radians);
-        float y = arena.transform.position.y + rotatingVerticalOffset;
+        float x = arena.transform.position.x + radius * Mathf.Cos(radians);
+        float z = arena.transform.position.z + radius * Mathf.Sin(radians);
+        float y = arena.transform.position.y + offset.y;
         Vector3 basePosition = new Vector3(x, y, z);
 
         // Get player's forward direction (only using horizontal direction)
@@ -308,7 +370,7 @@ public class ScreenSpawn : MonoBehaviour
 
         // Position and rotate the screen
         screen.transform.position = offsetPosition;
-        screen.transform.LookAt(arena.transform.position + playerForward * rotatingCircleDistance);
+        screen.transform.LookAt(arena.transform.position + playerForward * rotatingCircleDistance + lookAtOffset);
         screen.SetActive(true);
     }
 
@@ -322,8 +384,8 @@ public class ScreenSpawn : MonoBehaviour
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate the position on real drone circle
-        float x = arena.transform.position.x + realDroneRadius * Mathf.Cos(radians);
-        float z = arena.transform.position.z + realDroneRadius * Mathf.Sin(radians);
+        float x = arena.transform.position.x + radius * Mathf.Cos(radians);
+        float z = arena.transform.position.z + radius * Mathf.Sin(radians);
         float y = arena.transform.position.y;
 
         // Position and rotate the screen
@@ -333,7 +395,6 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
-
     // Update the positions of the screens based on the drone orientation
     void Update()
     {
@@ -342,9 +403,15 @@ public class ScreenSpawn : MonoBehaviour
 
     void OnValidate()
     {
+        // Only update display parameters if the display mode changed
+        if (displayMode != previousDisplayMode)
+        {
+            previousDisplayMode = displayMode;
+            UpdateDisplayParameters();
+        }
         UpdateScreenScale();
     }
-    
+
     // Update the parameters from the swarm manager
     void OnSwarmParamsChanged()
     {
@@ -355,34 +422,16 @@ public class ScreenSpawn : MonoBehaviour
     // Update the scale of each screen with a factor
     public void UpdateScreenScale()
     {
-        // Get the screen scale
-        float screenScale = GetScreenScale();
-
         for (int i = 0; i < screens.Count; i++)
         {
             GameObject screen = screens[i];
-            screen.transform.localScale = new Vector3((float)width / height, 1f, 1f) * screenScale;
-        }
-    }
-    
-    // Get the scale based on display mode
-    public float GetScreenScale()
-    {
-        switch (displayMode)
-        {
-            case DisplayMode.INNER_CIRCLE:
-                return innerScale;
-            case DisplayMode.OUTER_CIRCLE:
-                return outerScale;
-            case DisplayMode.BOTTOM_CIRCLE:
-                return bottomScale;
-            case DisplayMode.ROTATING_CIRCLE:
-                return innerScale;
-            case DisplayMode.REAL_DRONE:
-                return realDroneScale;
-            default:
-                return 1.0f;
+            screen.transform.localScale = new Vector3((float)width / height, 1f, 1f) * scale;
         }
     }
 
+    // Get the scale based on display mode
+    public float GetScreenScale()
+    {
+        return scale;
+    }
 }
