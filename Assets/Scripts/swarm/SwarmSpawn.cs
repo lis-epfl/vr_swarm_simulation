@@ -14,7 +14,7 @@ public class swarmSpawn : MonoBehaviour
     public int start_z = 0;
     public bool randomYaw = true;
     public GameObject swarmParent;
-    private interfaceManager interfaceManager;
+    private InterfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
     private visualiseOlfatiSaber visualiseOlfatiSaber;
     private ViewManager viewManager;
@@ -25,7 +25,7 @@ public class swarmSpawn : MonoBehaviour
     {
         
         // Get the InterfaceManager
-        interfaceManager = GetComponent<interfaceManager>();
+        interfaceManager = GetComponent<InterfaceManager>();
         
         // Get the ScreenSpawn script
         ScreenSpawn = GetComponent<ScreenSpawn>();

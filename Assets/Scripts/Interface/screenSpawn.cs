@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class ScreenSpawn : MonoBehaviour
 {
-    public enum DisplayMode
+    public enum ScreenStyle
     {
         OFF,
         OUTER_CIRCLE,
@@ -15,29 +15,29 @@ public class ScreenSpawn : MonoBehaviour
     }
 
     [Header("Display Settings")]
-    public DisplayMode displayMode = DisplayMode.OFF;
-
-    [Header("Screen Parameters")]
-    public List<GameObject> swarm = new List<GameObject>();
-    public List<GameObject> screens = new List<GameObject>();
-    public GameObject arena;
-    public GameObject screenParent;
+    [HideInInspector] public ScreenStyle screenStyle = ScreenStyle.OFF;
 
     [Header("VR Parameters")]
     public OVRPlayerController player;
-    public int width = 640;
-    public int height = 360;
+    [HideInInspector] public int width = 640;
+    [HideInInspector] public int height = 360;
 
     [Header("Active Display Parameters")]
-    public float radius = 2.0f;
-    public float scale = 1.0f;
-    public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
-    public Vector3 lookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
+    [HideInInspector] public float radius = 2.0f;
+    [HideInInspector] public float scale = 1.0f;
+    [HideInInspector] public Vector3 offset = new Vector3(0.5f, -0.3f, 0.0f);
+    [HideInInspector] public Vector3 lookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
 
     [Header("Special Settings")]
-    public bool invertBottomScreen = false;
-    public bool doubleView = false;
-    public float rotatingCircleDistance = 2.0f;
+    [HideInInspector] public bool invertBottomScreen = false;
+    [HideInInspector] public bool doubleView = false;
+    [HideInInspector] public float rotatingCircleDistance = 2.0f;
+
+    // GameObject references
+    private List<GameObject> swarm = new List<GameObject>();
+    private List<GameObject> screens = new List<GameObject>();
+    private GameObject arena;
+    private GameObject screenParent;
 
     // Default parameters for each display mode
     private float outerCircleRadius = 2.0f;
@@ -45,12 +45,10 @@ public class ScreenSpawn : MonoBehaviour
     private Vector3 outerCircleOffset = new Vector3(0.0f, 0.0f, 0.0f);
     private Vector3 outerCircleLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
 
-
     private float innerCircleRadius = 0.45f;
     private float innerCircleScale = 0.2f;
     private Vector3 innerCircleOffset = new Vector3(0.0f, -0.3f, 0.0f);
     private Vector3 innerCircleLookAtOffset = new Vector3(0.5f, -0.3f, 0.0f);
-
 
     private float bottomCircleRadius = 0.6f;
     private float bottomCircleScale = 0.25f;
@@ -70,7 +68,8 @@ public class ScreenSpawn : MonoBehaviour
     private SwarmManager swarmManager;
     private bool pointInwards = false;
     public int numScreens = 2;
-    private DisplayMode previousDisplayMode;
+    private ScreenStyle previousScreenStyle;
+    private InterfaceManager interfaceManager;
 
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm = null)
@@ -85,6 +84,17 @@ public class ScreenSpawn : MonoBehaviour
             }
         }
 
+        // Find the arena in the scene
+        if (arena == null)
+        {
+            arena = GameObject.FindGameObjectWithTag("Arena");
+            if (arena == null)
+            {
+                Debug.LogWarning("No GameObject with tag 'Arena' found in the scene!");
+            }
+        } 
+    
+        // Get the swarm manager instance and add the event listener
         if (swarm != null)
         {
             // Get the swarm manager instance
@@ -170,12 +180,11 @@ public class ScreenSpawn : MonoBehaviour
                 cam.fieldOfView = 82.1f;
 
                 // Set the camera's target texture to the render texture
-                if (displayMode != DisplayMode.OFF || displayMode != DisplayMode.REAL_DRONE)
+                if (screenStyle != ScreenStyle.OFF || screenStyle != ScreenStyle.REAL_DRONE)
                 {
                     cam.GetComponent<Camera>().targetTexture = rt;
                 }
             }
-
         }
 
         // Place the screens based on the orientation of the drones
@@ -188,76 +197,131 @@ public class ScreenSpawn : MonoBehaviour
         }
     }
 
-    // Update display parameters when display mode changes
+    // Update display parameters when screen style changes
     private void UpdateDisplayParameters()
     {
-        switch (displayMode)
+        switch (screenStyle)
         {
-            case DisplayMode.OUTER_CIRCLE:
+            case ScreenStyle.OUTER_CIRCLE:
                 radius = outerCircleRadius;
                 scale = outerCircleScale;
                 offset = outerCircleOffset;
                 lookAtOffset = outerCircleLookAtOffset;
                 break;
-            case DisplayMode.INNER_CIRCLE:
+            case ScreenStyle.INNER_CIRCLE:
                 radius = innerCircleRadius;
                 scale = innerCircleScale;
                 offset = innerCircleOffset;
                 lookAtOffset = innerCircleLookAtOffset;
                 break;
-            case DisplayMode.BOTTOM_CIRCLE:
+            case ScreenStyle.BOTTOM_CIRCLE:
                 radius = bottomCircleRadius;
                 scale = bottomCircleScale;
                 offset = bottomCircleOffset;
                 lookAtOffset = bottomCircleLookAtOffset;
                 break;
-            case DisplayMode.ROTATING_CIRCLE:
+            case ScreenStyle.ROTATING_CIRCLE:
                 radius = rotatingCircleRadius;
                 scale = rotatingCircleScale;
                 offset = rotatingCircleOffset;
                 lookAtOffset = rotatingCircleLookAtOffset;
                 break;
-            case DisplayMode.REAL_DRONE:
+            case ScreenStyle.REAL_DRONE:
                 radius = realDroneRadius;
                 scale = realDroneScale;
                 offset = realDroneOffset;
                 lookAtOffset = realDroneLookAtOffset;
                 break;
         }
-        UpdateScreenScale();
     }
 
-    // Function to update the positions and orientations of the screens
-    private void UpdateScreenPositions()
+    // Get default parameters for a given screen style and send them to InterfaceManager
+    public void SendDefaultParametersToInterfaceManager(ScreenStyle style)
     {
-        // Skip if the swarm is null, the update will be called from ImageSharing.cs
-        if (swarm == null)
+        // Get reference to InterfaceManager if not already set
+        if (interfaceManager == null)
+        {
+            interfaceManager = GetComponent<InterfaceManager>();
+        }
+
+        if (interfaceManager == null)
+        {
+            Debug.LogWarning("InterfaceManager not found on this GameObject!");
+            return;
+        }
+
+        float defaultRadius = 2.0f;
+        float defaultScale = 1.0f;
+        Vector3 defaultOffset = Vector3.zero;
+        Vector3 defaultLookAtOffset = Vector3.zero;
+
+        switch (style)
+        {
+            case ScreenStyle.OUTER_CIRCLE:
+                defaultRadius = outerCircleRadius;
+                defaultScale = outerCircleScale;
+                defaultOffset = outerCircleOffset;
+                defaultLookAtOffset = outerCircleLookAtOffset;
+                break;
+            case ScreenStyle.INNER_CIRCLE:
+                defaultRadius = innerCircleRadius;
+                defaultScale = innerCircleScale;
+                defaultOffset = innerCircleOffset;
+                defaultLookAtOffset = innerCircleLookAtOffset;
+                break;
+            case ScreenStyle.BOTTOM_CIRCLE:
+                defaultRadius = bottomCircleRadius;
+                defaultScale = bottomCircleScale;
+                defaultOffset = bottomCircleOffset;
+                defaultLookAtOffset = bottomCircleLookAtOffset;
+                break;
+            case ScreenStyle.ROTATING_CIRCLE:
+                defaultRadius = rotatingCircleRadius;
+                defaultScale = rotatingCircleScale;
+                defaultOffset = rotatingCircleOffset;
+                defaultLookAtOffset = rotatingCircleLookAtOffset;
+                break;
+            case ScreenStyle.REAL_DRONE:
+                defaultRadius = realDroneRadius;
+                defaultScale = realDroneScale;
+                defaultOffset = realDroneOffset;
+                defaultLookAtOffset = realDroneLookAtOffset;
+                break;
+        }
+
+        // Call InterfaceManager to update its display parameters
+        interfaceManager.UpdateDisplayParameters(defaultRadius, defaultScale, defaultOffset, defaultLookAtOffset);
+    }
+
+    // Update the position of the screens based on the drone orientation
+    void UpdateScreenPositions()
+    {
+        if (swarm == null || swarm.Count == 0 || screens.Count == 0)
         {
             return;
         }
 
         for (int i = 0; i < swarm.Count; i++)
         {
-            // Find the drone and screen by name, seems like the order in swarm changes, hence the need to find the drone by name
             GameObject drone = swarm.Find(d => d.name == "Drone " + i);
             GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
             GameObject screen = screens.Find(s => s.name == "screen_" + i);
 
-            switch (displayMode)
+            switch (screenStyle)
             {
-                case DisplayMode.OFF:
+                case ScreenStyle.OFF:
                     HideScreen(screen);
                     break;
-                case DisplayMode.OUTER_CIRCLE:
+                case ScreenStyle.OUTER_CIRCLE:
                     UpdateOuterCircleScreen(screen, droneChild);
                     break;
-                case DisplayMode.INNER_CIRCLE:
+                case ScreenStyle.INNER_CIRCLE:
                     UpdateInnerCircleScreen(screen, droneChild);
                     break;
-                case DisplayMode.BOTTOM_CIRCLE:
+                case ScreenStyle.BOTTOM_CIRCLE:
                     UpdateBottomCircleScreen(screen, droneChild);
                     break;
-                case DisplayMode.ROTATING_CIRCLE:
+                case ScreenStyle.ROTATING_CIRCLE:
                     UpdateRotatingCircleScreen(screen, droneChild);
                     break;
             }
@@ -403,13 +467,32 @@ public class ScreenSpawn : MonoBehaviour
 
     void OnValidate()
     {
-        // Only update display parameters if the display mode changed
-        if (displayMode != previousDisplayMode)
+        // Only update display parameters if the screen style changed
+        if (screenStyle != previousScreenStyle)
         {
-            previousDisplayMode = displayMode;
+            previousScreenStyle = screenStyle;
             UpdateDisplayParameters();
         }
         UpdateScreenScale();
+    }
+
+    // Called when InterfaceManager parameters change
+    public void OnInterfaceParamsChanged()
+    {
+        if (screenStyle != previousScreenStyle)
+        {
+            previousScreenStyle = screenStyle;
+            UpdateDisplayParameters();
+            
+            // Send default parameters back to InterfaceManager
+            SendDefaultParametersToInterfaceManager(screenStyle);
+        }
+        
+        // Update screen scale when parameters change
+        UpdateScreenScale();
+        
+        // Update screen positions if screens are already spawned
+        UpdateScreenPositions();
     }
 
     // Update the parameters from the swarm manager
@@ -429,7 +512,7 @@ public class ScreenSpawn : MonoBehaviour
         }
     }
 
-    // Get the scale based on display mode
+    // Get the scale based on screen style
     public float GetScreenScale()
     {
         return scale;
