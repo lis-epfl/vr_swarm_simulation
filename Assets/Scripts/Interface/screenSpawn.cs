@@ -142,10 +142,16 @@ public class ScreenSpawn : MonoBehaviour
                 Camera cam = camera.GetComponent<Camera>();
                 cam.aspect = (float)width / height;
                 cam.fieldOfView = 82.1f;
+
+                // Set the camera's target texture to the render texture
+                if (displayMode != DisplayMode.OFF || displayMode != DisplayMode.REAL_DRONE)
+                {
+                    cam.GetComponent<Camera>().targetTexture = rt;
+                }
+
             }
 
-            // Set the camera's target texture to the render texture
-            //camera.GetComponent<Camera>().targetTexture = rt;
+
         }
 
         // Place the screens based on the orientation of the drones
