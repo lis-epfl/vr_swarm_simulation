@@ -18,7 +18,6 @@ public class ScreenSpawn : MonoBehaviour
     [HideInInspector] public ScreenStyle screenStyle = ScreenStyle.OFF;
 
     [Header("VR Parameters")]
-    public OVRPlayerController player;
     [HideInInspector] public int width = 640;
     [HideInInspector] public int height = 360;
 
@@ -32,8 +31,10 @@ public class ScreenSpawn : MonoBehaviour
     [HideInInspector] public bool invertBottomScreen = false;
     [HideInInspector] public bool doubleView = false;
     [HideInInspector] public float rotatingCircleDistance = 2.0f;
+    [HideInInspector] public int numScreens = 2;
 
     // GameObject references
+    private OVRPlayerController player;
     private List<GameObject> swarm = new List<GameObject>();
     private List<GameObject> screens = new List<GameObject>();
     private GameObject arena;
@@ -67,7 +68,6 @@ public class ScreenSpawn : MonoBehaviour
 
     private SwarmManager swarmManager;
     private bool pointInwards = false;
-    public int numScreens = 2;
     private ScreenStyle previousScreenStyle;
     private InterfaceManager interfaceManager;
 
@@ -77,7 +77,7 @@ public class ScreenSpawn : MonoBehaviour
         // Find the OVRPlayerController in the scene if not already assigned
         if (player == null)
         {
-            player = FindObjectOfType<OVRPlayerController>();
+            player = GameObject.FindGameObjectWithTag("Player")?.GetComponent<OVRPlayerController>();
             if (player == null)
             {
                 Debug.LogWarning("No OVRPlayerController found in the scene!");
