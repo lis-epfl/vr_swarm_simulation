@@ -14,6 +14,7 @@ public class swarmSpawn : MonoBehaviour
     public int start_z = 0;
     public bool randomYaw = true;
     public GameObject swarmParent;
+    private interfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
     private visualiseOlfatiSaber visualiseOlfatiSaber;
     private ViewManager viewManager;
@@ -22,6 +23,9 @@ public class swarmSpawn : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        
+        // Get the InterfaceManager
+        interfaceManager = GetComponent<interfaceManager>();
         
         // Get the ScreenSpawn script
         ScreenSpawn = GetComponent<ScreenSpawn>();
@@ -83,18 +87,8 @@ public class swarmSpawn : MonoBehaviour
             droneParent.GetComponent<AttitudeAlgorithm>().swarm = swarm;     
         }
 
-        // Add the swarm ref to the visualization script if not null
-        if (visualiseOlfatiSaber != null)
-        {
-            visualiseOlfatiSaber.swarm = swarm;
-        }        
-        if (viewManager != null)
-        {
-            viewManager.swarm = swarm;
-        }
-        
-        // Spawn screens for each drone in the swarm
-        ScreenSpawn.SpawnScreens(swarm);
+        // Set the swarm in interface scripts
+        interfaceManager.SetSwarm(swarm);
         
     }
 
