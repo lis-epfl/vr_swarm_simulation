@@ -42,17 +42,6 @@ public class InputControl : MonoBehaviour {
 			swarmAlgorithm.desiredYawRate = Input.GetAxisRaw("Yaw") * yawRateCoeff;
 			vc.swarm_vy = Input.GetAxisRaw("Throttle") * altCoeff;
 		}
-
-		else if (currentAlgorithm != SwarmManager.SwarmAlgorithm.NBV) // NEW ADVAITH NBV
-		{
-			// If not NBV, do nothing FOR NOW
-			// ALL of your existing Reynolds or Olfati-Saber velocity/force
-			// calculations should go inside this block.
-			// For example:
-			// Vector3 separationForce = CalculateSeparation();
-			// Vector3 cohesionForce = CalculateCohesion();
-			// ApplyForces(separationForce + cohesionForce);
-		}
 		
 	}
 }
