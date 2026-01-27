@@ -69,6 +69,18 @@ public class ViewManager : MonoBehaviour
         droneInfos.Clear();
 
         // Apply views to corresponding drone FPV camera
+        // First, disable all cameras
+        for (int i = 0; i < swarm.Count; i++)
+        {
+            GameObject drone = swarm[i];
+            Camera fpvCamera = drone.transform.Find("FPV").GetComponent<Camera>();
+            if (fpvCamera != null)
+            {
+                fpvCamera.enabled = false;
+            }
+        }
+        
+        // Then enable and assign displays only for selected view drones
         for (int i = 0; i < views_idx.Count; i++)
         {
             int droneIdx = views_idx[i];
@@ -78,6 +90,7 @@ public class ViewManager : MonoBehaviour
                 Camera fpvCamera = drone.transform.Find("FPV").GetComponent<Camera>();
                 if (fpvCamera != null)
                 {
+                    fpvCamera.enabled = true;
                     fpvCamera.targetDisplay = i;
                 }
             }
