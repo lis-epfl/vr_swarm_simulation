@@ -29,7 +29,7 @@ public class VelocityControl : MonoBehaviour
     public float desired_height = 4.0f;
     public float desired_vx = 0.0f;
     public float desired_vy = 0.0f;
-    public float desired_yaw = 0.0f;
+    public float desiredYawRate = 0.0f;
     public float attitude_control_yaw = 0.0f;
 
     // PD coeff for height control
@@ -140,7 +140,7 @@ public class VelocityControl : MonoBehaviour
         desiredOmega = thetaError * -1.0f / timeConstantOmegaXYRate;
 
         // Add the yaw rate contributions from user input and the autonomous control
-        targetYawRate = desired_yaw + attitude_control_yaw;
+        targetYawRate = desiredYawRate + attitude_control_yaw;
 
         // Apply the low-pass filter to reduce oscillations in yaw control
         filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
@@ -189,7 +189,7 @@ public class VelocityControl : MonoBehaviour
 
         desired_vx = 0.0f;
         desired_vy = 0.0f;
-        desired_yaw = 0.0f;
+        desiredYawRate = 0.0f;
         desired_height = initial_height;
 
         State.Reset();
