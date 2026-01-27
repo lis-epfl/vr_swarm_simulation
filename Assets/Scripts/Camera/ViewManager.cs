@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 
 public class ViewManager : MonoBehaviour
@@ -109,10 +110,14 @@ public class ViewManager : MonoBehaviour
     private Vector3 GetSwarmHeading()
     {
         Vector3 heading = Vector3.zero;
+        Vector3 test = Vector3.zero;
+        Vector3 test_yaw = Vector3.zero;
         foreach (GameObject drone in swarm)
         {
-            SwarmAlgorithm swarmAlgo = drone.transform.Find("DroneParent").GetComponent<SwarmAlgorithm>();
-            heading += new Vector3(Mathf.Cos(swarmAlgo.desired_yaw), 0, Mathf.Sin(swarmAlgo.desired_yaw));
+            StateFinder stateFinder = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State;
+            float yaw = stateFinder.Angles.y * Mathf.Deg2Rad;
+            heading += new Vector3(Mathf.Cos(yaw), 0, Mathf.Sin(yaw));
+            
         }
         return heading.normalized;
     }
