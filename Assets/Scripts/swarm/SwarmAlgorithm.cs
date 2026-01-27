@@ -28,19 +28,11 @@ public class SwarmAlgorithm : MonoBehaviour
     // Velocity control script
     private VelocityControl velocityControl;
 
-    // Start is called before the first frame update
-    void Start()
-    {
-
-        // Find the SwarmManager in the scene
-        // Add this line right at the beginning
-        Debug.Log("The SwarmAlgorithm script is on this GameObject: " + this.gameObject.name);
-
-
+    // Awake is called before Start
+    void Awake()
+{
         // Automatically assign the SwarmManager if not already set
         swarmManager = swarmManager ?? SwarmManager.Instance;
-
-        swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
 
         // Get references to the algorithm components
         reynoldsAlgorithm = GetComponent<Reynolds>();
@@ -53,6 +45,14 @@ public class SwarmAlgorithm : MonoBehaviour
 
         // Get the velocity control script
         velocityControl = GetComponent<VelocityControl>();
+    }
+
+
+    // Start is called before the first frame update
+    void Start()
+    {
+
+        swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
 
         // Initialize parameters for the first time
         OnSwarmParamsChanged();

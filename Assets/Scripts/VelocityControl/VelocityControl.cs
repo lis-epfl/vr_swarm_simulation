@@ -59,7 +59,7 @@ public class VelocityControl : MonoBehaviour
 
     private Vector3 filteredVelocity = Vector3.zero;
     private float filterCoefficient = 0.01f;
-
+    
     // Use this for initialization
     void Start() {
         State.GetState ();
