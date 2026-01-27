@@ -10,7 +10,6 @@ public class SwarmManager : MonoBehaviour
     {
         REYNOLDS,
         OLFATI_SABER,
-        NBV // NEW ADVAITH NBV
     }
 
     [Header("Swarm Algorithm")]
