@@ -36,7 +36,7 @@ public class ViewManager : MonoBehaviour
         for (int i = 0; i < swarm.Count; i++)
         {
             GameObject drone = swarm[i];
-            Vector3 toDrone = drone.transform.Find("DroneParent").position - center;
+            Vector3 toDrone = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State.Position - center;
             float dot = Vector3.Dot(los, toDrone);
             Vector3 crossProduct = Vector3.Cross(toDrone, los);
             float cross = crossProduct.y; // Assuming a 2D swarm and y is up
@@ -114,7 +114,8 @@ public class ViewManager : MonoBehaviour
         Vector3 center = Vector3.zero;
         foreach (GameObject drone in swarm)
         {
-            center += drone.transform.Find("DroneParent").position;
+            StateFinder stateFinder = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State;
+            center += stateFinder.Position;
         }
         center /= swarm.Count;
         return center;
@@ -145,7 +146,8 @@ public class ViewManager : MonoBehaviour
             if (droneIdx != -1)
             {
                 GameObject drone = swarm[droneIdx];
-                Vector3 position = drone.transform.Find("DroneParent").position;
+                StateFinder stateFinder = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State;
+                Vector3 position = stateFinder.Position;
                 Debug.DrawLine(position, position + Vector3.up * 2, colors[i], 0, false);
             }
         }
