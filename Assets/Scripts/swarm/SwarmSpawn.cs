@@ -20,10 +20,9 @@ public class swarmSpawn : MonoBehaviour
     private ViewManager viewManager;
     private int droneNumber = 0;
 
-    // Start is called before the first frame update
-    void Start()
+    // Awake is called before Start
+    void Awake()
     {
-        
         // Get the InterfaceManager
         interfaceManager = GetComponent<InterfaceManager>();
         
@@ -34,6 +33,13 @@ public class swarmSpawn : MonoBehaviour
 
         //Get the visualize olfati-saber script if any
         visualiseOlfatiSaber = GetComponent<visualiseOlfatiSaber>();
+    }
+    
+    // Start is called before the first frame update
+    void Start()
+    {
+        
+
 
         // Create an empty GameObject to serve as the parent for all drones
         swarmParent = new GameObject("SwarmParent");

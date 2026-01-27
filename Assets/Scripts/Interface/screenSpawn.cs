@@ -344,7 +344,8 @@ public class ScreenSpawn : MonoBehaviour
         }
 
         // Get the drone's yaw
-        float yaw = droneChild.transform.eulerAngles.y;
+        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        float yaw = stateFinder.Angles.y;
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate the position on outer circle
@@ -361,7 +362,10 @@ public class ScreenSpawn : MonoBehaviour
 
     private void UpdateInnerCircleScreen(GameObject screen, GameObject droneChild)
     {
-        float yaw = droneChild.transform.eulerAngles.y;
+
+        // Get the drone's yaw
+        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        float yaw = stateFinder.Angles.y;
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate the position on inner circle
@@ -378,7 +382,10 @@ public class ScreenSpawn : MonoBehaviour
     // Update the bottom circle screen positions
     private void UpdateBottomCircleScreen(GameObject screen, GameObject droneChild)
     {
-        float yaw = droneChild.transform.eulerAngles.y;
+
+        // Get the drone's yaw
+        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        float yaw = stateFinder.Angles.y;
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate the position on bottom circle
@@ -415,7 +422,9 @@ public class ScreenSpawn : MonoBehaviour
             return;
         }
 
-        float yaw = droneChild.transform.eulerAngles.y;
+        // Get the drone's yaw
+        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        float yaw = stateFinder.Angles.y;
         float radians = -yaw * Mathf.Deg2Rad;
 
         // Calculate base position on inner circle

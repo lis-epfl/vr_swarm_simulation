@@ -45,7 +45,8 @@ public class InterfaceManager : MonoBehaviour
     private List<GameObject> swarm;
     private bool screensSpawned = false;
     
-    void Start()
+    // Awake is called before Start
+    void Awake()
     {
         viewManager = GetComponent<ViewManager>();
         spawnScreens = GetComponent<ScreenSpawn>();
@@ -58,7 +59,12 @@ public class InterfaceManager : MonoBehaviour
         }
 
         visualiseOlfatiSaber = GetComponent<visualiseOlfatiSaber>();
-        
+    }
+
+
+    // Start is called before the first frame update
+    void Start()
+    {
         // Subscribe ScreenSpawn to parameter changes
         if (spawnScreens != null)
         {

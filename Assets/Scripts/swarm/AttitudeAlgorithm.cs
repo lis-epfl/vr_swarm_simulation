@@ -17,12 +17,18 @@ public class AttitudeAlgorithm : MonoBehaviour
     private SwarmManager.AttitudeAlgorithm selectedAttitudeAlgorithm;
     private float inputYawRate = 0.0f;
     
+    // Awake is called before Start
+    void Awake()
+    {
+        // Automatically assign the SwarmManager if not already set
+        swarmManager = swarmManager ?? SwarmManager.Instance;
+    }
+
+    // Start is called before the first frame update
     void Start()
     {
         droneName = transform.parent.name;
 
-        // Automatically assign the SwarmManager if not already set
-        swarmManager = swarmManager ?? SwarmManager.Instance;
         swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
         // Initialize all parameters from current values in SwarmManager
         OnSwarmParamsChanged();
