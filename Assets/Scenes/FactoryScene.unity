@@ -13991,9 +13991,9 @@ GameObject:
   - component: {fileID: 590275742}
   - component: {fileID: 590275741}
   - component: {fileID: 590275740}
+  - component: {fileID: 590275745}
   - component: {fileID: 590275739}
   - component: {fileID: 590275744}
-  - component: {fileID: 590275745}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -14043,7 +14043,7 @@ MonoBehaviour:
   lambda_obs: 1
   c_obs: 4.3
   scaleFactor: 10
-  SelectedAttitudeAlgorithm: 2
+  SelectedAttitudeAlgorithm: 1
   numNeighbours: 9
   numDimensions: 2
   pointInwards: 0
@@ -14060,7 +14060,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   screenStyle: 0
-  player: {fileID: 0}
   width: 1280
   height: 720
   radius: 2
@@ -14092,7 +14091,7 @@ MonoBehaviour:
   start_x: 60
   start_y: 15
   start_z: -60
-  randomYaw: 1
+  randomYaw: 0
   swarmParent: {fileID: 0}
 --- !u!4 &590275743
 Transform:
@@ -14135,7 +14134,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f969c9ad1f2b33449605154bc14c68c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  displayMode: 0
+  displayMode: 1
   screenStyle: 0
   width: 640
   height: 360
@@ -14146,6 +14145,7 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
+  numScreens: 2
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -44973,6 +44973,11 @@ PrefabInstance:
     - target: {fileID: 6295995889752902613, guid: 5bab6223848ed924392e5f9c5021182e,
         type: 3}
       propertyPath: m_Name
+      value: Arena
+      objectReference: {fileID: 0}
+    - target: {fileID: 6295995889752902613, guid: 5bab6223848ed924392e5f9c5021182e,
+        type: 3}
+      propertyPath: m_TagString
       value: Arena
       objectReference: {fileID: 0}
     m_RemovedComponents: []
