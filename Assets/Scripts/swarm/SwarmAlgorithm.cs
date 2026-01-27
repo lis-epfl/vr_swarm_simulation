@@ -18,7 +18,7 @@ public class SwarmAlgorithm : MonoBehaviour
     public float desired_height = 4.0f;
     public float desired_vx = 0.0f;
     public float desired_vy = 0.0f;
-    public float desired_yaw = 0.0f;
+    public float desiredYawRate = 0.0f;
 
     // Controller scripts
     private GameObject controller;
@@ -192,7 +192,7 @@ public class SwarmAlgorithm : MonoBehaviour
 
     public Vector3 GetSwarmHeading()
     {
-        Vector3 heading = new Vector3(math.cos(desired_yaw), 0, math.sin(desired_yaw));
+        Vector3 heading = new Vector3(math.cos(desiredYawRate), 0, math.sin(desiredYawRate));
         return heading;
     }
 }

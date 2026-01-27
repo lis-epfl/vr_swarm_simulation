@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -30,7 +30,7 @@ public class InputControl : MonoBehaviour {
 			// Default velocity control
 			vc.desired_vx = Input.GetAxisRaw("Pitch") * speedCoeff;
 			vc.desired_vy = Input.GetAxisRaw("Roll") * speedCoeff;
-			vc.desired_yaw = Input.GetAxisRaw("Yaw") * yawRateCoeff;
+			vc.desiredYawRate = Input.GetAxisRaw("Yaw") * yawRateCoeff;
 			abs_height += Input.GetAxisRaw("Throttle") * altCoeff;
 			// vc.desired_height = abs_height;
 		}
@@ -39,7 +39,7 @@ public class InputControl : MonoBehaviour {
 			// Olfati-Saber velocity control
 			swarmAlgorithm.desired_vx = Input.GetAxisRaw("Pitch") * speedCoeff;
 			swarmAlgorithm.desired_vy = Input.GetAxisRaw("Roll") * speedCoeff;
-			swarmAlgorithm.desired_yaw = Input.GetAxisRaw("Yaw") * yawRateCoeff;
+			swarmAlgorithm.desiredYawRate = Input.GetAxisRaw("Yaw") * yawRateCoeff;
 			vc.swarm_vy = Input.GetAxisRaw("Throttle") * altCoeff;
 		}
 

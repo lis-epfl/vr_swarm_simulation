@@ -57,7 +57,7 @@ public class ReadController : MonoBehaviour
                     // Apply the velocities to the velocity control script
                     vc.desired_vx = linearVelocity.x;
                     vc.desired_vy = linearVelocity.y;
-                    vc.desired_yaw = angularVelocity.z;
+                    vc.desiredYawRate = angularVelocity.z;
                     abs_height += linearVelocity.z * 0.1f;
                     vc.desired_height = abs_height;
                 }
@@ -66,7 +66,7 @@ public class ReadController : MonoBehaviour
                     // Apply the velocities to the Olfati-Saber velocity control script
                     SwarmAlgorithm.desired_vx = linearVelocity.x * 4.0f;
                     SwarmAlgorithm.desired_vy = linearVelocity.y * 4.0f;
-                    SwarmAlgorithm.desired_yaw = angularVelocity.z;
+                    SwarmAlgorithm.desiredYawRate = angularVelocity.z;
                     SwarmAlgorithm.SetSwarmSpread(angularVelocity.x);
                     
                     switch ((ThrustMode)joystickData.switches.s1)
