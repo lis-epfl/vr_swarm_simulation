@@ -1,7 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
- using Unity.Mathematics;
+using Unity.Mathematics;
 
 public class SwarmAlgorithm : MonoBehaviour
 {
@@ -11,6 +11,7 @@ public class SwarmAlgorithm : MonoBehaviour
 
     // Use the SwarmAlgorithm enum from SwarmManager
     private SwarmManager.SwarmAlgorithm currentAlgorithm;
+    private SwarmManager.AttitudeAlgorithm attitudeAlgorithm;
 
     private Reynolds reynoldsAlgorithm;
     private OlfatiSaber olfatiSaberAlgorithm;
@@ -19,6 +20,7 @@ public class SwarmAlgorithm : MonoBehaviour
     public float desired_vx = 0.0f;
     public float desired_vy = 0.0f;
     public float desiredYawRate = 0.0f;
+    public float desired_alittude_rate = 0.0f;
 
     // Controller scripts
     private GameObject controller;
@@ -69,12 +71,22 @@ public class SwarmAlgorithm : MonoBehaviour
                 break;
 
             case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
-                velocityCommand = olfatiSaberAlgorithm.GetSwarmVelocityCommand(swarm, new Vector3(desired_vx, 0, -desired_vy));
+                // Unity left-handed + z forward coordinate system
+                Vector3 desiredVelocityInput = new Vector3(desired_vy, 0, desired_vx);
+                switch (attitudeAlgorithm)
+                {
+                    case SwarmManager.AttitudeAlgorithm.SIMPLE:
+                        // Rotate the desired velocity input based on the estimated swarm heading
+                        float currentYaw = GetComponent<VelocityControl>().State.Angles.y;
+                        desiredVelocityInput = Quaternion.Euler(0, currentYaw, 0) * desiredVelocityInput;
+                        break;
+                }
+                velocityCommand = olfatiSaberAlgorithm.GetSwarmVelocityCommand(swarm, desiredVelocityInput);
                 break;
         }
         // Set the desired velocities in the velocity control script
         velocityControl.swarm_vx = velocityCommand.x;
-        velocityControl.swarm_vy = velocityCommand.y;
+        velocityControl.swarm_vy = velocityCommand.y + desired_alittude_rate;
         velocityControl.swarm_vz = velocityCommand.z;
 
     }
@@ -95,6 +107,7 @@ public class SwarmAlgorithm : MonoBehaviour
 
         // Get swarm algorithm selection
         currentAlgorithm = swarmManager.swarmAlgorithm;
+        attitudeAlgorithm = swarmManager.GetSelectedAttitudeAlgorithm();
 
         // Check the current algorithm and enable/disable the corresponding algorithm
         switch (currentAlgorithm)
@@ -103,7 +116,6 @@ public class SwarmAlgorithm : MonoBehaviour
             case SwarmManager.SwarmAlgorithm.REYNOLDS:
                 UpdateReynoldsParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
-                inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.REYNOLDS;
                 break;
 
@@ -111,7 +123,6 @@ public class SwarmAlgorithm : MonoBehaviour
             case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
                 UpdateOlfatiSaberParameters();
                 readController.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
-                inputControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 velocityControl.currentAlgorithm = SwarmManager.SwarmAlgorithm.OLFATI_SABER;
                 break;
 
@@ -188,11 +199,5 @@ public class SwarmAlgorithm : MonoBehaviour
         }
         center /= swarm.Count;
         return center;
-    }
-
-    public Vector3 GetSwarmHeading()
-    {
-        Vector3 heading = new Vector3(math.cos(desiredYawRate), 0, math.sin(desiredYawRate));
-        return heading;
     }
 }

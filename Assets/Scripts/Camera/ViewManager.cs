@@ -130,7 +130,8 @@ public class ViewManager : MonoBehaviour
         {
             StateFinder stateFinder = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State;
             float yaw = stateFinder.Angles.y * Mathf.Deg2Rad;
-            heading += new Vector3(Mathf.Cos(yaw), 0, Mathf.Sin(yaw));
+            // Since the drones are oriented forward in the z-axis, we can calculate the heading vector as follows:
+            heading += new Vector3(Mathf.Sin(yaw), 0, Mathf.Cos(yaw));
             
         }
         return heading.normalized;
