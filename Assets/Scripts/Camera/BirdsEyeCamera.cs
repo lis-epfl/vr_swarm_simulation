@@ -37,11 +37,13 @@ public class BirdsEyeCamera : MonoBehaviour
             // Get the position of the selected drone's "DroneParent"
             GameObject droneChild = droneObject.transform.Find("DroneParent").gameObject;
             Vector3 position = droneChild.transform.position;
+            Vector3 orientation = droneChild.transform.eulerAngles;
 
             // Set the camera position above the drone
             transform.position = position + offset;
+            Quaternion rot = Quaternion.Euler(0, orientation.y, 0);
             // Look at the drone
-            transform.LookAt(position);
+            transform.LookAt(position, rot * Vector3.forward);
 
         }
         
