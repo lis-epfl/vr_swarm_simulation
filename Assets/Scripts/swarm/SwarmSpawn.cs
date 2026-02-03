@@ -13,6 +13,7 @@ public class swarmSpawn : MonoBehaviour
     public int start_y = 0;
     public int start_z = 0;
     public bool randomYaw = true;
+    public int YawDegrees = 0;
     public GameObject swarmParent;
     private InterfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
@@ -52,7 +53,7 @@ public class swarmSpawn : MonoBehaviour
                 // Assign the drone position
                 Vector3 dronePosition = new Vector3(start_x + x * droneSpacing, start_y, start_z + z * droneSpacing);
 
-                Quaternion droneRotation = Quaternion.Euler(0, 0, 0);
+                Quaternion droneRotation = Quaternion.Euler(0, YawDegrees, 0);
                 if (randomYaw)
                 {
                     // Generate a random yaw angle and convert it to a quaternion
