@@ -52,9 +52,12 @@ Logs/
 Assets/Text*
 Assets/DroneImages/
 UserSettings/
+Assets/Data/
 
 # Ignore Image Stitching project files
 Assets/Scripts/ImageStitching/UDIS2_main*
 Assets/Scripts/ImageStitching/Neural_Image_Stitching_main*
 Assets/Scripts/ImageStitching/*.jpg
 Assets/Scripts/ImageStitching/*.jpg.meta
+Assets/Asphalt_materials/
+Assets/TobiiPro/

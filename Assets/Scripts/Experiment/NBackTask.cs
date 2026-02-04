@@ -1,8 +1,10 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.IO;
 
 public class NBackTask : MonoBehaviour
 {
@@ -11,20 +13,49 @@ public class NBackTask : MonoBehaviour
     public float StimulusDelay = 2.25f;
     public int TotalStimuli = 10;
     public string StimulusAudioFilePattern = "#_female";
+    public bool saveResultsToFile = false;
     public AudioSource AudioSource;
+
+    private struct StimulusResponse
+    {
+        public int Stimulus;
+        public long StimulusTimestamp;
+        public bool UserResponded;
+        public bool IsCorrect;
+        public long ResponseTimestamp;
+
+        public StimulusResponse(int stimulus)
+        {
+            Stimulus = stimulus;
+            StimulusTimestamp = 0;
+            UserResponded = false;
+            IsCorrect = false;
+            ResponseTimestamp = 0;
+        }
+    }
     private int currentNBack;
-    private List<int> stimulusSequence = new List<int>();
+    private List<StimulusResponse> stimulusSequence = new List<StimulusResponse>();
+    private List<int> practiceSequence = new List<int>{3, 1, 4, 1, 1, 5, 5, 6, 5, 3};
     private int currentStimulusIndex = 0;
-    private List<int> correctResponses = new List<int>();
     private float lastStimulusTime;
+    private long lastUserClickTime;
     private bool isTaskActive = false;
     private bool hasUserClicked = false;
+    private bool isPracticeMode = false;
     private AudioClip next_clip;
     private const string k_audioFolderPath = "Audio/NBackStimuli/";
+    private const string k_resultsFolderPath = "Assets/Data/NBack/";
     // Start is called before the first frame update
     void Start()
     {
         currentNBack = DefaultNBack;
+        lastUserClickTime = 0;
+
+        // Ensure results directory exists if needed
+        if (saveResultsToFile && !Directory.Exists(k_resultsFolderPath))
+        {
+            Directory.CreateDirectory(k_resultsFolderPath);
+        }
     }
 
     // Update is called once per frame
@@ -33,6 +64,7 @@ public class NBackTask : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Tab) && isTaskActive)
         {
             hasUserClicked = true;
+            lastUserClickTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         }
         if (Input.GetKeyDown(KeyCode.B) && !isTaskActive)
         {
@@ -42,14 +74,17 @@ public class NBackTask : MonoBehaviour
         {
             if (Time.time - lastStimulusTime >= StimulusDelay)
             {
+                if (currentStimulusIndex > 0)
+                {
+                    checkResponse();
+                }
                 if (currentStimulusIndex < stimulusSequence.Count)
                 {
-                    if (currentStimulusIndex > 0)
-                    {
-                        checkResponse();
-                    }
-                    prepareStimulus(stimulusSequence[currentStimulusIndex]);
+                    StimulusResponse currentStimulus = stimulusSequence[currentStimulusIndex];
+                    prepareStimulus(currentStimulus.Stimulus);
                     AudioSource.Play();
+                    currentStimulus.StimulusTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    stimulusSequence[currentStimulusIndex] = currentStimulus;
                     lastStimulusTime = Time.time;
                     currentStimulusIndex++;
                 }
@@ -61,6 +96,10 @@ public class NBackTask : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Sets the N value for the N-Back task (overwrites default).
+    /// </summary>
+    /// <param name="nBack">The N value to set.</param>
     public void setNBack(int nBack)
     {
         currentNBack = nBack;
@@ -69,64 +108,70 @@ public class NBackTask : MonoBehaviour
     void generateStimulusSequence()
     {
         stimulusSequence.Clear();
-        stimulusSequence = new List<int>{3, 1, 4, 1, 5, 5, 5, 6, 5, 3}; // Predefined sequence for testing
-        // for (int i = 0; i < TotalStimuli; i++)
-        // {
-        //     // 0-9 audio numbers
-        //     int stimulus = Random.Range(0, 10);
-        //     stimulusSequence.Add(stimulus);
-        // }
+        if (isPracticeMode)
+        {
+            // Use predefined practice sequence
+            foreach (var stimulus in practiceSequence)
+            {
+                stimulusSequence.Add(new StimulusResponse(stimulus));
+            }
+            return;
+        }
+        for (int i = 0; i < TotalStimuli; i++)
+        {
+            // 0-9 audio numbers
+            int stimulus = UnityEngine.Random.Range(0, 10);
+            stimulusSequence.Add(new StimulusResponse(stimulus));
+        }
     }
 
-    void prepareStimulus(int stimuli)
+    void prepareStimulus(int stimulus)
     {
-        string audioFileName = k_audioFolderPath + StimulusAudioFilePattern.Replace("#", stimuli.ToString());
+        string audioFileName = k_audioFolderPath + StimulusAudioFilePattern.Replace("#", stimulus.ToString());
         next_clip = Resources.Load<AudioClip>(audioFileName);
         AudioSource.clip = next_clip;
     }
 
     void checkResponse()
     {
+        // Sanity check
+        if (currentStimulusIndex <= 0)
+        {
+            Debug.LogError("checkResponse called when currentStimulusIndex <= 0");
+            return;
+        }
         int stimulusToMatchIndex = currentStimulusIndex - 1 - currentNBack;
+        StimulusResponse actualStimulus = stimulusSequence[currentStimulusIndex - 1];
+        actualStimulus.UserResponded = hasUserClicked;
         if (stimulusToMatchIndex >= 0)
         {
-            int expectedStimulus = stimulusSequence[stimulusToMatchIndex];
-            int actualStimulus = stimulusSequence[currentStimulusIndex - 1];
+            StimulusResponse expectedStimulus = stimulusSequence[stimulusToMatchIndex];
             if (hasUserClicked)
             {
-                if (expectedStimulus == actualStimulus)
-                {
-                    correctResponses.Add(1); // Correct
-                    }
-                else
-                {
-                    correctResponses.Add(0); // Incorrect
-                }
+                actualStimulus.ResponseTimestamp = lastUserClickTime;
+                actualStimulus.IsCorrect = (expectedStimulus.Stimulus == actualStimulus.Stimulus);
             }
             else
             {
-                if (expectedStimulus == actualStimulus)
-                {
-                    correctResponses.Add(0); // Missed
-                }
-                else
-                {
-                    correctResponses.Add(1); // Correct Rejection
-                }
+                actualStimulus.IsCorrect = (expectedStimulus.Stimulus != actualStimulus.Stimulus);
             }
         } else
         {
             // No response expected for first N stimuli
-            correctResponses.Add(hasUserClicked ? 0 : 1); 
+            actualStimulus.IsCorrect = !hasUserClicked;
         }
+        stimulusSequence[currentStimulusIndex - 1] = actualStimulus;
         hasUserClicked = false; // Reset for next stimulus
     }
 
+    /// <summary>
+    /// Begins the N-Back task.
+    /// Generates a new random stimulus sequence.
+    /// </summary>
     public void beginTask()
     {
         Debug.Log("Beginning " + currentNBack + "-Back Task");
         generateStimulusSequence();
-        correctResponses.Clear();
         isTaskActive = true;
         currentStimulusIndex = 0;
         lastStimulusTime = Time.time;
@@ -134,9 +179,48 @@ public class NBackTask : MonoBehaviour
 
     public void endTask()
     {
+        writeResultsToFile();
         Debug.Log("Ending " + currentNBack + "-Back Task");
-        Debug.Log("Correct Responses: " + string.Join(", ", correctResponses));
-        Debug.Log("Score: " + (correctResponses.Count > 0 ? (float)correctResponses.Sum() / correctResponses.Count * 100f : 0f) + "%");
+        Debug.Log("Score: " + (stimulusSequence.Count > 0 ? (float)stimulusSequence.Count(s => s.IsCorrect) / stimulusSequence.Count * 100f : 0f) + "%");
+        Debug.Log("Correct Responses: [" + string.Join(", ", stimulusSequence.Select((s, i) => s.IsCorrect ? "1" : "0").ToArray()) + "]");
+        // Calculate user response delays
+        List<long> responseDelays = new List<long>();
+        foreach (var s in stimulusSequence)
+        {
+            if (s.UserResponded)
+            {
+                responseDelays.Add(s.ResponseTimestamp - s.StimulusTimestamp);
+            }
+            else {
+                responseDelays.Add(-1); // Indicate no response
+            }
+        }
+        Debug.Log("Response Delays: [" + string.Join(", ", responseDelays) + "] ms");
         isTaskActive = false;
+    }
+
+    public void setPracticeMode(bool practiceMode)
+    {
+        isPracticeMode = practiceMode;
+    }
+
+    /// <summary>
+    /// Writes the results of the N-Back task to a CSV file.
+    /// </summary>
+    private void writeResultsToFile()
+    {
+        if (!saveResultsToFile) return;
+        if (isPracticeMode) return;
+
+        string filename = k_resultsFolderPath + DateTime.Now.ToString("yyyyMMddHHmmss") + "_NBackResults.csv";
+        using (StreamWriter writer = new StreamWriter(filename))
+        {
+            writer.WriteLine("Stimulus,StimulusTimestamp,UserResponded,IsCorrect,ResponseTimestamp");
+            foreach (var s in stimulusSequence)
+            {
+                writer.WriteLine($"{s.Stimulus},{s.StimulusTimestamp},{s.UserResponded},{s.IsCorrect},{s.ResponseTimestamp}");
+            }
+        }
+        Debug.Log("Results written to " + filename);
     }
 }
