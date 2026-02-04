@@ -747,7 +747,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   swarmAlgorithm: {fileID: 474059409597466468}
   attitudeAlgorithm: {fileID: 3810217873681142886}
-  speedCoeff: 4
+  speedCoeff: 10
   yawRateCoeff: 0.5
   altCoeff: 1
 --- !u!114 &6727076729497765368
