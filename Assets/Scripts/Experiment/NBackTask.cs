@@ -10,12 +10,25 @@ using Experiment;
 public class NBackTask : MonoBehaviour
 {
 
+    [Tooltip("Default N-Back level to use unless set otherwise.")]
     public int DefaultNBack = 0;
+
+    [Tooltip("Delay in seconds between stimuli.")]
     public float StimulusDelay = 2.25f;
+
+    [Tooltip("Total number of stimuli in the task.")]
     public uint TotalStimuli = 10;
+
+    [Tooltip("Pattern for the stimulus audio file names. Use '#' as a placeholder for the stimulus number.")]
     public string StimulusAudioFilePattern = "#_female";
+
+    [Tooltip("Indicates whether the task is for practice only. Results are not saved in practice mode.")]
     public bool IsPracticeMode = false;
-    public bool saveResultsToFile = false;
+
+    [Tooltip("Indicates whether to save results to file. This does not apply in practice mode.")]
+    public bool SaveResultsToFile = false;
+    
+    [Tooltip("Audio source to play the stimulus sounds.")]
     public AudioSource AudioSource;
 
     private int currentNBack;
@@ -29,23 +42,22 @@ public class NBackTask : MonoBehaviour
     private AudioClip next_clip;
     private const string k_audioFolderPath = "Audio/NBackStimuli/";
     private const string k_resultsFolderPath = "Assets/Data/NBack/";
-    // Start is called before the first frame update
+
     void Start()
     {
         currentNBack = DefaultNBack;
         lastUserClickTime = 0;
 
         // Ensure results directory exists if needed
-        if (saveResultsToFile && !Directory.Exists(k_resultsFolderPath))
+        if (SaveResultsToFile && !Directory.Exists(k_resultsFolderPath))
         {
             Directory.CreateDirectory(k_resultsFolderPath);
         }
 
-        // Initialize shared memory
+        // Initialize shared memory for live data updates
         PySender.Instance.InitializeNBackDataSharedMemory(TotalStimuli);
     }
 
-    // Update is called once per frame
     void Update()
     {
         if (Input.GetKeyDown(KeyCode.Tab) && isTaskActive)
@@ -81,15 +93,6 @@ public class NBackTask : MonoBehaviour
                 }
             }
         }
-    }
-
-    /// <summary>
-    /// Sets the N value for the N-Back task (overwrites default).
-    /// </summary>
-    /// <param name="nBack">The N value to set.</param>
-    public void setNBack(int nBack)
-    {
-        currentNBack = nBack;
     }
 
     void generateStimulusSequence()
@@ -166,6 +169,10 @@ public class NBackTask : MonoBehaviour
         lastStimulusTime = Time.time;
     }
 
+    /// <summary>
+    /// Ends the N-Back task.
+    /// Writes results to file if enabled and not in practice mode, and logs score to console.
+    /// </summary>
     public void endTask()
     {
         writeResultsToFile();
@@ -189,11 +196,20 @@ public class NBackTask : MonoBehaviour
     }
 
     /// <summary>
+    /// Sets the N value for the N-Back task (overwrites default).
+    /// </summary>
+    /// <param name="nBack">The N value to set.</param>
+    public void setNBack(int nBack)
+    {
+        currentNBack = nBack;
+    }
+
+    /// <summary>
     /// Writes the results of the N-Back task to a CSV file.
     /// </summary>
     private void writeResultsToFile()
     {
-        if (!saveResultsToFile) return;
+        if (!SaveResultsToFile) return;
         if (IsPracticeMode) return;
 
         string filename = k_resultsFolderPath + DateTime.Now.ToString("yyyyMMddHHmmss") + "_NBackResults.csv";
