@@ -14,6 +14,7 @@ public class swarmSpawn : MonoBehaviour
     public int start_z = 0;
     public bool randomYaw = true;
     public int YawDegrees = 0;
+    public bool UsePySender = false;
     public GameObject swarmParent;
     private InterfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
@@ -96,6 +97,12 @@ public class swarmSpawn : MonoBehaviour
 
         // Set the swarm in interface scripts
         interfaceManager.SetSwarm(swarm);
+
+        if (UsePySender)
+        {
+            PySender.Instance.InitializeDroneDataSharedMemory((uint)swarm.Count);
+            PySender.Instance.Swarm = swarm;
+        }
         
     }
 

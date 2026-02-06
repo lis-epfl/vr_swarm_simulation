@@ -5,43 +5,27 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.IO;
+using Experiment;
 
 public class NBackTask : MonoBehaviour
 {
 
     public int DefaultNBack = 0;
     public float StimulusDelay = 2.25f;
-    public int TotalStimuli = 10;
+    public uint TotalStimuli = 10;
     public string StimulusAudioFilePattern = "#_female";
+    public bool IsPracticeMode = false;
     public bool saveResultsToFile = false;
     public AudioSource AudioSource;
 
-    private struct StimulusResponse
-    {
-        public int Stimulus;
-        public long StimulusTimestamp;
-        public bool UserResponded;
-        public bool IsCorrect;
-        public long ResponseTimestamp;
-
-        public StimulusResponse(int stimulus)
-        {
-            Stimulus = stimulus;
-            StimulusTimestamp = 0;
-            UserResponded = false;
-            IsCorrect = false;
-            ResponseTimestamp = 0;
-        }
-    }
     private int currentNBack;
-    private List<StimulusResponse> stimulusSequence = new List<StimulusResponse>();
-    private List<int> practiceSequence = new List<int>{3, 1, 4, 1, 1, 5, 5, 6, 5, 3};
+    private List<PySenderData.NBackData> stimulusSequence = new List<PySenderData.NBackData>();
+    private List<byte> practiceSequence = new List<byte>{3, 1, 4, 1, 1, 5, 5, 6, 5, 3};
     private int currentStimulusIndex = 0;
     private float lastStimulusTime;
     private long lastUserClickTime;
     private bool isTaskActive = false;
     private bool hasUserClicked = false;
-    private bool isPracticeMode = false;
     private AudioClip next_clip;
     private const string k_audioFolderPath = "Audio/NBackStimuli/";
     private const string k_resultsFolderPath = "Assets/Data/NBack/";
@@ -56,6 +40,9 @@ public class NBackTask : MonoBehaviour
         {
             Directory.CreateDirectory(k_resultsFolderPath);
         }
+
+        // Initialize shared memory
+        PySender.Instance.InitializeNBackDataSharedMemory(TotalStimuli);
     }
 
     // Update is called once per frame
@@ -80,10 +67,10 @@ public class NBackTask : MonoBehaviour
                 }
                 if (currentStimulusIndex < stimulusSequence.Count)
                 {
-                    StimulusResponse currentStimulus = stimulusSequence[currentStimulusIndex];
+                    PySenderData.NBackData currentStimulus = stimulusSequence[currentStimulusIndex];
                     prepareStimulus(currentStimulus.Stimulus);
                     AudioSource.Play();
-                    currentStimulus.StimulusTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    currentStimulus.TimeStamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     stimulusSequence[currentStimulusIndex] = currentStimulus;
                     lastStimulusTime = Time.time;
                     currentStimulusIndex++;
@@ -108,20 +95,20 @@ public class NBackTask : MonoBehaviour
     void generateStimulusSequence()
     {
         stimulusSequence.Clear();
-        if (isPracticeMode)
+        if (IsPracticeMode)
         {
             // Use predefined practice sequence
             foreach (var stimulus in practiceSequence)
             {
-                stimulusSequence.Add(new StimulusResponse(stimulus));
+                stimulusSequence.Add(new PySenderData.NBackData(stimulus, (byte)currentNBack));
             }
             return;
         }
-        for (int i = 0; i < TotalStimuli; i++)
+        for (uint i = 0; i < TotalStimuli; i++)
         {
             // 0-9 audio numbers
-            int stimulus = UnityEngine.Random.Range(0, 10);
-            stimulusSequence.Add(new StimulusResponse(stimulus));
+            byte stimulus = (byte)UnityEngine.Random.Range(0, 10);
+            stimulusSequence.Add(new PySenderData.NBackData(stimulus, (byte)currentNBack));
         }
     }
 
@@ -141,27 +128,28 @@ public class NBackTask : MonoBehaviour
             return;
         }
         int stimulusToMatchIndex = currentStimulusIndex - 1 - currentNBack;
-        StimulusResponse actualStimulus = stimulusSequence[currentStimulusIndex - 1];
-        actualStimulus.UserResponded = hasUserClicked;
+        PySenderData.NBackData actualStimulus = stimulusSequence[currentStimulusIndex - 1];
+        actualStimulus.ParticipantResponse = hasUserClicked ? (byte)1 : (byte)0;
         if (stimulusToMatchIndex >= 0)
         {
-            StimulusResponse expectedStimulus = stimulusSequence[stimulusToMatchIndex];
+            PySenderData.NBackData expectedStimulus = stimulusSequence[stimulusToMatchIndex];
             if (hasUserClicked)
             {
-                actualStimulus.ResponseTimestamp = lastUserClickTime;
-                actualStimulus.IsCorrect = (expectedStimulus.Stimulus == actualStimulus.Stimulus);
+                actualStimulus.ResponseTimeStamp = lastUserClickTime;
+                actualStimulus.IsCorrect = (expectedStimulus.Stimulus == actualStimulus.Stimulus) ? (byte)1 : (byte)0;
             }
             else
             {
-                actualStimulus.IsCorrect = (expectedStimulus.Stimulus != actualStimulus.Stimulus);
+                actualStimulus.IsCorrect = (expectedStimulus.Stimulus != actualStimulus.Stimulus) ? (byte)1 : (byte)0;
             }
         } else
         {
             // No response expected for first N stimuli
-            actualStimulus.IsCorrect = !hasUserClicked;
+            actualStimulus.IsCorrect = !hasUserClicked ? (byte)1 : (byte)0;
         }
         stimulusSequence[currentStimulusIndex - 1] = actualStimulus;
         hasUserClicked = false; // Reset for next stimulus
+        PySender.Instance.UpdateNBackData(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), actualStimulus, currentStimulusIndex - 1);
     }
 
     /// <summary>
@@ -172,6 +160,7 @@ public class NBackTask : MonoBehaviour
     {
         Debug.Log("Beginning " + currentNBack + "-Back Task");
         generateStimulusSequence();
+        PySender.Instance.UpdateNBackData(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), stimulusSequence.ToArray());
         isTaskActive = true;
         currentStimulusIndex = 0;
         lastStimulusTime = Time.time;
@@ -181,15 +170,15 @@ public class NBackTask : MonoBehaviour
     {
         writeResultsToFile();
         Debug.Log("Ending " + currentNBack + "-Back Task");
-        Debug.Log("Score: " + (stimulusSequence.Count > 0 ? (float)stimulusSequence.Count(s => s.IsCorrect) / stimulusSequence.Count * 100f : 0f) + "%");
-        Debug.Log("Correct Responses: [" + string.Join(", ", stimulusSequence.Select((s, i) => s.IsCorrect ? "1" : "0").ToArray()) + "]");
+        Debug.Log("Score: " + (stimulusSequence.Count > 0 ? (float)stimulusSequence.Count(s => s.IsCorrect == 1) / stimulusSequence.Count * 100f : 0f) + "%");
+        Debug.Log("Correct Responses: [" + string.Join(", ", stimulusSequence.Select((s, i) => s.IsCorrect == 1 ? "1" : "0").ToArray()) + "]");
         // Calculate user response delays
         List<long> responseDelays = new List<long>();
         foreach (var s in stimulusSequence)
         {
-            if (s.UserResponded)
+            if (s.ParticipantResponse == 1)
             {
-                responseDelays.Add(s.ResponseTimestamp - s.StimulusTimestamp);
+                responseDelays.Add(s.ResponseTimeStamp - s.TimeStamp);
             }
             else {
                 responseDelays.Add(-1); // Indicate no response
@@ -199,26 +188,21 @@ public class NBackTask : MonoBehaviour
         isTaskActive = false;
     }
 
-    public void setPracticeMode(bool practiceMode)
-    {
-        isPracticeMode = practiceMode;
-    }
-
     /// <summary>
     /// Writes the results of the N-Back task to a CSV file.
     /// </summary>
     private void writeResultsToFile()
     {
         if (!saveResultsToFile) return;
-        if (isPracticeMode) return;
+        if (IsPracticeMode) return;
 
         string filename = k_resultsFolderPath + DateTime.Now.ToString("yyyyMMddHHmmss") + "_NBackResults.csv";
         using (StreamWriter writer = new StreamWriter(filename))
         {
-            writer.WriteLine("Stimulus,StimulusTimestamp,UserResponded,IsCorrect,ResponseTimestamp");
+            writer.WriteLine("NBackLevel,Stimulus,StimulusTimestamp,UserResponded,IsCorrect,ResponseTimestamp");
             foreach (var s in stimulusSequence)
             {
-                writer.WriteLine($"{s.Stimulus},{s.StimulusTimestamp},{s.UserResponded},{s.IsCorrect},{s.ResponseTimestamp}");
+                writer.WriteLine($"{s.NBackLevel},{s.Stimulus},{s.TimeStamp},{s.ParticipantResponse},{s.IsCorrect},{s.ResponseTimeStamp}");
             }
         }
         Debug.Log("Results written to " + filename);
