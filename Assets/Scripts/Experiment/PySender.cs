@@ -11,24 +11,31 @@ using System.Collections.Generic;
 public class PySender : MonoBehaviour
 {
     [SerializeField]
+    [Tooltip("Name of the shared memory block for metadata. Should match the name used in the Python receiver.")]
     private string sharedMemoryMetadataName = "TobiiUnityMetadata";
 
     [SerializeField]
+    [Tooltip("Name of the shared memory block for gaze data. Should match the name used in the Python receiver.")]
     private string sharedMemoryGazeDataName = "TobiiUnityGazeData";
 
     [SerializeField]
+    [Tooltip("Name of the shared memory block for N-Back data. Should match the name used in the Python receiver.")]
     private string sharedMemoryNBackDataName = "ExperimentUnityNBackData";
 
     [SerializeField]
+    [Tooltip("Name of the shared memory block for drone data. Should match the name used in the Python receiver.")]
     private string sharedMemoryDroneDataName = "ExperimentUnityDroneData";
 
     [SerializeField]
+    [Tooltip("Maximum number of buffer blocks to be used for the circular buffer (Gaze data)")]
     private uint maxBufferBlocks = 100;
 
     [SerializeField]
+    [Tooltip("Key to toggle sending data.")]
     private KeyCode toggleSendingKey = KeyCode.None;
 
     [SerializeField]
+    [Tooltip("Update rate for drone data in Hz.")]
     private int droneDataUpdateRate = 30;
     private long lastDroneDataUpdateTime = 0;
     private readonly List<StateFinder> droneStates = new List<StateFinder>();
