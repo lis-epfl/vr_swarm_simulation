@@ -59,6 +59,9 @@ public class VelocityControl : MonoBehaviour
 
     private Vector3 filteredVelocity = Vector3.zero;
     private float filterCoefficient = 0.01f;
+
+    private Vector3 initialPosition;
+    private Quaternion initialRotation;
     
     // Use this for initialization
     void Start() {
@@ -69,6 +72,9 @@ public class VelocityControl : MonoBehaviour
 
         initial_height = State.Altitude + 4.0f;
         desired_height = State.Altitude + 4.0f;
+
+        initialPosition = transform.position;
+        initialRotation = transform.rotation;
     }
 
     // Update is called once per frame
@@ -184,6 +190,9 @@ public class VelocityControl : MonoBehaviour
     public void Reset()
     {
 
+        State.Reset();
+        State.Position = initialPosition;
+        State.Angles = initialRotation.eulerAngles;
         State.VelocityVector = Vector3.zero;
         State.AngularVelocityVector = Vector3.zero;
 
@@ -192,7 +201,8 @@ public class VelocityControl : MonoBehaviour
         desiredYawRate = 0.0f;
         desired_height = initial_height;
 
-        State.Reset();
+        transform.position = initialPosition;
+        transform.rotation = initialRotation;
 
         enabled = true;
     }

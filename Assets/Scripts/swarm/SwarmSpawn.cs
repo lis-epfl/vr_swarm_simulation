@@ -111,4 +111,19 @@ public class swarmSpawn : MonoBehaviour
     {
         
     }
+
+    public void Reset()
+    {
+        if (swarm.Count > 0)
+        {
+            foreach (GameObject drone in swarm)
+            {
+            Transform droneParent = drone.transform.Find("DroneParent");
+
+            // Add the swarm to the necessary scripts
+            droneParent.GetComponent<SwarmAlgorithm>().Reset();   
+            droneParent.GetComponent<AttitudeAlgorithm>().Reset();  
+            }
+        }
+    }
 }

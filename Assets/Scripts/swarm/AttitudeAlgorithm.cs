@@ -36,6 +36,7 @@ public class AttitudeAlgorithm : MonoBehaviour
 
     void FixedUpdate()
     {
+        readInputs();
         float desiredYawRateRadians = 0.0f;
         switch(selectedAttitudeAlgorithm)
         {
@@ -57,6 +58,11 @@ public class AttitudeAlgorithm : MonoBehaviour
         // Set the desired yaw rate in the velocity control script
         vc.attitude_control_yaw = desiredYawRateRadians;
 
+    }
+
+    public void Reset()
+    {
+        vc.attitude_control_yaw = 0.0f;
     }
 
     /// <summary>
@@ -163,6 +169,16 @@ public class AttitudeAlgorithm : MonoBehaviour
         if (swarmManager != null)
         {
             swarmManager.swarmParamsChanged -= OnSwarmParamsChanged;        
+        }
+    }
+
+    private void readInputs()
+    {
+        // Read the desired yaw rate from the input manager
+        if (InputManager.Instance != null)
+        {
+            Dictionary<string, float> inputStatus = InputManager.Instance.InputStatus;
+            inputYawRate = inputStatus["yaw"];
         }
     }
 }

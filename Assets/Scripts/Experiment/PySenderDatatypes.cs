@@ -80,6 +80,8 @@ namespace Experiment
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public struct DroneData
         {
+            public long Timestamp;
+            public byte Id;
             public Vec3f Position;
             public Vec3f Orientation;
             public Vec3f Velocity;

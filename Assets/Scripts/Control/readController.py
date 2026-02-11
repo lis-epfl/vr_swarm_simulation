@@ -33,11 +33,11 @@ def get_joystick_data(joystick, center_ang_x, current_ang_x):
     data['angular'] = {
         'x': filter(center_ang_x + joystick.get_axis(4) * 0.4, current_ang_x),  # Axis 5: angular.x with filtering
         'y': 0.0,  # angular.y is fixed
-        'z': -joystick.get_axis(3),  # Axis 3: angular.z (negated)
+        'z': joystick.get_axis(3),  # Axis 3: angular.z 
     }
 
     data['switches'] = {
-        's1': int(round(joystick.get_axis(5), 0)),
+        's1': int(round(joystick.get_axis(5), 0)), # User click switch
         's2': int(round(joystick.get_axis(6), 0))
     }
 

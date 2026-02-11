@@ -24,18 +24,23 @@ public class NBackTask : MonoBehaviour
 
     [Tooltip("Indicates whether the task is for practice only. Results are not saved in practice mode.")]
     public bool IsPracticeMode = false;
+    
+    [Tooltip("Initial delay in seconds before the first stimulus is presented after the task begins.")]
+    public float InitialDelay = 10.0f;
 
     [Tooltip("Indicates whether to save results to file. This does not apply in practice mode.")]
     public bool SaveResultsToFile = false;
     
     [Tooltip("Audio source to play the stimulus sounds.")]
     public AudioSource AudioSource;
+    public event Action Completed; // Event to signal completion of the task
 
     private int currentNBack;
     private List<PySenderData.NBackData> stimulusSequence = new List<PySenderData.NBackData>();
-    private List<byte> practiceSequence = new List<byte>{3, 1, 4, 1, 1, 5, 5, 6, 5, 3};
+    private List<byte> practiceSequence = new List<byte>{3, 1, 4, 1, 1}; //, 5, 5, 6, 5, 3};
     private int currentStimulusIndex = 0;
     private float lastStimulusTime;
+    private float nextStimulusTime;
     private long lastUserClickTime;
     private bool isTaskActive = false;
     private bool hasUserClicked = false;
@@ -47,6 +52,7 @@ public class NBackTask : MonoBehaviour
     {
         currentNBack = DefaultNBack;
         lastUserClickTime = 0;
+        nextStimulusTime = InitialDelay;
 
         // Ensure results directory exists if needed
         if (SaveResultsToFile && !Directory.Exists(k_resultsFolderPath))
@@ -60,18 +66,14 @@ public class NBackTask : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Tab) && isTaskActive)
-        {
-            hasUserClicked = true;
-            lastUserClickTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        }
+        readInputs();
         if (Input.GetKeyDown(KeyCode.B) && !isTaskActive)
         {
             beginTask();
         }
         if (isTaskActive)
         {
-            if (Time.time - lastStimulusTime >= StimulusDelay)
+            if (Time.time - lastStimulusTime >= nextStimulusTime)
             {
                 if (currentStimulusIndex > 0)
                 {
@@ -90,9 +92,25 @@ public class NBackTask : MonoBehaviour
                 else
                 {
                     endTask();
+                    Completed?.Invoke();
                 }
+                nextStimulusTime = StimulusDelay;
             }
         }
+    }
+
+    private void readInputs()
+    {
+        if (Input.GetKeyDown(KeyCode.Tab))
+            hasUserClicked = true;
+        if (InputManager.Instance != null)
+        {
+            Dictionary<string, float> inputStatus = InputManager.Instance.InputStatus;
+            if (inputStatus["userSwitch"] > 0)
+                hasUserClicked = true;
+        }
+        if (hasUserClicked)
+            lastUserClickTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
     void generateStimulusSequence()
@@ -167,6 +185,7 @@ public class NBackTask : MonoBehaviour
         isTaskActive = true;
         currentStimulusIndex = 0;
         lastStimulusTime = Time.time;
+        nextStimulusTime = IsPracticeMode ? StimulusDelay : InitialDelay;
     }
 
     /// <summary>
