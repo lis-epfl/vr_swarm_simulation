@@ -57,6 +57,11 @@ public class PySender : MonoBehaviour
         set { isCalibrationOk = value; }
     }
 
+    public bool EyeDataStreaming { 
+        get { return isSending; } 
+        set { isSending = value; } 
+    }
+
     private enum FileMapAccessType : uint
     {
         Write = 0x02,
@@ -367,6 +372,8 @@ public class PySender : MonoBehaviour
 
             PySenderData.DroneData data = new PySenderData.DroneData
             {
+                Timestamp = currentTimeStamp,
+                Id = (byte)i,
                 Position = new PySenderData.Vec3f(state.Position),
                 Orientation = new PySenderData.Vec3f(state.Angles)
             };
@@ -402,7 +409,7 @@ public class PySender : MonoBehaviour
     {
         PySenderData.CustomGazeData dataToSend = new PySenderData.CustomGazeData
         {
-            TimeStamp = gazeData.TimeStamp,
+            TimeStamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             LeftGazePoint = new PySenderData.Vec3f(gazeData.Left.GazeOriginInUserCoordinates),
             RightGazePoint = new PySenderData.Vec3f(gazeData.Right.GazeOriginInUserCoordinates),
             LeftGazeOnScreen = new PySenderData.Vec2f(gazeData.Left.GazePointOnDisplayArea),

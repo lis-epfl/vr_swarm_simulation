@@ -7,7 +7,6 @@ namespace Experiment
 {
     public class TimerCountdown : MonoBehaviour
     {
-        [SerializeField]
         public float Minutes
         {
             get { return minutes; }
@@ -19,7 +18,6 @@ namespace Experiment
                     minutes = value;
             }
         }
-        [SerializeField]
         public float Seconds
         {
             get { return seconds; }
@@ -34,7 +32,9 @@ namespace Experiment
             }
         }
 
+        [SerializeField]
         private float seconds = 0f;
+        [SerializeField]
         private float minutes = 0f;
 
         public TextMeshProUGUI countdownText;

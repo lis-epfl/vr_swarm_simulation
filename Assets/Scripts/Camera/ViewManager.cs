@@ -15,8 +15,10 @@ public class ViewManager : MonoBehaviour
         public float dot;
         public float cross;
     }
-    private List<int> views_idx; // front, left, back, right
+    private List<int> views_idx; // back, right, front, left
     private List<DroneInfo> droneInfos;
+
+    private bool droneFpvEnabled = true;
     // Start is called before the first frame update
     void Start()
     {
@@ -54,16 +56,16 @@ public class ViewManager : MonoBehaviour
         // Select first (front most) and last (back most) drones
         if (droneInfos.Count >= 2)
         {
-            views_idx[0] = droneInfos[0].droneIdx; // Front most
-            views_idx[2] = droneInfos[droneInfos.Count - 1].droneIdx; // Back most
+            views_idx[2] = droneInfos[0].droneIdx; // Front most
+            views_idx[0] = droneInfos[droneInfos.Count - 1].droneIdx; // Back most
         }
         // Sort drones based on cross product descending (right to left)
         droneInfos.Sort((a, b) => b.cross >= a.cross ? 1 : -1);
         // Select first (right most) and last (left most) drones
         if (droneInfos.Count >= 2)
         {
-            views_idx[1] = droneInfos[0].droneIdx; // Left most
-            views_idx[3] = droneInfos[droneInfos.Count - 1].droneIdx; // Right most
+            views_idx[3] = droneInfos[0].droneIdx; // Left most
+            views_idx[1] = droneInfos[droneInfos.Count - 1].droneIdx; // Right most
         }
         // Clear the droneInfos list for the next update
         droneInfos.Clear();
@@ -79,6 +81,14 @@ public class ViewManager : MonoBehaviour
                 fpvCamera.enabled = false;
             }
         }
+
+        if (visualize)
+        {
+            visualizeViews();
+        }
+
+        if (!droneFpvEnabled)
+            return;
         
         // Then enable and assign displays only for selected view drones
         for (int i = 0; i < views_idx.Count; i++)
@@ -95,11 +105,6 @@ public class ViewManager : MonoBehaviour
                 }
             }
         }
-
-        if (visualize)
-        {
-            visualizeViews();
-        }
         // Debug.Log("Views idx: " + string.Join(", ", views_idx));
     }
 
@@ -107,6 +112,11 @@ public class ViewManager : MonoBehaviour
     {
         views_idx = new List<int>() { -1, -1, -1, -1 };
         droneInfos = new List<DroneInfo>();
+    }
+
+    public void ToggleAllViews(bool enabled)
+    {
+        droneFpvEnabled = enabled;
     }
 
     private Vector3 GetSwarmCenter()
