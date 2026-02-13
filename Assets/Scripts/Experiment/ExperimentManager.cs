@@ -169,16 +169,11 @@ namespace Experiment
                     break;
 
                 case ExperimentState.Welcome:
-                    nextState = ExperimentState.RcControls;
-                    TransitionTo(ExperimentState.Wait);
-                    break;
-
-                case ExperimentState.RcControls:
                     nextState = ExperimentState.FlyingInstructions;
                     TransitionTo(ExperimentState.Wait);
                     break;
 
-                case ExperimentState.FlyingInstructions:
+                case ExperimentState.RcControls:
                     if (skipCalibration)
                     {
                         nextState = ExperimentState.FlyingPractice;
@@ -187,6 +182,11 @@ namespace Experiment
                     {                        
                         nextState = ExperimentState.Calibration;
                     }
+                    TransitionTo(ExperimentState.Wait);
+                    break;
+
+                case ExperimentState.FlyingInstructions:
+                    nextState = ExperimentState.RcControls;
                     TransitionTo(ExperimentState.Wait);
                     break;
 

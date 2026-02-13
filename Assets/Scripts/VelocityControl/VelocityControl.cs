@@ -21,7 +21,7 @@ public class VelocityControl : MonoBehaviour
 
     private float maxPitch = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies 
     private float maxRoll = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies
-    private float maxYawRate = 0.5f;
+    private float maxYawRate = 1.0f;
     private float maxAlpha = 10.0f;
     private float maxSpeed = 5.0f;
 
@@ -38,6 +38,8 @@ public class VelocityControl : MonoBehaviour
     public float HeightKi = 0.1f;
     private float previousHeightError = 0.0f;
     private float cumulativeHeightError = 0.0f;
+    private float filteredHeightRate = 0.0f;
+    public float HeightRateCoefficient = 0.1f;
 
     private float targetYawRate = 0.0f;
     private float filteredYawRate = 0.0f;
@@ -88,12 +90,13 @@ public class VelocityControl : MonoBehaviour
         Vector3 desiredVelocity;
         Vector3 swarmVelocity;
 
-        desired_height = desired_height + swarm_vy * Time.deltaTime;
+
+        filteredHeightRate = filteredHeightRate * (1.0f - HeightRateCoefficient) + swarm_vy * HeightRateCoefficient;
+        desired_height = desired_height + filteredHeightRate * Time.deltaTime;
 
         float currentHeightError = desired_height - State.Altitude;
 
         // Low pass filter for height control
-        // heightError = heightError * (1.0f - filterCoefficient) + (State.Altitude - initial_height) * filterCoefficient;
         float heightErrorDerivative = (currentHeightError - previousHeightError) / Time.deltaTime;
         cumulativeHeightError += currentHeightError * Time.deltaTime;
         float altitudeCommand = HeightKp * currentHeightError + HeightKd * heightErrorDerivative + HeightKi * cumulativeHeightError;

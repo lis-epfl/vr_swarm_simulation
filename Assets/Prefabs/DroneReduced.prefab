@@ -199,7 +199,8 @@ MonoBehaviour:
   HeightKp: 1.5
   HeightKd: 1
   HeightKi: 0.2
-  yawFilterCoefficient: 0.2
+  HeightRateCoefficient: 0.05
+  yawFilterCoefficient: 0.1
   swarm_vx: 0
   swarm_vy: 0
   swarm_vz: 0
@@ -342,7 +343,6 @@ MonoBehaviour:
   desired_height: 4
   desired_vx: 0
   desired_vy: 0
-  desiredYawRate: 0
   desired_alittude_rate: 0
 --- !u!1 &1343969879783188
 GameObject:
@@ -709,8 +709,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4501315699650070}
-  - component: {fileID: 114673619509455136}
-  - component: {fileID: 6727076729497765368}
   m_Layer: 9
   m_Name: Controller
   m_TagString: Untagged
@@ -733,40 +731,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 4340667180271852}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &114673619509455136
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1713172099184850}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ec3b2d78ab3414b538a10156593fb2e9, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  swarmAlgorithm: {fileID: 474059409597466468}
-  attitudeAlgorithm: {fileID: 3810217873681142886}
-  speedCoeff: 10
-  yawRateCoeff: 0.5
-  altCoeff: 1
---- !u!114 &6727076729497765368
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1713172099184850}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b489a38bd9672774ca5bb8a28b33fa11, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  vc: {fileID: 114202773416505472}
-  SwarmAlgorithm: {fileID: 474059409597466468}
-  height_min: 10
-  height_max: 20
-  currentAlgorithm: 1
 --- !u!1 &1739179400309510
 GameObject:
   m_ObjectHideFlags: 0
