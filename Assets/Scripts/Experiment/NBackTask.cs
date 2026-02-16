@@ -157,11 +157,17 @@ public class NBackTask : MonoBehaviour
             if (hasUserClicked)
             {
                 actualStimulus.ResponseTimeStamp = lastUserClickTime;
-                actualStimulus.IsCorrect = (expectedStimulus.Stimulus == actualStimulus.Stimulus) ? (byte)1 : (byte)0;
+                if (currentNBack == 0)
+                    actualStimulus.IsCorrect = (byte)0; // For 0-back, User NEVER clicks
+                else
+                    actualStimulus.IsCorrect = (expectedStimulus.Stimulus == actualStimulus.Stimulus) ? (byte)1 : (byte)0;
             }
             else
             {
-                actualStimulus.IsCorrect = (expectedStimulus.Stimulus != actualStimulus.Stimulus) ? (byte)1 : (byte)0;
+                if (currentNBack == 0)
+                    actualStimulus.IsCorrect = (byte)1; // For 0-back, User NEVER clicks
+                else
+                    actualStimulus.IsCorrect = (expectedStimulus.Stimulus != actualStimulus.Stimulus) ? (byte)1 : (byte)0;
             }
         } else
         {

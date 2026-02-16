@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.Tracing;
+using Tobii.Research.Unity;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -54,6 +55,7 @@ namespace Experiment
         [SerializeField] private TimerCountdown timer;
         [SerializeField] private ViewManager viewManager;
         [SerializeField] private CustomCalibration eyeTrackerCalibration;
+        [SerializeField] private CustomTrackBoxGuide eyeTrackerGuide;
         [SerializeField] private swarmSpawn swarmSpawner;
         [SerializeField] private TaskOverlayManager taskOverlayManager;
 
@@ -102,6 +104,7 @@ namespace Experiment
         private int currentTask = 0;
         private int currentTrial = 0;
         private bool calibrationDone = false;
+        private bool isHeadPositionOk = false;
         private int flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(0.25).TotalMilliseconds;
 
         void Start()
@@ -191,7 +194,12 @@ namespace Experiment
                     break;
 
                 case ExperimentState.Calibration:
-                    if (calibrationDone)
+                    if (!isHeadPositionOk)
+                    {
+                        TransitionTo(ExperimentState.Wait);
+                        isHeadPositionOk = true;
+                    }
+                    else if (calibrationDone)
                     {
                         TransitionTo(nextState);
                     }
@@ -239,7 +247,7 @@ namespace Experiment
 
                 case ExperimentState.Task:
                     nextState = ExperimentState.Trial;
-                    TransitionTo(ExperimentState.Wait);
+                    TransitionTo(ExperimentState.WaitForUser);
                     break;
 
                 case ExperimentState.Trial:
@@ -283,9 +291,17 @@ namespace Experiment
                     InputManager.Instance.UnlockControl();
                     break;
                 case ExperimentState.Calibration:
-                    nextState = ExperimentState.FlyingPractice;
-                    if (eyeTrackerCalibration != null)
+                    if (!isHeadPositionOk)
                     {
+                        if (eyeTrackerGuide != null)
+                            eyeTrackerGuide.TrackBoxGuideActive = true;
+                        nextState = ExperimentState.Calibration;
+                    }
+                    else if (eyeTrackerCalibration != null)
+                    {
+                        if (eyeTrackerGuide != null)
+                            eyeTrackerGuide.TrackBoxGuideActive = false;
+                        nextState = ExperimentState.FlyingPractice;
                         calibrationDone =  false;
                         eyeTrackerCalibration.StartCalibration(
                             resultCallback: (calibResult) => 
@@ -497,6 +513,8 @@ namespace Experiment
             }
             if (Input.GetKeyDown(KeyCode.Return))
                 isTransitionRequested = true;
+            if (Input.GetKeyDown(KeyCode.Tab))
+                hasUserClicked = true;
             
         }
 
