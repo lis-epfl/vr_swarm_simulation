@@ -69,7 +69,7 @@ public class PySender : MonoBehaviour
         AllAccess = 0xF001F
     }
 
-    private EyeTracker eyeTracker;
+    private CustomEyeTracker eyeTracker;
     private bool isReady = false;
     private bool isSending = false;
     private bool isCalibrationOk = false;
@@ -111,7 +111,7 @@ public class PySender : MonoBehaviour
     void Start()
     {
         Debug.Log("PySender started.");
-        eyeTracker = EyeTracker.Instance;
+        eyeTracker = CustomEyeTracker.Instance;
 
         // Initialize shared memory metadata and gaze data blocks here
         metadataSize = Marshal.SizeOf(typeof(PySenderData.CustomMetadata));
@@ -184,6 +184,7 @@ public class PySender : MonoBehaviour
         var gazeData = eyeTracker.NextData;
         if (gazeData != default(IGazeData))
         {
+            gazeData = eyeTracker.LatestGazeData;
             updateGazeData((GazeData)gazeData);
         }
 
@@ -407,6 +408,8 @@ public class PySender : MonoBehaviour
 
     private void updateGazeData(GazeData gazeData)
     {
+        // Check for eyeOpenness data
+        CustomEyeTracker.EyeOpennessData eyeOpennessData = eyeTracker.LatestEyeOpennessData;
         PySenderData.CustomGazeData dataToSend = new PySenderData.CustomGazeData
         {
             TimeStamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -417,7 +420,11 @@ public class PySender : MonoBehaviour
             LeftGazeValid = (byte)(gazeData.Left.GazePointValid ? 1 : 0),
             RightGazeValid = (byte)(gazeData.Right.GazePointValid ? 1 : 0),
             LeftPupilDiameter = gazeData.Left.PupilDiameter,
-            RightPupilDiameter = gazeData.Right.PupilDiameter
+            RightPupilDiameter = gazeData.Right.PupilDiameter,
+            LeftOpennessValid = (byte)(eyeOpennessData.LeftValid ? 1 : 0),
+            RightOpennessValid = (byte)(eyeOpennessData.RightValid ? 1 : 0),
+            LeftEyeOpenness = eyeOpennessData.LeftEyeOpenness,
+            RightEyeOpenness = eyeOpennessData.RightEyeOpenness
         };
         if (isBufferOverflowed)
         {
