@@ -46,6 +46,10 @@ namespace Experiment
             public byte RightGazeValid;
             public float LeftPupilDiameter;
             public float RightPupilDiameter;
+            public byte LeftOpennessValid;
+            public byte RightOpennessValid;
+            public float LeftEyeOpenness;
+            public float RightEyeOpenness;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
