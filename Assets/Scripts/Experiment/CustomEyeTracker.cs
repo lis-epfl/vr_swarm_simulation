@@ -4,7 +4,6 @@
 // Copyright © 2019 Tobii Pro AB. All rights reserved.
 //-----------------------------------------------------------------------
 
-using System.Runtime.Serialization;
 using System.Threading;
 using UnityEngine;
 using Tobii.Research.Unity;
@@ -150,6 +149,9 @@ namespace Experiment
         private string _eyeTrackerSerialStart = "IS";
 
         [SerializeField]
+        private int maxBufferBlocks = 100;
+
+        [SerializeField]
         [Tooltip("Checking this will subscribe to eye openness data.")]
         private bool _subscribeToEyeOpenness = true;
 
@@ -160,12 +162,12 @@ namespace Experiment
         /// <summary>
         /// Locked access and size management.
         /// </summary>
-        private LockedQueue<GazeDataEventArgs> _originalGazeData = new LockedQueue<GazeDataEventArgs>(maxCount: _maxGazeDataQueueSize);
+        private LockedQueue<GazeDataEventArgs> _originalGazeData;
 
         /// <summary>
         /// Size managed queue.
         /// </summary>
-        private SizedQueue<IGazeData> _gazeDataQueue = new SizedQueue<IGazeData>(maxCount: _maxGazeDataQueueSize);
+        private SizedQueue<IGazeData> _gazeDataQueue;
 
         /// <summary>
         /// Hold the latest processed gaze data. Initialized to an invalid object.
@@ -177,12 +179,12 @@ namespace Experiment
         /// </summary>
         private EyeOpennessData _latestEyeOpennessData = new EyeOpennessData();
         
-        private LockedQueue<EyeOpennessDataEventArgs> _originalEyeOpennessData = new LockedQueue<EyeOpennessDataEventArgs>(maxCount: _maxGazeDataQueueSize);
+        private LockedQueue<EyeOpennessDataEventArgs> _originalEyeOpennessData;
 
         /// <summary>
         /// Size managed queue.
         /// </summary>
-        private SizedQueue<EyeOpennessData> _eyeOpennessDataQueue = new SizedQueue<EyeOpennessData>(maxCount: _maxGazeDataQueueSize);
+        private SizedQueue<EyeOpennessData> _eyeOpennessDataQueue;
 
 
         private bool _subscribingToEyeOpenness;
@@ -194,6 +196,10 @@ namespace Experiment
         protected override void OnAwake()
         {
             Instance = this;
+            _originalGazeData = new LockedQueue<GazeDataEventArgs>(maxCount: maxBufferBlocks);
+            _gazeDataQueue = new SizedQueue<IGazeData>(maxCount: maxBufferBlocks);
+            _originalEyeOpennessData = new LockedQueue<EyeOpennessDataEventArgs>(maxCount: maxBufferBlocks);
+            _eyeOpennessDataQueue = new SizedQueue<EyeOpennessData>(maxCount: maxBufferBlocks);
             base.OnAwake();
         }
 

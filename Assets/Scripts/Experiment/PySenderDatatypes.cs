@@ -55,9 +55,11 @@ namespace Experiment
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public struct CustomMetadata
         {
-            public byte IsStreamReady;
+            public byte IsSenderReady;
             public byte IsCalibrationOk;
-            public byte ActiveDataCnt;
+            public byte IsReceiverReady;
+            public int Head;
+            public int Tail;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
