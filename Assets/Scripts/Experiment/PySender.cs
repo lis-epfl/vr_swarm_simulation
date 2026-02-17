@@ -28,7 +28,7 @@ public class PySender : MonoBehaviour
 
     [SerializeField]
     [Tooltip("Maximum number of buffer blocks to be used for the circular buffer (Gaze data)")]
-    private uint maxBufferBlocks = 100;
+    private int maxBufferBlocks = 100;
 
     [SerializeField]
     [Tooltip("Key to toggle sending data.")]
@@ -59,7 +59,9 @@ public class PySender : MonoBehaviour
 
     public bool EyeDataStreaming { 
         get { return isSending; } 
-        set { isSending = value; } 
+        set {
+            isSending = value; 
+        } 
     }
 
     private enum FileMapAccessType : uint
@@ -79,7 +81,7 @@ public class PySender : MonoBehaviour
     private int metadataSize = -1;
     private int gazeDataSize = -1;
     private IntPtr gazeDataStartPtr = IntPtr.Zero;
-    private IntPtr gazeDataCurrentPtr = IntPtr.Zero;
+    private int gazeDataHead = 0;
     private IntPtr metadataFileMap = IntPtr.Zero;
     private IntPtr gazeDataFileMap = IntPtr.Zero;
     private IntPtr metadataPtr = IntPtr.Zero;
@@ -130,12 +132,11 @@ public class PySender : MonoBehaviour
         // Initialize metadata to default values
         PySenderData.CustomMetadata initialMetadata = new PySenderData.CustomMetadata
         {
-            IsStreamReady = 1,
+            IsSenderReady = 1,
             IsCalibrationOk = (byte)(isCalibrationOk ? 1 : 0),
-            ActiveDataCnt = 0
+            Head = gazeDataHead
         };
-        updateMetadata(initialMetadata);
-
+        writeMetadata(initialMetadata);
         gazeDataFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, k_PageReadWrite, 0, (uint)(gazeDataSize * maxBufferBlocks), sharedMemoryGazeDataName);
         if (gazeDataFileMap == IntPtr.Zero)
         {
@@ -150,7 +151,6 @@ public class PySender : MonoBehaviour
                 Debug.LogError("Could not map view of file for gaze data. Error: " + Marshal.GetLastWin32Error());
                 return;
             }
-            gazeDataCurrentPtr = gazeDataStartPtr;
         }
         else
         {
@@ -172,8 +172,8 @@ public class PySender : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Space))
         {   
             // For testing purposes, write one temp data point
+            isBufferOverflowed = !checkEnoughSpaceInBuffer();
             writeToCircularBuffer(MockupData.mockupGazeData);
-            updateMetadataCnt(1);
         }
 
         if (!isSending)
@@ -185,7 +185,10 @@ public class PySender : MonoBehaviour
         if (gazeData != default(IGazeData))
         {
             gazeData = eyeTracker.LatestGazeData;
-            updateGazeData((GazeData)gazeData);
+            if (checkReceiverReady())
+            {
+                updateGazeData((GazeData)gazeData);
+            }
         }
 
         // Update drone data at specified rate
@@ -206,14 +209,14 @@ public class PySender : MonoBehaviour
         {
             if (isReady)
             {
-                // Set IsStreamReady to 0
+                // Set IsSenderReady to 0
                 PySenderData.CustomMetadata finalMetadata = new PySenderData.CustomMetadata
                 {
-                    IsStreamReady = 0,
+                    IsSenderReady = 0,
                     IsCalibrationOk = (byte)(isCalibrationOk ? 1 : 0),
-                    ActiveDataCnt = 0
+                    Head = gazeDataHead,
                 };
-                updateMetadata(finalMetadata);
+                writeMetadata(finalMetadata);
             }
             UnmapViewOfFile(metadataPtr);
             metadataPtr = IntPtr.Zero;
@@ -426,62 +429,66 @@ public class PySender : MonoBehaviour
             LeftEyeOpenness = eyeOpennessData.LeftEyeOpenness,
             RightEyeOpenness = eyeOpennessData.RightEyeOpenness
         };
-        if (isBufferOverflowed)
-        {
-            isBufferOverflowed = (updateMetadataCnt(0) >= maxBufferBlocks);
-            return;
-        }
-        if (!isBufferOverflowed)
-        {   
-            writeToCircularBuffer(dataToSend);
-            int count = updateMetadataCnt(1);
-            if (count == -1)
-            {
-                Debug.LogError("Failed to update metadata count. Error: " + Marshal.GetLastWin32Error());
-            } 
-            else if (count >= maxBufferBlocks)
-            {
-                isBufferOverflowed = true;
-                Debug.LogWarning("Auto-stopping PySender sending due to buffer full.");
-            }
-        }
+        writeToCircularBuffer(dataToSend);
     }
 
     private void writeToCircularBuffer(PySenderData.CustomGazeData data)
     {
-        Marshal.StructureToPtr(data, gazeDataCurrentPtr, false);
-        gazeDataCurrentPtr = IntPtr.Add(gazeDataCurrentPtr, gazeDataSize);
-        long offset = gazeDataCurrentPtr.ToInt64() - gazeDataStartPtr.ToInt64();
-        if (offset >= gazeDataSize * maxBufferBlocks)
+        bool lastOverflowStatus = isBufferOverflowed;
+        isBufferOverflowed = !checkEnoughSpaceInBuffer();
+        if (!isBufferOverflowed)
         {
-            gazeDataCurrentPtr = gazeDataStartPtr;
+            IntPtr gazeDataCurrentPtr = IntPtr.Add(gazeDataStartPtr, gazeDataHead * gazeDataSize);
+            Marshal.StructureToPtr(data, gazeDataCurrentPtr, false);
+            gazeDataHead = (gazeDataHead + 1) % maxBufferBlocks;
+            Debug.Log("Next data index: " + gazeDataHead);
+            // Update head in metadata
+            Marshal.WriteInt32(IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "Head").ToInt32()), gazeDataHead);
+        }
+        else if (!lastOverflowStatus)
+        {
+            Debug.LogWarning("Cannot write to circular buffer because it is full. Data is being dropped.");
         }
     }
 
-    private int updateMetadataCnt(byte dataIncr)
+    private bool checkReceiverReady()
     {
         if (metadataPtr == IntPtr.Zero)
         {
-            return -1;
+            return false;
         }
-
-        IntPtr cntPtr = IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "ActiveDataCnt").ToInt32());
-        byte currentCnt = Marshal.ReadByte(cntPtr);
-        currentCnt += dataIncr;
-        Marshal.WriteByte(cntPtr, 0, currentCnt);
-        // if (Marshal.GetLastWin32Error() != 0)
-        // {
-        //     return false;
-        // }
-        return currentCnt;
+        byte receiverReady = Marshal.ReadByte(IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "IsReceiverReady").ToInt32()));
+        return receiverReady == 1;
     }
 
-    private void updateMetadata(PySenderData.CustomMetadata metadata)
+    private bool checkEnoughSpaceInBuffer()
     {
+        if (metadataPtr == IntPtr.Zero)
+        {
+            return false;
+        }
+        int tail = Marshal.ReadInt32(IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "Tail").ToInt32()));
+        return ((gazeDataHead + 1) % maxBufferBlocks) != tail;
+    }
+
+    private void writeMetadata(PySenderData.CustomMetadata metadata)
+    {
+        // Only wrtite sender related data
         if (metadataPtr == IntPtr.Zero)
         {
             return;
         }
-        Marshal.StructureToPtr(metadata, metadataPtr, false);
+        Marshal.WriteByte(IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "IsSenderReady").ToInt32()), metadata.IsSenderReady);
+        Marshal.WriteByte(IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "IsCalibrationOk").ToInt32()), metadata.IsCalibrationOk);
+        Marshal.WriteInt32(IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "Head").ToInt32()), metadata.Head);
+    }
+
+    private PySenderData.CustomMetadata readMetadata()
+    {
+        if (metadataPtr == IntPtr.Zero)
+        {
+            return default(PySenderData.CustomMetadata);
+        }
+        return Marshal.PtrToStructure<PySenderData.CustomMetadata>(metadataPtr);
     }
 }
