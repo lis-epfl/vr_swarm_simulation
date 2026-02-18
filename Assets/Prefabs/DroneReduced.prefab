@@ -989,6 +989,7 @@ MonoBehaviour:
   Inertia: {x: 0, y: 0, z: 0}
   Mass: 0
   vc: {fileID: 114202773416505472}
+  positionNoise: 0.3
 --- !u!1 &1921012790031124
 GameObject:
   m_ObjectHideFlags: 0

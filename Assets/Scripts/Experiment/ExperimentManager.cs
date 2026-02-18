@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.Tracing;
 using Tobii.Research.Unity;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -66,13 +67,16 @@ namespace Experiment
         [SerializeField] private int maxPracticeLevel = 2;
         [SerializeField] private int trialsPerTask = 4;
         [SerializeField] private int randomSeed = -1;
+        [SerializeField] private int[] nBackLevelsOrder = new int[] { 0, 1, 2 };
 
 
         [Header("Debug")]
+        [SerializeField] private bool isDebugMode = false;
         [SerializeField] private bool skipCalibration = false;
         [SerializeField] private bool skipFlyingPractice = false;
         [SerializeField] private bool skipNBackPractice = false;
         [SerializeField] private float practiceTime = 0.25f; // in minutes
+        [SerializeField] private float countdownTime = 0.25f; // in minutes
         public float PracticeTime
         {
             set
@@ -83,6 +87,22 @@ namespace Experiment
             get => practiceTime;
         }
 
+        private struct ExperimentSettings
+        {
+            public float FlightPracticeDuration; // in minutes
+            public int NBackSequenceLength;
+            public int TrialsPerTask;
+            public float RestTimeBetweenTasks; // in minutes
+            public float RestTimeBetweenTrials; // in sconds
+        }
+
+        private ExperimentSettings defaultSettings = new ExperimentSettings
+        {
+            FlightPracticeDuration = 3.0f,
+            NBackSequenceLength = 20,
+            RestTimeBetweenTasks = 2.0f,
+            RestTimeBetweenTrials = 8.0f,
+        };
 
         private NBackTask nBackTask;
         private AudioSource audioSource;
@@ -90,7 +110,6 @@ namespace Experiment
         private ExperimentState nextState = ExperimentState.Idle;
         private ExperimentState previousState = ExperimentState.Idle;
 
-        private int[] nBackLevelsOrder = new int[] { 0, 1, 2 };
         private System.Random rng;
         private bool hasUserClicked = false;
         private bool isTransitionRequested = false;
@@ -107,6 +126,10 @@ namespace Experiment
         private bool isHeadPositionOk = false;
         private int flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(0.25).TotalMilliseconds;
 
+        private const String k_trialFinishClipName = "TrialFinishSound";
+        private const String k_lastTrialClipName = "TrialStartSoundFinal";
+        private String trialStartClip = "TrialStartSound#";
+
         void Start()
         {
             // Retrieve components from this object
@@ -120,17 +143,31 @@ namespace Experiment
             {
                 nBackTask.Completed += () => nBackCompletedFlag = true;
             }
-            if (audioSource == null || audioSource.clip == null)
+            if (audioSource == null)
             {
-                Debug.LogWarning("AudioSource or AudioClip not set up for ExperimentFSM. No sound will be played at the end of trials.");
+                Debug.LogWarning("AudioSource not set up for ExperimentFSM. No sound will be played at the end of trials.");
             }
             if (timer != null)
                 timer.OnCountdownFinished += () => countdownEllapsed = true;
-            flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(practiceTime).TotalMilliseconds;
             rng = (randomSeed >= 0) ? new System.Random(randomSeed) : new System.Random();
             if (InputManager.Instance != null)
             {
                 InputManager.Instance.LockControl();
+            }
+            if (isDebugMode)
+            {
+                Debug.LogWarning("Experiment is running in DEBUG MODE. Some steps may be skipped and practice times may be shortened.");
+                flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(practiceTime).TotalMilliseconds;
+                timer.Minutes = countdownTime;
+                timer.Seconds = 0;
+            }
+            else
+            {
+                flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(defaultSettings.FlightPracticeDuration).TotalMilliseconds;
+                timer.Minutes = defaultSettings.RestTimeBetweenTasks;
+                timer.Seconds = 0;
+                nBackTask.TotalStimuli = (uint)defaultSettings.NBackSequenceLength;
+                nBackTask.InitialDelay = defaultSettings.RestTimeBetweenTrials;
             }
         }
 
@@ -247,7 +284,7 @@ namespace Experiment
 
                 case ExperimentState.Task:
                     nextState = ExperimentState.Trial;
-                    TransitionTo(ExperimentState.WaitForUser);
+                    TransitionTo(ExperimentState.Wait);
                     break;
 
                 case ExperimentState.Trial:
@@ -256,13 +293,14 @@ namespace Experiment
                     {
                         nBackCompletedFlag = false;
                         // Check if another trial required
-                        idleRequestDelay = 2; // 2 seconds delay before transitioning to next task
                         if (currentTrial < trialsPerTask)
                         {
+                            idleRequestDelay = 5; // 5 seconds delay before transitioning to next task
                             TransitionTo(ExperimentState.IdleSilent);
                         }
                         else
                         {
+                            idleRequestDelay = 2;
                             TransitionTo(ExperimentState.Idle);
                         }
                     }
@@ -341,6 +379,7 @@ namespace Experiment
                     }
                     nBackTask.setNBack(currentPracticeLevel);
                     nBackTask.beginTask();
+                    hasUserClicked = false;
                     InputManager.Instance.UnlockControl();
                     break;
                 case ExperimentState.ExperimentBegin:
@@ -359,7 +398,6 @@ namespace Experiment
                     nBackTask.setNBack(nBackLevelsOrder[currentTask-1]);
                     if (viewManager != null)
                         viewManager.ToggleAllViews(true);
-                    InputManager.Instance.UnlockControl();
                     break;
                 case ExperimentState.Trial:
                     Debug.Log($"Starting Trial {currentTrial} of Task {currentTask}");
@@ -367,13 +405,21 @@ namespace Experiment
                     PySender.Instance.EyeDataStreaming = true;
                     nBackTask.beginTask();
                     InputManager.Instance.UnlockControl();
+                    String audioClip = trialStartClip.Replace("#", currentTrial.ToString());
                     if (currentTrial < trialsPerTask)
                     {
                         nextState = ExperimentState.Trial;
                     }
                     else
                     {
+                        audioClip = k_lastTrialClipName;
                         nextState = (currentTask >= nBackLevelsOrder.Length) ? ExperimentState.Finished : ExperimentState.Countdown;
+                    }
+                    if (audioSource != null)
+                    {   
+                        AudioClip clip = Resources.Load<AudioClip>("Audio/" + audioClip);
+                        if (clip != null)
+                            audioSource.PlayOneShot(clip);
                     }
                     break;
                 case ExperimentState.Countdown:
@@ -440,8 +486,12 @@ namespace Experiment
                 case ExperimentState.Trial:
                     Debug.Log($"End of Trial #{currentTrial}");
                     PySender.Instance.EyeDataStreaming = false;
-                    if (audioSource != null && audioSource.clip != null)
-                        audioSource.Play();
+                    if (audioSource != null)
+                    {
+                        AudioClip clip = Resources.Load<AudioClip>("Audio/" + k_trialFinishClipName);
+                        if (clip != null)
+                            audioSource.PlayOneShot(clip);
+                    }
                     currentTrial++;
                     break;
             }
