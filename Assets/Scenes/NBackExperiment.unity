@@ -2046,7 +2046,7 @@ MonoBehaviour:
   TotalStimuli: 5
   StimulusAudioFilePattern: '#_female'
   IsPracticeMode: 1
-  InitialDelay: 3
+  InitialDelay: 5
   SaveResultsToFile: 0
   AudioSource: {fileID: 90836714}
 --- !u!114 &472109454
@@ -2112,12 +2112,15 @@ MonoBehaviour:
     - {fileID: 1044653306}
     - {fileID: 2026414128}
   maxPracticeLevel: 2
-  trialsPerTask: 1
+  trialsPerTask: 4
   randomSeed: -1
+  nBackLevelsOrder: 000000000100000002000000
+  isDebugMode: 0
   skipCalibration: 1
-  skipFlyingPractice: 0
-  skipNBackPractice: 1
-  practiceTime: 0.25
+  skipFlyingPractice: 1
+  skipNBackPractice: 0
+  practiceTime: 5
+  countdownTime: 0.25
 --- !u!82 &472109455
 AudioSource:
   m_ObjectHideFlags: 0
@@ -3926,8 +3929,8 @@ MonoBehaviour:
   d_ref: 1
   r0_coh: 10
   delta: 0.2
-  a: 0.3
-  b: 0.5
+  a: 0.6
+  b: 1
   gamma: 1
   c_vm: 1
   d_obs: 4
@@ -3994,7 +3997,7 @@ MonoBehaviour:
   speedCoeff: 8
   yawRateCoeff: 1
   altCoeff: 4
-  inputMode: 0
+  inputMode: 1
 --- !u!4 &916247269 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4000013848046870, guid: 80035c381857a7e419e0a93ca8ad1699,
@@ -6511,12 +6514,12 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: '0-Baseline: ..., ...     --> NEVER CLICK
+  m_text: '0-Back: 3, 1, 4, ...      --> NEVER CLICK
 
-    1-Back: ...,4,4   --> CLICK!
+    1-Back: 3, 1, 4, 1, 1  
+    --> CLICK!
 
-    2-Back:
-    ...,4,7,4  --> CLICK!'
+    2-Back: 3, 1, 4, 1       --> CLICK!'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -6543,14 +6546,14 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 58.5
+  m_fontSize: 58.4
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 1
-  m_HorizontalAlignment: 16
+  m_HorizontalAlignment: 1
   m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
