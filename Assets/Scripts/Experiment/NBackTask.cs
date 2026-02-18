@@ -37,13 +37,14 @@ public class NBackTask : MonoBehaviour
 
     private int currentNBack;
     private List<PySenderData.NBackData> stimulusSequence = new List<PySenderData.NBackData>();
-    private List<byte> practiceSequence = new List<byte>{3, 1, 4, 1, 1}; //, 5, 5, 6, 5, 3};
+    private List<byte> practiceSequence = new List<byte>{3, 1, 4, 1, 1, 5, 5, 6, 5, 3};
     private int currentStimulusIndex = 0;
     private float lastStimulusTime;
     private float nextStimulusTime;
     private long lastUserClickTime;
     private bool isTaskActive = false;
     private bool hasUserClicked = false;
+    private bool lastSwitchState = false; // For input edge detection
     private AudioClip next_clip;
     private const string k_audioFolderPath = "Audio/NBackStimuli/";
     private const string k_resultsFolderPath = "Assets/Data/NBack/";
@@ -106,8 +107,12 @@ public class NBackTask : MonoBehaviour
         if (InputManager.Instance != null)
         {
             Dictionary<string, float> inputStatus = InputManager.Instance.InputStatus;
-            if (inputStatus["userSwitch"] > 0)
+            bool currentSwitchState = inputStatus.ContainsKey("userSwitch") && inputStatus["userSwitch"] > 0;
+            if (currentSwitchState && !lastSwitchState)
+            {
                 hasUserClicked = true;
+            }
+            lastSwitchState = currentSwitchState;
         }
         if (hasUserClicked)
             lastUserClickTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -169,10 +174,19 @@ public class NBackTask : MonoBehaviour
                 else
                     actualStimulus.IsCorrect = (expectedStimulus.Stimulus != actualStimulus.Stimulus) ? (byte)1 : (byte)0;
             }
-        } else
+        } 
+        else
         {
+            if (stimulusToMatchIndex == -currentNBack)
+            {
+                actualStimulus.IsCorrect = (byte)1; // Give away first answer
+            }
+            else
+            {
             // No response expected for first N stimuli
             actualStimulus.IsCorrect = !hasUserClicked ? (byte)1 : (byte)0;
+            }
+
         }
         stimulusSequence[currentStimulusIndex - 1] = actualStimulus;
         hasUserClicked = false; // Reset for next stimulus
@@ -189,6 +203,7 @@ public class NBackTask : MonoBehaviour
         generateStimulusSequence();
         PySender.Instance.UpdateNBackData(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), stimulusSequence.ToArray());
         isTaskActive = true;
+        hasUserClicked = false;
         currentStimulusIndex = 0;
         lastStimulusTime = Time.time;
         nextStimulusTime = IsPracticeMode ? StimulusDelay : InitialDelay;
