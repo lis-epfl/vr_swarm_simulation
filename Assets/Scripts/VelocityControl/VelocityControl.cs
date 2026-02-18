@@ -48,6 +48,7 @@ public class VelocityControl : MonoBehaviour
     public float swarm_vx = 0.0f;
     public float swarm_vy = 0.0f;
     public float swarm_vz = 0.0f;
+    public float MinHeight = 0.5f;
 
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
 
@@ -94,6 +95,10 @@ public class VelocityControl : MonoBehaviour
         filteredHeightRate = filteredHeightRate * (1.0f - HeightRateCoefficient) + swarm_vy * HeightRateCoefficient;
         desired_height = desired_height + filteredHeightRate * Time.deltaTime;
 
+        if (desired_height < MinHeight)
+        {
+            desired_height = MinHeight;
+        }
         float currentHeightError = desired_height - State.Altitude;
 
         // Low pass filter for height control
