@@ -441,7 +441,6 @@ public class PySender : MonoBehaviour
             IntPtr gazeDataCurrentPtr = IntPtr.Add(gazeDataStartPtr, gazeDataHead * gazeDataSize);
             Marshal.StructureToPtr(data, gazeDataCurrentPtr, false);
             gazeDataHead = (gazeDataHead + 1) % maxBufferBlocks;
-            Debug.Log("Next data index: " + gazeDataHead);
             // Update head in metadata
             Marshal.WriteInt32(IntPtr.Add(metadataPtr, Marshal.OffsetOf(typeof(PySenderData.CustomMetadata), "Head").ToInt32()), gazeDataHead);
         }
