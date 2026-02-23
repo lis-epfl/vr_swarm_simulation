@@ -326,10 +326,11 @@ public class ImageSharing : MonoBehaviour
                 int srcIndex = srcRowStart + x * 3;
                 int destIndex = destRowStart + x;
                 
+                // Reversed order because source is BGR and we want RGB
                 pixels[destIndex] = new Color32(
-                    imageBytes[srcIndex],
-                    imageBytes[srcIndex + 1],
                     imageBytes[srcIndex + 2],
+                    imageBytes[srcIndex + 1],
+                    imageBytes[srcIndex],
                     255
                 );
             }
