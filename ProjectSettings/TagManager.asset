@@ -6,6 +6,10 @@ TagManager:
   tags:
   - Motor
   - DroneBase
+  - Screen
+  - Obstacle
+  - BirdsEyeCamera
+  - Arena
   layers:
   - Default
   - TransparentFX
@@ -15,8 +19,8 @@ TagManager:
   - UI
   - 
   - 
-  - Minimap
-  - Drone
+  - 
+  - 
   - 
   - 
   - 

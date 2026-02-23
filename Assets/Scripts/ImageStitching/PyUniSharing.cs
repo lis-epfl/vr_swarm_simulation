@@ -1,3 +1,8 @@
+//////////////////////
+// OLD VERSION OF PyUnisSharing.cs
+//////////////////////
+
+
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -223,11 +228,11 @@ public class PyUniSharing : MonoBehaviour
                 
         foreach (GameObject drone in drones)
         {
-            AttitudeControl attitudeScript = drone.transform.Find("DroneParent").GetComponent<AttitudeControl>();
+            AttitudeAlgorithm attitudeScript = drone.transform.Find("DroneParent").GetComponent<AttitudeAlgorithm>();
 
             if (attitudeScript != null)
             {
-                bool estimate = attitudeScript.boundaryEstimate;
+                bool estimate = attitudeScript.BoundaryEstimate;
                 camerasToStitch.Add(estimate);
             }
             else
