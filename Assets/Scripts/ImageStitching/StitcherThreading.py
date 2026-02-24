@@ -61,6 +61,15 @@ except ImportError as e:
     print("REWARP modules could not be imported. REWARP stitcher will not be available.")
     print(e)
 
+# --- STABSTITCH ---
+HAS_STABSTITCH = False
+try:
+    from StabStitcher import StabStitcher
+    HAS_STABSTITCH = True
+except ImportError as e:
+    print("StabStitch modules could not be imported. STABSTITCH stitcher will not be available.")
+    print(e)
+
 # Activate environnement
 # cmd
 # cd Assets\Scripts\ImageStitching
@@ -74,6 +83,7 @@ class StitcherManager:
             "UDIS": UDISStitcher() if HAS_UDIS else None,
             "NIS": NISStitcher() if HAS_NIS else None,
             "REWARP": REStitcher() if HAS_REWARP else None,
+            "STABSTITCH": StabStitcher() if HAS_STABSTITCH else None,
         }
         
 
@@ -81,8 +91,8 @@ class StitcherManager:
         if HAS_NIS:
             self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
 
-        self.active_stitcher = self.stitchers["UDIS"]
-        self.active_stitcher_type = "UDIS"
+        self.active_stitcher = self.stitchers["STABSTITCH"]
+        self.active_stitcher_type = "STABSTITCH"
         self.active_matcher_type = "BF"
         self.device = device
         
@@ -90,7 +100,7 @@ class StitcherManager:
         self.switching_lock2 = threading.Lock()
         self.info_lock = threading.Lock()
 
-        self.stitcherTypes = list(self.stitchers.keys())
+        self.stitcherTypes = [k for k, v in self.stitchers.items() if v is not None]
         self.cylidnricalWarp = False
         self.isRANSAC = False   
         self.headAngle = 0
@@ -124,6 +134,10 @@ class StitcherManager:
             self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
         elif self.active_stitcher_type == "REWARP":
             self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
+        elif self.active_stitcher_type == "STABSTITCH":
+            self.active_stitcher.spatial_net.cpu()
+            self.active_stitcher.temporal_net.cpu()
+            self.active_stitcher.smooth_net.cpu()
 
         torch.cuda.empty_cache()
         self.active_stitcher = self.stitchers[stitcher_type]
@@ -138,6 +152,10 @@ class StitcherManager:
             self.active_stitcher.onlyIHN = onlyIHN
         elif self.active_stitcher_type == "REWARP":
             self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
+        elif self.active_stitcher_type == "STABSTITCH":
+            self.active_stitcher.spatial_net.to(self.device)
+            self.active_stitcher.temporal_net.to(self.device)
+            self.active_stitcher.smooth_net.to(self.device)
 
     def checkHyperparaChanges(self, output : dict):
         """
@@ -217,6 +235,9 @@ class StitcherManager:
                 subset1, subset2 = self.get_subsets_from_order(order, len(images))
                 # REWARP stitch implementation would go here
                 pano = None  # Placeholder
+            elif self.active_stitcher_type == "STABSTITCH":
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
+                pano = self.active_stitcher.stab_pano(images, subset1, subset2)
             
             if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put(pano)

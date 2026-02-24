@@ -14134,8 +14134,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f969c9ad1f2b33449605154bc14c68c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  displayMode: 1
-  screenStyle: 0
+  displayMode: 0
+  screenStyle: 5
   width: 640
   height: 360
   radius: 2
@@ -31214,6 +31214,7 @@ GameObject:
   - component: {fileID: 1348654472}
   - component: {fileID: 1348654471}
   - component: {fileID: 1348654470}
+  - component: {fileID: 1348654474}
   m_Layer: 0
   m_Name: curvedScreenFast
   m_TagString: Untagged
@@ -31298,6 +31299,42 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1348654474
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1348654469}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: afc009acad950df4ca680c00ef4682ee, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  enableImageWriting: 1
+  enablePanoramaReading: 1
+  blockImageWidth: 300
+  blockImageHeight: 300
+  panoramaImageWidth: 600
+  panoramaImageHeight: 400
+  sendInterval: 0.05
+  readInterval: 0.05
+  typeOfStitcher: 4
+  cylindrical: 0
+  typeOfMatcher: 0
+  ransac: 0
+  checks: 50
+  ratio_thresh: 0.7
+  score_threshold: 0.1
+  focal_length: 1000
+  onlyIHN: 1
+  camerasToCapture: []
+  camerasToStitch: 
+  radius: 5
+  angleRange: 90
+  segments: 20
+  height: 3
+  resize_dimension: 0
 --- !u!1001 &1350320345
 PrefabInstance:
   m_ObjectHideFlags: 0
