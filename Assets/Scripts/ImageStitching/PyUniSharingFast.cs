@@ -115,7 +115,8 @@ public class PyUniSharingFast : MonoBehaviour
         CLASSIC,
         UDIS,
         NIS,
-        REWARP
+        REWARP,
+        STABSTITCH
     }
 
     public enum matcherType
