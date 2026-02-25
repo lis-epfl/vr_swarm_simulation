@@ -386,7 +386,9 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     processedMMF = mmap.mmap(-1, totalProcessedSize, "BlockSharedMemory")
     
     first_loop = True
-    
+    # Cache of last successfully read frame per block index {block_idx: (image, drone_id, heading)}
+    block_cache = {}
+
     while True:
         # Update metadata
         output = readMetadataMemory(metadataMMF)
@@ -400,26 +402,27 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         manager.processedImageWidth = 1920
         manager.processedImageHeight = 1080
         # print(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
-        
-        # Read images from block-based memory
+
+        # Read images from block-based memory, falling back to cached frames for busy blocks
         try:
             images, drone_ids, headings = read_block_memory(
-                processedMMF, 
-                num_images, 
-                blockSize, 
+                processedMMF,
+                num_images,
+                blockSize,
                 metadataSize_per_block,
-                imageSize, 
-                batchImageWidth, 
+                imageSize,
+                batchImageWidth,
                 batchImageHeight,
-                enable_debug_logging
+                enable_debug_logging,
+                cache=block_cache,
             )
         except Exception as e:
             if enable_debug_logging:
                 print(f"[first_thread] Error reading block memory: {e}")
             time.sleep(0.05)
             continue
-        
-        if len(images) > 0:
+
+        if len(images) == num_images:
             # Sort images by drone ID to get known order
             sorted_indices = np.argsort(drone_ids)
             sorted_images = [images[i] for i in sorted_indices]
@@ -476,16 +479,21 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         if debug:
             break
 
-def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSize, imageWidth, imageHeight, enable_debug=False):
+def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSize, imageWidth, imageHeight, enable_debug=False, cache=None):
     """
     Reads images from block-based shared memory.
-    
+
     Block layout for each image:
         - int flag (4 bytes)
-        - int droneId (4 bytes) 
+        - int droneId (4 bytes)
         - float heading (4 bytes)
         - image data (imageSize bytes)
-    
+
+    Parameters:
+        - cache: optional dict {block_idx: (image, drone_id, heading)} used to
+                 substitute the previous frame when a block is busy being written.
+                 Updated in-place with each successfully read block.
+
     Returns:
         - images: list of numpy arrays
         - drone_ids: list of drone IDs
@@ -497,54 +505,64 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
 
     if enable_debug:
         print(f"Reading {num_blocks} blocks from mmmf... blockSize={blockSize}, imageSize={imageSize}, imageWidth={imageWidth}, imageHeight={imageHeight}")
-    
+
     for block_idx in range(num_blocks):
         blockOffset = block_idx * blockSize
-        
+
         # Read flag
         processedMMF.seek(blockOffset)
         flag_bytes = processedMMF.read(4)
         if len(flag_bytes) != 4:
             continue
         flag = struct.unpack('i', flag_bytes)[0]
-        
+
         if enable_debug:
             print(f"[read_block_memory] Block {block_idx}: flag={flag}, offset={blockOffset}")
-        
-        # Only read if flag is 0 (ready)
+
         if flag == 0:
-            # Set flag to 1 (busy reading)
+            # Block is ready — set flag to 1 (busy reading)
             processedMMF.seek(blockOffset)
             processedMMF.write(struct.pack('i', 1))
-            
+
             # Read droneId
             processedMMF.seek(blockOffset + 4)
             droneId = struct.unpack('i', processedMMF.read(4))[0]
-            
+
             # Read heading
             processedMMF.seek(blockOffset + 8)
             heading = struct.unpack('f', processedMMF.read(4))[0]
-            
+
             # Read image data
             processedMMF.seek(blockOffset + metadataSize)
             image_data = processedMMF.read(imageSize)
-            
-            if len(image_data) == imageSize:
-                # Convert to numpy array
-                image = np.frombuffer(image_data, dtype=np.uint8)
-                image = image.reshape((imageHeight, imageWidth, 3))
-                
-                images.append(image)
-                drone_ids.append(droneId)
-                headings.append(heading)
-                
-                if enable_debug:
-                    print(f"[read_block_memory] Successfully read block {block_idx}: droneId={droneId}, heading={heading:.2f}")
-            
+
             # Reset flag to 0 (ready for next write)
             processedMMF.seek(blockOffset)
             processedMMF.write(struct.pack('i', 0))
-    
+
+            if len(image_data) == imageSize:
+                image = np.frombuffer(image_data, dtype=np.uint8).reshape((imageHeight, imageWidth, 3)).copy()
+
+                images.append(image)
+                drone_ids.append(droneId)
+                headings.append(heading)
+
+                if cache is not None:
+                    cache[block_idx] = (image, droneId, heading)
+
+                if enable_debug:
+                    print(f"[read_block_memory] Successfully read block {block_idx}: droneId={droneId}, heading={heading:.2f}")
+
+        elif cache is not None and block_idx in cache:
+            # Block is busy being written — reuse the previous frame for this drone
+            cached_image, cached_drone_id, cached_heading = cache[block_idx]
+            images.append(cached_image)
+            drone_ids.append(cached_drone_id)
+            headings.append(cached_heading)
+
+            if enable_debug:
+                print(f"[read_block_memory] Block {block_idx}: busy, using cached frame for droneId={cached_drone_id}")
+
     return images, drone_ids, headings
 
 def write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, image_data):
