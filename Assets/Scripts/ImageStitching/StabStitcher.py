@@ -157,7 +157,7 @@ class StabStitcher(BaseStitcher):
     NET_W = 480
     BUFFER_LEN = 7  # SmoothNet requires exactly 7 frames
 
-    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE", timing: bool = False):
+    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "EDGE_BLEND", timing: bool = False):
         # BaseStitcher sets up attributes consumed by StitcherManager's
         # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
         # We pass device="cpu" so its SuperPoint model stays off-GPU; our
@@ -570,6 +570,39 @@ class StabStitcher(BaseStitcher):
             canvas = img_warp[0, :3].unsqueeze(0) * mask1
             canvas = img_warp[2, :3].unsqueeze(0) * mask3 + canvas * (1 - mask3)
             canvas = img_warp[1, :3].unsqueeze(0) * mask2 + canvas * (1 - mask2)
+            fusion = canvas[0]
+
+        elif self.fusion_mode == "EDGE_BLEND":
+            # Hybrid: reference (img2) interior is pixel-perfect, edges feather
+            # into the side images.  Blurring the reference's binary mask produces
+            # a weight that is ~1 deep inside and falls to 0 at the boundary,
+            # so only the border strip ever sees any mixing.
+            mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
+            img1_t = torch.cat([img1_t, mask], 1)
+            img2_t = torch.cat([img2_t, mask], 1)
+            img3_t = torch.cat([img3_t, mask], 1)
+
+            img_warp = torch_tps_transform.transformer(
+                torch.cat([img1_t, img2_t, img3_t], 0),
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3,
+                out_size,
+                mode=self.warp_mode,
+            )
+            mask1 = (img_warp[0, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
+            mask2_hard = (img_warp[1, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
+            mask3 = (img_warp[2, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
+
+            # Blur the binary reference mask: interior stays ≈1.0, edges feather to 0.
+            # kernel_size / sigma controls the width of the blend zone.
+            blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
+            mask2_soft = blur_ref(mask2_hard).clamp(0, 1)
+
+            # Build side-image canvas (hard masked, no blending between img1/img3)
+            canvas = img_warp[0, :3].unsqueeze(0) * mask1
+            canvas = img_warp[2, :3].unsqueeze(0) * mask3 + canvas * (1 - mask3)
+            # Blend reference over canvas: soft weight → edge zone blends, interior wins
+            canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
             fusion = canvas[0]
 
         else:  # LINEAR
