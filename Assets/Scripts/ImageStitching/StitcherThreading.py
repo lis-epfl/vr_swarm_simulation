@@ -91,8 +91,8 @@ class StitcherManager:
         if HAS_NIS:
             self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
 
-        self.active_stitcher = self.stitchers["UDIS"]
-        self.active_stitcher_type = "UDIS"
+        self.active_stitcher = self.stitchers["STABSTITCH"]
+        self.active_stitcher_type = "STABSTITCH"
         self.active_matcher_type = "BF"
         self.device = device
         
@@ -157,6 +157,21 @@ class StitcherManager:
             self.active_stitcher.temporal_net.to(self.device)
             self.active_stitcher.smooth_net.to(self.device)
 
+    def set_fusion_mode(self, fusion_mode: str):
+        """
+        Update fusion_mode on the active stitcher.
+        Raises NotImplementedError if the stitcher does not support it.
+        """
+        if hasattr(self.active_stitcher, 'fusion_mode'):
+            if self.active_stitcher.fusion_mode != fusion_mode:
+                self.active_stitcher.fusion_mode = fusion_mode
+                print(f"[StitcherManager] fusion_mode set to '{fusion_mode}' on {self.active_stitcher_type}")
+        else:
+            raise NotImplementedError(
+                f"Stitcher '{self.active_stitcher_type}' does not implement fusion_mode. "
+                f"Switch to UDIS or STABSTITCH to use fusion modes."
+            )
+
     def checkHyperparaChanges(self, output : dict):
         """
         Checks for changes in stitching type or hyperparameters and updates them if necessary.
@@ -167,6 +182,7 @@ class StitcherManager:
         
         typeOfStitcher, isCylindrical, matcherType, isRANSAC  = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
         checks, ratio_thresh, score_threshold, focal, onlyIHN = output["checks"], output["ratio_thresh"], output["score_threshold"], output["focal"], output["onlyIHN"]
+        fusion_mode = output.get("fusion_mode", "REFERENCE")
         batchImageWidth, batchImageHeight = output["Sizes"][:2]
 
         def has_stitcher_changes():
@@ -204,6 +220,10 @@ class StitcherManager:
             with self.switching_lock2:
                 self.active_stitcher.onlyIHN = onlyIHN
 
+        if getattr(self.active_stitcher, 'fusion_mode', '__unset__') != fusion_mode:
+            with self.switching_lock1:
+                self.set_fusion_mode(fusion_mode)
+
     def process_stitching(self, images, num_pano_img=3):
         """
         Simplified stitching process using known order from drone IDs.
@@ -238,6 +258,12 @@ class StitcherManager:
             elif self.active_stitcher_type == "STABSTITCH":
                 subset1, subset2 = self.get_subsets_from_order(order, len(images))
                 pano = self.active_stitcher.stab_pano(images, subset1, subset2)
+            
+            # If pano is not None save the images and pano for verification
+            if pano is not None:
+                cv2.imwrite("aa_panorama.jpg", pano)
+                for i, img in enumerate(images):
+                    cv2.imwrite(f"aa_input_image_{i}.jpg", img)
             
             if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put(pano)
@@ -350,7 +376,6 @@ def get_drone_order(drone_ids, headings):
     
     # Extract just the indices in sorted order
     sorted_indices = [idx for idx, _ in sorted_indexed_headings]
-    
     return sorted_indices
 
 def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_debug_logging=False):
@@ -360,7 +385,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     """
     
     # Read metadata first to get image dimensions
-    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1
+    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64  # +64 for fusion mode string
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
     
     output = readMetadataMemory(metadataMMF)
@@ -393,7 +418,10 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         # Update metadata
         output = readMetadataMemory(metadataMMF)
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
-        manager.checkHyperparaChanges(output)
+        try:
+            manager.checkHyperparaChanges(output)
+        except NotImplementedError as e:
+            print(f"[first_thread] fusion_mode error: {e}")
 
         # ----------------- TODO: Remove hardcoding -----------------
         batchImageWidth = 640
@@ -667,6 +695,10 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     raw_bool = metadataMMF.read(1)
     onlyIHN = bool(struct.unpack('B', raw_bool)[0])
 
+    # Read the string for fusion mode
+    raw_string = metadataMMF.read(64)
+    fusion_mode = raw_string.decode('utf-8').rstrip('\x00') or "REFERENCE"
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -678,6 +710,7 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "score_threshold" : floats[1],
         "focal" : focal,
         "onlyIHN" : onlyIHN,
+        "fusion_mode" : fusion_mode,
     }
 
 def main():

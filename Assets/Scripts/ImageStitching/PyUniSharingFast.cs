@@ -64,6 +64,9 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField]
     private bool onlyIHN = true;
 
+    [SerializeField]
+    private FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
+
     private string blockMapName = "blockSharedMemory";
     private int blockImageCount = 0;
     private int blockImageSize = 0;
@@ -76,7 +79,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalPanoramaSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1+ 4 + 64 + 1 + 4 + 4*4 + 1;
+    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64; // +64 for fusion mode string
 
     private IntPtr blockFileMap;
     private IntPtr blockPtr;
@@ -123,6 +126,15 @@ public class PyUniSharingFast : MonoBehaviour
     {
         BF,
         FLANN
+    }
+
+    public enum FusionMode
+    {
+        REFERENCE_BLEND,
+        REFERENCE,
+        EDGE_BLEND,
+        LINEAR,
+        AVERAGE
     }
     
     private bool hasStarted = false;
@@ -650,9 +662,15 @@ public class PyUniSharingFast : MonoBehaviour
         offset += 4;
 
         Marshal.WriteByte(metadataPtr, offset, (byte)(onlyIHN ? 1 : 0));
+        offset += 1;
+
+        byte[] fusionModeBytes = Encoding.UTF8.GetBytes(typeOfFusion.ToString());
+        byte[] fusionModeBuffer = new byte[64];
+        Array.Copy(fusionModeBytes, fusionModeBuffer, Math.Min(fusionModeBytes.Length, fusionModeBuffer.Length));
+        Marshal.Copy(fusionModeBuffer, 0, IntPtr.Add(metadataPtr, offset), fusionModeBuffer.Length);
 
         if(hasStarted) return;
-        offset +=1;
+        offset += 64;
 
         Marshal.WriteInt32(metadataPtr, offset, maxTotalBlockSize);
         offset += 4;
