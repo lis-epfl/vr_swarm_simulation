@@ -123,11 +123,13 @@ public class ImageSharing : MonoBehaviour
         {
             if (enableDebugLogging) Debug.Log("[ImageSharing] Getting ScreenSpawn component...");
             ScreenSpawn = GetComponent<ScreenSpawn>();
-            ScreenSpawn.numScreens = numImages;
-
-            // Spawn screens
-            ScreenSpawn.SpawnScreens();
         }
+
+        ScreenSpawn.numScreens = numImages;
+
+        // Spawn screens
+        ScreenSpawn.SpawnScreens();
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] ScreenSpawn component found and spawned {numImages} screens.");
 
         // Find all screens in the scene
         FindAndSetupScreens();

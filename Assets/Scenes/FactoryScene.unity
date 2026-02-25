@@ -13994,6 +13994,7 @@ GameObject:
   - component: {fileID: 590275745}
   - component: {fileID: 590275739}
   - component: {fileID: 590275744}
+  - component: {fileID: 590275746}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -14077,7 +14078,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a2df6b543e0571a4ca78d447669d93a2, type: 3}
   m_Name: 
@@ -14145,7 +14146,26 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
-  numScreens: 2
+--- !u!114 &590275746
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a7ed3ddbdb454564596ba4a6ed40010c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ScreenSpawn: {fileID: 590275741}
+  numImages: 3
+  processedMapName: BlockSharedMemory
+  readInterval: 0.05
+  enableDebugLogging: 1
+  enableImageValidation: 1
+  saveDebugImages: 0
+  debugImagePath: Assets/DebugImages/
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
