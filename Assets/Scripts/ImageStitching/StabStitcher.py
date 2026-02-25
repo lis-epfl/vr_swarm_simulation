@@ -4,6 +4,7 @@ import torch
 import os
 import sys
 import glob
+import time
 from collections import deque
 
 from BaseStitcher import BaseStitcher
@@ -156,7 +157,7 @@ class StabStitcher(BaseStitcher):
     NET_W = 480
     BUFFER_LEN = 7  # SmoothNet requires exactly 7 frames
 
-    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "LINEAR"):
+    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE", timing: bool = False):
         # BaseStitcher sets up attributes consumed by StitcherManager's
         # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
         # We pass device="cpu" so its SuperPoint model stays off-GPU; our
@@ -165,6 +166,7 @@ class StabStitcher(BaseStitcher):
 
         self.warp_mode = warp_mode
         self.fusion_mode = fusion_mode
+        self.timing = timing
 
         # --- Networks ---
         self.spatial_net = SpatialNet()
@@ -377,25 +379,37 @@ class StabStitcher(BaseStitcher):
         img2_hr_list = list(self._buf_img2_hr)
         img3_hr_list = list(self._buf_img3_hr)
 
+        t0 = time.perf_counter() if self.timing else None
+
         # ---------- pair 1-2 ----------
         smotion12_1, smotion12_2, smesh12_1, smesh12_2 = self._run_spatial(img1_list, img2_list)
+        t1 = time.perf_counter() if self.timing else None
+
         tmotion_stream1 = self._run_temporal(img1_list)
         tmotion_stream2 = self._run_temporal(img2_list)
+        t2 = time.perf_counter() if self.timing else None
+
         tsmotion12_1 = self._compute_tsmotion(smotion12_1, smesh12_1, tmotion_stream1)
         tsmotion12_2 = self._compute_tsmotion(smotion12_2, smesh12_2, tmotion_stream2)
         smooth12_1, smooth12_2 = self._run_smooth(
             tsmotion12_1, tsmotion12_2, smesh12_1, smesh12_2
         )
+        t3 = time.perf_counter() if self.timing else None
 
         # ---------- pair 2-3 ----------
         smotion23_1, smotion23_2, smesh23_1, smesh23_2 = self._run_spatial(img2_list, img3_list)
+        t4 = time.perf_counter() if self.timing else None
+
         # Stream 2 temporal is shared; stream 3 is new
         tmotion_stream3 = self._run_temporal(img3_list)
+        t5 = time.perf_counter() if self.timing else None
+
         tsmotion23_1 = self._compute_tsmotion(smotion23_1, smesh23_1, tmotion_stream2)
         tsmotion23_2 = self._compute_tsmotion(smotion23_2, smesh23_2, tmotion_stream3)
         smooth23_1, smooth23_2 = self._run_smooth(
             tsmotion23_1, tsmotion23_2, smesh23_1, smesh23_2
         )
+        t6 = time.perf_counter() if self.timing else None
 
         # smooth*_* shape: [1, BUFFER_LEN, grid_h+1, grid_w+1, 2]
         # Rename to match the test script convention:
@@ -557,4 +571,19 @@ class StabStitcher(BaseStitcher):
             fusion = fusion[0]
 
         pano = fusion.cpu().numpy().transpose(1, 2, 0)
+
+        if self.timing:
+            t7 = time.perf_counter()
+            print(
+                f"[StabStitch timing] "
+                f"spatial12={t1-t0:.3f}s  "
+                f"temporal12={t2-t1:.3f}s  "
+                f"smooth12={t3-t2:.3f}s  "
+                f"spatial23={t4-t3:.3f}s  "
+                f"temporal3={t5-t4:.3f}s  "
+                f"smooth23={t6-t5:.3f}s  "
+                f"warp+blend={t7-t6:.3f}s  "
+                f"total={t7-t0:.3f}s"
+            )
+
         return pano.clip(0, 255).astype(np.uint8)
