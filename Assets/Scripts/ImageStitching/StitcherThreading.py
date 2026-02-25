@@ -91,8 +91,8 @@ class StitcherManager:
         if HAS_NIS:
             self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
 
-        self.active_stitcher = self.stitchers["STABSTITCH"]
-        self.active_stitcher_type = "STABSTITCH"
+        self.active_stitcher = self.stitchers["UDIS"]
+        self.active_stitcher_type = "UDIS"
         self.active_matcher_type = "BF"
         self.device = device
         
