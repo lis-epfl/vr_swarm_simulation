@@ -239,6 +239,16 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: blockImageWidth
+      value: 640
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: blockImageHeight
+      value: 360
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: enableImageWriting
       value: 0
       objectReference: {fileID: 0}
@@ -251,6 +261,11 @@ PrefabInstance:
         type: 3}
       propertyPath: panoramaImageHeight
       value: 1080
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: camerasToStitch.Array.size
+      value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 6847994249360662215, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -387,6 +402,7 @@ GameObject:
   - component: {fileID: 590275747}
   - component: {fileID: 590275746}
   - component: {fileID: 590275745}
+  - component: {fileID: 590275750}
   - component: {fileID: 590275748}
   - component: {fileID: 590275749}
   m_Layer: 0
@@ -408,28 +424,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6e0d72f564d00ad46b06030601ccc2e4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  displayMode: 5
-  swarm: []
-  screens: []
-  arena: {fileID: 2003489487}
-  screenParent: {fileID: 0}
-  player: {fileID: 0}
+  screenStyle: 0
   width: 640
   height: 360
-  outerRadius: 2
-  outerScale: 1
-  innerRadius: 0.2
-  innerScale: 0.1
-  bottomRadius: 1
-  bottomScale: 0.5
-  bottomOffset: {x: 0, y: 0, z: 0}
+  radius: 2
+  scale: 1
+  offset: {x: 0.5, y: -0.3, z: 0}
+  lookAtOffset: {x: 0, y: 0, z: 0}
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
-  rotatingVerticalOffset: -0.3
-  offset: {x: 0.5, y: -0.3, z: 0}
-  realDroneRadius: 2
-  realDroneScale: 1
   numScreens: 3
 --- !u!4 &590275743
 Transform:
@@ -520,7 +524,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7ed3ddbdb454564596ba4a6ed40010c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  screenSpawn: {fileID: 0}
+  ScreenSpawn: {fileID: 0}
   numImages: 3
   processedMapName: BlockSharedMemory
   readInterval: 0.05
@@ -546,6 +550,29 @@ MonoBehaviour:
   currentArena: 0
   arena1Direction: 0
   arena2Direction: 0
+--- !u!114 &590275750
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7f969c9ad1f2b33449605154bc14c68c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  displayMode: 0
+  screenStyle: 5
+  width: 640
+  height: 360
+  radius: 2
+  scale: 1
+  offset: {x: 0.5, y: -0.3, z: 0}
+  lookAtOffset: {x: 0, y: 0, z: 0}
+  invertBottomScreen: 0
+  doubleView: 0
+  rotatingCircleDistance: 2
 --- !u!1001 &630420486
 PrefabInstance:
   m_ObjectHideFlags: 0

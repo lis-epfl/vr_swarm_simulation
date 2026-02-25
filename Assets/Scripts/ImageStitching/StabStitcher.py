@@ -157,7 +157,7 @@ class StabStitcher(BaseStitcher):
     NET_W = 480
     BUFFER_LEN = 7  # SmoothNet requires exactly 7 frames
 
-    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "EDGE_BLEND", timing: bool = False):
+    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE_BLEND", timing: bool = False):
         # BaseStitcher sets up attributes consumed by StitcherManager's
         # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
         # We pass device="cpu" so its SuperPoint model stays off-GPU; our
@@ -470,7 +470,7 @@ class StabStitcher(BaseStitcher):
         def _shift(m, wx, hy):
             return torch.stack([m[..., 0] - wx, m[..., 1] - hy], -1)
 
-        m12_1_s   = _shift(m12_1_fi,         width_min, height_min)
+        m12_1_s   = _shift(m12_1_fi,         width_min, height_min) 
         m12_2_s   = _shift(m12_2_fi_aligned, width_min, height_min)
         m23_1_s   = _shift(m23_1_fi_aligned, width_min, height_min)
         m23_2_s   = _shift(m23_2_fi_aligned, width_min, height_min)
@@ -604,6 +604,50 @@ class StabStitcher(BaseStitcher):
             # Blend reference over canvas: soft weight → edge zone blends, interior wins
             canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
             fusion = canvas[0]
+
+        elif self.fusion_mode == "REFERENCE_BLEND":
+            # Two-step composite:
+            #   1. Full LINEAR blend — gives good seam quality across all three images.
+            #   2. Composite img2 (centre) on top using a soft mask eroded from its
+            #      interior, so img2's interior is pixel-perfect regardless of overlap
+            #      and the boundary feathers into the LINEAR result beneath it.
+            #      Because LINEAR (not black) is always underneath, there are no shadows.
+            mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
+            img1_t = torch.cat([img1_t, mask], 1)
+            img2_t = torch.cat([img2_t, mask], 1)
+            img3_t = torch.cat([img3_t, mask], 1)
+
+            img_warp = torch_tps_transform.transformer(
+                torch.cat([img1_t, img2_t, img3_t], 0),
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3,
+                out_size,
+                mode=self.warp_mode,
+            )
+            mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
+            mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
+            mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
+
+            # Step 1: standard LINEAR blend for seam quality
+            img12 = _linear_blender(
+                img_warp[0, :3].unsqueeze(0), img_warp[1, :3].unsqueeze(0),
+                mask1, mask2
+            )
+            mask12 = mask1 + mask2 - mask1 * mask2
+            linear_fusion = _linear_blender(
+                img12, img_warp[2, :3].unsqueeze(0), mask12, mask3
+            )[0]  # [3, H, W]
+
+            # Step 2: derive a soft mask from img2's strict interior.
+            # Blurring inward from a thresholded binary mask means the feather zone
+            # stays inside img2's footprint, so the weight is always ≥0 where
+            # img2 contributes — no darkening regardless of how large the overlap is.
+            mask2_interior = (mask2 > 0.5).float()
+            blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
+            mask2_soft = blur_ref(mask2_interior).clamp(0, 1)  # [1, 1, H, W]
+
+            # Composite: img2 in its interior → feather into LINEAR at the boundary
+            fusion = img_warp[1, :3] * mask2_soft[0] + linear_fusion * (1 - mask2_soft[0])
 
         else:  # LINEAR
             mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
