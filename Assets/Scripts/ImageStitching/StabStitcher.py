@@ -545,6 +545,33 @@ class StabStitcher(BaseStitcher):
                 + img_warp[2] * (img_warp[2] / (img12 + img_warp[2] + 1e-6))
             )
 
+        elif self.fusion_mode == "REFERENCE":
+            # Hard composite: no blending at all.
+            # img1 (left) and img3 (right) fill uncovered areas;
+            # img2 (centre/reference) always wins — never blended with neighbours.
+            mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
+            img1_t = torch.cat([img1_t, mask], 1)
+            img2_t = torch.cat([img2_t, mask], 1)
+            img3_t = torch.cat([img3_t, mask], 1)
+
+            img_warp = torch_tps_transform.transformer(
+                torch.cat([img1_t, img2_t, img3_t], 0),
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3,
+                out_size,
+                mode=self.warp_mode,
+            )
+            # Threshold alpha to hard binary masks (eliminates feathered edges)
+            mask1 = (img_warp[0, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
+            mask2 = (img_warp[1, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
+            mask3 = (img_warp[2, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
+
+            # Layer order: img1 base → img3 on top → img2 (reference) always on top
+            canvas = img_warp[0, :3].unsqueeze(0) * mask1
+            canvas = img_warp[2, :3].unsqueeze(0) * mask3 + canvas * (1 - mask3)
+            canvas = img_warp[1, :3].unsqueeze(0) * mask2 + canvas * (1 - mask2)
+            fusion = canvas[0]
+
         else:  # LINEAR
             mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
             img1_t = torch.cat([img1_t, mask], 1)
