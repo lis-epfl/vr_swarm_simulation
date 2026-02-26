@@ -157,7 +157,8 @@ class StabStitcher(BaseStitcher):
     NET_W = 480
     BUFFER_LEN = 7  # SmoothNet requires exactly 7 frames
 
-    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE_BLEND", timing: bool = False):
+    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE_BLEND", timing: bool = False,
+                 save_masks: bool = False, mask_save_dir: str = None):
         # BaseStitcher sets up attributes consumed by StitcherManager's
         # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
         # We pass device="cpu" so its SuperPoint model stays off-GPU; our
@@ -167,6 +168,8 @@ class StabStitcher(BaseStitcher):
         self.warp_mode = warp_mode
         self.fusion_mode = fusion_mode
         self.timing = timing
+        self.save_masks = save_masks
+        self.mask_save_dir = mask_save_dir or os.path.join(_THIS_DIR, "mask_debug")
 
         # --- Networks ---
         self.spatial_net = SpatialNet()
@@ -323,6 +326,41 @@ class StabStitcher(BaseStitcher):
                 smesh_list1,    smesh_list2,
             )
         return out["smooth_mesh1"], out["smooth_mesh2"]
+
+    # ------------------------------------------------------------------
+    # Mask visualisation
+    # ------------------------------------------------------------------
+
+    def _save_mask_viz(self, mask1, mask2, mask3, out_size):
+        """
+        Save a colour-coded overlap map so you can inspect seam placement before fusion.
+
+        Colour key (BGR stored by OpenCV):
+          Dark red    – left only
+          Dark green  – centre only
+          Dark blue   – right only
+          Yellow      – left ∩ centre
+          Cyan        – centre ∩ right
+          Magenta     – left ∩ right  (rare)
+          White       – all three overlap
+        """
+        H, W = out_size
+        m1 = mask1.squeeze().cpu().numpy() > 0.5
+        m2 = mask2.squeeze().cpu().numpy() > 0.5
+        m3 = mask3.squeeze().cpu().numpy() > 0.5
+
+        viz = np.zeros((H, W, 3), dtype=np.uint8)
+        viz[m1 & ~m2 & ~m3] = (  0,   0, 200)   # red   – left only
+        viz[~m1 & m2 & ~m3] = (  0, 200,   0)   # green – centre only
+        viz[~m1 & ~m2 & m3] = (200,   0,   0)   # blue  – right only
+        viz[m1 & m2 & ~m3]  = (  0, 220, 220)   # yellow – left+centre
+        viz[~m1 & m2 & m3]  = (220, 220,   0)   # cyan   – centre+right
+        viz[m1 & ~m2 & m3]  = (220,   0, 220)   # magenta – left+right
+        viz[m1 & m2 & m3]   = (255, 255, 255)   # white   – all three
+
+        os.makedirs(self.mask_save_dir, exist_ok=True)
+        fname = os.path.join(self.mask_save_dir, "mask_overlap.png")
+        cv2.imwrite(fname, viz)
 
     # ------------------------------------------------------------------
     # Public API
@@ -528,48 +566,53 @@ class StabStitcher(BaseStitcher):
 
         norm_rig3 = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
 
+        # ---------- single warp pass (always with alpha for mask extraction) ----------
+        alpha = torch.ones_like(img1_t[:, 0].unsqueeze(1))
+        img1_t = torch.cat([img1_t, alpha], 1)
+        img2_t = torch.cat([img2_t, alpha], 1)
+        img3_t = torch.cat([img3_t, alpha], 1)
+
+        img_warp = torch_tps_transform.transformer(
+            torch.cat([img1_t, img2_t, img3_t], 0),
+            torch.cat([norm_m1, norm_m2, norm_m3], 0),
+            norm_rig3,
+            out_size,
+            mode=self.warp_mode,
+        )
+
+        # Soft alpha masks — each fusion mode thresholds as needed
+        mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
+        mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
+        mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
+
+        # ---------- optional mask visualisation (before fusion) ----------
+        if self.save_masks:
+            self._save_mask_viz(mask1, mask2, mask3, out_size)
+
+        # ---------- fusion ----------
         if self.fusion_mode == "AVERAGE":
-            img_warp = torch_tps_transform.transformer(
-                torch.cat([img1_t, img2_t, img3_t], 0),
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3,
-                out_size,
-                mode=self.warp_mode,
-            )
+            w1, w2, w3 = img_warp[0, :3], img_warp[1, :3], img_warp[2, :3]
             img12 = (
-                img_warp[0] * (img_warp[0] / (img_warp[0] + img_warp[1] + 1e-6))
-                + img_warp[1] * (img_warp[1] / (img_warp[0] + img_warp[1] + 1e-6))
+                w1 * (w1 / (w1 + w2 + 1e-6))
+                + w2 * (w2 / (w1 + w2 + 1e-6))
             )
             fusion = (
-                img12 * (img12 / (img12 + img_warp[2] + 1e-6))
-                + img_warp[2] * (img_warp[2] / (img12 + img_warp[2] + 1e-6))
+                img12 * (img12 / (img12 + w3 + 1e-6))
+                + w3 * (w3 / (img12 + w3 + 1e-6))
             )
 
         elif self.fusion_mode == "REFERENCE":
             # Hard composite: no blending at all.
             # img1 (left) and img3 (right) fill uncovered areas;
             # img2 (centre/reference) always wins — never blended with neighbours.
-            mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
-            img1_t = torch.cat([img1_t, mask], 1)
-            img2_t = torch.cat([img2_t, mask], 1)
-            img3_t = torch.cat([img3_t, mask], 1)
-
-            img_warp = torch_tps_transform.transformer(
-                torch.cat([img1_t, img2_t, img3_t], 0),
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3,
-                out_size,
-                mode=self.warp_mode,
-            )
-            # Threshold alpha to hard binary masks (eliminates feathered edges)
-            mask1 = (img_warp[0, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
-            mask2 = (img_warp[1, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
-            mask3 = (img_warp[2, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
+            mask1_b = (mask1 > 0.5).float()
+            mask2_b = (mask2 > 0.5).float()
+            mask3_b = (mask3 > 0.5).float()
 
             # Layer order: img1 base → img3 on top → img2 (reference) always on top
-            canvas = img_warp[0, :3].unsqueeze(0) * mask1
-            canvas = img_warp[2, :3].unsqueeze(0) * mask3 + canvas * (1 - mask3)
-            canvas = img_warp[1, :3].unsqueeze(0) * mask2 + canvas * (1 - mask2)
+            canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
+            canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
+            canvas = img_warp[1, :3].unsqueeze(0) * mask2_b + canvas * (1 - mask2_b)
             fusion = canvas[0]
 
         elif self.fusion_mode == "EDGE_BLEND":
@@ -577,31 +620,15 @@ class StabStitcher(BaseStitcher):
             # into the side images.  Blurring the reference's binary mask produces
             # a weight that is ~1 deep inside and falls to 0 at the boundary,
             # so only the border strip ever sees any mixing.
-            mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
-            img1_t = torch.cat([img1_t, mask], 1)
-            img2_t = torch.cat([img2_t, mask], 1)
-            img3_t = torch.cat([img3_t, mask], 1)
+            mask1_b = (mask1 > 0.5).float()
+            mask2_b = (mask2 > 0.5).float()
+            mask3_b = (mask3 > 0.5).float()
 
-            img_warp = torch_tps_transform.transformer(
-                torch.cat([img1_t, img2_t, img3_t], 0),
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3,
-                out_size,
-                mode=self.warp_mode,
-            )
-            mask1 = (img_warp[0, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
-            mask2_hard = (img_warp[1, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
-            mask3 = (img_warp[2, 3] > 0.5).float().unsqueeze(0).unsqueeze(0)
-
-            # Blur the binary reference mask: interior stays ≈1.0, edges feather to 0.
-            # kernel_size / sigma controls the width of the blend zone.
             blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
-            mask2_soft = blur_ref(mask2_hard).clamp(0, 1)
+            mask2_soft = blur_ref(mask2_b).clamp(0, 1)
 
-            # Build side-image canvas (hard masked, no blending between img1/img3)
-            canvas = img_warp[0, :3].unsqueeze(0) * mask1
-            canvas = img_warp[2, :3].unsqueeze(0) * mask3 + canvas * (1 - mask3)
-            # Blend reference over canvas: soft weight → edge zone blends, interior wins
+            canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
+            canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
             canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
             fusion = canvas[0]
 
@@ -612,23 +639,6 @@ class StabStitcher(BaseStitcher):
             #      interior, so img2's interior is pixel-perfect regardless of overlap
             #      and the boundary feathers into the LINEAR result beneath it.
             #      Because LINEAR (not black) is always underneath, there are no shadows.
-            mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
-            img1_t = torch.cat([img1_t, mask], 1)
-            img2_t = torch.cat([img2_t, mask], 1)
-            img3_t = torch.cat([img3_t, mask], 1)
-
-            img_warp = torch_tps_transform.transformer(
-                torch.cat([img1_t, img2_t, img3_t], 0),
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3,
-                out_size,
-                mode=self.warp_mode,
-            )
-            mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
-            mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
-            mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
-
-            # Step 1: standard LINEAR blend for seam quality
             img12 = _linear_blender(
                 img_warp[0, :3].unsqueeze(0), img_warp[1, :3].unsqueeze(0),
                 mask1, mask2
@@ -638,34 +648,13 @@ class StabStitcher(BaseStitcher):
                 img12, img_warp[2, :3].unsqueeze(0), mask12, mask3
             )[0]  # [3, H, W]
 
-            # Step 2: derive a soft mask from img2's strict interior.
-            # Blurring inward from a thresholded binary mask means the feather zone
-            # stays inside img2's footprint, so the weight is always ≥0 where
-            # img2 contributes — no darkening regardless of how large the overlap is.
             mask2_interior = (mask2 > 0.5).float()
             blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
             mask2_soft = blur_ref(mask2_interior).clamp(0, 1)  # [1, 1, H, W]
 
-            # Composite: img2 in its interior → feather into LINEAR at the boundary
             fusion = img_warp[1, :3] * mask2_soft[0] + linear_fusion * (1 - mask2_soft[0])
 
         else:  # LINEAR
-            mask = torch.ones_like(img1_t[:, 0].unsqueeze(1))
-            img1_t = torch.cat([img1_t, mask], 1)
-            img2_t = torch.cat([img2_t, mask], 1)
-            img3_t = torch.cat([img3_t, mask], 1)
-
-            img_warp = torch_tps_transform.transformer(
-                torch.cat([img1_t, img2_t, img3_t], 0),
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3,
-                out_size,
-                mode=self.warp_mode,
-            )
-            mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
-            mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
-            mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
-
             img12 = _linear_blender(
                 img_warp[0, :3].unsqueeze(0), img_warp[1, :3].unsqueeze(0),
                 mask1, mask2
