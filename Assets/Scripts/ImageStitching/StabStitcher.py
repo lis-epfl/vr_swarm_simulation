@@ -6,6 +6,7 @@ import os
 import sys
 import glob
 import time
+import threading
 from collections import deque
 
 from BaseStitcher import BaseStitcher
@@ -199,6 +200,12 @@ class StabStitcher(BaseStitcher):
         self._buf_img2_hr = deque(maxlen=self.BUFFER_LEN)
         self._buf_img3_hr = deque(maxlen=self.BUFFER_LEN)
 
+        # --- Warp caching for decoupled render/warp pipeline ---
+        self._cached_warp = None   # dict with precomputed normalized meshes + output size
+        self._warp_lock = threading.Lock()   # protects _cached_warp reads/writes
+        self._buf_lock = threading.Lock()    # protects buffer deque access
+        self._compute_lock = threading.Lock()  # serializes neural-net inference
+
     # ------------------------------------------------------------------
     # Model loading
     # ------------------------------------------------------------------
@@ -377,6 +384,12 @@ class StabStitcher(BaseStitcher):
         """
         Produce a stabilised panorama from three images.
 
+        Uses cached warp parameters when available (fast path, ~30ms).
+        On the very first call with a full buffer, computes warps
+        synchronously so a real panorama is returned immediately.
+        Subsequent warp updates are handled by ``compute_warps()``
+        running on a dedicated thread.
+
         Parameters
         ----------
         images  : list of numpy BGR uint8 arrays
@@ -391,18 +404,62 @@ class StabStitcher(BaseStitcher):
         img2 = images[subset1[1]]   # centre
         img3 = images[subset2[1]]   # right
 
-        # Add current frame to buffers
-        self._buf_img1.append(self._preprocess(img1))
-        self._buf_img2.append(self._preprocess(img2))
-        self._buf_img3.append(self._preprocess(img3))
-        self._buf_img1_hr.append(self._to_hr_tensor(img1))
-        self._buf_img2_hr.append(self._to_hr_tensor(img2))
-        self._buf_img3_hr.append(self._to_hr_tensor(img3))
+        # Add current frame to buffers (thread-safe)
+        with self._buf_lock:
+            self._buf_img1.append(self._preprocess(img1))
+            self._buf_img2.append(self._preprocess(img2))
+            self._buf_img3.append(self._preprocess(img3))
+            self._buf_img1_hr.append(self._to_hr_tensor(img1))
+            self._buf_img2_hr.append(self._to_hr_tensor(img2))
+            self._buf_img3_hr.append(self._to_hr_tensor(img3))
+            buf_ready = len(self._buf_img1) >= self.BUFFER_LEN
 
-        if len(self._buf_img1) < self.BUFFER_LEN:
+        if not buf_ready:
             return self._fallback_concat(img1, img2, img3)
 
-        return self._full_pipeline()
+        # First computation: synchronous so the caller gets a real panorama.
+        # Double-checked locking: the fast outer check avoids the lock on
+        # every subsequent frame; the inner check prevents a duplicate
+        # computation if the warp thread got there first.
+        if self._cached_warp is None:
+            warp_params = self._compute_warp_params_from_buffer()
+            with self._warp_lock:
+                if self._cached_warp is None:
+                    self._cached_warp = warp_params
+
+        with self._warp_lock:
+            warp_params = self._cached_warp
+
+        # Fast render path using cached warps + current high-res images
+        img1_hr_t = self._to_hr_tensor(img1).cuda()
+        img2_hr_t = self._to_hr_tensor(img2).cuda()
+        img3_hr_t = self._to_hr_tensor(img3).cuda()
+        return self._render_with_params(img1_hr_t, img2_hr_t, img3_hr_t, warp_params)
+
+    def compute_warps(self):
+        """
+        Snapshot the rolling buffer, run the full neural-net warp pipeline,
+        and update the cached warp parameters.
+
+        Intended to be called from a dedicated warp-computation thread at
+        ~3 Hz.  The render path (``stab_pano``) continues to use the
+        previous cached warps until this method stores a new set.
+        """
+        with self._buf_lock:
+            if len(self._buf_img1) < self.BUFFER_LEN:
+                return
+            img1_list = list(self._buf_img1)
+            img2_list = list(self._buf_img2)
+            img3_list = list(self._buf_img3)
+            hr_h = self._buf_img1_hr[-1].shape[2]
+            hr_w = self._buf_img1_hr[-1].shape[3]
+
+        warp_params = self._compute_warp_params(
+            img1_list, img2_list, img3_list, hr_h, hr_w
+        )
+
+        with self._warp_lock:
+            self._cached_warp = warp_params
 
     # ------------------------------------------------------------------
     # Internal: fallback and full pipeline
@@ -412,18 +469,39 @@ class StabStitcher(BaseStitcher):
         """Naive horizontal concatenation used while the buffer is filling."""
         return np.hstack([img1, img2, img3]).astype(np.uint8)
 
-    def _full_pipeline(self) -> np.ndarray:
-        """
-        Run the complete StabStitch++ pipeline on the current buffer and
-        return the panorama for the most recent frame.
-        """
-        img1_list    = list(self._buf_img1)
-        img2_list    = list(self._buf_img2)
-        img3_list    = list(self._buf_img3)
-        img1_hr_list = list(self._buf_img1_hr)
-        img2_hr_list = list(self._buf_img2_hr)
-        img3_hr_list = list(self._buf_img3_hr)
+    def _compute_warp_params_from_buffer(self):
+        """Snapshot the rolling buffer and compute warp parameters."""
+        with self._buf_lock:
+            img1_list = list(self._buf_img1)
+            img2_list = list(self._buf_img2)
+            img3_list = list(self._buf_img3)
+            hr_h = self._buf_img1_hr[-1].shape[2]
+            hr_w = self._buf_img1_hr[-1].shape[3]
+        return self._compute_warp_params(
+            img1_list, img2_list, img3_list, hr_h, hr_w
+        )
 
+    def _compute_warp_params(self, img1_list, img2_list, img3_list, hr_h, hr_w):
+        """
+        Run the neural-net warp pipeline (Spatial → Temporal → Smooth) and
+        derive the normalised TPS meshes + canvas size needed by the render
+        step.
+
+        Acquires ``_compute_lock`` to prevent concurrent neural-net
+        inference (e.g. the first synchronous call in ``stab_pano`` vs.
+        the background ``compute_warps`` thread).
+
+        Returns
+        -------
+        dict with keys: norm_m1, norm_m2, norm_m3, out_h2, out_w2, out_size
+        """
+        with self._compute_lock:
+            return self._compute_warp_params_unlocked(
+                img1_list, img2_list, img3_list, hr_h, hr_w
+            )
+
+    def _compute_warp_params_unlocked(self, img1_list, img2_list, img3_list, hr_h, hr_w):
+        """Inner implementation — caller must hold ``_compute_lock``."""
         t0 = time.perf_counter() if self.timing else None
 
         # ---------- pair 1-2 ----------
@@ -457,15 +535,12 @@ class StabStitcher(BaseStitcher):
         t6 = time.perf_counter() if self.timing else None
 
         # smooth*_* shape: [1, BUFFER_LEN, grid_h+1, grid_w+1, 2]
-        # Rename to match the test script convention:
-        #   warp12_mesh1/2 = left pair;  warp23_mesh1/2 = right pair
         warp12_mesh1 = smooth12_1
         warp12_mesh2 = smooth12_2
         warp23_mesh1 = smooth23_1
         warp23_mesh2 = smooth23_2
 
         # ---------- scale meshes to HR resolution ----------
-        _, _, hr_h, hr_w = img1_hr_list[-1].shape
         sx = hr_w / self.NET_W
         sy = hr_h / self.NET_H
 
@@ -478,25 +553,20 @@ class StabStitcher(BaseStitcher):
         warp23_mesh2 = _scale(warp23_mesh2)
 
         # ---------- work only on the latest frame ----------
-        # All T-frame meshes are used to compute the per-frame offset, but we
-        # only need the output for frame index -1 (the most recent frame).
-        fi = self.BUFFER_LEN - 1  # == -1
+        fi = self.BUFFER_LEN - 1
 
-        # Per-frame mesh alignment: warp23 meshes are offset so that the
-        # overlapping centre-image meshes (warp12_mesh2 and warp23_mesh1)
-        # coincide.  Offset is averaged over all grid points for this frame.
-        m12_2_fi = warp12_mesh2[:, fi, ...]   # [1, grid_h+1, grid_w+1, 2]
+        m12_2_fi = warp12_mesh2[:, fi, ...]
         m23_1_fi = warp23_mesh1[:, fi, ...]
-        offset = (m12_2_fi - m23_1_fi).reshape(1, -1, 2).mean(1, keepdim=True)  # [1, 1, 2]
-        offset = offset.unsqueeze(1)  # [1, 1, 1, 2] — broadcast over grid dims
+        offset = (m12_2_fi - m23_1_fi).reshape(1, -1, 2).mean(1, keepdim=True)
+        offset = offset.unsqueeze(1)
 
         m12_1_fi = warp12_mesh1[:, fi, ...]
-        m12_2_fi_aligned = m12_2_fi                          # unchanged
-        m23_1_fi_aligned = m23_1_fi + offset.squeeze(1)     # shifted
+        m12_2_fi_aligned = m12_2_fi
+        m23_1_fi_aligned = m23_1_fi + offset.squeeze(1)
         m23_2_fi_aligned = warp23_mesh2[:, fi, ...] + offset.squeeze(1)
         middle_mesh_fi   = (m12_2_fi_aligned + m23_1_fi_aligned) / 2.0
 
-        # ---------- first canvas: find bounding box of all four meshes ----------
+        # ---------- first canvas: bounding box ----------
         all_x = torch.stack([
             m12_1_fi[..., 0], m12_2_fi_aligned[..., 0],
             m23_1_fi_aligned[..., 0], m23_2_fi_aligned[..., 0]
@@ -515,13 +585,13 @@ class StabStitcher(BaseStitcher):
         def _shift(m, wx, hy):
             return torch.stack([m[..., 0] - wx, m[..., 1] - hy], -1)
 
-        m12_1_s   = _shift(m12_1_fi,         width_min, height_min) 
+        m12_1_s   = _shift(m12_1_fi,         width_min, height_min)
         m12_2_s   = _shift(m12_2_fi_aligned, width_min, height_min)
         m23_1_s   = _shift(m23_1_fi_aligned, width_min, height_min)
         m23_2_s   = _shift(m23_2_fi_aligned, width_min, height_min)
         mid_s     = _shift(middle_mesh_fi,   width_min, height_min)
 
-        # ---------- TPS alignment: img1 and img3 meshes through middle plane ----------
+        # ---------- TPS alignment through middle plane ----------
         norm_m12_1 = _get_norm_mesh(m12_1_s, out_h, out_w)
         norm_m12_2 = _get_norm_mesh(m12_2_s, out_h, out_w)
         norm_m23_1 = _get_norm_mesh(m23_1_s, out_h, out_w)
@@ -554,30 +624,62 @@ class StabStitcher(BaseStitcher):
 
         out_size = (int(out_h2.item()), int(out_w2.item()))
 
-        # Translate meshes to new canvas origin
         m1_final  = _shift(m12_1_tps, w2_min, h2_min)
         m2_final  = _shift(mid_s,     w2_min, h2_min)
         m3_final  = _shift(m23_2_tps, w2_min, h2_min)
-
-        # Normalised meshes for the HR rigid grid
-        rigid_hr      = _get_rigid_mesh(1, hr_h, hr_w)
-        norm_rigid_hr = _get_norm_mesh(rigid_hr, hr_h, hr_w)
 
         norm_m1 = _get_norm_mesh(m1_final, out_h2, out_w2)
         norm_m2 = _get_norm_mesh(m2_final, out_h2, out_w2)
         norm_m3 = _get_norm_mesh(m3_final, out_h2, out_w2)
 
-        img1_t = img1_hr_list[fi].cuda()
-        img2_t = img2_hr_list[fi].cuda()
-        img3_t = img3_hr_list[fi].cuda()
+        if self.timing:
+            t_end = time.perf_counter()
+            print(
+                f"[StabStitch warp] "
+                f"spatial12={t1-t0:.3f}s  "
+                f"temporal12={t2-t1:.3f}s  "
+                f"smooth12={t3-t2:.3f}s  "
+                f"spatial23={t4-t3:.3f}s  "
+                f"temporal3={t5-t4:.3f}s  "
+                f"smooth23={t6-t5:.3f}s  "
+                f"mesh={t_end-t6:.3f}s  "
+                f"total={t_end-t0:.3f}s"
+            )
 
-        norm_rig3 = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
+        return {
+            'norm_m1': norm_m1, 'norm_m2': norm_m2, 'norm_m3': norm_m3,
+            'out_h2': out_h2, 'out_w2': out_w2, 'out_size': out_size,
+        }
+
+    def _render_with_params(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):
+        """
+        Fast render path: warp three high-res images using precomputed
+        normalised meshes and apply the selected fusion mode.
+
+        Parameters
+        ----------
+        img1_hr_t, img2_hr_t, img3_hr_t : [1, 3, H, W] CUDA float tensors
+        warp_params : dict from ``_compute_warp_params``
+        """
+        t0 = time.perf_counter() if self.timing else None
+
+        norm_m1  = warp_params['norm_m1']
+        norm_m2  = warp_params['norm_m2']
+        norm_m3  = warp_params['norm_m3']
+        out_h2   = warp_params['out_h2']
+        out_w2   = warp_params['out_w2']
+        out_size = warp_params['out_size']
+
+        _, _, hr_h, hr_w = img1_hr_t.shape
+        rigid_hr      = _get_rigid_mesh(1, hr_h, hr_w)
+        norm_rigid_hr = _get_norm_mesh(rigid_hr, hr_h, hr_w)
+        norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
 
         # ---------- single warp pass (always with alpha for mask extraction) ----------
-        alpha = torch.ones_like(img1_t[:, 0].unsqueeze(1))
-        img1_t = torch.cat([img1_t, alpha], 1)
-        img2_t = torch.cat([img2_t, alpha], 1)
-        img3_t = torch.cat([img3_t, alpha], 1)
+        alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
+        img1_t = torch.cat([img1_hr_t, alpha], 1)
+        img2_t = torch.cat([img2_hr_t, alpha], 1)
+        img3_t = torch.cat([img3_hr_t, alpha], 1)
 
         img_warp = torch_tps_transform.transformer(
             torch.cat([img1_t, img2_t, img3_t], 0),
@@ -587,12 +689,11 @@ class StabStitcher(BaseStitcher):
             mode=self.warp_mode,
         )
 
-        # Soft alpha masks — each fusion mode thresholds as needed
+        # Soft alpha masks
         mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
         mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
         mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
 
-        # ---------- optional mask visualisation (before fusion) ----------
         if self.save_masks:
             self._save_mask_viz(mask1, mask2, mask3, out_size)
 
@@ -609,23 +710,12 @@ class StabStitcher(BaseStitcher):
             )
 
         elif self.fusion_mode == "REFERENCE":
-            # Premultiplied-alpha "over" composite.
-            # The TPS warp produces premultiplied boundary pixels (colour * alpha,
-            # black outside), so the correct formula is simply:
-            #   result = fg_premult + bg_premult * (1 - fg_alpha)
-            # This gives sub-pixel anti-aliasing at every edge instead of the dark
-            # fringe that a hard 0.5 threshold creates.
-            # Layer order: img1 base → img3 over img1 → img2 (reference) on top.
             canvas = img_warp[0, :3].unsqueeze(0)
             canvas = img_warp[2, :3].unsqueeze(0) + canvas * (1 - mask3)
             canvas = img_warp[1, :3].unsqueeze(0) + canvas * (1 - mask2)
             fusion = canvas[0]
 
         elif self.fusion_mode == "EDGE_BLEND":
-            # Hybrid: reference (img2) interior is pixel-perfect, edges feather
-            # into the side images.  Blurring the reference's binary mask produces
-            # a weight that is ~1 deep inside and falls to 0 at the boundary,
-            # so only the border strip ever sees any mixing.
             mask1_b = (mask1 > 0.5).float()
             mask2_b = (mask2 > 0.5).float()
             mask3_b = (mask3 > 0.5).float()
@@ -639,14 +729,6 @@ class StabStitcher(BaseStitcher):
             fusion = canvas[0]
 
         elif self.fusion_mode == "REFERENCE_BLEND":
-            # Two-step composite:
-            #   1. Full LINEAR blend — gives good seam quality across all three images.
-            #   2. Composite img2 (centre) on top using a weight map that is exactly
-            #      1.0 in the interior of the reference (no ghosting there) and
-            #      transitions to 0 over a thin border strip (LINEAR is used there).
-            #      Strategy: erode the binary reference mask by border_size pixels so
-            #      the interior stays at 1, then blur the hard eroded edge for a
-            #      gradual ramp.  Only the border strip ever sees LINEAR blending.
             img12 = _linear_blender(
                 img_warp[0, :3].unsqueeze(0), img_warp[1, :3].unsqueeze(0),
                 mask1, mask2
@@ -654,19 +736,14 @@ class StabStitcher(BaseStitcher):
             mask12 = mask1 + mask2 - mask1 * mask2
             linear_fusion = _linear_blender(
                 img12, img_warp[2, :3].unsqueeze(0), mask12, mask3
-            )[0]  # [3, H, W]
+            )[0]
 
-            # Erode the reference mask — pixels within border_size of any edge
-            # are zeroed so only the true interior survives.
             mask2_b = (mask2 > 0.5).float()
             ks = 2 * self.border_size + 1
             mask2_eroded = (-F.max_pool2d(-mask2_b, kernel_size=ks, stride=1,
                                           padding=self.border_size)).clamp(0, 1)
 
-            # Smooth the hard eroded boundary for a gradual ramp into LINEAR.
             blur_ref = GaussianBlur(kernel_size=(self.blur_kernel_size, self.blur_kernel_size), sigma=self.blur_sigma)
-            # Clamp to mask2_b so the weight never leaks outside img2's boundary
-            # (outside, img_warp[1] is 0 and would otherwise darken linear_fusion).
             mask2_interior = blur_ref(mask2_eroded).clamp(0, 1) * mask2_b
 
             fusion = img_warp[1, :3] * mask2_interior[0] + linear_fusion * (1 - mask2_interior[0])
@@ -683,17 +760,7 @@ class StabStitcher(BaseStitcher):
         pano = fusion.cpu().numpy().transpose(1, 2, 0)
 
         if self.timing:
-            t7 = time.perf_counter()
-            print(
-                f"[StabStitch timing] "
-                f"spatial12={t1-t0:.3f}s  "
-                f"temporal12={t2-t1:.3f}s  "
-                f"smooth12={t3-t2:.3f}s  "
-                f"spatial23={t4-t3:.3f}s  "
-                f"temporal3={t5-t4:.3f}s  "
-                f"smooth23={t6-t5:.3f}s  "
-                f"warp+blend={t7-t6:.3f}s  "
-                f"total={t7-t0:.3f}s"
-            )
+            t1 = time.perf_counter()
+            print(f"[StabStitch render] warp+blend={t1-t0:.3f}s")
 
         return pano.clip(0, 255).astype(np.uint8)

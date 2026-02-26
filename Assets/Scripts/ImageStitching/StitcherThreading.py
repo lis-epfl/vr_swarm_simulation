@@ -241,43 +241,56 @@ class StitcherManager:
         """
         Simplified stitching process using known order from drone IDs.
         No need for homography computation - just stitch based on known order.
-        """
-        with self.switching_lock2:
-            if self.known_order is None or len(self.known_order) != len(images):
-                print(f"[WARNING] Known order not set or length mismatch. Expected {len(images)} images.")
-                return
-            
-            # Create order array based on known drone order
-            order = np.array(self.known_order)
-            
-            # For stitching methods that need different approaches
-            if self.active_stitcher_type == "CLASSIC":
-                # Use simplified compose method that doesn't need homographies
-                pano = self.stitch_with_known_order(images, order, num_pano_img)
-            elif self.active_stitcher_type == "UDIS":
-                # Get subsets based on head angle and known order
-                subset1, subset2 = self.get_subsets_from_order(order, len(images))
-                # UDIS uses direct image warping
-                pano = self.active_stitcher.UDIS_pano(images, subset1, subset2)
 
-            elif self.active_stitcher_type == "NIS":
-                subset1, subset2 = self.get_subsets_from_order(order, len(images))
-                # NIS stitch implementation would go here
-                pano = None  # Placeholder
-            elif self.active_stitcher_type == "REWARP":
-                subset1, subset2 = self.get_subsets_from_order(order, len(images))
-                # REWARP stitch implementation would go here
-                pano = None  # Placeholder
-            elif self.active_stitcher_type == "STABSTITCH":
-                subset1, subset2 = self.get_subsets_from_order(order, len(images))
-                pano = self.active_stitcher.stab_pano(images, subset1, subset2)
-            
-            # If pano is not None save the images and pano for verification
+        For STABSTITCH the fast render path (stab_pano) only uses cached
+        warp parameters and standalone TPS functions — it never touches the
+        neural networks — so it can run without ``switching_lock2``.  The
+        slow warp computation is handled by ``warp_computation_thread``
+        which does acquire ``switching_lock2``.
+        """
+        if self.known_order is None or len(self.known_order) != len(images):
+            print(f"[WARNING] Known order not set or length mismatch. Expected {len(images)} images.")
+            return
+
+        if self.active_stitcher_type == "STABSTITCH":
+            # Fast path: no switching_lock2 needed — render only uses cached
+            # warp params + standalone TPS warp (no neural network access).
+            order = np.array(self.known_order)
+            subset1, subset2 = self.get_subsets_from_order(order, len(images))
+            pano = self.active_stitcher.stab_pano(images, subset1, subset2)
+
             if pano is not None:
                 cv2.imwrite("aa_panorama.jpg", pano)
                 for i, img in enumerate(images):
                     cv2.imwrite(f"aa_input_image_{i}.jpg", img)
-            
+
+            if pano is not None and self.panoram_queue.empty():
+                self.panoram_queue.put(pano)
+            return
+
+        # All other stitchers: original behaviour with switching_lock2
+        with self.switching_lock2:
+            order = np.array(self.known_order)
+
+            if self.active_stitcher_type == "CLASSIC":
+                pano = self.stitch_with_known_order(images, order, num_pano_img)
+            elif self.active_stitcher_type == "UDIS":
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
+                pano = self.active_stitcher.UDIS_pano(images, subset1, subset2)
+            elif self.active_stitcher_type == "NIS":
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
+                pano = None  # Placeholder
+            elif self.active_stitcher_type == "REWARP":
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
+                pano = None  # Placeholder
+            else:
+                pano = None
+
+            if pano is not None:
+                cv2.imwrite("aa_panorama.jpg", pano)
+                for i, img in enumerate(images):
+                    cv2.imwrite(f"aa_input_image_{i}.jpg", img)
+
             if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put(pano)
 
@@ -670,6 +683,43 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
     
     print("[stitching_thread] Quitting stitching thread")
 
+def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False):
+    """
+    Dedicated thread for STABSTITCH neural-net warp computation (~3 Hz).
+
+    Continuously snapshots the rolling frame buffer, runs
+    SpatialNet + TemporalNet + SmoothNet, and updates the cached warp
+    parameters that ``stab_pano`` uses for fast rendering.
+
+    Acquires ``switching_lock2`` while computing to prevent stitcher
+    switching from moving models off-GPU mid-computation.
+    """
+    while True:
+        if manager.shared_images is None or manager.known_order is None:
+            time.sleep(0.4)
+            continue
+
+        if manager.active_stitcher_type != "STABSTITCH":
+            time.sleep(0.1)
+            continue
+
+        t = time.perf_counter()
+        try:
+            with manager.switching_lock2:
+                manager.active_stitcher.compute_warps()
+        except Exception as e:
+            print(f"[warp_thread] Error during warp computation: {e}")
+
+        if verbose:
+            elapsed = time.perf_counter() - t
+            print(f"[warp_thread] Warp update: {elapsed:.3f}s")
+
+        if debug:
+            break
+
+    print("[warp_thread] Quitting warp computation thread")
+
+
 def readMetadataMemory(metadataMMF :mmap )->dict:
     """
     Reads metadata from a memory-mapped file and returns it as a dictionary.
@@ -760,6 +810,12 @@ def main():
     stitch_t = threading.Thread(target=stitching_thread, args=(manager, num_pano_img, verbose_stitching_thread, debug))
     stitch_t.daemon = True
     stitch_t.start()
+
+    # Warp computation thread: runs neural nets at ~3 Hz for STABSTITCH,
+    # updating the cached warp params that stab_pano renders with at ~15 fps.
+    warp_t = threading.Thread(target=warp_computation_thread, args=(manager, verbose_stitching_thread, debug))
+    warp_t.daemon = True
+    warp_t.start()
 
     while True:
         time.sleep(100)
