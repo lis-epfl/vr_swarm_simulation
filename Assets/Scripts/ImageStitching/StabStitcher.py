@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import torch
+import torch.nn.functional as F
 import os
 import sys
 import glob
@@ -607,17 +608,16 @@ class StabStitcher(BaseStitcher):
             )
 
         elif self.fusion_mode == "REFERENCE":
-            # Hard composite: no blending at all.
-            # img1 (left) and img3 (right) fill uncovered areas;
-            # img2 (centre/reference) always wins — never blended with neighbours.
-            mask1_b = (mask1 > 0.5).float()
-            mask2_b = (mask2 > 0.5).float()
-            mask3_b = (mask3 > 0.5).float()
-
-            # Layer order: img1 base → img3 on top → img2 (reference) always on top
-            canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
-            canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
-            canvas = img_warp[1, :3].unsqueeze(0) * mask2_b + canvas * (1 - mask2_b)
+            # Premultiplied-alpha "over" composite.
+            # The TPS warp produces premultiplied boundary pixels (colour * alpha,
+            # black outside), so the correct formula is simply:
+            #   result = fg_premult + bg_premult * (1 - fg_alpha)
+            # This gives sub-pixel anti-aliasing at every edge instead of the dark
+            # fringe that a hard 0.5 threshold creates.
+            # Layer order: img1 base → img3 over img1 → img2 (reference) on top.
+            canvas = img_warp[0, :3].unsqueeze(0)
+            canvas = img_warp[2, :3].unsqueeze(0) + canvas * (1 - mask3)
+            canvas = img_warp[1, :3].unsqueeze(0) + canvas * (1 - mask2)
             fusion = canvas[0]
 
         elif self.fusion_mode == "EDGE_BLEND":
