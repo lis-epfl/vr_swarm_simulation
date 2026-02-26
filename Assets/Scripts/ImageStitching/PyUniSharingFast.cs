@@ -195,6 +195,10 @@ public class PyUniSharingFast : MonoBehaviour
         {
             GenerateCurvedScreen();
             curvedScreenMaterial = GetComponent<MeshRenderer>().material;
+            curvedScreenMaterial.SetFloat("_Glossiness", 0f);
+            curvedScreenMaterial.SetColor("_EmissionColor", Color.white);
+            curvedScreenMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
+            curvedScreenMaterial.EnableKeyword("_EMISSION");
             panoTexture = new Texture2D(panoramaImageWidth, panoramaImageHeight, TextureFormat.RGB24, false);
             pixels = new Color32[panoramaImageWidth * panoramaImageHeight];
         }
@@ -360,6 +364,7 @@ public class PyUniSharingFast : MonoBehaviour
     {
         LoadRawRGBTexture(partPanorama);
         curvedScreenMaterial.mainTexture = panoTexture;
+        curvedScreenMaterial.SetTexture("_EmissionMap", panoTexture);
     }
 
     public void LoadRawRGBTexture(byte[] imageData)
