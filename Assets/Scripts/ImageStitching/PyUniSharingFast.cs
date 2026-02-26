@@ -67,6 +67,19 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField]
     private FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
 
+    [Header("StabStitch REFERENCE_BLEND Blur")]
+    [SerializeField]
+    [Tooltip("Gaussian blur kernel size for the reference-image soft mask (must be an odd integer)")]
+    private int blurKernelSize = 41;
+
+    [SerializeField]
+    [Tooltip("Gaussian blur sigma for the reference-image soft mask feathering width (pixels)")]
+    private float blurSigma = 15f;
+
+    [SerializeField]
+    [Tooltip("Width in pixels of the edge strip where LINEAR blending is applied to hide seams (REFERENCE_BLEND mode only). Interior of the reference image is left pixel-perfect.")]
+    private int borderSize = 60;
+
     private string blockMapName = "blockSharedMemory";
     private int blockImageCount = 0;
     private int blockImageSize = 0;
@@ -79,7 +92,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalPanoramaSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64; // +64 for fusion mode string
+    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4; // +8 for blurKernelSize (int) + blurSigma (float), +4 for borderSize (int)
 
     private IntPtr blockFileMap;
     private IntPtr blockPtr;
@@ -673,6 +686,17 @@ public class PyUniSharingFast : MonoBehaviour
         byte[] fusionModeBuffer = new byte[64];
         Array.Copy(fusionModeBytes, fusionModeBuffer, Math.Min(fusionModeBytes.Length, fusionModeBuffer.Length));
         Marshal.Copy(fusionModeBuffer, 0, IntPtr.Add(metadataPtr, offset), fusionModeBuffer.Length);
+        offset += 64;
+
+        Marshal.WriteInt32(metadataPtr, offset, blurKernelSize);
+        offset += 4;
+
+        byte[] blurSigmaBytes = BitConverter.GetBytes(blurSigma);
+        if (!BitConverter.IsLittleEndian) Array.Reverse(blurSigmaBytes);
+        Marshal.Copy(blurSigmaBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
+        offset += 4;
+
+        Marshal.WriteInt32(metadataPtr, offset, borderSize);
 
         if(hasStarted) return;
         offset += 64;

@@ -158,7 +158,9 @@ class StabStitcher(BaseStitcher):
     BUFFER_LEN = 7  # SmoothNet requires exactly 7 frames
 
     def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE_BLEND", timing: bool = False,
-                 save_masks: bool = False, mask_save_dir: str = None):
+                 save_masks: bool = False, mask_save_dir: str = None,
+                 blur_kernel_size: int = 41, blur_sigma: float = 15.0,
+                 border_size: int = 60):
         # BaseStitcher sets up attributes consumed by StitcherManager's
         # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
         # We pass device="cpu" so its SuperPoint model stays off-GPU; our
@@ -170,6 +172,9 @@ class StabStitcher(BaseStitcher):
         self.timing = timing
         self.save_masks = save_masks
         self.mask_save_dir = mask_save_dir or os.path.join(_THIS_DIR, "mask_debug")
+        self.blur_kernel_size = blur_kernel_size
+        self.blur_sigma = blur_sigma
+        self.border_size = border_size
 
         # --- Networks ---
         self.spatial_net = SpatialNet()
@@ -635,10 +640,12 @@ class StabStitcher(BaseStitcher):
         elif self.fusion_mode == "REFERENCE_BLEND":
             # Two-step composite:
             #   1. Full LINEAR blend — gives good seam quality across all three images.
-            #   2. Composite img2 (centre) on top using a soft mask eroded from its
-            #      interior, so img2's interior is pixel-perfect regardless of overlap
-            #      and the boundary feathers into the LINEAR result beneath it.
-            #      Because LINEAR (not black) is always underneath, there are no shadows.
+            #   2. Composite img2 (centre) on top using a weight map that is exactly
+            #      1.0 in the interior of the reference (no ghosting there) and
+            #      transitions to 0 over a thin border strip (LINEAR is used there).
+            #      Strategy: erode the binary reference mask by border_size pixels so
+            #      the interior stays at 1, then blur the hard eroded edge for a
+            #      gradual ramp.  Only the border strip ever sees LINEAR blending.
             img12 = _linear_blender(
                 img_warp[0, :3].unsqueeze(0), img_warp[1, :3].unsqueeze(0),
                 mask1, mask2
@@ -648,11 +655,20 @@ class StabStitcher(BaseStitcher):
                 img12, img_warp[2, :3].unsqueeze(0), mask12, mask3
             )[0]  # [3, H, W]
 
-            mask2_interior = (mask2 > 0.5).float()
-            blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
-            mask2_soft = blur_ref(mask2_interior).clamp(0, 1)  # [1, 1, H, W]
+            # Erode the reference mask — pixels within border_size of any edge
+            # are zeroed so only the true interior survives.
+            mask2_b = (mask2 > 0.5).float()
+            ks = 2 * self.border_size + 1
+            mask2_eroded = (-F.max_pool2d(-mask2_b, kernel_size=ks, stride=1,
+                                          padding=self.border_size)).clamp(0, 1)
 
-            fusion = img_warp[1, :3] * mask2_soft[0] + linear_fusion * (1 - mask2_soft[0])
+            # Smooth the hard eroded boundary for a gradual ramp into LINEAR.
+            blur_ref = GaussianBlur(kernel_size=(self.blur_kernel_size, self.blur_kernel_size), sigma=self.blur_sigma)
+            # Clamp to mask2_b so the weight never leaks outside img2's boundary
+            # (outside, img_warp[1] is 0 and would otherwise darken linear_fusion).
+            mask2_interior = blur_ref(mask2_eroded).clamp(0, 1) * mask2_b
+
+            fusion = img_warp[1, :3] * mask2_interior[0] + linear_fusion * (1 - mask2_interior[0])
 
         else:  # LINEAR
             img12 = _linear_blender(

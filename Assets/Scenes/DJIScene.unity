@@ -234,6 +234,21 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: blurSigma
+      value: 20
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: borderSize
+      value: 35
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: blurKernelSize
+      value: 61
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: typeOfStitcher
       value: 1
       objectReference: {fileID: 0}
@@ -528,8 +543,8 @@ MonoBehaviour:
   numImages: 3
   processedMapName: BlockSharedMemory
   readInterval: 0.05
-  enableDebugLogging: 1
-  enableImageValidation: 1
+  enableDebugLogging: 0
+  enableImageValidation: 0
   saveDebugImages: 0
   debugImagePath: Assets/DebugImages/
 --- !u!114 &590275749
@@ -935,6 +950,11 @@ PrefabInstance:
     - target: {fileID: 6295995889752902613, guid: 5bab6223848ed924392e5f9c5021182e,
         type: 3}
       propertyPath: m_Name
+      value: Arena
+      objectReference: {fileID: 0}
+    - target: {fileID: 6295995889752902613, guid: 5bab6223848ed924392e5f9c5021182e,
+        type: 3}
+      propertyPath: m_TagString
       value: Arena
       objectReference: {fileID: 0}
     m_RemovedComponents: []
