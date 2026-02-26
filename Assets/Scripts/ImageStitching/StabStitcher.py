@@ -112,14 +112,15 @@ def _linear_blender(ref, tgt, ref_m, tgt_m):
     center2 = (r2.float().mean(), c2.float().mean())
     vec = (center2[0] - center1[0], center2[1] - center1[1])
 
-    ovl = (ref_m * tgt_m).round()[:, 0].unsqueeze(1)
-    ref_m_ = ref_m[:, 0].unsqueeze(1) - ovl
-    r, c = torch.nonzero(ovl[0, 0], as_tuple=True)
+    # ---- FIX: keep overlap soft (no .round()) to preserve TPS anti-aliasing ----
+    ovl = (ref_m * tgt_m)[:, 0].unsqueeze(1)          # soft overlap
+    ref_m_ = (ref_m[:, 0].unsqueeze(1) - ovl).clamp(0, 1)
+    r, c = torch.nonzero(ovl[0, 0] > 0.01, as_tuple=True)
 
     ovl_mask = torch.zeros_like(ref_m_)
     if r.numel() > 0:
-        proj_val = (r - center1[0]) * vec[0] + (c - center1[1]) * vec[1]
-        ovl_mask[ovl.bool()] = (proj_val - proj_val.min()) / (
+        proj_val = (r.float() - center1[0]) * vec[0] + (c.float() - center1[1]) * vec[1]
+        ovl_mask[0, 0, r, c] = (proj_val - proj_val.min()) / (
             proj_val.max() - proj_val.min() + 1e-3
         )
 
