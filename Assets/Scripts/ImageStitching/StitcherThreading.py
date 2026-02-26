@@ -183,6 +183,9 @@ class StitcherManager:
         typeOfStitcher, isCylindrical, matcherType, isRANSAC  = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
         checks, ratio_thresh, score_threshold, focal, onlyIHN = output["checks"], output["ratio_thresh"], output["score_threshold"], output["focal"], output["onlyIHN"]
         fusion_mode = output.get("fusion_mode", "REFERENCE")
+        blur_kernel_size = output.get("blur_kernel_size", 41)
+        blur_sigma = output.get("blur_sigma", 15.0)
+        border_size = output.get("border_size", 60)
         batchImageWidth, batchImageHeight = output["Sizes"][:2]
 
         def has_stitcher_changes():
@@ -223,6 +226,16 @@ class StitcherManager:
         if getattr(self.active_stitcher, 'fusion_mode', '__unset__') != fusion_mode:
             with self.switching_lock1:
                 self.set_fusion_mode(fusion_mode)
+
+        if getattr(self.active_stitcher, 'blur_kernel_size', None) != blur_kernel_size:
+            with self.switching_lock1:
+                self.active_stitcher.blur_kernel_size = blur_kernel_size
+        if getattr(self.active_stitcher, 'blur_sigma', None) != blur_sigma:
+            with self.switching_lock1:
+                self.active_stitcher.blur_sigma = blur_sigma
+        if getattr(self.active_stitcher, 'border_size', None) != border_size:
+            with self.switching_lock1:
+                self.active_stitcher.border_size = border_size
 
     def process_stitching(self, images, num_pano_img=3):
         """
@@ -385,7 +398,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     """
     
     # Read metadata first to get image dimensions
-    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64  # +64 for fusion mode string
+    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int)
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
     
     output = readMetadataMemory(metadataMMF)
@@ -699,6 +712,11 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     raw_string = metadataMMF.read(64)
     fusion_mode = raw_string.decode('utf-8').rstrip('\x00') or "REFERENCE"
 
+    # Read blur parameters for REFERENCE_BLEND
+    blur_kernel_size = struct.unpack('i', metadataMMF.read(4))[0]
+    blur_sigma = struct.unpack('f', metadataMMF.read(4))[0]
+    border_size = struct.unpack('i', metadataMMF.read(4))[0]
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -711,6 +729,9 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "focal" : focal,
         "onlyIHN" : onlyIHN,
         "fusion_mode" : fusion_mode,
+        "blur_kernel_size" : blur_kernel_size,
+        "blur_sigma" : blur_sigma,
+        "border_size" : border_size,
     }
 
 def main():
