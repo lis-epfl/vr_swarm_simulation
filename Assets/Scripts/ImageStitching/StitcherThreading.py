@@ -657,6 +657,12 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
 def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, debug=False):
     """
     Simplified stitching thread that uses known order from drone IDs.
+
+    For STABSTITCH this is the fast render loop (~15 fps).  A short sleep
+    after each render prevents it from monopolising the GPU and starving
+    the warp-computation thread.  Images only arrive at ~15-20 fps from
+    ``first_thread``, so rendering faster would just re-process the same
+    frame.
     """
     while True:
         if manager.shared_images is None or manager.known_order is None:
@@ -664,23 +670,30 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
                 print("[stitching_thread] Waiting for images and known order...")
             time.sleep(0.4)
             continue
-        
+
         with manager.info_lock:
             images = manager.shared_images
-        
+
         t = time.time()
-        
+
         try:
             manager.process_stitching(images, num_pano_img=num_pano_img)
         except Exception as e:
             print(f"[stitching_thread] Error during stitching: {e}")
-        
+
         if verbose:
             print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s")
-        
+
+        # Yield GPU time so the warp-computation thread can run its neural
+        # nets.  For STABSTITCH the render is fast (~30 ms) and images
+        # only arrive at ~15-20 fps, so capping at ~15 fps loses nothing.
+        # For other stitchers this sleep is negligible compared to their
+        # processing time.
+        time.sleep(0.05)
+
         if debug:
             break
-    
+
     print("[stitching_thread] Quitting stitching thread")
 
 def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False):
