@@ -259,11 +259,6 @@ class StitcherManager:
             subset1, subset2 = self.get_subsets_from_order(order, len(images))
             pano = self.active_stitcher.stab_pano(images, subset1, subset2)
 
-            if pano is not None:
-                cv2.imwrite("aa_panorama.jpg", pano)
-                for i, img in enumerate(images):
-                    cv2.imwrite(f"aa_input_image_{i}.jpg", img)
-
             if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put(pano)
             return
@@ -285,11 +280,6 @@ class StitcherManager:
                 pano = None  # Placeholder
             else:
                 pano = None
-
-            if pano is not None:
-                cv2.imwrite("aa_panorama.jpg", pano)
-                for i, img in enumerate(images):
-                    cv2.imwrite(f"aa_input_image_{i}.jpg", img)
 
             if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put(pano)
@@ -506,8 +496,6 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             if H != manager.processedImageHeight or W != manager.processedImageWidth:
                 try:
                     panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
-                    # Save the panorama to disk for verification
-                    cv2.imwrite("stitched_panorama.jpg", panorama)
                 except:
                     continue
             
