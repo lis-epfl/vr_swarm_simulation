@@ -99,6 +99,7 @@ class StitcherManager:
         self.switching_lock1 = threading.Lock()
         self.switching_lock2 = threading.Lock()
         self.info_lock = threading.Lock()
+        self.new_images_event = threading.Event()  # signalled by first_thread
 
         self.stitcherTypes = [k for k, v in self.stitchers.items() if v is not None]
         self.cylidnricalWarp = False
@@ -484,7 +485,10 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 center_idx = len(sorted_headings) // 2
                 drone_id = manager.known_order[center_idx]
                 manager.headAngle = sorted_headings[drone_id]
-            
+
+            # Wake the stitching thread — new images are available.
+            manager.new_images_event.set()
+
             if enable_debug_logging:
                 print(f"[first_thread] Read {len(images)} images, sorted drone IDs: {sorted_drone_ids}, headings: {sorted_headings}")
         
@@ -646,17 +650,21 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
     """
     Simplified stitching thread that uses known order from drone IDs.
 
-    For STABSTITCH this is the fast render loop (~15 fps).  A short sleep
-    after each render prevents it from monopolising the GPU and starving
-    the warp-computation thread.  Images only arrive at ~15-20 fps from
-    ``first_thread``, so rendering faster would just re-process the same
-    frame.
+    For STABSTITCH this is the fast render loop (~15 fps).  Instead of
+    busy-looping with a sleep, it blocks on ``new_images_event`` until
+    ``first_thread`` signals that fresh images have arrived.  This
+    naturally matches the ~15 fps image arrival rate without wasting GPU
+    cycles re-rendering the same frame.
+
+    The ``timeout=0.1`` ensures non-STABSTITCH stitchers still loop even
+    if the event is never explicitly signalled.
     """
     while True:
+        # Block until first_thread signals new images (or timeout)
+        manager.new_images_event.wait(timeout=0.1)
+        manager.new_images_event.clear()
+
         if manager.shared_images is None or manager.known_order is None:
-            if verbose:
-                print("[stitching_thread] Waiting for images and known order...")
-            time.sleep(0.4)
             continue
 
         with manager.info_lock:
@@ -671,13 +679,6 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
 
         if verbose:
             print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s")
-
-        # Yield GPU time so the warp-computation thread can run its neural
-        # nets.  For STABSTITCH the render is fast (~30 ms) and images
-        # only arrive at ~15-20 fps, so capping at ~15 fps loses nothing.
-        # For other stitchers this sleep is negligible compared to their
-        # processing time.
-        time.sleep(0.05)
 
         if debug:
             break

@@ -206,6 +206,11 @@ class StabStitcher(BaseStitcher):
         self._buf_lock = threading.Lock()    # protects buffer deque access
         self._compute_lock = threading.Lock()  # serializes neural-net inference
 
+        # Separate CUDA streams so warp and render GPU kernels can
+        # interleave instead of serializing on the default stream.
+        self._warp_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+        self._render_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+
     # ------------------------------------------------------------------
     # Model loading
     # ------------------------------------------------------------------
@@ -491,11 +496,22 @@ class StabStitcher(BaseStitcher):
         inference (e.g. the first synchronous call in ``stab_pano`` vs.
         the background ``compute_warps`` thread).
 
+        When a dedicated warp CUDA stream is available the computation runs
+        on that stream so its GPU kernels can interleave with the render
+        stream instead of serializing on the default stream.
+
         Returns
         -------
         dict with keys: norm_m1, norm_m2, norm_m3, out_h2, out_w2, out_size
         """
         with self._compute_lock:
+            if self._warp_stream is not None:
+                with torch.cuda.stream(self._warp_stream):
+                    result = self._compute_warp_params_unlocked(
+                        img1_list, img2_list, img3_list, hr_h, hr_w
+                    )
+                self._warp_stream.synchronize()
+                return result
             return self._compute_warp_params_unlocked(
                 img1_list, img2_list, img3_list, hr_h, hr_w
             )
@@ -656,11 +672,26 @@ class StabStitcher(BaseStitcher):
         Fast render path: warp three high-res images using precomputed
         normalised meshes and apply the selected fusion mode.
 
+        When a dedicated render CUDA stream is available the work runs on
+        that stream so its GPU kernels can interleave with the warp stream.
+        The ``.cpu()`` call at the end implicitly synchronizes.
+
         Parameters
         ----------
         img1_hr_t, img2_hr_t, img3_hr_t : [1, 3, H, W] CUDA float tensors
         warp_params : dict from ``_compute_warp_params``
         """
+        if self._render_stream is not None:
+            with torch.cuda.stream(self._render_stream):
+                return self._render_with_params_on_stream(
+                    img1_hr_t, img2_hr_t, img3_hr_t, warp_params
+                )
+        return self._render_with_params_on_stream(
+            img1_hr_t, img2_hr_t, img3_hr_t, warp_params
+        )
+
+    def _render_with_params_on_stream(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):
+        """Inner render implementation — may run on a non-default CUDA stream."""
         t0 = time.perf_counter() if self.timing else None
 
         norm_m1  = warp_params['norm_m1']
