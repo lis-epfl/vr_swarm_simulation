@@ -98,26 +98,31 @@ def _recover_mesh(norm_mesh, height, width):
     return mesh.reshape([batch_size, grid_h + 1, grid_w + 1, 2])
 
 
-def _linear_blender(ref, tgt, ref_m, tgt_m):
-    """Linear (gradient) blending in the overlap region."""
-    blur = GaussianBlur(kernel_size=(21, 21), sigma=20)
+def _compute_blend_weights(ref_m, tgt_m, blur):
+    """
+    Compute per-pixel linear-blend weight maps from two soft masks.
 
-    r1, c1 = torch.nonzero(ref_m[0, 0], as_tuple=True)
-    r2, c2 = torch.nonzero(tgt_m[0, 0], as_tuple=True)
+    Returns (w_ref, w_tgt) each of shape [1, 1, H, W].  These are
+    geometry-only: they do not depend on image pixel values, so they can
+    be precomputed once per warp update and reused every render frame.
+
+    GPU→CPU syncs (torch.nonzero, scalar comparisons) are acceptable here
+    because this runs in the low-frequency warp thread, not the render loop.
+    """
+    r1, c1 = torch.nonzero(ref_m[0, 0] > 0.01, as_tuple=True)
+    r2, c2 = torch.nonzero(tgt_m[0, 0] > 0.01, as_tuple=True)
 
     if r1.numel() == 0 or r2.numel() == 0:
-        # Degenerate case: one mask is empty
-        return ref * ref_m + tgt * tgt_m
+        return ref_m.clone(), tgt_m.clone()
 
     center1 = (r1.float().mean(), c1.float().mean())
     center2 = (r2.float().mean(), c2.float().mean())
     vec = (center2[0] - center1[0], center2[1] - center1[1])
 
-    # ---- FIX: keep overlap soft (no .round()) to preserve TPS anti-aliasing ----
-    ovl = (ref_m * tgt_m)[:, 0].unsqueeze(1)          # soft overlap
+    ovl    = (ref_m * tgt_m)[:, 0].unsqueeze(1)
     ref_m_ = (ref_m[:, 0].unsqueeze(1) - ovl).clamp(0, 1)
-    r, c = torch.nonzero(ovl[0, 0] > 0.01, as_tuple=True)
 
+    r, c = torch.nonzero(ovl[0, 0] > 0.01, as_tuple=True)
     ovl_mask = torch.zeros_like(ref_m_)
     if r.numel() > 0:
         proj_val = (r.float() - center1[0]) * vec[0] + (c.float() - center1[1]) * vec[1]
@@ -125,11 +130,11 @@ def _linear_blender(ref, tgt, ref_m, tgt_m):
             proj_val.max() - proj_val.min() + 1e-3
         )
 
-    mask1 = (
+    w_ref = (
         blur(ref_m_ + (1 - ovl_mask) * ref_m[:, 0].unsqueeze(1)) * ref_m + ref_m_
     ).clamp(0, 1)
-    mask2 = (1 - mask1) * tgt_m
-    return ref * mask1 + tgt * mask2
+    w_tgt = (1 - w_ref) * tgt_m
+    return w_ref, w_tgt
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +215,14 @@ class StabStitcher(BaseStitcher):
         # interleave instead of serializing on the default stream.
         self._warp_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
         self._render_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+
+        # Pre-built blur kernels – reused every frame to avoid per-call
+        # kernel allocation and recompilation overhead.
+        self._blur_linear = GaussianBlur(kernel_size=(21, 21), sigma=20)
+        self._blur_ref = GaussianBlur(
+            kernel_size=(self.blur_kernel_size, self.blur_kernel_size),
+            sigma=self.blur_sigma,
+        )
 
     # ------------------------------------------------------------------
     # Model loading
@@ -345,6 +358,57 @@ class StabStitcher(BaseStitcher):
                 smesh_list1,    smesh_list2,
             )
         return out["smooth_mesh1"], out["smooth_mesh2"]
+
+    # ------------------------------------------------------------------
+    # Blend-weight precomputation (runs in warp thread)
+    # ------------------------------------------------------------------
+
+    def _precompute_blend_weights(self, mask1, mask2, mask3):
+        """
+        Derive final per-camera weight maps from warped alpha masks.
+
+        Because blending weights depend only on warp geometry (not pixel
+        values) they can be computed once per warp update and cached.
+        The render thread then reduces to a single weighted sum.
+
+        Returns a dict with 'w1', 'w2', 'w3' each of shape [1, H, W],
+        or None for modes that require per-pixel image data (AVERAGE).
+        """
+        if self.fusion_mode == "REFERENCE":
+            # canvas = img2 + img3*(1-mask2) + img1*(1-mask3)*(1-mask2)
+            w1 = ((1 - mask3) * (1 - mask2))[:, 0]
+            w2 = torch.ones_like(w1)
+            w3 = ((1 - mask2))[:, 0]
+            return {'w1': w1, 'w2': w2, 'w3': w3}
+
+        elif self.fusion_mode == "REFERENCE_BLEND":
+            w1_12, w2_12 = _compute_blend_weights(mask1, mask2, self._blur_linear)
+            mask12 = mask1 + mask2 - mask1 * mask2
+            w12_123, w3_123 = _compute_blend_weights(mask12, mask3, self._blur_linear)
+
+            mask2_b = (mask2 > 0.5).float()
+            ks = 2 * self.border_size + 1
+            mask2_eroded = (-F.max_pool2d(-mask2_b, kernel_size=ks, stride=1,
+                                          padding=self.border_size)).clamp(0, 1)
+            mask2_interior = self._blur_ref(mask2_eroded).clamp(0, 1) * mask2_b  # [1,1,H,W]
+
+            mi = mask2_interior  # shorthand
+            final_w1 = (w1_12  * w12_123 * (1 - mi))[:, 0]
+            final_w2 = (mi + w2_12 * w12_123 * (1 - mi))[:, 0]
+            final_w3 = (w3_123 * (1 - mi))[:, 0]
+            return {'w1': final_w1, 'w2': final_w2, 'w3': final_w3}
+
+        elif self.fusion_mode == "LINEAR":
+            w1_12, w2_12 = _compute_blend_weights(mask1, mask2, self._blur_linear)
+            mask12 = mask1 + mask2 - mask1 * mask2
+            w12_123, w3_123 = _compute_blend_weights(mask12, mask3, self._blur_linear)
+            return {
+                'w1': (w1_12 * w12_123)[:, 0],
+                'w2': (w2_12 * w12_123)[:, 0],
+                'w3': w3_123[:, 0],
+            }
+
+        return None  # AVERAGE / EDGE_BLEND: fall back to per-frame path
 
     # ------------------------------------------------------------------
     # Mask visualisation
@@ -648,6 +712,26 @@ class StabStitcher(BaseStitcher):
         norm_m2 = _get_norm_mesh(m2_final, out_h2, out_w2)
         norm_m3 = _get_norm_mesh(m3_final, out_h2, out_w2)
 
+        # ---------- precompute blending weights (geometry-only, warp thread) ----------
+        # Warp a unit alpha image through each mesh to recover the per-pixel
+        # coverage masks, then derive final per-camera weight maps.  This
+        # removes all mask arithmetic from the hot render loop.
+        rigid_hr      = _get_rigid_mesh(1, hr_h, hr_w)
+        norm_rigid_hr = _get_norm_mesh(rigid_hr, hr_h, hr_w)
+        norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
+        alpha_dummy   = torch.ones(3, 1, hr_h, hr_w,
+                                   device='cuda' if torch.cuda.is_available() else 'cpu')
+        with torch.no_grad():
+            masks_warped = torch_tps_transform.transformer(
+                alpha_dummy,
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3, out_size, mode=self.warp_mode,
+            )
+        mask1_pre = masks_warped[0].unsqueeze(0)   # [1, 1, H, W]
+        mask2_pre = masks_warped[1].unsqueeze(0)
+        mask3_pre = masks_warped[2].unsqueeze(0)
+        blend_weights = self._precompute_blend_weights(mask1_pre, mask2_pre, mask3_pre)
+
         if self.timing:
             t_end = time.perf_counter()
             print(
@@ -665,6 +749,7 @@ class StabStitcher(BaseStitcher):
         return {
             'norm_m1': norm_m1, 'norm_m2': norm_m2, 'norm_m3': norm_m3,
             'out_h2': out_h2, 'out_w2': out_w2, 'out_size': out_size,
+            'blend_weights': blend_weights,
         }
 
     def _render_with_params(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):
@@ -706,87 +791,83 @@ class StabStitcher(BaseStitcher):
         norm_rigid_hr = _get_norm_mesh(rigid_hr, hr_h, hr_w)
         norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
 
-        # ---------- single warp pass (always with alpha for mask extraction) ----------
-        alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
-        img1_t = torch.cat([img1_hr_t, alpha], 1)
-        img2_t = torch.cat([img2_hr_t, alpha], 1)
-        img3_t = torch.cat([img3_hr_t, alpha], 1)
+        blend_weights = warp_params.get('blend_weights')
 
-        img_warp = torch_tps_transform.transformer(
-            torch.cat([img1_t, img2_t, img3_t], 0),
-            torch.cat([norm_m1, norm_m2, norm_m3], 0),
-            norm_rig3,
-            out_size,
-            mode=self.warp_mode,
-        )
-
-        # Soft alpha masks
-        mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
-        mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
-        mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
-
-        if self.save_masks:
-            self._save_mask_viz(mask1, mask2, mask3, out_size)
-
-        # ---------- fusion ----------
-        if self.fusion_mode == "AVERAGE":
-            w1, w2, w3 = img_warp[0, :3], img_warp[1, :3], img_warp[2, :3]
-            img12 = (
-                w1 * (w1 / (w1 + w2 + 1e-6))
-                + w2 * (w2 / (w1 + w2 + 1e-6))
+        if blend_weights is not None:
+            # ---------- fast path: RGB-only warp + precomputed weighted sum ----------
+            img_warp = torch_tps_transform.transformer(
+                torch.cat([img1_hr_t, img2_hr_t, img3_hr_t], 0),
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3, out_size, mode=self.warp_mode,
             )
+            # w* shape [1, H, W] broadcasts over [3, H, W]
             fusion = (
-                img12 * (img12 / (img12 + w3 + 1e-6))
-                + w3 * (w3 / (img12 + w3 + 1e-6))
+                img_warp[0, :3] * blend_weights['w1']
+                + img_warp[1, :3] * blend_weights['w2']
+                + img_warp[2, :3] * blend_weights['w3']
             )
 
-        elif self.fusion_mode == "REFERENCE":
-            canvas = img_warp[0, :3].unsqueeze(0)
-            canvas = img_warp[2, :3].unsqueeze(0) + canvas * (1 - mask3)
-            canvas = img_warp[1, :3].unsqueeze(0) + canvas * (1 - mask2)
-            fusion = canvas[0]
+            if self.save_masks:
+                # Regenerate masks from warped alpha for visualisation only
+                alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
+                _warp4 = torch_tps_transform.transformer(
+                    torch.cat([torch.cat([img1_hr_t, alpha], 1),
+                               torch.cat([img2_hr_t, alpha], 1),
+                               torch.cat([img3_hr_t, alpha], 1)], 0),
+                    torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                    norm_rig3, out_size, mode=self.warp_mode,
+                )
+                self._save_mask_viz(
+                    _warp4[0, 3].unsqueeze(0).unsqueeze(0),
+                    _warp4[1, 3].unsqueeze(0).unsqueeze(0),
+                    _warp4[2, 3].unsqueeze(0).unsqueeze(0),
+                    out_size,
+                )
 
-        elif self.fusion_mode == "EDGE_BLEND":
-            mask1_b = (mask1 > 0.5).float()
-            mask2_b = (mask2 > 0.5).float()
-            mask3_b = (mask3 > 0.5).float()
+        else:
+            # ---------- fallback path: warp RGB+alpha, compute masks per-frame ----------
+            alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
+            img1_t = torch.cat([img1_hr_t, alpha], 1)
+            img2_t = torch.cat([img2_hr_t, alpha], 1)
+            img3_t = torch.cat([img3_hr_t, alpha], 1)
 
-            blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
-            mask2_soft = blur_ref(mask2_b).clamp(0, 1)
-
-            canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
-            canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
-            canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
-            fusion = canvas[0]
-
-        elif self.fusion_mode == "REFERENCE_BLEND":
-            img12 = _linear_blender(
-                img_warp[0, :3].unsqueeze(0), img_warp[1, :3].unsqueeze(0),
-                mask1, mask2
+            img_warp = torch_tps_transform.transformer(
+                torch.cat([img1_t, img2_t, img3_t], 0),
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3, out_size, mode=self.warp_mode,
             )
-            mask12 = mask1 + mask2 - mask1 * mask2
-            linear_fusion = _linear_blender(
-                img12, img_warp[2, :3].unsqueeze(0), mask12, mask3
-            )[0]
 
-            mask2_b = (mask2 > 0.5).float()
-            ks = 2 * self.border_size + 1
-            mask2_eroded = (-F.max_pool2d(-mask2_b, kernel_size=ks, stride=1,
-                                          padding=self.border_size)).clamp(0, 1)
+            mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
+            mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
+            mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
 
-            blur_ref = GaussianBlur(kernel_size=(self.blur_kernel_size, self.blur_kernel_size), sigma=self.blur_sigma)
-            mask2_interior = blur_ref(mask2_eroded).clamp(0, 1) * mask2_b
+            if self.save_masks:
+                self._save_mask_viz(mask1, mask2, mask3, out_size)
 
-            fusion = img_warp[1, :3] * mask2_interior[0] + linear_fusion * (1 - mask2_interior[0])
+            if self.fusion_mode == "AVERAGE":
+                w1, w2, w3 = img_warp[0, :3], img_warp[1, :3], img_warp[2, :3]
+                img12 = (
+                    w1 * (w1 / (w1 + w2 + 1e-6))
+                    + w2 * (w2 / (w1 + w2 + 1e-6))
+                )
+                fusion = (
+                    img12 * (img12 / (img12 + w3 + 1e-6))
+                    + w3   * (w3   / (img12 + w3 + 1e-6))
+                )
 
-        else:  # LINEAR
-            img12 = _linear_blender(
-                img_warp[0, :3].unsqueeze(0), img_warp[1, :3].unsqueeze(0),
-                mask1, mask2
-            )
-            mask12 = mask1 + mask2 - mask1 * mask2
-            fusion = _linear_blender(img12, img_warp[2, :3].unsqueeze(0), mask12, mask3)
-            fusion = fusion[0]
+            elif self.fusion_mode == "EDGE_BLEND":
+                mask1_b = (mask1 > 0.5).float()
+                mask2_b = (mask2 > 0.5).float()
+                mask3_b = (mask3 > 0.5).float()
+                blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
+                mask2_soft = blur_ref(mask2_b).clamp(0, 1)
+                canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
+                canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
+                canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
+                fusion = canvas[0]
+
+            else:
+                fusion = img_warp[0, :3]  # should not reach here
 
         pano = fusion.cpu().numpy().transpose(1, 2, 0)
 
