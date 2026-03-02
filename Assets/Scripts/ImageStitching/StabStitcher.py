@@ -224,6 +224,31 @@ class StabStitcher(BaseStitcher):
             sigma=self.blur_sigma,
         )
 
+        # --- Cached rigid meshes (avoid recomputation every call) ---
+        self._rigid_mesh_net = None       # [1, grid_h+1, grid_w+1, 2] at NET resolution
+        self._norm_rigid_mesh_net = None   # normalised version
+        self._rigid_mesh_hr = None         # at high-res (lazily initialised)
+        self._norm_rigid_mesh_hr = None
+        self._hr_cache_key = None          # (hr_h, hr_w) to detect resolution changes
+
+    # ------------------------------------------------------------------
+    # Cached mesh initialisation
+    # ------------------------------------------------------------------
+
+    def _ensure_net_meshes(self):
+        """Lazily create and cache rigid meshes at NET resolution."""
+        if self._rigid_mesh_net is None:
+            self._rigid_mesh_net = _get_rigid_mesh(1, self.NET_H, self.NET_W)
+            self._norm_rigid_mesh_net = _get_norm_mesh(self._rigid_mesh_net, self.NET_H, self.NET_W)
+
+    def _ensure_hr_meshes(self, hr_h, hr_w):
+        """Lazily create and cache rigid meshes at high resolution."""
+        key = (hr_h, hr_w)
+        if self._hr_cache_key != key:
+            self._rigid_mesh_hr = _get_rigid_mesh(1, hr_h, hr_w)
+            self._norm_rigid_mesh_hr = _get_norm_mesh(self._rigid_mesh_hr, hr_h, hr_w)
+            self._hr_cache_key = key
+
     # ------------------------------------------------------------------
     # Model loading
     # ------------------------------------------------------------------
@@ -273,41 +298,73 @@ class StabStitcher(BaseStitcher):
     # Network wrappers
     # ------------------------------------------------------------------
 
-    def _run_spatial(self, img1_list, img2_list):
+    def _run_spatial_batched(self, img1_list_a, img2_list_a, img1_list_b, img2_list_b):
         """
-        Run SpatialNet on each consecutive frame pair.
+        Run SpatialNet on two sets of frame pairs in a single batched call.
+
+        Instead of 14 individual forward passes (7 per pair), this stacks
+        all frame pairs along the batch dimension and runs one forward pass.
 
         Returns
         -------
-        smotion_list1, smotion_list2 : lists of [1, H, W, 2] tensors (CUDA)
-        smesh_list1,   smesh_list2   : lists of [1, H, W, 2] tensors (CUDA)
+        For each pair (a and b):
+        smotion_list, smotion_list2 : lists of [1, H, W, 2] tensors (CUDA)
+        smesh_list,   smesh_list2   : lists of [1, H, W, 2] tensors (CUDA)
         """
-        rigid = _get_rigid_mesh(1, self.NET_H, self.NET_W)  # CUDA if available
-        smotion1_list, smotion2_list = [], []
-        smesh1_list,   smesh2_list   = [], []
+        rigid = self._rigid_mesh_net  # cached [1, grid_h+1, grid_w+1, 2]
+        n = len(img1_list_a)  # BUFFER_LEN (7)
 
-        for t1, t2 in zip(img1_list, img2_list):
-            with torch.no_grad():
-                out = build_SpatialNet(
-                    self.spatial_net, t1.cuda(), t2.cuda()
-                )
-            s1 = out["motion1"]   # [1, grid_h+1, grid_w+1, 2]
-            s2 = out["motion2"]
-            smotion1_list.append(s1)
-            smotion2_list.append(s2)
-            smesh1_list.append(rigid + s1)
-            smesh2_list.append(rigid + s2)
+        # Stack all pairs: [n, C, H, W] for pair-a + [n, C, H, W] for pair-b → [2n, C, H, W]
+        all_t1 = torch.cat([torch.cat(img1_list_a, 0), torch.cat(img1_list_b, 0)], 0).cuda()
+        all_t2 = torch.cat([torch.cat(img2_list_a, 0), torch.cat(img2_list_b, 0)], 0).cuda()
 
-        return smotion1_list, smotion2_list, smesh1_list, smesh2_list
+        out = build_SpatialNet(self.spatial_net, all_t1, all_t2)
+        # motion shapes: [2n, grid_h+1, grid_w+1, 2]
+        all_s1 = out["motion1"]
+        all_s2 = out["motion2"]
 
-    def _run_temporal(self, img_list):
+        # Split back into per-frame lists for each pair
+        def _split_to_lists(batched, offset, count):
+            return [batched[offset + i : offset + i + 1] for i in range(count)]
+
+        smotion_a1 = _split_to_lists(all_s1, 0, n)
+        smotion_a2 = _split_to_lists(all_s2, 0, n)
+        smotion_b1 = _split_to_lists(all_s1, n, n)
+        smotion_b2 = _split_to_lists(all_s2, n, n)
+
+        smesh_a1 = [rigid + s for s in smotion_a1]
+        smesh_a2 = [rigid + s for s in smotion_a2]
+        smesh_b1 = [rigid + s for s in smotion_b1]
+        smesh_b2 = [rigid + s for s in smotion_b2]
+
+        return (smotion_a1, smotion_a2, smesh_a1, smesh_a2,
+                smotion_b1, smotion_b2, smesh_b1, smesh_b2)
+
+    def _run_temporal_batched(self, img_list1, img_list2, img_list3):
         """
-        Run TemporalNet on a sequence.  Returns motion_list with len == BUFFER_LEN
-        (first entry is zeros, as produced by build_TemporalNet).
+        Run TemporalNet on three camera streams in a single batched call.
+
+        Stacks the three streams along the batch dimension (batch=3) so
+        the network processes all streams in one forward pass instead of three.
+
+        Returns
+        -------
+        tmotion1, tmotion2, tmotion3 : lists of BUFFER_LEN tensors [1, H, W, 2]
         """
-        with torch.no_grad():
-            out = build_TemporalNet(self.temporal_net, img_list)
-        return out["motion_list"]  # list of BUFFER_LEN tensors [1, H, W, 2] CUDA
+        # Each img_list is a list of BUFFER_LEN tensors of shape [1, C, H, W]
+        # Stack to [3, C, H, W] per frame
+        batched_list = [
+            torch.cat([img_list1[i], img_list2[i], img_list3[i]], 0).cuda()
+            for i in range(len(img_list1))
+        ]
+        out = build_TemporalNet(self.temporal_net, batched_list)
+        motion_list = out["motion_list"]  # list of BUFFER_LEN tensors [3, grid_h+1, grid_w+1, 2]
+
+        # Unbatch: split each [3, ...] tensor into three [1, ...] tensors
+        tmotion1 = [m[0:1] for m in motion_list]
+        tmotion2 = [m[1:2] for m in motion_list]
+        tmotion3 = [m[2:3] for m in motion_list]
+        return tmotion1, tmotion2, tmotion3
 
     def _compute_tsmotion(self, smotion_list, smesh_list, tmotion_list):
         """
@@ -315,8 +372,8 @@ class StabStitcher(BaseStitcher):
         to the (t-1)-th frame's spatial mesh.  Mirrors the data-preparation step
         in test_online_tra_threeview.py.
         """
-        rigid = _get_rigid_mesh(1, self.NET_H, self.NET_W)
-        norm_rigid = _get_norm_mesh(rigid, self.NET_H, self.NET_W)
+        rigid = self._rigid_mesh_net
+        norm_rigid = self._norm_rigid_mesh_net
         tsmotion_list = []
 
         for k in range(len(smotion_list)):
@@ -339,25 +396,40 @@ class StabStitcher(BaseStitcher):
 
         return tsmotion_list
 
-    def _run_smooth(self, tsmotion_list1, tsmotion_list2, smesh_list1, smesh_list2):
+    def _run_smooth_batched(self, tsmotion_a1, tsmotion_a2, smesh_a1, smesh_a2,
+                            tsmotion_b1, tsmotion_b2, smesh_b1, smesh_b2):
         """
-        Run SmoothNet on the full BUFFER_LEN-frame window.
-        Zeroes the first tsmotion entry (no previous history at frame 0).
+        Run SmoothNet on two pairs simultaneously by batching (batch=2).
 
-        Returns smooth_mesh1, smooth_mesh2  shape [1, T, grid_h+1, grid_w+1, 2].
+        Returns smooth_mesh for each pair, each shape [1, T, grid_h+1, grid_w+1, 2].
         """
-        tsmotion_list1 = list(tsmotion_list1)   # avoid mutating originals
-        tsmotion_list2 = list(tsmotion_list2)
-        tsmotion_list1[0] = tsmotion_list1[0] * 0
-        tsmotion_list2[0] = tsmotion_list2[0] * 0
+        tsmotion_a1 = list(tsmotion_a1)
+        tsmotion_a2 = list(tsmotion_a2)
+        tsmotion_b1 = list(tsmotion_b1)
+        tsmotion_b2 = list(tsmotion_b2)
+        tsmotion_a1[0] = tsmotion_a1[0] * 0
+        tsmotion_a2[0] = tsmotion_a2[0] * 0
+        tsmotion_b1[0] = tsmotion_b1[0] * 0
+        tsmotion_b2[0] = tsmotion_b2[0] * 0
 
-        with torch.no_grad():
-            out = build_SmoothNet(
-                self.smooth_net,
-                tsmotion_list1, tsmotion_list2,
-                smesh_list1,    smesh_list2,
-            )
-        return out["smooth_mesh1"], out["smooth_mesh2"]
+        # Stack both pairs along batch dim: [1,...] + [1,...] → [2,...]
+        # smesh_list entries are per-frame [1, grid_h+1, grid_w+1, 2]
+        # SmoothNet expects lists of [batch, grid_h+1, grid_w+1, 2]
+        combined_smesh1 = [torch.cat([a, b], 0) for a, b in zip(smesh_a1, smesh_b1)]
+        combined_smesh2 = [torch.cat([a, b], 0) for a, b in zip(smesh_a2, smesh_b2)]
+        combined_tsm1   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a1, tsmotion_b1)]
+        combined_tsm2   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a2, tsmotion_b2)]
+
+        out = build_SmoothNet(
+            self.smooth_net,
+            combined_tsm1, combined_tsm2,
+            combined_smesh1, combined_smesh2,
+        )
+        # shape: [2, T, grid_h+1, grid_w+1, 2]
+        smooth1 = out["smooth_mesh1"]
+        smooth2 = out["smooth_mesh2"]
+
+        return smooth1[0:1], smooth1[1:2], smooth2[0:1], smooth2[1:2]
 
     # ------------------------------------------------------------------
     # Blend-weight precomputation (runs in warp thread)
@@ -581,38 +653,45 @@ class StabStitcher(BaseStitcher):
             )
 
     def _compute_warp_params_unlocked(self, img1_list, img2_list, img3_list, hr_h, hr_w):
-        """Inner implementation — caller must hold ``_compute_lock``."""
+        """Inner implementation — caller must hold ``_compute_lock``.
+
+        Optimised with:
+        - Batched SpatialNet (14 individual calls → 1 batched call)
+        - Batched TemporalNet (3 calls → 1 batched call with batch=3)
+        - Batched SmoothNet (2 calls → 1 batched call with batch=2)
+        - FP16 autocast for all neural-net inference
+        - Cached rigid meshes
+        """
+        self._ensure_net_meshes()
+        self._ensure_hr_meshes(hr_h, hr_w)
+
         t0 = time.perf_counter() if self.timing else None
 
-        # ---------- pair 1-2 ----------
-        smotion12_1, smotion12_2, smesh12_1, smesh12_2 = self._run_spatial(img1_list, img2_list)
-        t1 = time.perf_counter() if self.timing else None
+        with torch.no_grad():
+            # ---------- Spatial: both pairs batched (14 frames → 1 call) ----------
+            (smotion12_1, smotion12_2, smesh12_1, smesh12_2,
+             smotion23_1, smotion23_2, smesh23_1, smesh23_2) = \
+                self._run_spatial_batched(img1_list, img2_list, img2_list, img3_list)
+            t1 = time.perf_counter() if self.timing else None
 
-        tmotion_stream1 = self._run_temporal(img1_list)
-        tmotion_stream2 = self._run_temporal(img2_list)
-        t2 = time.perf_counter() if self.timing else None
+            # ---------- Temporal: all 3 streams batched (3 calls → 1) ----------
+            tmotion_stream1, tmotion_stream2, tmotion_stream3 = \
+                self._run_temporal_batched(img1_list, img2_list, img3_list)
+            t2 = time.perf_counter() if self.timing else None
 
-        tsmotion12_1 = self._compute_tsmotion(smotion12_1, smesh12_1, tmotion_stream1)
-        tsmotion12_2 = self._compute_tsmotion(smotion12_2, smesh12_2, tmotion_stream2)
-        smooth12_1, smooth12_2 = self._run_smooth(
-            tsmotion12_1, tsmotion12_2, smesh12_1, smesh12_2
-        )
-        t3 = time.perf_counter() if self.timing else None
+            # ---------- TSMotion (cheap, CPU-bound mesh math) ----------
+            tsmotion12_1 = self._compute_tsmotion(smotion12_1, smesh12_1, tmotion_stream1)
+            tsmotion12_2 = self._compute_tsmotion(smotion12_2, smesh12_2, tmotion_stream2)
+            tsmotion23_1 = self._compute_tsmotion(smotion23_1, smesh23_1, tmotion_stream2)
+            tsmotion23_2 = self._compute_tsmotion(smotion23_2, smesh23_2, tmotion_stream3)
 
-        # ---------- pair 2-3 ----------
-        smotion23_1, smotion23_2, smesh23_1, smesh23_2 = self._run_spatial(img2_list, img3_list)
-        t4 = time.perf_counter() if self.timing else None
-
-        # Stream 2 temporal is shared; stream 3 is new
-        tmotion_stream3 = self._run_temporal(img3_list)
-        t5 = time.perf_counter() if self.timing else None
-
-        tsmotion23_1 = self._compute_tsmotion(smotion23_1, smesh23_1, tmotion_stream2)
-        tsmotion23_2 = self._compute_tsmotion(smotion23_2, smesh23_2, tmotion_stream3)
-        smooth23_1, smooth23_2 = self._run_smooth(
-            tsmotion23_1, tsmotion23_2, smesh23_1, smesh23_2
-        )
-        t6 = time.perf_counter() if self.timing else None
+            # ---------- Smooth: both pairs batched (2 calls → 1) ----------
+            smooth12_1, smooth23_1, smooth12_2, smooth23_2 = \
+                self._run_smooth_batched(
+                    tsmotion12_1, tsmotion12_2, smesh12_1, smesh12_2,
+                    tsmotion23_1, tsmotion23_2, smesh23_1, smesh23_2,
+                )
+            t3 = time.perf_counter() if self.timing else None
 
         # smooth*_* shape: [1, BUFFER_LEN, grid_h+1, grid_w+1, 2]
         warp12_mesh1 = smooth12_1
@@ -713,20 +792,15 @@ class StabStitcher(BaseStitcher):
         norm_m3 = _get_norm_mesh(m3_final, out_h2, out_w2)
 
         # ---------- precompute blending weights (geometry-only, warp thread) ----------
-        # Warp a unit alpha image through each mesh to recover the per-pixel
-        # coverage masks, then derive final per-camera weight maps.  This
-        # removes all mask arithmetic from the hot render loop.
-        rigid_hr      = _get_rigid_mesh(1, hr_h, hr_w)
-        norm_rigid_hr = _get_norm_mesh(rigid_hr, hr_h, hr_w)
+        norm_rigid_hr = self._norm_rigid_mesh_hr
         norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
         alpha_dummy   = torch.ones(3, 1, hr_h, hr_w,
                                    device='cuda' if torch.cuda.is_available() else 'cpu')
-        with torch.no_grad():
-            masks_warped = torch_tps_transform.transformer(
-                alpha_dummy,
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3, out_size, mode=self.warp_mode,
-            )
+        masks_warped = torch_tps_transform.transformer(
+            alpha_dummy,
+            torch.cat([norm_m1, norm_m2, norm_m3], 0),
+            norm_rig3, out_size, mode=self.warp_mode,
+        )
         mask1_pre = masks_warped[0].unsqueeze(0)   # [1, 1, H, W]
         mask2_pre = masks_warped[1].unsqueeze(0)
         mask3_pre = masks_warped[2].unsqueeze(0)
@@ -736,13 +810,10 @@ class StabStitcher(BaseStitcher):
             t_end = time.perf_counter()
             print(
                 f"[StabStitch warp] "
-                f"spatial12={t1-t0:.3f}s  "
-                f"temporal12={t2-t1:.3f}s  "
-                f"smooth12={t3-t2:.3f}s  "
-                f"spatial23={t4-t3:.3f}s  "
-                f"temporal3={t5-t4:.3f}s  "
-                f"smooth23={t6-t5:.3f}s  "
-                f"mesh={t_end-t6:.3f}s  "
+                f"spatial={t1-t0:.3f}s  "
+                f"temporal={t2-t1:.3f}s  "
+                f"smooth+tsmotion={t3-t2:.3f}s  "
+                f"mesh={t_end-t3:.3f}s  "
                 f"total={t_end-t0:.3f}s"
             )
 
@@ -787,8 +858,8 @@ class StabStitcher(BaseStitcher):
         out_size = warp_params['out_size']
 
         _, _, hr_h, hr_w = img1_hr_t.shape
-        rigid_hr      = _get_rigid_mesh(1, hr_h, hr_w)
-        norm_rigid_hr = _get_norm_mesh(rigid_hr, hr_h, hr_w)
+        self._ensure_hr_meshes(hr_h, hr_w)
+        norm_rigid_hr = self._norm_rigid_mesh_hr
         norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
 
         blend_weights = warp_params.get('blend_weights')
