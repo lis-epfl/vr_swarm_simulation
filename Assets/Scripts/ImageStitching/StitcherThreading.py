@@ -5,6 +5,7 @@ import os
 import sys
 import torch
 import time
+import traceback
 from transformers import SuperPointForKeypointDetection
 # from torch.quantization import quantize_dynamic
 from numba import jit
@@ -673,8 +674,9 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
 
         try:
             manager.process_stitching(images, num_pano_img=num_pano_img)
-        except Exception as e:
-            print(f"[stitching_thread] Error during stitching: {e}")
+        except Exception:
+            print("[stitching_thread] Error during stitching:")
+            traceback.print_exc()
 
         if verbose:
             print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s")
@@ -708,8 +710,9 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
         try:
             with manager.switching_lock2:
                 manager.active_stitcher.compute_warps()
-        except Exception as e:
-            print(f"[warp_thread] Error during warp computation: {e}")
+        except Exception:
+            print("[warp_thread] Error during warp computation:")
+            traceback.print_exc()
 
         if verbose:
             elapsed = time.perf_counter() - t
