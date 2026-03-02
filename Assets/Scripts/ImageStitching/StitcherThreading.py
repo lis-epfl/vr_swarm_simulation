@@ -496,7 +496,6 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         if not manager.panoram_queue.empty():
             panorama = manager.panoram_queue.get()
             H, W, _ = panorama.shape
-            print(f"Panorama size: {W}x{H}")
             if H != manager.processedImageHeight or W != manager.processedImageWidth:
                 try:
                     panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
