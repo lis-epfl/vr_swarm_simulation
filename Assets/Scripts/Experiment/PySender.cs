@@ -77,6 +77,7 @@ public class PySender : MonoBehaviour
     private bool isCalibrationOk = false;
     private bool isBufferOverflowed = false;
     private const uint k_PageReadWrite = 0x04;
+    private long gazeTimestampAdjustment = -1;
 
     private int metadataSize = -1;
     private int gazeDataSize = -1;
@@ -141,7 +142,7 @@ public class PySender : MonoBehaviour
         if (gazeDataFileMap == IntPtr.Zero)
         {
             // Maybe it already exists, try to open it
-            gazeDataFileMap = OpenFileMapping((uint)FileMapAccessType.Write, false, sharedMemoryGazeDataName);
+            gazeDataFileMap = OpenFileMapping((uint)FileMapAccessType.Write, true, sharedMemoryGazeDataName);
         }
         if (gazeDataFileMap != IntPtr.Zero)
         {
@@ -158,10 +159,10 @@ public class PySender : MonoBehaviour
             return;
         }
         isReady = true;
-
+        Time.fixedDeltaTime = 0.01f; // Set fixed update to 100Hz for more frequent data sending
     }
 
-    void Update()
+    void FixedUpdate()
     {
         if (Input.GetKeyDown(toggleSendingKey))
         {
@@ -176,24 +177,24 @@ public class PySender : MonoBehaviour
             writeToCircularBuffer(MockupData.mockupGazeData);
         }
 
-        if (!isSending)
-        {
-            return;
-        }
 
-        var gazeData = eyeTracker.NextData;
-        if (gazeData != default(IGazeData))
+        while (eyeTracker.GazeDataAvailable && eyeTracker.EyeOpennessDataAvailable)
         {
-            gazeData = eyeTracker.LatestGazeData;
-            if (checkReceiverReady())
+            GazeData gazeData = (GazeData) eyeTracker.NextData;
+            CustomEyeTracker.EyeOpennessData eyeOpennessData = eyeTracker.NextEyeOpennessData;
+            if (gazeTimestampAdjustment < 0)
             {
-                updateGazeData((GazeData)gazeData);
+                gazeTimestampAdjustment = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - gazeData.TimeStamp / 1000;
+            }
+            if (isSending && checkReceiverReady())
+            {
+                updateGazeData(gazeData, eyeOpennessData);
             }
         }
 
         // Update drone data at specified rate
         long currentTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        if (currentTime - lastDroneDataUpdateTime >= (1000 / droneDataUpdateRate))
+        if (isSending && (currentTime - lastDroneDataUpdateTime >= (1000 / droneDataUpdateRate)))
         {
             updateSwarmData();
             lastDroneDataUpdateTime = currentTime;
@@ -409,15 +410,13 @@ public class PySender : MonoBehaviour
         }
     }
 
-    private void updateGazeData(GazeData gazeData)
+    private void updateGazeData(GazeData gazeData, CustomEyeTracker.EyeOpennessData eyeOpennessData)
     {
-        // Check for eyeOpenness data
-        CustomEyeTracker.EyeOpennessData eyeOpennessData = eyeTracker.LatestEyeOpennessData;
         PySenderData.CustomGazeData dataToSend = new PySenderData.CustomGazeData
         {
-            TimeStamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            LeftGazePoint = new PySenderData.Vec3f(gazeData.Left.GazeOriginInUserCoordinates),
-            RightGazePoint = new PySenderData.Vec3f(gazeData.Right.GazeOriginInUserCoordinates),
+            TimeStamp = gazeTimestampAdjustment > 0 ? gazeData.TimeStamp / 1000 + gazeTimestampAdjustment : gazeData.TimeStamp,
+            LeftGazePoint = new PySenderData.Vec3f(gazeData.Left.GazePointInUserCoordinates),
+            RightGazePoint = new PySenderData.Vec3f(gazeData.Right.GazePointInUserCoordinates),
             LeftGazeOnScreen = new PySenderData.Vec2f(gazeData.Left.GazePointOnDisplayArea),
             RightGazeOnScreen = new PySenderData.Vec2f(gazeData.Right.GazePointOnDisplayArea),
             LeftGazeValid = (byte)(gazeData.Left.GazePointValid ? 1 : 0),

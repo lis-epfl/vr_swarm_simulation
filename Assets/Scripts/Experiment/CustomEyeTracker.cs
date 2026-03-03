@@ -118,6 +118,9 @@ namespace Experiment
             }
         }
 
+        public bool GazeDataAvailable { get { return _gazeDataQueue.Count > 0; } }
+        public bool EyeOpennessDataAvailable { get { return _eyeOpennessDataQueue.Count > 0; } }
+
         public bool SubscribeToEyeOpenness
         {
             get
