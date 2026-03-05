@@ -32,7 +32,6 @@ public class InterfaceManager : MonoBehaviour
     public bool invertBottomScreen = false;
     public bool doubleView = false;
     public float rotatingCircleDistance = 2.0f;
-    public int numScreens = 2;
     
     public delegate void OnInterfaceParamsChanged();
     public event OnInterfaceParamsChanged interfaceParamsChanged;
@@ -80,8 +79,16 @@ public class InterfaceManager : MonoBehaviour
         // If screens are not spawned and display mode is SCREENS, spawn screens
         if (displayMode == DisplayMode.SCREENS && !screensSpawned)
         {
-            spawnScreens.SpawnScreens(swarm);
-            screensSpawned = true;
+            if (spawnScreens != null && spawnScreens.IsSpawned)
+            {
+                // Screens were already spawned externally (e.g. by ImageSharing)
+                screensSpawned = true;
+            }
+            else
+            {
+                spawnScreens.SpawnScreens(swarm);
+                screensSpawned = true;
+            }
         }
     }
 
@@ -119,7 +126,6 @@ public class InterfaceManager : MonoBehaviour
             spawnScreens.invertBottomScreen = invertBottomScreen;
             spawnScreens.doubleView = doubleView;
             spawnScreens.rotatingCircleDistance = rotatingCircleDistance;
-            spawnScreens.numScreens = numScreens;
         }
     }
 
@@ -144,7 +150,10 @@ public class InterfaceManager : MonoBehaviour
         {
             if (spawnScreens != null)
             {
-                spawnScreens.SpawnScreens(swarm);
+                if (!spawnScreens.IsSpawned)
+                {
+                    spawnScreens.SpawnScreens(swarm);
+                }
                 screensSpawned = true;
             }
         }

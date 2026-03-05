@@ -30,8 +30,9 @@ import torchvision.transforms as T
 # from numba import jit
 
 class UDISStitcher(BaseStitcher):
-    def __init__(self):
+    def __init__(self, fusion_mode: str = "REFERENCE"):
         super().__init__(device="cpu")  # Initialize the base class
+        self.fusion_mode = fusion_mode
 
         # UDIS parameters
         self.resize_512 = T.Resize((512,512))
@@ -98,8 +99,15 @@ class UDISStitcher(BaseStitcher):
         final_warp1_mask = final_warp1_mask[0].cpu().detach().numpy().transpose(1,2,0)
         final_warp2_mask = final_warp2_mask[0].cpu().detach().numpy().transpose(1,2,0)
 
-        sum_warp = final_warp1+final_warp2+1e-6
-        stitched_images = final_warp1 * (final_warp1/ sum_warp) + final_warp2 * (final_warp2/sum_warp)
+        if self.fusion_mode == "REFERENCE":
+            # Hard composite: no blending. final_warp1 (reference) always wins;
+            # final_warp2 (side image) only fills where reference has no coverage.
+            mask1_bin = (final_warp1_mask > 0.5).astype(np.float32)
+            mask2_bin = (final_warp2_mask > 0.5).astype(np.float32)
+            stitched_images = final_warp1 * mask1_bin + final_warp2 * mask2_bin * (1 - mask1_bin)
+        else:  # AVERAGE
+            sum_warp = final_warp1 + final_warp2 + 1e-6
+            stitched_images = final_warp1 * (final_warp1 / sum_warp) + final_warp2 * (final_warp2 / sum_warp)
         batch_out = None
         return stitched_images, final_warp1_mask
 
@@ -119,23 +127,22 @@ class UDISStitcher(BaseStitcher):
         """
         h, w, _ = images[0].shape
         test= True
-
-        # Save the images to disk to verify
-        # cv2.imwrite("right_first.jpg", images[subset2[0]])
-        # cv2.imwrite("right_second.jpg", images[subset2[1]])
-        # cv2.imwrite("left_first.jpg", images[subset1[0]])
-        # cv2.imwrite("left_second.jpg", images[subset1[1]])
-
         
         right_warp, right_mask = self.UDIS_warping(images[subset2[0]], images[subset2[1]], test)
 
         # We have to flip the images to warp the left image and keep central image as the reference
-        image1, image2 = cv2.flip(images[subset1[0]], 1), cv2.flip(images[subset1[1]], 1)
+        image1, image2 = cv2.flip(images[subset1[1]], 1), cv2.flip(images[subset1[0]], 1)
         left_warp, left_mask = self.UDIS_warping(image1, image2, test)
         
+
+
         pano = ComposeTwoSides(left_warp, right_warp, left_mask, right_mask, size=(h, w))
 
         result = pano.astype(np.uint8)
+
+        cv2.imwrite('aa_pano.jpg', result)
+        cv2.imwrite('aa_pano_left.jpg', cv2.flip(left_warp, 1).astype(np.uint8))
+        cv2.imwrite('aa_pano_right.jpg', right_warp.astype(np.uint8))
 
 
         return result

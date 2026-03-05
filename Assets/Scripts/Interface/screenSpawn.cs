@@ -71,6 +71,8 @@ public class ScreenSpawn : MonoBehaviour
     private ScreenStyle previousScreenStyle;
     private InterfaceManager interfaceManager;
 
+    public bool IsSpawned => screens.Count > 0;
+
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm = null)
     {
@@ -141,8 +143,8 @@ public class ScreenSpawn : MonoBehaviour
             // Create a new Material object
             Material screenMaterial = new Material(Shader.Find("Standard"));
 
-            // Set the color to black
-            screenMaterial.color = Color.black;
+            // Set the color to white
+            screenMaterial.color = Color.white;
 
             // Set the smoothness to 0
             screenMaterial.SetFloat("_Glossiness", 0f);
