@@ -51,7 +51,10 @@ sysinfo.txt
 Logs/
 Assets/Text*
 Assets/DroneImages/
-UserSettings/
+
+# Pycache files
+__pycache__/
+*.pyc
 
 # Ignore Image Stitching project files
 Assets/Scripts/ImageStitching/UDIS2_main*
@@ -62,3 +65,4 @@ Assets/Scripts/ImageStitching/*.jpg
 Assets/Scripts/ImageStitching/*.jpg.meta
 Assets/Scripts/ImageStitching/*.png
 Assets/Scripts/ImageStitching/*.png.meta
+UserSettings/

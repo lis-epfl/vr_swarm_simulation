@@ -51,6 +51,7 @@ public class JoystickData
 {
     public LinearVelocity linear;
     public AngularVelocity angular;
+    public Switches switches;
 }
 
 [Serializable]
@@ -67,4 +68,11 @@ public class AngularVelocity
     public float x;
     public float y;
     public float z;
+}
+
+[Serializable]
+public class Switches
+{
+    public int s1;
+    public int s2;
 }
