@@ -8,6 +8,7 @@ public class StateFinder : MonoBehaviour {
 //	public float Roll; // The current roll for the given transform in radians
 //	public float Yaw; // The current Yaw for the given transform in radians
 	public float Altitude; // The current altitude from the zero position
+	public Vector3 Position;
 	public Vector3 Angles;
 	public Vector3 VelocityVector; // Velocity vector
 	public Vector3 AngularVelocityVector; // Angular Velocity
@@ -25,6 +26,7 @@ public class StateFinder : MonoBehaviour {
 		float Roll = -worldDown.x; // Small angle approximation
 		float Yaw = vc.transform.eulerAngles.y;
 
+		Position = vc.transform.position;
 		Angles = new Vector3 (Pitch, Yaw, Roll);
 
 		Altitude = vc.transform.position.y;
@@ -45,6 +47,7 @@ public class StateFinder : MonoBehaviour {
 
 	public void Reset() {
 		flag = true;
+		Position = Vector3.zero;
 		VelocityVector = Vector3.zero;
 		AngularVelocityVector = Vector3.zero;
 		Angles = Vector3.zero;

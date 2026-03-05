@@ -5,6 +5,7 @@ import os
 import sys
 import torch
 import time
+import traceback
 from transformers import SuperPointForKeypointDetection
 # from torch.quantization import quantize_dynamic
 from numba import jit
@@ -18,78 +19,127 @@ from PIL import Image
 
 from BaseStitcher import *
 
-sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
-import UDIS2_main.Warp.Codes.utils_udis as udis_utils
-import UDIS2_main.Warp.Codes.utils_udis.torch_DLT as torch_DLT
-import UDIS2_main.Warp.Codes.grid_res as grid_res
-from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
-from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
-from UDISStitcher import *
+# --- UDIS ---
+HAS_UDIS = False
+try:
+    sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
+    import UDIS2_main.Warp.Codes.utils_udis as udis_utils
+    import UDIS2_main.Warp.Codes.utils_udis.torch_DLT as torch_DLT
+    import UDIS2_main.Warp.Codes.grid_res as grid_res
+    from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
+    from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
+    from UDISStitcher import *
+    HAS_UDIS = True
+except ImportError as e:
+    print("UDIS modules could not be imported. UDIS stitcher will not be available.")
+    print(e)
 
-sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
-import Neural_Image_Stitching_main.srwarp
-import Neural_Image_Stitching_main.utils as nis_utils
-from Neural_Image_Stitching_main.models.ihn import *
-from Neural_Image_Stitching_main.models import *
-from Neural_Image_Stitching_main import stitch
-import Neural_Image_Stitching_main.pretrained
-from NISStitcher import *
+# --- NIS ---
+HAS_NIS = False
+try:
+    sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
+    import Neural_Image_Stitching_main.srwarp
+    import Neural_Image_Stitching_main.utils as nis_utils
+    from Neural_Image_Stitching_main.models.ihn import *
+    from Neural_Image_Stitching_main.models import *
+    from Neural_Image_Stitching_main import stitch
+    import Neural_Image_Stitching_main.pretrained
+    from NISStitcher import *
+    HAS_NIS = True
+except ImportError as e:
+    print("NIS modules could not be imported. NIS stitcher will not be available.")
+    print(e)
+
+# --- REWARP ---
+HAS_REWARP = False
+try:
+    sys.path.append(os.path.abspath("Residual_Elastic_Warp_main"))
+    import Residual_Elastic_Warp_main.models
+    import Residual_Elastic_Warp_main.utils
+    from REStitcher import *
+    HAS_REWARP = True
+except ImportError as e:
+    print("REWARP modules could not be imported. REWARP stitcher will not be available.")
+    print(e)
+
+# --- STABSTITCH ---
+HAS_STABSTITCH = False
+try:
+    from StabStitcher import StabStitcher
+    HAS_STABSTITCH = True
+except ImportError as e:
+    print("StabStitch modules could not be imported. STABSTITCH stitcher will not be available.")
+    print(e)
 
 # Activate environnement
 # cmd
-# cd Assets\Scripts\ImageStitching 
+# cd Assets\Scripts\ImageStitching
 # python StitcherThreading.py
-
 
 class StitcherManager:
     def __init__(self, device ="cpu"):
 
         self.stitchers = {
-            "CLASSIC": BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.15, device=device),
-            "UDIS": UDISStitcher(),
-            "NIS": NISStitcher(),  # Replace with your NISStitcher instance if implemented
+            "CLASSIC": BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device=device),
+            "UDIS": UDISStitcher() if HAS_UDIS else None,
+            "NIS": NISStitcher() if HAS_NIS else None,
+            "REWARP": REStitcher() if HAS_REWARP else None,
+            "STABSTITCH": StabStitcher() if HAS_STABSTITCH else None,
         }
+        
 
         # Manually remove models of NIS from GPU because they load them directly on GPU
-        self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
+        if HAS_NIS:
+            self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
 
-        self.active_stitcher = self.stitchers["CLASSIC"]
-        self.active_stitcher_type = "CLASSIC"
+        self.active_stitcher = self.stitchers["STABSTITCH"]
+        self.active_stitcher_type = "STABSTITCH"
         self.active_matcher_type = "BF"
         self.device = device
         
         self.switching_lock1 = threading.Lock()
         self.switching_lock2 = threading.Lock()
         self.info_lock = threading.Lock()
+        self.new_images_event = threading.Event()  # signalled by first_thread
 
-        self.stitcherTypes = ["CLASSIC", "UDIS", "NIS"]
+        self.stitcherTypes = [k for k, v in self.stitchers.items() if v is not None]
         self.cylidnricalWarp = False
-        self.isRANSAC = False
+        self.isRANSAC = False   
         self.headAngle = 0
         self.shared_images = None
-        self.shared_images_bool = None
+        self.shared_drone_ids = None
+        self.shared_headings = None
+        self.known_order = None  # Store the known order of images
 
         self.processedImageWidth = None
         self.processedImageHeight = None
+        self.batchImageWidth = None
+        self.batchImageHeight = None
 
-        self.order_queue = queue.Queue(1)
-        self.homography_queue = queue.Queue(1)
-        self.direction_queue = queue.Queue(1)
         self.panoram_queue = queue.Queue(1)
 
-    def set_stitcher(self, stitcher_type):
+        # Set the stitcher to setup the device properly
+        self.set_stitcher(self.active_stitcher_type, onlyIHN=False)
+
+    def set_stitcher(self, stitcher_type, onlyIHN):
         """
         Safely switch the active stitcher.
         Waits for both threads to finish their current work before switching.
         """
         
-        # REmove devices from GPU
+        # Remove devices from GPU
         if self.active_stitcher_type == "CLASSIC":
             self.active_stitcher.superpoint_model.cpu()
         elif self.active_stitcher_type == "UDIS":
             self.active_stitcher.net.cpu()
         elif self.active_stitcher_type == "NIS":
             self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
+        elif self.active_stitcher_type == "REWARP":
+            self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
+        elif self.active_stitcher_type == "STABSTITCH":
+            self.active_stitcher.spatial_net.cpu()
+            self.active_stitcher.temporal_net.cpu()
+            self.active_stitcher.smooth_net.cpu()
 
         torch.cuda.empty_cache()
         self.active_stitcher = self.stitchers[stitcher_type]
@@ -101,55 +151,207 @@ class StitcherManager:
             self.active_stitcher.net.to(self.device)
         elif self.active_stitcher_type == "NIS":
             self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
+            self.active_stitcher.onlyIHN = onlyIHN
+        elif self.active_stitcher_type == "REWARP":
+            self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
+        elif self.active_stitcher_type == "STABSTITCH":
+            self.active_stitcher.spatial_net.to(self.device)
+            self.active_stitcher.temporal_net.to(self.device)
+            self.active_stitcher.smooth_net.to(self.device)
+
+    def set_fusion_mode(self, fusion_mode: str):
+        """
+        Update fusion_mode on the active stitcher.
+        Raises NotImplementedError if the stitcher does not support it.
+        """
+        if hasattr(self.active_stitcher, 'fusion_mode'):
+            if self.active_stitcher.fusion_mode != fusion_mode:
+                self.active_stitcher.fusion_mode = fusion_mode
+                print(f"[StitcherManager] fusion_mode set to '{fusion_mode}' on {self.active_stitcher_type}")
+        else:
+            raise NotImplementedError(
+                f"Stitcher '{self.active_stitcher_type}' does not implement fusion_mode. "
+                f"Switch to UDIS or STABSTITCH to use fusion modes."
+            )
 
     def checkHyperparaChanges(self, output : dict):
-        typeOfStitcher, isCylindrical, matcherType, isRANSAC = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
+        """
+        Checks for changes in stitching type or hyperparameters and updates them if necessary.
+
+        Parameters:
+        - output (dict): A dictionary containing stitching settings and hyperparameters
+        """
         
-        if (self.active_stitcher_type != typeOfStitcher and typeOfStitcher in self.stitcherTypes) or self.active_stitcher.cylindricalWarp != isCylindrical:
+        typeOfStitcher, isCylindrical, matcherType, isRANSAC  = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
+        checks, ratio_thresh, score_threshold, focal, onlyIHN = output["checks"], output["ratio_thresh"], output["score_threshold"], output["focal"], output["onlyIHN"]
+        fusion_mode = output.get("fusion_mode", "REFERENCE")
+        blur_kernel_size = output.get("blur_kernel_size", 41)
+        blur_sigma = output.get("blur_sigma", 15.0)
+        border_size = output.get("border_size", 60)
+        batchImageWidth, batchImageHeight = output["Sizes"][:2]
+
+        def has_stitcher_changes():
+            return (
+                self.active_stitcher_type != typeOfStitcher and typeOfStitcher in self.stitcherTypes
+            ) or (
+                self.active_stitcher.cylindricalWarp != isCylindrical
+            )
+
+        def has_hyperparameter_changes():
+            return (
+                self.active_stitcher.active_matcher_type != matcherType or
+                self.active_stitcher.isRANSAC != isRANSAC or
+                self.active_stitcher.checks != checks or
+                self.active_stitcher.ratio_thresh != ratio_thresh or
+                self.active_stitcher.score_threshold != score_threshold or
+                self.active_stitcher.focal != focal or
+                self.batchImageWidth != batchImageWidth or
+                self.batchImageHeight != batchImageHeight
+            )
+
+        
+        if has_stitcher_changes():
             with self.switching_lock1:
                 with self.switching_lock2:
-                    self.set_stitcher(typeOfStitcher)
+                    self.set_stitcher(typeOfStitcher, onlyIHN)
                     self.changeCylindrical(isCylindrical)
                     self.changeCalculationsHyperpara(output)
-        
-        elif self.active_stitcher.active_matcher_type != matcherType or self.active_stitcher.isRANSAC != isRANSAC:
+                    pass
+        if has_hyperparameter_changes():
             with self.switching_lock1:
                 self.changeCalculationsHyperpara(output)
+        
+        if self.active_stitcher_type == "NIS" and self.active_stitcher.onlyIHN != onlyIHN:
+            with self.switching_lock2:
+                self.active_stitcher.onlyIHN = onlyIHN
 
-    def process_thread2(self, images, front_image_index,Hs, verbose, debug):
-        """
-        Thread 2 operation. Uses lock_thread2 for thread-safe access.
-        """
-        with self.switching_lock1:
-            # if self.active_stitcher is not None:
-            Hs, order, inverted = self.active_stitcher.findHomographyOrder(images, front_image_index, Hs, verbose, debug)
-            self.order_queue.put(order)
-            self.homography_queue.put(Hs)
-            self.direction_queue.put(inverted)
-            print(order)
-            return Hs
+        if getattr(self.active_stitcher, 'fusion_mode', '__unset__') != fusion_mode:
+            with self.switching_lock1:
+                self.set_fusion_mode(fusion_mode)
 
+        if getattr(self.active_stitcher, 'blur_kernel_size', None) != blur_kernel_size:
+            with self.switching_lock1:
+                self.active_stitcher.blur_kernel_size = blur_kernel_size
+        if getattr(self.active_stitcher, 'blur_sigma', None) != blur_sigma:
+            with self.switching_lock1:
+                self.active_stitcher.blur_sigma = blur_sigma
+        if getattr(self.active_stitcher, 'border_size', None) != border_size:
+            with self.switching_lock1:
+                self.active_stitcher.border_size = border_size
 
-    def process_thread3(self, images, order, Hs, inverted, num_pano_img=3, verbose= False):
+    def process_stitching(self, images, num_pano_img=3):
         """
-        Thread 3 operation. Uses lock_thread3 for thread-safe access.
+        Simplified stitching process using known order from drone IDs.
+        No need for homography computation - just stitch based on known order.
+
+        For STABSTITCH the fast render path (stab_pano) only uses cached
+        warp parameters and standalone TPS functions — it never touches the
+        neural networks — so it can run without ``switching_lock2``.  The
+        slow warp computation is handled by ``warp_computation_thread``
+        which does acquire ``switching_lock2``.
         """
+        if self.known_order is None or len(self.known_order) != len(images):
+            print(f"[WARNING] Known order not set or length mismatch. Expected {len(images)} images.")
+            return
+
+        if self.active_stitcher_type == "STABSTITCH":
+            # Fast path: no switching_lock2 needed — render only uses cached
+            # warp params + standalone TPS warp (no neural network access).
+            order = np.array(self.known_order)
+            subset1, subset2 = self.get_subsets_from_order(order, len(images))
+            pano = self.active_stitcher.stab_pano(images, subset1, subset2)
+
+            if pano is not None and self.panoram_queue.empty():
+                self.panoram_queue.put(pano)
+            return
+
+        # All other stitchers: original behaviour with switching_lock2
         with self.switching_lock2:
-            # if self.active_stitcher:
+            order = np.array(self.known_order)
 
             if self.active_stitcher_type == "CLASSIC":
-                pano = self.active_stitcher.stitch(images, order, Hs, inverted, self.headAngle, self.processedImageWidth, self.processedImageHeight, num_pano_img=num_pano_img, verbose=verbose)
+                pano = self.stitch_with_known_order(images, order, num_pano_img)
             elif self.active_stitcher_type == "UDIS":
-                pano = self.active_stitcher.stitch(images, order, Hs, inverted ,self.headAngle, num_pano_img=num_pano_img, verbose=verbose)
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
+                pano = self.active_stitcher.UDIS_pano(images, subset1, subset2)
             elif self.active_stitcher_type == "NIS":
-                # pano = self.active_stitcher.stitch(images, self.headAngle, order, num_pano_img=num_pano_img, verbose=verbose)
-                pano = self.active_stitcher.stitch(images, order, Hs, inverted , self.headAngle, num_pano_img=num_pano_img, verbose=verbose)
-                # pano = np.zeros((self.processedImageHeight, self.processedImageWidth, 3))
-            if self.panoram_queue.empty():
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
+                pano = None  # Placeholder
+            elif self.active_stitcher_type == "REWARP":
+                subset1, subset2 = self.get_subsets_from_order(order, len(images))
+                pano = None  # Placeholder
+            else:
+                pano = None
+
+            if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put(pano)
 
-    def changeCylindrical(self, isCylindrical):
+    def get_subsets_from_order(self, order, num_images):
+        """
+        Get image subsets based on head angle and known order.
+        Selects 3 images centered around the head direction (left, center, right).
+        Reference image is the one with heading closest to headAngle.
+        """
+        # Find the drone with heading closest to headAngle
+        min_diff = float('inf')
+        closest_drone_idx = 0
         
+        for i, heading in enumerate(self.shared_headings):
+            # Calculate circular distance (handling wraparound)
+            diff = abs(heading - self.headAngle)
+            if diff > 180:
+                diff = 360 - diff
+            
+            if diff < min_diff:
+                min_diff = diff
+                closest_drone_idx = i
+        
+        # Find the position of this drone in the order array
+        ref_idx = int(np.where(order == closest_drone_idx)[0][0])
+        
+        # Get indices for left, center, and right
+        left_idx = (ref_idx - 1) % num_images
+        right_idx = (ref_idx + 1) % num_images
+        
+        # Create subsets: left subset is [left, center], right subset is [center, right]
+        subset1 = np.array([order[left_idx], order[ref_idx]])
+        subset2 = np.array([order[ref_idx], order[right_idx]])
+        
+
+        return subset1, subset2
+
+    def stitch_with_known_order(self, images, order, num_pano_img):
+        """
+        Simplified stitching for when order is known.
+        Just arranges images side by side without complex homography computation.
+        """
+        subset1, subset2 = self.get_subsets_from_order(order, len(images))
+        
+        # Simple horizontal concatenation
+        selected_indices = np.concatenate([subset1[::-1], subset2[1:]])  # Avoid duplicate ref image
+        selected_images = [images[i] for i in selected_indices]
+        
+        if len(selected_images) == 0:
+            return images[0]
+        
+        # Resize all images to same height
+        target_height = self.processedImageHeight if self.processedImageHeight else images[0].shape[0]
+        resized_images = []
+        for img in selected_images:
+            h, w = img.shape[:2]
+            new_width = int(w * target_height / h)
+            resized_images.append(cv2.resize(img, (new_width, target_height)))
+        
+        # Concatenate horizontally
+        pano = np.hstack(resized_images)
+        
+        # Resize to target width if needed
+        if self.processedImageWidth and pano.shape[1] != self.processedImageWidth:
+            pano = cv2.resize(pano, (self.processedImageWidth, target_height))
+        
+        return pano
+
+    def changeCylindrical(self, isCylindrical):
         self.active_stitcher.cylindricalWarp = isCylindrical
         self.active_stitcher.points_remap = None
         pass
@@ -157,51 +359,141 @@ class StitcherManager:
     def changeCalculationsHyperpara(self, output):
         self.active_stitcher.active_matcher_type = output["matcherType"]
         self.active_stitcher.isRANSAC = output["isRANSAC"]
-        print( output["isRANSAC"], output["matcherType"])
+        self.active_stitcher.checks = output["checks"]
+        self.active_stitcher.search_params = dict(checks=output["checks"])
+        self.active_stitcher.ratio_thresh = output["ratio_thresh"]
+        self.active_stitcher.score_threshold = output["score_threshold"]
+        focal = output["focal"]
+        self.active_stitcher.focal = focal
+        self.active_stitcher.camera_matrix = np.array([[focal,0, 150], [0,focal, 150], [0,0, 1]])
+        self.batchImageWidth, self.batchImageHeight = output["Sizes"][:2]
+        self.active_stitcher.points_remap = None
         pass
 
-def first_thread(manager: StitcherManager, debug = False):
-    """""
-    This method read the images coming from the software. They have three shared memory files to store the images, the panorama and the metadatas.
-    """""
-    flagPosition = 0
-    processedDataPosition = 4
-    metadataSize = 20 + 64 + 1+ 64+ 1 # 20 bytes for ints (5x4 bytes) + 64 bytes for string + 1 byte bool
+def get_drone_order(drone_ids, headings):
+    """
+    Calculates the order of drones based on their heading angles.
+    Arranges drones by heading in ascending order, handling wrap-around at ±180°.
+    
+    Parameters:
+    - drone_ids: list of drone IDs
+    - headings: list of heading angles (between -180 and 180)
+    
+    Returns:
+    - list of indices representing the sorted order of drones by heading
+    """
+    if len(drone_ids) != len(headings):
+        raise ValueError("drone_ids and headings must have the same length")
+    
+    # Normalize headings: convert negative angles to their positive equivalents
+    normalized_headings = [h if h >= 0 else h + 360 for h in headings]
+    
+    # Create tuples of (index, normalized_heading) and sort
+    indexed_headings = [(i, normalized_headings[i]) for i in range(len(headings))]
+    sorted_indexed_headings = sorted(indexed_headings, key=lambda x: x[1])
+    
+    # Extract just the indices in sorted order
+    sorted_indices = [idx for idx, _ in sorted_indexed_headings]
+    return sorted_indices
+
+def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_debug_logging=False):
+    """
+    This method reads images from the block-based shared memory structure.
+    Each block contains: flag (4 bytes), droneId (4 bytes), heading (4 bytes), image data
+    """
+    
+    # Read metadata first to get image dimensions
+    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int)
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
-
-    # Read first time metadata to initialize the memories:
+    
     output = readMetadataMemory(metadataMMF)
-    typeOfStitcher, isCylindrical = output["typeOfStitcher"], output["isCylindrical"]
-    
-    batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth , manager.processedImageHeight= output["Sizes"]
-    
-    imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
-    batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
-    processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
+    batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
+    # ----------------- TODO: Remove hardcoding -----------------
+    batchImageWidth = 640
+    batchImageHeight = 360
+    
+    
+    # Calculate block-based memory layout
+    metadataSize_per_block = 12  # flag (4) + droneId (4) + heading (4)
+    imageSize = batchImageWidth * batchImageHeight * 3  # RGB24
+    blockSize = metadataSize_per_block + imageSize
+    totalProcessedSize = num_images * blockSize
+    
+    if enable_debug_logging:
+        print(f"[first_thread] Initializing with {num_images} image blocks")
+        print(f"[first_thread] Block size: {blockSize} bytes (metadata: {metadataSize_per_block}, image: {imageSize})")
+        print(f"[first_thread] Total memory size: {totalProcessedSize} bytes")
+    
+    # Open the block-based shared memory (same one ImageSharing.cs uses)
+    processedMMF = mmap.mmap(-1, totalProcessedSize, "BlockSharedMemory")
+    
     first_loop = True
+    # Cache of last successfully read frame per block index {block_idx: (image, drone_id, heading)}
+    block_cache = {}
+
     while True:
-
-        ### New part
+        # Update metadata
         output = readMetadataMemory(metadataMMF)
-        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight= output["Sizes"]
-        imageSize, headANglePosition, batchDataPosition, processedImageSize = UpdateValues(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
-        manager.checkHyperparaChanges(output)
-
+        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
         try:
-            batchMMF = mmap.mmap(-1, batchDataPosition +  imageCount* imageSize, "BatchSharedMemory")
-            images, images_bool, headAngle = readMemory(batchMMF, flagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, batchImageWidth, batchImageHeight)
-        except:
-            print("problem opening/reading batched memory")
-            continue
-        
-        # droneImInd = np.arange(0, images_bool.shape[0])[images_bool]
-        # print(f"Index of the drone images to stitch: {droneImInd}")
-        with manager.info_lock:
-            manager.shared_images = images
-            manager.shared_images_bool = images_bool
-            manager.headAngle = headAngle
+            manager.checkHyperparaChanges(output)
+        except NotImplementedError as e:
+            print(f"[first_thread] fusion_mode error: {e}")
 
+        # ----------------- TODO: Remove hardcoding -----------------
+        batchImageWidth = 640
+        batchImageHeight = 360
+        imageCount = num_images
+        manager.processedImageWidth = 1920
+        manager.processedImageHeight = 1080
+        # print(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
+
+        # Read images from block-based memory, falling back to cached frames for busy blocks
+        try:
+            images, drone_ids, headings = read_block_memory(
+                processedMMF,
+                num_images,
+                blockSize,
+                metadataSize_per_block,
+                imageSize,
+                batchImageWidth,
+                batchImageHeight,
+                enable_debug_logging,
+                cache=block_cache,
+            )
+        except Exception as e:
+            if enable_debug_logging:
+                print(f"[first_thread] Error reading block memory: {e}")
+            time.sleep(0.05)
+            continue
+
+        if len(images) == num_images:
+            # Sort images by drone ID to get known order
+            sorted_indices = np.argsort(drone_ids)
+            sorted_images = [images[i] for i in sorted_indices]
+            sorted_drone_ids = [drone_ids[i] for i in sorted_indices]
+            sorted_headings = [headings[i] for i in sorted_indices]
+            
+            # Store the images and metadata
+            with manager.info_lock:
+                manager.shared_images = sorted_images
+                manager.shared_drone_ids = sorted_drone_ids
+                manager.shared_headings = sorted_headings
+                # Create known order based on sorted drone IDs
+                manager.known_order = get_drone_order(sorted_drone_ids, sorted_headings)
+                # Set the head angle to the heading of the centre drone in the order
+                center_idx = len(sorted_headings) // 2
+                drone_id = manager.known_order[center_idx]
+                manager.headAngle = sorted_headings[drone_id]
+
+            # Wake the stitching thread — new images are available.
+            manager.new_images_event.set()
+
+            if enable_debug_logging:
+                print(f"[first_thread] Read {len(images)} images, sorted drone IDs: {sorted_drone_ids}, headings: {sorted_headings}")
+        
+        # Write panorama if available
         if not manager.panoram_queue.empty():
             panorama = manager.panoram_queue.get()
             H, W, _ = panorama.shape
@@ -210,190 +502,114 @@ def first_thread(manager: StitcherManager, debug = False):
                     panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
                 except:
                     continue
+            
             try:
-                processedMMF = mmap.mmap(-1, processedDataPosition + processedImageSize, "ProcessedImageSharedMemory")
-                write_memory(processedMMF, flagPosition, processedDataPosition, processedImageSize, cv2.flip(panorama, 0))
+                panoramaMMF = mmap.mmap(-1, manager.processedImageWidth * manager.processedImageHeight * 3 + 4 + 4, "PanoramaSharedMemory")
+                
+                # Flip the panorama because unity texture starts bottom left
+                panorama = cv2.flip(panorama, 0)
+
+                write_memory(panoramaMMF, 0, 4, manager.processedImageWidth * manager.processedImageHeight * 3, panorama)
                 del panorama
-            except:
-                print("problem opening/reading processed memory")
+            except Exception as e:
+                if enable_debug_logging:
+                    print(f"[first_thread] Error writing panorama to memory: {e}")
                 continue
-
-
+        
         time.sleep(0.05)
-
-        # print(headAngle, typeOfStitcher, isCylindrical)
-
+        
         if first_loop:
             first_loop = False
             time.sleep(1.)
-
-        if debug:
-            break
-
-def second_thread(manager: StitcherManager, front_image_index=0, verbose = False, debug= False):
-    """""
-    This method uses some of the above methods to extract the order and the homographies of the paired images.
-    Input:
-        - images: list of NDArrays.
-        - front_image_index: the index of the front image of the pilot
-    """""
-    Hs = None
-    # global shared_images
-    while True:
-        if manager.shared_images is None:
-            print("Second thread sleep")
-            time.sleep(0.4)
-            continue
         
-        with manager.info_lock:
-            images = manager.shared_images
-
-        t = time.time()
-        Hs = manager.process_thread2(images, front_image_index=front_image_index, Hs = Hs, verbose = verbose, debug= debug)
-
-        if verbose:
-            print(f"Second thread loop time: {time.time()-t}")
-        # time.sleep(0.5)
-        if debug:
-            break
-    
-def third_thread(manager: StitcherManager, num_pano_img=3, verbose =False, debug=False):
-    """""
-    This method uses some of the above methods to stitch a part of the given images based on a criterion that could be the orientation
-    of the pilots head and the desired number of images in the panorama.
-    Input:
-        - images: list of NDArrays.
-        - angle : orientation of the pilots head (in degrees [0,360[?)
-        - num_pano_img : desired number of images in the panorama
-    """""
-    # Try taking the homography and order. Until the queues are empty, keep the homograpies and orders in local variable
-    # Take the order and the ref to compute the panorama
-
-    order, Hs, inverted = None, None, None
-
-    while True:
-        if not manager.homography_queue.empty():
-            del order, Hs, inverted
-            order = manager.order_queue.get()
-            Hs = manager.homography_queue.get()
-            inverted = manager.direction_queue.get()
-            order = np.hstack((order, order, order))
-            Hs = np.concatenate((Hs, Hs, Hs))
-        elif order is None:
-            time.sleep(0.4)
-            continue
-        
-        with manager.info_lock:
-            images = manager.shared_images
-
-        t = time.time()
-
-        if order.shape[0]//3 != len(images):
-            order = None
-            continue
-        manager.process_thread3(images,order, Hs, inverted, num_pano_img=3, verbose=verbose)
-        # order = None
-
-        if verbose:
-            print(f"Third thread loop time: {time.time()-t}")
         if debug:
             break
 
-    print("Quitting third thread")
-
-def readMetadataMemory(metadataMMF :mmap )->dict:
-    
-    # Read the integers for image sizes
-    metadataMMF.seek(0)
-    int_values = struct.unpack('iiiii', metadataMMF.read(20))  # 5 integers
-
-    # Read the string for Stitcher Type
-    raw_string = metadataMMF.read(64)
-    metadata_string = raw_string.decode('utf-8').rstrip('\x00')  # Remove padding
-
-    # Read the boolean isCylindrical
-    raw_bool = metadataMMF.read(1)
-    metadata_bool = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
-
-    # Read the string for BF or FLANN
-    raw_string = metadataMMF.read(64)
-    matcherType = raw_string.decode('utf-8').rstrip('\x00')  # Remove padding
-
-    # Read the boolean for RANSAC or not
-    raw_bool = metadataMMF.read(1)
-    isRANSAC = bool(struct.unpack('B', raw_bool)[0])  # Unpack as unsigned char
-
-    # Return all parsed metadata
-    return {
-        "Sizes": int_values,  # Tuple of 5 integers
-        "typeOfStitcher": metadata_string,
-        "isCylindrical": metadata_bool,
-        "matcherType" : matcherType,
-        "isRANSAC" :isRANSAC
-    }
-
-@jit(nopython=True) 
-def UpdateValues(batchImageWidth, batchImageHeight, imageCount, processedImageWidth, processedImageHeight):
-    
-    imageSize = batchImageWidth*batchImageHeight*3
-    headAnglePosition = 5
-    batchDataPosition = headAnglePosition+ imageCount
-
-    processedImageSize = processedImageWidth*processedImageHeight*3
-
-    return imageSize, headAnglePosition, batchDataPosition, processedImageSize
-    
- 
-def readMemory(batchMMF, batchFlagPosition, headANglePosition, imageCount, batchDataPosition, imageSize, imageWidth, imageHeight):
+def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSize, imageWidth, imageHeight, enable_debug=False, cache=None):
     """
-        Read Memory shared with Unity code. If the flag is 0, we can access data.
+    Reads images from block-based shared memory.
 
-        Input:
-            - batchMMF: mmap object for the shared memory
-            - batchFlagPosition: position of the flag in the memory. In our case: 0
-            - imageCount: number of images
-            - batchDataPosition: position of the first image in memory. In our case: 1 + imageCount (1 byte for the flag + imageCount bytes for the boolean)
-            - imageSize: The full image size (imageHeight * imageWidth * 3)
-            - imageWidth
-            - imageHeight
+    Block layout for each image:
+        - int flag (4 bytes)
+        - int droneId (4 bytes)
+        - float heading (4 bytes)
+        - image data (imageSize bytes)
+
+    Parameters:
+        - cache: optional dict {block_idx: (image, drone_id, heading)} used to
+                 substitute the previous frame when a block is busy being written.
+                 Updated in-place with each successfully read block.
+
+    Returns:
+        - images: list of numpy arrays
+        - drone_ids: list of drone IDs
+        - headings: list of heading angles
     """
-    
     images = []
-    while True:
-        # Read the flag to check if Unity has written new images
-        batchMMF.seek(batchFlagPosition)
-        flag = struct.unpack('B', batchMMF.read(1))[0]
+    drone_ids = []
+    headings = []
 
-        if flag == 0:  # Unity isn't writing new images
-            
-            # Flag to 1, indicating we are reading
-            batchMMF.seek(batchFlagPosition)
-            batchMMF.write(struct.pack('B', 1))
+    if enable_debug:
+        print(f"Reading {num_blocks} blocks from mmmf... blockSize={blockSize}, imageSize={imageSize}, imageWidth={imageWidth}, imageHeight={imageHeight}")
 
-            batchMMF.seek(1)
-            boolean_list = [bool(b) for b in batchMMF.read(imageCount)]
-            boolean_array=np.array(boolean_list)
+    for block_idx in range(num_blocks):
+        blockOffset = block_idx * blockSize
 
-            batchMMF.seek(headANglePosition)
-            headAngle = struct.unpack('f', batchMMF.read(4))[0]
+        # Read flag
+        processedMMF.seek(blockOffset)
+        flag_bytes = processedMMF.read(4)
+        if len(flag_bytes) != 4:
+            continue
+        flag = struct.unpack('i', flag_bytes)[0]
 
-            for i in range(imageCount):
-                if not boolean_array[i]:
-                    continue
-                # Read each image sequentially from the shared memory
-                batchMMF.seek(batchDataPosition + i * imageSize)
-                image_data = batchMMF.read(imageSize)
+        if enable_debug:
+            print(f"[read_block_memory] Block {block_idx}: flag={flag}, offset={blockOffset}")
 
-                # Convert the byte array into a numpy array
-                image = np.frombuffer(image_data, dtype=np.uint8)
-                image = image.reshape((imageHeight, imageWidth, 3))  # Reshape to RGB format
-                images.append(cv2.flip(image, 0))
+        if flag == 0:
+            # Block is ready — set flag to 1 (busy reading)
+            processedMMF.seek(blockOffset)
+            processedMMF.write(struct.pack('i', 1))
 
-            # Reset flag to 0, indicating we've read the images
-            batchMMF.seek(batchFlagPosition)
-            batchMMF.write(struct.pack('B', 0))
+            # Read droneId
+            processedMMF.seek(blockOffset + 4)
+            droneId = struct.unpack('i', processedMMF.read(4))[0]
 
-            return images, boolean_array, headAngle
+            # Read heading
+            processedMMF.seek(blockOffset + 8)
+            heading = struct.unpack('f', processedMMF.read(4))[0]
+
+            # Read image data
+            processedMMF.seek(blockOffset + metadataSize)
+            image_data = processedMMF.read(imageSize)
+
+            # Reset flag to 0 (ready for next write)
+            processedMMF.seek(blockOffset)
+            processedMMF.write(struct.pack('i', 0))
+
+            if len(image_data) == imageSize:
+                image = np.frombuffer(image_data, dtype=np.uint8).reshape((imageHeight, imageWidth, 3)).copy()
+
+                images.append(image)
+                drone_ids.append(droneId)
+                headings.append(heading)
+
+                if cache is not None:
+                    cache[block_idx] = (image, droneId, heading)
+
+                if enable_debug:
+                    print(f"[read_block_memory] Successfully read block {block_idx}: droneId={droneId}, heading={heading:.2f}")
+
+        elif cache is not None and block_idx in cache:
+            # Block is busy being written — reuse the previous frame for this drone
+            cached_image, cached_drone_id, cached_heading = cache[block_idx]
+            images.append(cached_image)
+            drone_ids.append(cached_drone_id)
+            headings.append(cached_heading)
+
+            if enable_debug:
+                print(f"[read_block_memory] Block {block_idx}: busy, using cached frame for droneId={cached_drone_id}")
+
+    return images, drone_ids, headings
 
 def write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, image_data):
     """
@@ -430,54 +646,184 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
             processedMMF.write(struct.pack('i', 0))
             break
 
-def main():
+def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, debug=False):
+    """
+    Simplified stitching thread that uses known order from drone IDs.
 
-    imageWidth = 300
-    imageHeight = 300
+    For STABSTITCH this is the fast render loop (~15 fps).  Instead of
+    busy-looping with a sleep, it blocks on ``new_images_event`` until
+    ``first_thread`` signals that fresh images have arrived.  This
+    naturally matches the ~15 fps image arrival rate without wasting GPU
+    cycles re-rendering the same frame.
 
-    f = 160
+    The ``timeout=0.1`` ensures non-STABSTITCH stitchers still loop even
+    if the event is never explicitly signalled.
+    """
+    while True:
+        # Block until first_thread signals new images (or timeout)
+        manager.new_images_event.wait(timeout=0.1)
+        manager.new_images_event.clear()
 
-    cam_mat = np.array([[f, 0, imageWidth/2], 
-                        [0, f, imageHeight/2],
-                        [0, 0, 1]])
+        if manager.shared_images is None or manager.known_order is None:
+            continue
+
+        with manager.info_lock:
+            images = manager.shared_images
+
+        t = time.time()
+
+        try:
+            manager.process_stitching(images, num_pano_img=num_pano_img)
+        except Exception:
+            print("[stitching_thread] Error during stitching:")
+            traceback.print_exc()
+
+        if verbose:
+            print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s")
+
+        if debug:
+            break
+
+    print("[stitching_thread] Quitting stitching thread")
+
+def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False):
+    """
+    Dedicated thread for STABSTITCH neural-net warp computation (~3 Hz).
+
+    Continuously snapshots the rolling frame buffer, runs
+    SpatialNet + TemporalNet + SmoothNet, and updates the cached warp
+    parameters that ``stab_pano`` uses for fast rendering.
+
+    Acquires ``switching_lock2`` while computing to prevent stitcher
+    switching from moving models off-GPU mid-computation.
+    """
+    while True:
+        if manager.shared_images is None or manager.known_order is None:
+            time.sleep(0.4)
+            continue
+
+        if manager.active_stitcher_type != "STABSTITCH":
+            time.sleep(0.1)
+            continue
+
+        t = time.perf_counter()
+        try:
+            with manager.switching_lock2:
+                manager.active_stitcher.compute_warps()
+        except Exception:
+            print("[warp_thread] Error during warp computation:")
+            traceback.print_exc()
+
+        if verbose:
+            elapsed = time.perf_counter() - t
+            print(f"[warp_thread] Warp update: {elapsed:.3f}s")
+
+        if debug:
+            break
+
+    print("[warp_thread] Quitting warp computation thread")
+
+
+def readMetadataMemory(metadataMMF :mmap )->dict:
+    """
+    Reads metadata from a memory-mapped file and returns it as a dictionary.
+    """
     
-    manager = StitcherManager("cuda")
-    verbose = False
-    debug = False
+    # Read the integers for image sizes
+    metadataMMF.seek(0)
+    int_values = struct.unpack('iiiii', metadataMMF.read(20))  # 5 integers
 
-    first_t = threading.Thread(target=first_thread, args=(manager, debug))
+    # Read the string for Stitcher Type
+    raw_string = metadataMMF.read(64)
+    metadata_string = raw_string.decode('utf-8').rstrip('\x00')
+
+    # Read the boolean isCylindrical
+    raw_bool = metadataMMF.read(1)
+    metadata_bool = bool(struct.unpack('B', raw_bool)[0])
+
+    # Read the string for BF or FLANN
+    raw_string = metadataMMF.read(64)
+    matcherType = raw_string.decode('utf-8').rstrip('\x00')
+
+    # Read the boolean for RANSAC or not
+    raw_bool = metadataMMF.read(1)
+    isRANSAC = bool(struct.unpack('B', raw_bool)[0])
+
+    # Read the integer for check sizes
+    checks = struct.unpack('i', metadataMMF.read(4))[0]
+
+    # Read the float for ratio and score
+    floats = struct.unpack('ff', metadataMMF.read(8))
+
+    # Read the integer for focal
+    focal = struct.unpack('i', metadataMMF.read(4))[0]
+
+    # Read the boolean for onlyIHN
+    raw_bool = metadataMMF.read(1)
+    onlyIHN = bool(struct.unpack('B', raw_bool)[0])
+
+    # Read the string for fusion mode
+    raw_string = metadataMMF.read(64)
+    fusion_mode = raw_string.decode('utf-8').rstrip('\x00') or "REFERENCE"
+
+    # Read blur parameters for REFERENCE_BLEND
+    blur_kernel_size = struct.unpack('i', metadataMMF.read(4))[0]
+    blur_sigma = struct.unpack('f', metadataMMF.read(4))[0]
+    border_size = struct.unpack('i', metadataMMF.read(4))[0]
+
+    return {
+        "Sizes": int_values,
+        "typeOfStitcher": metadata_string,
+        "isCylindrical": metadata_bool,
+        "matcherType" : matcherType,
+        "isRANSAC" : isRANSAC,
+        "checks" : checks,
+        "ratio_thresh" : floats[0],
+        "score_threshold" : floats[1],
+        "focal" : focal,
+        "onlyIHN" : onlyIHN,
+        "fusion_mode" : fusion_mode,
+        "blur_kernel_size" : blur_kernel_size,
+        "blur_sigma" : blur_sigma,
+        "border_size" : border_size,
+    }
+
+def main():
+    """
+    Activates the threads and initializes the StitcherManager.
+    """
+
+    manager = StitcherManager("cuda")
+    verbose_stitching_thread = True
+    debug = False
+    enable_debug_logging = False  # Set to True for debugging
+
+    # Print the keys of available stitchers
+    print("Available stitchers:")
+    for key in manager.stitchers.keys():
+        print(f"- {key}")
+
+    # Number of image blocks to read (should match numImages in ImageSharing.cs)
+    num_images = 3  # Update this to match your configuration
+    num_pano_img = 3  # Number of images in the panorama
+
+    first_t = threading.Thread(target=first_thread, args=(manager, num_images, debug, enable_debug_logging))
     first_t.daemon = True
     first_t.start()
 
-    sec_t = threading.Thread(target=second_thread, args=(manager, 0, verbose, debug))
-    sec_t.daemon = True
-    sec_t.start()
+    stitch_t = threading.Thread(target=stitching_thread, args=(manager, num_pano_img, verbose_stitching_thread, debug))
+    stitch_t.daemon = True
+    stitch_t.start()
 
-    third_t = threading.Thread(target=third_thread, args=(manager, 3, verbose, debug))
-    third_t.daemon = True
-    third_t.start()
+    # Warp computation thread: runs neural nets at ~3 Hz for STABSTITCH,
+    # updating the cached warp params that stab_pano renders with at ~15 fps.
+    warp_t = threading.Thread(target=warp_computation_thread, args=(manager, verbose_stitching_thread, debug))
+    warp_t.daemon = True
+    warp_t.start()
 
     while True:
         time.sleep(100)
     
 
 if __name__ == '__main__':
-    
-    # main function, the final result
     main()
-
-    # Test reading the images from shared memory and write an image in the panorama memory
-    # test_reading_writing()
-
-    # Test stitcher with own images
-    # test_stitcher()
-
-    # Test threading function
-    # test_threading()
-
-    # Test one stitched camera
-    # front_image_index = 0
-    # angle = 0
-    # num_pano_img = 3
-
-    # test_one_image(front_image_index, angle, num_pano_img)
