@@ -5,6 +5,15 @@
 [Bb]uilds/
 Assets/AssetStoreTools*
 
+vrswarm_env/
+
+# Python
+.venv/
+Assets/DebugImages/
+
+# Ignore Image Stitching project files
+Assets/Scripts/ImageStitching/UDIS2_main*
+
 # Visual Studio cache directory
 .vs/
 
@@ -34,3 +43,22 @@ sysinfo.txt
 # Builds
 *.apk
 *.unitypackage
+
+# any DS_Store files
+.DS_Store
+# Logs
+*.log
+Logs/
+Assets/Text*
+Assets/DroneImages/
+UserSettings/
+
+# Ignore Image Stitching project files
+Assets/Scripts/ImageStitching/UDIS2_main*
+Assets/Scripts/ImageStitching/Neural_Image_Stitching_main*
+Assets/Scripts/ImageStitching/StabStitch2_main*
+Assets/Scripts/ImageStitching/mask_debug*
+Assets/Scripts/ImageStitching/*.jpg
+Assets/Scripts/ImageStitching/*.jpg.meta
+Assets/Scripts/ImageStitching/*.png
+Assets/Scripts/ImageStitching/*.png.meta
