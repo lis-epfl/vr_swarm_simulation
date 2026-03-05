@@ -13994,7 +13994,6 @@ GameObject:
   - component: {fileID: 590275745}
   - component: {fileID: 590275739}
   - component: {fileID: 590275744}
-  - component: {fileID: 590275746}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -14078,7 +14077,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 590275738}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a2df6b543e0571a4ca78d447669d93a2, type: 3}
   m_Name: 
@@ -14135,8 +14134,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f969c9ad1f2b33449605154bc14c68c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  displayMode: 0
-  screenStyle: 5
+  displayMode: 1
+  screenStyle: 0
   width: 640
   height: 360
   radius: 2
@@ -14146,26 +14145,7 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
---- !u!114 &590275746
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a7ed3ddbdb454564596ba4a6ed40010c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  ScreenSpawn: {fileID: 590275741}
-  numImages: 3
-  processedMapName: BlockSharedMemory
-  readInterval: 0.05
-  enableDebugLogging: 1
-  enableImageValidation: 1
-  saveDebugImages: 0
-  debugImagePath: Assets/DebugImages/
+  numScreens: 2
 --- !u!1001 &593199777
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -31233,7 +31213,7 @@ GameObject:
   - component: {fileID: 1348654473}
   - component: {fileID: 1348654472}
   - component: {fileID: 1348654471}
-  - component: {fileID: 1348654474}
+  - component: {fileID: 1348654470}
   m_Layer: 0
   m_Name: curvedScreenFast
   m_TagString: Untagged
@@ -31241,6 +31221,18 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
+--- !u!114 &1348654470
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1348654469}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 53568ab2188035f48a8265029451db37, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!23 &1348654471
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -31306,42 +31298,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1348654474
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1348654469}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: afc009acad950df4ca680c00ef4682ee, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  enableImageWriting: 0
-  enablePanoramaReading: 1
-  blockImageWidth: 640
-  blockImageHeight: 360
-  panoramaImageWidth: 1920
-  panoramaImageHeight: 1080
-  sendInterval: 0.05
-  readInterval: 0.05
-  typeOfStitcher: 4
-  cylindrical: 0
-  typeOfMatcher: 0
-  ransac: 0
-  checks: 50
-  ratio_thresh: 0.7
-  score_threshold: 0.1
-  focal_length: 1000
-  onlyIHN: 1
-  camerasToCapture: []
-  camerasToStitch: 000000
-  radius: 5
-  angleRange: 90
-  segments: 20
-  height: 3
-  resize_dimension: 0
 --- !u!1001 &1350320345
 PrefabInstance:
   m_ObjectHideFlags: 0
