@@ -6,6 +6,7 @@ using UnityEngine;
 public class ImageSharing : MonoBehaviour
 {
     public ScreenSpawn ScreenSpawn;
+    public DroneIndicator DroneIndicator;
     
     // Memory mapping constants and parameters
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
@@ -130,6 +131,13 @@ public class ImageSharing : MonoBehaviour
         // Spawn screens
         ScreenSpawn.SpawnScreens();
         if (enableDebugLogging) Debug.Log($"[ImageSharing] ScreenSpawn component found and spawned {numImages} screens.");
+
+        // Spawn drone heading indicators
+        if (DroneIndicator != null)
+        {
+            DroneIndicator.SpawnIndicators(numImages);
+            if (enableDebugLogging) Debug.Log($"[ImageSharing] DroneIndicator spawned {numImages} indicator(s).");
+        }
 
         // Find all screens in the scene
         FindAndSetupScreens();
@@ -281,6 +289,9 @@ public class ImageSharing : MonoBehaviour
 
                         // Update screen orientation
                         ScreenSpawn.UpdateRealDroneScreen(imageIndex, yaw);
+
+                        // Update drone heading indicator
+                        DroneIndicator?.UpdateYaw(imageIndex, yaw);
                         
                         successfulReads++;
                     }
