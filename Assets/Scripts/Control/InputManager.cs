@@ -28,7 +28,7 @@ public class InputManager : MonoBehaviour
         {"yaw", 0.0f},
         {"pitch", 0.0f},
         {"roll", 0.0f},
-        {"spread", 1.0f}, // Default spread value **Should be improved to be set based on the current algorithm**
+        {"spread", -1.0f}, // Default spread value **Should be improved to be set based on the current algorithm**
         {"userSwitch", -1.0f},
     };
     public static InputManager Instance { get; private set; }
@@ -52,7 +52,7 @@ public class InputManager : MonoBehaviour
             inputStatus["yaw"] = 0.0f;
             inputStatus["pitch"] = 0.0f;
             inputStatus["roll"] = 0.0f;
-            inputStatus["spread"] = 1.0f; // Default spread value
+            inputStatus["spread"] = -1.0f; // Default spread value
             inputStatus["userSwitch"] = -1;
             return;
         }

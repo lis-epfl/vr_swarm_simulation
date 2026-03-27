@@ -40,6 +40,7 @@ public class InterfaceManager : MonoBehaviour
     private ViewManager viewManager;
     private ScreenSpawn spawnScreens;
     private BirdsEyeCamera birdsEyeCamera;
+    private ThirdPersonSwarmCamera thirdPersonCam;
     private visualiseOlfatiSaber visualiseOlfatiSaber;
 
     private List<GameObject> swarm;
@@ -56,6 +57,12 @@ public class InterfaceManager : MonoBehaviour
         if (birdsEyeCameraObject != null)
         {
             birdsEyeCamera = birdsEyeCameraObject.GetComponent<BirdsEyeCamera>();
+        }
+
+        GameObject thirdPersonCamObject = GameObject.FindGameObjectWithTag("ThirdPersonCamera");
+        if (thirdPersonCamObject != null)
+        {
+            thirdPersonCam = thirdPersonCamObject.GetComponent<ThirdPersonSwarmCamera>();
         }
 
         visualiseOlfatiSaber = GetComponent<visualiseOlfatiSaber>();
@@ -139,6 +146,10 @@ public class InterfaceManager : MonoBehaviour
         if (birdsEyeCamera != null)
         {
             birdsEyeCamera.swarm = swarmList;
+        }
+        if (thirdPersonCam != null)
+        {
+            thirdPersonCam.swarm = swarmList;
         }
         if (displayMode == DisplayMode.SCREENS && !screensSpawned)
         {

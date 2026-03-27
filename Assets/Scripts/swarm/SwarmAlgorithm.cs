@@ -166,7 +166,11 @@ public class SwarmAlgorithm : MonoBehaviour
             desired_vx = inputStatus["pitch"];
             desired_vy = inputStatus["roll"];
             desired_alittude_rate = inputStatus["throttle"];
-            SetSwarmSpread(inputStatus["spread"]);
+            // Only updatae the swarm spread if the input is greater than 0, otherwise keep as is
+            if (inputStatus["spread"] > 0)
+            {
+                SetSwarmSpread(inputStatus["spread"]);
+            }
         }
     }
 

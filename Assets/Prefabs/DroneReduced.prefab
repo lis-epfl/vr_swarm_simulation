@@ -94,6 +94,7 @@ GameObject:
   - component: {fileID: 4357867903532992}
   - component: {fileID: 54379775675223440}
   - component: {fileID: 114202773416505472}
+  - component: {fileID: 7237061177116738825}
   - component: {fileID: 114145603923244640}
   - component: {fileID: 154702406167289886}
   - component: {fileID: 467967561642582945}
@@ -101,6 +102,7 @@ GameObject:
   - component: {fileID: 3810217873681142886}
   - component: {fileID: 474059409597466468}
   - component: {fileID: 3658020977089312761}
+  - component: {fileID: 8901803876761647871}
   m_Layer: 9
   m_Name: DroneParent
   m_TagString: Player
@@ -164,27 +166,49 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9fd9cf0a203549e98e27622302c103a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  controlStyle: 1
   State: {fileID: 114271859555978516}
   PropFL: {fileID: 1194315723904280}
   PropFR: {fileID: 1552398028780994}
   PropRR: {fileID: 1519630155678512}
   PropRL: {fileID: 1958779810228456}
+  maxPitch: 0.15
+  maxRoll: 0.15
+  maxYawRate: 0.6
+  maxAlpha: 6
+  maxSpeed: 3
+  MaxAscentRate: 1.5
+  MaxDescentRate: 1.5
+  MinHeight: 0.5
   desired_height: 25.3
-  desired_vx: 0
-  desired_vy: 0
   desiredYawRate: 0
   attitude_control_yaw: 0
-  HeightKp: 1.5
-  HeightKd: 1
-  HeightKi: 0.2
-  HeightRateCoefficient: 0.05
+  swarmAcceleration: {x: 0, y: 0, z: 0}
+  HeightKp: 5
+  HeightKd: 2
+  heightDerivFilterCoeff: 0.5
   yawFilterCoefficient: 0.1
-  swarm_vx: 0
-  swarm_vy: 0
-  swarm_vz: 0
-  MinHeight: 0.5
+  SwarmAccelFilterCoefficient: 1
   currentAlgorithm: 0
   initial_height: 14
+--- !u!114 &7237061177116738825
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b7fb223e58894f4185891da4aef309a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  State: {fileID: 114271859555978516}
+  maxPitchAngle: 0.75
+  maxRollAngle: 0.75
+  groundCollisionThreshold: 0.3
+  cohesionDistanceMultiplier: 1
+  stabilizationDelay: 1
 --- !u!114 &114145603923244640
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -260,10 +284,10 @@ MonoBehaviour:
   gamma: 1
   c_vm: 1
   d_obs: 5
-  r0_obs: 6
   lambda_obs: 1
   c_obs: 4.3
   ScaleFactor: 10
+  c_altitude_2d: 1
   MaxMigrationDistance: 10
 --- !u!114 &3810217873681142886
 MonoBehaviour:
@@ -284,6 +308,9 @@ MonoBehaviour:
   NumDimensions: 2
   BoundaryEstimate: 0
   PointInwards: 0
+  YawCorrectionFactor: 0.1
+  TargetYawSmoothingFactor: 0.1
+  NeighborYawSmoothingFactor: 0.1
 --- !u!114 &474059409597466468
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -298,9 +325,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   swarm: []
   desired_height: 4
-  desired_vx: 0
-  desired_vy: 0
-  desired_alittude_rate: 0
 --- !u!65 &3658020977089312761
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -322,6 +346,19 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 1.24, y: 0.14, z: 1.24}
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &8901803876761647871
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ed01d90fe8729744b39c8531a42006f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  spatialVarianceSigma: 0.05
 --- !u!1 &1343969879783188
 GameObject:
   m_ObjectHideFlags: 0
@@ -584,7 +621,6 @@ Transform:
   - {fileID: 4612442369227954}
   - {fileID: 4501315699650070}
   - {fileID: 4465050691322064}
-  - {fileID: 4218606295102432}
   - {fileID: 4357867903532992}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -739,7 +775,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 1591
+    m_Bits: 1655
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 7
@@ -917,12 +953,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Altitude: 0
   Position: {x: 0, y: 0, z: 0}
+  GroundTruthPosition: {x: 0, y: 0, z: 0}
   Angles: {x: 0, y: 0, z: 0}
   VelocityVector: {x: 0, y: 0, z: 0}
   AngularVelocityVector: {x: 0, y: 0, z: 0}
+  Acceleration: {x: 0, y: 0, z: 0}
+  AngularAcceleration: {x: 0, y: 0, z: 0}
   Inertia: {x: 0, y: 0, z: 0}
   Mass: 0
+  enableStateNoise: 1
+  positionNoiseSigma: 0.05
+  altitudeNoiseSigma: 0.01
+  attitudeNoiseSigma: 0
+  velocityNoiseSigma: 0.025
   vc: {fileID: 114202773416505472}
+  IsAlive: 1
 --- !u!1 &1921012790031124
 GameObject:
   m_ObjectHideFlags: 0
@@ -1038,67 +1083,6 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
---- !u!1 &1976944736351944
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 4218606295102432}
-  - component: {fileID: 114060934375135842}
-  m_Layer: 9
-  m_Name: RigidBodyWind
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &4218606295102432
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1976944736351944}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 4340667180271852}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &114060934375135842
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1976944736351944}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a7653028c804f4c89947739c53765f9a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  drone: {fileID: 54379775675223440}
-  apply_force: 1
-  strength_coef: 0.0015
-  strength_mean: 30
-  strength_variance: 20
-  strength_hold_variance: 1000
-  pulse_period_mean: 7
-  pulse_period_variance: 5
-  pulse_duration_mean: 10
-  pulse_duration_variance: 2
-  motion_period_mean: 8
-  motion_period_variance: 3
-  wind_change_speed_mean: 0.05
-  wind_change_speed_variance: 0.01
-  strength_off_speed: 50
-  strength_on_speed: 70
-  targetDirection: {x: 0, y: 0, z: 0, w: 0}
 --- !u!1 &1997323085237368
 GameObject:
   m_ObjectHideFlags: 0

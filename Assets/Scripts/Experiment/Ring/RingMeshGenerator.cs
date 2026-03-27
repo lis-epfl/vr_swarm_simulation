@@ -336,8 +336,8 @@ public class RingMeshGenerator : MonoBehaviour
     {
         var gate = GetComponent<RingGate>();
         if (gate == null) return;
-        ringRadius = gate.ringRadius;
-        tubeRadius = gate.tubeRadius;
+        ringRadius = gate.gateWidth * 0.5f;
+        tubeRadius = gate.barThickness;
         GenerateMesh();
     }
 }

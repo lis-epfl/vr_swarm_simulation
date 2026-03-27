@@ -9,23 +9,26 @@ using UnityEngine.Events;
 /// downstream systems (CWL logging, adaptive difficulty, UI, etc.).
 ///
 /// Prefab hierarchy expected:
-///   RingGate            ← this script + RingMeshGenerator
+///   RingGate            ← this script + RectGateMeshGenerator
 ///   ├── GateTrigger     ← GateTriggerRelay + BoxCollider (isTrigger, scale 500,500,0.5)
 ///   └── CenterPoint     ← plain Transform, used as spline anchor
 /// </summary>
-[RequireComponent(typeof(RingMeshGenerator))]
+[RequireComponent(typeof(RectGateMeshGenerator))]
 public class RingGate : MonoBehaviour
 {
     // ─────────────────────────────────────────────────────────────────────────
     // Inspector
     // ─────────────────────────────────────────────────────────────────────────
 
-    [Header("Ring Geometry")]
-    [Tooltip("Clear radius of the aperture (half of inner diameter). Default = 2.75 m for a 9-drone swarm.")]
-    public float ringRadius = 2.75f;
+    [Header("Gate Geometry")]
+    [Tooltip("Full interior opening width (X axis). Default = 5.5 m for a 9-drone swarm.")]
+    public float gateWidth = 5.5f;
 
-    [Tooltip("Cross-section radius of the torus tube.")]
-    public float tubeRadius = 0.2f;
+    [Tooltip("Full interior opening height (Y axis).")]
+    public float gateHeight = 5.5f;
+
+    [Tooltip("Cross-section thickness of the frame bars.")]
+    public float barThickness = 0.2f;
 
     [Header("Swarm Settings")]
     [Tooltip("Total number of drones in the swarm. Used to fire onAllDronesPassed.")]
@@ -97,12 +100,15 @@ public class RingGate : MonoBehaviour
 
     /// <summary>Total drone passes recorded since last ResetMetrics().</summary>
     public int TotalPasses  => _totalPasses;
-    /// <summary>Passes where the drone was within ringRadius of the centre.</summary>
+    /// <summary>Passes where the drone was within the gate aperture.</summary>
     public int InsidePasses => _insidePasses;
-    /// <summary>Passes where the drone was outside ringRadius.</summary>
+    /// <summary>Passes where the drone was outside the gate aperture.</summary>
     public int OutsidePasses => _outsidePasses;
     /// <summary>Fraction of passes that went through the aperture. 0–1.</summary>
     public float AccuracyRatio => _totalPasses > 0 ? (float)_insidePasses / _totalPasses : 0f;
+
+    /// <summary>Unix ms timestamp of the first confirmed pass in this activation window. 0 if none yet.</summary>
+    public long FirstPassUnixMs { get; private set; }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Private state
@@ -128,7 +134,7 @@ public class RingGate : MonoBehaviour
     private void Awake()
     {
         EnsureCenterPoint();
-        Log($"Initialised — aperture radius {ringRadius} m, swarm size {swarmSize}, tag '{droneTag}'.");
+        Log($"Initialised — aperture {gateWidth}×{gateHeight} m, swarm size {swarmSize}, tag '{droneTag}'.");
     }
 
     private void EnsureCenterPoint()
@@ -218,10 +224,15 @@ public class RingGate : MonoBehaviour
         }
         _passedThisActivation.Add(droneId);
 
-        // ── Radial distance check ────────────────────────────────────────────
+        // Record timestamp of the very first drone to pass
+        if (_passedThisActivation.Count == 1)
+            FirstPassUnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        // ── Inside/outside check (rectangular gate) ─────────────────────────
         Vector3 localPos   = transform.InverseTransformPoint(droneRoot.transform.position);
         float   radialDist = new Vector2(localPos.x, localPos.y).magnitude;
-        bool    isInside   = radialDist <= ringRadius;
+        bool    isInside   = Mathf.Abs(localPos.x) <= gateWidth * 0.5f &&
+                             Mathf.Abs(localPos.y) <= gateHeight * 0.5f;
 
         // ── Build pass record ────────────────────────────────────────────────
         var data = new RingPassData
@@ -281,7 +292,8 @@ public class RingGate : MonoBehaviour
             droneObject    = droneRoot,
             droneId        = droneId,
             radialDistance = radialDist,
-            wasInsideRing  = radialDist <= ringRadius,
+            wasInsideRing  = Mathf.Abs(localPos.x) <= gateWidth * 0.5f &&
+                             Mathf.Abs(localPos.y) <= gateHeight * 0.5f,
             ringGate       = this,
             passIndex      = _totalPasses,
             timestamp      = Time.time,
@@ -306,6 +318,7 @@ public class RingGate : MonoBehaviour
         _droneOutsideCounts.Clear();
         _passedThisActivation.Clear();
         _pendingDrones.Clear();
+        FirstPassUnixMs = 0;
 
         if (debugEnabled && debugLogReset)
             Debug.Log($"[RingGate | <color=#aaaaff>{gameObject.name}</color>] Metrics reset.");
@@ -346,7 +359,7 @@ public class RingGate : MonoBehaviour
         Debug.Log($"{GateLabel} Pass #{d.passIndex}  {outcome}  " +
                   $"drone='{d.droneObject.name}'  " +
                   $"radial={d.radialDistance:F3} m  " +
-                  $"(limit={ringRadius:F2} m)  " +
+                  $"(gate={gateWidth:F2}×{gateHeight:F2} m)  " +
                   $"t={d.timestamp:F2}s");
     }
 
@@ -371,13 +384,21 @@ public class RingGate : MonoBehaviour
 #if UNITY_EDITOR
     private void OnDrawGizmos()
     {
-        // Aperture circle
-        Gizmos.color = new Color(0f, 0.9f, 1f, 0.9f);
-        DrawGizmoCircle(transform.position, transform.forward, ringRadius, 64);
+        float hw = gateWidth * 0.5f;
+        float hh = gateHeight * 0.5f;
 
-        // Outer (tube centre) circle
-        Gizmos.color = new Color(0f, 0.9f, 1f, 0.3f);
-        DrawGizmoCircle(transform.position, transform.forward, ringRadius + tubeRadius, 64);
+        // Compute world-space corners of the gate rectangle
+        Vector3 tl = transform.TransformPoint(new Vector3(-hw,  hh, 0f));
+        Vector3 tr = transform.TransformPoint(new Vector3( hw,  hh, 0f));
+        Vector3 bl = transform.TransformPoint(new Vector3(-hw, -hh, 0f));
+        Vector3 br = transform.TransformPoint(new Vector3( hw, -hh, 0f));
+
+        // Aperture rectangle
+        Gizmos.color = new Color(0f, 0.9f, 1f, 0.9f);
+        Gizmos.DrawLine(tl, tr);
+        Gizmos.DrawLine(tr, br);
+        Gizmos.DrawLine(br, bl);
+        Gizmos.DrawLine(bl, tl);
 
         // Centre point indicator
         if (centerPoint != null)
@@ -387,26 +408,9 @@ public class RingGate : MonoBehaviour
             Gizmos.DrawLine(transform.position, centerPoint.position);
         }
 
-        // Ring normal axis (direction of travel)
+        // Gate normal axis (direction of travel)
         Gizmos.color = Color.green;
-        Gizmos.DrawRay(transform.position, transform.forward * (ringRadius * 0.6f));
-    }
-
-    private static void DrawGizmoCircle(Vector3 centre, Vector3 normal, float radius, int segments)
-    {
-        Vector3 right = Vector3.Cross(normal, Vector3.up);
-        if (right.sqrMagnitude < 0.001f) right = Vector3.right;
-        right.Normalize();
-        Vector3 up = Vector3.Cross(right, normal).normalized;
-
-        Vector3 prev = centre + right * radius;
-        for (int i = 1; i <= segments; i++)
-        {
-            float   angle = i * Mathf.PI * 2f / segments;
-            Vector3 next  = centre + (right * Mathf.Cos(angle) + up * Mathf.Sin(angle)) * radius;
-            Gizmos.DrawLine(prev, next);
-            prev = next;
-        }
+        Gizmos.DrawRay(transform.position, transform.forward * (Mathf.Max(gateWidth, gateHeight) * 0.3f));
     }
 #endif
 }
@@ -431,7 +435,7 @@ public class RingPassData
     /// <summary>Radial distance from the ring axis at the moment of crossing.</summary>
     public float radialDistance;
 
-    /// <summary>True if the drone was within ringRadius (i.e. through the aperture).</summary>
+    /// <summary>True if the drone was within the gate aperture (inside the rectangle).</summary>
     public bool wasInsideRing;
 
     /// <summary>The gate that recorded this pass.</summary>

@@ -71,28 +71,24 @@ public class GateTriggerRelay : MonoBehaviour
         var gate = GetComponentInParent<RingGate>();
         if (gate == null) return;
 
-        float r = gate.ringRadius * 2.5f;
+        float hw = gate.gateWidth * 0.5f * 2.5f;
+        float hh = gate.gateHeight * 0.5f * 2.5f;
 
         // Entry plane = green, exit plane = red
         Gizmos.color = isEntryPlane
             ? new Color(0.2f, 1f, 0.3f, 0.12f)
             : new Color(1f, 0.3f, 0.2f, 0.12f);
 
-        int   segs = 48;
-        float step = Mathf.PI * 2f / segs;
-
-        Vector3 right  = transform.right;
-        Vector3 up     = transform.up;
         Vector3 centre = transform.position;
-        Vector3 prev   = centre + right * r;
+        Vector3 tl = centre + transform.right * (-hw) + transform.up * ( hh);
+        Vector3 tr = centre + transform.right * ( hw) + transform.up * ( hh);
+        Vector3 bl = centre + transform.right * (-hw) + transform.up * (-hh);
+        Vector3 br = centre + transform.right * ( hw) + transform.up * (-hh);
 
-        for (int i = 1; i <= segs; i++)
-        {
-            float   a    = i * step;
-            Vector3 next = centre + (right * Mathf.Cos(a) + up * Mathf.Sin(a)) * r;
-            Gizmos.DrawLine(prev, next);
-            prev = next;
-        }
+        Gizmos.DrawLine(tl, tr);
+        Gizmos.DrawLine(tr, br);
+        Gizmos.DrawLine(br, bl);
+        Gizmos.DrawLine(bl, tl);
     }
 #endif
 }
