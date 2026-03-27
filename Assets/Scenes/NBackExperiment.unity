@@ -2011,8 +2011,11 @@ MonoBehaviour:
   sharedMemoryGazeDataName: TobiiUnityGazeData
   sharedMemoryNBackDataName: ExperimentUnityNBackData
   sharedMemoryDroneDataName: ExperimentUnityDroneData
+  sharedMemoryUserInputDataName: ExperimentUnityUserInputData
   maxBufferBlocks: 100
   toggleSendingKey: 115
+  sharedMemoryGateStatusName: ExperimentUnityGateStatus
+  sharedMemoryGateLayoutName: ExperimentUnityGateLayout
   droneDataUpdateRate: 30
 --- !u!4 &472109452
 Transform:
@@ -2116,10 +2119,10 @@ MonoBehaviour:
   randomSeed: -1
   nBackLevelsOrder: 000000000100000002000000
   isDebugMode: 0
-  skipCalibration: 0
-  skipFlyingPractice: 0
-  skipNBackPractice: 0
-  practiceTime: 5
+  skipCalibration: 1
+  skipFlyingPractice: 1
+  skipNBackPractice: 1
+  practiceTime: 1
   countdownTime: 0.25
 --- !u!82 &472109455
 AudioSource:
@@ -3856,6 +3859,7 @@ GameObject:
   - component: {fileID: 887960379}
   - component: {fileID: 887960378}
   - component: {fileID: 887960384}
+  - component: {fileID: 887960385}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -3933,11 +3937,11 @@ MonoBehaviour:
   alignmentWeight: 0.5
   d_ref: 1
   r0_coh: 10
-  delta: 0.2
-  a: 0.6
-  b: 1
+  delta: 0.3
+  a: 0.5
+  b: 0.7
   gamma: 1
-  c_vm: 1
+  c_vm: 1.25
   d_obs: 4
   r0_obs: 6
   lambda_obs: 1
@@ -3969,8 +3973,10 @@ MonoBehaviour:
   start_y: 1
   start_z: -29
   randomYaw: 0
+  RandomizeMassAndInertia: 0
   YawDegrees: 90
   UsePySender: 1
+  trackBirdsEye: 0
   swarmParent: {fileID: 0}
 --- !u!4 &887960383
 Transform:
@@ -4003,6 +4009,28 @@ MonoBehaviour:
   yawRateCoeff: 1
   altCoeff: 4
   inputMode: 1
+--- !u!114 &887960385
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 887960376}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 656be34a415de4b90aa6ce56b39f625d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  olfatiSaber: {fileID: 0}
+  selectedDroneIndex: 0
+  textureWidth: 1000
+  textureHeight: 500
+  maxDistance: 10
+  minDistance: 0
+  xTickCount: 10
+  yTickCount: 10
+  plotType: 0
+  forceRange: 5
 --- !u!4 &916247269 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4000013848046870, guid: 80035c381857a7e419e0a93ca8ad1699,
@@ -6095,6 +6123,67 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 1051416103}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1512310610
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1512310612}
+  - component: {fileID: 1512310611}
+  m_Layer: 0
+  m_Name: Wind
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1512310611
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1512310610}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a7653028c804f4c89947739c53765f9a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  apply_force: 1
+  strength_coef: 0.0015
+  strength_mean: 30
+  strength_variance: 20
+  strength_hold_variance: 1000
+  pulse_period_mean: 7
+  pulse_period_variance: 5
+  pulse_duration_mean: 10
+  pulse_duration_variance: 2
+  motion_period_mean: 8
+  motion_period_variance: 3
+  wind_change_speed_mean: 0.05
+  wind_change_speed_variance: 0.01
+  strength_off_speed: 50
+  strength_on_speed: 70
+  CurrentWindForce: {x: 0, y: 0, z: 0}
+  targetDirection: {x: 0, y: 0, z: 0, w: 0}
+--- !u!4 &1512310612
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1512310610}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 50, y: 0.14, z: -24.99}
+  m_LocalScale: {x: 1, y: 0.1, z: 7.042}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &1519350184 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4000013848046870, guid: 80035c381857a7e419e0a93ca8ad1699,
@@ -9033,4 +9122,5 @@ SceneRoots:
   - {fileID: 1436647963}
   - {fileID: 887061594}
   - {fileID: 510327706}
+  - {fileID: 1512310612}
   - {fileID: 864531105}

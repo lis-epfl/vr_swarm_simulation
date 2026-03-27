@@ -221,7 +221,7 @@ public class TuneOlfatiSaber : MonoBehaviour
     // Find the gameObject with the name "Drone 0" and return its OlfatiSaber component
     private OlfatiSaber FindOlfatiSaber()
     {
-        GameObject drone0 = GameObject.Find("Drone 0");
+        GameObject drone0 = GameObject.Find("SwarmParent/Drone 0");
         if (drone0 != null)
         {
             // Return the OlfatiSaber component from the 'DroneParent' child

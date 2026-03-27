@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -58,7 +59,7 @@ public class swarmSpawn : MonoBehaviour
                 if (randomYaw)
                 {
                     // Generate a random yaw angle and convert it to a quaternion
-                    float randomYaw = Random.Range(0f, 360f);
+                    float randomYaw = UnityEngine.Random.Range(0f, 360f);
                     droneRotation = Quaternion.Euler(0, randomYaw, 0);
                 }
 
@@ -109,8 +110,59 @@ public class swarmSpawn : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        
+
     }
+
+#if UNITY_EDITOR
+    private void OnDrawGizmos()
+    {
+        int total = dronesAlongX * dronesAlongZ;
+
+        uint index = 0;
+
+        for (int x = 0; x < dronesAlongX; x++)
+        {
+            for (int z = 0; z < dronesAlongZ; z++)
+            {
+                index++;
+                Vector3 pos = new Vector3(
+                    start_x + x * droneSpacing,
+                    start_y,
+                    start_z + z * droneSpacing);
+
+                // Drone body
+                Gizmos.color = new Color(0.3f, 0.8f, 1f, 0.9f);
+                Gizmos.DrawSphere(pos, 0.25f);
+
+                // Arm cross
+                Gizmos.color = new Color(0.3f, 0.8f, 1f, 0.4f);
+                float armLen = droneSpacing * 0.35f;
+                Gizmos.DrawLine(pos + Vector3.left  * armLen, pos + Vector3.right   * armLen);
+                Gizmos.DrawLine(pos + Vector3.back  * armLen, pos + Vector3.forward * armLen);
+
+                // Label for drone number on top of the sphere
+                UnityEditor.Handles.color = new Color(0.3f, 0.8f, 1f, 0.9f);
+                UnityEditor.Handles.Label(pos + Vector3.up * 0.5f, $"{index}");
+            }
+        }
+
+        // Grid bounding box
+        if (dronesAlongX > 0 && dronesAlongZ > 0)
+        {
+            Vector3 origin = new Vector3(start_x, start_y, start_z);
+            Vector3 corner = origin + new Vector3((dronesAlongX - 1) * droneSpacing, 0f, (dronesAlongZ - 1) * droneSpacing);
+            Vector3 center = (origin + corner) * 0.5f;
+            Vector3 size   = new(
+                Mathf.Max((dronesAlongX - 1) * droneSpacing, droneSpacing * 0.5f),
+                0.05f,
+                Mathf.Max((dronesAlongZ - 1) * droneSpacing, droneSpacing * 0.5f));
+
+            Gizmos.color = new Color(0.3f, 0.8f, 1f, 0.08f);
+            Gizmos.DrawCube(center, size);
+        }
+
+    }
+#endif
 
     public void Reset()
     {
