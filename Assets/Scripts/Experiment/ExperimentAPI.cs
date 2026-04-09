@@ -15,7 +15,9 @@ namespace Experiment
         [SerializeField] private string listenAddress = "http://localhost";
 
         [Header("References")]
-        [SerializeField] private ExperimentFSM fsm;
+        [SerializeField] private ExperimentFSMNBack fsm;
+        [SerializeField] private RingGateManager ringGateManager;
+        [SerializeField] private CWLController cwlController;
 
         private HttpListener listener;
         private Thread listenerThread;
@@ -26,6 +28,21 @@ namespace Experiment
         private class StateRequest
         {
             public string state;
+        }
+
+        [Serializable]
+        private class CWLLevelRequest
+        {
+            public string level;
+        }
+
+        [Serializable]
+        private class GatePositionData
+        {
+            public int gateIndex;
+            public float posX, posY, posZ;
+            public float width;
+            public float height;
         }
 
         private struct ApiResult
@@ -57,7 +74,13 @@ namespace Experiment
         private void Awake()
         {
             if (fsm == null)
-                fsm = FindObjectOfType<ExperimentFSM>();
+                fsm = FindObjectOfType<ExperimentFSMNBack>();
+
+            if (ringGateManager == null)
+                ringGateManager = FindObjectOfType<RingGateManager>();
+
+            if (cwlController == null)
+                cwlController = FindObjectOfType<CWLController>();
         }
 
         private void Start()
@@ -193,7 +216,7 @@ namespace Experiment
 
             if (request.HttpMethod == "GET" && path == "/api/state")
             {
-                ExperimentFSM.ExperimentStateSnapshot snapshot = ExecuteOnMainThread(() => fsm != null ? fsm.GetStateSnapshot() : null, 1000);
+                ExperimentFSMNBack.ExperimentStateSnapshot snapshot = ExecuteOnMainThread(() => fsm != null ? fsm.GetStateSnapshot() : null, 1000);
                 if (snapshot == null)
                 {
                     WriteJsonResponse(response, 503, new { error = "fsm_unavailable" });
@@ -269,6 +292,63 @@ namespace Experiment
                 return;
             }
 
+            if (request.HttpMethod == "GET" && path == "/api/ring/gates")
+            {
+                string json = ExecuteOnMainThread(() =>
+                {
+                    if (ringGateManager == null)
+                        return JsonUtility.ToJson(new { error = "ring_gate_manager_unavailable" });
+
+                    return BuildGatePositionsJson(ringGateManager);
+                }, 1000);
+
+                WriteJsonResponse(response, ringGateManager != null ? 200 : 503, json, rawJson: true);
+                return;
+            }
+
+            if (request.HttpMethod == "POST" && path == "/api/cwl/level")
+            {
+                string body;
+                using (StreamReader reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                {
+                    body = reader.ReadToEnd();
+                }
+
+                CWLLevelRequest cwlRequest = null;
+                try
+                {
+                    cwlRequest = JsonUtility.FromJson<CWLLevelRequest>(body);
+                }
+                catch
+                {
+                    cwlRequest = null;
+                }
+
+                if (cwlRequest == null || string.IsNullOrWhiteSpace(cwlRequest.level))
+                {
+                    WriteJsonResponse(response, 400, new { error = "missing_level" });
+                    return;
+                }
+
+                ApiResult result = ExecuteOnMainThread(() =>
+                {
+                    if (cwlController == null)
+                        return ApiResult.Fail("cwl_controller_unavailable");
+
+                    cwlController.OnCWLInference(cwlRequest.level);
+                    return ApiResult.Success();
+                }, 1000);
+
+                if (!result.Ok)
+                {
+                    WriteJsonResponse(response, 503, new { error = result.Error });
+                    return;
+                }
+
+                WriteJsonResponse(response, 200, new { ok = true });
+                return;
+            }
+
             WriteJsonResponse(response, 404, new { error = "not_found" });
         }
 
@@ -298,6 +378,31 @@ namespace Experiment
             }
 
             return result;
+        }
+
+        private string BuildGatePositionsJson(RingGateManager gateManager)
+        {
+            var gatesList = new System.Collections.Generic.List<GatePositionData>();
+
+            for (int i = 0; i < gateManager.gates.Count; i++)
+            {
+                RingGate gate = gateManager.gates[i];
+                if (gate == null) continue;
+
+                Vector3 gatePos = gate.centerPoint != null ? gate.centerPoint.position : gate.transform.position;
+                gatesList.Add(new GatePositionData
+                {
+                    gateIndex = i,
+                    posX = gatePos.x,
+                    posY = gatePos.y,
+                    posZ = gatePos.z,
+                    width = gate.gateWidth,
+                    height = gate.gateHeight
+                });
+            }
+
+            var response = new { gates = gatesList };
+            return JsonUtility.ToJson(response);
         }
 
         private void WriteJsonResponse(HttpListenerResponse response, int statusCode, object payload, bool rawJson = false)

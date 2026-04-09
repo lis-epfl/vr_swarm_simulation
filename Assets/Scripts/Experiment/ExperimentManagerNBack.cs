@@ -9,7 +9,7 @@ using UnityEngine.InputSystem;
 
 namespace Experiment
 {
-    public class ExperimentFSM : MonoBehaviour
+    public class ExperimentFSMNBack : MonoBehaviour
     {
         [Serializable]
         public class ExperimentStateSnapshot
@@ -25,7 +25,7 @@ namespace Experiment
             public long stateEnterTimestamp;
         }
 
-        private enum ExperimentState
+        private enum ExperimentStateNBack
         {
             Idle,
             IdleSilent,
@@ -48,7 +48,7 @@ namespace Experiment
         [Serializable]
         private class StepConfig
         {
-            public ExperimentState state;
+            public ExperimentStateNBack state;
             public List<GameObject> enableOnState = new List<GameObject>();
         }
 
@@ -106,9 +106,9 @@ namespace Experiment
 
         private NBackTask nBackTask;
         private AudioSource audioSource;
-        private ExperimentState state = ExperimentState.Idle;
-        private ExperimentState nextState = ExperimentState.Idle;
-        private ExperimentState previousState = ExperimentState.Idle;
+        private ExperimentStateNBack state = ExperimentStateNBack.Idle;
+        private ExperimentStateNBack nextState = ExperimentStateNBack.Idle;
+        private ExperimentStateNBack previousState = ExperimentStateNBack.Idle;
 
         private System.Random rng;
         private bool hasUserClicked = false;
@@ -138,7 +138,7 @@ namespace Experiment
             if (viewManager != null)
                 viewManager.ToggleAllViews(false);
             DisableAllActiveObjects();
-            TransitionTo(ExperimentState.Welcome);
+            TransitionTo(ExperimentStateNBack.Welcome);
             if (nBackTask != null)
             {
                 nBackTask.Completed += () => nBackCompletedFlag = true;
@@ -177,22 +177,22 @@ namespace Experiment
 
             switch (state)
             {
-                case ExperimentState.Idle:
-                case ExperimentState.IdleSilent:
+                case ExperimentStateNBack.Idle:
+                case ExperimentStateNBack.IdleSilent:
                     if (idleRequestDelay > 0 && DateTimeOffset.Now.ToUnixTimeSeconds() - stateEnterTime / 1000 > idleRequestDelay)
                     {
                         TransitionTo(nextState);
                     }
                     break;
 
-                case ExperimentState.Wait:
+                case ExperimentStateNBack.Wait:
                     if (isTransitionRequested)
                     {
                         isTransitionRequested = false;
                         TransitionTo(nextState);
                     }
                     break;
-                case ExperimentState.WaitForUser:
+                case ExperimentStateNBack.WaitForUser:
                     if (hasUserClicked)
                     {
                         hasUserClicked = false;
@@ -200,40 +200,40 @@ namespace Experiment
                     }
                     break;
                 
-                case ExperimentState.Countdown:
+                case ExperimentStateNBack.Countdown:
                     if (countdownEllapsed)
                     {
                         countdownEllapsed = false;
-                        TransitionTo(ExperimentState.Task);
+                        TransitionTo(ExperimentStateNBack.Task);
                     }
                     break;
 
-                case ExperimentState.Welcome:
-                    nextState = ExperimentState.FlyingInstructions;
-                    TransitionTo(ExperimentState.Wait);
+                case ExperimentStateNBack.Welcome:
+                    nextState = ExperimentStateNBack.FlyingInstructions;
+                    TransitionTo(ExperimentStateNBack.Wait);
                     break;
 
-                case ExperimentState.RcControls:
+                case ExperimentStateNBack.RcControls:
                     if (skipCalibration)
                     {
-                        nextState = ExperimentState.FlyingPractice;
+                        nextState = ExperimentStateNBack.FlyingPractice;
                     }
                     else
                     {                        
-                        nextState = ExperimentState.Calibration;
+                        nextState = ExperimentStateNBack.Calibration;
                     }
-                    TransitionTo(ExperimentState.Wait);
+                    TransitionTo(ExperimentStateNBack.Wait);
                     break;
 
-                case ExperimentState.FlyingInstructions:
-                    nextState = ExperimentState.RcControls;
-                    TransitionTo(ExperimentState.Wait);
+                case ExperimentStateNBack.FlyingInstructions:
+                    nextState = ExperimentStateNBack.RcControls;
+                    TransitionTo(ExperimentStateNBack.Wait);
                     break;
 
-                case ExperimentState.Calibration:
+                case ExperimentStateNBack.Calibration:
                     if (!isHeadPositionOk)
                     {
-                        TransitionTo(ExperimentState.Wait);
+                        TransitionTo(ExperimentStateNBack.Wait);
                         isHeadPositionOk = true;
                     }
                     else if (calibrationDone)
@@ -242,33 +242,33 @@ namespace Experiment
                     }
                     break;
 
-                case ExperimentState.FlyingPractice:
+                case ExperimentStateNBack.FlyingPractice:
                     if (skipFlyingPractice)
                     {
-                        TransitionTo(ExperimentState.NBackInstructions);
+                        TransitionTo(ExperimentStateNBack.NBackInstructions);
                     }
                     if (DateTimeOffset.Now.ToUnixTimeMilliseconds() - stateEnterTime > flyingTaskPracticeTime)
                     {
-                        nextState = ExperimentState.NBackInstructions;
+                        nextState = ExperimentStateNBack.NBackInstructions;
                         idleRequestDelay = 2; // 2 seconds delay before transitioning to next state
-                        TransitionTo(ExperimentState.Idle);
+                        TransitionTo(ExperimentStateNBack.Idle);
                     }
                     break;
                 
-                case ExperimentState.NBackInstructions:
+                case ExperimentStateNBack.NBackInstructions:
                     if (skipNBackPractice)
                     {
-                        nextState = ExperimentState.ExperimentBegin;
-                        TransitionTo(ExperimentState.Wait);
+                        nextState = ExperimentStateNBack.ExperimentBegin;
+                        TransitionTo(ExperimentStateNBack.Wait);
                     }
                     else 
                     {
-                        nextState = ExperimentState.NBackPractice;
-                        TransitionTo(ExperimentState.WaitForUser);
+                        nextState = ExperimentStateNBack.NBackPractice;
+                        TransitionTo(ExperimentStateNBack.WaitForUser);
                     }
                     break;
 
-                case ExperimentState.NBackPractice:
+                case ExperimentStateNBack.NBackPractice:
                     if (nBackCompletedFlag)
                     {
                         nBackCompletedFlag = false;
@@ -276,18 +276,18 @@ namespace Experiment
                     }
                     break;
                 
-                case ExperimentState.ExperimentBegin:
+                case ExperimentStateNBack.ExperimentBegin:
                     // Transition to the main experiment task or trial state as needed
-                    nextState = ExperimentState.Task; // or ExperimentState.Trial based on your design
-                    TransitionTo(ExperimentState.Wait);
+                    nextState = ExperimentStateNBack.Task; // or ExperimentStateNBack.Trial based on your design
+                    TransitionTo(ExperimentStateNBack.Wait);
                     break;
 
-                case ExperimentState.Task:
-                    nextState = ExperimentState.Trial;
-                    TransitionTo(ExperimentState.Wait);
+                case ExperimentStateNBack.Task:
+                    nextState = ExperimentStateNBack.Trial;
+                    TransitionTo(ExperimentStateNBack.Wait);
                     break;
 
-                case ExperimentState.Trial:
+                case ExperimentStateNBack.Trial:
                     // Wait for current nback to finish
                     if (nBackCompletedFlag)
                     {
@@ -296,50 +296,50 @@ namespace Experiment
                         if (currentTrial < trialsPerTask)
                         {
                             idleRequestDelay = 5; // 5 seconds delay before transitioning to next task
-                            TransitionTo(ExperimentState.IdleSilent);
+                            TransitionTo(ExperimentStateNBack.IdleSilent);
                         }
                         else
                         {
                             idleRequestDelay = 2;
-                            TransitionTo(ExperimentState.Idle);
+                            TransitionTo(ExperimentStateNBack.Idle);
                         }
                     }
                     break;
             }
         }
 
-        private void TransitionTo(ExperimentState next)
+        private void TransitionTo(ExperimentStateNBack next)
         {
             Debug.Log($"Transitioning from {state} to {next}");
             ExitState(state);
             EnterState(next);
         }
 
-        private void EnterState(ExperimentState s)
+        private void EnterState(ExperimentStateNBack s)
         {
             ApplyStateVisuals(s);
             switch (s)
             {
-                case ExperimentState.Idle:
-                case ExperimentState.Wait:
+                case ExperimentStateNBack.Idle:
+                case ExperimentStateNBack.Wait:
                     InputManager.Instance.LockControl();
                     break;
-                case ExperimentState.WaitForUser:
+                case ExperimentStateNBack.WaitForUser:
                     hasUserClicked = false;
                     InputManager.Instance.UnlockControl();
                     break;
-                case ExperimentState.Calibration:
+                case ExperimentStateNBack.Calibration:
                     if (!isHeadPositionOk)
                     {
                         if (eyeTrackerGuide != null)
                             eyeTrackerGuide.TrackBoxGuideActive = true;
-                        nextState = ExperimentState.Calibration;
+                        nextState = ExperimentStateNBack.Calibration;
                     }
                     else if (eyeTrackerCalibration != null)
                     {
                         if (eyeTrackerGuide != null)
                             eyeTrackerGuide.TrackBoxGuideActive = false;
-                        nextState = ExperimentState.FlyingPractice;
+                        nextState = ExperimentStateNBack.FlyingPractice;
                         calibrationDone =  false;
                         eyeTrackerCalibration.StartCalibration(
                             resultCallback: (calibResult) => 
@@ -355,40 +355,40 @@ namespace Experiment
                     }
                     InputManager.Instance.LockControl();
                     break;
-                case ExperimentState.FlyingPractice:
+                case ExperimentStateNBack.FlyingPractice:
                     if (viewManager != null)
                         viewManager.ToggleAllViews(true);
                     PySender.Instance.EyeDataStreaming = true;
                     InputManager.Instance.UnlockControl();
                     break;
-                case ExperimentState.NBackInstructions:
+                case ExperimentStateNBack.NBackInstructions:
                     if (viewManager != null)
                         viewManager.ToggleAllViews(false);
                     InputManager.Instance.LockControl();
                     break;
-                case ExperimentState.NBackPractice:
+                case ExperimentStateNBack.NBackPractice:
                     nBackTask.IsPracticeMode = true;
                     PySender.Instance.EyeDataStreaming = true;
                     if (currentPracticeLevel >= maxPracticeLevel)
                     {
-                        nextState = ExperimentState.ExperimentBegin;
+                        nextState = ExperimentStateNBack.ExperimentBegin;
                     }
                     else
                     {
-                        nextState = ExperimentState.NBackInstructions;
+                        nextState = ExperimentStateNBack.NBackInstructions;
                     }
                     nBackTask.setNBack(currentPracticeLevel);
                     nBackTask.beginTask();
                     hasUserClicked = false;
                     InputManager.Instance.UnlockControl();
                     break;
-                case ExperimentState.ExperimentBegin:
+                case ExperimentStateNBack.ExperimentBegin:
                     nBackTask.IsPracticeMode = false;
                     nBackLevelsOrder = shuffleArray(nBackLevelsOrder);
                     Debug.Log("Shuffled N-Back Levels Order: " + string.Join(", ", nBackLevelsOrder));
                     InputManager.Instance.LockControl();
                     break;
-                case ExperimentState.Task:
+                case ExperimentStateNBack.Task:
                     currentTask++;
                     if (swarmSpawner != null)
                         swarmSpawner.Reset();
@@ -399,7 +399,7 @@ namespace Experiment
                     if (viewManager != null)
                         viewManager.ToggleAllViews(true);
                     break;
-                case ExperimentState.Trial:
+                case ExperimentStateNBack.Trial:
                     Debug.Log($"Starting Trial {currentTrial} of Task {currentTask}");
                     hasUserClicked = false;
                     PySender.Instance.EyeDataStreaming = true;
@@ -408,12 +408,12 @@ namespace Experiment
                     String audioClip = trialStartClip.Replace("#", currentTrial.ToString());
                     if (currentTrial < trialsPerTask)
                     {
-                        nextState = ExperimentState.Trial;
+                        nextState = ExperimentStateNBack.Trial;
                     }
                     else
                     {
                         audioClip = k_lastTrialClipName;
-                        nextState = (currentTask >= nBackLevelsOrder.Length) ? ExperimentState.Finished : ExperimentState.Countdown;
+                        nextState = (currentTask >= nBackLevelsOrder.Length) ? ExperimentStateNBack.Finished : ExperimentStateNBack.Countdown;
                     }
                     if (audioSource != null)
                     {   
@@ -422,7 +422,7 @@ namespace Experiment
                             audioSource.PlayOneShot(clip);
                     }
                     break;
-                case ExperimentState.Countdown:
+                case ExperimentStateNBack.Countdown:
                     PySender.Instance.EyeDataStreaming = false;
                     if (timer != null)
                         timer.BeginCountdown();
@@ -430,7 +430,7 @@ namespace Experiment
                         viewManager.ToggleAllViews(false);
                     InputManager.Instance.LockControl();
                     break;
-                case ExperimentState.Finished:
+                case ExperimentStateNBack.Finished:
                     PySender.Instance.EyeDataStreaming = false;
                     if (viewManager != null)
                         viewManager.ToggleAllViews(false);
@@ -457,33 +457,33 @@ namespace Experiment
         }
 
 
-        private void ExitState(ExperimentState s)
+        private void ExitState(ExperimentStateNBack s)
         {
             previousState = s;
             switch (s)
             {
-                case ExperimentState.Idle:
-                case ExperimentState.IdleSilent:
-                case ExperimentState.Wait:
-                case ExperimentState.WaitForUser:
+                case ExperimentStateNBack.Idle:
+                case ExperimentStateNBack.IdleSilent:
+                case ExperimentStateNBack.Wait:
+                case ExperimentStateNBack.WaitForUser:
                     DisableAllActiveObjects();
                     break;
-                case ExperimentState.Countdown:
+                case ExperimentStateNBack.Countdown:
                     if (timer != null)
                         timer.StopCountdown();
                     break;
-                case ExperimentState.FlyingPractice:
+                case ExperimentStateNBack.FlyingPractice:
                     PySender.Instance.EyeDataStreaming = false;
                     break;
-                case ExperimentState.NBackPractice:
+                case ExperimentStateNBack.NBackPractice:
                     PySender.Instance.EyeDataStreaming = false;
                     currentPracticeLevel++;
                     break;
-                case ExperimentState.Task:
+                case ExperimentStateNBack.Task:
                     Debug.Log($"Ending Task #{currentTask}");
                     currentTrial = 1;
                     break;
-                case ExperimentState.Trial:
+                case ExperimentStateNBack.Trial:
                     Debug.Log($"End of Trial #{currentTrial}");
                     PySender.Instance.EyeDataStreaming = false;
                     if (audioSource != null)
@@ -496,7 +496,7 @@ namespace Experiment
                     break;
             }
         }
-        private void ApplyStateVisuals(ExperimentState state)
+        private void ApplyStateVisuals(ExperimentStateNBack state)
         {
             for (int i = 0; i < stateConfigs.Count; i++)
             {
@@ -519,7 +519,7 @@ namespace Experiment
             }
         }
 
-        private void DisableActiveStateObjects(ExperimentState s)
+        private void DisableActiveStateObjects(ExperimentStateNBack s)
         {
             for (int i = 0; i < stateConfigs.Count; i++)
             {
@@ -569,13 +569,13 @@ namespace Experiment
         }
 
         // External transition requests
-        public void RequestTransitionToWait() => TransitionTo(ExperimentState.Wait);
-        public void RequestTransitionToIdle() => TransitionTo(ExperimentState.Idle);
-        public void RequestTransitionToFlyingPractice() => TransitionTo(ExperimentState.FlyingPractice);
-        public void RequestTransitionToNBackPractice() => TransitionTo(ExperimentState.NBackPractice);
-        public void RequestTransitionToCountdown() => TransitionTo(ExperimentState.Countdown);
-        public void RequestTransitionToTask() => TransitionTo(ExperimentState.Task);
-        public void RequestTransitionToTrial() => TransitionTo(ExperimentState.Trial);
+        public void RequestTransitionToWait() => TransitionTo(ExperimentStateNBack.Wait);
+        public void RequestTransitionToIdle() => TransitionTo(ExperimentStateNBack.Idle);
+        public void RequestTransitionToFlyingPractice() => TransitionTo(ExperimentStateNBack.FlyingPractice);
+        public void RequestTransitionToNBackPractice() => TransitionTo(ExperimentStateNBack.NBackPractice);
+        public void RequestTransitionToCountdown() => TransitionTo(ExperimentStateNBack.Countdown);
+        public void RequestTransitionToTask() => TransitionTo(ExperimentStateNBack.Task);
+        public void RequestTransitionToTrial() => TransitionTo(ExperimentStateNBack.Trial);
 
         public ExperimentStateSnapshot GetStateSnapshot()
         {
@@ -594,7 +594,7 @@ namespace Experiment
 
         public string[] GetAvailableStates()
         {
-            return Enum.GetNames(typeof(ExperimentState));
+            return Enum.GetNames(typeof(ExperimentStateNBack));
         }
 
         public void NotifyOperatorClicked()
@@ -611,7 +611,7 @@ namespace Experiment
                 return false;
             }
 
-            if (!Enum.TryParse(stateName, true, out ExperimentState requestedState))
+            if (!Enum.TryParse(stateName, true, out ExperimentStateNBack requestedState))
             {
                 error = "unknown_state";
                 return false;

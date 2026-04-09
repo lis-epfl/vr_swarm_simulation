@@ -88,6 +88,7 @@ namespace Experiment
         {
             public long Timestamp;
             public byte Id;
+            public byte IsAlive;
             public Vec3f Position;
             public Vec3f Orientation;
             public Vec3f Velocity;
@@ -98,11 +99,43 @@ namespace Experiment
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public struct UserControlInputData
         {
-            public float Throttle;
+            public long Timestamp;
+            public float AltitudeRate;
             public float Yaw;
             public float Pitch;
             public float Roll;
             public float SwarmSpread;
+        }
+
+        // ── Gate Status (dynamic, updated on each gate state change) ─────────
+        // Python layout:
+        //   class GateStatusEntry(ctypes.Structure):
+        //       _pack_ = 1
+        //       _fields_ = [("PassCount", ctypes.c_uint8),
+        //                   ("GateState", ctypes.c_uint8),
+        //                   ("FirstPassTimestamp", ctypes.c_int64)]
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct GateStatusEntry
+        {
+            public byte PassCount;            // drones passed (0–swarmSize)
+            public byte GateState;            // 0=Idle 1=Next 2=PartialComplete 3=Completed
+            public long FirstPassTimestamp;   // Unix ms, 0 if not yet passed
+        }
+
+        // ── Gate Layout (static, written once when course is generated) ──────
+        // Python layout:
+        //   class GateLayoutEntry(ctypes.Structure):
+        //       _pack_ = 1
+        //       _fields_ = [("CenterX", ctypes.c_float), ("CenterY", ctypes.c_float), ("CenterZ", ctypes.c_float),
+        //                   ("ForwardX", ctypes.c_float), ("ForwardY", ctypes.c_float), ("ForwardZ", ctypes.c_float),
+        //                   ("Width", ctypes.c_float), ("Height", ctypes.c_float)]
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct GateLayoutEntry
+        {
+            public Vec3f CenterPosition;    // world-space gate center
+            public Vec3f ForwardDirection;  // gate's local +Z in world space
+            public float Width;
+            public float Height;
         }
     };
 
