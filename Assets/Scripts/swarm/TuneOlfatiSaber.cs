@@ -5,6 +5,9 @@ public class TuneOlfatiSaber : MonoBehaviour
     [Header("Reference to Olfati-Saber")]
     public OlfatiSaber olfatiSaber;
 
+    [Header("Drone Selection")]
+    public int selectedDroneIndex = 0;
+
     [Header("Plot Settings")]
     public int textureWidth = 900;
     public int textureHeight = 400;
@@ -41,6 +44,8 @@ public class TuneOlfatiSaber : MonoBehaviour
     // We'll use this to draw the x-axis (y=0) in the middle
     private float yZero;     // pixel row in the texture where force=0
 
+    private int _lastSelectedDroneIndex = -1;  // track if selectedDroneIndex changed
+
     void Start()
     {
         olfatiSaber = olfatiSaber ?? FindOlfatiSaber();
@@ -60,6 +65,13 @@ public class TuneOlfatiSaber : MonoBehaviour
 
     void Update()
     {
+        // Re-fetch olfatiSaber if selectedDroneIndex changed
+        if (selectedDroneIndex != _lastSelectedDroneIndex)
+        {
+            olfatiSaber = null;
+            _lastSelectedDroneIndex = selectedDroneIndex;
+        }
+
         if (olfatiSaber == null)
         {
             olfatiSaber = FindOlfatiSaber();
@@ -160,8 +172,92 @@ public class TuneOlfatiSaber : MonoBehaviour
             }
         }
 
+        // Draw the neighbor dots on the curve
+        DrawCombinedMarker(plotScale, yZero);
+
         // Apply all pixel changes
         plotTexture.Apply();
+    }
+
+    void DrawCombinedMarker(float plotScale, float yZero)
+    {
+        // Find the selected drone
+        GameObject selectedDrone = GameObject.Find($"SwarmParent/Drone {selectedDroneIndex}");
+        if (selectedDrone == null) return;
+
+        Transform selectedDroneParent = selectedDrone.transform.Find("DroneParent");
+        if (selectedDroneParent == null) return;
+
+        VelocityControl selectedVC = selectedDroneParent.GetComponent<VelocityControl>();
+        if (selectedVC == null) return;
+
+        Vector3 selectedPos = selectedVC.State.Position;
+
+        // Find the swarm parent
+        GameObject swarmParent = GameObject.Find("SwarmParent");
+        if (swarmParent == null) return;
+
+        // Draw each neighbor as a dot on the curve at (distance, force)
+        foreach (Transform droneTransform in swarmParent.transform)
+        {
+            GameObject drone = droneTransform.gameObject;
+            Transform droneParentChild = drone.transform.Find("DroneParent");
+            if (droneParentChild == null) continue;
+
+            // Skip the selected drone itself
+            if (droneParentChild == selectedDroneParent) continue;
+
+            VelocityControl neighborVC = droneParentChild.GetComponent<VelocityControl>();
+            if (neighborVC == null) continue;
+
+            Vector3 neighborPos = neighborVC.State.Position;
+            Vector3 relativePos = neighborPos - selectedPos;
+            float distance = relativePos.magnitude / olfatiSaber.ScaleFactor;
+
+            // Skip if outside the plotted distance range
+            if (distance < minDistance || distance > maxDistance) continue;
+
+            // Evaluate the appropriate function based on plotType
+            float value = 0f;
+            if (plotType == plotChoice.COHESIONFORCE)
+            {
+                value = olfatiSaber.GetCohesionForce(distance);
+            }
+            else if (plotType == plotChoice.NEIGHBOURWEIGHT)
+            {
+                value = olfatiSaber.GetNeighbourWeight(distance);
+            }
+            else if (plotType == plotChoice.SHAPEFUNCTION)
+            {
+                value = olfatiSaber.GetCohesionIntensity(distance);
+            }
+
+            // Map (distance, value) to pixel coordinates
+            float t = (distance - minDistance) / (maxDistance - minDistance);
+            int xPixel = marginLeft + Mathf.RoundToInt(t * dataWidth);
+
+            float yFloat = yZero + (value * plotScale);
+            int yPixel = Mathf.RoundToInt(yFloat);
+
+            // Clamp to plot area
+            if (xPixel < marginLeft || xPixel >= (marginLeft + dataWidth)) continue;
+            if (yPixel < marginBottom || yPixel >= (marginBottom + dataHeight)) continue;
+
+            // Draw a small yellow dot (radius 2)
+            for (int dy = -2; dy <= 2; dy++)
+            {
+                for (int dx = -2; dx <= 2; dx++)
+                {
+                    int px = xPixel + dx;
+                    int py = yPixel + dy;
+                    if (px >= marginLeft && px < (marginLeft + dataWidth) &&
+                        py >= marginBottom && py < (marginBottom + dataHeight))
+                    {
+                        plotTexture.SetPixel(px, py, Color.yellow);
+                    }
+                }
+            }
+        }
     }
 
     void OnGUI()
@@ -218,27 +314,27 @@ public class TuneOlfatiSaber : MonoBehaviour
         plotTexture.Apply();
     }
 
-    // Find the gameObject with the name "Drone 0" and return its OlfatiSaber component
+    // Find the selected drone and return its OlfatiSaber component
     private OlfatiSaber FindOlfatiSaber()
     {
-        GameObject drone0 = GameObject.Find("SwarmParent/Drone 0");
-        if (drone0 != null)
+        GameObject drone = GameObject.Find($"SwarmParent/Drone {selectedDroneIndex}");
+        if (drone != null)
         {
             // Return the OlfatiSaber component from the 'DroneParent' child
-            Transform droneParent = drone0.transform.Find("DroneParent");
+            Transform droneParent = drone.transform.Find("DroneParent");
             if (droneParent != null)
             {
                 return droneParent.GetComponent<OlfatiSaber>();
             }
             else
             {
-                Debug.LogError("DroneParent not found in Drone 0!");
+                Debug.LogError($"DroneParent not found in Drone {selectedDroneIndex}!");
                 return null;
             }
         }
         else
         {
-            Debug.LogError("Drone 0 not found!");
+            Debug.LogError($"Drone {selectedDroneIndex} not found!");
             return null;
         }
     }

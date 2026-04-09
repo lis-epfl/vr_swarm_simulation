@@ -4,8 +4,6 @@ using UnityEngine;
 
 public class RandomPulseNoise : MonoBehaviour {
 
-    public Rigidbody drone;
-
     public bool apply_force = true;
 
     public float strength_coef = 0.0015f;
@@ -36,7 +34,8 @@ public class RandomPulseNoise : MonoBehaviour {
     public float strength_off_speed = 50.0f;
     public float strength_on_speed = 70.0f;
 
-    //mean/variance rate of change for wind direction
+    // The current wind force vector — read by DroneWind on each drone
+    [HideInInspector] public Vector3 CurrentWindForce = Vector3.zero;
 
     System.Random r;
 
@@ -65,7 +64,7 @@ public class RandomPulseNoise : MonoBehaviour {
 	void Start () {
         r = new System.Random();
 	}
-	
+
 	// Update is called once per frame
 	void FixedUpdate () {
         // random walk
@@ -75,8 +74,8 @@ public class RandomPulseNoise : MonoBehaviour {
             pulse_timer = 0.0f; //reset
             pulse_period = SamplePositive(pulse_period_mean, pulse_period_variance);
             pulse_mode = 1;
-        } 
-        else if (pulse_mode == 1) 
+        }
+        else if (pulse_mode == 1)
         {
             pulse_timer += Time.deltaTime;
 
@@ -92,7 +91,7 @@ public class RandomPulseNoise : MonoBehaviour {
                 base_strength = SamplePositive(strength_mean, strength_variance);
                 pulse_mode = 2;
             }
-        } 
+        }
         else if (pulse_mode == 2)
         {
             pulse_timer += Time.deltaTime;
@@ -122,11 +121,11 @@ public class RandomPulseNoise : MonoBehaviour {
 
 
             }
-        } 
+        }
 
 
 
-        if (motion_mode == 0) 
+        if (motion_mode == 0)
         {
             motion_timer = 0.0f;
             motion_period = SamplePositive(motion_period_mean, motion_period_variance);
@@ -141,18 +140,17 @@ public class RandomPulseNoise : MonoBehaviour {
             transform.rotation = Quaternion.Slerp(transform.rotation, targetDirection, Time.deltaTime * wind_change_speed);
             if (motion_timer > motion_period) {
                 motion_timer = 0.0f;
-                motion_mode = 0; 
+                motion_mode = 0;
 
             }
         }
 
         Vector3 ray = strength * (transform.rotation * Vector3.forward);
 
-        if (apply_force)
-        {
-            drone.AddForce(ray * strength_coef, ForceMode.Impulse);
-        }
-        Debug.DrawRay(drone.position, ray, Color.green);
+        // Expose the computed wind force for DroneWind components to read
+        CurrentWindForce = apply_force ? ray * strength_coef : Vector3.zero;
+
+        Debug.DrawRay(transform.position, ray, Color.green);
 	}
 
     public float Sample(float mean, float var)

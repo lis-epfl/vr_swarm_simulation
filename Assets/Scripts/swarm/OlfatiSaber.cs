@@ -15,10 +15,10 @@ public class OlfatiSaber : MonoBehaviour
     public float gamma = 1.0f;
     public float c_vm = 1.0f;
     public float d_obs = 5.0f;
-    public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
     public float ScaleFactor = 10.0f;
+    public float c_altitude_2d = 1.0f;
 
     public float MaxMigrationDistance = 10.0f;
 
@@ -31,13 +31,12 @@ public class OlfatiSaber : MonoBehaviour
         droneName = transform.parent.name;
     }
 
-    public Vector3 GetSwarmVelocityCommand(List<GameObject> swarm, Vector3 desiredVelocity)
+    public Vector3 GetSwarmAcceleration(List<GameObject> swarm)
     {
 
-        // Reset the vectors
-        Vector3 velocityMatching = new Vector3(0, 0, 0);
-        Vector3 cohesion = new Vector3(0, 0, 0);
-        Vector3 obstacle = new Vector3(0, 0, 0);
+        Vector3 velocityConsensus = Vector3.zero;
+        Vector3 cohesion = Vector3.zero;
+        Vector3 obstacle = Vector3.zero;
 
         // Get the position and velocity of the current drone
         StateFinder currentDroneState = GetComponent<VelocityControl>().State;
@@ -45,60 +44,58 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 localVelocity = currentDroneState.VelocityVector;
         Vector3 velocity = transform.TransformDirection(localVelocity);
 
-        //Calculate the velocity matching force given the difference between the desired v_x, v_y, and v_z and the current velocity
-        velocityMatching = c_vm * (desiredVelocity - velocity);           
-        
-        // Calculate the cohesion force for each of the neighbours
+        // Calculate cohesion and velocity consensus for each neighbour
+        float totalNeighbourAltitude = 0f;
+        int aliveNeighbourCount = 0;
         foreach (GameObject neighbour in swarm)
         {
-            // Get the child of the neighbour
             GameObject neighbourChild = neighbour.transform.Find("DroneParent").gameObject;
-            
-            // Skip the current drone
-            if (neighbourChild == gameObject)
-            {
-                continue;
-            }
 
-            // Get state of the neighbour
+            if (neighbourChild == gameObject)
+                continue;
+
             StateFinder neighbourState = neighbourChild.GetComponent<VelocityControl>().State;
-            // Get the position of the neighbour
+
+            if (!neighbourState.IsAlive)
+                continue;
+
             Vector3 neighbourPosition = neighbourState.Position;
 
-            // Relative Position
-            Vector3 relativePosition = neighbourPosition - position;
+            // Neighbour velocity in world frame
+            Vector3 neighbourLocalVel = neighbourState.VelocityVector;
+            Vector3 neighbourVelocity = neighbourChild.transform.TransformDirection(neighbourLocalVel);
 
-            // Set the y-component to zero if in 2D mode
+            // Velocity consensus: pull toward each neighbour's velocity
+            velocityConsensus += c_vm * (neighbourVelocity - velocity);
+
             if (!Is3D)
             {
-                relativePosition.y = 0;
+                totalNeighbourAltitude += neighbourPosition.y;
+                aliveNeighbourCount++;
             }
 
-            // Get the distance to the neighbour
-            float distance = relativePosition.magnitude;
+            Vector3 relativePosition = neighbourPosition - position;
 
-            // Scale the distance to fit the cohesion function
-            distance = distance / ScaleFactor;
-            
+            if (!Is3D)
+                relativePosition.y = 0;
+
+            float distance = relativePosition.magnitude / ScaleFactor;
+
             // Cohesion
-            Vector3 thisCohesion = GetCohesionForce(distance, d_ref, r0_coh) * relativePosition.normalized;
-            cohesion += thisCohesion;
-
+            cohesion += GetCohesionForce(distance, d_ref, r0_coh) * relativePosition.normalized;
         }
 
-        // Get the obstacle avoidance force
+        // In 2D mode, correct altitude drift by pulling toward the mean neighbour altitude
+        Vector3 altitudeCorrection = Vector3.zero;
+        if (!Is3D && aliveNeighbourCount > 0)
+        {
+            float meanNeighbourAltitude = totalNeighbourAltitude / aliveNeighbourCount;
+            altitudeCorrection.y = c_altitude_2d * (meanNeighbourAltitude - position.y);
+        }
+
         obstacle = GetObstacleForce(position, velocity);
 
-        // Get the total velocity command
-        Vector3 swarmInput = velocityMatching + cohesion + obstacle;
-
-        // Log the forces for debugging and the overall swarm input
-        // Debug.Log($"Velocity Matching Force for {droneName}: {velocityMatching}");
-        // Debug.Log($"Cohesion Force for {droneName}: {cohesion}");
-        // Debug.Log($"Obstacle Avoidance Force for {droneName}: {obstacle}");
-        // Debug.Log($"Swarm Input for {droneName}: {swarmInput}");
-
-        return swarmInput;
+        return velocityConsensus + cohesion + obstacle + altitudeCorrection;
     }
 
     private Vector3 GetObstacleForce(Vector3 dronePosition, Vector3 droneVelocity)
@@ -106,37 +103,23 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 ObsCoh = Vector3.zero;
         Vector3 ObsVel = Vector3.zero;
 
-        // Find the closest point on each obstacle with the 'Obstacle' tag and log the distance
-        Collider[] obstacles = Physics.OverlapSphere(dronePosition, d_obs, LayerMask.GetMask(k_ObstacleLayerName));
+        Collider[] obstacles = Physics.OverlapSphere(dronePosition, d_obs * ScaleFactor, LayerMask.GetMask(k_ObstacleLayerName));
         foreach (Collider obstacleCollider in obstacles)
         {
-            // Find the closest point on the obstacle
             Vector3 closestPoint = obstacleCollider.ClosestPointOnBounds(dronePosition);
-            // Calculate the distance to the closest point
             Vector3 directionToObstacle = closestPoint - dronePosition;
-            float distanceToObstacle = directionToObstacle.magnitude;
+            float distanceToObstacle = directionToObstacle.magnitude / ScaleFactor;
 
-            // Scale the distance to fit the obstacle avoidance function
-            distanceToObstacle = distanceToObstacle / ScaleFactor;
+            float s = 1 / (distanceToObstacle + 1);
+            Vector3 pos_obs = s * dronePosition + (1 - s) * closestPoint;
+            float s_der = Vector3.Dot(droneVelocity, (pos_obs - dronePosition).normalized) / Mathf.Pow(1 + distanceToObstacle, 2);
+            Vector3 vel_obs = s * droneVelocity - (s_der / s) * (pos_obs - dronePosition).normalized;
 
-            // If the distance is less than d_obs, calculate the obstacle avoidance force
-            if (distanceToObstacle < r0_obs)
-            {
-                // Calculate the obstacle velocity, vel_obs, using the logic above
-                float s = 1 / (distanceToObstacle + 1);
-                Vector3 pos_obs = s * dronePosition + (1 - s) * closestPoint;
-                float s_der = 1 * Vector3.Dot(droneVelocity, (pos_obs - dronePosition).normalized) / Mathf.Pow(1 + distanceToObstacle, 2);
-                Vector3 vel_obs = s * droneVelocity - 1 * (s_der / s) * (pos_obs - dronePosition).normalized;
-
-                ObsCoh += GetCohesionForce(distanceToObstacle, d_obs, r0_obs) * directionToObstacle.normalized;
-                ObsVel += (vel_obs - droneVelocity);
-            }
-
+            ObsCoh += GetCohesionForce(distanceToObstacle, d_obs, d_obs) * directionToObstacle.normalized;
+            ObsVel += (vel_obs - droneVelocity);
         }
 
-        Vector3 obstacleAvoidanceForce = c_obs * ObsCoh + c_vm * ObsVel;
-
-        return obstacleAvoidanceForce;
+        return c_obs * ObsCoh + c_vm * ObsVel;
     }
 
     public float GetCohesionForce(float r, float ref_d = -1, float r0 = -1)
@@ -150,7 +133,7 @@ public class OlfatiSaber : MonoBehaviour
         float neighbourWeight = GetNeighbourWeight(r, r0);
         float cohesionIntensityDerivative = GetCohesionIntensityDerivative(r, ref_d);
 
-        return 1 / r0_coh * neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
+        return 1 / r0 * neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
     }
 
     // Cohesion intensity function
