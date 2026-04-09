@@ -1,7 +1,11 @@
 using System.Collections;
 using System.Collections.Generic;
+using Unity.XR.CoreUtils;
 using UnityEngine;
 
+/// <summary>
+/// 
+/// </summary>
 public class AttitudeAlgorithm : MonoBehaviour
 {
     public VelocityControl vc;
@@ -11,11 +15,15 @@ public class AttitudeAlgorithm : MonoBehaviour
     public int NumDimensions = 2;
     public bool BoundaryEstimate = false;
     public bool PointInwards = false;
+    public float YawCorrectionFactor = 1.0f;
+    public float TargetYawSmoothingFactor = 0.1f;
+    public float NeighborYawSmoothingFactor = 0.1f;
 
-    private string droneName;    
+    private string droneName;
     private SwarmManager swarmManager;
     private SwarmManager.AttitudeAlgorithm selectedAttitudeAlgorithm;
     private float inputYawRate = 0.0f;
+    private float smoothedNeighborYaw = 0.0f;
     
     // Awake is called before Start
     void Awake()
@@ -32,23 +40,27 @@ public class AttitudeAlgorithm : MonoBehaviour
         swarmManager.swarmParamsChanged += OnSwarmParamsChanged;
         // Initialize all parameters from current values in SwarmManager
         OnSwarmParamsChanged();
+
+        if (vc == null)
+        {
+            Debug.LogError("VelocityControl component not assigned in AttitudeAlgorithm script on " + droneName);
+        }
     }
 
     void FixedUpdate()
     {
         readInputs();
-        float desiredYawRateRadians = 0.0f;
+        float commandedYawRate = 0.0f;
         switch(selectedAttitudeAlgorithm)
         {
             case SwarmManager.AttitudeAlgorithm.NONE:
-                // Force yaw rate to zero
-                desiredYawRateRadians = 0.0f;
+                commandedYawRate = 0.0f;
                 break;
             case SwarmManager.AttitudeAlgorithm.SIMPLE:
-                desiredYawRateRadians = inputYawRate;
+                commandedYawRate = getYawRateFromNeighborMean();
                 break;
             case SwarmManager.AttitudeAlgorithm.CONVEXHULL:
-                desiredYawRateRadians = getYawRateFromConvexHull();
+                commandedYawRate = getYawRateFromConvexHull();
                 break;
             default:
                 Debug.LogError("Unknown Attitude Control Algorithm selected.");
@@ -56,7 +68,8 @@ public class AttitudeAlgorithm : MonoBehaviour
         }
         
         // Set the desired yaw rate in the velocity control script
-        vc.attitude_control_yaw = desiredYawRateRadians;
+        vc.desiredYawRate = inputYawRate;
+        vc.attitude_control_yaw = commandedYawRate;
 
     }
 
@@ -72,6 +85,66 @@ public class AttitudeAlgorithm : MonoBehaviour
     public void SetYawRateFromCommand(float yawRateRadians)
     {
         inputYawRate = yawRateRadians;
+    }
+
+    /// <summary>
+    /// Wraps an angle to the [-pi, pi] range to avoid discontinuities.
+    /// </summary>
+    private float WrapAngle(float angle)
+    {
+        while (angle > Mathf.PI)  angle -= 2f * Mathf.PI;
+        while (angle < -Mathf.PI) angle += 2f * Mathf.PI;
+        return angle;
+    }
+
+    /// <summary>
+    /// Computes the desired yaw rate based on the mean yaw of all drones in the swarm (consensus-based).
+    /// Uses circular mean (via unit vectors) to handle the +-pi wraparound correctly.
+    /// </summary>
+    private float getYawRateFromNeighborMean()
+    {
+        if (swarm == null || swarm.Count == 0)
+        {
+            return 0.0f;
+        }
+
+        // Circular mean: accumulate sin/cos components to avoid +-pi discontinuity
+        float sumSin = 0.0f;
+        float sumCos = 0.0f;
+        int count = 0;
+        foreach (GameObject drone in swarm)
+        {
+            if (drone != null && drone != transform.parent.gameObject)
+            {
+                VelocityControl droneVC = drone.GetNamedChild("DroneParent").GetComponent<VelocityControl>();
+                if (droneVC != null && droneVC.State != null && droneVC.State.IsAlive)
+                {
+                    float yaw = droneVC.State.Angles.y;
+                    sumSin += Mathf.Sin(yaw);
+                    sumCos += Mathf.Cos(yaw);
+                    count++;
+                }
+            }
+        }
+
+        if (count == 0)
+        {
+            return 0.0f;
+        }
+
+        float meanSwarmYaw = Mathf.Atan2(sumSin / count, sumCos / count);
+
+        // Apply low-pass filter on the unit vector components to avoid discontinuities
+        smoothedNeighborYaw = Mathf.Atan2(
+            Mathf.Lerp(Mathf.Sin(smoothedNeighborYaw), Mathf.Sin(meanSwarmYaw), NeighborYawSmoothingFactor),
+            Mathf.Lerp(Mathf.Cos(smoothedNeighborYaw), Mathf.Cos(meanSwarmYaw), NeighborYawSmoothingFactor)
+        );
+
+        // Wrap error to [-pi, pi] to avoid discontinuity in correction
+        float error = WrapAngle(smoothedNeighborYaw - vc.State.Angles.y);
+        float targetYawRate = YawCorrectionFactor * error;
+
+        return targetYawRate;
     }
 
     /// <summary>
@@ -141,19 +214,19 @@ public class AttitudeAlgorithm : MonoBehaviour
         float desiredYawRateDegrees = Vector2.SignedAngle(new Vector2(transform.forward.x, transform.forward.z), bisector);
 
         // Convert the desired yaw rate from degrees to radians
-        float desiredYawRateRadians = desiredYawRateDegrees * Mathf.Deg2Rad;
+        float commandedYawRate = desiredYawRateDegrees * Mathf.Deg2Rad;
 
-        if (desiredYawRateRadians > 0)
+        if (commandedYawRate > 0)
         {
-            desiredYawRateRadians = Mathf.PI - desiredYawRateRadians;
+            commandedYawRate = Mathf.PI - commandedYawRate;
         }
         else
         {
-            desiredYawRateRadians = -Mathf.PI - desiredYawRateRadians;
+            commandedYawRate = -Mathf.PI - commandedYawRate;
         }
 
         BoundaryEstimate = true;
-        return desiredYawRateRadians;
+        return commandedYawRate;
     }
 
     void OnSwarmParamsChanged()
@@ -174,11 +247,10 @@ public class AttitudeAlgorithm : MonoBehaviour
 
     private void readInputs()
     {
-        // Read the desired yaw rate from the input manager
         if (InputManager.Instance != null)
         {
-            Dictionary<string, float> inputStatus = InputManager.Instance.InputStatus;
-            inputYawRate = inputStatus["yaw"];
+            float normYaw = InputManager.Instance.InputStatus["yaw"];
+            inputYawRate = normYaw * vc.maxYawRate;
         }
     }
 }

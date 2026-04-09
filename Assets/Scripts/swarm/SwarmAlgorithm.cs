@@ -12,15 +12,16 @@ public class SwarmAlgorithm : MonoBehaviour
 
     // Use the SwarmAlgorithm enum from SwarmManager
     private SwarmManager.SwarmAlgorithm currentAlgorithm;
-    private SwarmManager.AttitudeAlgorithm attitudeAlgorithm;
+
 
     private Reynolds reynoldsAlgorithm;
     private OlfatiSaber olfatiSaberAlgorithm;
-    // Default altitude and velocity
     public float desired_height = 4.0f;
-    public float desired_vx = 0.0f;
-    public float desired_vy = 0.0f;
-    public float desired_alittude_rate = 0.0f;
+
+    // Normalised inputs [-1, 1] forwarded to VelocityControl
+    private float normPitch = 0.0f;
+    private float normRoll  = 0.0f;
+    private float desired_alittude_rate = 0.0f;
 
     // Controller scripts
     private GameObject controller;
@@ -59,32 +60,20 @@ public class SwarmAlgorithm : MonoBehaviour
     void FixedUpdate()
     {
         readInputs();
-        Vector3 velocityCommand = Vector3.zero;
+        Vector3 swarmAccel = Vector3.zero;
+
         switch (currentAlgorithm)
         {
             case SwarmManager.SwarmAlgorithm.REYNOLDS:
-                velocityCommand = reynoldsAlgorithm.GetSwarmVelocityCommand(swarm);
+                swarmAccel = reynoldsAlgorithm.GetSwarmVelocityCommand(swarm);
                 break;
 
             case SwarmManager.SwarmAlgorithm.OLFATI_SABER:
-                // Unity left-handed + z forward coordinate system
-                Vector3 desiredVelocityInput = new Vector3(desired_vy, 0, desired_vx);
-                switch (attitudeAlgorithm)
-                {
-                    case SwarmManager.AttitudeAlgorithm.SIMPLE:
-                        // Rotate the desired velocity input based on the estimated swarm heading
-                        float currentYaw = GetComponent<VelocityControl>().State.Angles.y;
-                        desiredVelocityInput = Quaternion.Euler(0, currentYaw, 0) * desiredVelocityInput;
-                        break;
-                }
-                velocityCommand = olfatiSaberAlgorithm.GetSwarmVelocityCommand(swarm, desiredVelocityInput);
+                swarmAccel = olfatiSaberAlgorithm.GetSwarmAcceleration(swarm);
                 break;
         }
-        // Set the desired velocities in the velocity control script
-        velocityControl.swarm_vx = velocityCommand.x;
-        velocityControl.swarm_vy = velocityCommand.y + desired_alittude_rate;
-        velocityControl.swarm_vz = velocityCommand.z;
 
+        velocityControl.swarmAcceleration = swarmAccel;
     }
 
     // Cleanup when the script is destroyed
@@ -103,7 +92,7 @@ public class SwarmAlgorithm : MonoBehaviour
 
         // Get swarm algorithm selection
         currentAlgorithm = swarmManager.swarmAlgorithm;
-        attitudeAlgorithm = swarmManager.GetSelectedAttitudeAlgorithm();
+
 
         // Check the current algorithm and enable/disable the corresponding algorithm
         switch (currentAlgorithm)
@@ -127,8 +116,8 @@ public class SwarmAlgorithm : MonoBehaviour
     public void Reset()
     {
         desired_alittude_rate = 0.0f;
-        desired_vx = 0.0f;
-        desired_vy = 0.0f;
+        normPitch = 0.0f;
+        normRoll  = 0.0f;
         velocityControl.Reset();
     }
 
@@ -159,18 +148,19 @@ public class SwarmAlgorithm : MonoBehaviour
 
     private void readInputs()
     {
-        // Read the desired velocities from the input manager
         if (InputManager.Instance != null)
         {
             Dictionary<string, float> inputStatus = InputManager.Instance.InputStatus;
-            desired_vx = inputStatus["pitch"];
-            desired_vy = inputStatus["roll"];
+
+            normPitch             = inputStatus["pitch"];
+            normRoll              = inputStatus["roll"];
             desired_alittude_rate = inputStatus["throttle"];
-            // Only updatae the swarm spread if the input is greater than 0, otherwise keep as is
+
+            velocityControl.SetNormalisedVelocity(normRoll, normPitch); // Drones are facing forward in z
+            velocityControl.SetNormalisedAltitudeRate(desired_alittude_rate);
+
             if (inputStatus["spread"] > 0)
-            {
                 SetSwarmSpread(inputStatus["spread"]);
-            }
         }
     }
 
@@ -201,7 +191,6 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.gamma = swarmManager.GetGamma();
             olfatiSaberAlgorithm.c_vm = swarmManager.GetCVM();
             olfatiSaberAlgorithm.d_obs = swarmManager.GetDObs();
-            olfatiSaberAlgorithm.r0_obs = swarmManager.GetR0Obs();
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
             olfatiSaberAlgorithm.c_obs = swarmManager.GetCObs();
             olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();

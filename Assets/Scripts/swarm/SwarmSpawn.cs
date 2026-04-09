@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 
 public class swarmSpawn : MonoBehaviour
@@ -13,9 +14,11 @@ public class swarmSpawn : MonoBehaviour
     public int start_x = 0;
     public int start_y = 0;
     public int start_z = 0;
-    public bool randomYaw = true;
+    public bool randomYaw = false;
+    public bool RandomizeMassAndInertia = false;
     public int YawDegrees = 0;
     public bool UsePySender = false;
+    public bool trackBirdsEye = false;
     public GameObject swarmParent;
     private InterfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
@@ -66,6 +69,13 @@ public class swarmSpawn : MonoBehaviour
                 // Instantiate the drone prefab at the drone position and rotation
                 GameObject drone = Instantiate(dronePrefab);
                 drone.name = "Drone " + swarm.Count;
+                StateFinder state = drone.GetComponent<StateFinder>();
+                if (state != null)
+                {
+                    state.Altitude = dronePosition.y;
+                    state.Position = dronePosition;
+                    state.GroundTruthPosition = dronePosition;
+                }
 
                 // Move the drone to the position
                 Transform droneParent = drone.transform.Find("DroneParent");
@@ -87,13 +97,21 @@ public class swarmSpawn : MonoBehaviour
             // Get the drone number from the name
             string[] splitName = drone.name.Split(' ');
             droneNumber = int.Parse(splitName[1]);
-            
+
             // Find the DroneParent object
             Transform droneParent = drone.transform.Find("DroneParent");
 
             // Add the swarm to the necessary scripts
-            droneParent.GetComponent<SwarmAlgorithm>().swarm = swarm;       
-            droneParent.GetComponent<AttitudeAlgorithm>().swarm = swarm;     
+            droneParent.GetComponent<SwarmAlgorithm>().swarm = swarm;
+            droneParent.GetComponent<AttitudeAlgorithm>().swarm = swarm;
+
+            // Per-drone mass/inertia variation for realism
+            Rigidbody rb = droneParent.GetComponent<Rigidbody>();
+            if (rb != null && RandomizeMassAndInertia)
+            {
+                rb.mass *= UnityEngine.Random.Range(0.92f, 1.08f);
+                rb.inertiaTensor *= UnityEngine.Random.Range(0.95f, 1.05f);
+            }
         }
 
         // Set the swarm in interface scripts
@@ -102,6 +120,7 @@ public class swarmSpawn : MonoBehaviour
         if (UsePySender)
         {
             PySender.Instance.InitializeDroneDataSharedMemory((uint)swarm.Count);
+            PySender.Instance.InitializeUserInputDataSharedMemory();
             PySender.Instance.Swarm = swarm;
         }
         
@@ -113,9 +132,48 @@ public class swarmSpawn : MonoBehaviour
 
     }
 
+    private Vector3 GetSwarmCenterGroundTruth()
+    {
+        Vector3 center = Vector3.zero;
+        int validCount = 0;
+
+        foreach (GameObject drone in swarm)
+        {
+            if (drone == null)
+                continue;
+
+            Transform droneParent = drone.transform.Find("DroneParent");
+            if (droneParent == null)
+                continue;
+
+            VelocityControl vc = droneParent.GetComponent<VelocityControl>();
+            if (vc == null || vc.State == null)
+                continue;
+
+            center += vc.State.GroundTruthPosition;
+            validCount++;
+        }
+
+        if (validCount > 0)
+            center /= validCount;
+
+        return center;
+    }
+
 #if UNITY_EDITOR
     private void OnDrawGizmos()
     {
+        // Birds-eye scene view tracking when in play mode
+        if (Application.isPlaying && trackBirdsEye && swarm != null && swarm.Count > 0)
+        {
+            Vector3 center = GetSwarmCenterGroundTruth();
+            UnityEditor.SceneView sv = UnityEditor.SceneView.lastActiveSceneView;
+            if (sv != null)
+            {
+                sv.LookAt(center, Quaternion.Euler(90, 0, 0), 40f);
+            }
+        }
+
         int total = dronesAlongX * dronesAlongZ;
 
         uint index = 0;

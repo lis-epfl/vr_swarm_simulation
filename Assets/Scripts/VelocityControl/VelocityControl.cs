@@ -4,6 +4,19 @@ using UnityEngine;
 
 public class VelocityControl : MonoBehaviour
 {
+    public enum ControlStyle { Custom, Soft, Racing }
+
+    // Predefined profiles — values hardcoded here, applied at runtime when not Custom
+    private static readonly float[] k_MaxPitch       = { 0f,    0.15f,  0.4f }; // Custom placeholder, Soft ~9°, Racing ~30°
+    private static readonly float[] k_MaxRoll        = { 0f,    0.15f,  0.4f };
+    private static readonly float[] k_MaxYawRate     = { 0f,    0.6f,   1.5f  };
+    private static readonly float[] k_MaxSpeed       = { 0f,    3.0f,   15.0f };
+    private static readonly float[] k_MaxAscentRate  = { 0f,    1.5f,   3.0f  };
+    private static readonly float[] k_MaxDescentRate = { 0f,    1.5f,   2.5f  };
+    private static readonly float[] k_MaxAlpha       = { 0f,    6.0f,   15.0f };
+
+    [Header("Control Style")]
+    public ControlStyle controlStyle = ControlStyle.Custom;
 
     public StateFinder State;
 
@@ -13,71 +26,93 @@ public class VelocityControl : MonoBehaviour
     public GameObject PropRL;
 
     private float gravity = 9.81f;
-    private float timeConstantVelocityZ = 1.0f; // Normal-person coordinates
     private float timeConstantAcceleration = 0.5f;
     private float timeConstantOmegaXYRate = 0.1f; // Normal-person coordinates (roll/pitch)
     private float timeConstantAlphaXYRate = 0.05f; // Normal-person coordinates (roll/pitch)
     private float timeConstantAlphaZRate = 0.05f; // Normal-person coordinates (yaw)
 
-    private float maxPitch = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies 
-    private float maxRoll = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies
-    private float maxYawRate = 1.0f;
-    private float maxAlpha = 10.0f;
-    private float maxSpeed = 5.0f;
+    [Header("Rates & Limits")]
+    public float maxPitch = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies 
+    public float maxRoll = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies
+    public float maxYawRate = 1.0f;
+    public float maxAlpha = 10.0f;
+    public float maxSpeed = 10.0f;
+    public float MaxAscentRate = 3.0f; // Maximum ascent rate in m/s
+    public float MaxDescentRate = 3.0f; // Maximum descent rate in m/s
+    public float MinHeight = 0.5f;
+    
 
     //must set this
+    [Header("Setpoints")]
     public float desired_height = 4.0f;
-    public float desired_vx = 0.0f;
-    public float desired_vy = 0.0f;
+    // User velocity commands in body frame (x = sideways/roll axis, z = forward/pitch axis)
+    private float userVelX = 0.0f;
+    private float userVelZ = 0.0f;
     public float desiredYawRate = 0.0f;
     public float attitude_control_yaw = 0.0f;
+    // Swarm acceleration feedforward (world frame, set by SwarmAlgorithm)
+    [HideInInspector] public Vector3 swarmAcceleration = Vector3.zero;
 
-    // PD coeff for height control
+    // PD coefficients for height control
+    [Header("Filters & Coefficients")]
     public float HeightKp = 2.0f;
     public float HeightKd = 1.0f;
-    public float HeightKi = 0.1f;
+    public float heightDerivFilterCoeff = 0.2f;
+    public float yawFilterCoefficient = 0.15f;
+    public float SwarmAccelFilterCoefficient = 0.3f;
+
     private float previousHeightError = 0.0f;
-    private float cumulativeHeightError = 0.0f;
-    private float filteredHeightRate = 0.0f;
-    public float HeightRateCoefficient = 0.1f;
+    private float filteredHeightErrorDerivative = 0.0f;
+    private float userAltitudeRate = 0.0f;
 
     private float targetYawRate = 0.0f;
     private float filteredYawRate = 0.0f;
-    public float yawFilterCoefficient = 0.15f;
 
-    public float swarm_vx = 0.0f;
-    public float swarm_vy = 0.0f;
-    public float swarm_vz = 0.0f;
-    public float MinHeight = 0.5f;
-
+    [Header("Other")]
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
-
-    //must set this
     public float initial_height = 14.0f;
 
-    private bool wait = false;
-    private bool flag = true;
-
     private float speedScale = 500.0f;
-
-    private Vector3 filteredVelocity = Vector3.zero;
-    private float filterCoefficient = 0.01f;
-
+    private Vector3 filteredSwarmAccel = Vector3.zero;
     private Vector3 initialPosition;
     private Quaternion initialRotation;
     
     // Use this for initialization
     void Start() {
+        ApplyControlStyle();
+
         State.GetState ();
         Rigidbody rb = GetComponent<Rigidbody> ();
         Vector3 desiredForce = new Vector3 (0.0f, gravity * State.Mass, 0.0f);
         rb.AddForce (desiredForce, ForceMode.Acceleration);
 
-        initial_height = State.Altitude + 4.0f;
-        desired_height = State.Altitude + 4.0f;
+        initial_height = State.Altitude;
+        desired_height = initial_height;
 
         initialPosition = transform.position;
         initialRotation = transform.rotation;
+    }
+
+    // Called in editor when any field is changed in Inspector
+    void OnValidate() => ApplyControlStyle();
+
+    /// <summary>
+    /// Overwrites the rate/limit fields with the values defined in the selected profile.
+    /// Custom leaves all fields untouched so the Inspector values are used directly.
+    /// </summary>
+    public void ApplyControlStyle()
+    {
+        if (controlStyle == ControlStyle.Custom)
+            return;
+
+        int i = (int)controlStyle;
+        maxPitch       = k_MaxPitch[i];
+        maxRoll        = k_MaxRoll[i];
+        maxYawRate     = k_MaxYawRate[i];
+        maxSpeed       = k_MaxSpeed[i];
+        MaxAscentRate  = k_MaxAscentRate[i];
+        MaxDescentRate = k_MaxDescentRate[i];
+        maxAlpha       = k_MaxAlpha[i];
     }
 
     // Update is called once per frame
@@ -88,61 +123,32 @@ public class VelocityControl : MonoBehaviour
 
         Vector3 desiredTheta;
         Vector3 desiredOmega;
-        Vector3 desiredVelocity;
-        Vector3 swarmVelocity;
 
 
-        filteredHeightRate = filteredHeightRate * (1.0f - HeightRateCoefficient) + swarm_vy * HeightRateCoefficient;
-        desired_height = desired_height + filteredHeightRate * Time.deltaTime;
+        // --- Height control (PD) ---
+        desired_height += userAltitudeRate * Time.deltaTime;
+        desired_height = Mathf.Max(desired_height, MinHeight);
 
-        if (desired_height < MinHeight)
-        {
-            desired_height = MinHeight;
-        }
         float currentHeightError = desired_height - State.Altitude;
+        float rawHeightErrorDerivative = (currentHeightError - previousHeightError) / Time.deltaTime;
+        filteredHeightErrorDerivative = filteredHeightErrorDerivative * (1.0f - heightDerivFilterCoeff) + rawHeightErrorDerivative * heightDerivFilterCoeff;
+        float altitudeCommand = HeightKp * currentHeightError + HeightKd * filteredHeightErrorDerivative;
 
-        // Low pass filter for height control
-        float heightErrorDerivative = (currentHeightError - previousHeightError) / Time.deltaTime;
-        cumulativeHeightError += currentHeightError * Time.deltaTime;
-        float altitudeCommand = HeightKp * currentHeightError + HeightKd * heightErrorDerivative + HeightKi * cumulativeHeightError;
+        // --- User velocity controller (world frame) ---
+        // Use StateFinder velocity (includes sensor noise) transformed to world frame
+        Vector3 userWorldVel = transform.TransformDirection(new Vector3(userVelX, 0f, userVelZ));
+        Vector3 worldVelocity = transform.TransformDirection(State.VelocityVector);
+        Vector3 userVelError = worldVelocity - userWorldVel;
+        Vector3 userAccel = userVelError * -1.0f / timeConstantAcceleration;
 
-        // Get the velocity commands from Reynolds and add the user commands
-        if (currentAlgorithm == SwarmManager.SwarmAlgorithm.REYNOLDS)
-        {
-            desiredVelocity = new Vector3(desired_vx, -1.0f * currentHeightError / timeConstantVelocityZ, desired_vy);
-            swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vy);
-        }
-        // Get the velocity commands from Olfati-Saber, user commands are already included
-        else if (currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER)
-        {
-            //desiredVelocity = new Vector3(0.0f, -1.0f * currentHeightError / timeConstantVelocityZ, 0.0f);
-            desiredVelocity = Vector3.zero;
-            swarmVelocity = new Vector3(swarm_vx, 0.0f, swarm_vz);
-        }
-        else
-        {
-            desiredVelocity = new Vector3(desired_vx, -1.0f * currentHeightError / timeConstantVelocityZ, desired_vy);
-            swarmVelocity = new Vector3(0.0f, 0.0f, 0.0f);
-        }
+        // --- Swarm feedforward acceleration (world frame) ---
+        // Swarm output is already an acceleration (cohesion + consensus + obstacle).
+        // Filter it lightly to smooth inter-frame jitter, then add directly.
+        filteredSwarmAccel = Vector3.Lerp(filteredSwarmAccel, swarmAcceleration, SwarmAccelFilterCoefficient);
 
+        Vector3 desiredAcceleration = userAccel + filteredSwarmAccel;
 
-
-        // NOTE: In world frame y is up
-
-        Vector3 totalTargetVelocityWorld = desiredVelocity + swarmVelocity;
-
-
-        // Transform the desired velocity from the world frame to the body frame
-        Vector3 totalTargetVelocity = transform.InverseTransformDirection(totalTargetVelocityWorld);
-
-
-        // Apply the low-pass filter to reduce oscillations in velocity control
-        filteredVelocity = filteredVelocity * (1.0f - filterCoefficient) + totalTargetVelocity * filterCoefficient;
-
-        Vector3 velocityError = State.VelocityVector - filteredVelocity;
-
-        Vector3 desiredAcceleration = velocityError * -1.0f / timeConstantAcceleration;
-
+        // World-frame acceleration → desired pitch/roll
         desiredTheta = new Vector3(desiredAcceleration.z / gravity, 0.0f, -desiredAcceleration.x / gravity);
 
         // Clamp the desired angles to the maximum allowed values
@@ -172,7 +178,7 @@ public class VelocityControl : MonoBehaviour
         desiredAlpha = Vector3.Max(desiredAlpha, Vector3.one * maxAlpha * -1.0f);
 
         // float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));
-        float desiredThrust = (gravity + altitudeCommand) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));
+        float desiredThrust = (gravity + altitudeCommand + desiredAcceleration.y) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));
         desiredThrust = Mathf.Min(desiredThrust, 2.7f * gravity);
         desiredThrust = Mathf.Max(desiredThrust, 0.0f);
 
@@ -204,8 +210,8 @@ public class VelocityControl : MonoBehaviour
         State.VelocityVector = Vector3.zero;
         State.AngularVelocityVector = Vector3.zero;
 
-        desired_vx = 0.0f;
-        desired_vy = 0.0f;
+        userVelX = 0.0f;
+        userVelZ = 0.0f;
         desiredYawRate = 0.0f;
         desired_height = initial_height;
 
@@ -215,17 +221,36 @@ public class VelocityControl : MonoBehaviour
         enabled = true;
     }
 
-    IEnumerator Waiting(float time)
+    // Return max speed
+    public float GetMaxSpeed()    => maxSpeed;
+    public float GetMaxYawRate()  => maxYawRate;
+
+    /// <summary>
+    /// Set horizontal velocity commands from a normalised input in [-1, 1].
+    /// Scaled against maxSpeed so the full stick always maps to the current limit.
+    /// </summary>
+    public void SetNormalisedVelocity(float normVx, float normVy)
     {
-        wait = true;
-        yield return new WaitForSeconds(time);
-        wait = false;
+        userVelX = Mathf.Clamp(normVx, -1f, 1f) * maxSpeed;
+        userVelZ = Mathf.Clamp(normVy, -1f, 1f) * maxSpeed;
     }
 
-    // Return max speed
-    public float GetMaxSpeed()
+    /// <summary>
+    /// Set yaw rate command from a normalised input in [-1, 1].
+    /// Scaled against maxYawRate.
+    /// </summary>
+    public void SetNormalisedYawRate(float normYaw)
     {
-        return maxSpeed;
+        desiredYawRate = Mathf.Clamp(normYaw, -1f, 1f) * maxYawRate;
+    }
 
+    /// <summary>
+    /// Set altitude rate command from a normalised input in [-1, 1].
+    /// Positive = ascend (scaled against MaxAscentRate), negative = descend (MaxDescentRate).
+    /// </summary>
+    public void SetNormalisedAltitudeRate(float normAlt)
+    {
+        normAlt = Mathf.Clamp(normAlt, -1f, 1f);
+        userAltitudeRate = normAlt >= 0f ? normAlt * MaxAscentRate : normAlt * MaxDescentRate;
     }
 }
