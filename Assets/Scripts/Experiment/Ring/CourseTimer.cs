@@ -39,6 +39,17 @@ public class CourseTimer : MonoBehaviour
 
     private float _splitStart;  // Time.time at the start of the current gate split
 
+    private bool _showText = false;
+    public bool ShowText
+    {
+        get => _showText;
+        set {
+            _showText = value;
+            if (timerDisplay != null)
+                timerDisplay.gameObject.SetActive(_showText);
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────

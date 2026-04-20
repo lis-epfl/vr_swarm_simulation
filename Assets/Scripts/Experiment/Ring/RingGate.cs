@@ -16,6 +16,7 @@ using UnityEngine.Events;
 [RequireComponent(typeof(RectGateMeshGenerator))]
 public class RingGate : MonoBehaviour
 {
+
     // ─────────────────────────────────────────────────────────────────────────
     // Inspector
     // ─────────────────────────────────────────────────────────────────────────
@@ -31,8 +32,12 @@ public class RingGate : MonoBehaviour
     public float barThickness = 0.2f;
 
     [Header("Swarm Settings")]
-    [Tooltip("Total number of drones in the swarm. Used to fire onAllDronesPassed.")]
+    [Tooltip("Total number of drones in the swarm. Used as fallback when swarmSpawnRef is null.")]
     public int swarmSize = 9;
+
+    [Tooltip("Reference to the swarm spawner. When set, the gate dynamically queries the alive " +
+             "drone count so dead drones are excluded from completion tracking.")]
+    public swarmSpawn swarmSpawnRef;
 
     [Tooltip("Tag used to identify drone colliders.")]
     public string droneTag = "Player";
@@ -40,6 +45,9 @@ public class RingGate : MonoBehaviour
     [Header("References (auto-created if left empty)")]
     [Tooltip("Child transform placed at the geometric centre; used as spline node for path guidance.")]
     public Transform centerPoint;
+
+    [Tooltip("Gate manager reference; used to check if in demo mode.")]
+    public RingGateManager gateManager;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Debug
@@ -97,6 +105,7 @@ public class RingGate : MonoBehaviour
     [SerializeField] private int _totalPasses;
     [SerializeField] private int _insidePasses;
     [SerializeField] private int _outsidePasses;
+    [SerializeField] private CourseGenerator.SegmentType _gateType;
 
     /// <summary>Total drone passes recorded since last ResetMetrics().</summary>
     public int TotalPasses  => _totalPasses;
@@ -106,6 +115,17 @@ public class RingGate : MonoBehaviour
     public int OutsidePasses => _outsidePasses;
     /// <summary>Fraction of passes that went through the aperture. 0–1.</summary>
     public float AccuracyRatio => _totalPasses > 0 ? (float)_insidePasses / _totalPasses : 0f;
+
+    public int IsHard => _gateType == CourseGenerator.SegmentType.Hard ? 1 : 0;
+
+    public CourseGenerator.SegmentType Type
+    {
+        get => _gateType;
+        set
+        {
+            _gateType = value;
+        }
+    }
 
     /// <summary>Unix ms timestamp of the first confirmed pass in this activation window. 0 if none yet.</summary>
     public long FirstPassUnixMs { get; private set; }
@@ -137,6 +157,19 @@ public class RingGate : MonoBehaviour
         Log($"Initialised — aperture {gateWidth}×{gateHeight} m, swarm size {swarmSize}, tag '{droneTag}'.");
     }
 
+    /// <summary>
+    /// Polls completion while the gate is mid-activation so that a drone crashing
+    /// before it crosses the exit plane does not permanently stall the gate.
+    /// </summary>
+    private void Update()
+    {
+        // Only relevant when at least one drone has passed but the gate is not yet complete.
+        if (_passedThisActivation.Count == 0) return;
+        if (gateManager != null && gateManager.DemoMode) return;
+
+        CheckAndFireCompletion();
+    }
+
     private void EnsureCenterPoint()
     {
         if (centerPoint != null) return;
@@ -153,6 +186,52 @@ public class RingGate : MonoBehaviour
         go.transform.SetParent(transform, false);
         centerPoint = go.transform;
         Log("CenterPoint not found — created automatically.");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Swarm alive count
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the number of drones currently alive in the swarm.
+    /// Lazy-discovers <see cref="swarmSpawn"/> from the scene if <see cref="swarmSpawnRef"/>
+    /// is not explicitly assigned. Falls back to <see cref="swarmSize"/> only when no
+    /// spawner can be found (logs a warning so the misconfiguration is visible).
+    /// </summary>
+    private int GetAliveSwarmCount()
+    {
+        // Lazy auto-discover so the gate works without a manual inspector connection.
+        if (swarmSpawnRef == null)
+            swarmSpawnRef = FindFirstObjectByType<swarmSpawn>();
+
+        if (swarmSpawnRef == null)
+        {
+            Debug.LogWarning($"[RingGate] {gameObject.name}: swarmSpawnRef not found — " +
+                             $"falling back to swarmSize ({swarmSize}). Assign swarmSpawnRef " +
+                             $"on the RingGateManager for accurate alive-drone tracking.");
+            return swarmSize;
+        }
+
+        int count = 0;
+        foreach (var droneObj in swarmSpawnRef.swarm)
+        {
+            if (droneObj == null) continue;
+            StateFinder sf = droneObj.GetComponentInChildren<StateFinder>();
+            if (sf != null && sf.IsAlive)
+                count++;
+        }
+
+        if (count == 0)
+        {
+            // No alive drones found — use total spawned count so the gate does not
+            // instantly complete. This is a safety net; it should not occur in normal play.
+            int total = swarmSpawnRef.swarm.Count;
+            Debug.LogWarning($"[RingGate] {gameObject.name}: GetAliveSwarmCount found 0 alive drones " +
+                             $"(total spawned: {total}) — using total spawned count as target.");
+            return Mathf.Max(1, total);
+        }
+
+        return count;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -215,6 +294,34 @@ public class RingGate : MonoBehaviour
     /// </summary>
     private void RecordConfirmedPass(GameObject droneRoot, Collider originCollider)
     {
+        // In demo mode: just advance gate visual without recording metrics/events
+        if (gateManager != null && gateManager.DemoMode)
+        {
+            gateManager.HandleDemoPass(this);
+            return;
+        }
+
+        // ── Skip dead drones ─────────────────────────────────────────────────
+        VelocityControl vc = droneRoot.GetComponent<VelocityControl>();
+        if (vc != null && vc.State != null && !vc.State.IsAlive)
+        {
+            LogRejection($"Dead drone '{droneRoot.name}' ignored — not counted toward gate pass.");
+            return;
+        }
+
+        // ── Inside/outside check (rectangular gate) ─────────────────────────
+        Vector3 localPos   = transform.InverseTransformPoint(droneRoot.transform.position);
+        float   radialDist = new Vector2(localPos.x, localPos.y).magnitude;
+        bool    isInside   = Mathf.Abs(localPos.x) <= gateWidth * 0.5f &&
+                             Mathf.Abs(localPos.y) <= gateHeight * 0.5f;
+
+        // If first drone, make sure it is inside the gate to avoid displaying plane on next gate
+        if (_totalPasses == 0 && !isInside)
+        {
+            LogRejection($"First drone '{droneRoot.name}' is outside the gate — ignoring pass.");
+            return;
+        }
+
         int droneId = droneRoot.GetInstanceID();
 
         if (_passedThisActivation.Contains(droneId))
@@ -223,16 +330,6 @@ public class RingGate : MonoBehaviour
             return;
         }
         _passedThisActivation.Add(droneId);
-
-        // Record timestamp of the very first drone to pass
-        if (_passedThisActivation.Count == 1)
-            FirstPassUnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-        // ── Inside/outside check (rectangular gate) ─────────────────────────
-        Vector3 localPos   = transform.InverseTransformPoint(droneRoot.transform.position);
-        float   radialDist = new Vector2(localPos.x, localPos.y).magnitude;
-        bool    isInside   = Mathf.Abs(localPos.x) <= gateWidth * 0.5f &&
-                             Mathf.Abs(localPos.y) <= gateHeight * 0.5f;
 
         // ── Build pass record ────────────────────────────────────────────────
         var data = new RingPassData
@@ -268,13 +365,25 @@ public class RingGate : MonoBehaviour
 
         onDronePassed?.Invoke(data);
 
-        // ── Swarm progress ───────────────────────────────────────────────────
-        LogProgress(_passedThisActivation.Count);
+        // ── Check if all alive swarm drones have now passed ──────────────────
+        CheckAndFireCompletion();
+    }
 
-        // ── Check if all swarm drones have now passed ────────────────────────
-        if (_passedThisActivation.Count >= swarmSize)
+    /// <summary>
+    /// Fires <see cref="onAllDronesPassed"/> if every alive drone has now cleared this gate.
+    /// Called both from <see cref="RecordConfirmedPass"/> (normal path) and from
+    /// <see cref="Update"/> (crash-recovery path — catches the case where the last
+    /// expected drone dies before reaching the exit plane).
+    /// </summary>
+    private void CheckAndFireCompletion()
+    {
+        int aliveCount = GetAliveSwarmCount();
+        LogProgress(_passedThisActivation.Count, aliveCount);
+
+        if (_passedThisActivation.Count >= aliveCount)
         {
             LogGateCleared();
+            FirstPassUnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             onAllDronesPassed?.Invoke(this);
             _passedThisActivation.Clear();
         }
@@ -363,10 +472,10 @@ public class RingGate : MonoBehaviour
                   $"t={d.timestamp:F2}s");
     }
 
-    private void LogProgress(int count)
+    private void LogProgress(int count, int aliveCount)
     {
         if (!debugEnabled || !debugLogSwarmProgress) return;
-        Debug.Log($"{GateLabel} Swarm progress: {count} / {swarmSize} drones cleared.");
+        Debug.Log($"{GateLabel} Swarm progress: {count} / {aliveCount} alive drones cleared.");
     }
 
     private void LogGateCleared()

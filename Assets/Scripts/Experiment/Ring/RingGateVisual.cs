@@ -169,11 +169,16 @@ public class RingGateVisual : MonoBehaviour
                 showPlane  = true;
                 break;
             case GateVisualState.PartialComplete:
-                frameColor = partialCompleteColor;
+                // Stay gray while remaining drones are still passing through.
+                // Color is only applied once all alive drones have cleared (Completed state).
+                frameColor = idleColor;
                 showPlane  = false;
                 break;
             case GateVisualState.Completed:
-                frameColor = completedColor;
+                // Green if all drones passed inside, yellow if some passed outside
+                frameColor = (_ringGate != null && _ringGate.OutsidePasses > 0)
+                    ? partialCompleteColor
+                    : completedColor;
                 showPlane  = false;
                 break;
             case GateVisualState.Idle:

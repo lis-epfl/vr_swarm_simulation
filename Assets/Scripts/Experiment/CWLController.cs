@@ -45,20 +45,41 @@ namespace Experiment
         [Header("Parameter Ranges (min/max, will settle at optimal equilibrium)")]
         [SerializeField] private ParameterRange maxSpeedRange = new(3.0f, 15.0f, 0.5f);
         [SerializeField] private ParameterRange maxYawRateRange = new(0.6f, 1.5f, 0.05f);
-        [SerializeField] private ParameterRange maxPitchRange = new(0.15f, 0.4f, 0.01f);
-        [SerializeField] private ParameterRange maxRollRange = new(0.15f, 0.4f, 0.01f);
-        [SerializeField] private ParameterRange maxAscentRateRange = new(1.5f, 3.0f, 0.1f);
-        [SerializeField] private ParameterRange maxDescentRateRange = new(1.5f, 2.5f, 0.1f);
+        [SerializeField] private ParameterRange maxPitchRange = new(0.15f, 0.45f, 0.01f);
+        [SerializeField] private ParameterRange maxRollRange = new(0.15f, 0.45f, 0.01f);
+        [SerializeField] private ParameterRange maxAltitudeRateRange = new(1.5f, 5.0f, 0.1f);
         [SerializeField] private ParameterRange maxAlphaRange = new(6.0f, 15.0f, 0.5f);
 
-        private swarmSpawn _swarmSpawn;
+        private List<GameObject> swarm;
+        public List<GameObject> Swarm
+        {
+            get => swarm;
+            set => swarm = value;
+        }
+
         private CWLLevel _lastCWLLevel = CWLLevel.Medium;
+
+        [Header("Adaptive Algorithm")]
+        [SerializeField] private float _exponentialBase = 2.0f;
+
+        private CWLAdaptiveAlgorithm _adaptiveAlgorithm;
 
         private void Awake()
         {
-            _swarmSpawn = FindObjectOfType<swarmSpawn>();
-            if (_swarmSpawn == null)
-                Debug.LogWarning("[CWLController] swarmSpawn not found in scene");
+        }
+
+        private void Start()
+        {
+            var config = new CWLAdaptiveAlgorithmConfig
+            {
+                maxSpeedRange        = maxSpeedRange,
+                maxYawRateRange      = maxYawRateRange,
+                maxPitchRange        = maxPitchRange,
+                maxRollRange         = maxRollRange,
+                maxAltitudeRateRange = maxAltitudeRateRange,
+                maxAlphaRange        = maxAlphaRange,
+            };
+            _adaptiveAlgorithm = new CWLAdaptiveAlgorithm(config, _exponentialBase);
         }
 
         /// <summary>
@@ -80,7 +101,10 @@ namespace Experiment
         public void OnCWLInference(string cwlLevelString)
         {
             if (!_cwlFeedbackEnabled)
+            {
+                Debug.Log($"[CWLController] Received CWL inference '{cwlLevelString}' but feedback system is DISABLED");
                 return;
+            }
 
             if (!System.Enum.TryParse(cwlLevelString, true, out CWLLevel cwlLevel))
             {
@@ -98,72 +122,58 @@ namespace Experiment
         }
 
         /// <summary>
-        /// Adjusts all drone parameters based on the current CWL level.
+        /// Adjusts all drone parameters based on the current CWL level using the adaptive algorithm.
+        /// The algorithm applies exponential step growth with direction change detection.
         /// </summary>
         private void AdjustDroneParameters(CWLLevel cwlLevel)
         {
-            if (_swarmSpawn == null || _swarmSpawn.swarm == null || _swarmSpawn.swarm.Count == 0)
+            if (swarm == null || swarm.Count == 0)
             {
                 Debug.LogWarning("[CWLController] No drones found in swarm");
                 return;
             }
 
-            foreach (GameObject drone in _swarmSpawn.swarm)
+            foreach (GameObject drone in swarm)
             {
-                VelocityControl velocityControl = drone.GetComponent<VelocityControl>();
-                if (velocityControl == null)
+                Transform droneParentTransform = drone.transform.Find("DroneParent");
+                if (droneParentTransform == null)
                 {
-                    Debug.LogWarning($"[CWLController] Drone {drone.name} has no VelocityControl component");
+                    Debug.LogWarning($"[CWLController] Drone {drone.name} has no 'DroneParent' child");
                     continue;
                 }
 
-                AdjustDroneParameter(velocityControl, cwlLevel);
+                VelocityControl ctrl = droneParentTransform.GetComponent<VelocityControl>();
+                if (ctrl == null)
+                {
+                    Debug.LogWarning($"[CWLController] DroneParent on {drone.name} has no VelocityControl component");
+                    continue;
+                }
+
+                // Read current parameters
+                DroneParams current = new DroneParams
+                {
+                    maxSpeed        = ctrl.maxSpeed,
+                    maxYawRate      = ctrl.maxYawRate,
+                    maxPitch        = ctrl.maxPitch,
+                    maxRoll         = ctrl.maxRoll,
+                    maxAltitudeRate = ctrl.maxAltitudeRate,
+                    maxAlpha        = ctrl.maxAlpha,
+                };
+
+                // Apply adaptive adjustment
+                DroneParams updated = _adaptiveAlgorithm.Apply(cwlLevel, current);
+
+                // Write updated parameters back
+                ctrl.maxSpeed        = updated.maxSpeed;
+                ctrl.maxYawRate      = updated.maxYawRate;
+                ctrl.maxPitch        = updated.maxPitch;
+                ctrl.maxRoll         = updated.maxRoll;
+                ctrl.maxAltitudeRate = updated.maxAltitudeRate;
+                ctrl.maxAlpha        = updated.maxAlpha;
             }
 
-            Debug.Log($"[CWLController] Applied CWL adjustment: {cwlLevel}");
-        }
-
-        /// <summary>
-        /// Adjusts a single drone's parameters based on CWL feedback.
-        /// - If CWL is Low: increase parameters towards max (increase difficulty)
-        /// - If CWL is High: decrease parameters towards min (decrease difficulty)
-        /// - If CWL is Medium: no adjustment (optimal equilibrium)
-        /// </summary>
-        private void AdjustDroneParameter(VelocityControl ctrl, CWLLevel cwlLevel)
-        {
-            // Helper function to adjust towards direction
-            float AdjustInDirection(float current, float min, float max, float stepSize, bool increaseDirection)
-            {
-                if (increaseDirection)
-                {
-                    // Move towards max
-                    if (current >= max)
-                        return max;
-                    return Mathf.Min(current + stepSize, max);
-                }
-                else
-                {
-                    // Move towards min
-                    if (current <= min)
-                        return min;
-                    return Mathf.Max(current - stepSize, min);
-                }
-            }
-
-            // No adjustment if CWL is Medium (system has found equilibrium)
-            if (cwlLevel == CWLLevel.Medium)
-                return;
-
-            bool isIncreasing = cwlLevel == CWLLevel.Low; // Low CWL → increase difficulty
-
-            // Adjust each parameter incrementally
-            ctrl.maxSpeed = AdjustInDirection(ctrl.maxSpeed, maxSpeedRange.min, maxSpeedRange.max, maxSpeedRange.stepSize, isIncreasing);
-            ctrl.maxYawRate = AdjustInDirection(ctrl.maxYawRate, maxYawRateRange.min, maxYawRateRange.max, maxYawRateRange.stepSize, isIncreasing);
-            ctrl.maxPitch = AdjustInDirection(ctrl.maxPitch, maxPitchRange.min, maxPitchRange.max, maxPitchRange.stepSize, isIncreasing);
-            ctrl.maxRoll = AdjustInDirection(ctrl.maxRoll, maxRollRange.min, maxRollRange.max, maxRollRange.stepSize, isIncreasing);
-            ctrl.MaxAscentRate = AdjustInDirection(ctrl.MaxAscentRate, maxAscentRateRange.min, maxAscentRateRange.max, maxAscentRateRange.stepSize, isIncreasing);
-            ctrl.MaxDescentRate = AdjustInDirection(ctrl.MaxDescentRate, maxDescentRateRange.min, maxDescentRateRange.max, maxDescentRateRange.stepSize, isIncreasing);
-            ctrl.maxAlpha = AdjustInDirection(ctrl.maxAlpha, maxAlphaRange.min, maxAlphaRange.max, maxAlphaRange.stepSize, isIncreasing);
+            float multiplierBefore = _adaptiveAlgorithm.StepMultiplier / _exponentialBase;
+            Debug.Log($"[CWLController] Applied CWL adjustment: {cwlLevel} | step multiplier after: {_adaptiveAlgorithm.StepMultiplier:F3}x (was {multiplierBefore:F3}x)");
         }
 
         /// <summary>
@@ -177,15 +187,15 @@ namespace Experiment
         /// </summary>
         public void ResetToMedium()
         {
-            if (_swarmSpawn == null || _swarmSpawn.swarm == null || _swarmSpawn.swarm.Count == 0)
+            if (swarm == null || swarm.Count == 0)
             {
                 Debug.LogWarning("[CWLController] No drones found in swarm");
                 return;
             }
 
-            foreach (GameObject drone in _swarmSpawn.swarm)
+            foreach (GameObject drone in swarm)
             {
-                VelocityControl ctrl = drone.GetComponent<VelocityControl>();
+                VelocityControl ctrl = drone.transform.Find("DroneParent").gameObject.GetComponent<VelocityControl>();
                 if (ctrl == null) continue;
 
                 // Reset to midpoint of each parameter range
@@ -193,13 +203,40 @@ namespace Experiment
                 ctrl.maxYawRate = (maxYawRateRange.min + maxYawRateRange.max) / 2f;
                 ctrl.maxPitch = (maxPitchRange.min + maxPitchRange.max) / 2f;
                 ctrl.maxRoll = (maxRollRange.min + maxRollRange.max) / 2f;
-                ctrl.MaxAscentRate = (maxAscentRateRange.min + maxAscentRateRange.max) / 2f;
-                ctrl.MaxDescentRate = (maxDescentRateRange.min + maxDescentRateRange.max) / 2f;
+                ctrl.maxAltitudeRate = (maxAltitudeRateRange.min + maxAltitudeRateRange.max) / 2f;
                 ctrl.maxAlpha = (maxAlphaRange.min + maxAlphaRange.max) / 2f;
             }
 
             _lastCWLLevel = CWLLevel.Medium;
+            _adaptiveAlgorithm?.Reset();
             Debug.Log("[CWLController] Reset all drone parameters to midpoint (neutral starting point)");
+        }
+
+        public Dictionary<string, float> GetCurrentControlLimits()
+        {
+            if (swarm == null || swarm.Count == 0)
+            {
+                Debug.LogWarning("[CWLController] No drones found in swarm");
+                return new Dictionary<string, float>();
+            }
+
+            // Assuming all drones have the same parameters, we can just read from the first one
+            VelocityControl ctrl = swarm[0].transform.Find("DroneParent").gameObject.GetComponent<VelocityControl>();
+            if (ctrl == null)
+            {
+                Debug.LogWarning($"[CWLController] Drone {swarm[0].name} has no VelocityControl component");
+                return new Dictionary<string, float>();
+            }
+
+            return new Dictionary<string, float>
+            {
+                {"maxSpeed", ctrl.maxSpeed},
+                {"maxYawRate", ctrl.maxYawRate},
+                {"maxPitch", ctrl.maxPitch},
+                {"maxRoll", ctrl.maxRoll},
+                {"maxAltitudeRate", ctrl.maxAltitudeRate},
+                {"maxAlpha", ctrl.maxAlpha}
+            };
         }
     }
 }
