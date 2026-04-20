@@ -233,6 +233,104 @@ public class swarmSpawn : MonoBehaviour
             // Add the swarm to the necessary scripts
             droneParent.GetComponent<SwarmAlgorithm>().Reset();   
             droneParent.GetComponent<AttitudeAlgorithm>().Reset();  
+            drone.GetComponent<StateFinder>().Reset();
+            }
+        }
+    }
+
+    public void ResetToPos(Vector3 newStartPosition)
+    {
+        if (swarm.Count > 0)
+        {
+            int index = 0;
+            foreach (GameObject drone in swarm)
+            {
+                Transform droneParent = drone.transform.Find("DroneParent");
+
+                // Add the swarm to the necessary scripts
+                droneParent.GetComponent<SwarmAlgorithm>().Reset();
+                droneParent.GetComponent<AttitudeAlgorithm>().Reset();
+
+                // Move the drone to the new position
+                Vector3 offset = new Vector3(
+                    (index / dronesAlongZ) * droneSpacing,
+                    0f,
+                    (index % dronesAlongZ) * droneSpacing);
+                index++;
+
+                // Reset velocity control and state finder data
+                VelocityControl vc = droneParent.GetComponent<VelocityControl>();
+                if (vc != null)
+                {
+                    vc.ResetToPos(newStartPosition + offset);
+                }
+                // Reset DroneHealthMonitor to prevent false "dead" markings during repositioning
+                DroneHealthMonitor healthMonitor = droneParent.GetComponent<DroneHealthMonitor>();
+                if (healthMonitor != null)
+                {
+                    healthMonitor.Reset();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Disables health monitoring temporarily during critical operations.
+    /// Prevents drones from being marked as dead during repositioning.
+    /// </summary>
+    public void DisableHealthMonitoring()
+    {
+        if (swarm.Count > 0)
+        {
+            foreach (GameObject drone in swarm)
+            {
+                Transform droneParent = drone.transform.Find("DroneParent");
+                DroneHealthMonitor healthMonitor = droneParent.GetComponent<DroneHealthMonitor>();
+                if (healthMonitor != null)
+                {
+                    healthMonitor.enabled = false;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Re-enables health monitoring after critical operations.
+    /// Should be called after drones have settled in their new positions.
+    /// </summary>
+    public void EnableHealthMonitoring()
+    {
+        if (swarm.Count > 0)
+        {
+            foreach (GameObject drone in swarm)
+            {
+                Transform droneParent = drone.transform.Find("DroneParent");
+                DroneHealthMonitor healthMonitor = droneParent.GetComponent<DroneHealthMonitor>();
+                if (healthMonitor != null)
+                {
+                    healthMonitor.enabled = true;
+                    healthMonitor.Reset();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resets all DroneHealthMonitor instances to clear their elapsed time.
+    /// Call this to restart the stabilization delay on all drones.
+    /// </summary>
+    public void ResetAllHealthMonitors()
+    {
+        if (swarm.Count > 0)
+        {
+            foreach (GameObject drone in swarm)
+            {
+                Transform droneParent = drone.transform.Find("DroneParent");
+                DroneHealthMonitor healthMonitor = droneParent.GetComponent<DroneHealthMonitor>();
+                if (healthMonitor != null)
+                {
+                    healthMonitor.Reset();
+                }
             }
         }
     }
