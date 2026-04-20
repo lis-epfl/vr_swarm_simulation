@@ -124,6 +124,9 @@ public class DroneHealthMonitor : MonoBehaviour
             if (vc == null || vc.State == null)
                 continue;
 
+            if (!vc.State.IsAlive)
+                continue;
+
             center += vc.State.GroundTruthPosition;
             validCount++;
         }
