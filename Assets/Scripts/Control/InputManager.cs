@@ -38,7 +38,7 @@ public class InputManager : MonoBehaviour
     public Dictionary<string, float> InputStatusRaw => inputStatuRaw; // Expose inputStatus as a read-only property
     private bool isControlLocked = false; // Flag to lock/unlock control input
 
-    void Start()
+    void Awake()
     {
         if (Instance == null)
             Instance = this;
