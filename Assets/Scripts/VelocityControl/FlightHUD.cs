@@ -16,18 +16,12 @@ public class FlightHUD : MonoBehaviour
     [Header("References")]
     public swarmSpawn spawn;
     public Experiment.CWLController cwlController;
+    public FlightProfile racingProfile;  // Used for fixed bar ceiling values
     [Tooltip("0-based index of the drone to monitor (matches 'Drone 0', 'Drone 1', …)")]
     public int droneId = 0;
 
     // Resolved at runtime
     private VelocityControl vc;
-
-    // Racing-profile max values (fixed bar ceilings for CWL display)
-    private const float RacingMaxSpeed       = 15.0f;
-    private const float RacingMaxYawRate     =  1.5f;
-    private const float RacingMaxPitch       =  0.45f;
-    private const float RacingMaxRoll        =  0.45f;
-    private const float RacingMaxAltRate     =  5.0f;
 
     [Header("Display")]
     [Tooltip("Screen-space position of the HUD panel (top-left corner, pixels from screen top-left)")]
@@ -59,6 +53,10 @@ public class FlightHUD : MonoBehaviour
 
     void Start()
     {
+        // Auto-discover CWL controller if not assigned
+        if (cwlController == null)
+            cwlController = FindObjectOfType<Experiment.CWLController>();
+
         BuildUI();
         StartCoroutine(ResolveVelocityControl());
     }
@@ -113,28 +111,34 @@ public class FlightHUD : MonoBehaviour
         // Yaw rate — body frame y angular velocity, converted to deg/s
         float yawRateDeg = st.AngularVelocityVector.y * Mathf.Rad2Deg;
 
+        // Get Racing profile max values (fallback to defaults if profile not assigned)
+        float racingMaxSpeed    = racingProfile != null ? racingProfile.maxSpeed    : 15.0f;
+        float racingMaxYawRate  = racingProfile != null ? racingProfile.maxYawRate  : 1.5f;
+        float racingMaxPitch    = racingProfile != null ? racingProfile.maxPitch    : 0.45f;
+        float racingMaxAltRate  = racingProfile != null ? racingProfile.maxAltitudeRate : 5.0f;
+
         // CWL limits (fallback to Racing max if no controller assigned)
-        float limitSpeed    = cwlController != null ? vc.maxSpeed       : RacingMaxSpeed;
-        float limitYawRate  = cwlController != null ? vc.maxYawRate     : RacingMaxYawRate;
-        float limitPitch    = cwlController != null ? vc.maxPitch       : RacingMaxPitch;
-        float limitAltRate  = cwlController != null ? vc.maxAltitudeRate : RacingMaxAltRate;
+        float limitSpeed    = cwlController != null ? vc.maxSpeed       : racingMaxSpeed;
+        float limitYawRate  = cwlController != null ? vc.maxYawRate     : racingMaxYawRate;
+        float limitPitch    = cwlController != null ? vc.maxPitch       : racingMaxPitch;
+        float limitAltRate  = cwlController != null ? vc.maxAltitudeRate : racingMaxAltRate;
 
         // Limit ratios for bar positioning (0..1 relative to Racing max)
-        float limitRatioSpeed    = limitSpeed    / RacingMaxSpeed;
-        float limitRatioYawRate  = (limitYawRate * Mathf.Rad2Deg) / (RacingMaxYawRate * Mathf.Rad2Deg);
-        float limitRatioPitch    = (limitPitch   * Mathf.Rad2Deg) / (RacingMaxPitch   * Mathf.Rad2Deg);
-        float limitRatioAltRate  = limitAltRate  / RacingMaxAltRate;
+        float limitRatioSpeed    = limitSpeed    / racingMaxSpeed;
+        float limitRatioYawRate  = (limitYawRate * Mathf.Rad2Deg) / (racingMaxYawRate * Mathf.Rad2Deg);
+        float limitRatioPitch    = (limitPitch   * Mathf.Rad2Deg) / (racingMaxPitch   * Mathf.Rad2Deg);
+        float limitRatioAltRate  = limitAltRate  / racingMaxAltRate;
 
         // Max angle in degrees using Racing max
-        float racingAngleDeg = RacingMaxPitch * Mathf.Rad2Deg;
-        float racingYawDeg   = RacingMaxYawRate * Mathf.Rad2Deg;
+        float racingAngleDeg = racingMaxPitch * Mathf.Rad2Deg;
+        float racingYawDeg   = racingMaxYawRate * Mathf.Rad2Deg;
 
         // --- update rows (using Racing max for fixed bar scales) ---
         UpdateRowBipolar  (_pitchRow,      "Pitch",       pitchDeg,              racingAngleDeg,      racingAngleDeg,      "°",     limitRatioPitch);
         UpdateRowBipolar  (_rollRow,       "Roll",        rollDeg,               racingAngleDeg,      racingAngleDeg,      "°",     limitRatioPitch);
         UpdateRowBipolar  (_yawRateRow,    "Yaw Rate",    yawRateDeg,            racingYawDeg,        racingYawDeg,        " °/s",  limitRatioYawRate);
-        UpdateRowBipolar  (_altRateRow,    "Alt Rate",    altRate,               RacingMaxAltRate,    RacingMaxAltRate,    " m/s",  limitRatioAltRate);
-        UpdateRowUnipolar (_speedRow,      "Speed",       hSpeed,                RacingMaxSpeed,                           " m/s",  limitRatio: limitRatioSpeed);
+        UpdateRowBipolar  (_altRateRow,    "Alt Rate",    altRate,               racingMaxAltRate,    racingMaxAltRate,    " m/s",  limitRatioAltRate);
+        UpdateRowUnipolar (_speedRow,      "Speed",       hSpeed,                racingMaxSpeed,                           " m/s",  limitRatio: limitRatioSpeed);
         UpdateRowUnipolar (_thrustRow,     "Thrust",      vc.lastThrustClamped,  2.7f * 9.81f,                             " m/s²");
     }
 
@@ -161,17 +165,27 @@ public class FlightHUD : MonoBehaviour
         row.fill.color     = RatioColor(absRatio);
         row.centerTick.color = new Color(1f, 1f, 1f, 0.5f); // visible for bipolar bars
 
-        // Position limit tick
-        if (limitRatio >= 0f && row.limitTick != null)
+        // Position limit ticks symmetrically
+        if (limitRatio >= 0f && row.limitTickPos != null && row.limitTickNeg != null)
         {
-            row.limitTick.enabled = true;
-            float anchorX = 0.5f + limitRatio * 0.5f;
-            RectTransform lt = row.limitTick.rectTransform;
-            lt.anchorMin = new Vector2(anchorX, 0);
-            lt.anchorMax = new Vector2(anchorX, 1);
+            float anchorXPos = 0.5f + limitRatio * 0.5f;
+            float anchorXNeg = 0.5f - limitRatio * 0.5f;
+
+            row.limitTickPos.enabled = true;
+            RectTransform ltPos = row.limitTickPos.rectTransform;
+            ltPos.anchorMin = new Vector2(anchorXPos, 0);
+            ltPos.anchorMax = new Vector2(anchorXPos, 1);
+
+            row.limitTickNeg.enabled = true;
+            RectTransform ltNeg = row.limitTickNeg.rectTransform;
+            ltNeg.anchorMin = new Vector2(anchorXNeg, 0);
+            ltNeg.anchorMax = new Vector2(anchorXNeg, 1);
         }
-        else if (row.limitTick != null)
-            row.limitTick.enabled = false;
+        else if (row.limitTickPos != null && row.limitTickNeg != null)
+        {
+            row.limitTickPos.enabled = false;
+            row.limitTickNeg.enabled = false;
+        }
     }
 
     /// <summary>Unipolar bar — value is always ≥ 0, fills from left edge.</summary>
@@ -197,16 +211,22 @@ public class FlightHUD : MonoBehaviour
 
         row.centerTick.color = Color.clear; // no center tick for unipolar bars
 
-        // Position limit tick
-        if (limitRatio >= 0f && row.limitTick != null)
+        // Position limit tick (only positive side for unipolar bars)
+        if (limitRatio >= 0f && row.limitTickPos != null)
         {
-            row.limitTick.enabled = true;
-            RectTransform lt = row.limitTick.rectTransform;
+            row.limitTickPos.enabled = true;
+            RectTransform lt = row.limitTickPos.rectTransform;
             lt.anchorMin = new Vector2(limitRatio, 0);
             lt.anchorMax = new Vector2(limitRatio, 1);
+
+            if (row.limitTickNeg != null)
+                row.limitTickNeg.enabled = false;
         }
-        else if (row.limitTick != null)
-            row.limitTick.enabled = false;
+        else if (row.limitTickPos != null && row.limitTickNeg != null)
+        {
+            row.limitTickPos.enabled = false;
+            row.limitTickNeg.enabled = false;
+        }
     }
 
     Color RatioColor(float absRatio)
@@ -224,7 +244,8 @@ public class FlightHUD : MonoBehaviour
         public Text  value;
         public Image fill;
         public Image centerTick;
-        public Image limitTick;
+        public Image limitTickNeg;  // Red line on negative side (for bipolar bars)
+        public Image limitTickPos;  // Red line on positive side (for bipolar bars)
     }
 
     void BuildUI()
@@ -343,17 +364,27 @@ public class FlightHUD : MonoBehaviour
         tickRect.offsetMin = new Vector2(-1f, 0);
         tickRect.offsetMax = new Vector2( 1f, 0);
 
-        // Limit tick — 2 px wide red line, positioned dynamically in Update
-        GameObject limitTickGO = CreateUIObject("LimitTick", barBgGO.transform);
-        Image limitTickImg = limitTickGO.AddComponent<Image>();
-        limitTickImg.color = new Color(0.90f, 0.10f, 0.10f, 0.90f);
-        RectTransform limitTickRect = limitTickGO.GetComponent<RectTransform>();
-        limitTickRect.anchorMin = new Vector2(0f, 0);
-        limitTickRect.anchorMax = new Vector2(0f, 1);
-        limitTickRect.offsetMin = new Vector2(-1f, 0);
-        limitTickRect.offsetMax = new Vector2( 1f, 0);
+        // Limit tick negative — 2 px wide red line on negative side, positioned dynamically in Update
+        GameObject limitTickNegGO = CreateUIObject("LimitTickNeg", barBgGO.transform);
+        Image limitTickNegImg = limitTickNegGO.AddComponent<Image>();
+        limitTickNegImg.color = new Color(0.90f, 0.10f, 0.10f, 0.90f);
+        RectTransform limitTickNegRect = limitTickNegGO.GetComponent<RectTransform>();
+        limitTickNegRect.anchorMin = new Vector2(0f, 0);
+        limitTickNegRect.anchorMax = new Vector2(0f, 1);
+        limitTickNegRect.offsetMin = new Vector2(-1f, 0);
+        limitTickNegRect.offsetMax = new Vector2( 1f, 0);
 
-        return new RowUI { label = labelTxt, value = valuTxt, fill = fillImg, centerTick = tickImg, limitTick = limitTickImg };
+        // Limit tick positive — 2 px wide red line on positive side, positioned dynamically in Update
+        GameObject limitTickPosGO = CreateUIObject("LimitTickPos", barBgGO.transform);
+        Image limitTickPosImg = limitTickPosGO.AddComponent<Image>();
+        limitTickPosImg.color = new Color(0.90f, 0.10f, 0.10f, 0.90f);
+        RectTransform limitTickPosRect = limitTickPosGO.GetComponent<RectTransform>();
+        limitTickPosRect.anchorMin = new Vector2(0f, 0);
+        limitTickPosRect.anchorMax = new Vector2(0f, 1);
+        limitTickPosRect.offsetMin = new Vector2(-1f, 0);
+        limitTickPosRect.offsetMax = new Vector2( 1f, 0);
+
+        return new RowUI { label = labelTxt, value = valuTxt, fill = fillImg, centerTick = tickImg, limitTickNeg = limitTickNegImg, limitTickPos = limitTickPosImg };
     }
 
     static GameObject CreateUIObject(string name, Transform parent)

@@ -110,12 +110,16 @@ public class StateFinder : MonoBehaviour {
 
 	public void Reset() {
 		flag = true;
-		Position = Vector3.zero;
+		ResetToPos(Vector3.zero, Quaternion.identity);
+	}
+
+	public void ResetToPos(Vector3 newPos, Quaternion? newRot = null) {
+		Position = newPos;
 		VelocityVector = Vector3.zero;
 		AngularVelocityVector = Vector3.zero;
-		Angles = Vector3.zero;
-		Altitude = 0.0f;
-
+		Angles = newRot.HasValue ? newRot.Value.eulerAngles : Vector3.zero;
+		Altitude = newPos.y;
+		IsAlive = true;
 		enabled = true;
 	}
 }
