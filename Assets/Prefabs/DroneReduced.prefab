@@ -166,31 +166,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9fd9cf0a203549e98e27622302c103a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  controlStyle: 1
+  activeProfile: {fileID: 11400000, guid: 310f9718f7e9e0a4b8239d5a8e8ddbf2, type: 2}
   State: {fileID: 114271859555978516}
   PropFL: {fileID: 1194315723904280}
   PropFR: {fileID: 1552398028780994}
   PropRR: {fileID: 1519630155678512}
   PropRL: {fileID: 1958779810228456}
-  maxPitch: 0.15
-  maxRoll: 0.15
-  maxYawRate: 0.6
-  maxAlpha: 6
-  maxSpeed: 3
-  MaxAscentRate: 1.5
-  MaxDescentRate: 1.5
+  maxPitch: 0.25
+  maxRoll: 0.25
+  maxYawRate: 1
+  maxAlpha: 10
+  maxSpeed: 5
+  maxAltitudeRate: 2
   MinHeight: 0.5
   desired_height: 25.3
   desiredYawRate: 0
   attitude_control_yaw: 0
   swarmAcceleration: {x: 0, y: 0, z: 0}
+  lastUserAccelMag: 0
+  lastSwarmAccelMag: 0
+  lastThrustClamped: 0
   HeightKp: 5
   HeightKd: 2
   heightDerivFilterCoeff: 0.5
   yawFilterCoefficient: 0.1
   SwarmAccelFilterCoefficient: 1
+  timeConstantAcceleration: 0.75
   currentAlgorithm: 0
   initial_height: 14
+  logToCSV: 0
+  logDirectory: C:/Users/ahebert/Desktop
 --- !u!114 &7237061177116738825
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -207,7 +212,7 @@ MonoBehaviour:
   maxPitchAngle: 0.75
   maxRollAngle: 0.75
   groundCollisionThreshold: 0.3
-  cohesionDistanceMultiplier: 1
+  cohesionDistanceMultiplier: 0.1
   stabilizationDelay: 1
 --- !u!114 &114145603923244640
 MonoBehaviour:
@@ -308,9 +313,8 @@ MonoBehaviour:
   NumDimensions: 2
   BoundaryEstimate: 0
   PointInwards: 0
-  YawCorrectionFactor: 0.1
-  TargetYawSmoothingFactor: 0.1
-  NeighborYawSmoothingFactor: 0.1
+  YawCorrectionFactor: 0.53
+  NeighborYawSmoothingFactor: 0.5
 --- !u!114 &474059409597466468
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -768,7 +772,7 @@ Camera:
     width: 1
     height: 1
   near clip plane: 0.3
-  far clip plane: 1000
+  far clip plane: 2000
   field of view: 66.29831
   orthographic: 0
   orthographic size: 5
@@ -964,7 +968,7 @@ MonoBehaviour:
   enableStateNoise: 1
   positionNoiseSigma: 0.05
   altitudeNoiseSigma: 0.01
-  attitudeNoiseSigma: 0
+  attitudeNoiseSigma: 0.02
   velocityNoiseSigma: 0.025
   vc: {fileID: 114202773416505472}
   IsAlive: 1
