@@ -105,6 +105,14 @@ namespace Experiment
             public float Pitch;
             public float Roll;
             public float SwarmSpread;
+            public float MaxPitch;
+            public float MaxRoll;
+            public float MaxYawRate;
+            public float MaxSpeed;
+            public float MaxAltitudeRate;
+            public float MaxAlpha;
+            public int CwlTotalSteps;
+            public int CwlCurrentStep;
         }
 
         // ── Gate Status (dynamic, updated on each gate state change) ─────────
@@ -117,7 +125,8 @@ namespace Experiment
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public struct GateStatusEntry
         {
-            public byte PassCount;            // drones passed (0–swarmSize)
+            public byte Id;                    // Gate identifier (index in course)
+            public byte PassCount;            // drones passed INSIDE the gate (0–aliveSwarmCount)
             public byte GateState;            // 0=Idle 1=Next 2=PartialComplete 3=Completed
             public long FirstPassTimestamp;   // Unix ms, 0 if not yet passed
         }
@@ -132,8 +141,9 @@ namespace Experiment
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public struct GateLayoutEntry
         {
+            public byte Id;                    // Gate identifier (index in course)
+            public byte IsHard;              // If part of the "hard" segment
             public Vec3f CenterPosition;    // world-space gate center
-            public Vec3f ForwardDirection;  // gate's local +Z in world space
             public float Width;
             public float Height;
         }
