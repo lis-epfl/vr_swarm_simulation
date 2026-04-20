@@ -16,7 +16,6 @@ public class AttitudeAlgorithm : MonoBehaviour
     public bool BoundaryEstimate = false;
     public bool PointInwards = false;
     public float YawCorrectionFactor = 1.0f;
-    public float TargetYawSmoothingFactor = 0.1f;
     public float NeighborYawSmoothingFactor = 0.1f;
 
     private string droneName;
@@ -135,13 +134,13 @@ public class AttitudeAlgorithm : MonoBehaviour
         float meanSwarmYaw = Mathf.Atan2(sumSin / count, sumCos / count);
 
         // Apply low-pass filter on the unit vector components to avoid discontinuities
-        smoothedNeighborYaw = Mathf.Atan2(
-            Mathf.Lerp(Mathf.Sin(smoothedNeighborYaw), Mathf.Sin(meanSwarmYaw), NeighborYawSmoothingFactor),
-            Mathf.Lerp(Mathf.Cos(smoothedNeighborYaw), Mathf.Cos(meanSwarmYaw), NeighborYawSmoothingFactor)
-        );
+        // smoothedNeighborYaw = Mathf.Atan2(
+        //     Mathf.Lerp(Mathf.Sin(smoothedNeighborYaw), Mathf.Sin(meanSwarmYaw), NeighborYawSmoothingFactor),
+        //     Mathf.Lerp(Mathf.Cos(smoothedNeighborYaw), Mathf.Cos(meanSwarmYaw), NeighborYawSmoothingFactor)
+        // );
 
         // Wrap error to [-pi, pi] to avoid discontinuity in correction
-        float error = WrapAngle(smoothedNeighborYaw - vc.State.Angles.y);
+        float error = WrapAngle(meanSwarmYaw - vc.State.Angles.y);
         float targetYawRate = YawCorrectionFactor * error;
 
         return targetYawRate;
