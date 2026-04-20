@@ -61,7 +61,6 @@ public class PySender : MonoBehaviour
             cacheSwarmStates();
         }
     }
-
     public static PySender Instance { get; private set; }
     public bool IsCalibrationOk
     {
@@ -84,6 +83,7 @@ public class PySender : MonoBehaviour
     }
 
     private CustomEyeTracker eyeTracker;
+    private CWLController cwlController;
     private bool isReady = false;
     private bool isSending = false;
     private bool isCalibrationOk = false;
@@ -111,13 +111,7 @@ public class PySender : MonoBehaviour
     private IntPtr gateLayoutFileMap = IntPtr.Zero;
     private IntPtr gateLayoutPtr = IntPtr.Zero;
 
-    private const int MAX_GATES = 32;
-    private const int GateStatusHeaderSize = 11; // long(8) + byte(1) + byte(1) + byte(1)
-    private const int GateStatusEntrySize = 10;  // byte(1) + byte(1) + long(8)
-    private const int GateStatusBlockSize = GateStatusHeaderSize + MAX_GATES * GateStatusEntrySize;
-    private const int GateLayoutHeaderSize = 1;  // byte(1)
-    private const int GateLayoutEntrySize = 32;  // Vec3f(12) + Vec3f(12) + float(4) + float(4)
-    private const int GateLayoutBlockSize = GateLayoutHeaderSize + MAX_GATES * GateLayoutEntrySize;
+    private const int MAX_GATES = 50;
 
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
@@ -143,6 +137,7 @@ public class PySender : MonoBehaviour
     {
         Debug.Log("PySender started.");
         eyeTracker = CustomEyeTracker.Instance;
+        cwlController = FindObjectOfType<CWLController>();
 
         // Initialize shared memory metadata and gaze data blocks here
         metadataSize = Marshal.SizeOf(typeof(PySenderData.CustomMetadata));
@@ -187,14 +182,16 @@ public class PySender : MonoBehaviour
             return;
         }
         // Gate Status shared memory (dynamic, updated on state changes)
-        gateStatusFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, k_PageReadWrite, 0, (uint)GateStatusBlockSize, sharedMemoryGateStatusName);
+        uint gateStatusBlockSize = (uint)(sizeof(long) + MAX_GATES * Marshal.SizeOf(typeof(PySenderData.GateStatusEntry)));
+        gateStatusFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, k_PageReadWrite, 0, gateStatusBlockSize, sharedMemoryGateStatusName);
         if (gateStatusFileMap != IntPtr.Zero)
             gateStatusPtr = MapViewOfFile(gateStatusFileMap, (uint)FileMapAccessType.AllAccess, 0, 0, UIntPtr.Zero);
         else
             Debug.LogError("[PySender] Failed to create GateStatus shared memory. Error: " + Marshal.GetLastWin32Error());
 
         // Gate Layout shared memory (static, written once when course is generated)
-        gateLayoutFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, k_PageReadWrite, 0, (uint)GateLayoutBlockSize, sharedMemoryGateLayoutName);
+        uint gateLayoutBlockSize = (uint)(sizeof(long) + MAX_GATES * Marshal.SizeOf(typeof(PySenderData.GateLayoutEntry)));
+        gateLayoutFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, k_PageReadWrite, 0, gateLayoutBlockSize, sharedMemoryGateLayoutName);
         if (gateLayoutFileMap != IntPtr.Zero)
             gateLayoutPtr = MapViewOfFile(gateLayoutFileMap, (uint)FileMapAccessType.AllAccess, 0, 0, UIntPtr.Zero);
         else
@@ -219,18 +216,20 @@ public class PySender : MonoBehaviour
             writeToCircularBuffer(MockupData.mockupGazeData);
         }
 
-
-        while (eyeTracker.GazeDataAvailable && eyeTracker.EyeOpennessDataAvailable)
+        if (eyeTracker != null)
         {
-            GazeData gazeData = (GazeData) eyeTracker.NextData;
-            CustomEyeTracker.EyeOpennessData eyeOpennessData = eyeTracker.NextEyeOpennessData;
-            if (gazeTimestampAdjustment < 0)
+            while (eyeTracker.GazeDataAvailable && eyeTracker.EyeOpennessDataAvailable)
             {
-                gazeTimestampAdjustment = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - gazeData.TimeStamp / 1000;
-            }
-            if (isSending && checkReceiverReady())
-            {
-                updateGazeData(gazeData, eyeOpennessData);
+                GazeData gazeData = (GazeData) eyeTracker.NextData;
+                CustomEyeTracker.EyeOpennessData eyeOpennessData = eyeTracker.NextEyeOpennessData;
+                if (gazeTimestampAdjustment < 0)
+                {
+                    gazeTimestampAdjustment = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - gazeData.TimeStamp / 1000;
+                }
+                if (isSending && checkReceiverReady())
+                {
+                    updateGazeData(gazeData, eyeOpennessData);
+                }
             }
         }
 
@@ -499,6 +498,21 @@ public class PySender : MonoBehaviour
     {
         if (userInputDataPtr == IntPtr.Zero || InputManager.Instance == null) return;
 
+        Dictionary<string, float> current_limits = new Dictionary<string, float>();
+        if (swarm != null && swarm.Count > 0)
+        {
+            VelocityControl ctrl = swarm[0].transform.Find("DroneParent").gameObject.GetComponent<VelocityControl>();
+            if (ctrl != null)
+            {
+                current_limits["maxPitch"] = ctrl.maxPitch;
+                current_limits["maxRoll"] = ctrl.maxRoll;
+                current_limits["maxYawRate"] = ctrl.maxYawRate;
+                current_limits["maxSpeed"] = ctrl.maxSpeed;
+                current_limits["maxAltitudeRate"] = ctrl.maxAltitudeRate;
+                current_limits["maxAlpha"] = ctrl.maxAlpha;
+            }
+        }
+
         long currentTimeStamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         Marshal.WriteInt64(userInputDataPtr, currentTimeStamp);
 
@@ -511,6 +525,12 @@ public class PySender : MonoBehaviour
             Pitch        = inputs["pitch"],
             Roll         = inputs["roll"],
             SwarmSpread  = inputs["spread"],
+            MaxPitch    =  current_limits.ContainsKey("maxPitch") ? current_limits["maxPitch"] : 0f,
+            MaxRoll     =  current_limits.ContainsKey("maxRoll") ? current_limits["maxRoll"] : 0f,
+            MaxAltitudeRate = current_limits.ContainsKey("maxAltitudeRate") ? current_limits["maxAltitudeRate"] : 0f,
+            MaxAlpha = current_limits.ContainsKey("maxAlpha") ? current_limits["maxAlpha"] : 0f,
+            CwlTotalSteps = cwlController != null ? cwlController.GetNumSteps : 0,
+            CwlCurrentStep = cwlController != null ? cwlController.GetCurrentStepIdx : 0,
         };
         Marshal.StructureToPtr(data, userInputDataPtr + sizeof(long), false);
     }
@@ -630,7 +650,10 @@ public class PySender : MonoBehaviour
         if (gateLayoutPtr == IntPtr.Zero) return;
 
         int count = Mathf.Min(gates.Count, MAX_GATES);
-        Marshal.WriteByte(gateLayoutPtr, 0, (byte)count);
+
+        // Always start with writing the current timestamp
+        long currentTimeStamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        Marshal.WriteInt64(gateLayoutPtr, currentTimeStamp);
 
         int stride = Marshal.SizeOf(typeof(PySenderData.GateLayoutEntry));
         for (int i = 0; i < count; i++)
@@ -640,13 +663,14 @@ public class PySender : MonoBehaviour
 
             var entry = new PySenderData.GateLayoutEntry
             {
+                Id = (byte)i,
+                IsHard = (byte)gate.IsHard,
                 CenterPosition  = new PySenderData.Vec3f(gate.transform.position),
-                ForwardDirection = new PySenderData.Vec3f(gate.transform.forward),
                 Width  = gate.gateWidth,
                 Height = gate.gateHeight
             };
 
-            IntPtr entryPtr = IntPtr.Add(gateLayoutPtr, GateLayoutHeaderSize + i * stride);
+            IntPtr entryPtr = IntPtr.Add(gateLayoutPtr, sizeof(long) + i * stride);
             Marshal.StructureToPtr(entry, entryPtr, false);
         }
 
@@ -655,22 +679,18 @@ public class PySender : MonoBehaviour
 
     /// <summary>
     /// Updates the dynamic gate status in shared memory.
-    /// Memory layout: [Timestamp:8][TotalGates:1][ActiveGateIndex:1][IsCourseRunning:1]
+    /// Memory layout: [Timestamp:8]
     ///   then per gate [PassCount:1][GateState:1][FirstPassTimestamp:8]
     /// </summary>
     public void UpdateGateStatus(RingGateManager manager)
     {
         if (gateStatusPtr == IntPtr.Zero) return;
 
-        long ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         int count = Mathf.Min(manager.gates.Count, MAX_GATES);
 
         // Header
+        long ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         Marshal.WriteInt64(gateStatusPtr, 0, ts);
-        Marshal.WriteByte(gateStatusPtr, 8, (byte)count);
-        int activeIdx = manager.CurrentGateIndex;
-        Marshal.WriteByte(gateStatusPtr, 9, (byte)(activeIdx < 0 || activeIdx >= count ? 255 : activeIdx));
-        Marshal.WriteByte(gateStatusPtr, 10, (byte)(manager.IsCourseRunning ? 1 : 0));
 
         // Per-gate entries
         int stride = Marshal.SizeOf(typeof(PySenderData.GateStatusEntry));
@@ -695,12 +715,13 @@ public class PySender : MonoBehaviour
 
             var entry = new PySenderData.GateStatusEntry
             {
-                PassCount          = (byte)Mathf.Min(gate.TotalPasses, 255),
+                Id                 = (byte)i,
+                PassCount          = (byte)Mathf.Min(gate.InsidePasses, 255),
                 GateState          = stateCode,
                 FirstPassTimestamp = gate.FirstPassUnixMs
             };
 
-            IntPtr entryPtr = IntPtr.Add(gateStatusPtr, GateStatusHeaderSize + i * stride);
+            IntPtr entryPtr = IntPtr.Add(gateStatusPtr, sizeof(long) + i * stride);
             Marshal.StructureToPtr(entry, entryPtr, false);
         }
     }

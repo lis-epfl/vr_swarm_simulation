@@ -9,22 +9,8 @@ using UnityEngine.InputSystem;
 
 namespace Experiment
 {
-    public class ExperimentFSMNBack : MonoBehaviour
+    public class ExperimentFSMNBack : ExperimentFSMBase
     {
-        [Serializable]
-        public class ExperimentStateSnapshot
-        {
-            public long timestamp => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            public string state;
-            public string previousState;
-            public string nextState;
-            public int currentTask;
-            public int currentTrial;
-            public int[] nbackLevelsOrder;
-            public int currentNBackLevel;
-            public long stateEnterTimestamp;
-        }
-
         private enum ExperimentStateNBack
         {
             Idle,
@@ -43,6 +29,13 @@ namespace Experiment
             Trial,
             Finished,
             WaitForUser,
+        }
+
+        [Serializable]
+        public class NBackStateSnapshot : ExperimentStateSnapshot
+        {
+            public int[] nbackLevelsOrder;
+            public int currentNBackLevel;
         }
 
         [Serializable]
@@ -568,41 +561,34 @@ namespace Experiment
             
         }
 
-        // External transition requests
-        public void RequestTransitionToWait() => TransitionTo(ExperimentStateNBack.Wait);
-        public void RequestTransitionToIdle() => TransitionTo(ExperimentStateNBack.Idle);
-        public void RequestTransitionToFlyingPractice() => TransitionTo(ExperimentStateNBack.FlyingPractice);
-        public void RequestTransitionToNBackPractice() => TransitionTo(ExperimentStateNBack.NBackPractice);
-        public void RequestTransitionToCountdown() => TransitionTo(ExperimentStateNBack.Countdown);
-        public void RequestTransitionToTask() => TransitionTo(ExperimentStateNBack.Task);
-        public void RequestTransitionToTrial() => TransitionTo(ExperimentStateNBack.Trial);
-
-        public ExperimentStateSnapshot GetStateSnapshot()
+        public override ExperimentStateSnapshot GetStateSnapshot()
         {
-            return new ExperimentStateSnapshot
+            return new NBackStateSnapshot
             {
                 state = state.ToString(),
                 previousState = previousState.ToString(),
                 nextState = nextState.ToString(),
                 currentTask = currentTask,
                 currentTrial = currentTrial,
+                totalTaskNumber = nBackLevelsOrder.Length,
+                totalTrialNumber = trialsPerTask,
                 nbackLevelsOrder = nBackLevelsOrder,
                 currentNBackLevel = (currentTask > 0 && currentTask <= nBackLevelsOrder.Length) ? nBackLevelsOrder[currentTask - 1] : currentPracticeLevel,
                 stateEnterTimestamp = stateEnterTime,
             };
         }
 
-        public string[] GetAvailableStates()
+        public override string[] GetAvailableStates()
         {
             return Enum.GetNames(typeof(ExperimentStateNBack));
         }
 
-        public void NotifyOperatorClicked()
+        public override void NotifyOperatorClicked()
         {
             isTransitionRequested = true;
         }
 
-        public bool RequestTransitionTo(string stateName, out string error)
+        public override bool RequestTransitionTo(string stateName, out string error)
         {
             error = string.Empty;
             if (string.IsNullOrWhiteSpace(stateName))
