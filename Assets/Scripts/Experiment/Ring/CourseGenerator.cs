@@ -77,7 +77,7 @@ public class CourseGenerator : MonoBehaviour
     // Internal types
     // ─────────────────────────────────────────────────────────────────────────
 
-    private enum SegmentType { Easy, Hard }
+    public enum SegmentType { Easy, Hard }
 
     private struct PlacedRing
     {
@@ -159,6 +159,7 @@ public class CourseGenerator : MonoBehaviour
         {
             PlacedRing ring = _lastGeneratedPlacements[i];
             RingGate gate = InstantiateGate(ring, i);
+            gate.Type = ring.isHard ? SegmentType.Hard : SegmentType.Easy;  // Set gate type for metrics and visualization
             gateManager.RegisterGate(gate);
         }
 

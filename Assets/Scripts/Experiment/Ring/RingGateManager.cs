@@ -32,6 +32,13 @@ public class RingGateManager : MonoBehaviour
              "and adds any not already in the list.")]
     public bool autoDiscoverOnAwake = false;
 
+    [Header("Course Generation")]
+    [SerializeField] private CourseGenerator courseGenerator;
+
+    [Tooltip("Swarm spawner reference. Injected into every registered gate so they can " +
+             "query the alive drone count instead of using a fixed swarm size.")]
+    public swarmSpawn swarmSpawnRef;
+
     [Header("Events")]
     [Tooltip("Fires when every drone has cleared every gate (run complete).")]
     public UnityEvent<CourseRunSummary> onRunComplete;
@@ -52,6 +59,98 @@ public class RingGateManager : MonoBehaviour
 
     [Header("Course State")]
     [SerializeField] private CourseTimer _timer;
+    [SerializeField] private bool _showLapTimer = false;
+    public bool ShowLapTimer
+    {
+        get => _showLapTimer;
+        set
+        {_showLapTimer = value;
+            if (_timer != null)
+            {
+                _timer.ShowText = value;
+            }
+        }
+    }
+
+    /// <summary>Enable/disable demo mode to highlight gates for the CourseDemo.</summary>
+    public bool DemoMode
+    {
+        get => _demoMode;
+        set => _demoMode = value;
+    }
+
+    /// <summary>
+    /// Initializes the course for demo: resets visuals, sets gate 0 as Next,
+    /// but does NOT start the timer or mark the course as running.
+    /// </summary>
+    public void StartDemoMode()
+    {
+        _demoMode = true;
+        ResetAll();
+        _currentGateIndex = 0;
+
+        for (int i = 0; i < _gateVisuals.Count; i++)
+            if (_gateVisuals[i] != null)
+                _gateVisuals[i].SetState(GateVisualState.Idle);
+
+        if (gates.Count > 0 && _gateVisuals[0] != null)
+        {
+            _gateVisuals[0].SetState(GateVisualState.Next);
+            UpdateGateVisibility();
+            Debug.Log("[RingGateManager] Demo mode started. Gate 0 set as Next.");
+        }
+        else
+        {
+            Debug.LogWarning($"[RingGateManager] StartDemoMode: gates={gates.Count}, visual[0]={(gates.Count > 0 ? _gateVisuals[0]?.ToString() ?? "null" : "no gates")}");
+        }
+    }
+
+    /// <summary>Set which gate is highlighted as "next" during demo mode.</summary>
+    public void SetDemoNextGate(int gateIndex)
+    {
+        if (!_demoMode || gateIndex < 0 || gateIndex >= gates.Count)
+            return;
+
+        // Clear previous "next" gate visuals
+        for (int i = 0; i < _gateVisuals.Count; i++)
+            if (_gateVisuals[i] != null && _gateVisuals[i].CurrentState == GateVisualState.Next)
+                _gateVisuals[i].SetState(GateVisualState.Idle);
+
+        // Set new "next" gate
+        if (_gateVisuals[gateIndex] != null)
+            _gateVisuals[gateIndex].SetState(GateVisualState.Next);
+    }
+
+    /// <summary>Handle a demo pass: advance gate visually without recording metrics.</summary>
+    public void HandleDemoPass(RingGate passedGate)
+    {
+        if (!_demoMode)
+            return;
+
+        // Find which gate was passed
+        int passedIndex = gates.IndexOf(passedGate);
+        if (passedIndex < 0)
+            return;
+
+        // Allow advancement from -1 (uninitialized) to 0 (first gate) for demo init
+        if (_currentGateIndex >= 0 && passedIndex != _currentGateIndex)
+            return;
+
+        // Deactivate current gate visual if it was set
+        if (_currentGateIndex >= 0 && _currentGateIndex < _gateVisuals.Count)
+            if (_gateVisuals[_currentGateIndex] != null)
+                _gateVisuals[_currentGateIndex].SetState(GateVisualState.Idle);
+
+        // Advance to next gate
+        _currentGateIndex = passedIndex + 1;
+        if (_currentGateIndex < gates.Count && _gateVisuals[_currentGateIndex] != null)
+        {
+            _gateVisuals[_currentGateIndex].SetState(GateVisualState.Next);
+            Debug.Log($"[CourseDemo] Gate {_currentGateIndex} is next");
+        }
+
+        UpdateGateVisibility();
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Private
@@ -59,6 +158,7 @@ public class RingGateManager : MonoBehaviour
 
     private int _currentGateIndex = -1;  // -1 = not started
     private bool _isCourseRunning = false;
+    private bool _demoMode = false;
     private List<RingGateVisual> _gateVisuals = new();
 
     // Tracking arrays — sized to match gates list
@@ -82,7 +182,18 @@ public class RingGateManager : MonoBehaviour
     {
         _gateVisuals.Clear();
         foreach (var gate in gates)
-            _gateVisuals.Add(gate != null ? gate.GetComponent<RingGateVisual>() : null);
+        {
+            if (gate != null)
+            {
+                gate.gateManager = this;
+                gate.swarmSpawnRef = swarmSpawnRef;
+                _gateVisuals.Add(gate.GetComponent<RingGateVisual>());
+            }
+            else
+            {
+                _gateVisuals.Add(null);
+            }
+        }
     }
 
     private void InitTrackingArrays()
@@ -120,12 +231,11 @@ public class RingGateManager : MonoBehaviour
 
         _gateAdvanced[gateIndex] = true;
 
-        // Deactivate the indicator plane on the current gate immediately
+        // First drone passed — mark gate as PartialComplete (yellow) so both
+        // Unity visuals and the Python side see state=2 while remaining drones clear.
         if (_gateVisuals[gateIndex] != null)
         {
-            var currentState = _gateVisuals[gateIndex].CurrentState;
-            if (currentState == GateVisualState.Next)
-                _gateVisuals[gateIndex].SetState(GateVisualState.Idle);
+            _gateVisuals[gateIndex].SetState(GateVisualState.PartialComplete);
         }
 
         _currentGateIndex++;
@@ -151,12 +261,10 @@ public class RingGateManager : MonoBehaviour
 
         _gateFullyCompleted[gateIndex] = true;
 
-        // Set final color based on accuracy: green if all passed inside, yellow if any passed outside
-        GateVisualState finalState = gate.OutsidePasses > 0
-            ? GateVisualState.PartialComplete
-            : GateVisualState.Completed;
-
-        _gateVisuals[gateIndex]?.SetState(finalState);
+        // Always mark as Completed (state=3) since all alive drones passed.
+        // The visual color (green vs yellow) is handled by RingGateVisual
+        // based on inside-pass accuracy.
+        _gateVisuals[gateIndex]?.SetState(GateVisualState.Completed);
         _timer?.RecordGateSplit();
         onGateCleared?.Invoke(gateIndex, gate);
 
@@ -234,6 +342,8 @@ public class RingGateManager : MonoBehaviour
         _currentGateIndex = 0;
         _isCourseRunning = true;
 
+        Debug.Log($"[RingGateManager] StartCourse: gates.Count={gates.Count}, _gateVisuals.Count={_gateVisuals.Count}");
+
         for (int i = 0; i < _gateVisuals.Count; i++)
             if (_gateVisuals[i] != null)
                 _gateVisuals[i].SetState(GateVisualState.Idle);
@@ -241,7 +351,14 @@ public class RingGateManager : MonoBehaviour
         if (gates.Count > 0)
         {
             if (_gateVisuals[0] != null)
+            {
+                Debug.Log($"[RingGateManager] Setting gate 0 visual to Next state");
                 _gateVisuals[0].SetState(GateVisualState.Next);
+            }
+            else
+            {
+                Debug.LogWarning("[RingGateManager] Gate 0 visual is null!");
+            }
             onNextGateChanged?.Invoke(0, gates[0]);
             UpdateGateVisibility();
         }
@@ -257,6 +374,35 @@ public class RingGateManager : MonoBehaviour
 
     /// <summary>Zero-based index of the gate currently expected to be cleared next. -1 if not started.</summary>
     public int CurrentGateIndex => _currentGateIndex;
+
+    /// <summary>
+    /// Generates a new course by clearing all existing gates and generating a fresh layout.
+    /// Updates the shared memory with the new gate configuration.
+    /// Call this before starting a new trial or when a fresh course layout is needed.
+    /// </summary>
+    public void GenerateNewCourse()
+    {
+        if (courseGenerator == null)
+        {
+            Debug.LogError("[RingGateManager] CourseGenerator is not assigned. Cannot generate new course.");
+            return;
+        }
+
+        // Clear any running course state
+        if (_isCourseRunning)
+        {
+            Debug.LogWarning("[RingGateManager] GenerateNewCourse() called during active course. Aborting run.");
+            _isCourseRunning = false;
+        }
+
+        // Generate the new course (includes clearing gates, instantiating, and registering)
+        courseGenerator.GenerateCourse();
+
+        // Update shared memory with new gate status
+        NotifyGateStatus();
+
+        Debug.Log("[RingGateManager] New course generated and shared memory updated.");
+    }
 
     /// <summary>
     /// Finds all RingGate components in the scene and appends any not already listed.
@@ -331,6 +477,9 @@ public class RingGateManager : MonoBehaviour
         int index = gates.Count;
         gates.Add(gate);
 
+        gate.gateManager = this;
+        gate.swarmSpawnRef = swarmSpawnRef;
+
         var visual = gate.GetComponent<RingGateVisual>();
         _gateVisuals.Add(visual);
 
@@ -366,6 +515,8 @@ public class RingGateManager : MonoBehaviour
         }
         return totalAll > 0 ? (float)totalIn / totalAll : 0f;
     }
+
+    public bool IsCourseCompleted => _gateFullyCompleted != null && _gateFullyCompleted.All(x => x);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Shared memory notification

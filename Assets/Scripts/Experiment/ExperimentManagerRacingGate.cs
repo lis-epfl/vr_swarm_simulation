@@ -6,35 +6,27 @@ using UnityEngine.InputSystem;
 
 namespace Experiment
 {
-    public class ExperimentFSMRacingGate : MonoBehaviour
+    public class ExperimentFSMRacingGate : ExperimentFSMBase
     {
-        [Serializable]
-        public class ExperimentStateSnapshot
-        {
-            public long timestamp => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            public string state;
-            public string previousState;
-            public string nextState;
-            public int currentTask;
-            public int currentTrial;
-            public long stateEnterTimestamp;
-        }
-
         private enum ExperimentStateRacingGate
         {
             Idle,
             IdleSilent,
             Wait,
+            Calibration,
             Welcome,
+            RcControls,
             FlyingInstructions,
+            FlyingPracticeInstr,
             FlyingPractice,
             RaceInstructions,
             RacePractice,
-            ExperimentBegin,
+            ReadyScreen,
             Trial,
-            Rest,
+            Countdown,
             Finished,
             WaitForUser,
+            Feedback
         }
 
         [Serializable]
@@ -49,21 +41,30 @@ namespace Experiment
         [SerializeField] private ViewManager viewManager;
         [SerializeField] private swarmSpawn swarmSpawner;
         [SerializeField] private RingGateManager ringGateManager;
+        [SerializeField] private CourseStartTrigger courseStartTrigger;
         [SerializeField] private CWLController cwlController;
+        [SerializeField] private CustomCalibration eyeTrackerCalibration;
+        [SerializeField] private CustomTrackBoxGuide eyeTrackerGuide;
+        [SerializeField] private CourseDemo courseDemo;
+        [SerializeField] private ReadyOverlayManager readyOverlayManager;
+        [SerializeField] private FeedbackOverlayManager feedbackManager;
 
         [Header("Step Visuals")]
         [SerializeField] private List<StepConfig> stateConfigs = new List<StepConfig>();
+        [SerializeField] private ExperimentStateRacingGate initialState = ExperimentStateRacingGate.Welcome;
 
         [Header("Settings")]
-        [SerializeField] private int trialsPerTask = 4;
+        [SerializeField] private int totalTrialNumber = 4;
         [SerializeField] private int randomSeed = -1;
+        [SerializeField] private bool isCwlActive = true;
+        [SerializeField] private FlightProfile defaultFlightProfile;
 
         [Header("Debug")]
         [SerializeField] private bool isDebugMode = false;
+        [SerializeField] private bool skipCalibration = false;
         [SerializeField] private bool skipFlyingPractice = false;
-        [SerializeField] private bool skipRacePractice = false;
         [SerializeField] private float practiceTime = 0.25f; // in minutes
-        [SerializeField] private float restTime = 0.25f; // in minutes
+        [SerializeField] private float CountdownTime = 0.25f; // in minutes
 
         public float PracticeTime
         {
@@ -78,16 +79,15 @@ namespace Experiment
         private struct ExperimentSettings
         {
             public float FlightPracticeDuration; // in minutes
-            public float RestTimeBetweenTrials; // in seconds
+            public float CountdownTimeBetweentotalTrialNumber; // in minutes
         }
 
         private ExperimentSettings defaultSettings = new ExperimentSettings
         {
-            FlightPracticeDuration = 3.0f,
-            RestTimeBetweenTrials = 8.0f,
+            FlightPracticeDuration = 0.75f,
+            CountdownTimeBetweentotalTrialNumber = 0.75f,
         };
 
-        private AudioSource audioSource;
         private ExperimentStateRacingGate state = ExperimentStateRacingGate.Idle;
         private ExperimentStateRacingGate nextState = ExperimentStateRacingGate.Idle;
         private ExperimentStateRacingGate previousState = ExperimentStateRacingGate.Idle;
@@ -95,34 +95,45 @@ namespace Experiment
         private System.Random rng;
         private bool hasUserClicked = false;
         private bool isTransitionRequested = false;
-        private bool restEllapsed = false;
+        private bool _demoDotMoving = false;
+        private bool CountdownEllapsed = false;
+         private bool calibrationDone = false;
+        private bool isHeadPositionOk = false;
         private int lastSwitchState = -1;
         private long stateEnterTime = 0;
         private int idleRequestDelay = -1; // in seconds, -1 means no delay
 
-        private int currentTask = 0;
+        private Vector3 k_swarmSpawnCourse = new Vector3(400f, 40f, 40f);
+        private Vector3 k_swarmSpawnPractice = new Vector3(300, 30f, 200f);
+
         private int currentTrial = 0;
-        private bool isHeadPositionOk = false;
         private int flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(0.25).TotalMilliseconds;
 
         void Start()
         {
-            audioSource = GetComponent<AudioSource>();
-
             // Auto-discover CWL controller if not assigned
             if (cwlController == null)
                 cwlController = FindObjectOfType<CWLController>();
 
+            // Assign swarm to CWL controller when swarm is created
+            if (cwlController != null && swarmSpawner != null && swarmSpawner.swarm.Count > 0)
+            {
+                cwlController.Swarm = swarmSpawner.swarm;
+                Debug.Log("[ExperimentFSMRacingGate] Assigned swarm to CWL controller");
+            }
+
+            // Subscribe to course start trigger to enable CWL when race actually begins
+            if (courseStartTrigger != null)
+            {
+                courseStartTrigger.onCourseTriggered.AddListener(OnCourseTriggered);
+            }
+
             if (viewManager != null)
                 viewManager.ToggleAllViews(false);
+
             DisableAllActiveObjects();
-            TransitionTo(ExperimentStateRacingGate.Welcome);
-            if (audioSource == null)
-            {
-                Debug.LogWarning("AudioSource not set up for ExperimentFSMRacingGate. No sound will be played during trials.");
-            }
             if (timer != null)
-                timer.OnCountdownFinished += () => restEllapsed = true;
+                timer.OnCountdownFinished += () => CountdownEllapsed = true;
             rng = (randomSeed >= 0) ? new System.Random(randomSeed) : new System.Random();
             if (InputManager.Instance != null)
             {
@@ -132,15 +143,17 @@ namespace Experiment
             {
                 Debug.LogWarning("Racing Gate Experiment is running in DEBUG MODE. Some steps may be skipped and practice times may be shortened.");
                 flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(practiceTime).TotalMilliseconds;
-                timer.Minutes = restTime;
+                timer.Minutes = CountdownTime;
                 timer.Seconds = 0;
+                ringGateManager.ShowLapTimer = true;
             }
             else
             {
                 flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(defaultSettings.FlightPracticeDuration).TotalMilliseconds;
-                timer.Minutes = defaultSettings.RestTimeBetweenTrials;
+                timer.Minutes = defaultSettings.CountdownTimeBetweentotalTrialNumber;
                 timer.Seconds = 0;
             }
+            TransitionTo(initialState);
         }
 
         void Update()
@@ -173,29 +186,78 @@ namespace Experiment
                     }
                     break;
 
-                case ExperimentStateRacingGate.Rest:
-                    if (restEllapsed)
+                case ExperimentStateRacingGate.Countdown:
+                    if (CountdownEllapsed)
                     {
-                        restEllapsed = false;
+                        CountdownEllapsed = false;
+                        if (!feedbackManager.IsSubmitted)
+                        {
+                            feedbackManager.ForceSubmit();
+                        }
                         TransitionTo(nextState);
                     }
                     break;
 
                 case ExperimentStateRacingGate.Welcome:
-                    nextState = ExperimentStateRacingGate.FlyingInstructions;
+                    nextState = ExperimentStateRacingGate.RcControls;
                     TransitionTo(ExperimentStateRacingGate.Wait);
                     break;
 
-                case ExperimentStateRacingGate.FlyingInstructions:
-                    nextState = ExperimentStateRacingGate.FlyingPractice;
+                case ExperimentStateRacingGate.RcControls:
+                    if (skipCalibration)
+                    {
+                        nextState = ExperimentStateRacingGate.FlyingPracticeInstr;
+                    }
+                    else
+                    {
+                        nextState = ExperimentStateRacingGate.Calibration;
+                    }
                     TransitionTo(ExperimentStateRacingGate.Wait);
                     break;
 
-                case ExperimentStateRacingGate.FlyingPractice:
+                case ExperimentStateRacingGate.Calibration:
+                    if (!isHeadPositionOk)
+                    {
+                        TransitionTo(ExperimentStateRacingGate.Wait);
+                        isHeadPositionOk = true;
+                    }
+                    if (calibrationDone)
+                    {
+                        TransitionTo(ExperimentStateRacingGate.FlyingPracticeInstr);
+                    }
+                    break;
+
+                case ExperimentStateRacingGate.RaceInstructions:
+                    if (isTransitionRequested)
+                    {
+                        isTransitionRequested = false;
+                        if (!_demoDotMoving)
+                        {
+                            // First click: start the dot moving
+                            _demoDotMoving = true;
+                            if (courseDemo != null)
+                                courseDemo.BeginMoving();
+                        }
+                        else
+                        {
+                            // Second click: proceed to ReadyScreen
+                            _demoDotMoving = false;
+                            TransitionTo(ExperimentStateRacingGate.ReadyScreen);
+                        }
+                    }
+                    break;
+
+                case ExperimentStateRacingGate.FlyingPracticeInstr:
                     if (skipFlyingPractice)
                     {
                         TransitionTo(ExperimentStateRacingGate.RaceInstructions);
+                    } else {
+                        nextState = ExperimentStateRacingGate.FlyingPractice;
+                        TransitionTo(ExperimentStateRacingGate.Wait);
                     }
+                    break;
+
+                case ExperimentStateRacingGate.FlyingPractice:
                     if (DateTimeOffset.Now.ToUnixTimeMilliseconds() - stateEnterTime > flyingTaskPracticeTime)
                     {
                         nextState = ExperimentStateRacingGate.RaceInstructions;
@@ -204,32 +266,28 @@ namespace Experiment
                     }
                     break;
 
-                case ExperimentStateRacingGate.RaceInstructions:
-                    if (skipRacePractice)
-                    {
-                        nextState = ExperimentStateRacingGate.ExperimentBegin;
-                        TransitionTo(ExperimentStateRacingGate.Wait);
-                    }
-                    else
-                    {
-                        nextState = ExperimentStateRacingGate.RacePractice;
-                        TransitionTo(ExperimentStateRacingGate.WaitForUser);
-                    }
-                    break;
 
-                case ExperimentStateRacingGate.RacePractice:
-                    // TODO: Implement race practice completion logic
-                    // This should wait for the course to complete, then transition
-                    break;
-
-                case ExperimentStateRacingGate.ExperimentBegin:
+                case ExperimentStateRacingGate.ReadyScreen:
                     nextState = ExperimentStateRacingGate.Trial;
                     TransitionTo(ExperimentStateRacingGate.Wait);
                     break;
 
                 case ExperimentStateRacingGate.Trial:
-                    // TODO: Implement trial completion logic
-                    // This should wait for the course run to finish, then check if more trials are needed
+                    if ((ringGateManager != null && ringGateManager.IsCourseCompleted) || isTransitionRequested)
+                    {
+                        isTransitionRequested = false;
+                        idleRequestDelay = 2;
+                        TransitionTo(ExperimentStateRacingGate.Idle);
+                    }
+                    break;
+
+                case ExperimentStateRacingGate.Feedback:
+                    if (feedbackManager.IsSubmitted)
+                    {
+                        idleRequestDelay = 1;
+                        nextState = ExperimentStateRacingGate.Finished;
+                        TransitionTo(ExperimentStateRacingGate.IdleSilent);
+                    }
                     break;
             }
         }
@@ -243,6 +301,10 @@ namespace Experiment
 
         private void EnterState(ExperimentStateRacingGate s)
         {
+            // Generate course before applying state visuals so the demo spline is ready when OnEnable fires
+            if (s == ExperimentStateRacingGate.RaceInstructions && ringGateManager != null)
+                ringGateManager.GenerateNewCourse();
+
             ApplyStateVisuals(s);
             switch (s)
             {
@@ -256,66 +318,121 @@ namespace Experiment
                     InputManager.Instance.UnlockControl();
                     break;
 
-                case ExperimentStateRacingGate.FlyingPractice:
+                case ExperimentStateRacingGate.Calibration:
+                    if (!isHeadPositionOk)
+                    {
+                        if (eyeTrackerGuide != null)
+                            eyeTrackerGuide.TrackBoxGuideActive = true;
+                        nextState = ExperimentStateRacingGate.Calibration;
+                    }
+                    else if (eyeTrackerCalibration != null)
+                    {
+                        if (eyeTrackerGuide != null)
+                            eyeTrackerGuide.TrackBoxGuideActive = false;
+                        nextState = ExperimentStateRacingGate.FlyingPracticeInstr;
+                        calibrationDone =  false;
+                        eyeTrackerCalibration.StartCalibration(
+                            resultCallback: (calibResult) =>
+                            {
+                                if (calibResult)
+                                    Debug.Log("Calibration successful");
+                                else
+                                    Debug.LogError("Calibration failed!");
+                                PySender.Instance.IsCalibrationOk = calibResult;
+                                calibrationDone = true;
+                            }
+                        );
+                    }
+                    InputManager.Instance.LockControl();
+                    break;
+
+                case ExperimentStateRacingGate.FlyingPracticeInstr:
+                    InputManager.Instance.LockControl();
                     if (viewManager != null)
                         viewManager.ToggleAllViews(true);
+                    // Reset swarm to practice spawn position
+                    if (swarmSpawner != null)
+                    {
+                        swarmSpawner.DisableHealthMonitoring();
+                        swarmSpawner.ResetToPos(k_swarmSpawnPractice);
+                        swarmSpawner.EnableHealthMonitoring();
+                    }
+                    break;
+
+                case ExperimentStateRacingGate.FlyingPractice:
                     PySender.Instance.EyeDataStreaming = true;
                     InputManager.Instance.UnlockControl();
+                    if (cwlController != null)
+                        cwlController.SetCWLFeedbackEnabled(false);
                     break;
 
                 case ExperimentStateRacingGate.RaceInstructions:
                     if (viewManager != null)
                         viewManager.ToggleAllViews(false);
-                    InputManager.Instance.LockControl();
-                    break;
-
-                case ExperimentStateRacingGate.RacePractice:
-                    // TODO: Start race practice run
-                    if (ringGateManager != null)
+                    if (swarmSpawner != null)
                     {
-                        ringGateManager.ResetAll();
-                        ringGateManager.StartCourse();
+                        swarmSpawner.DisableHealthMonitoring();
+                        swarmSpawner.ResetToPos(k_swarmSpawnCourse);
+                        swarmSpawner.EnableHealthMonitoring();
                     }
-                    if (viewManager != null)
-                        viewManager.ToggleAllViews(true);
-                    PySender.Instance.EyeDataStreaming = true;
-                    InputManager.Instance.UnlockControl();
+                    InputManager.Instance.LockControl();
                     break;
 
-                case ExperimentStateRacingGate.ExperimentBegin:
+                case ExperimentStateRacingGate.ReadyScreen:
                     InputManager.Instance.LockControl();
+                    PySender.Instance.EyeDataStreaming = true;
+                    currentTrial++;
+                    if (readyOverlayManager != null)
+                        readyOverlayManager.SetTrialNumber(currentTrial, totalTrialNumber);
+                    ResetTrialComponents();
+                    if (ringGateManager != null)
+                        ringGateManager.GenerateNewCourse();
                     break;
 
                 case ExperimentStateRacingGate.Trial:
-                    // TODO: Start race trial
-                    currentTrial++;
-                    Debug.Log($"Starting Trial {currentTrial} of Task {currentTask}");
-                    if (ringGateManager != null)
+                    Debug.Log($"Starting Trial {currentTrial}");
+                    if (currentTrial >= totalTrialNumber)
                     {
-                        ringGateManager.ResetAll();
-                        ringGateManager.StartCourse();
+                        nextState = ExperimentStateRacingGate.Feedback;
+                    } else
+                    {
+                        nextState = ExperimentStateRacingGate.Countdown;
+                    }
+                    // Assign swarm to CWL controller before trial
+                    if (cwlController != null && swarmSpawner != null && swarmSpawner.swarm.Count > 0)
+                    {
+                        cwlController.Swarm = swarmSpawner.swarm;
+                        cwlController.SetCWLFeedbackEnabled(false);
                     }
                     if (viewManager != null)
                         viewManager.ToggleAllViews(true);
-                    PySender.Instance.EyeDataStreaming = true;
                     InputManager.Instance.UnlockControl();
                     break;
 
-                case ExperimentStateRacingGate.Rest:
+                case ExperimentStateRacingGate.Countdown:
                     if (timer != null)
                         timer.BeginCountdown();
+                    // Re-enable warmup phase for next trial, but keep current parameter values
+                    if (cwlController != null)
+                        cwlController.EnableWarmup();
                     if (viewManager != null)
                         viewManager.ToggleAllViews(false);
+                    nextState = ExperimentStateRacingGate.ReadyScreen;
                     InputManager.Instance.LockControl();
                     break;
 
                 case ExperimentStateRacingGate.Finished:
                     PySender.Instance.EyeDataStreaming = false;
+                    // Disable CWL feedback at the end of all trials
+                    if (cwlController != null)
+                        cwlController.SetCWLFeedbackEnabled(false);
                     if (viewManager != null)
                         viewManager.ToggleAllViews(false);
                     InputManager.Instance.LockControl();
-                    currentTask = 0;
                     currentTrial = 0;
+                    break;
+
+                case ExperimentStateRacingGate.Feedback:
                     break;
             }
             state = s;
@@ -334,9 +451,22 @@ namespace Experiment
                     DisableAllActiveObjects();
                     break;
 
-                case ExperimentStateRacingGate.Rest:
+                case ExperimentStateRacingGate.Countdown:
                     if (timer != null)
                         timer.StopCountdown();
+                    DisableAllActiveObjects();
+                    break;
+
+                case ExperimentStateRacingGate.FlyingPracticeInstr:
+                    if (skipFlyingPractice)
+                        DisableAllActiveObjects();
+                    break;
+
+                case ExperimentStateRacingGate.RaceInstructions:
+                    // Demo GameObjects are hidden by DisableAllActiveObjects via stateConfigs;
+                    // CourseDemo.OnDisable() handles cleanup automatically.
+                    DisableAllActiveObjects();
+                    _demoDotMoving = false;
                     break;
 
                 case ExperimentStateRacingGate.FlyingPractice:
@@ -350,6 +480,8 @@ namespace Experiment
                 case ExperimentStateRacingGate.Trial:
                     Debug.Log($"End of Trial #{currentTrial}");
                     PySender.Instance.EyeDataStreaming = false;
+                    if (cwlController != null)
+                        cwlController.SetCWLFeedbackEnabled(false);
                     break;
             }
         }
@@ -407,38 +539,49 @@ namespace Experiment
                 hasUserClicked = true;
         }
 
-        // External transition requests
-        public void RequestTransitionToWait() => TransitionTo(ExperimentStateRacingGate.Wait);
-        public void RequestTransitionToIdle() => TransitionTo(ExperimentStateRacingGate.Idle);
-        public void RequestTransitionToFlyingPractice() => TransitionTo(ExperimentStateRacingGate.FlyingPractice);
-        public void RequestTransitionToRacePractice() => TransitionTo(ExperimentStateRacingGate.RacePractice);
-        public void RequestTransitionToTrial() => TransitionTo(ExperimentStateRacingGate.Trial);
-        public void RequestTransitionToRest() => TransitionTo(ExperimentStateRacingGate.Rest);
-
-        public ExperimentStateSnapshot GetStateSnapshot()
+        /// <summary>
+        /// Callback for when the course start trigger fires. Enables CWL feedback and warmup phase
+        /// when drones enter the course, signaling the actual start of the race.
+        /// </summary>
+        private void OnCourseTriggered()
         {
-            return new ExperimentStateSnapshot
+            if (cwlController != null)
+            {
+                cwlController.SetCWLFeedbackEnabled(isCwlActive);
+                if (isCwlActive)
+                    cwlController.EnableWarmup();
+                else
+                    cwlController.SetDefaultProfile(defaultFlightProfile);
+                Debug.Log("[ExperimentFSMRacingGate] Course triggered - enabling CWL feedback and warmup phase");
+            }
+        }
+
+        public override ExperimentFSMBase.ExperimentStateSnapshot GetStateSnapshot()
+        {
+            return new ExperimentFSMBase.ExperimentStateSnapshot
             {
                 state = state.ToString(),
                 previousState = previousState.ToString(),
                 nextState = nextState.ToString(),
-                currentTask = currentTask,
+                currentTask = 0,
                 currentTrial = currentTrial,
+                totalTaskNumber = 1,
+                totalTrialNumber = totalTrialNumber,
                 stateEnterTimestamp = stateEnterTime,
             };
         }
 
-        public string[] GetAvailableStates()
+        public override string[] GetAvailableStates()
         {
             return Enum.GetNames(typeof(ExperimentStateRacingGate));
         }
 
-        public void NotifyOperatorClicked()
+        public override void NotifyOperatorClicked()
         {
             isTransitionRequested = true;
         }
 
-        public bool RequestTransitionTo(string stateName, out string error)
+        public override bool RequestTransitionTo(string stateName, out string error)
         {
             error = string.Empty;
             if (string.IsNullOrWhiteSpace(stateName))
@@ -458,51 +601,34 @@ namespace Experiment
         }
 
         // ─────────────────────────────────────────────────────────────────────────
-        // CWL Feedback Control
+        // Reset methods
         // ─────────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Enable the CWL adaptive feedback system.
-        /// When enabled, the system will receive CWL inferences and adjust drone parameters
-        /// to maintain a medium (optimal) cognitive workload level.
+        /// Performs a complete reset of all trial components.
+        /// Call this at the start of each new trial to ensure clean state.
         /// </summary>
-        public void EnableCWLFeedback()
+        public void ResetTrialComponents()
         {
-            if (cwlController != null)
-                cwlController.SetCWLFeedbackEnabled(true);
-            else
-                Debug.LogWarning("[ExperimentFSMRacingGate] CWL Controller not found");
-        }
+            // Disable health monitoring during reset to prevent false "dead" markings
+            if (swarmSpawner != null)
+            {
+                swarmSpawner.DisableHealthMonitoring();
+                swarmSpawner.ResetToPos(k_swarmSpawnCourse);
+                swarmSpawner.EnableHealthMonitoring();
+            }
 
-        /// <summary>
-        /// Disable the CWL adaptive feedback system.
-        /// When disabled, no parameter adjustments will be made in response to CWL inferences.
-        /// </summary>
-        public void DisableCWLFeedback()
-        {
-            if (cwlController != null)
-                cwlController.SetCWLFeedbackEnabled(false);
-            else
-                Debug.LogWarning("[ExperimentFSMRacingGate] CWL Controller not found");
-        }
+            // Reset course gates and visuals
+            if (ringGateManager != null)
+            {
+                ringGateManager.ResetAll();
+            }
 
-        /// <summary>
-        /// Reset all drone parameters to their medium (optimal) values.
-        /// </summary>
-        public void ResetDroneParametersToMedium()
-        {
-            if (cwlController != null)
-                cwlController.ResetToMedium();
-            else
-                Debug.LogWarning("[ExperimentFSMRacingGate] CWL Controller not found");
-        }
-
-        /// <summary>
-        /// Get whether the CWL feedback system is currently enabled.
-        /// </summary>
-        public bool IsCWLFeedbackEnabled()
-        {
-            return cwlController != null && cwlController.IsCWLFeedbackEnabled;
+            // Reset the course trigger so it can fire for this trial
+            if (courseStartTrigger != null)
+            {
+                courseStartTrigger.ResetTrigger();
+            }
         }
     }
 }

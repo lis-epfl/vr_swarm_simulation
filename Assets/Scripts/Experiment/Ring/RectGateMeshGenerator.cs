@@ -164,6 +164,7 @@ public class RectGateMeshGenerator : MonoBehaviour
         var mr = bar.GetComponent<MeshRenderer>();
         if (frameMaterial != null)
             mr.sharedMaterial = frameMaterial;
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
         // Collider
         var col = bar.GetComponent<BoxCollider>();

@@ -72,6 +72,9 @@ public class CoursePathVisual : MonoBehaviour
         }
     }
 
+    /// <summary>Access the underlying SplineContainer for external animation or evaluation.</summary>
+    public SplineContainer Spline => _splineContainer;
+
     /// <summary>
     /// Destroys all current visuals and rebuilds the spline, line, and dots
     /// from the current gateManager state. Call after procedurally placing gates.

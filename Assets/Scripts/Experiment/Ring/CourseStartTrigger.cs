@@ -16,6 +16,10 @@ public class CourseStartTrigger : MonoBehaviour
     [Tooltip("The course manager to call StartCourse() on.")]
     public RingGateManager courseManager;
 
+    [SerializeField]
+    [Tooltip("Child renderer used to visualize the start zone. Size it independently of the trigger collider.")]
+    private Renderer nextGateRenderer;
+
     [Header("Trigger Settings")]
     [Tooltip("Tag of colliders that can activate the course start.")]
     public string droneTag = "Player";
@@ -55,6 +59,13 @@ public class CourseStartTrigger : MonoBehaviour
         if (!root.CompareTag(droneTag)) return;
 
         _triggered = true;
+
+        // Disable the visual indicator when course starts
+        if (nextGateRenderer != null)
+        {
+            nextGateRenderer.enabled = false;
+        }
+
         onCourseTriggered?.Invoke();
         courseManager?.StartCourse();
 
@@ -69,6 +80,11 @@ public class CourseStartTrigger : MonoBehaviour
     public void ResetTrigger()
     {
         _triggered = false;
+        // Re-enable the visual indicator
+        if (nextGateRenderer != null)
+        {
+            nextGateRenderer.enabled = true;
+        }
     }
 
     /// <summary>Immediately fires the trigger programmatically (bypasses tag check).</summary>
@@ -76,6 +92,13 @@ public class CourseStartTrigger : MonoBehaviour
     {
         if (singleFirePerSession && _triggered) return;
         _triggered = true;
+
+        // Disable the visual indicator when course starts
+        if (nextGateRenderer != null)
+        {
+            nextGateRenderer.enabled = false;
+        }
+
         onCourseTriggered?.Invoke();
         courseManager?.StartCourse();
     }
