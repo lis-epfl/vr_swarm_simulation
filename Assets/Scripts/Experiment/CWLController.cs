@@ -4,51 +4,36 @@ using UnityEngine;
 namespace Experiment
 {
     /// <summary>
-    /// Adaptive CWL (Cognitive Workload Level) feedback system.
-    /// Receives CWL inference from Python and adjusts drone control parameters
-    /// to maintain the CWL at a medium (optimal) level.
-    ///
-    /// Architecture:
-    /// - Each adjustable parameter (maxSpeed, maxYawRate, etc.) has min/medium/max values
-    /// - When CWL is LOW: increase parameters towards max (increase difficulty)
-    /// - When CWL is HIGH: decrease parameters towards min (decrease difficulty)
-    /// - When CWL is MEDIUM: hold steady (no adjustment needed)
-    /// - Adjustments happen incrementally per call using step sizes
+    /// Drone control parameters that can be adjusted by CWL feedback.
+    /// </summary>
+    public struct DroneParams
+    {
+        public float maxSpeed;
+        public float maxYawRate;
+        public float maxPitch;
+        public float maxRoll;
+        public float maxAltitudeRate;
+        public float maxAlpha;
+    }
+
+    /// <summary>
+    /// CWL (Cognitive Workload Level) feedback controller.
+    /// Receives CWL inferences from Python and adjusts drone control parameters
+    /// to maintain workload at optimal (Medium) level.
+    /// Uses exponential step growth: exponentialBase=2.0 for exponential, 1.0 for linear.
     /// </summary>
     public class CWLController : MonoBehaviour
     {
         public enum CWLLevel { Low, Medium, High }
+        public enum StepMode { Exponential, Linear }
 
         [Header("Feedback System")]
         [SerializeField] private bool _cwlFeedbackEnabled = true;
 
-        [System.Serializable]
-        public struct ParameterRange
-        {
-            [Tooltip("Minimum value (used when CWL is High, difficulty needs to decrease)")]
-            public float min;
-
-            [Tooltip("Maximum value (used when CWL is Low, difficulty needs to increase)")]
-            public float max;
-
-            [Tooltip("Amount to adjust per step (will settle at optimal equilibrium)")]
-            public float stepSize;
-
-            public ParameterRange(float min, float max, float stepSize)
-            {
-                this.min = min;
-                this.max = max;
-                this.stepSize = stepSize;
-            }
-        }
-
-        [Header("Parameter Ranges (min/max, will settle at optimal equilibrium)")]
-        [SerializeField] private ParameterRange maxSpeedRange = new(3.0f, 15.0f, 0.5f);
-        [SerializeField] private ParameterRange maxYawRateRange = new(0.6f, 1.5f, 0.05f);
-        [SerializeField] private ParameterRange maxPitchRange = new(0.15f, 0.45f, 0.01f);
-        [SerializeField] private ParameterRange maxRollRange = new(0.15f, 0.45f, 0.01f);
-        [SerializeField] private ParameterRange maxAltitudeRateRange = new(1.5f, 5.0f, 0.1f);
-        [SerializeField] private ParameterRange maxAlphaRange = new(6.0f, 15.0f, 0.5f);
+        [Header("CWL Adjustment Range")]
+        [SerializeField] private FlightProfile _minProfile;   // Low difficulty (Soft) — used when CWL=High
+        [SerializeField] private FlightProfile _maxProfile;   // High difficulty (Racing) — used when CWL=Low
+        [SerializeField] private FlightProfile _defaultProfile; // Reset target (Average)
 
         private List<GameObject> swarm;
         public List<GameObject> Swarm
@@ -60,26 +45,39 @@ namespace Experiment
         private CWLLevel _lastCWLLevel = CWLLevel.Medium;
 
         [Header("Adaptive Algorithm")]
-        [SerializeField] private float _exponentialBase = 2.0f;
+        [SerializeField] private StepMode _stepMode = StepMode.Exponential;
+        [SerializeField] private float _exponentialBase = 2.0f;    // Exponential mode: multiplier per same-direction call
+        [SerializeField] [Min(1)] private int _numSteps = 16;      // Number of anchor steps covering the full range
+        [SerializeField] [Min(1)] private int _maxStepSize = 4;    // Max steps to move on a single inference
+        [SerializeField] [Min(0)] private int _warmupUpdates = 2;  // Number of CWL inferences to skip before adjusting
 
-        private CWLAdaptiveAlgorithm _adaptiveAlgorithm;
+        // Precomputed anchor step arrays (one array per parameter)
+        private float[] _stepsSpeed;
+        private float[] _stepsYawRate;
+        private float[] _stepsPitch;
+        private float[] _stepsRoll;
+        private float[] _stepsAltRate;
+        private float[] _stepsAlpha;
 
-        private void Awake()
-        {
-        }
+        // Current step index (shared across all parameters since they move together)
+        private int _currentStepIdx;
+
+        // Warmup phase tracking
+        private int _warmupCounter = 0;
+        private bool _warmupComplete = false;
+
+        // Number of steps to move on next adjustment; grows exponentially on same direction
+        private float _stepsToMove = 1.0f;
+        private CWLLevel? _lastDirection;
 
         private void Start()
         {
-            var config = new CWLAdaptiveAlgorithmConfig
+            if (_minProfile == null || _maxProfile == null)
             {
-                maxSpeedRange        = maxSpeedRange,
-                maxYawRateRange      = maxYawRateRange,
-                maxPitchRange        = maxPitchRange,
-                maxRollRange         = maxRollRange,
-                maxAltitudeRateRange = maxAltitudeRateRange,
-                maxAlphaRange        = maxAlphaRange,
-            };
-            _adaptiveAlgorithm = new CWLAdaptiveAlgorithm(config, _exponentialBase);
+                Debug.LogError("[CWLController] _minProfile and _maxProfile must be assigned.");
+                return;
+            }
+            PrecomputeAnchorSteps();
         }
 
         /// <summary>
@@ -93,6 +91,24 @@ namespace Experiment
         }
 
         public bool IsCWLFeedbackEnabled => _cwlFeedbackEnabled;
+
+        /// <summary>
+        /// Enable the warmup phase. Called at the start of each trial to skip initial CWL inferences
+        /// while the system stabilizes. Keeps current drone parameter values but resets warmup counter.
+        /// </summary>
+        public void EnableWarmup()
+        {
+            _warmupCounter = 0;
+            _warmupComplete = false;
+            Debug.Log("[CWLController] Warmup phase enabled");
+        }
+
+        public void SetDefaultProfile(FlightProfile profile)
+        {
+            _defaultProfile = profile;
+            ResetToDefaultProfile();
+            Debug.Log("[CWLController] CWL feedback disabled, default profile set, and parameters resetted");
+        }
 
         /// <summary>
         /// Receive CWL inference from Python and adjust drone parameters.
@@ -114,6 +130,22 @@ namespace Experiment
 
             _lastCWLLevel = cwlLevel;
 
+            // Warmup phase: skip adjustments until warmup period is complete
+            if (!_warmupComplete)
+            {
+                if (_warmupCounter < _warmupUpdates)
+                {
+                    _warmupCounter++;   
+                    Debug.Log($"[CWLController] Warmup phase {_warmupCounter}/{_warmupUpdates}");
+                    if (_warmupCounter == _warmupUpdates)
+                    {
+                        _warmupComplete = true;
+                        Debug.Log("[CWLController] Warmup phase complete, CWL adjustments will be enabled starting from next inference");
+                    }
+                    return;
+                }
+            }
+
             // Determine adjustment direction
             // If CWL is Low: increase difficulty (move towards max)
             // If CWL is High: decrease difficulty (move towards min)
@@ -122,9 +154,61 @@ namespace Experiment
         }
 
         /// <summary>
-        /// Adjusts all drone parameters based on the current CWL level using the adaptive algorithm.
-        /// The algorithm applies exponential step growth with direction change detection.
+        /// Build an evenly spaced array of step values from min to max.
+        /// Returns array of length _numSteps where arr[0]=min and arr[_numSteps-1]=max.
         /// </summary>
+        private float[] BuildStepArray(float min, float max)
+        {
+            var arr = new float[_numSteps];
+            for (int i = 0; i < _numSteps; i++)
+            {
+                arr[i] = (_numSteps == 1)
+                    ? min
+                    : Mathf.Lerp(min, max, (float)i / (_numSteps - 1));
+            }
+            return arr;
+        }
+
+        /// <summary>
+        /// Find the index in a step array whose value is closest to the target value.
+        /// </summary>
+        private int FindClosestIndex(float[] steps, float value)
+        {
+            int best = 0;
+            float bestDist = Mathf.Abs(steps[0] - value);
+            for (int i = 1; i < steps.Length; i++)
+            {
+                float d = Mathf.Abs(steps[i] - value);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Precompute all 6 anchor step arrays from the min/max profiles,
+        /// and initialize the shared step index to the closest position to the default profile.
+        /// </summary>
+        private void PrecomputeAnchorSteps()
+        {
+            _stepsSpeed    = BuildStepArray(_minProfile.maxSpeed,        _maxProfile.maxSpeed);
+            _stepsYawRate  = BuildStepArray(_minProfile.maxYawRate,      _maxProfile.maxYawRate);
+            _stepsPitch    = BuildStepArray(_minProfile.maxPitch,        _maxProfile.maxPitch);
+            _stepsRoll     = BuildStepArray(_minProfile.maxRoll,         _maxProfile.maxRoll);
+            _stepsAltRate  = BuildStepArray(_minProfile.maxAltitudeRate, _maxProfile.maxAltitudeRate);
+            _stepsAlpha    = BuildStepArray(_minProfile.maxAlpha,        _maxProfile.maxAlpha);
+
+            // Initialize step index to the position closest to the default profile (using speed as reference)
+            FlightProfile d = _defaultProfile != null ? _defaultProfile : _minProfile;
+            _currentStepIdx = FindClosestIndex(_stepsSpeed, d.maxSpeed);
+
+            _stepsToMove = 1.0f;
+            _lastDirection = null;
+        }
+
         private void AdjustDroneParameters(CWLLevel cwlLevel)
         {
             if (swarm == null || swarm.Count == 0)
@@ -133,47 +217,47 @@ namespace Experiment
                 return;
             }
 
+            // On direction change, reset step count (keep current index)
+            bool directionChanged = _lastDirection.HasValue && _lastDirection.Value != cwlLevel;
+            if (directionChanged)
+                _stepsToMove = 1.0f;
+
+            // Medium is a no-op
+            if (cwlLevel == CWLLevel.Medium)
+                return;
+
+            // Number of discrete steps to move this call
+            int n = Mathf.Max(1, Mathf.RoundToInt(_stepsToMove));
+            int delta = (cwlLevel == CWLLevel.High) ? -n : +n;   // High → toward min, Low → toward max
+
+            // Move shared index and clamp to valid range
+            _currentStepIdx = Mathf.Clamp(_currentStepIdx + delta, 0, _numSteps - 1);
+
+            // Write step values to all drones
             foreach (GameObject drone in swarm)
             {
-                Transform droneParentTransform = drone.transform.Find("DroneParent");
-                if (droneParentTransform == null)
-                {
-                    Debug.LogWarning($"[CWLController] Drone {drone.name} has no 'DroneParent' child");
-                    continue;
-                }
+                Transform droneParent = drone.transform.Find("DroneParent");
+                if (droneParent == null) continue;
+                VelocityControl ctrl = droneParent.GetComponent<VelocityControl>();
+                if (ctrl == null) continue;
 
-                VelocityControl ctrl = droneParentTransform.GetComponent<VelocityControl>();
-                if (ctrl == null)
-                {
-                    Debug.LogWarning($"[CWLController] DroneParent on {drone.name} has no VelocityControl component");
-                    continue;
-                }
-
-                // Read current parameters
-                DroneParams current = new DroneParams
-                {
-                    maxSpeed        = ctrl.maxSpeed,
-                    maxYawRate      = ctrl.maxYawRate,
-                    maxPitch        = ctrl.maxPitch,
-                    maxRoll         = ctrl.maxRoll,
-                    maxAltitudeRate = ctrl.maxAltitudeRate,
-                    maxAlpha        = ctrl.maxAlpha,
-                };
-
-                // Apply adaptive adjustment
-                DroneParams updated = _adaptiveAlgorithm.Apply(cwlLevel, current);
-
-                // Write updated parameters back
-                ctrl.maxSpeed        = updated.maxSpeed;
-                ctrl.maxYawRate      = updated.maxYawRate;
-                ctrl.maxPitch        = updated.maxPitch;
-                ctrl.maxRoll         = updated.maxRoll;
-                ctrl.maxAltitudeRate = updated.maxAltitudeRate;
-                ctrl.maxAlpha        = updated.maxAlpha;
+                ctrl.maxSpeed        = _stepsSpeed[_currentStepIdx];
+                ctrl.maxYawRate      = _stepsYawRate[_currentStepIdx];
+                ctrl.maxPitch        = _stepsPitch[_currentStepIdx];
+                ctrl.maxRoll         = _stepsRoll[_currentStepIdx];
+                ctrl.maxAltitudeRate = _stepsAltRate[_currentStepIdx];
+                ctrl.maxAlpha        = _stepsAlpha[_currentStepIdx];
             }
 
-            float multiplierBefore = _adaptiveAlgorithm.StepMultiplier / _exponentialBase;
-            Debug.Log($"[CWLController] Applied CWL adjustment: {cwlLevel} | step multiplier after: {_adaptiveAlgorithm.StepMultiplier:F3}x (was {multiplierBefore:F3}x)");
+            // Update state: direction and grow step count for next call
+            _lastDirection = cwlLevel;
+            if (_stepMode == StepMode.Exponential)
+                _stepsToMove = Mathf.Min(_stepsToMove * _exponentialBase, _maxStepSize);
+            else
+                _stepsToMove = Mathf.Min(_stepsToMove + 1f, _maxStepSize);
+
+            Debug.Log($"[CWLController] CWL={cwlLevel} | moved {n} step(s) | index={_currentStepIdx} | " +
+                      $"next move={_stepsToMove:F1} step(s)");
         }
 
         /// <summary>
@@ -182,10 +266,20 @@ namespace Experiment
         public CWLLevel GetCurrentCWLLevel => _lastCWLLevel;
 
         /// <summary>
+        /// Returns the total number of steps in the anchor arrays.
+        /// </summary>
+        public int GetNumSteps => _numSteps;
+
+        /// <summary>
+        /// Returns the current step index (shared across all parameters).
+        /// </summary>
+        public int GetCurrentStepIdx => _currentStepIdx;
+
+        /// <summary>
         /// Reset all drone parameters to the midpoint between min and max (neutral starting point).
         /// The system will then naturally settle to the optimal equilibrium based on CWL feedback.
         /// </summary>
-        public void ResetToMedium()
+        public void ResetToDefaultProfile()
         {
             if (swarm == null || swarm.Count == 0)
             {
@@ -193,23 +287,38 @@ namespace Experiment
                 return;
             }
 
-            foreach (GameObject drone in swarm)
+            if (_minProfile == null || _maxProfile == null)
             {
-                VelocityControl ctrl = drone.transform.Find("DroneParent").gameObject.GetComponent<VelocityControl>();
-                if (ctrl == null) continue;
-
-                // Reset to midpoint of each parameter range
-                ctrl.maxSpeed = (maxSpeedRange.min + maxSpeedRange.max) / 2f;
-                ctrl.maxYawRate = (maxYawRateRange.min + maxYawRateRange.max) / 2f;
-                ctrl.maxPitch = (maxPitchRange.min + maxPitchRange.max) / 2f;
-                ctrl.maxRoll = (maxRollRange.min + maxRollRange.max) / 2f;
-                ctrl.maxAltitudeRate = (maxAltitudeRateRange.min + maxAltitudeRateRange.max) / 2f;
-                ctrl.maxAlpha = (maxAlphaRange.min + maxAlphaRange.max) / 2f;
+                Debug.LogWarning("[CWLController] _minProfile and _maxProfile must be assigned");
+                return;
             }
 
-            _lastCWLLevel = CWLLevel.Medium;
-            _adaptiveAlgorithm?.Reset();
-            Debug.Log("[CWLController] Reset all drone parameters to midpoint (neutral starting point)");
+            // Rebuild anchor steps and reset index to default profile position
+            PrecomputeAnchorSteps();
+
+            // Write the initial anchor values to all drones
+            foreach (GameObject drone in swarm)
+            {
+                Transform droneParent = drone.transform.Find("DroneParent");
+                if (droneParent == null)
+                    continue;
+
+                VelocityControl ctrl = droneParent.GetComponent<VelocityControl>();
+                if (ctrl == null)
+                    continue;
+
+                ctrl.maxSpeed        = _stepsSpeed[_currentStepIdx];
+                ctrl.maxYawRate      = _stepsYawRate[_currentStepIdx];
+                ctrl.maxPitch        = _stepsPitch[_currentStepIdx];
+                ctrl.maxRoll         = _stepsRoll[_currentStepIdx];
+                ctrl.maxAltitudeRate = _stepsAltRate[_currentStepIdx];
+                ctrl.maxAlpha        = _stepsAlpha[_currentStepIdx];
+            }
+
+            _lastCWLLevel  = CWLLevel.Medium;
+            _warmupCounter = 0;
+            _warmupComplete = false;
+            Debug.Log("[CWLController] Reset to medium (anchor step indices and algorithm state)");
         }
 
         public Dictionary<string, float> GetCurrentControlLimits()
