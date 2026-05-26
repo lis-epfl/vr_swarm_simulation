@@ -72,6 +72,7 @@ public class FeedbackOverlayManager : MonoBehaviour
     private int   _trialNumber;
     private string _csvFilePath;       // resolved on first export
     private bool  _dirty;              // deferred rebuild flag for OnValidate
+    private bool  _uiBuilt;            // tracks if UI has been built for this session
 
     /// <summary>True once the user clicks Submit. Reset each time the overlay is shown.</summary>
     public bool IsSubmitted => _submitted;
@@ -86,11 +87,20 @@ public class FeedbackOverlayManager : MonoBehaviour
 
     private void OnEnable()
     {
-        RebuildUI();
+        // Build UI only once per trial (not every enable, which can reset the slider)
+        bool isFirstEnable = !_uiBuilt;
+        if (isFirstEnable)
+        {
+            RebuildUI();
+            _uiBuilt = true;
+        }
 
         if (Application.isPlaying)
         {
-            ResetState();
+            // Only reset state when UI is first built for this trial
+            if (isFirstEnable)
+                ResetState();
+
             if (_button != null)
                 _button.onClick.AddListener(HandleSubmit);
         }
@@ -101,7 +111,10 @@ public class FeedbackOverlayManager : MonoBehaviour
         if (_button != null)
             _button.onClick.RemoveListener(HandleSubmit);
 
-        DestroyChildren();
+        // Only destroy children in editor mode. In play mode, keep them so the slider
+        // state is preserved if the overlay is re-enabled (e.g., due to FSM state toggling).
+        if (!Application.isPlaying)
+            DestroyChildren();
     }
 
     private void OnValidate()
@@ -123,8 +136,19 @@ public class FeedbackOverlayManager : MonoBehaviour
 
     // ── Public API ──────────────────────────────────────────────────────
 
-    /// <summary>Set the current trial number before showing the overlay.</summary>
-    public void SetTrialNumber(int trial) => _trialNumber = trial;
+    /// <summary>Set the current trial number before showing the overlay.
+    /// Automatically resets submission state when moving to a new trial.</summary>
+    public void SetTrialNumber(int trial)
+    {
+        // If trial number changed, reset the submission state for the new trial
+        if (_trialNumber != trial)
+        {
+            _trialNumber = trial;
+            _submitted = false;
+            _submittedValue = 0.5f;
+            _uiBuilt = false;  // Force UI rebuild for new trial
+        }
+    }
 
     /// <summary>Normalised score mapped to [-1, +1]. -1 = harmful, 0 = neutral, +1 = helpful.</summary>
     public float GetNormalisedScore() => (_submittedValue - 0.5f) * 2f;
@@ -367,18 +391,23 @@ public class FeedbackOverlayManager : MonoBehaviour
         sliderRT.anchoredPosition = new Vector2(0, yFromCenter);
         sliderRT.sizeDelta = new Vector2(sliderWidth, sliderHeight);
 
+        // Add LayoutElement to prevent layout rebuilds from resizing the slider
+        var layoutElem = sliderGO.AddComponent<LayoutElement>();
+        layoutElem.preferredWidth = sliderWidth;
+        layoutElem.preferredHeight = sliderHeight;
+
         // Background
         var bgGO  = CreateUI("Background", sliderGO.transform);
         var bgImg = bgGO.AddComponent<Image>();
         bgImg.color = sliderBgColor;
         Stretch(bgGO);
 
-        // Fill area
+        // Fill area — must match handle area insets for slider math to work correctly
         var fillAreaGO = CreateUI("Fill Area", sliderGO.transform);
         Stretch(fillAreaGO);
         var fillAreaRT = fillAreaGO.GetComponent<RectTransform>();
-        fillAreaRT.offsetMin = new Vector2(5, 0);
-        fillAreaRT.offsetMax = new Vector2(-5, 0);
+        fillAreaRT.offsetMin = new Vector2(8, 0);
+        fillAreaRT.offsetMax = new Vector2(-8, 0);
 
         var fillGO  = CreateUI("Fill", fillAreaGO.transform);
         var fillImg = fillGO.AddComponent<Image>();
@@ -396,29 +425,41 @@ public class FeedbackOverlayManager : MonoBehaviour
         tickRT.sizeDelta = new Vector2(2f, 6f);    // 2 px wide, extends 3 px above and below
         tickRT.anchoredPosition = Vector2.zero;
 
-        // Handle slide area
+        // Handle slide area — same insets as fill area
         var handleAreaGO = CreateUI("Handle Slide Area", sliderGO.transform);
         Stretch(handleAreaGO);
         var handleAreaRT = handleAreaGO.GetComponent<RectTransform>();
-        handleAreaRT.offsetMin = new Vector2(10, 0);
-        handleAreaRT.offsetMax = new Vector2(-10, 0);
+        handleAreaRT.offsetMin = new Vector2(8, 0);
+        handleAreaRT.offsetMax = new Vector2(-8, 0);
 
-        // Handle
+        // Handle — must have proper anchors for slider to work correctly
         var handleGO  = CreateUI("Handle", handleAreaGO.transform);
         var handleImg = handleGO.AddComponent<Image>();
         handleImg.color = handleColor;
         var handleRT = handleGO.GetComponent<RectTransform>();
+        // Anchor on left-centre so the slider can position it horizontally
+        handleRT.anchorMin = new Vector2(0, 0.5f);
+        handleRT.anchorMax = new Vector2(0, 0.5f);
+        handleRT.pivot     = new Vector2(0.5f, 0.5f);
         handleRT.sizeDelta = new Vector2(handleSize, handleSize);
+        handleRT.anchoredPosition = Vector2.zero;
 
-        // Slider component
+        // Slider component — with safeguards to prevent value jitter
         _slider = sliderGO.AddComponent<Slider>();
         _slider.fillRect      = fillGO.GetComponent<RectTransform>();
         _slider.handleRect    = handleRT;
         _slider.targetGraphic = handleImg;
         _slider.minValue      = 0f;
         _slider.maxValue      = 1f;
+        _slider.wholeNumbers  = false;    // Allow smooth floating-point values
         _slider.value         = 0.5f;
         _slider.direction     = Slider.Direction.LeftToRight;
+        _slider.interactable  = true;
+
+        // Disable navigation to prevent interference from EventSystem
+        var nav = _slider.navigation;
+        nav.mode = Navigation.Mode.None;
+        _slider.navigation = nav;
 
         return yFromCenter - sliderHeight;
     }
