@@ -172,12 +172,12 @@ MonoBehaviour:
   PropFR: {fileID: 1552398028780994}
   PropRR: {fileID: 1519630155678512}
   PropRL: {fileID: 1958779810228456}
-  maxPitch: 0.25
-  maxRoll: 0.25
-  maxYawRate: 1
-  maxAlpha: 10
-  maxSpeed: 5
-  maxAltitudeRate: 2
+  maxPitch: 0.33
+  maxRoll: 0.33
+  maxYawRate: 1.07
+  maxAlpha: 8.68
+  maxSpeed: 9.31
+  maxAltitudeRate: 3.34
   MinHeight: 0.5
   desired_height: 25.3
   desiredYawRate: 0
@@ -214,6 +214,12 @@ MonoBehaviour:
   groundCollisionThreshold: 0.3
   cohesionDistanceMultiplier: 0.1
   stabilizationDelay: 1
+  parkingY: -100
+  droneCollisionRadius: 0.5
+  stuckVelocityThreshold: 0.3
+  stuckObstacleRadius: 1.5
+  stuckTimeThreshold: 1.5
+  stuckDetectionDelay: 3
 --- !u!114 &114145603923244640
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -313,7 +319,7 @@ MonoBehaviour:
   NumDimensions: 2
   BoundaryEstimate: 0
   PointInwards: 0
-  YawCorrectionFactor: 0.53
+  YawCorrectionFactor: 0
   NeighborYawSmoothingFactor: 0.5
 --- !u!114 &474059409597466468
 MonoBehaviour:
@@ -328,6 +334,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   swarm: []
+  isSwarmSpreadEnabled: 0
   desired_height: 4
 --- !u!65 &3658020977089312761
 BoxCollider:
