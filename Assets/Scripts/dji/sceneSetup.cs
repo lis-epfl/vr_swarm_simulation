@@ -5,16 +5,22 @@ using UnityEngine;
 public class sceneSetup : MonoBehaviour
 {
     
-    private screenSpawn screenSpawn;
+    private ScreenSpawn ScreenSpawn;
+
+    // Awake is called before Start
+    void Awake()
+    {
+        // Get the ScreenSpawn script
+        ScreenSpawn = GetComponent<ScreenSpawn>();
+    }
     
     // Start is called before the first frame update
     void Start()
     {
-        // Get the screenSpawn script
-        screenSpawn = GetComponent<screenSpawn>();
 
-        // Call the SpawnScreens function from the screenSpawn script]
-        screenSpawn.SpawnScreens();
+
+        // Call the SpawnScreens function from the ScreenSpawn script]
+        ScreenSpawn.SpawnScreens();
         
     }
 

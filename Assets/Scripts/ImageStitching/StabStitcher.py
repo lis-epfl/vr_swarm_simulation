@@ -1,0 +1,949 @@
+import numpy as np
+import cv2
+import torch
+import torch.nn.functional as F
+import os
+import sys
+import glob
+import time
+import threading
+from collections import deque
+
+from BaseStitcher import BaseStitcher
+
+# ---------------------------------------------------------------------------
+# Path setup – add the StabStitch2 Codes directory so that its local imports
+# (spatial_network, temporal_network, smooth_network, grid_res, utils.*) all
+# resolve correctly when this file is imported from the ImageStitching/ CWD.
+# ---------------------------------------------------------------------------
+_THIS_DIR = os.path.abspath(os.path.dirname(__file__))
+STABSTITCH2_CODES = os.path.join(
+    _THIS_DIR, "StabStitch2_main", "Full_model_inference", "Codes"
+)
+STABSTITCH2_MODEL_DIR = os.path.join(
+    _THIS_DIR, "StabStitch2_main", "Full_model_inference", "full_model_ssd"
+)
+
+if STABSTITCH2_CODES not in sys.path:
+    sys.path.insert(0, STABSTITCH2_CODES)
+
+# ---------------------------------------------------------------------------
+# Grid-res conflict fix:
+# UDIS2_main also has a grid_res.py (GRID_H=12, GRID_W=12) and its network.py
+# does a plain `import grid_res`, which caches the UDIS version in
+# sys.modules['grid_res'] before StabStitch2's networks are imported.
+# We force-load StabStitch2's grid_res.py (GRID_H=6, GRID_W=8) into
+# sys.modules so the StabStitch2 networks see the correct values at init.
+# ---------------------------------------------------------------------------
+import importlib.util as _importlib_util
+
+_ss2_grid_res_spec = _importlib_util.spec_from_file_location(
+    "grid_res", os.path.join(STABSTITCH2_CODES, "grid_res.py")
+)
+_ss2_grid_res = _importlib_util.module_from_spec(_ss2_grid_res_spec)
+_ss2_grid_res_spec.loader.exec_module(_ss2_grid_res)
+sys.modules['grid_res'] = _ss2_grid_res
+
+# Clear any cached StabStitch2 network modules that may have been partially
+# loaded in a previous failed import (e.g. when einops was missing).
+for _mod in ['spatial_network', 'temporal_network', 'smooth_network']:
+    sys.modules.pop(_mod, None)
+
+from spatial_network import SpatialNet, build_SpatialNet
+from temporal_network import TemporalNet, build_TemporalNet
+from smooth_network import SmoothNet, build_SmoothNet
+import utils.torch_tps_transform as torch_tps_transform
+import utils.torch_tps_transform_point as torch_tps_transform_point
+from torchvision.transforms import GaussianBlur
+
+grid_h = _ss2_grid_res.GRID_H  # 6
+grid_w = _ss2_grid_res.GRID_W  # 8
+
+
+# ---------------------------------------------------------------------------
+# Mesh helpers (mirrors those in test_online_tra_threeview.py)
+# ---------------------------------------------------------------------------
+
+def _get_rigid_mesh(batch_size, height, width):
+    """Uniform grid of control points covering [0,W] x [0,H]."""
+    ww = torch.matmul(
+        torch.ones([grid_h + 1, 1]),
+        torch.unsqueeze(torch.linspace(0.0, float(width), grid_w + 1), 0)
+    )
+    hh = torch.matmul(
+        torch.unsqueeze(torch.linspace(0.0, float(height), grid_h + 1), 1),
+        torch.ones([1, grid_w + 1])
+    )
+    if torch.cuda.is_available():
+        ww = ww.cuda()
+        hh = hh.cuda()
+    ori_pt = torch.cat((ww.unsqueeze(2), hh.unsqueeze(2)), 2)  # (H+1, W+1, 2)
+    return ori_pt.unsqueeze(0).expand(batch_size, -1, -1, -1)
+
+
+def _get_norm_mesh(mesh, height, width):
+    """Normalise mesh coordinates to [-1, 1], flatten grid dims."""
+    mesh_w = mesh[..., 0] * 2.0 / float(width) - 1.0
+    mesh_h = mesh[..., 1] * 2.0 / float(height) - 1.0
+    norm_mesh = torch.stack([mesh_w, mesh_h], -1)
+    return norm_mesh.reshape([mesh.size(0), -1, 2])
+
+
+def _recover_mesh(norm_mesh, height, width):
+    """Invert _get_norm_mesh – from normalised to pixel coordinates."""
+    batch_size = norm_mesh.size(0)
+    mesh_w = (norm_mesh[..., 0] + 1) * float(width) / 2.0
+    mesh_h = (norm_mesh[..., 1] + 1) * float(height) / 2.0
+    mesh = torch.stack([mesh_w, mesh_h], 2)
+    return mesh.reshape([batch_size, grid_h + 1, grid_w + 1, 2])
+
+
+def _compute_blend_weights(ref_m, tgt_m, blur):
+    """
+    Compute per-pixel linear-blend weight maps from two soft masks.
+
+    Returns (w_ref, w_tgt) each of shape [1, 1, H, W].  These are
+    geometry-only: they do not depend on image pixel values, so they can
+    be precomputed once per warp update and reused every render frame.
+
+    GPU→CPU syncs (torch.nonzero, scalar comparisons) are acceptable here
+    because this runs in the low-frequency warp thread, not the render loop.
+    """
+    r1, c1 = torch.nonzero(ref_m[0, 0] > 0.01, as_tuple=True)
+    r2, c2 = torch.nonzero(tgt_m[0, 0] > 0.01, as_tuple=True)
+
+    if r1.numel() == 0 or r2.numel() == 0:
+        return ref_m.clone(), tgt_m.clone()
+
+    center1 = (r1.float().mean(), c1.float().mean())
+    center2 = (r2.float().mean(), c2.float().mean())
+    vec = (center2[0] - center1[0], center2[1] - center1[1])
+
+    ovl    = (ref_m * tgt_m)[:, 0].unsqueeze(1)
+    ref_m_ = (ref_m[:, 0].unsqueeze(1) - ovl).clamp(0, 1)
+
+    r, c = torch.nonzero(ovl[0, 0] > 0.01, as_tuple=True)
+    ovl_mask = torch.zeros_like(ref_m_)
+    if r.numel() > 0:
+        proj_val = (r.float() - center1[0]) * vec[0] + (c.float() - center1[1]) * vec[1]
+        ovl_mask[0, 0, r, c] = (proj_val - proj_val.min()) / (
+            proj_val.max() - proj_val.min() + 1e-3
+        )
+
+    w_ref = (
+        blur(ref_m_ + (1 - ovl_mask) * ref_m[:, 0].unsqueeze(1)) * ref_m + ref_m_
+    ).clamp(0, 1)
+    w_tgt = (1 - w_ref) * tgt_m
+    return w_ref, w_tgt
+
+
+# ---------------------------------------------------------------------------
+# StabStitcher
+# ---------------------------------------------------------------------------
+
+class StabStitcher(BaseStitcher):
+    """
+    Video-aware stitcher using StabStitch++ (Spatial + Temporal + Smooth warp).
+
+    Maintains a rolling buffer of the last BUFFER_LEN frames for temporal
+    stability.  On each call to stab_pano() the pipeline:
+
+      1. Preprocesses the three input images and adds them to per-camera buffers.
+      2. Runs SpatialNet on every frame-pair in the buffer (14 calls).
+      3. Runs TemporalNet independently on each of the three camera streams (3 calls).
+      4. Derives temporal-spatial motion (tsmotion) for each pair.
+      5. Runs SmoothNet on the full buffer for both pairs.
+      6. Performs mesh alignment and TPS warping / blending for the **latest**
+         frame only (the one that was just added to the buffer).
+
+    While the buffer is filling (fewer than BUFFER_LEN frames) a simple
+    horizontal concatenation is returned as a fallback.
+    """
+
+    # Images are internally resized to this resolution for the networks.
+    NET_H = 360
+    NET_W = 480
+    BUFFER_LEN = 7  # SmoothNet requires exactly 7 frames
+
+    def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE_BLEND", timing: bool = False,
+                 save_masks: bool = False, mask_save_dir: str = None,
+                 blur_kernel_size: int = 41, blur_sigma: float = 15.0,
+                 border_size: int = 60):
+        # BaseStitcher sets up attributes consumed by StitcherManager's
+        # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
+        # We pass device="cpu" so its SuperPoint model stays off-GPU; our
+        # StabStitch networks are moved to GPU explicitly by StitcherManager.
+        super().__init__(device="cpu")
+
+        self.warp_mode = warp_mode
+        self.fusion_mode = fusion_mode
+        self.timing = timing
+        self.save_masks = save_masks
+        self.mask_save_dir = mask_save_dir or os.path.join(_THIS_DIR, "mask_debug")
+        self.blur_kernel_size = blur_kernel_size
+        self.blur_sigma = blur_sigma
+        self.border_size = border_size
+
+        # --- Networks ---
+        self.spatial_net = SpatialNet()
+        self.temporal_net = TemporalNet()
+        self.smooth_net = SmoothNet()
+
+        self.spatial_net.eval()
+        self.temporal_net.eval()
+        self.smooth_net.eval()
+
+        self._load_models()
+
+        # --- Rolling frame buffers ---
+        # Low-res tensors (NET_H × NET_W) for motion estimation networks
+        self._buf_img1 = deque(maxlen=self.BUFFER_LEN)   # left camera
+        self._buf_img2 = deque(maxlen=self.BUFFER_LEN)   # centre camera
+        self._buf_img3 = deque(maxlen=self.BUFFER_LEN)   # right camera
+        # High-res tensors (original resolution) for final warping
+        self._buf_img1_hr = deque(maxlen=self.BUFFER_LEN)
+        self._buf_img2_hr = deque(maxlen=self.BUFFER_LEN)
+        self._buf_img3_hr = deque(maxlen=self.BUFFER_LEN)
+
+        # --- Warp caching for decoupled render/warp pipeline ---
+        self._cached_warp = None   # dict with precomputed normalized meshes + output size
+        self._warp_lock = threading.Lock()   # protects _cached_warp reads/writes
+        self._buf_lock = threading.Lock()    # protects buffer deque access
+        self._compute_lock = threading.Lock()  # serializes neural-net inference
+
+        # Separate CUDA streams so warp and render GPU kernels can
+        # interleave instead of serializing on the default stream.
+        self._warp_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+        self._render_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+
+        # Pre-built blur kernels – reused every frame to avoid per-call
+        # kernel allocation and recompilation overhead.
+        self._blur_linear = GaussianBlur(kernel_size=(21, 21), sigma=20)
+        self._blur_ref = GaussianBlur(
+            kernel_size=(self.blur_kernel_size, self.blur_kernel_size),
+            sigma=self.blur_sigma,
+        )
+
+        # --- Cached rigid meshes (avoid recomputation every call) ---
+        self._rigid_mesh_net = None       # [1, grid_h+1, grid_w+1, 2] at NET resolution
+        self._norm_rigid_mesh_net = None   # normalised version
+        self._rigid_mesh_hr = None         # at high-res (lazily initialised)
+        self._norm_rigid_mesh_hr = None
+        self._hr_cache_key = None          # (hr_h, hr_w) to detect resolution changes
+
+    # ------------------------------------------------------------------
+    # Cached mesh initialisation
+    # ------------------------------------------------------------------
+
+    def _ensure_net_meshes(self):
+        """Lazily create and cache rigid meshes at NET resolution."""
+        if self._rigid_mesh_net is None:
+            self._rigid_mesh_net = _get_rigid_mesh(1, self.NET_H, self.NET_W)
+            self._norm_rigid_mesh_net = _get_norm_mesh(self._rigid_mesh_net, self.NET_H, self.NET_W)
+
+    def _ensure_hr_meshes(self, hr_h, hr_w):
+        """Lazily create and cache rigid meshes at high resolution."""
+        key = (hr_h, hr_w)
+        if self._hr_cache_key != key:
+            self._rigid_mesh_hr = _get_rigid_mesh(1, hr_h, hr_w)
+            self._norm_rigid_mesh_hr = _get_norm_mesh(self._rigid_mesh_hr, hr_h, hr_w)
+            self._hr_cache_key = key
+
+    # ------------------------------------------------------------------
+    # Model loading
+    # ------------------------------------------------------------------
+
+    def _load_models(self):
+        model_files = {
+            "spatial_warp.pth": self.spatial_net,
+            "temporal_warp.pth": self.temporal_net,
+            "smooth_warp.pth": self.smooth_net,
+        }
+        all_found = all(
+            os.path.isfile(os.path.join(STABSTITCH2_MODEL_DIR, f))
+            for f in model_files
+        )
+        if not all_found:
+            print(
+                f"[StabStitcher] Warning: could not find all .pth files in "
+                f"{STABSTITCH2_MODEL_DIR}. Networks will use random weights."
+            )
+            return
+
+        for fname, net in model_files.items():
+            path = os.path.join(STABSTITCH2_MODEL_DIR, fname)
+            ckpt = torch.load(path, map_location="cpu")
+            net.load_state_dict(ckpt["model"])
+            print(f"[StabStitcher] Loaded {fname}")
+
+    # ------------------------------------------------------------------
+    # Preprocessing helpers
+    # ------------------------------------------------------------------
+
+    def _preprocess(self, img: np.ndarray) -> torch.Tensor:
+        """BGR uint8 numpy → normalised float tensor at NET resolution (CPU)."""
+        resized = cv2.resize(img, (self.NET_W, self.NET_H))
+        arr = resized.astype(np.float32)
+        arr = (arr / 127.5) - 1.0
+        arr = np.transpose(arr, [2, 0, 1])
+        return torch.tensor(arr).unsqueeze(0)   # [1, 3, NET_H, NET_W]
+
+    def _to_hr_tensor(self, img: np.ndarray) -> torch.Tensor:
+        """BGR uint8 numpy → float32 tensor at original resolution (CPU)."""
+        arr = img.astype(np.float32)
+        arr = np.transpose(arr, [2, 0, 1])
+        return torch.tensor(arr).unsqueeze(0)   # [1, 3, H, W]
+
+    # ------------------------------------------------------------------
+    # Network wrappers
+    # ------------------------------------------------------------------
+
+    def _run_spatial_batched(self, img1_list_a, img2_list_a, img1_list_b, img2_list_b):
+        """
+        Run SpatialNet on two sets of frame pairs in a single batched call.
+
+        Instead of 14 individual forward passes (7 per pair), this stacks
+        all frame pairs along the batch dimension and runs one forward pass.
+
+        Returns
+        -------
+        For each pair (a and b):
+        smotion_list, smotion_list2 : lists of [1, H, W, 2] tensors (CUDA)
+        smesh_list,   smesh_list2   : lists of [1, H, W, 2] tensors (CUDA)
+        """
+        rigid = self._rigid_mesh_net  # cached [1, grid_h+1, grid_w+1, 2]
+        n = len(img1_list_a)  # BUFFER_LEN (7)
+
+        # Stack all pairs: [n, C, H, W] for pair-a + [n, C, H, W] for pair-b → [2n, C, H, W]
+        all_t1 = torch.cat([torch.cat(img1_list_a, 0), torch.cat(img1_list_b, 0)], 0).cuda()
+        all_t2 = torch.cat([torch.cat(img2_list_a, 0), torch.cat(img2_list_b, 0)], 0).cuda()
+
+        out = build_SpatialNet(self.spatial_net, all_t1, all_t2)
+        # motion shapes: [2n, grid_h+1, grid_w+1, 2]
+        all_s1 = out["motion1"]
+        all_s2 = out["motion2"]
+
+        # Split back into per-frame lists for each pair
+        def _split_to_lists(batched, offset, count):
+            return [batched[offset + i : offset + i + 1] for i in range(count)]
+
+        smotion_a1 = _split_to_lists(all_s1, 0, n)
+        smotion_a2 = _split_to_lists(all_s2, 0, n)
+        smotion_b1 = _split_to_lists(all_s1, n, n)
+        smotion_b2 = _split_to_lists(all_s2, n, n)
+
+        smesh_a1 = [rigid + s for s in smotion_a1]
+        smesh_a2 = [rigid + s for s in smotion_a2]
+        smesh_b1 = [rigid + s for s in smotion_b1]
+        smesh_b2 = [rigid + s for s in smotion_b2]
+
+        return (smotion_a1, smotion_a2, smesh_a1, smesh_a2,
+                smotion_b1, smotion_b2, smesh_b1, smesh_b2)
+
+    def _run_temporal_batched(self, img_list1, img_list2, img_list3):
+        """
+        Run TemporalNet on three camera streams in a single batched call.
+
+        Stacks the three streams along the batch dimension (batch=3) so
+        the network processes all streams in one forward pass instead of three.
+
+        Returns
+        -------
+        tmotion1, tmotion2, tmotion3 : lists of BUFFER_LEN tensors [1, H, W, 2]
+        """
+        # Each img_list is a list of BUFFER_LEN tensors of shape [1, C, H, W]
+        # Stack to [3, C, H, W] per frame
+        batched_list = [
+            torch.cat([img_list1[i], img_list2[i], img_list3[i]], 0).cuda()
+            for i in range(len(img_list1))
+        ]
+        out = build_TemporalNet(self.temporal_net, batched_list)
+        motion_list = out["motion_list"]  # list of BUFFER_LEN tensors [3, grid_h+1, grid_w+1, 2]
+
+        # Unbatch: split each [3, ...] tensor into three [1, ...] tensors
+        tmotion1 = [m[0:1] for m in motion_list]
+        tmotion2 = [m[1:2] for m in motion_list]
+        tmotion3 = [m[2:3] for m in motion_list]
+        return tmotion1, tmotion2, tmotion3
+
+    def _compute_tsmotion(self, smotion_list, smesh_list, tmotion_list):
+        """
+        Convert frame-t temporal motion into a temporal-spatial motion relative
+        to the (t-1)-th frame's spatial mesh.  Mirrors the data-preparation step
+        in test_online_tra_threeview.py.
+        """
+        rigid = self._rigid_mesh_net
+        norm_rigid = self._norm_rigid_mesh_net
+        tsmotion_list = []
+
+        for k in range(len(smotion_list)):
+            if k == 0:
+                tsmotion = smotion_list[0].clone() * 0
+            else:
+                smesh_prev    = smesh_list[k - 1]
+                tmotion_k     = tmotion_list[k]           # temporal motion at frame k
+                tmesh         = rigid + tmotion_k
+
+                norm_smesh_prev = _get_norm_mesh(smesh_prev, self.NET_H, self.NET_W)
+                norm_tmesh      = _get_norm_mesh(tmesh,      self.NET_H, self.NET_W)
+
+                tsmesh   = torch_tps_transform_point.transformer(
+                    norm_tmesh, norm_rigid, norm_smesh_prev
+                )
+                tsmotion = _recover_mesh(tsmesh, self.NET_H, self.NET_W) - smesh_list[k]
+
+            tsmotion_list.append(tsmotion)
+
+        return tsmotion_list
+
+    def _run_smooth_batched(self, tsmotion_a1, tsmotion_a2, smesh_a1, smesh_a2,
+                            tsmotion_b1, tsmotion_b2, smesh_b1, smesh_b2):
+        """
+        Run SmoothNet on two pairs simultaneously by batching (batch=2).
+
+        Returns smooth_mesh for each pair, each shape [1, T, grid_h+1, grid_w+1, 2].
+        """
+        tsmotion_a1 = list(tsmotion_a1)
+        tsmotion_a2 = list(tsmotion_a2)
+        tsmotion_b1 = list(tsmotion_b1)
+        tsmotion_b2 = list(tsmotion_b2)
+        tsmotion_a1[0] = tsmotion_a1[0] * 0
+        tsmotion_a2[0] = tsmotion_a2[0] * 0
+        tsmotion_b1[0] = tsmotion_b1[0] * 0
+        tsmotion_b2[0] = tsmotion_b2[0] * 0
+
+        # Stack both pairs along batch dim: [1,...] + [1,...] → [2,...]
+        # smesh_list entries are per-frame [1, grid_h+1, grid_w+1, 2]
+        # SmoothNet expects lists of [batch, grid_h+1, grid_w+1, 2]
+        combined_smesh1 = [torch.cat([a, b], 0) for a, b in zip(smesh_a1, smesh_b1)]
+        combined_smesh2 = [torch.cat([a, b], 0) for a, b in zip(smesh_a2, smesh_b2)]
+        combined_tsm1   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a1, tsmotion_b1)]
+        combined_tsm2   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a2, tsmotion_b2)]
+
+        out = build_SmoothNet(
+            self.smooth_net,
+            combined_tsm1, combined_tsm2,
+            combined_smesh1, combined_smesh2,
+        )
+        # shape: [2, T, grid_h+1, grid_w+1, 2]
+        smooth1 = out["smooth_mesh1"]
+        smooth2 = out["smooth_mesh2"]
+
+        return smooth1[0:1], smooth1[1:2], smooth2[0:1], smooth2[1:2]
+
+    # ------------------------------------------------------------------
+    # Blend-weight precomputation (runs in warp thread)
+    # ------------------------------------------------------------------
+
+    def _precompute_blend_weights(self, mask1, mask2, mask3):
+        """
+        Derive final per-camera weight maps from warped alpha masks.
+
+        Because blending weights depend only on warp geometry (not pixel
+        values) they can be computed once per warp update and cached.
+        The render thread then reduces to a single weighted sum.
+
+        Returns a dict with 'w1', 'w2', 'w3' each of shape [1, H, W],
+        or None for modes that require per-pixel image data (AVERAGE).
+        """
+        if self.fusion_mode == "REFERENCE":
+            # canvas = img2 + img3*(1-mask2) + img1*(1-mask3)*(1-mask2)
+            w1 = ((1 - mask3) * (1 - mask2))[:, 0]
+            w2 = torch.ones_like(w1)
+            w3 = ((1 - mask2))[:, 0]
+            return {'w1': w1, 'w2': w2, 'w3': w3}
+
+        elif self.fusion_mode == "REFERENCE_BLEND":
+            w1_12, w2_12 = _compute_blend_weights(mask1, mask2, self._blur_linear)
+            mask12 = mask1 + mask2 - mask1 * mask2
+            w12_123, w3_123 = _compute_blend_weights(mask12, mask3, self._blur_linear)
+
+            mask2_b = (mask2 > 0.5).float()
+            ks = 2 * self.border_size + 1
+            mask2_eroded = (-F.max_pool2d(-mask2_b, kernel_size=ks, stride=1,
+                                          padding=self.border_size)).clamp(0, 1)
+            mask2_interior = self._blur_ref(mask2_eroded).clamp(0, 1) * mask2_b  # [1,1,H,W]
+
+            mi = mask2_interior  # shorthand
+            final_w1 = (w1_12  * w12_123 * (1 - mi))[:, 0]
+            final_w2 = (mi + w2_12 * w12_123 * (1 - mi))[:, 0]
+            final_w3 = (w3_123 * (1 - mi))[:, 0]
+            return {'w1': final_w1, 'w2': final_w2, 'w3': final_w3}
+
+        elif self.fusion_mode == "LINEAR":
+            w1_12, w2_12 = _compute_blend_weights(mask1, mask2, self._blur_linear)
+            mask12 = mask1 + mask2 - mask1 * mask2
+            w12_123, w3_123 = _compute_blend_weights(mask12, mask3, self._blur_linear)
+            return {
+                'w1': (w1_12 * w12_123)[:, 0],
+                'w2': (w2_12 * w12_123)[:, 0],
+                'w3': w3_123[:, 0],
+            }
+
+        return None  # AVERAGE / EDGE_BLEND: fall back to per-frame path
+
+    # ------------------------------------------------------------------
+    # Mask visualisation
+    # ------------------------------------------------------------------
+
+    def _save_mask_viz(self, mask1, mask2, mask3, out_size):
+        """
+        Save a colour-coded overlap map so you can inspect seam placement before fusion.
+
+        Colour key (BGR stored by OpenCV):
+          Dark red    – left only
+          Dark green  – centre only
+          Dark blue   – right only
+          Yellow      – left ∩ centre
+          Cyan        – centre ∩ right
+          Magenta     – left ∩ right  (rare)
+          White       – all three overlap
+        """
+        H, W = out_size
+        m1 = mask1.squeeze().cpu().numpy() > 0.5
+        m2 = mask2.squeeze().cpu().numpy() > 0.5
+        m3 = mask3.squeeze().cpu().numpy() > 0.5
+
+        viz = np.zeros((H, W, 3), dtype=np.uint8)
+        viz[m1 & ~m2 & ~m3] = (  0,   0, 200)   # red   – left only
+        viz[~m1 & m2 & ~m3] = (  0, 200,   0)   # green – centre only
+        viz[~m1 & ~m2 & m3] = (200,   0,   0)   # blue  – right only
+        viz[m1 & m2 & ~m3]  = (  0, 220, 220)   # yellow – left+centre
+        viz[~m1 & m2 & m3]  = (220, 220,   0)   # cyan   – centre+right
+        viz[m1 & ~m2 & m3]  = (220,   0, 220)   # magenta – left+right
+        viz[m1 & m2 & m3]   = (255, 255, 255)   # white   – all three
+
+        os.makedirs(self.mask_save_dir, exist_ok=True)
+        fname = os.path.join(self.mask_save_dir, "mask_overlap.png")
+        cv2.imwrite(fname, viz)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def stab_pano(self, images, subset1, subset2) -> np.ndarray:
+        """
+        Produce a stabilised panorama from three images.
+
+        Uses cached warp parameters when available (fast path, ~30ms).
+        On the very first call with a full buffer, computes warps
+        synchronously so a real panorama is returned immediately.
+        Subsequent warp updates are handled by ``compute_warps()``
+        running on a dedicated thread.
+
+        Parameters
+        ----------
+        images  : list of numpy BGR uint8 arrays
+        subset1 : [left_idx, centre_idx]
+        subset2 : [centre_idx, right_idx]
+
+        Returns
+        -------
+        panorama : numpy uint8 array
+        """
+        img1 = images[subset1[0]]   # left
+        img2 = images[subset1[1]]   # centre
+        img3 = images[subset2[1]]   # right
+
+        # Add current frame to buffers (thread-safe)
+        with self._buf_lock:
+            self._buf_img1.append(self._preprocess(img1))
+            self._buf_img2.append(self._preprocess(img2))
+            self._buf_img3.append(self._preprocess(img3))
+            self._buf_img1_hr.append(self._to_hr_tensor(img1))
+            self._buf_img2_hr.append(self._to_hr_tensor(img2))
+            self._buf_img3_hr.append(self._to_hr_tensor(img3))
+            buf_ready = len(self._buf_img1) >= self.BUFFER_LEN
+
+        if not buf_ready:
+            return self._fallback_concat(img1, img2, img3)
+
+        # First computation: synchronous so the caller gets a real panorama.
+        # Double-checked locking: the fast outer check avoids the lock on
+        # every subsequent frame; the inner check prevents a duplicate
+        # computation if the warp thread got there first.
+        if self._cached_warp is None:
+            warp_params = self._compute_warp_params_from_buffer()
+            with self._warp_lock:
+                if self._cached_warp is None:
+                    self._cached_warp = warp_params
+
+        with self._warp_lock:
+            warp_params = self._cached_warp
+
+        # Fast render path using cached warps + current high-res images
+        img1_hr_t = self._to_hr_tensor(img1).cuda()
+        img2_hr_t = self._to_hr_tensor(img2).cuda()
+        img3_hr_t = self._to_hr_tensor(img3).cuda()
+        return self._render_with_params(img1_hr_t, img2_hr_t, img3_hr_t, warp_params)
+
+    def compute_warps(self):
+        """
+        Snapshot the rolling buffer, run the full neural-net warp pipeline,
+        and update the cached warp parameters.
+
+        Intended to be called from a dedicated warp-computation thread at
+        ~3 Hz.  The render path (``stab_pano``) continues to use the
+        previous cached warps until this method stores a new set.
+        """
+        with self._buf_lock:
+            if len(self._buf_img1) < self.BUFFER_LEN:
+                return
+            img1_list = list(self._buf_img1)
+            img2_list = list(self._buf_img2)
+            img3_list = list(self._buf_img3)
+            hr_h = self._buf_img1_hr[-1].shape[2]
+            hr_w = self._buf_img1_hr[-1].shape[3]
+
+        warp_params = self._compute_warp_params(
+            img1_list, img2_list, img3_list, hr_h, hr_w
+        )
+
+        with self._warp_lock:
+            self._cached_warp = warp_params
+
+    # ------------------------------------------------------------------
+    # Internal: fallback and full pipeline
+    # ------------------------------------------------------------------
+
+    def _fallback_concat(self, img1, img2, img3) -> np.ndarray:
+        """Naive horizontal concatenation used while the buffer is filling."""
+        return np.hstack([img1, img2, img3]).astype(np.uint8)
+
+    def _compute_warp_params_from_buffer(self):
+        """Snapshot the rolling buffer and compute warp parameters."""
+        with self._buf_lock:
+            img1_list = list(self._buf_img1)
+            img2_list = list(self._buf_img2)
+            img3_list = list(self._buf_img3)
+            hr_h = self._buf_img1_hr[-1].shape[2]
+            hr_w = self._buf_img1_hr[-1].shape[3]
+        return self._compute_warp_params(
+            img1_list, img2_list, img3_list, hr_h, hr_w
+        )
+
+    def _compute_warp_params(self, img1_list, img2_list, img3_list, hr_h, hr_w):
+        """
+        Run the neural-net warp pipeline (Spatial → Temporal → Smooth) and
+        derive the normalised TPS meshes + canvas size needed by the render
+        step.
+
+        Acquires ``_compute_lock`` to prevent concurrent neural-net
+        inference (e.g. the first synchronous call in ``stab_pano`` vs.
+        the background ``compute_warps`` thread).
+
+        When a dedicated warp CUDA stream is available the computation runs
+        on that stream so its GPU kernels can interleave with the render
+        stream instead of serializing on the default stream.
+
+        Returns
+        -------
+        dict with keys: norm_m1, norm_m2, norm_m3, out_h2, out_w2, out_size
+        """
+        with self._compute_lock:
+            if self._warp_stream is not None:
+                with torch.cuda.stream(self._warp_stream):
+                    result = self._compute_warp_params_unlocked(
+                        img1_list, img2_list, img3_list, hr_h, hr_w
+                    )
+                self._warp_stream.synchronize()
+                return result
+            return self._compute_warp_params_unlocked(
+                img1_list, img2_list, img3_list, hr_h, hr_w
+            )
+
+    def _compute_warp_params_unlocked(self, img1_list, img2_list, img3_list, hr_h, hr_w):
+        """Inner implementation — caller must hold ``_compute_lock``.
+
+        Optimised with:
+        - Batched SpatialNet (14 individual calls → 1 batched call)
+        - Batched TemporalNet (3 calls → 1 batched call with batch=3)
+        - Batched SmoothNet (2 calls → 1 batched call with batch=2)
+        - FP16 autocast for all neural-net inference
+        - Cached rigid meshes
+        """
+        self._ensure_net_meshes()
+        self._ensure_hr_meshes(hr_h, hr_w)
+
+        t0 = time.perf_counter() if self.timing else None
+
+        with torch.no_grad():
+            # ---------- Spatial: both pairs batched (14 frames → 1 call) ----------
+            (smotion12_1, smotion12_2, smesh12_1, smesh12_2,
+             smotion23_1, smotion23_2, smesh23_1, smesh23_2) = \
+                self._run_spatial_batched(img1_list, img2_list, img2_list, img3_list)
+            t1 = time.perf_counter() if self.timing else None
+
+            # ---------- Temporal: all 3 streams batched (3 calls → 1) ----------
+            tmotion_stream1, tmotion_stream2, tmotion_stream3 = \
+                self._run_temporal_batched(img1_list, img2_list, img3_list)
+            t2 = time.perf_counter() if self.timing else None
+
+            # ---------- TSMotion (cheap, CPU-bound mesh math) ----------
+            tsmotion12_1 = self._compute_tsmotion(smotion12_1, smesh12_1, tmotion_stream1)
+            tsmotion12_2 = self._compute_tsmotion(smotion12_2, smesh12_2, tmotion_stream2)
+            tsmotion23_1 = self._compute_tsmotion(smotion23_1, smesh23_1, tmotion_stream2)
+            tsmotion23_2 = self._compute_tsmotion(smotion23_2, smesh23_2, tmotion_stream3)
+
+            # ---------- Smooth: both pairs batched (2 calls → 1) ----------
+            smooth12_1, smooth23_1, smooth12_2, smooth23_2 = \
+                self._run_smooth_batched(
+                    tsmotion12_1, tsmotion12_2, smesh12_1, smesh12_2,
+                    tsmotion23_1, tsmotion23_2, smesh23_1, smesh23_2,
+                )
+            t3 = time.perf_counter() if self.timing else None
+
+        # smooth*_* shape: [1, BUFFER_LEN, grid_h+1, grid_w+1, 2]
+        warp12_mesh1 = smooth12_1
+        warp12_mesh2 = smooth12_2
+        warp23_mesh1 = smooth23_1
+        warp23_mesh2 = smooth23_2
+
+        # ---------- scale meshes to HR resolution ----------
+        sx = hr_w / self.NET_W
+        sy = hr_h / self.NET_H
+
+        def _scale(m):
+            return torch.stack([m[..., 0] * sx, m[..., 1] * sy], -1)
+
+        warp12_mesh1 = _scale(warp12_mesh1)
+        warp12_mesh2 = _scale(warp12_mesh2)
+        warp23_mesh1 = _scale(warp23_mesh1)
+        warp23_mesh2 = _scale(warp23_mesh2)
+
+        # ---------- work only on the latest frame ----------
+        fi = self.BUFFER_LEN - 1
+
+        m12_2_fi = warp12_mesh2[:, fi, ...]
+        m23_1_fi = warp23_mesh1[:, fi, ...]
+        offset = (m12_2_fi - m23_1_fi).reshape(1, -1, 2).mean(1, keepdim=True)
+        offset = offset.unsqueeze(1)
+
+        m12_1_fi = warp12_mesh1[:, fi, ...]
+        m12_2_fi_aligned = m12_2_fi
+        m23_1_fi_aligned = m23_1_fi + offset.squeeze(1)
+        m23_2_fi_aligned = warp23_mesh2[:, fi, ...] + offset.squeeze(1)
+        middle_mesh_fi   = (m12_2_fi_aligned + m23_1_fi_aligned) / 2.0
+
+        # ---------- first canvas: bounding box ----------
+        all_x = torch.stack([
+            m12_1_fi[..., 0], m12_2_fi_aligned[..., 0],
+            m23_1_fi_aligned[..., 0], m23_2_fi_aligned[..., 0]
+        ])
+        all_y = torch.stack([
+            m12_1_fi[..., 1], m12_2_fi_aligned[..., 1],
+            m23_1_fi_aligned[..., 1], m23_2_fi_aligned[..., 1]
+        ])
+        width_min  = all_x.min()
+        width_max  = all_x.max()
+        height_min = all_y.min()
+        height_max = all_y.max()
+        out_w = width_max  - width_min
+        out_h = height_max - height_min
+
+        def _shift(m, wx, hy):
+            return torch.stack([m[..., 0] - wx, m[..., 1] - hy], -1)
+
+        m12_1_s   = _shift(m12_1_fi,         width_min, height_min)
+        m12_2_s   = _shift(m12_2_fi_aligned, width_min, height_min)
+        m23_1_s   = _shift(m23_1_fi_aligned, width_min, height_min)
+        m23_2_s   = _shift(m23_2_fi_aligned, width_min, height_min)
+        mid_s     = _shift(middle_mesh_fi,   width_min, height_min)
+
+        # ---------- TPS alignment through middle plane ----------
+        norm_m12_1 = _get_norm_mesh(m12_1_s, out_h, out_w)
+        norm_m12_2 = _get_norm_mesh(m12_2_s, out_h, out_w)
+        norm_m23_1 = _get_norm_mesh(m23_1_s, out_h, out_w)
+        norm_m23_2 = _get_norm_mesh(m23_2_s, out_h, out_w)
+        norm_mid   = _get_norm_mesh(mid_s,   out_h, out_w)
+
+        norm_m12_1_tps = torch_tps_transform_point.transformer(
+            norm_m12_1, norm_m12_2, norm_mid
+        )
+        m12_1_tps = _recover_mesh(norm_m12_1_tps, out_h, out_w)
+
+        norm_m23_2_tps = torch_tps_transform_point.transformer(
+            norm_m23_2, norm_m23_1, norm_mid
+        )
+        m23_2_tps = _recover_mesh(norm_m23_2_tps, out_h, out_w)
+
+        # ---------- second (final) canvas ----------
+        all_x2 = torch.stack([
+            m12_1_tps[..., 0], mid_s[..., 0], m23_2_tps[..., 0]
+        ])
+        all_y2 = torch.stack([
+            m12_1_tps[..., 1], mid_s[..., 1], m23_2_tps[..., 1]
+        ])
+        w2_min = all_x2.min()
+        w2_max = all_x2.max()
+        h2_min = all_y2.min()
+        h2_max = all_y2.max()
+        out_w2 = w2_max - w2_min
+        out_h2 = h2_max - h2_min
+
+        out_size = (int(out_h2.item()), int(out_w2.item()))
+
+        m1_final  = _shift(m12_1_tps, w2_min, h2_min)
+        m2_final  = _shift(mid_s,     w2_min, h2_min)
+        m3_final  = _shift(m23_2_tps, w2_min, h2_min)
+
+        norm_m1 = _get_norm_mesh(m1_final, out_h2, out_w2)
+        norm_m2 = _get_norm_mesh(m2_final, out_h2, out_w2)
+        norm_m3 = _get_norm_mesh(m3_final, out_h2, out_w2)
+
+        # ---------- precompute blending weights (geometry-only, warp thread) ----------
+        norm_rigid_hr = self._norm_rigid_mesh_hr
+        norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
+        alpha_dummy   = torch.ones(3, 1, hr_h, hr_w,
+                                   device='cuda' if torch.cuda.is_available() else 'cpu')
+        masks_warped = torch_tps_transform.transformer(
+            alpha_dummy,
+            torch.cat([norm_m1, norm_m2, norm_m3], 0),
+            norm_rig3, out_size, mode=self.warp_mode,
+        )
+        mask1_pre = masks_warped[0].unsqueeze(0)   # [1, 1, H, W]
+        mask2_pre = masks_warped[1].unsqueeze(0)
+        mask3_pre = masks_warped[2].unsqueeze(0)
+        blend_weights = self._precompute_blend_weights(mask1_pre, mask2_pre, mask3_pre)
+
+        if self.timing:
+            t_end = time.perf_counter()
+            print(
+                f"[StabStitch warp] "
+                f"spatial={t1-t0:.3f}s  "
+                f"temporal={t2-t1:.3f}s  "
+                f"smooth+tsmotion={t3-t2:.3f}s  "
+                f"mesh={t_end-t3:.3f}s  "
+                f"total={t_end-t0:.3f}s"
+            )
+
+        return {
+            'norm_m1': norm_m1, 'norm_m2': norm_m2, 'norm_m3': norm_m3,
+            'out_h2': out_h2, 'out_w2': out_w2, 'out_size': out_size,
+            'blend_weights': blend_weights,
+        }
+
+    def _render_with_params(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):
+        """
+        Fast render path: warp three high-res images using precomputed
+        normalised meshes and apply the selected fusion mode.
+
+        When a dedicated render CUDA stream is available the work runs on
+        that stream so its GPU kernels can interleave with the warp stream.
+        The ``.cpu()`` call at the end implicitly synchronizes.
+
+        Parameters
+        ----------
+        img1_hr_t, img2_hr_t, img3_hr_t : [1, 3, H, W] CUDA float tensors
+        warp_params : dict from ``_compute_warp_params``
+        """
+        if self._render_stream is not None:
+            with torch.cuda.stream(self._render_stream):
+                return self._render_with_params_on_stream(
+                    img1_hr_t, img2_hr_t, img3_hr_t, warp_params
+                )
+        return self._render_with_params_on_stream(
+            img1_hr_t, img2_hr_t, img3_hr_t, warp_params
+        )
+
+    def _render_with_params_on_stream(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):
+        """Inner render implementation — may run on a non-default CUDA stream."""
+        t0 = time.perf_counter() if self.timing else None
+
+        norm_m1  = warp_params['norm_m1']
+        norm_m2  = warp_params['norm_m2']
+        norm_m3  = warp_params['norm_m3']
+        out_h2   = warp_params['out_h2']
+        out_w2   = warp_params['out_w2']
+        out_size = warp_params['out_size']
+
+        _, _, hr_h, hr_w = img1_hr_t.shape
+        self._ensure_hr_meshes(hr_h, hr_w)
+        norm_rigid_hr = self._norm_rigid_mesh_hr
+        norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
+
+        blend_weights = warp_params.get('blend_weights')
+
+        if blend_weights is not None:
+            # ---------- fast path: RGB-only warp + precomputed weighted sum ----------
+            img_warp = torch_tps_transform.transformer(
+                torch.cat([img1_hr_t, img2_hr_t, img3_hr_t], 0),
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3, out_size, mode=self.warp_mode,
+            )
+            # w* shape [1, H, W] broadcasts over [3, H, W]
+            fusion = (
+                img_warp[0, :3] * blend_weights['w1']
+                + img_warp[1, :3] * blend_weights['w2']
+                + img_warp[2, :3] * blend_weights['w3']
+            )
+
+            if self.save_masks:
+                # Regenerate masks from warped alpha for visualisation only
+                alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
+                _warp4 = torch_tps_transform.transformer(
+                    torch.cat([torch.cat([img1_hr_t, alpha], 1),
+                               torch.cat([img2_hr_t, alpha], 1),
+                               torch.cat([img3_hr_t, alpha], 1)], 0),
+                    torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                    norm_rig3, out_size, mode=self.warp_mode,
+                )
+                self._save_mask_viz(
+                    _warp4[0, 3].unsqueeze(0).unsqueeze(0),
+                    _warp4[1, 3].unsqueeze(0).unsqueeze(0),
+                    _warp4[2, 3].unsqueeze(0).unsqueeze(0),
+                    out_size,
+                )
+
+        else:
+            # ---------- fallback path: warp RGB+alpha, compute masks per-frame ----------
+            alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
+            img1_t = torch.cat([img1_hr_t, alpha], 1)
+            img2_t = torch.cat([img2_hr_t, alpha], 1)
+            img3_t = torch.cat([img3_hr_t, alpha], 1)
+
+            img_warp = torch_tps_transform.transformer(
+                torch.cat([img1_t, img2_t, img3_t], 0),
+                torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3, out_size, mode=self.warp_mode,
+            )
+
+            mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
+            mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
+            mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
+
+            if self.save_masks:
+                self._save_mask_viz(mask1, mask2, mask3, out_size)
+
+            if self.fusion_mode == "AVERAGE":
+                w1, w2, w3 = img_warp[0, :3], img_warp[1, :3], img_warp[2, :3]
+                img12 = (
+                    w1 * (w1 / (w1 + w2 + 1e-6))
+                    + w2 * (w2 / (w1 + w2 + 1e-6))
+                )
+                fusion = (
+                    img12 * (img12 / (img12 + w3 + 1e-6))
+                    + w3   * (w3   / (img12 + w3 + 1e-6))
+                )
+
+            elif self.fusion_mode == "EDGE_BLEND":
+                mask1_b = (mask1 > 0.5).float()
+                mask2_b = (mask2 > 0.5).float()
+                mask3_b = (mask3 > 0.5).float()
+                blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
+                mask2_soft = blur_ref(mask2_b).clamp(0, 1)
+                canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
+                canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
+                canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
+                fusion = canvas[0]
+
+            else:
+                fusion = img_warp[0, :3]  # should not reach here
+
+        pano = fusion.cpu().numpy().transpose(1, 2, 0)
+
+        if self.timing:
+            t1 = time.perf_counter()
+            print(f"[StabStitch render] warp+blend={t1-t0:.3f}s")
+
+        return pano.clip(0, 255).astype(np.uint8)
