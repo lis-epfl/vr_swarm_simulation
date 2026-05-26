@@ -80,12 +80,18 @@ namespace Experiment
         {
             public float FlightPracticeDuration; // in minutes
             public float CountdownTimeBetweentotalTrialNumber; // in minutes
+            public int NumberOfTrials;
+            public int NumberOfSegments;
+            public int NumberOfGatesPerSegment;
         }
 
         private ExperimentSettings defaultSettings = new ExperimentSettings
         {
             FlightPracticeDuration = 0.75f,
             CountdownTimeBetweentotalTrialNumber = 0.75f,
+            NumberOfTrials = 5,
+            NumberOfSegments = 5,
+            NumberOfGatesPerSegment = 8
         };
 
         private ExperimentStateRacingGate state = ExperimentStateRacingGate.Idle;
@@ -152,6 +158,7 @@ namespace Experiment
                 flyingTaskPracticeTime = (int)TimeSpan.FromMinutes(defaultSettings.FlightPracticeDuration).TotalMilliseconds;
                 timer.Minutes = defaultSettings.CountdownTimeBetweentotalTrialNumber;
                 timer.Seconds = 0;
+                totalTrialNumber = defaultSettings.NumberOfTrials;
             }
             TransitionTo(initialState);
         }
@@ -250,7 +257,7 @@ namespace Experiment
                 case ExperimentStateRacingGate.FlyingPracticeInstr:
                     if (skipFlyingPractice)
                     {
-                        TransitionTo(ExperimentStateRacingGate.RaceInstructions);
+                        TransitionTo(ExperimentStateRacingGate.Feedback);
                     } else {
                         nextState = ExperimentStateRacingGate.FlyingPractice;
                         TransitionTo(ExperimentStateRacingGate.Wait);
@@ -260,7 +267,7 @@ namespace Experiment
                 case ExperimentStateRacingGate.FlyingPractice:
                     if (DateTimeOffset.Now.ToUnixTimeMilliseconds() - stateEnterTime > flyingTaskPracticeTime)
                     {
-                        nextState = ExperimentStateRacingGate.RaceInstructions;
+                        nextState = ExperimentStateRacingGate.Feedback;
                         idleRequestDelay = 2; // 2 seconds delay before transitioning to next state
                         TransitionTo(ExperimentStateRacingGate.Idle);
                     }
@@ -287,6 +294,11 @@ namespace Experiment
                         idleRequestDelay = 1;
                         nextState = ExperimentStateRacingGate.Finished;
                         TransitionTo(ExperimentStateRacingGate.IdleSilent);
+                    }
+                    if (isTransitionRequested)
+                    {
+                        isTransitionRequested = false;
+                        TransitionTo(ExperimentStateRacingGate.RaceInstructions);
                     }
                     break;
             }
@@ -364,6 +376,8 @@ namespace Experiment
                     InputManager.Instance.UnlockControl();
                     if (cwlController != null)
                         cwlController.SetCWLFeedbackEnabled(false);
+                    if (swarmSpawner != null)
+                        swarmSpawner.DisableStuckDetection();
                     break;
 
                 case ExperimentStateRacingGate.RaceInstructions:
@@ -384,6 +398,8 @@ namespace Experiment
                     currentTrial++;
                     if (readyOverlayManager != null)
                         readyOverlayManager.SetTrialNumber(currentTrial, totalTrialNumber);
+                    if (feedbackManager != null)
+                        feedbackManager.SetTrialNumber(currentTrial);
                     ResetTrialComponents();
                     if (ringGateManager != null)
                         ringGateManager.GenerateNewCourse();
@@ -406,6 +422,8 @@ namespace Experiment
                     }
                     if (viewManager != null)
                         viewManager.ToggleAllViews(true);
+                    if (swarmSpawner != null)
+                        swarmSpawner.EnableStuckDetection();
                     InputManager.Instance.UnlockControl();
                     break;
 
@@ -460,6 +478,10 @@ namespace Experiment
                 case ExperimentStateRacingGate.FlyingPracticeInstr:
                     if (skipFlyingPractice)
                         DisableAllActiveObjects();
+                    break;
+
+                case ExperimentStateRacingGate.Feedback:
+                    DisableAllActiveObjects();
                     break;
 
                 case ExperimentStateRacingGate.RaceInstructions:
