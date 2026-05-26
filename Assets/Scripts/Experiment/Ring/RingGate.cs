@@ -142,6 +142,10 @@ public class RingGate : MonoBehaviour
     // (reset when the gate is reset or when all drones have passed).
     private readonly HashSet<int> _passedThisActivation = new();
 
+    // Flag to prevent firing onAllDronesPassed multiple times in demo mode
+    // (when CheckAndFireCompletion runs from Update after already firing in RecordConfirmedPass).
+    private bool _completionFiredThisActivation = false;
+
     // Directional state: droneId → (hitEntryPlane, timestamp of that hit).
     // A drone is "pending" after it crosses one plane; it must cross the other
     // within passTimeoutSeconds to register a pass.
@@ -198,7 +202,7 @@ public class RingGate : MonoBehaviour
     /// is not explicitly assigned. Falls back to <see cref="swarmSize"/> only when no
     /// spawner can be found (logs a warning so the misconfiguration is visible).
     /// </summary>
-    private int GetAliveSwarmCount()
+    public int GetAliveSwarmCount()
     {
         // Lazy auto-discover so the gate works without a manual inspector connection.
         if (swarmSpawnRef == null)
@@ -260,6 +264,14 @@ public class RingGate : MonoBehaviour
         {
             _pendingDrones.Remove(droneId);
             pending = default;
+        }
+
+        // Demo mode: skip directional detection entirely — any plane hit advances the demo.
+        // The guard in HandleDemoPass prevents double-counting if both planes fire.
+        if (gateManager != null && gateManager.DemoMode)
+        {
+            gateManager.HandleDemoPass(this);
+            return;
         }
 
         bool hasPending = _pendingDrones.ContainsKey(droneId);
@@ -374,14 +386,18 @@ public class RingGate : MonoBehaviour
     /// Called both from <see cref="RecordConfirmedPass"/> (normal path) and from
     /// <see cref="Update"/> (crash-recovery path — catches the case where the last
     /// expected drone dies before reaching the exit plane).
+    /// Only fires once per activation to prevent duplicate events.
     /// </summary>
     private void CheckAndFireCompletion()
     {
+        if (_completionFiredThisActivation) return;
+
         int aliveCount = GetAliveSwarmCount();
         LogProgress(_passedThisActivation.Count, aliveCount);
 
         if (_passedThisActivation.Count >= aliveCount)
         {
+            _completionFiredThisActivation = true;
             LogGateCleared();
             FirstPassUnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             onAllDronesPassed?.Invoke(this);
@@ -427,6 +443,7 @@ public class RingGate : MonoBehaviour
         _droneOutsideCounts.Clear();
         _passedThisActivation.Clear();
         _pendingDrones.Clear();
+        _completionFiredThisActivation = false;
         FirstPassUnixMs = 0;
 
         if (debugEnabled && debugLogReset)
@@ -440,6 +457,21 @@ public class RingGate : MonoBehaviour
     /// <summary>Number of times a specific drone (by instance ID) passed outside.</summary>
     public int GetOutsideCountForDrone(int droneId) =>
         _droneOutsideCounts.TryGetValue(droneId, out int c) ? c : 0;
+
+    /// <summary>
+    /// Records that this gate was skipped (all drones passed outside).
+    /// Called by RingGateManager when a drone triggers a gate ahead of the current one.
+    /// Updates metrics so the gate renders yellow (all outside) and reports correct counts to Python.
+    /// </summary>
+    public void RecordSkipped(int aliveSwarmCount)
+    {
+        _outsidePasses = aliveSwarmCount;
+        _totalPasses = aliveSwarmCount;
+        FirstPassUnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        if (debugEnabled)
+            Debug.Log($"{GateLabel} Gate skipped — recorded {aliveSwarmCount} outside passes.");
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Internal debug helpers
