@@ -2235,6 +2235,7 @@ MonoBehaviour:
   port: 8080
   listenAddress: http://localhost
   fsm: {fileID: 472109454}
+  cwlController: {fileID: 0}
 --- !u!1001 &483894392
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -3930,7 +3931,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 1
+  swarmAlgorithm: 2
   is3D: 0
   cohesionWeight: 0.8
   separationWeight: 16
@@ -4005,9 +4006,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0279b7ec075322248bc32f336079b1db, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  speedCoeff: 8
-  yawRateCoeff: 1
-  altCoeff: 4
   inputMode: 1
 --- !u!114 &887960385
 MonoBehaviour:
