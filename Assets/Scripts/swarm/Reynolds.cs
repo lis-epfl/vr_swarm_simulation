@@ -40,6 +40,10 @@ public class Reynolds : MonoBehaviour
 
             // Get the position of the neighbour
             StateFinder neighbourState = neighbourChild.GetComponent<VelocityControl>().State;
+
+            if (!neighbourState.IsAlive)
+                continue;
+
             Vector3 neighbourPosition = neighbourState.Position;
 
             // Relative Position
