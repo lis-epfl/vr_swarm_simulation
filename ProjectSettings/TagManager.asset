@@ -7,6 +7,9 @@ TagManager:
   - Motor
   - DroneBase
   - Screen
+  - Obstacle
+  - BirdsEyeCamera
+  - Arena
   layers:
   - Default
   - TransparentFX

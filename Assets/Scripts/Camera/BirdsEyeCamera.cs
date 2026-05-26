@@ -6,43 +6,34 @@ public class BirdsEyeCamera : MonoBehaviour
 {
 
     public GameObject gameManager;
+    public int selected_drone = 0;
+    public List<GameObject> swarm;
     public Vector3 offset = new Vector3(0, 20, 0);
-    public visualiseOlfatiSaber visualiseOlfatiSaber;
-    public GameObject droneObject;
+    private GameObject droneObject;
     private Vector3 dronePosition;
 
 
     // Start is called before the first frame update
     void Start()
     {
-        if (gameManager != null)
-        {
-            visualiseOlfatiSaber = gameManager.GetComponent<visualiseOlfatiSaber>();
-        } 
-        else
-        {
-            Debug.LogError("GameManager is not assigned.");
-        }
-
-        if (visualiseOlfatiSaber != null)
-        {
-            droneObject = visualiseOlfatiSaber.droneObject;
-        }
-        else
-        {
-            Debug.LogError("VisualiseOlfatiSaber is not assigned.");
-        }
 
     }
 
     // Update is called once per frame
     void Update()
     {
-        // Update the droneObject reference if it has changed
-        if (visualiseOlfatiSaber != null && visualiseOlfatiSaber.gameObject.activeInHierarchy && visualiseOlfatiSaber.droneObject != droneObject)
+        if (swarm != null)
         {
-            droneObject = visualiseOlfatiSaber.droneObject;
-
+            // Select the right drone from the swarm
+            if (selected_drone < 0 || selected_drone >= swarm.Count)
+            {
+                return;
+            }
+            droneObject = swarm[selected_drone];
+            if (droneObject == null)
+            {
+                return;
+            }
             // Get the position of the selected drone's "DroneParent"
             GameObject droneChild = droneObject.transform.Find("DroneParent").gameObject;
             Vector3 position = droneChild.transform.position;

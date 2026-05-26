@@ -119,10 +119,10 @@ GameObject:
   - component: {fileID: 114145603923244640}
   - component: {fileID: 64614164402394468}
   - component: {fileID: 154702406167289886}
-  - component: {fileID: 2446258279458879349}
   - component: {fileID: 467967561642582945}
   - component: {fileID: 259003137113264617}
   - component: {fileID: 3810217873681142886}
+  - component: {fileID: 474059409597466468}
   m_Layer: 9
   m_Name: DroneParent
   m_TagString: Player
@@ -186,16 +186,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9fd9cf0a203549e98e27622302c103a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  state: {fileID: 114271859555978516}
-  propFL: {fileID: 1194315723904280}
-  propFR: {fileID: 1552398028780994}
-  propRR: {fileID: 1519630155678512}
-  propRL: {fileID: 1958779810228456}
-  desired_height: 4
+  State: {fileID: 114271859555978516}
+  PropFL: {fileID: 1194315723904280}
+  PropFR: {fileID: 1552398028780994}
+  PropRR: {fileID: 1519630155678512}
+  PropRL: {fileID: 1958779810228456}
+  desired_height: 14
   desired_vx: 0
   desired_vy: 0
   desired_yaw: 0
   attitude_control_yaw: 0
+  HeightKp: 1.5
+  HeightKd: 1
+  HeightKi: 0.2
   yawFilterCoefficient: 0.2
   swarm_vx: 0
   swarm_vy: 0
@@ -261,7 +264,69 @@ TerrainCollider:
   serializedVersion: 2
   m_TerrainData: {fileID: 0}
   m_EnableTreeColliders: 1
---- !u!114 &2446258279458879349
+--- !u!114 &467967561642582945
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 55712efd78ef9cc4c9d59db3a83f6ddd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Is3D: 1
+  CohesionWeight: 1
+  SeparationWeight: 1
+  AlignmentWeight: 1
+--- !u!114 &259003137113264617
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 417cbf70288a14145a0db9262ab405ff, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  Is3D: 1
+  d_ref: 1
+  r0_coh: 20
+  delta: 0.1
+  a: 0.3
+  b: 0.5
+  c: 1
+  gamma: 1
+  c_vm: 1
+  d_obs: 5
+  r0_obs: 6
+  lambda_obs: 1
+  c_obs: 4.3
+  ScaleFactor: 10
+  MaxMigrationDistance: 10
+--- !u!114 &3810217873681142886
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1235058752258398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dbc7a8f820d8b486b87a328b4868bf49, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  vc: {fileID: 114202773416505472}
+  swarm: []
+  neighbours: []
+  NumNeighbours: 3
+  NumDimensions: 2
+  BoundaryEstimate: 0
+  PointInwards: 0
+--- !u!114 &474059409597466468
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -278,75 +343,6 @@ MonoBehaviour:
   desired_vx: 0
   desired_vy: 0
   desired_yaw: 0
---- !u!114 &467967561642582945
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1235058752258398}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 55712efd78ef9cc4c9d59db3a83f6ddd, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  swarm: []
-  is3D: 1
-  cohesionWeight: 1
-  separationWeight: 15
-  alignmentWeight: 1
---- !u!114 &259003137113264617
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1235058752258398}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 417cbf70288a14145a0db9262ab405ff, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  swarm: []
-  is3D: 1
-  d_ref: 1
-  r0_coh: 20
-  delta: 0.1
-  a: 0.3
-  b: 0.5
-  c: 1
-  gamma: 1
-  c_vm: 1
-  d_obs: 5
-  r0_obs: 6
-  lambda_obs: 1
-  c_obs: 4.3
-  scaleFactor: 10
-  maxMigrationDistance: 10
-  desired_height: 4
-  desired_vx: 0
-  desired_vy: 0
-  desired_vz: 0
-  desired_yaw: 0
---- !u!114 &3810217873681142886
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1235058752258398}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: dbc7a8f820d8b486b87a328b4868bf49, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  vc: {fileID: 114202773416505472}
-  swarm: []
-  neighbours: []
-  numNeighbours: 3
-  numDimensions: 2
-  boundaryEstimate: 0
-  pointInwards: 0
 --- !u!1 &1343969879783188
 GameObject:
   m_ObjectHideFlags: 0
@@ -749,11 +745,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   vc: {fileID: 114202773416505472}
-  olfatiSaber: {fileID: 259003137113264617}
-  currentAlgorithm: 0
+  swarmAlgorithm: {fileID: 474059409597466468}
+  currentAlgorithm: 1
   speedCoeff: 4
   yawRateCoeff: 0.5
-  altCoeff: 0.1
+  altCoeff: 1
 --- !u!114 &6727076729497765368
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -761,14 +757,16 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1713172099184850}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b489a38bd9672774ca5bb8a28b33fa11, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   vc: {fileID: 114202773416505472}
-  olfatiSaber: {fileID: 259003137113264617}
-  currentAlgorithm: 0
+  SwarmAlgorithm: {fileID: 474059409597466468}
+  height_min: 10
+  height_max: 20
+  currentAlgorithm: 1
 --- !u!1 &1739179400309510
 GameObject:
   m_ObjectHideFlags: 0
@@ -846,7 +844,7 @@ Camera:
     m_Bits: 1591
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
-  m_TargetDisplay: 1
+  m_TargetDisplay: 7
   m_TargetEye: 3
   m_HDR: 1
   m_AllowMSAA: 1
@@ -887,6 +885,7 @@ MonoBehaviour:
   offset: {x: 0, y: 0, z: 0.4}
   temp: 0.3
   rpLimitRatio: 0.2
+  pitchOffset: 0
 --- !u!1 &1880523559110524
 GameObject:
   m_ObjectHideFlags: 0
@@ -1019,6 +1018,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Altitude: 0
+  Position: {x: 0, y: 0, z: 0}
   Angles: {x: 0, y: 0, z: 0}
   VelocityVector: {x: 0, y: 0, z: 0}
   AngularVelocityVector: {x: 0, y: 0, z: 0}
