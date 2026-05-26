@@ -229,11 +229,12 @@ public class swarmSpawn : MonoBehaviour
             foreach (GameObject drone in swarm)
             {
             Transform droneParent = drone.transform.Find("DroneParent");
+            Transform stateFinderTransform = drone.transform.Find("StateFinder");
 
             // Add the swarm to the necessary scripts
             droneParent.GetComponent<SwarmAlgorithm>().Reset();   
             droneParent.GetComponent<AttitudeAlgorithm>().Reset();  
-            drone.GetComponent<StateFinder>().Reset();
+            stateFinderTransform.GetComponent<StateFinder>().Reset();
             }
         }
     }
@@ -330,6 +331,46 @@ public class swarmSpawn : MonoBehaviour
                 if (healthMonitor != null)
                 {
                     healthMonitor.Reset();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Enables stuck-on-gate detection for all drones.
+    /// Call this when entering a trial.
+    /// </summary>
+    public void EnableStuckDetection()
+    {
+        if (swarm.Count > 0)
+        {
+            foreach (GameObject drone in swarm)
+            {
+                Transform droneParent = drone.transform.Find("DroneParent");
+                DroneHealthMonitor healthMonitor = droneParent.GetComponent<DroneHealthMonitor>();
+                if (healthMonitor != null)
+                {
+                    healthMonitor.EnableStuckDetection();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Disables stuck-on-gate detection for all drones.
+    /// Call this when exiting a trial (e.g., entering FlyingPractice).
+    /// </summary>
+    public void DisableStuckDetection()
+    {
+        if (swarm.Count > 0)
+        {
+            foreach (GameObject drone in swarm)
+            {
+                Transform droneParent = drone.transform.Find("DroneParent");
+                DroneHealthMonitor healthMonitor = droneParent.GetComponent<DroneHealthMonitor>();
+                if (healthMonitor != null)
+                {
+                    healthMonitor.DisableStuckDetection();
                 }
             }
         }
