@@ -123,7 +123,13 @@ public class VelocityControl : MonoBehaviour
     // Update is called once per frame
     void FixedUpdate() {
         State.GetState ();
-        
+
+        if (!State.IsAlive)
+        {
+            userAltitudeRate = 0f;
+            return;
+        }
+
         // NOTE: I'm using stupid vector order (sideways, up, forward) at the end
 
         Vector3 desiredTheta;
@@ -152,8 +158,6 @@ public class VelocityControl : MonoBehaviour
         worldFilteredSwarmAccel = Vector3.Lerp(worldFilteredSwarmAccel, swarmAcceleration, SwarmAccelFilterCoefficient);
 
         Vector3 desiredAcceleration = worldUserAccel + worldFilteredSwarmAccel;
-        if (!State.IsAlive)
-            desiredAcceleration = Vector3.zero;
 
         // Convert combined acceleration back to body frame before mapping to pitch/roll.
         Vector3 bodyDesiredAccel = transform.InverseTransformDirection(desiredAcceleration);
