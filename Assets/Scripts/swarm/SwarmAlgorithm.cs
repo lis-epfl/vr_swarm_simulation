@@ -8,6 +8,8 @@ public class SwarmAlgorithm : MonoBehaviour
 {
     public List<GameObject> swarm;
 
+    [SerializeField] private bool isSwarmSpreadEnabled = true;
+
     private SwarmManager swarmManager;
 
     // Use the SwarmAlgorithm enum from SwarmManager
@@ -159,7 +161,7 @@ public class SwarmAlgorithm : MonoBehaviour
             velocityControl.SetNormalisedVelocity(normRoll, normPitch); // Drones are facing forward in z
             velocityControl.SetNormalisedAltitudeRate(desired_alittude_rate);
 
-            if (inputStatus["spread"] > 0)
+            if (inputStatus["spread"] > 0 && isSwarmSpreadEnabled)
                 SetSwarmSpread(inputStatus["spread"]);
         }
     }
