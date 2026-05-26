@@ -33,6 +33,9 @@ namespace Experiment
         private class CWLLevelRequest
         {
             public string level;
+            public float lowProb  = 0.334f;
+            public float medProb  = 0.333f;
+            public float highProb = 0.333f;
         }
 
         private struct ApiResult
@@ -308,7 +311,7 @@ namespace Experiment
                     if (cwlController == null)
                         return ApiResult.Fail("cwl_controller_unavailable");
 
-                    cwlController.OnCWLInference(cwlRequest.level);
+                    cwlController.OnCWLInference(cwlRequest.level, cwlRequest.lowProb, cwlRequest.medProb, cwlRequest.highProb);
                     return ApiResult.Success();
                 }, 1000);
 
