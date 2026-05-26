@@ -644,6 +644,7 @@ MonoBehaviour:
   gateHeight: 3
   barThickness: 0.2
   swarmSize: 9
+  swarmSpawnRef: {fileID: 0}
   droneTag: Player
   centerPoint: {fileID: 2113409054160651915}
   gateManager: {fileID: 0}

@@ -127,19 +127,29 @@ public class RingGateManager : MonoBehaviour
         if (!_demoMode)
             return;
 
-        // Find which gate was passed
         int passedIndex = gates.IndexOf(passedGate);
         if (passedIndex < 0)
             return;
 
-        // Allow advancement from -1 (uninitialized) to 0 (first gate) for demo init
-        if (_currentGateIndex >= 0 && passedIndex != _currentGateIndex)
+        // Wrap-around: after the last gate completes a lap, reset visuals and start over.
+        if (_currentGateIndex >= gates.Count)
+        {
+            for (int i = 0; i < _gateVisuals.Count; i++)
+                if (_gateVisuals[i] != null)
+                    _gateVisuals[i].SetState(GateVisualState.Idle);
+            _currentGateIndex = 0;
+            if (_gateVisuals.Count > 0 && _gateVisuals[0] != null)
+                _gateVisuals[0].SetState(GateVisualState.Next);
+            UpdateGateVisibility();
+        }
+
+        // Only advance for the currently-expected gate (guards against duplicate plane hits).
+        if (passedIndex != _currentGateIndex)
             return;
 
-        // Deactivate current gate visual if it was set
-        if (_currentGateIndex >= 0 && _currentGateIndex < _gateVisuals.Count)
-            if (_gateVisuals[_currentGateIndex] != null)
-                _gateVisuals[_currentGateIndex].SetState(GateVisualState.Idle);
+        // Deactivate current gate visual
+        if (_gateVisuals[_currentGateIndex] != null)
+            _gateVisuals[_currentGateIndex].SetState(GateVisualState.Idle);
 
         // Advance to next gate
         _currentGateIndex = passedIndex + 1;
@@ -226,8 +236,32 @@ public class RingGateManager : MonoBehaviour
     private void HandleFirstDronePassed(int gateIndex, RingPassData data)
     {
         if (!_isCourseRunning) return;
-        if (gateIndex != _currentGateIndex) return;
         if (_gateAdvanced[gateIndex]) return;
+
+        // If drone skipped ahead (passed a gate beyond the current one),
+        // auto-complete all gates in between with all drones outside.
+        if (gateIndex > _currentGateIndex)
+        {
+            int aliveSwarmCount = gates[gateIndex].GetAliveSwarmCount();
+            for (int i = _currentGateIndex; i < gateIndex; i++)
+            {
+                _gateAdvanced[i] = true;
+                _gateFullyCompleted[i] = true;
+
+                // Record skipped gate metrics (all drones outside)
+                if (gates[i] != null)
+                    gates[i].RecordSkipped(aliveSwarmCount);
+
+                // Mark skipped gate as Completed (yellow — all outside)
+                if (_gateVisuals[i] != null)
+                    _gateVisuals[i].SetState(GateVisualState.Completed);
+
+                Debug.Log($"[RingGateManager] Gate {i} skipped and auto-completed (all {aliveSwarmCount} drones outside).");
+            }
+        }
+
+        // If the passed gate is not the current one and we didn't just skip it, ignore
+        if (gateIndex != _currentGateIndex && gateIndex < _currentGateIndex) return;
 
         _gateAdvanced[gateIndex] = true;
 
@@ -238,7 +272,7 @@ public class RingGateManager : MonoBehaviour
             _gateVisuals[gateIndex].SetState(GateVisualState.PartialComplete);
         }
 
-        _currentGateIndex++;
+        _currentGateIndex = gateIndex + 1;
 
         if (_currentGateIndex < gates.Count)
         {
@@ -268,8 +302,9 @@ public class RingGateManager : MonoBehaviour
         _timer?.RecordGateSplit();
         onGateCleared?.Invoke(gateIndex, gate);
 
-        // Check course completion: all gates fully complete AND cursor past the end
-        if (_gateFullyCompleted.All(x => x) && _currentGateIndex >= gates.Count)
+        // Check course completion: only the last gate matters.
+        // If the last gate is complete, the course is finished.
+        if (gateIndex == gates.Count - 1 && _gateFullyCompleted[gates.Count - 1])
         {
             _isCourseRunning = false;
             _timer?.StopTimer();
@@ -516,7 +551,7 @@ public class RingGateManager : MonoBehaviour
         return totalAll > 0 ? (float)totalIn / totalAll : 0f;
     }
 
-    public bool IsCourseCompleted => _gateFullyCompleted != null && _gateFullyCompleted.All(x => x);
+    public bool IsCourseCompleted => _gateFullyCompleted != null && _gateFullyCompleted.Length > 0 && _gateFullyCompleted[_gateFullyCompleted.Length - 1];
 
     // ─────────────────────────────────────────────────────────────────────────
     // Shared memory notification
