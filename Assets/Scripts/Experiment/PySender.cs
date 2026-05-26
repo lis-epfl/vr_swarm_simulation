@@ -504,12 +504,18 @@ public class PySender : MonoBehaviour
             VelocityControl ctrl = swarm[0].transform.Find("DroneParent").gameObject.GetComponent<VelocityControl>();
             if (ctrl != null)
             {
-                current_limits["maxPitch"] = ctrl.maxPitch;
-                current_limits["maxRoll"] = ctrl.maxRoll;
-                current_limits["maxYawRate"] = ctrl.maxYawRate;
-                current_limits["maxSpeed"] = ctrl.maxSpeed;
-                current_limits["maxAltitudeRate"] = ctrl.maxAltitudeRate;
-                current_limits["maxAlpha"] = ctrl.maxAlpha;
+                // When CWL feedback is active send the racing (max) profile limits so Python always
+                // knows the absolute ceiling regardless of the current adaptive step.
+                // When CWL is disabled send the selected fixed profile limits (or field values as fallback).
+                FlightProfile profile = (cwlController != null && cwlController.IsCWLFeedbackEnabled)
+                    ? cwlController.MaxProfile
+                    : ctrl.activeProfile;
+                current_limits["maxPitch"]        = profile != null ? profile.maxPitch        : ctrl.maxPitch;
+                current_limits["maxRoll"]         = profile != null ? profile.maxRoll         : ctrl.maxRoll;
+                current_limits["maxYawRate"]      = profile != null ? profile.maxYawRate      : ctrl.maxYawRate;
+                current_limits["maxSpeed"]        = profile != null ? profile.maxSpeed        : ctrl.maxSpeed;
+                current_limits["maxAltitudeRate"] = profile != null ? profile.maxAltitudeRate : ctrl.maxAltitudeRate;
+                current_limits["maxAlpha"]        = profile != null ? profile.maxAlpha        : ctrl.maxAlpha;
             }
         }
 
@@ -525,12 +531,14 @@ public class PySender : MonoBehaviour
             Pitch        = inputs["pitch"],
             Roll         = inputs["roll"],
             SwarmSpread  = inputs["spread"],
-            MaxPitch    =  current_limits.ContainsKey("maxPitch") ? current_limits["maxPitch"] : 0f,
-            MaxRoll     =  current_limits.ContainsKey("maxRoll") ? current_limits["maxRoll"] : 0f,
-            MaxAltitudeRate = current_limits.ContainsKey("maxAltitudeRate") ? current_limits["maxAltitudeRate"] : 0f,
-            MaxAlpha = current_limits.ContainsKey("maxAlpha") ? current_limits["maxAlpha"] : 0f,
+            MaxPitch        = current_limits.ContainsKey("maxPitch")       ? current_limits["maxPitch"]       : 0f,
+            MaxRoll         = current_limits.ContainsKey("maxRoll")        ? current_limits["maxRoll"]        : 0f,
+            MaxYawRate      = current_limits.ContainsKey("maxYawRate")     ? current_limits["maxYawRate"]     : 0f,
+            MaxSpeed        = current_limits.ContainsKey("maxSpeed")       ? current_limits["maxSpeed"]       : 0f,
+            MaxAltitudeRate = current_limits.ContainsKey("maxAltitudeRate")? current_limits["maxAltitudeRate"]: 0f,
+            MaxAlpha        = current_limits.ContainsKey("maxAlpha")       ? current_limits["maxAlpha"]       : 0f,
             CwlTotalSteps = cwlController != null ? cwlController.GetNumSteps : 0,
-            CwlCurrentStep = cwlController != null ? cwlController.GetCurrentStepIdx : 0,
+            CwlCurrentStep = cwlController != null ? cwlController.GetRecommendedStepIdx : 0,
         };
         Marshal.StructureToPtr(data, userInputDataPtr + sizeof(long), false);
     }
