@@ -194,7 +194,7 @@ MonoBehaviour:
   desired_height: 14
   desired_vx: 0
   desired_vy: 0
-  desired_yaw: 0
+  desiredYawRate: 0
   attitude_control_yaw: 0
   HeightKp: 1.5
   HeightKd: 1
@@ -342,7 +342,7 @@ MonoBehaviour:
   desired_height: 4
   desired_vx: 0
   desired_vy: 0
-  desired_yaw: 0
+  desiredYawRate: 0
 --- !u!1 &1343969879783188
 GameObject:
   m_ObjectHideFlags: 0
@@ -841,7 +841,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 1591
+    m_Bits: 1655
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 7
