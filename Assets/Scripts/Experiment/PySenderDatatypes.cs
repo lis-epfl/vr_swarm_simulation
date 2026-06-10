@@ -1,0 +1,166 @@
+using UnityEngine;
+using System.Runtime.InteropServices;
+
+namespace Experiment
+{
+    public class PySenderData
+    {
+        // The "StructLayout" attributes ensure that the data structures are laid out in memory exactly as defined,
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct Vec2f
+        {
+            public float x;
+            public float y;
+
+            public Vec2f(Vector2 vec)
+            {
+                x = vec.x;
+                y = vec.y;
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct Vec3f
+        {
+            public float x;
+            public float y;
+            public float z;
+
+            public Vec3f(Vector3 vec)
+            {
+                x = vec.x;
+                y = vec.y;
+                z = vec.z;
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct CustomGazeData
+        {
+            public long TimeStamp;
+            public Vec3f LeftGazePoint;
+            public Vec3f RightGazePoint;
+            public Vec2f LeftGazeOnScreen;
+            public Vec2f RightGazeOnScreen;
+            public byte LeftGazeValid;
+            public byte RightGazeValid;
+            public float LeftPupilDiameter;
+            public float RightPupilDiameter;
+            public byte LeftOpennessValid;
+            public byte RightOpennessValid;
+            public float LeftEyeOpenness;
+            public float RightEyeOpenness;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct CustomMetadata
+        {
+            public byte IsSenderReady;
+            public byte IsCalibrationOk;
+            public byte IsReceiverReady;
+            public int Head;
+            public int Tail;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct NBackData
+        {
+            public long TimeStamp;
+            public long ResponseTimeStamp;
+            public byte NBackLevel;
+            public byte Stimulus;
+            public byte ParticipantResponse;
+            public byte IsCorrect;
+
+            public NBackData(byte stimulus, byte nback_level)
+            {
+                Stimulus = stimulus;
+                TimeStamp = 0;
+                ParticipantResponse = 0;
+                IsCorrect = 0;
+                ResponseTimeStamp = 0;
+                NBackLevel = nback_level;
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct DroneData
+        {
+            public long Timestamp;
+            public byte Id;
+            public byte IsAlive;
+            public Vec3f Position;
+            public Vec3f Orientation;
+            public Vec3f Velocity;
+            public Vec3f AngularVelocity;
+            public Vec3f Acceleration;
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct UserControlInputData
+        {
+            public long Timestamp;
+            public float AltitudeRate;
+            public float Yaw;
+            public float Pitch;
+            public float Roll;
+            public float SwarmSpread;
+            public float MaxPitch;
+            public float MaxRoll;
+            public float MaxYawRate;
+            public float MaxSpeed;
+            public float MaxAltitudeRate;
+            public float MaxAlpha;
+            public int CwlTotalSteps;
+            public int CwlCurrentStep;
+        }
+
+        // ── Gate Status (dynamic, updated on each gate state change) ─────────
+        // Python layout:
+        //   class GateStatusEntry(ctypes.Structure):
+        //       _pack_ = 1
+        //       _fields_ = [("PassCount", ctypes.c_uint8),
+        //                   ("GateState", ctypes.c_uint8),
+        //                   ("FirstPassTimestamp", ctypes.c_int64)]
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct GateStatusEntry
+        {
+            public byte Id;                    // Gate identifier (index in course)
+            public byte PassCount;            // drones passed INSIDE the gate (0–aliveSwarmCount)
+            public byte GateState;            // 0=Idle 1=Next 2=PartialComplete 3=Completed
+            public long FirstPassTimestamp;   // Unix ms, 0 if not yet passed
+        }
+
+        // ── Gate Layout (static, written once when course is generated) ──────
+        // Python layout:
+        //   class GateLayoutEntry(ctypes.Structure):
+        //       _pack_ = 1
+        //       _fields_ = [("CenterX", ctypes.c_float), ("CenterY", ctypes.c_float), ("CenterZ", ctypes.c_float),
+        //                   ("ForwardX", ctypes.c_float), ("ForwardY", ctypes.c_float), ("ForwardZ", ctypes.c_float),
+        //                   ("Width", ctypes.c_float), ("Height", ctypes.c_float)]
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public struct GateLayoutEntry
+        {
+            public byte Id;                    // Gate identifier (index in course)
+            public byte IsHard;              // If part of the "hard" segment
+            public Vec3f CenterPosition;    // world-space gate center
+            public float Width;
+            public float Height;
+        }
+    };
+
+    public class MockupData {
+        static public PySenderData.CustomGazeData mockupGazeData = new PySenderData.CustomGazeData
+        {
+            TimeStamp = 1234567890123,
+            LeftGazePoint = new PySenderData.Vec3f {x=1.1f, y=1.2f, z=1.3f},
+            RightGazePoint = new PySenderData.Vec3f {x=2.1f, y=2.2f, z=2.3f},
+            LeftGazeOnScreen = new PySenderData.Vec2f {x=3.1f, y=3.2f},
+            RightGazeOnScreen = new PySenderData.Vec2f {x=4.1f, y=4.2f},
+            LeftGazeValid = 0,
+            RightGazeValid = 1,
+            LeftPupilDiameter = 5.5f,
+            RightPupilDiameter = 6.6f
+        };
+    }
+}

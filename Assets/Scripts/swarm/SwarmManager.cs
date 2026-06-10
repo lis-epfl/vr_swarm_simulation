@@ -8,6 +8,7 @@ public class SwarmManager : MonoBehaviour
 
     public enum SwarmAlgorithm
     {
+        NONE,
         REYNOLDS,
         OLFATI_SABER,
     }

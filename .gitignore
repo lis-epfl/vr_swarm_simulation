@@ -52,6 +52,7 @@ Logs/
 Assets/Text*
 Assets/DroneImages/
 UserSettings/
+Assets/Data/
 
 # Pycache files
 __pycache__/
@@ -64,5 +65,13 @@ Assets/Scripts/ImageStitching/StabStitch2_main*
 Assets/Scripts/ImageStitching/mask_debug*
 Assets/Scripts/ImageStitching/*.jpg
 Assets/Scripts/ImageStitching/*.jpg.meta
+Assets/Asphalt_materials/
+Assets/TobiiPro/
+
+Assets/TerrainTexturesPackFree/
+Assets/AQUAS-Lite/
+
+Recordings/
+ExperimentData/
 Assets/Scripts/ImageStitching/*.png
 Assets/Scripts/ImageStitching/*.png.meta

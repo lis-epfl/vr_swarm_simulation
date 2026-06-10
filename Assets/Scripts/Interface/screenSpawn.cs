@@ -347,8 +347,7 @@ public class ScreenSpawn : MonoBehaviour
 
         // Get the drone's yaw
         StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on outer circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians);
@@ -367,8 +366,7 @@ public class ScreenSpawn : MonoBehaviour
 
         // Get the drone's yaw
         StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on inner circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
@@ -387,8 +385,7 @@ public class ScreenSpawn : MonoBehaviour
 
         // Get the drone's yaw
         StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on bottom circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
@@ -426,8 +423,7 @@ public class ScreenSpawn : MonoBehaviour
 
         // Get the drone's yaw
         StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate base position on inner circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians);
