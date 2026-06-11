@@ -17,7 +17,6 @@ public class swarmSpawn : MonoBehaviour
     public bool randomYaw = false;
     public bool RandomizeMassAndInertia = false;
     public int YawDegrees = 0;
-    public bool UsePySender = false;
     public bool trackBirdsEye = false;
     public GameObject swarmParent;
     private InterfaceManager interfaceManager;
@@ -116,13 +115,6 @@ public class swarmSpawn : MonoBehaviour
 
         // Set the swarm in interface scripts
         interfaceManager.SetSwarm(swarm);
-
-        if (UsePySender)
-        {
-            PySender.Instance.InitializeDroneDataSharedMemory((uint)swarm.Count);
-            PySender.Instance.InitializeUserInputDataSharedMemory();
-            PySender.Instance.Swarm = swarm;
-        }
         
     }
 
