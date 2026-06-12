@@ -44,10 +44,6 @@ public class movingCircle : MonoBehaviour
         walkersContainer.transform.parent = transform;
         walkersContainer.transform.localPosition = Vector3.zero;
 
-        // Print the center position
-        Vector3 centerPos = obstacle.transform.position + Vector3.up * verticalOffset;
-        Debug.Log("Walker Circle Center Position: " + centerPos);
-
         // Create walkers
         for (int i = 0; i < numWalkers; i++)
         {

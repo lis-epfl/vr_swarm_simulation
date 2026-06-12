@@ -257,6 +257,7 @@ public class VelocityControl : MonoBehaviour
 
     public void Reset()
     {
+        Debug.Log("Resetting drone to initial position and state.");
         ResetToPos(initialPosition, initialRotation);
     }
 

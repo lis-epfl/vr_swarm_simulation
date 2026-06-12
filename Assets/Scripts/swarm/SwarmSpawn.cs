@@ -216,6 +216,7 @@ public class swarmSpawn : MonoBehaviour
 
     public void Reset()
     {
+        Debug.Log("Resetting swarm to initial positions.");
         if (swarm.Count > 0)
         {
             foreach (GameObject drone in swarm)
@@ -233,6 +234,7 @@ public class swarmSpawn : MonoBehaviour
 
     public void ResetToPos(Vector3 newStartPosition)
     {
+        Debug.Log($"Resetting swarm to new position: {newStartPosition}");
         if (swarm.Count > 0)
         {
             int index = 0;
