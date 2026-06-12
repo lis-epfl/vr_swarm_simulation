@@ -6,7 +6,6 @@ public class DroneHealthMonitor : MonoBehaviour
 {
     public StateFinder State;
     private VelocityControl velocityControl;
-    private OlfatiSaber olfatiSaber;
     private List<GameObject> swarm;
 
     // Health check thresholds
@@ -45,7 +44,6 @@ public class DroneHealthMonitor : MonoBehaviour
     void Start()
     {
         velocityControl = GetComponent<VelocityControl>();
-        olfatiSaber = GetComponent<OlfatiSaber>();
         rb = GetComponent<Rigidbody>();
         droneRenderers = GetComponentsInChildren<Renderer>(includeInactive: true);
         elapsedTime = 0.0f;
@@ -83,17 +81,27 @@ public class DroneHealthMonitor : MonoBehaviour
                 return;
         }
 
-        // Run all health checks
-        if (IsTooFarFromSwarm() || IsCrashed() || IsTooCloseToGround() || IsCollidingWithAnotherDrone() || IsStuckOnObstacle())
+        // Run all health checks (evaluated individually so we can report which one tripped)
+        string reason = null;
+        if (IsTooFarFromSwarm())              reason = "TooFarFromSwarm";
+        else if (IsCrashed())                 reason = "Crashed";
+        else if (IsTooCloseToGround())        reason = "TooCloseToGround";
+        else if (IsCollidingWithAnotherDrone()) reason = "CollidingWithAnotherDrone";
+        else if (IsStuckOnObstacle())         reason = "StuckOnObstacle";
+
+        if (reason != null)
         {
             State.IsAlive = false;
-            ParkDrone();
+            ParkDrone(reason);
             wasAlive = false;
         }
     }
 
-    private void ParkDrone()
+    private void ParkDrone(string reason = "ExternallyKilled")
     {
+        Debug.Log($"[DroneHealthMonitor] Parking {transform.parent.name} ({gameObject.name}) at y={parkingY}. " +
+                  $"Reason: {reason}. Position was {transform.position}, t={elapsedTime:F2}s");
+
         if (rb != null)
         {
             rb.velocity = Vector3.zero;
@@ -182,19 +190,48 @@ public class DroneHealthMonitor : MonoBehaviour
         if (swarm == null || swarm.Count == 0)
             return false;
 
+        // A drone is connected to the swarm as long as its nearest neighbour is within
+        // the cohesion cutoff radius r0_coh (beyond r0_coh the cohesion weight is zero,
+        // so the neighbour exerts no pull). Read r0_coh / ScaleFactor straight from
+        // SwarmManager so the threshold always tracks the live inspector values rather
+        // than a per-drone copy (which is only synced under the Olfati-Saber algorithm).
+        // The multiplier is an optional safety margin.
+        SwarmManager swarmManager = SwarmManager.Instance;
+        if (swarmManager == null)
+            return false;
+
+        float maxNeighbourDistance = swarmManager.GetR0Coh() * swarmManager.GetScaleFactor() * cohesionDistanceMultiplier;
+
         Vector3 currentPos = State.GroundTruthPosition;
-        Vector3 swarmCenter = GetSwarmCenterGroundTruth();
+        float nearestDistance = float.PositiveInfinity;
 
-        float distanceToCenter = Vector3.Distance(currentPos, swarmCenter);
+        foreach (GameObject drone in swarm)
+        {
+            if (drone == null)
+                continue;
 
-        // Use r0_coh from OlfatiSaber with multiplier for safety margin
-        float maxDistance = olfatiSaber.r0_coh * olfatiSaber.ScaleFactor * cohesionDistanceMultiplier;
+            Transform droneParent = drone.transform.Find("DroneParent");
+            if (droneParent == null || droneParent.gameObject == gameObject)
+                continue;
 
-        bool tooFar = distanceToCenter > maxDistance;
+            VelocityControl vc = droneParent.GetComponent<VelocityControl>();
+            if (vc == null || vc.State == null || !vc.State.IsAlive)
+                continue;
+
+            float dist = Vector3.Distance(currentPos, vc.State.GroundTruthPosition);
+            if (dist < nearestDistance)
+                nearestDistance = dist;
+        }
+
+        // No alive neighbours to measure against (e.g. last drone standing): don't park.
+        if (float.IsPositiveInfinity(nearestDistance))
+            return false;
+
+        bool tooFar = nearestDistance > maxNeighbourDistance;
 
         if (tooFar)
         {
-            Debug.LogWarning($"{gameObject.name} is too far from swarm. Distance: {distanceToCenter:F2}, Max: {maxDistance:F2}");
+            Debug.LogWarning($"{gameObject.name} is too far from swarm. Nearest neighbour: {nearestDistance:F2}, Max: {maxNeighbourDistance:F2}");
         }
 
         return tooFar;
@@ -226,37 +263,6 @@ public class DroneHealthMonitor : MonoBehaviour
         }
 
         return tooLow;
-    }
-
-    private Vector3 GetSwarmCenterGroundTruth()
-    {
-        Vector3 center = Vector3.zero;
-        int validCount = 0;
-
-        foreach (GameObject drone in swarm)
-        {
-            if (drone == null)
-                continue;
-
-            Transform droneParent = drone.transform.Find("DroneParent");
-            if (droneParent == null)
-                continue;
-
-            VelocityControl vc = droneParent.GetComponent<VelocityControl>();
-            if (vc == null || vc.State == null)
-                continue;
-
-            if (!vc.State.IsAlive)
-                continue;
-
-            center += vc.State.GroundTruthPosition;
-            validCount++;
-        }
-
-        if (validCount > 0)
-            center /= validCount;
-
-        return center;
     }
 
     public void Reset()
