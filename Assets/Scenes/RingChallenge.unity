@@ -3326,9 +3326,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ae7d240c1350e124a9fdd1f88ad151b0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  segmentCount: 5
-  ringsPerSegment: 8
-  startWithEasy: 1
+  segmentCount: 1
+  ringsPerSegment: 50
+  startWithEasy: 0
   easyZDistanceMin: 25
   easyZDistanceMax: 35
   easyLateralAngleMin: 0

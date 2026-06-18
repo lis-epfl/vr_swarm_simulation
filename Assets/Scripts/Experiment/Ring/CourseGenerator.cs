@@ -24,8 +24,15 @@ public class CourseGenerator : MonoBehaviour
     [Tooltip("Number of ring gates per segment.")]
     public int ringsPerSegment = 3;
 
-    [Tooltip("If true the first segment is Easy (E-H-E-H...), otherwise Hard first.")]
+    [Tooltip("If true the first segment is Easy (E-H-E-H...), otherwise Hard first. Ignored when useUniformSegments is true.")]
     public bool startWithEasy = true;
+
+    [Tooltip("If true, every segment uses the same type (uniformSegmentType) instead of alternating Easy/Hard. " +
+             "E.g. Hard + segmentCount=6 + ringsPerSegment=8 gives six repeated S-curves of 8 gates each.")]
+    public bool useUniformSegments = false;
+
+    [Tooltip("Segment type applied to all segments when useUniformSegments is true.")]
+    public SegmentType uniformSegmentType = SegmentType.Hard;
 
     [Header("Easy Segment Ranges")]
     [Tooltip("Minimum Z-distance progression between consecutive rings (units).")]
@@ -214,12 +221,21 @@ public class CourseGenerator : MonoBehaviour
         var states = new List<SegmentState>(segmentCount);
         for (int seg = 0; seg < segmentCount; seg++)
         {
-            bool isEven = seg % 2 == 0;
-            bool isEasy = startWithEasy ? isEven : !isEven;
+            SegmentType segType;
+            if (useUniformSegments)
+            {
+                segType = uniformSegmentType;
+            }
+            else
+            {
+                bool isEven = seg % 2 == 0;
+                bool isEasy = startWithEasy ? isEven : !isEven;
+                segType = isEasy ? SegmentType.Easy : SegmentType.Hard;
+            }
 
             var state = new SegmentState
             {
-                type = isEasy ? SegmentType.Easy : SegmentType.Hard,
+                type = segType,
                 yawSign = Random.value > 0.5f ? 1 : -1,
                 pitchSign = Random.value > 0.5f ? 1 : -1,
             };
