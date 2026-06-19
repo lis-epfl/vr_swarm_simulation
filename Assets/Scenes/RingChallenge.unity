@@ -1302,9 +1302,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _cwlFeedbackEnabled: 0
-  _minProfile: {fileID: 11400000, guid: fabdc44fcd52bfc47bc47f1c79bbb6f9, type: 2}
-  _maxProfile: {fileID: 11400000, guid: 287b3025884a0fa4f961497a5e1298ab, type: 2}
-  _defaultProfile: {fileID: 11400000, guid: 310f9718f7e9e0a4b8239d5a8e8ddbf2, type: 2}
+  _minProfile: {fileID: 0}
+  _maxProfile: {fileID: 0}
+  _defaultProfile: {fileID: 0}
   _numSteps: 24
   _maxStepSize: 6
   _warmupUpdates: 4
@@ -1421,8 +1421,7 @@ MonoBehaviour:
   totalTrialNumber: 5
   randomSeed: -1
   isCwlActive: 0
-  defaultFlightProfile: {fileID: 11400000, guid: 287b3025884a0fa4f961497a5e1298ab,
-    type: 2}
+  defaultFlightProfile: {fileID: 0}
   isDebugMode: 0
   skipCalibration: 1
   skipFlyingPractice: 1
@@ -3326,9 +3325,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ae7d240c1350e124a9fdd1f88ad151b0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  segmentCount: 1
-  ringsPerSegment: 50
-  startWithEasy: 0
+  segmentCount: 5
+  ringsPerSegment: 8
+  startWithEasy: 1
+  useUniformSegments: 1
+  uniformSegmentType: 1
   easyZDistanceMin: 25
   easyZDistanceMax: 35
   easyLateralAngleMin: 0
@@ -5914,7 +5915,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   spawn: {fileID: 411981047}
   cwlController: {fileID: 324714008}
-  racingProfile: {fileID: 11400000, guid: 287b3025884a0fa4f961497a5e1298ab, type: 2}
+  racingProfile: {fileID: 0}
   droneId: 0
   panelPosition: {x: 20, y: 20}
   panelWidth: 280
