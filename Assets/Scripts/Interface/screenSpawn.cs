@@ -143,8 +143,12 @@ public class ScreenSpawn : MonoBehaviour
             // Create a new Material object
             Material screenMaterial = new Material(Shader.Find("Standard"));
 
-            // Set the color to white
-            screenMaterial.color = Color.white;
+            // Set the color to black, then white for real drones
+            screenMaterial.color = Color.black;
+            if (screenStyle == ScreenStyle.REAL_DRONE)
+            {
+                screenMaterial.color = Color.white;
+            }
 
             // Set the smoothness to 0
             screenMaterial.SetFloat("_Glossiness", 0f);
