@@ -32,9 +32,13 @@ public class VelocityControl : MonoBehaviour
     //must set this
     [Header("Setpoints")]
     public float desired_height = 4.0f;
-    // User velocity commands in body frame (x = sideways/roll axis, z = forward/pitch axis)
+    // User velocity commands (x = sideways/roll axis, z = forward/pitch axis).
+    // Interpreted in body or world frame depending on userCommandInWorldFrame.
     private float userVelX = 0.0f;
     private float userVelZ = 0.0f;
+    // When true, the velocity command is interpreted in world frame (fixed axes); when false,
+    // in the drone's body frame (relative to heading). Set by InputManager via SwarmAlgorithm.
+    [HideInInspector] public bool userCommandInWorldFrame = false;
     public float desiredYawRate = 0.0f;
     public float attitude_control_yaw = 0.0f;
     // Swarm acceleration feedforward (world frame, set by SwarmAlgorithm)
@@ -146,12 +150,28 @@ public class VelocityControl : MonoBehaviour
         float altitudeCommand = HeightKp * currentHeightError + HeightKd * filteredHeightErrorDerivative;
 
         // --- User velocity controller ---
-        // Force any "ghost" y  component zoming from Unity's transform due to drone's tilt to zero
+        // The command can be interpreted in the body frame (moves relative to the drone's
+        // heading) or the world frame (moves along fixed world axes). Either way the velocity
+        // error is expressed in world frame before being turned into an acceleration.
         Vector3 bodyVelocity = State.VelocityVector;
-        Vector3 bodyUserVelCommand = new Vector3(userVelX, 0f, userVelZ);
-        Vector3 userVelError = transform.TransformDirection(bodyVelocity - bodyUserVelCommand);
-        Vector3 worldUserAccel = userVelError * -1.0f / timeConstantAcceleration;
-        worldUserAccel.y = 0f; // Add altitude command to vertical acceleration
+        Vector3 userVelCommand = new Vector3(userVelX, 0f, userVelZ);
+
+        Vector3 worldUserVelError;
+        if (userCommandInWorldFrame)
+        {
+            // Command is already in world frame; compare against the world-frame velocity.
+            Vector3 worldVelocity = transform.TransformDirection(bodyVelocity);
+            worldUserVelError = worldVelocity - userVelCommand;
+        }
+        else
+        {
+            // Command is in body frame; take the error in body frame, then rotate to world.
+            worldUserVelError = transform.TransformDirection(bodyVelocity - userVelCommand);
+        }
+
+        Vector3 worldUserAccel = worldUserVelError * -1.0f / timeConstantAcceleration;
+        // Force any "ghost" y component coming from the drone's tilt to zero (altitude handled separately).
+        worldUserAccel.y = 0f;
 
         // --- Swarm feedforward acceleration (world frame) ---
         // Swarm already computes acceleration in world frame

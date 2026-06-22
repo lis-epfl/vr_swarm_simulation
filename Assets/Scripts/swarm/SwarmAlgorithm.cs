@@ -161,6 +161,10 @@ public class SwarmAlgorithm : MonoBehaviour
             velocityControl.SetNormalisedVelocity(normRoll, normPitch); // Drones are facing forward in z
             velocityControl.SetNormalisedAltitudeRate(desired_alittude_rate);
 
+            // Forward the body/world command frame selected on the InputManager.
+            velocityControl.SetCommandFrameWorld(
+                InputManager.Instance.ActiveCommandFrame == InputManager.CommandFrame.World);
+
             if (inputStatus["spread"] > 0 && isSwarmSpreadEnabled)
                 SetSwarmSpread(inputStatus["spread"]);
         }

@@ -14,6 +14,25 @@ public class InputManager : MonoBehaviour
     [SerializeField]
     private InputMode inputMode = InputMode.KEYBOARD;
 
+    public enum CommandFrame
+    {
+        Body,  // Velocity stick is relative to each drone's heading (yaw).
+        World, // Velocity stick maps to fixed world axes regardless of heading.
+    }
+    [Header("Command Frame")]
+    [Tooltip("Body: the velocity command moves the drone relative to its own heading. " +
+             "World: the velocity command moves the drone along fixed world axes.")]
+    [SerializeField]
+    private CommandFrame commandFrame = CommandFrame.Body;
+
+    // Frame the user velocity command is expressed in. Read by SwarmAlgorithm each tick.
+    public CommandFrame ActiveCommandFrame => commandFrame;
+
+    // Runtime helpers so the frame can be flipped from a key bind, UI button, etc.
+    public void SetCommandFrame(CommandFrame frame) => commandFrame = frame;
+    public void ToggleCommandFrame() =>
+        commandFrame = commandFrame == CommandFrame.Body ? CommandFrame.World : CommandFrame.Body;
+
     private Dictionary<string, float> inputStatus = new Dictionary<string, float>()
     {
         {"throttle", 0.0f},
