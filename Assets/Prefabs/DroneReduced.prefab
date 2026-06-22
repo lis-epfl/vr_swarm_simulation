@@ -180,6 +180,7 @@ MonoBehaviour:
   maxAltitudeRate: 3.34
   MinHeight: 0.5
   desired_height: 25.3
+  userCommandInWorldFrame: 0
   desiredYawRate: 0
   attitude_control_yaw: 0
   swarmAcceleration: {x: 0, y: 0, z: 0}
@@ -227,7 +228,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1235058752258398}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b9ab48fdc62824c7fbed172be0cf823c, type: 3}
   m_Name: 
