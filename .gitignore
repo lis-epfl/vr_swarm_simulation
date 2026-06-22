@@ -65,9 +65,11 @@ Assets/Scripts/ImageStitching/StabStitch2_main*
 Assets/Scripts/ImageStitching/mask_debug*
 Assets/Scripts/ImageStitching/*.jpg
 Assets/Scripts/ImageStitching/*.jpg.meta
+
+# Ignore big packages
 Assets/Asphalt_materials/
 Assets/TobiiPro/
-
+Assets/TerrainSampleAssets/
 Assets/TerrainTexturesPackFree/
 Assets/AQUAS-Lite/
 Assets/Modular City Pack/
