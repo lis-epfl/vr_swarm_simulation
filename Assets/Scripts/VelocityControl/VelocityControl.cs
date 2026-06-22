@@ -183,9 +183,19 @@ public class VelocityControl : MonoBehaviour
         Vector3 bodyDesiredAccel = transform.InverseTransformDirection(desiredAcceleration);
         desiredTheta = new Vector3(bodyDesiredAccel.z / gravity, 0.0f, -bodyDesiredAccel.x / gravity);
 
-        // Per-axis clamp respects asymmetric pitch/roll limits
-        desiredTheta.x = Mathf.Clamp(desiredTheta.x, -maxPitch, maxPitch);
-        desiredTheta.z = Mathf.Clamp(desiredTheta.z, -maxRoll, maxRoll);
+        // Circular tilt limit: cap the combined pitch/roll magnitude while preserving direction,
+        // so the acceleration envelope is the same in every horizontal direction. Unlike an
+        // independent per-axis clamp (a square envelope, ~41% larger on the diagonal), a circular
+        // envelope is rotation-invariant, so a world-frame command maps to the same achievable
+        // acceleration on every drone regardless of heading — which keeps the formation together.
+        Vector2 horizTilt = new Vector2(desiredTheta.x, desiredTheta.z);
+        float maxTilt = Mathf.Min(maxPitch, maxRoll);
+        if (horizTilt.magnitude > maxTilt)
+        {
+            horizTilt = horizTilt.normalized * maxTilt;
+            desiredTheta.x = horizTilt.x;
+            desiredTheta.z = horizTilt.y;
+        }
 
         Vector3 thetaError = State.Angles - desiredTheta;
 
@@ -301,13 +311,24 @@ public class VelocityControl : MonoBehaviour
 
     /// <summary>
     /// Set horizontal velocity commands from a normalised input in [-1, 1].
-    /// Scaled against maxSpeed so the full stick always maps to the current limit.
+    /// The input is magnitude-limited (not clamped per axis) so the commanded speed is the same
+    /// in every direction — a full diagonal maps to maxSpeed, not maxSpeed·√2.
     /// </summary>
     public void SetNormalisedVelocity(float normVx, float normVy)
     {
-        userVelX = Mathf.Clamp(normVx, -1f, 1f) * maxSpeed;
-        userVelZ = Mathf.Clamp(normVy, -1f, 1f) * maxSpeed;
+        Vector2 norm = new Vector2(normVx, normVy);
+        if (norm.magnitude > 1f)
+            norm.Normalize();
+
+        userVelX = norm.x * maxSpeed;
+        userVelZ = norm.y * maxSpeed;
     }
+
+    /// <summary>
+    /// Selects whether the velocity command is interpreted in the world frame (fixed axes,
+    /// true) or the drone's body frame (relative to heading, false).
+    /// </summary>
+    public void SetCommandFrameWorld(bool useWorldFrame) => userCommandInWorldFrame = useWorldFrame;
 
     /// <summary>
     /// Set yaw rate command from a normalised input in [-1, 1].

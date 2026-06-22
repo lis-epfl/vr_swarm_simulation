@@ -3524,6 +3524,7 @@ GameObject:
   - component: {fileID: 590275741}
   - component: {fileID: 590275740}
   - component: {fileID: 590275744}
+  - component: {fileID: 590275745}
   - component: {fileID: 590275739}
   m_Layer: 0
   m_Name: gameManager
@@ -3539,7 +3540,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 590275738}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6eabc2e9deeebef44a646ed83f64fda1, type: 3}
   m_Name: 
@@ -3557,24 +3558,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ad6d96a942db456999d589ce17f8408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  swarmAlgorithm: 1
+  swarmAlgorithm: 2
   is3D: 0
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
-  d_ref: 4
-  r0_coh: 26.62
+  d_ref: 1.08
+  r0_coh: 20
   delta: 0.2
-  a: 0.3
-  b: 0.5
+  a: 1.4
+  b: 2.6
   gamma: 1
-  c_vm: 1
-  d_obs: 4
-  r0_obs: 6
+  c_vm: 0
+  d_obs: 0.1
+  r0_obs: 5
   lambda_obs: 1
-  c_obs: 4.3
+  c_obs: 0.1
   scaleFactor: 10
-  SelectedAttitudeAlgorithm: 0
+  SelectedAttitudeAlgorithm: 2
   numNeighbours: 9
   numDimensions: 2
   pointInwards: 0
@@ -3618,9 +3619,9 @@ MonoBehaviour:
   swarm: []
   dronesAlongX: 3
   dronesAlongZ: 3
-  droneSpacing: 30
+  droneSpacing: 5
   start_x: 1020
-  start_y: 657
+  start_y: 670
   start_z: 386
   randomYaw: 0
   RandomizeMassAndInertia: 0
@@ -3665,6 +3666,20 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
+--- !u!114 &590275745
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0279b7ec075322248bc32f336079b1db, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  inputMode: 0
+  commandFrame: 1
 --- !u!1 &593138284
 GameObject:
   m_ObjectHideFlags: 0
