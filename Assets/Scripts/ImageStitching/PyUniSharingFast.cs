@@ -219,6 +219,12 @@ public class PyUniSharingFast : MonoBehaviour
     private GameObject arena;
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 
+    [Header("Stitching Debug")]
+    [SerializeField]
+    [Tooltip("Read-only: the drones currently sent to the stitcher, ordered left / centre / right. Updates during Play.")]
+    private List<string> stitchedDrones = new List<string>();
+    private string lastStitchedDronesKey;  // change-detection so the list only rebuilds when the selection changes
+
     // Quality fallback: switch between the panorama screen and ScreenSpawn feeds
     [SerializeField] private ScreenSpawn screenSpawn;
     private bool panoramaDisplayActive = true;
@@ -316,6 +322,7 @@ public class PyUniSharingFast : MonoBehaviour
         // two yaw-neighbours. centreYaw drives the curved-screen orientation so
         // the screen snaps to the new view only when the selection changes.
         float centreYaw = SelectStitchCameras(headYaw, out selectedStitchIndices);
+        UpdateStitchedDronesDisplay(selectedStitchIndices);
 
         if (enablePanoramaReading)
         {
@@ -626,6 +633,37 @@ public class PyUniSharingFast : MonoBehaviour
         byte[] yawBytes = BitConverter.GetBytes(yaw);
         if (!BitConverter.IsLittleEndian) Array.Reverse(yawBytes);
         Marshal.Copy(yawBytes, 0, IntPtr.Add(metadataPtr, metadataHeadYawOffset), 4);
+    }
+
+    // Reflects the current stitch selection in the Inspector (read-only). Only
+    // rebuilds the list when the selection changes so it doesn't allocate every
+    // frame. Entries are ordered [left, centre, right].
+    private void UpdateStitchedDronesDisplay(int[] selected)
+    {
+        string key = string.Join(",", selected);
+        if (key == lastStitchedDronesKey) return;
+        lastStitchedDronesKey = key;
+
+        stitchedDrones.Clear();
+        for (int j = 0; j < selected.Length; j++)
+        {
+            string role = (selected.Length == 3)
+                ? (j == 0 ? "L" : j == 1 ? "C" : "R")
+                : $"#{j}";
+            stitchedDrones.Add($"{role}: {DroneName(selected[j])}");
+        }
+    }
+
+    // Human-readable name of the drone owning a capture camera (the FPV camera's
+    // parent), for the Inspector display.
+    private string DroneName(int camIdx)
+    {
+        if (camerasToCapture == null || camIdx < 0 || camIdx >= camerasToCapture.Count)
+            return "?";
+        Camera cam = camerasToCapture[camIdx];
+        if (cam == null) return "?";
+        Transform parent = cam.transform.parent;
+        return parent != null ? parent.name : cam.name;
     }
 
     public void SetPanoramaImage(byte[] partPanorama)
