@@ -18,10 +18,12 @@ public class PyUniSharingFast : MonoBehaviour
 
     [Header("Image Dimensions")]
     [SerializeField]
-    private int blockImageWidth = 300;
+    [Tooltip("Must be 640 to match image_stream.py / StitcherThreading.py, which read a fixed 640x360 block.")]
+    private int blockImageWidth = 640;
 
     [SerializeField]
-    private int blockImageHeight = 300;
+    [Tooltip("Must be 360 to match image_stream.py / StitcherThreading.py, which read a fixed 640x360 block.")]
+    private int blockImageHeight = 360;
 
     [SerializeField]
     private int panoramaImageWidth = 600;
@@ -80,12 +82,11 @@ public class PyUniSharingFast : MonoBehaviour
     [Tooltip("Width in pixels of the edge strip where LINEAR blending is applied to hide seams (REFERENCE_BLEND mode only). Interior of the reference image is left pixel-perfect.")]
     private int borderSize = 60;
 
-    private string blockMapName = "blockSharedMemory";
+    private string blockMapName = "BlockSharedMemory";
     private int blockImageCount = 0;
-    private int blockImageSize = 0;
-    private int boolListSize = 0;
-    private int blockDataPosition = 0;
-    private int totalBlockSize = 0;
+    private int blockImageSize = 0;   // bytes per drone image (W*H*3)
+    private int blockSize = 0;        // per-drone block: header + image
+    private int totalBlockSize = 0;   // blockImageCount * blockSize
 
     private string panoramaMapName = "PanoramaSharedMemory";
     private int panoramaImageSize = 0;
@@ -107,7 +108,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     private RenderTexture reusableTexture;
     private Texture2D image;
-    private byte[] blockImageBuffer;
+    private byte[] blockImageBytes;   // reusable scratch for one converted drone image
     private float nextSendTime, nextReceiveTime = 0f;
     private Color32[] pixels;
 
@@ -155,15 +156,20 @@ public class PyUniSharingFast : MonoBehaviour
     // Constant values
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
-    private const int FlagPosition = 0;
-    private const int camerasToStitchPosition = 1;
-    private const int numFloatByte = 4;
+    private const int FlagPosition = 0;             // panorama flag (int32) at region start
     private const int panoramaDataPosition = 4;
+    // Per-drone block layout (matches image_stream.py / ImageSharing.cs):
+    //   int32 flag | int32 droneId | float32 heading | RGB24 image
+    private const int blockFlagOffset = 0;
+    private const int blockDroneIdOffset = 4;
+    private const int blockHeadingOffset = 8;
+    private const int blockHeaderSize = 12;
+    private const int blockImageDataOffset = blockHeaderSize;
     private const int maxBlockWidth = 2000;
     private const int maxBlockHeight = 2000;
     private const int maxBlockImageCount = 30;
     private const int maxBlockImageSize = maxBlockWidth*maxBlockHeight * 3;
-    private const int maxTotalBlockSize = camerasToStitchPosition+maxBlockImageSize + numFloatByte + maxBlockImageCount;
+    private const int maxTotalBlockSize = maxBlockImageCount * (blockHeaderSize + maxBlockImageSize);
     private const int maxPanoramaWidth = 4000;
     private const int maxPanoramaHeight = 4000;
     private const int maxPanoramaSize = maxPanoramaWidth * maxPanoramaHeight * 3;
@@ -191,17 +197,20 @@ public class PyUniSharingFast : MonoBehaviour
             metadataPtr = MapViewOfFile(metadataFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
         }
 
-        CalculateMemorySizes();
-        CreateMemoryMaps();
-        
-        if (enableImageWriting || enablePanoramaReading)
-        {
-            WriteMetadata();
-        }
-
+        // Discover cameras first so the block mapping can be sized to the
+        // exact drone count (matches image_stream.py / StitcherThreading.py).
         if (enableImageWriting)
         {
             FindCameras();
+            blockImageCount = camerasToCapture.Count;
+        }
+
+        CalculateMemorySizes();
+        CreateMemoryMaps();
+
+        if (enableImageWriting || enablePanoramaReading)
+        {
+            WriteMetadata();
         }
 
         if (enablePanoramaReading)
@@ -220,7 +229,7 @@ public class PyUniSharingFast : MonoBehaviour
         {
             reusableTexture = new RenderTexture(blockImageWidth, blockImageHeight, 24);
             image = new Texture2D(blockImageWidth, blockImageHeight, TextureFormat.RGB24, false);
-            blockImageBuffer = new byte[blockImageCount * blockImageSize];
+            blockImageBytes = new byte[blockImageSize];
         }
 
         hasStarted = true;
@@ -246,41 +255,46 @@ public class PyUniSharingFast : MonoBehaviour
             GenerateCurvedScreen();
         }
 
-        // Handle image writing to BlockSharedMemory
+        // Handle image writing to BlockSharedMemory (one self-describing block
+        // per drone, handshaken independently — matches image_stream.py).
         if (enableImageWriting)
         {
             if (camerasToCapture.Count == 0)
             {
                 FindCameras();
             }
-            else if (Time.time >= nextSendTime && blockPtr != IntPtr.Zero && Marshal.ReadByte(blockPtr, FlagPosition) == 0)
+            else if (Time.time >= nextSendTime && blockPtr != IntPtr.Zero)
             {
-                Marshal.WriteByte(blockPtr, FlagPosition, 1);
-
-                for (int i = 0; i < boolListSize; i++)
-                {
-                    byte value = (byte)(i < camerasToStitch.Count && camerasToStitch[i] ? 1 : 0);
-                    Marshal.WriteByte(blockPtr, camerasToStitchPosition + i, value);
-                }
-
-                float headAngle = TakeHeadsetAngle();
-                byte[] floatBytes = BitConverter.GetBytes(headAngle);
-                Marshal.Copy(floatBytes, 0, IntPtr.Add(blockPtr, boolListSize+camerasToStitchPosition), floatBytes.Length);
-
                 for (int i = 0; i < camerasToCapture.Count && i < blockImageCount; i++)
                 {
-                    if (i < camerasToStitch.Count && camerasToStitch[i])
+                    IntPtr block = IntPtr.Add(blockPtr, i * blockSize);
+
+                    // Skip this drone if the consumer is mid-read on its block.
+                    if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
+                        continue;
+
+                    // Mark busy while we write the header + image.
+                    Marshal.WriteInt32(block, blockFlagOffset, 1);
+
+                    // Header: droneId + this drone's world yaw (heading).
+                    Marshal.WriteInt32(block, blockDroneIdOffset, i);
+                    float heading = camerasToCapture[i].transform.eulerAngles.y;
+                    byte[] headingBytes = BitConverter.GetBytes(heading);
+                    if (!BitConverter.IsLittleEndian) Array.Reverse(headingBytes);
+                    Marshal.Copy(headingBytes, 0, IntPtr.Add(block, blockHeadingOffset), 4);
+
+                    // Image: Unity RGB (bottom-up) -> BGR (top-down) for the consumer.
+                    byte[] imageBytes = CaptureCameraImage(camerasToCapture[i]);
+                    if (imageBytes != null && imageBytes.Length == blockImageSize)
                     {
-                        byte[] imageBytes = CaptureCameraImage(camerasToCapture[i]);
-                        if (imageBytes != null)
-                        {
-                            Array.Copy(imageBytes, 0, blockImageBuffer, i * blockImageSize, imageBytes.Length);
-                        }
+                        ConvertToBlockFormat(imageBytes, blockImageBytes);
+                        Marshal.Copy(blockImageBytes, 0, IntPtr.Add(block, blockImageDataOffset), blockImageSize);
                     }
+
+                    // Ready for the consumer.
+                    Marshal.WriteInt32(block, blockFlagOffset, 0);
                 }
 
-                Marshal.Copy(blockImageBuffer, 0, IntPtr.Add(blockPtr, blockDataPosition), blockImageBuffer.Length);
-                Marshal.WriteByte(blockPtr, FlagPosition, 0);
                 nextSendTime += sendInterval;
             }
         }
@@ -301,12 +315,6 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
-    private float TakeHeadsetAngle()
-    {
-        float headAngle = 0f;
-        return headAngle;
-    }
-
     private byte[] CaptureCameraImage(Camera camera)
     {
         RenderTexture previousRT = camera.targetTexture;
@@ -322,6 +330,28 @@ public class PyUniSharingFast : MonoBehaviour
         RenderTexture.active = null;
 
         return imageBytes;
+    }
+
+    // Converts Unity's raw RGB24 texture data (bottom-left origin, RGB order)
+    // into the block format the Python consumers expect: top-left origin, BGR
+    // order. This matches the cv2 images written by image_stream.py and the
+    // BGR->RGB read performed in ImageSharing.cs.
+    private void ConvertToBlockFormat(byte[] src, byte[] dst)
+    {
+        int rowBytes = blockImageWidth * 3;
+        for (int y = 0; y < blockImageHeight; y++)
+        {
+            int srcRow = y * rowBytes;                              // bottom-up source row
+            int dstRow = (blockImageHeight - 1 - y) * rowBytes;     // flipped to top-down
+            for (int x = 0; x < blockImageWidth; x++)
+            {
+                int s = srcRow + x * 3;
+                int d = dstRow + x * 3;
+                dst[d]     = src[s + 2];  // B
+                dst[d + 1] = src[s + 1];  // G
+                dst[d + 2] = src[s];      // R
+            }
+        }
     }
 
     byte[] ReceivePanoramaImage()
@@ -440,13 +470,11 @@ public class PyUniSharingFast : MonoBehaviour
             Debug.LogError("Decrease number of drones or increase maxBlockImageCount constant. Value upperbounded at maxBlockImageCount.");
         }
 
-        boolListSize = blockImageCount;
-
         if(blockImageWidth>maxBlockWidth)
         {
             blockImageWidth = maxBlockWidth;
             Debug.LogError("Decrease dimensions of images or increase maxBlockWidth constant.");
-        } 
+        }
 
         if(blockImageHeight>maxBlockHeight)
         {
@@ -454,9 +482,9 @@ public class PyUniSharingFast : MonoBehaviour
             Debug.LogError("Decrease dimensions of images or increase maxBlockHeight constant.");
         }
 
-        blockImageSize=blockImageWidth*blockImageHeight*3;
-        blockDataPosition = boolListSize + camerasToStitchPosition + numFloatByte;
-        totalBlockSize = blockDataPosition + blockImageCount * blockImageSize;
+        blockImageSize = blockImageWidth*blockImageHeight*3;
+        blockSize = blockHeaderSize + blockImageSize;
+        totalBlockSize = blockImageCount * blockSize;
 
         if(panoramaImageWidth>maxPanoramaWidth)
         {
@@ -479,20 +507,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Only create block memory map if image writing is enabled
         if (enableImageWriting)
         {
-            blockFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)maxTotalBlockSize, blockMapName);
-            if (blockFileMap != IntPtr.Zero)
-            {
-                blockPtr = MapViewOfFile(blockFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
-                if (blockPtr == IntPtr.Zero)
-                {
-                    int errorCode = Marshal.GetLastWin32Error();
-                    Debug.LogWarning($"Failed to map view of block file. Error Code: {errorCode}");
-                }
-            }
-            else
-            {
-                Debug.LogWarning("Unable to create block memory-mapped file.");
-            }
+            CreateBlockMap();
         }
 
         // Only create panorama memory map if panorama reading is enabled
@@ -512,6 +527,52 @@ public class PyUniSharingFast : MonoBehaviour
             {
                 Debug.LogWarning("Unable to create panorama memory-mapped file.");
             }
+        }
+    }
+
+    // Creates (or recreates) the per-drone block mapping, sized exactly to
+    // blockImageCount * blockSize so it matches what image_stream.py and
+    // StitcherThreading.py allocate. All per-block flags are initialised to 0.
+    private void CreateBlockMap()
+    {
+        DestroyBlockMap();
+
+        if (blockImageCount <= 0 || totalBlockSize <= 0)
+            return;
+
+        blockFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalBlockSize, blockMapName);
+        if (blockFileMap == IntPtr.Zero)
+        {
+            Debug.LogWarning("Unable to create block memory-mapped file.");
+            return;
+        }
+
+        blockPtr = MapViewOfFile(blockFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
+        if (blockPtr == IntPtr.Zero)
+        {
+            int errorCode = Marshal.GetLastWin32Error();
+            Debug.LogWarning($"Failed to map view of block file. Error Code: {errorCode}");
+            return;
+        }
+
+        // Initialise every block's flag to 0 (ready for the consumer).
+        for (int i = 0; i < blockImageCount; i++)
+        {
+            Marshal.WriteInt32(blockPtr, i * blockSize + blockFlagOffset, 0);
+        }
+    }
+
+    private void DestroyBlockMap()
+    {
+        if (blockPtr != IntPtr.Zero)
+        {
+            UnmapViewOfFile(blockPtr);
+            blockPtr = IntPtr.Zero;
+        }
+        if (blockFileMap != IntPtr.Zero)
+        {
+            CloseHandle(blockFileMap);
+            blockFileMap = IntPtr.Zero;
         }
     }
 
@@ -570,7 +631,8 @@ public class PyUniSharingFast : MonoBehaviour
             {
                 reusableTexture = new RenderTexture(blockImageWidth, blockImageHeight, 24);
                 image = new Texture2D(blockImageWidth, blockImageHeight, TextureFormat.RGB24, false);
-                blockImageBuffer = new byte[blockImageCount * blockImageSize];
+                blockImageBytes = new byte[blockImageSize];
+                CreateBlockMap();
             }
 
             // Update reusable resources for panorama reading
@@ -611,8 +673,9 @@ public class PyUniSharingFast : MonoBehaviour
         {
             blockImageCount = newblockImageCount;
             CalculateMemorySizes();
+            CreateBlockMap();          // resize the mapping to the new drone count
             WriteMetadata();
-            blockImageBuffer = new byte[blockImageCount * blockImageSize];
+            blockImageBytes = new byte[blockImageSize];
             ValidateTextures();
         }
     }
