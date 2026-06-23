@@ -98,6 +98,36 @@ def _recover_mesh(norm_mesh, height, width):
     return mesh.reshape([batch_size, grid_h + 1, grid_w + 1, 2])
 
 
+def _inter_grid_loss(mesh):
+    """
+    Angle-preservation (shape) distortion of a TPS mesh.
+
+    Ported from ``inter_grid_loss`` in StabStitch2's ``test_metric_ssd.py``.
+    Scale-invariant (cosine based), so it works regardless of canvas size.
+
+    mesh : [bs, T, grid_h+1, grid_w+1, 2] pixel-coordinate mesh.
+    Returns a scalar tensor — higher ⇒ more sheared/folded grid.
+    """
+    eps = 1e-7
+    # horizontal edges + angle between successive horizontal edges
+    w_edges = mesh[:, :, :, 0:grid_w, :] - mesh[:, :, :, 1:grid_w + 1, :]
+    cos_w = torch.sum(w_edges[:, :, :, 0:grid_w - 1, :] * w_edges[:, :, :, 1:grid_w, :], 4) / (
+        torch.sqrt(torch.sum(w_edges[:, :, :, 0:grid_w - 1, :] ** 2, 4)) *
+        torch.sqrt(torch.sum(w_edges[:, :, :, 1:grid_w, :] ** 2, 4)) + eps)
+    delta_w_angle = 1 - cos_w
+    delta_w_angle = delta_w_angle[:, :, 0:grid_h, :] + delta_w_angle[:, :, 1:grid_h + 1, :]
+
+    # vertical edges + angle between successive vertical edges
+    h_edges = mesh[:, :, 0:grid_h, :, :] - mesh[:, :, 1:grid_h + 1, :, :]
+    cos_h = torch.sum(h_edges[:, :, 0:grid_h - 1, :, :] * h_edges[:, :, 1:grid_h, :, :], 4) / (
+        torch.sqrt(torch.sum(h_edges[:, :, 0:grid_h - 1, :, :] ** 2, 4)) *
+        torch.sqrt(torch.sum(h_edges[:, :, 1:grid_h, :, :] ** 2, 4)) + eps)
+    delta_h_angle = 1 - cos_h
+    delta_h_angle = delta_h_angle[:, :, :, 0:grid_w] + delta_h_angle[:, :, :, 1:grid_w + 1]
+
+    return torch.mean(delta_w_angle) + torch.mean(delta_h_angle)
+
+
 def _compute_blend_weights(ref_m, tgt_m, blur):
     """
     Compute per-pixel linear-blend weight maps from two soft masks.
@@ -168,7 +198,10 @@ class StabStitcher(BaseStitcher):
     def __init__(self, warp_mode: str = "FAST", fusion_mode: str = "REFERENCE_BLEND", timing: bool = False,
                  save_masks: bool = False, mask_save_dir: str = None,
                  blur_kernel_size: int = 41, blur_sigma: float = 15.0,
-                 border_size: int = 60):
+                 border_size: int = 60,
+                 quality_enabled: bool = True, quality_threshold: float = 18.0,
+                 distortion_threshold: float = 1.0, canvas_ratio_max: float = 5.0,
+                 quality_hysteresis: int = 2):
         # BaseStitcher sets up attributes consumed by StitcherManager's
         # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
         # We pass device="cpu" so its SuperPoint model stays off-GPU; our
@@ -183,6 +216,19 @@ class StabStitcher(BaseStitcher):
         self.blur_kernel_size = blur_kernel_size
         self.blur_sigma = blur_sigma
         self.border_size = border_size
+
+        # --- Panorama quality estimate / auto-fallback ---
+        # When the stitched panorama is judged bad (poor overlap alignment,
+        # distorted/folded mesh, or a blown-up canvas) ``stab_pano`` returns
+        # quality_ok=False so the caller can fall back to the individual feeds.
+        self.quality_enabled = quality_enabled
+        self.quality_threshold = quality_threshold        # min overlap PSNR (dB)
+        self.distortion_threshold = distortion_threshold  # max inter-grid (shape) loss
+        self.canvas_ratio_max = canvas_ratio_max          # max canvas / input dim ratio
+        self.quality_hysteresis = quality_hysteresis      # consecutive updates before switching
+        self._fallback_active = False
+        self._bad_count = 0
+        self._good_count = 0
 
         # --- Networks ---
         self.spatial_net = SpatialNet()
@@ -518,10 +564,134 @@ class StabStitcher(BaseStitcher):
         cv2.imwrite(fname, viz)
 
     # ------------------------------------------------------------------
+    # Panorama quality estimate (runs in warp thread)
+    # ------------------------------------------------------------------
+
+    def _overlap_psnr(self, norm_m1, norm_m2, norm_m3, out_size,
+                      img1_lr, img2_lr, img3_lr):
+        """
+        Photometric consistency of the warped feeds in their overlap regions.
+
+        Warps the latest *low-res* frames with the same normalised meshes used
+        for the final panorama (the normalised rigid mesh is resolution
+        independent) onto a small canvas, then measures PSNR between the
+        overlapping pixels of (left, centre) and (centre, right).  Low PSNR ⇒
+        ghosting/misalignment.  Cheap enough for the ~3 Hz warp thread.
+        """
+        self._ensure_net_meshes()
+        norm_rig = self._norm_rigid_mesh_net
+        norm_rig3 = torch.cat([norm_rig, norm_rig, norm_rig], 0)
+
+        # Downscaled canvas — quality is judged at low res to stay cheap.
+        sh = int(max(8, min(512, out_size[0] // 4)))
+        sw = int(max(8, min(512, out_size[1] // 4)))
+        dev = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        def _prep(t):
+            rgb = (t.to(dev) + 1.0) * 127.5            # [-1,1] → [0,255]
+            alpha = torch.ones_like(rgb[:, :1])
+            return torch.cat([rgb, alpha], 1)          # [1, 4, H, W]
+
+        stack = torch.cat([_prep(img1_lr), _prep(img2_lr), _prep(img3_lr)], 0)
+        warp = torch_tps_transform.transformer(
+            stack, torch.cat([norm_m1, norm_m2, norm_m3], 0),
+            norm_rig3, (sh, sw), mode=self.warp_mode,
+        )
+        rgb = warp[:, :3]
+        m = (warp[:, 3:4] > 0.5).float()               # [3, 1, H, W]
+
+        def _pair(a, b):
+            ov = m[a] * m[b]                            # [1, H, W]
+            n = ov.sum()
+            se = ((rgb[a] - rgb[b]) ** 2 * ov).sum()    # [3,H,W]*[1,H,W]
+            return se, n
+
+        se12, n12 = _pair(0, 1)
+        se23, n23 = _pair(1, 2)
+        n_total = n12 + n23
+        if n_total.item() < 1:
+            return 99.0                                # no overlap to judge
+        mse = (se12 + se23) / (n_total * 3 + 1e-6)
+        if mse.item() <= 1e-6:
+            return 99.0
+        psnr = 10.0 * torch.log10((255.0 ** 2) / mse)
+        return float(psnr.item())
+
+    def _estimate_quality(self, norm_m1, norm_m2, norm_m3,
+                          m1_final, m2_final, m3_final,
+                          out_size, hr_h, hr_w,
+                          img1_lr, img2_lr, img3_lr):
+        """
+        Judge whether the current panorama is good enough to display.
+
+        Combines three signals (mirroring the StabStitch++ evaluation):
+          * canvas sanity   — degenerate warps blow the canvas up/collapse it
+          * mesh distortion — inter-grid (shape) loss detects folded/torn warps
+          * overlap PSNR    — photometric consistency in the overlap regions
+
+        Returns ``(quality_ok: bool, score: float)`` where ``score`` is the
+        overlap PSNR (primary, user-tunable signal) for logging.
+        """
+        with torch.no_grad():
+            out_h2, out_w2 = out_size
+            # --- canvas sanity (also guards the photometric warp from OOM) ---
+            w_ratio = out_w2 / max(1, hr_w)
+            h_ratio = out_h2 / max(1, hr_h)
+            canvas_ok = (1.0 <= w_ratio <= self.canvas_ratio_max) and \
+                        (h_ratio <= self.canvas_ratio_max)
+            if not canvas_ok:
+                return False, 0.0
+
+            # --- mesh shape distortion (scale-invariant) ---
+            distortion = max(
+                _inter_grid_loss(m1_final.unsqueeze(1)).item(),
+                _inter_grid_loss(m2_final.unsqueeze(1)).item(),
+                _inter_grid_loss(m3_final.unsqueeze(1)).item(),
+            )
+            distortion_ok = distortion <= self.distortion_threshold
+
+            # --- overlap photometric consistency ---
+            psnr = self._overlap_psnr(
+                norm_m1, norm_m2, norm_m3, out_size, img1_lr, img2_lr, img3_lr
+            )
+            photometric_ok = psnr >= self.quality_threshold
+
+            quality_ok = canvas_ok and distortion_ok and photometric_ok
+
+            if self.timing:
+                print(
+                    f"[StabStitch quality] psnr={psnr:.2f}dB "
+                    f"distortion={distortion:.3f} "
+                    f"canvas={w_ratio:.2f}x{h_ratio:.2f} -> "
+                    f"{'OK' if quality_ok else 'BAD'}"
+                )
+        return quality_ok, psnr
+
+    def _apply_hysteresis(self, raw_ok):
+        """
+        Debounce the raw per-update quality decision so the display does not
+        flicker between panorama and fallback.  Requires ``quality_hysteresis``
+        consecutive updates of the opposite verdict before switching state.
+
+        Returns the (debounced) panorama-ok flag: True ⇒ show panorama.
+        """
+        if raw_ok:
+            self._good_count += 1
+            self._bad_count = 0
+            if self._fallback_active and self._good_count >= self.quality_hysteresis:
+                self._fallback_active = False
+        else:
+            self._bad_count += 1
+            self._good_count = 0
+            if not self._fallback_active and self._bad_count >= self.quality_hysteresis:
+                self._fallback_active = True
+        return not self._fallback_active
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def stab_pano(self, images, subset1, subset2) -> np.ndarray:
+    def stab_pano(self, images, subset1, subset2):
         """
         Produce a stabilised panorama from three images.
 
@@ -539,7 +709,10 @@ class StabStitcher(BaseStitcher):
 
         Returns
         -------
-        panorama : numpy uint8 array
+        (panorama, quality_ok) : (numpy uint8 array or None, bool)
+            ``quality_ok`` is False when the panorama is judged bad; in that
+            case ``panorama`` is None and the render is skipped so the caller
+            can display the individual feeds instead.
         """
         img1 = images[subset1[0]]   # left
         img2 = images[subset1[1]]   # centre
@@ -556,7 +729,9 @@ class StabStitcher(BaseStitcher):
             buf_ready = len(self._buf_img1) >= self.BUFFER_LEN
 
         if not buf_ready:
-            return self._fallback_concat(img1, img2, img3)
+            # Buffer still filling: show the crude concat, but don't trip the
+            # quality fallback (no real warp has been computed yet).
+            return self._fallback_concat(img1, img2, img3), True
 
         # First computation: synchronous so the caller gets a real panorama.
         # Double-checked locking: the fast outer check avoids the lock on
@@ -571,11 +746,19 @@ class StabStitcher(BaseStitcher):
         with self._warp_lock:
             warp_params = self._cached_warp
 
+        # Quality gate: ``quality_ok`` is the debounced verdict computed in the
+        # warp thread.  When bad, skip the (expensive) render entirely and let
+        # the caller switch to the individual feeds.
+        quality_ok = warp_params.get('quality_ok', True)
+        if not quality_ok:
+            return None, False
+
         # Fast render path using cached warps + current high-res images
         img1_hr_t = self._to_hr_tensor(img1).cuda()
         img2_hr_t = self._to_hr_tensor(img2).cuda()
         img3_hr_t = self._to_hr_tensor(img3).cuda()
-        return self._render_with_params(img1_hr_t, img2_hr_t, img3_hr_t, warp_params)
+        pano = self._render_with_params(img1_hr_t, img2_hr_t, img3_hr_t, warp_params)
+        return pano, True
 
     def compute_warps(self):
         """
@@ -806,6 +989,19 @@ class StabStitcher(BaseStitcher):
         mask3_pre = masks_warped[2].unsqueeze(0)
         blend_weights = self._precompute_blend_weights(mask1_pre, mask2_pre, mask3_pre)
 
+        # ---------- panorama quality estimate + hysteresis (warp thread) ----------
+        if self.quality_enabled:
+            raw_ok, quality_score = self._estimate_quality(
+                norm_m1, norm_m2, norm_m3,
+                m1_final, m2_final, m3_final,
+                out_size, hr_h, hr_w,
+                img1_list[-1], img2_list[-1], img3_list[-1],
+            )
+            quality_ok = self._apply_hysteresis(raw_ok)
+        else:
+            quality_score = float('nan')
+            quality_ok = True
+
         if self.timing:
             t_end = time.perf_counter()
             print(
@@ -821,6 +1017,7 @@ class StabStitcher(BaseStitcher):
             'norm_m1': norm_m1, 'norm_m2': norm_m2, 'norm_m3': norm_m3,
             'out_h2': out_h2, 'out_w2': out_w2, 'out_size': out_size,
             'blend_weights': blend_weights,
+            'quality_ok': quality_ok, 'quality_score': quality_score,
         }
 
     def _render_with_params(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):

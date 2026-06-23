@@ -528,4 +528,44 @@ public class ScreenSpawn : MonoBehaviour
     {
         return scale;
     }
+
+    // --- Panorama-quality fallback -------------------------------------------
+    // Toggle the individual per-drone feed screens on/off as a fallback for
+    // when the stitched panorama is judged bad (called by PyUniSharingFast).
+    // Reuses the already-spawned screens: on enable it switches to a visible
+    // screen style, on disable it restores the previous style. The normal
+    // Update()/UpdateScreenPositions() loop then shows or hides the feeds.
+    private ScreenStyle styleBeforeFallback = ScreenStyle.OFF;
+    private bool fallbackFeedsActive = false;
+
+    public void ShowFallbackFeeds(bool on, ScreenStyle fallbackStyle)
+    {
+        if (on == fallbackFeedsActive)
+        {
+            return; // no change
+        }
+
+        if (!IsSpawned)
+        {
+            Debug.LogWarning("[ScreenSpawn] ShowFallbackFeeds called but no screens are spawned; cannot display individual feeds.");
+        }
+
+        if (on)
+        {
+            styleBeforeFallback = screenStyle;
+            screenStyle = fallbackStyle;
+        }
+        else
+        {
+            screenStyle = styleBeforeFallback;
+        }
+
+        // Keep previousScreenStyle in sync so OnValidate doesn't fight us.
+        previousScreenStyle = screenStyle;
+        fallbackFeedsActive = on;
+
+        UpdateDisplayParameters();
+        UpdateScreenScale();
+        UpdateScreenPositions();
+    }
 }

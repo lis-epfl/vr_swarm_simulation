@@ -82,6 +82,19 @@ public class PyUniSharingFast : MonoBehaviour
     [Tooltip("Width in pixels of the edge strip where LINEAR blending is applied to hide seams (REFERENCE_BLEND mode only). Interior of the reference image is left pixel-perfect.")]
     private int borderSize = 60;
 
+    [Header("StabStitch Panorama Quality Fallback")]
+    [SerializeField]
+    [Tooltip("When the StabStitch panorama is judged bad (poor alignment / distorted warp), hide it and show the individual drone feeds (via ScreenSpawn) instead.")]
+    private bool qualityFallbackEnabled = true;
+
+    [SerializeField]
+    [Tooltip("Minimum overlap PSNR (dB) for the panorama to be considered good. Higher = stricter (falls back to feeds more readily).")]
+    private float qualityThreshold = 18f;
+
+    [SerializeField]
+    [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is in fallback.")]
+    private ScreenSpawn.ScreenStyle fallbackScreenStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+
     private string blockMapName = "BlockSharedMemory";
     private int blockImageCount = 0;
     private int blockImageSize = 0;   // bytes per drone image (W*H*3)
@@ -93,7 +106,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalPanoramaSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4; // +8 for blurKernelSize (int) + blurSigma (float), +4 for borderSize (int)
+    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4; // +8 blurKernelSize+blurSigma, +4 borderSize, +1 qualityFallbackEnabled (bool), +4 qualityThreshold (float)
 
     private IntPtr blockFileMap;
     private IntPtr blockPtr;
@@ -157,7 +170,8 @@ public class PyUniSharingFast : MonoBehaviour
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
     private const int FlagPosition = 0;             // panorama flag (int32) at region start
-    private const int panoramaDataPosition = 4;
+    private const int panoramaQualityPosition = 4;  // quality_ok (int32): 1 = show panorama, 0 = show feeds
+    private const int panoramaDataPosition = 8;      // RGB24 panorama data
     // Per-drone block layout (matches image_stream.py / ImageSharing.cs):
     //   int32 flag | int32 droneId | float32 heading | RGB24 image
     private const int blockFlagOffset = 0;
@@ -181,8 +195,13 @@ public class PyUniSharingFast : MonoBehaviour
     public int segments = 20;
     public float height = 3f;
     private Material curvedScreenMaterial;
+    private MeshRenderer panoramaRenderer;
     private Texture2D panoTexture;
     public bool resize_dimension = false;
+
+    // Quality fallback: switch between the panorama screen and ScreenSpawn feeds
+    [SerializeField] private ScreenSpawn screenSpawn;
+    private bool panoramaDisplayActive = true;
 
     // Other timing values to check the number of camera in the block
     private float cameraUpdateInterval = 3f;
@@ -216,13 +235,20 @@ public class PyUniSharingFast : MonoBehaviour
         if (enablePanoramaReading)
         {
             GenerateCurvedScreen();
-            curvedScreenMaterial = GetComponent<MeshRenderer>().material;
+            panoramaRenderer = GetComponent<MeshRenderer>();
+            curvedScreenMaterial = panoramaRenderer.material;
             curvedScreenMaterial.SetFloat("_Glossiness", 0f);
             curvedScreenMaterial.SetColor("_EmissionColor", Color.white);
             curvedScreenMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
             curvedScreenMaterial.EnableKeyword("_EMISSION");
             panoTexture = new Texture2D(panoramaImageWidth, panoramaImageHeight, TextureFormat.RGB24, false);
             pixels = new Color32[panoramaImageWidth * panoramaImageHeight];
+
+            // ScreenSpawn drives the per-drone feed fallback when the panorama is bad.
+            if (screenSpawn == null)
+            {
+                screenSpawn = FindObjectOfType<ScreenSpawn>();
+            }
         }
 
         if (enableImageWriting)
@@ -306,12 +332,46 @@ public class PyUniSharingFast : MonoBehaviour
             {
                 Marshal.WriteInt32(panoramaPtr, FlagPosition, 1);
 
+                int qualityOk = Marshal.ReadInt32(panoramaPtr, panoramaQualityPosition);
                 byte[] panoramaImageBytes = ReceivePanoramaImage();
                 Marshal.WriteInt32(panoramaPtr, FlagPosition, 0);
-                SetPanoramaImage(panoramaImageBytes);
+
+                // When the panorama is bad (and fallback is enabled) show the
+                // individual drone feeds via ScreenSpawn instead of the panorama.
+                bool panoramaGood = !qualityFallbackEnabled || qualityOk != 0;
+                ApplyQualityFallback(panoramaGood);
+                if (panoramaGood)
+                {
+                    SetPanoramaImage(panoramaImageBytes);
+                }
 
                 nextReceiveTime += readInterval;
             }
+        }
+    }
+
+    // Switch between the stitched panorama screen and the individual drone
+    // feeds (ScreenSpawn). Only acts on a transition so it doesn't fight
+    // ScreenSpawn's per-frame positioning. Python already debounces the
+    // quality verdict (hysteresis), so the flag is stable.
+    private void ApplyQualityFallback(bool panoramaGood)
+    {
+        if (panoramaGood == panoramaDisplayActive)
+        {
+            return; // no change
+        }
+        panoramaDisplayActive = panoramaGood;
+
+        // Show/hide the curved panorama screen.
+        if (panoramaRenderer != null)
+        {
+            panoramaRenderer.enabled = panoramaGood;
+        }
+
+        // Show/hide the individual feed screens.
+        if (screenSpawn != null)
+        {
+            screenSpawn.ShowFallbackFeeds(!panoramaGood, fallbackScreenStyle);
         }
     }
 
@@ -760,6 +820,16 @@ public class PyUniSharingFast : MonoBehaviour
         offset += 4;
 
         Marshal.WriteInt32(metadataPtr, offset, borderSize);
+        offset += 4;
+
+        // StabStitch panorama-quality fallback parameters
+        Marshal.WriteByte(metadataPtr, offset, (byte)(qualityFallbackEnabled ? 1 : 0));
+        offset += 1;
+
+        byte[] qualityThresholdBytes = BitConverter.GetBytes(qualityThreshold);
+        if (!BitConverter.IsLittleEndian) Array.Reverse(qualityThresholdBytes);
+        Marshal.Copy(qualityThresholdBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
+        offset += 4;
 
         if(hasStarted) return;
         offset += 64;
