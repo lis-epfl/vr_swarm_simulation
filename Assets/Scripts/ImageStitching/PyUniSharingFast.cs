@@ -118,6 +118,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     public List<Camera> camerasToCapture;
     public List<bool> camerasToStitch;
+    private List<AttitudeAlgorithm> stitchAttitudes;  // per-camera boundary estimator, index-aligned with camerasToCapture
 
     private RenderTexture reusableTexture;
     private Texture2D image;
@@ -560,47 +561,69 @@ public class PyUniSharingFast : MonoBehaviour
             return headYaw;
         }
 
-        int n = camerasToCapture.Count;
-
-        // Fewer than three drones: nothing to select, send what we have.
-        if (n < 3)
+        // Candidate set: boundary drones only (convex hull). If fewer than three
+        // are on the boundary, fall back to the full swarm so the panorama still forms.
+        List<int> candidates = new List<int>(camerasToCapture.Count);
+        for (int i = 0; i < camerasToCapture.Count; i++)
         {
-            selected = new int[n];
-            for (int i = 0; i < n; i++) selected[i] = i;
-            return camerasToCapture[ClosestCameraToYaw(headYaw)].transform.eulerAngles.y;
+            if (IsBoundary(i)) candidates.Add(i);
+        }
+        if (candidates.Count < 3)
+        {
+            candidates.Clear();
+            for (int i = 0; i < camerasToCapture.Count; i++) candidates.Add(i);
         }
 
-        // Order camera indices by yaw ascending (0..360).
-        List<int> order = new List<int>(n);
-        for (int i = 0; i < n; i++) order.Add(i);
-        order.Sort((a, b) =>
+        int n = candidates.Count;
+
+        // Centre = the candidate whose camera yaw is closest to headYaw.
+        int centreCam = candidates[ClosestInList(candidates, headYaw)];
+
+        // Fewer than three candidates total: send what we have.
+        if (n < 3)
+        {
+            selected = candidates.ToArray();
+            return camerasToCapture[centreCam].transform.eulerAngles.y;
+        }
+
+        // Order candidates by yaw ascending (0..360); take centre + circular neighbours.
+        candidates.Sort((a, b) =>
             camerasToCapture[a].transform.eulerAngles.y.CompareTo(
             camerasToCapture[b].transform.eulerAngles.y));
 
-        // Centre = the camera closest to headYaw; its neighbours wrap circularly.
-        int centreCam = ClosestCameraToYaw(headYaw);
-        int centrePos = order.IndexOf(centreCam);
+        int centrePos = candidates.IndexOf(centreCam);
         int leftPos = (centrePos - 1 + n) % n;
         int rightPos = (centrePos + 1) % n;
 
-        selected = new int[] { order[leftPos], order[centrePos], order[rightPos] };
+        selected = new int[] { candidates[leftPos], candidates[centrePos], candidates[rightPos] };
         return camerasToCapture[centreCam].transform.eulerAngles.y;
     }
 
-    // Index of the camera whose yaw is closest to 'yaw' using circular distance
-    // (matches the wraparound handling in StitcherThreading.get_subsets_from_order).
-    private int ClosestCameraToYaw(float yaw)
+    // True when camera i's drone is on the swarm boundary (convex hull). Read live
+    // each frame; Unity's null check covers a missing or destroyed AttitudeAlgorithm.
+    private bool IsBoundary(int i)
+    {
+        return stitchAttitudes != null
+            && i < stitchAttitudes.Count
+            && stitchAttitudes[i] != null
+            && stitchAttitudes[i].BoundaryEstimate;
+    }
+
+    // Local position within 'indices' whose camera yaw is closest to 'yaw' using
+    // circular distance (matches the wraparound handling in
+    // StitcherThreading.get_subsets_from_order).
+    private int ClosestInList(List<int> indices, float yaw)
     {
         int best = 0;
         float bestDiff = float.MaxValue;
-        for (int i = 0; i < camerasToCapture.Count; i++)
+        for (int k = 0; k < indices.Count; k++)
         {
-            float diff = Mathf.Abs(camerasToCapture[i].transform.eulerAngles.y - yaw);
+            float diff = Mathf.Abs(camerasToCapture[indices[k]].transform.eulerAngles.y - yaw);
             if (diff > 180f) diff = 360f - diff;
             if (diff < bestDiff)
             {
                 bestDiff = diff;
-                best = i;
+                best = k;
             }
         }
         return best;
@@ -688,9 +711,10 @@ public class PyUniSharingFast : MonoBehaviour
     private void FindCameras()
     {
         camerasToCapture = new List<Camera>();
+        stitchAttitudes = new List<AttitudeAlgorithm>();
 
         GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase");
-        
+
         foreach (GameObject drone in drones)
         {
             Camera camera = drone.transform.Find("FPV")?.GetComponent<Camera>();
@@ -698,30 +722,25 @@ public class PyUniSharingFast : MonoBehaviour
             if (camera != null)
             {
                 camerasToCapture.Add(camera);
+                // Cache this drone's boundary estimator (aligned with camerasToCapture)
+                // so only convex-hull boundary drones are selected for stitching.
+                AttitudeAlgorithm attitude = drone.transform.Find("DroneParent")?.GetComponent<AttitudeAlgorithm>();
+                stitchAttitudes.Add(attitude);
             }
             if(camerasToCapture.Count >maxBlockImageCount) break;
         }
     }
 
+    // Rebuilds the (serialized) camerasToStitch bool list aligned with
+    // camerasToCapture, from the cached boundary estimators. Coarse ~3 s snapshot
+    // for the inspector; the live selection uses IsBoundary directly each frame.
     private void UpdateCameraToStitch()
     {
-        camerasToStitch = new List<bool>();
-
-        GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase");
-                
-        foreach (GameObject drone in drones)
+        int count = camerasToCapture != null ? camerasToCapture.Count : 0;
+        camerasToStitch = new List<bool>(count);
+        for (int i = 0; i < count; i++)
         {
-            AttitudeAlgorithm attitudeScript = drone.transform.Find("DroneParent").GetComponent<AttitudeAlgorithm>();
-
-            if (attitudeScript != null)
-            {
-                bool estimate = attitudeScript.BoundaryEstimate;
-                camerasToStitch.Add(estimate);
-            }
-            else
-            {
-                Debug.LogWarning($"No estimate found in {drone.name}");
-            }
+            camerasToStitch.Add(IsBoundary(i));
         }
     }
 
