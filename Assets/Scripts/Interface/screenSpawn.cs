@@ -182,8 +182,16 @@ public class ScreenSpawn : MonoBehaviour
 
                 // Get the camera and set the aspect ratio and field of view
                 Camera cam = camera.GetComponent<Camera>();
-                cam.aspect = (float)width / height;
-                cam.fieldOfView = 82.1f;
+                float aspect = (float)width / height;
+                cam.aspect = aspect;
+
+                // DJI Mini 3 Pro is specced at 82.1 deg diagonal FOV. Unity's
+                // Camera.fieldOfView is vertical, so convert the diagonal spec to
+                // the vertical FOV for the current aspect ratio (~46.4 deg at 16:9).
+                const float djiDiagonalFov = 82.1f;
+                float diagHalfRad = djiDiagonalFov * 0.5f * Mathf.Deg2Rad;
+                float vertHalfRad = Mathf.Atan(Mathf.Tan(diagHalfRad) / Mathf.Sqrt(aspect * aspect + 1f));
+                cam.fieldOfView = vertHalfRad * 2f * Mathf.Rad2Deg;
 
                 // Set the camera's target texture to the render texture
                 if (screenStyle != ScreenStyle.OFF || screenStyle != ScreenStyle.REAL_DRONE)
