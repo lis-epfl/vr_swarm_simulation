@@ -474,7 +474,13 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             sorted_images = [images[i] for i in sorted_indices]
             sorted_drone_ids = [drone_ids[i] for i in sorted_indices]
             sorted_headings = [headings[i] for i in sorted_indices]
-            
+
+            # DEBUG: dump frames read from BlockSharedMemory so the producer
+            # format (size / BGR order / orientation) can be eyeballed. Files are
+            # overwritten each cycle. Remove once verified.
+            for di, img in zip(sorted_drone_ids, sorted_images):
+                cv2.imwrite(f"debug_input_drone_{di}.jpg", img)
+
             # Store the images and metadata
             with manager.info_lock:
                 manager.shared_images = sorted_images
@@ -500,6 +506,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             if H != manager.processedImageHeight or W != manager.processedImageWidth:
                 try:
                     panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
+                    cv2.imwrite("debug_panorama.jpg", panorama)  # Debug: save the panorama to disk
                 except:
                     continue
             
