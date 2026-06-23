@@ -19,11 +19,19 @@ using UnityEngine;
 /// The gimbal pitch is a single <i>swarm-wide</i> value shared by every drone, which keeps the
 /// stitched panorama coherent (all cameras look the same direction). Set it from the Inspector
 /// <see cref="pitch"/> field or at runtime via <see cref="SetPitch"/>.
+///
+/// The camera also hides the owning drone's own body during its render pass, so the drone never
+/// sees its own arms (which can swing into view during aggressive maneuvers) while still seeing
+/// the other drones. See <see cref="SetOwnBodyHidden"/>.
 /// </remarks>
 public class FPVCameraScript : MonoBehaviour {
 
 	public Transform droneTransform;
 	public Vector3 offset;
+
+	// The owning drone's renderers, hidden only while this FPV camera renders so the drone
+	// doesn't see its own body. Cached in Start (the body hierarchy is fixed per prefab).
+	private Renderer[] ownBodyRenderers;
 
 	/// <summary>DJI-style gimbal tilt limits (degrees): straight down to slightly up.</summary>
 	public const float MinPitch = -90f;
@@ -57,6 +65,13 @@ public class FPVCameraScript : MonoBehaviour {
 		// Seed the swarm-wide angle from this instance's Inspector field. Every drone is an
 		// instance of the same prefab, so they all seed the same value.
 		SetPitch(pitch);
+
+		// Cache the owning drone's renderers (DroneObj, motors, props, minimap marker). The FPV
+		// camera is a sibling of the drone body, so it isn't included; the 3PV child is a Camera,
+		// not a Renderer, so it isn't either.
+		ownBodyRenderers = droneTransform != null
+			? droneTransform.GetComponentsInChildren<Renderer>(true)
+			: new Renderer[0];
 	}
 
 	// Update is called once per frame
@@ -88,6 +103,33 @@ public class FPVCameraScript : MonoBehaviour {
 		pitch = Mathf.Clamp(pitch, MinPitch, MaxPitch);
 		if (Application.isPlaying) {
 			SetPitch(pitch);
+		}
+	}
+
+	// Hide the owning drone's body just for this camera's render pass: OnPreCull (before this
+	// camera culls) hides it, OnPostRender (after this camera finishes) restores it. Cameras
+	// render sequentially, so the body stays visible to every other view (other FPVs, this
+	// drone's 3PV, the watching cam, the minimap, and neighbours in the stitched feed).
+	void OnPreCull () {
+		SetOwnBodyHidden(true);
+	}
+
+	void OnPostRender () {
+		SetOwnBodyHidden(false);
+	}
+
+	// Safety net: never leave the body hidden if the camera is disabled between OnPreCull and
+	// OnPostRender.
+	void OnDisable () {
+		SetOwnBodyHidden(false);
+	}
+
+	private void SetOwnBodyHidden (bool hidden) {
+		if (ownBodyRenderers == null) return;
+		for (int i = 0; i < ownBodyRenderers.Length; i++) {
+			if (ownBodyRenderers[i] != null) {
+				ownBodyRenderers[i].forceRenderingOff = hidden;
+			}
 		}
 	}
 }
