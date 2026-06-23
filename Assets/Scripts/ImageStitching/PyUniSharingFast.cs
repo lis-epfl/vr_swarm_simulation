@@ -106,7 +106,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalPanoramaSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4; // +8 blurKernelSize+blurSigma, +4 borderSize, +1 qualityFallbackEnabled (bool), +4 qualityThreshold (float)
+    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4; // +8 blurKernelSize+blurSigma, +4 borderSize, +1 qualityFallbackEnabled (bool), +4 qualityThreshold (float), +4 headYaw (float)
 
     private IntPtr blockFileMap;
     private IntPtr blockPtr;
@@ -189,6 +189,13 @@ public class PyUniSharingFast : MonoBehaviour
     private const int maxPanoramaSize = maxPanoramaWidth * maxPanoramaHeight * 3;
     private const int maxTotalPanoramaSize = panoramaDataPosition + maxPanoramaSize;
 
+    // Metadata layout: head yaw (float) is appended after qualityThreshold.
+    // Offset = sizes(20) + stitcher(64) + cylindrical(1) + matcher(64) + ransac(1)
+    //          + checks(4) + ratio(4) + score(4) + focal(4) + onlyIHN(1) + fusion(64)
+    //          + blurKernel(4) + blurSigma(4) + border(4) + qualityEnabled(1) + qualityThreshold(4)
+    private const int metadataHeadYawOffset = 248;
+    private const int STITCH_COUNT = 3;  // panorama is always 3 views: left / centre / right
+
     // Parameters for screen in front of the pilot
     public float radius = 5f;
     public float angleRange = 90f;
@@ -198,6 +205,19 @@ public class PyUniSharingFast : MonoBehaviour
     private MeshRenderer panoramaRenderer;
     private Texture2D panoTexture;
     public bool resize_dimension = false;
+
+    // Headset-directed stitching + curved-screen placement
+    [Header("Headset Direction")]
+    [SerializeField]
+    [Tooltip("HMD head transform (OVRCameraRig.centerEyeAnchor). Auto-found from the OVRPlayerController if left empty.")]
+    private Transform headTransform;
+
+    [SerializeField]
+    [Tooltip("Vertical offset of the curved screen above the Arena centre.")]
+    private float screenHeightOffset = 0f;
+
+    private GameObject arena;
+    private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 
     // Quality fallback: switch between the panorama screen and ScreenSpawn feeds
     [SerializeField] private ScreenSpawn screenSpawn;
@@ -221,11 +241,15 @@ public class PyUniSharingFast : MonoBehaviour
         if (enableImageWriting)
         {
             FindCameras();
-            blockImageCount = camerasToCapture.Count;
+            blockImageCount = Mathf.Min(STITCH_COUNT, camerasToCapture.Count);
         }
 
         CalculateMemorySizes();
         CreateMemoryMaps();
+
+        // Resolve the HMD head transform now (the OVRCameraRig is in the scene)
+        // so the first metadata write seeds a real head yaw rather than 0.
+        FindHeadTransform();
 
         if (enableImageWriting || enablePanoramaReading)
         {
@@ -281,6 +305,23 @@ public class PyUniSharingFast : MonoBehaviour
             GenerateCurvedScreen();
         }
 
+        // Headset direction drives which three views are stitched and where the
+        // curved panorama screen sits. Find the HMD head transform lazily (the
+        // OVRPlayerController / rig may be added to the scene later).
+        FindHeadTransform();
+        float headYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
+        WriteHeadYaw(headYaw);
+
+        // Select the centre drone (camera yaw closest to the head yaw) plus the
+        // two yaw-neighbours. centreYaw drives the curved-screen orientation so
+        // the screen snaps to the new view only when the selection changes.
+        float centreYaw = SelectStitchCameras(headYaw, out selectedStitchIndices);
+
+        if (enablePanoramaReading)
+        {
+            UpdateCurvedScreenPose(centreYaw);
+        }
+
         // Handle image writing to BlockSharedMemory (one self-describing block
         // per drone, handshaken independently — matches image_stream.py).
         if (enableImageWriting)
@@ -291,11 +332,14 @@ public class PyUniSharingFast : MonoBehaviour
             }
             else if (Time.time >= nextSendTime && blockPtr != IntPtr.Zero)
             {
-                for (int i = 0; i < camerasToCapture.Count && i < blockImageCount; i++)
+                // Write only the head-aligned drones selected this frame into the
+                // blocks the Python stitcher reads (slots ordered left/centre/right).
+                for (int j = 0; j < selectedStitchIndices.Length && j < blockImageCount; j++)
                 {
-                    IntPtr block = IntPtr.Add(blockPtr, i * blockSize);
+                    int camIdx = selectedStitchIndices[j];
+                    IntPtr block = IntPtr.Add(blockPtr, j * blockSize);
 
-                    // Skip this drone if the consumer is mid-read on its block.
+                    // Skip this slot if the consumer is mid-read on its block.
                     if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
                         continue;
 
@@ -303,14 +347,14 @@ public class PyUniSharingFast : MonoBehaviour
                     Marshal.WriteInt32(block, blockFlagOffset, 1);
 
                     // Header: droneId + this drone's world yaw (heading).
-                    Marshal.WriteInt32(block, blockDroneIdOffset, i);
-                    float heading = camerasToCapture[i].transform.eulerAngles.y;
+                    Marshal.WriteInt32(block, blockDroneIdOffset, camIdx);
+                    float heading = camerasToCapture[camIdx].transform.eulerAngles.y;
                     byte[] headingBytes = BitConverter.GetBytes(heading);
                     if (!BitConverter.IsLittleEndian) Array.Reverse(headingBytes);
                     Marshal.Copy(headingBytes, 0, IntPtr.Add(block, blockHeadingOffset), 4);
 
                     // Image: Unity RGB (bottom-up) -> BGR (top-down) for the consumer.
-                    byte[] imageBytes = CaptureCameraImage(camerasToCapture[i]);
+                    byte[] imageBytes = CaptureCameraImage(camerasToCapture[camIdx]);
                     if (imageBytes != null && imageBytes.Length == blockImageSize)
                     {
                         ConvertToBlockFormat(imageBytes, blockImageBytes);
@@ -461,6 +505,127 @@ public class PyUniSharingFast : MonoBehaviour
         mesh.uv = uvs;
         mesh.RecalculateNormals();
         meshFilter.mesh = mesh;
+    }
+
+    // Resolve the HMD head transform (OVRCameraRig.centerEyeAnchor). Prefers the
+    // serialized override; otherwise finds the OVRCameraRig that lives in the
+    // scene. Resolved once in Start and cached — the Update guard short-circuits
+    // every frame after, so FindObjectOfType only runs until the rig's anchors
+    // are ready (then Camera.main as an editor fallback when there's no rig).
+    private void FindHeadTransform()
+    {
+        if (headTransform != null) return;
+
+        OVRCameraRig rig = FindObjectOfType<OVRCameraRig>();
+        if (rig != null && rig.centerEyeAnchor != null)
+        {
+            headTransform = rig.centerEyeAnchor;
+            return;
+        }
+
+        if (Camera.main != null)
+        {
+            headTransform = Camera.main.transform;
+        }
+    }
+
+    // Lazily locate the Arena (same tag ScreenSpawn uses) for screen placement.
+    private void FindArena()
+    {
+        if (arena == null)
+        {
+            arena = GameObject.FindGameObjectWithTag("Arena");
+        }
+    }
+
+    // Selects the three drones whose FPV cameras straddle the headset yaw: the
+    // centre drone (camera yaw closest to headYaw) plus the yaw-neighbour on
+    // each side. Mirrors the Python selection in StitcherThreading.py
+    // (get_drone_order + get_subsets_from_order) so both sides agree on which
+    // three views form the panorama. Returns the centre drone's yaw (used to
+    // place the curved screen); 'selected' holds the camera indices written to
+    // the three blocks, ordered [left, centre, right].
+    private float SelectStitchCameras(float headYaw, out int[] selected)
+    {
+        if (camerasToCapture == null || camerasToCapture.Count == 0)
+        {
+            selected = new int[0];
+            return headYaw;
+        }
+
+        int n = camerasToCapture.Count;
+
+        // Fewer than three drones: nothing to select, send what we have.
+        if (n < 3)
+        {
+            selected = new int[n];
+            for (int i = 0; i < n; i++) selected[i] = i;
+            return camerasToCapture[ClosestCameraToYaw(headYaw)].transform.eulerAngles.y;
+        }
+
+        // Order camera indices by yaw ascending (0..360).
+        List<int> order = new List<int>(n);
+        for (int i = 0; i < n; i++) order.Add(i);
+        order.Sort((a, b) =>
+            camerasToCapture[a].transform.eulerAngles.y.CompareTo(
+            camerasToCapture[b].transform.eulerAngles.y));
+
+        // Centre = the camera closest to headYaw; its neighbours wrap circularly.
+        int centreCam = ClosestCameraToYaw(headYaw);
+        int centrePos = order.IndexOf(centreCam);
+        int leftPos = (centrePos - 1 + n) % n;
+        int rightPos = (centrePos + 1) % n;
+
+        selected = new int[] { order[leftPos], order[centrePos], order[rightPos] };
+        return camerasToCapture[centreCam].transform.eulerAngles.y;
+    }
+
+    // Index of the camera whose yaw is closest to 'yaw' using circular distance
+    // (matches the wraparound handling in StitcherThreading.get_subsets_from_order).
+    private int ClosestCameraToYaw(float yaw)
+    {
+        int best = 0;
+        float bestDiff = float.MaxValue;
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            float diff = Mathf.Abs(camerasToCapture[i].transform.eulerAngles.y - yaw);
+            if (diff > 180f) diff = 360f - diff;
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    // Anchors the curved panorama screen at the Arena centre and rotates it so
+    // its arc faces the centre drone's direction (mirrors the per-drone screen
+    // placement in ScreenSpawn.UpdateRealDroneScreen). The screen therefore
+    // snaps to a new direction only when the head turns far enough to change
+    // the selected centre view.
+    private void UpdateCurvedScreenPose(float centreYaw)
+    {
+        FindArena();
+        if (arena == null) return;
+
+        float radians = -centreYaw * Mathf.Deg2Rad;
+        Vector3 dir = new Vector3(Mathf.Cos(radians), 0f, Mathf.Sin(radians));
+
+        transform.position = arena.transform.position + Vector3.up * screenHeightOffset;
+        transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
+    }
+
+    // Lightweight per-frame write of just the head yaw into the metadata block
+    // (WriteMetadata is not called every frame). The Python stitcher reads this
+    // to choose the head-facing views.
+    private void WriteHeadYaw(float yaw)
+    {
+        if (metadataPtr == IntPtr.Zero) return;
+
+        byte[] yawBytes = BitConverter.GetBytes(yaw);
+        if (!BitConverter.IsLittleEndian) Array.Reverse(yawBytes);
+        Marshal.Copy(yawBytes, 0, IntPtr.Add(metadataPtr, metadataHeadYawOffset), 4);
     }
 
     public void SetPanoramaImage(byte[] partPanorama)
@@ -727,7 +892,7 @@ public class PyUniSharingFast : MonoBehaviour
 
         FindCameras();
 
-        int newblockImageCount = camerasToCapture.Count;
+        int newblockImageCount = Mathf.Min(STITCH_COUNT, camerasToCapture.Count);
         UpdateCameraToStitch();
         if (newblockImageCount != blockImageCount)
         {
@@ -829,6 +994,14 @@ public class PyUniSharingFast : MonoBehaviour
         byte[] qualityThresholdBytes = BitConverter.GetBytes(qualityThreshold);
         if (!BitConverter.IsLittleEndian) Array.Reverse(qualityThresholdBytes);
         Marshal.Copy(qualityThresholdBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
+        offset += 4;
+
+        // Headset yaw (live head direction). Also written every frame by
+        // WriteHeadYaw at the same offset; included here so the start-time
+        // full write seeds the field too.
+        byte[] headYawBytes = BitConverter.GetBytes(headTransform != null ? headTransform.eulerAngles.y : 0f);
+        if (!BitConverter.IsLittleEndian) Array.Reverse(headYawBytes);
+        Marshal.Copy(headYawBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
         offset += 4;
 
         if(hasStarted) return;

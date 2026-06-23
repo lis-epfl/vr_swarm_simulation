@@ -417,7 +417,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     """
     
     # Read metadata first to get image dimensions
-    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int), +1 quality_enabled (bool) +4 quality_threshold (float)
+    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int), +1 quality_enabled (bool) +4 quality_threshold (float), +4 head_angle (float)
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
     
     output = readMetadataMemory(metadataMMF)
@@ -450,6 +450,8 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         # Update metadata
         output = readMetadataMemory(metadataMMF)
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
+        # Live headset yaw drives which views are selected as centre/left/right.
+        manager.headAngle = output["head_angle"]
         try:
             manager.checkHyperparaChanges(output)
         except NotImplementedError as e:
@@ -502,10 +504,8 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 manager.shared_headings = sorted_headings
                 # Create known order based on sorted drone IDs
                 manager.known_order = get_drone_order(sorted_drone_ids, sorted_headings)
-                # Set the head angle to the heading of the centre drone in the order
-                center_idx = len(sorted_headings) // 2
-                drone_id = manager.known_order[center_idx]
-                manager.headAngle = sorted_headings[drone_id]
+                # headAngle comes from the live headset yaw (set above from metadata),
+                # not from the drone headings.
 
             # Wake the stitching thread — new images are available.
             manager.new_images_event.set()
@@ -861,6 +861,9 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     quality_enabled = bool(struct.unpack('B', raw_bool)[0])
     quality_threshold = struct.unpack('f', metadataMMF.read(4))[0]
 
+    # Read the live headset yaw (head look direction) used to pick stitched views
+    head_angle = struct.unpack('f', metadataMMF.read(4))[0]
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -878,6 +881,7 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "border_size" : border_size,
         "quality_enabled" : quality_enabled,
         "quality_threshold" : quality_threshold,
+        "head_angle" : head_angle,
     }
 
 def main():
