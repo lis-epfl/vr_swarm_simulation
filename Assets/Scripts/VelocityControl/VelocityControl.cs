@@ -216,8 +216,23 @@ public class VelocityControl : MonoBehaviour
         Vector3 omegaError = State.AngularVelocityVector - desiredOmega;
 
         Vector3 desiredAlpha = Vector3.Scale(omegaError, new Vector3(-1.0f / timeConstantAlphaXYRate, -1.0f / timeConstantAlphaZRate, -1.0f / timeConstantAlphaXYRate));
-        Vector3 desiredAlphaClamped = Vector3.Min(desiredAlpha, Vector3.one * maxAlpha);
-        desiredAlphaClamped = Vector3.Max(desiredAlphaClamped, Vector3.one * maxAlpha * -1.0f);
+
+        // Circular angular-acceleration limit, for the same reason as the tilt limit above.
+        // A per-axis clamp is a square envelope (~41% larger on the diagonal), so a drone whose
+        // body axes align with the required tilt-change direction saturates at maxAlpha while one
+        // at 45 degrees to it gets up to maxAlpha*sqrt(2). For a world-frame command the body-frame
+        // direction of the tilt change depends on yaw, so a square clamp makes the angular response
+        // heading-dependent. Clamp the (pitch, roll) magnitude instead so the rate of tilting is the
+        // same in every direction; clamp yaw independently since it is a separate axis/time constant.
+        Vector3 desiredAlphaClamped = desiredAlpha;
+        Vector2 horizAlpha = new Vector2(desiredAlpha.x, desiredAlpha.z);
+        if (horizAlpha.magnitude > maxAlpha)
+        {
+            horizAlpha = horizAlpha.normalized * maxAlpha;
+            desiredAlphaClamped.x = horizAlpha.x;
+            desiredAlphaClamped.z = horizAlpha.y;
+        }
+        desiredAlphaClamped.y = Mathf.Clamp(desiredAlphaClamped.y, -maxAlpha, maxAlpha);
 
         // float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));
         float desiredThrust = (gravity + altitudeCommand + desiredAcceleration.y) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));
