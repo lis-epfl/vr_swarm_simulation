@@ -1,59 +1,93 @@
-﻿﻿using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Drives the drone FPV camera as a DJI Mini 3 Pro–style stabilised gimbal.
+/// </summary>
+/// <remarks>
+/// The camera follows the drone externally (its position is set each frame from the drone
+/// mount point) but its orientation is fully stabilised so the view does not change when the
+/// drone tilts to fly:
+///
+/// - <b>Roll</b> is forced to 0 (the horizon stays level).
+/// - <b>Pitch</b> is set to a controllable gimbal angle (<see cref="SharedPitch"/>),
+///   independent of the drone's pitch.
+/// - <b>Yaw</b> is locked to the drone heading, so the camera always faces the way the drone
+///   points (the image-stitching pipeline relies on camera yaw == drone heading).
+///
+/// The gimbal pitch is a single <i>swarm-wide</i> value shared by every drone, which keeps the
+/// stitched panorama coherent (all cameras look the same direction). Set it from the Inspector
+/// <see cref="pitch"/> field or at runtime via <see cref="SetPitch"/>.
+/// </remarks>
 public class FPVCameraScript : MonoBehaviour {
 
 	public Transform droneTransform;
 	public Vector3 offset;
-	[Range(0,1)] public float temp;
-	[Range(0,1)] public float rpLimitRatio;
-	public float pitchOffset;
 
+	/// <summary>DJI-style gimbal tilt limits (degrees): straight down to slightly up.</summary>
+	public const float MinPitch = -90f;
+	public const float MaxPitch = 60f;
+
+	[Header("Gimbal")]
+	[Tooltip("Gimbal pitch in degrees (DJI convention): 0 = level horizon, negative = look " +
+	         "down (to -90 = straight down), positive = look up (to +60). This is shared by " +
+	         "the whole swarm so the stitched panorama stays coherent.")]
+	[Range(MinPitch, MaxPitch)] public float pitch = 0f;
+
+	[Tooltip("Gimbal response speed. Higher = snappier; very high is effectively instant. " +
+	         "Frame-rate independent.")]
+	public float smoothSpeed = 10f;
+
+	// Authoritative swarm-wide gimbal pitch (degrees, DJI convention). Every instance reads
+	// this so all drones tilt together.
+	private static float sharedPitch = 0f;
+	public static float SharedPitch => sharedPitch;
+
+	/// <summary>
+	/// Sets the swarm-wide gimbal pitch (degrees, DJI convention: negative = down, positive =
+	/// up). Clamped to [<see cref="MinPitch"/>, <see cref="MaxPitch"/>]. Affects every drone.
+	/// </summary>
+	public static void SetPitch(float degrees) {
+		sharedPitch = Mathf.Clamp(degrees, MinPitch, MaxPitch);
+	}
 
 	// Use this for initialization
 	void Start () {
-		
+		// Seed the swarm-wide angle from this instance's Inspector field. Every drone is an
+		// instance of the same prefab, so they all seed the same value.
+		SetPitch(pitch);
 	}
-	
+
 	// Update is called once per frame
-	/// <summary>
-	/// Updates the camera position and rotation to follow the drone with roll and pitch limitations applied.
-	/// </summary>
-	/// <remarks>
-	/// This method performs the following operations each frame:
-	/// 1. Positions the camera relative to the drone by applying the drone's rotation to a local offset vector
-	/// 2. Extracts the drone's euler angles and converts them to a normalized range (-180 to 180 degrees)
-	/// 3. Applies a roll and pitch limit ratio to constrain the camera's rotational movement
-	/// 4. Normalizes the constrained angles to positive values (0-360 degrees)
-	/// 5. Constructs a new rotation using the limited roll and pitch while preserving the drone's yaw
-	/// 6. Smoothly interpolates the camera rotation toward the target rotation using spherical linear interpolation (Slerp)
-	/// 
-	/// The rpLimitRatio acts as a damping factor to reduce the camera's response to the drone's roll and pitch movements,
-	/// while the temp parameter controls the speed of the rotation interpolation.
-	/// </remarks>
 	void Update () {
+		if (droneTransform == null) return;
+
+		// Position: follow the gimbal mount point on the drone.
 		transform.position = droneTransform.position + droneTransform.rotation * offset;
 
-		Vector3 euler = droneTransform.rotation.eulerAngles;
-		float x = (euler.x > 180.0f ? euler.x - 360.0f : euler.x) * rpLimitRatio + pitchOffset;
-		float z = (euler.z > 180.0f ? euler.z - 360.0f : euler.z) * rpLimitRatio;
+		// Yaw locked to drone heading. Project the drone forward onto the horizontal plane so
+		// the heading stays robust even when the drone pitches/rolls hard (avoids the
+		// gimbal-lock artefacts of reading eulerAngles.y directly).
+		Vector3 fwd = droneTransform.forward;
+		fwd.y = 0f;
+		float yaw = fwd.sqrMagnitude > 1e-6f
+			? Quaternion.LookRotation(fwd, Vector3.up).eulerAngles.y
+			: droneTransform.eulerAngles.y;
 
-		float nx = (x > 0 ? x : 360.0f + x);
-		float nz = (z > 0 ? z : 360.0f + z);
+		// Stabilised orientation: roll = 0, pitch = swarm gimbal angle (Unity's +X euler tilts
+		// the camera down, so negate the DJI-convention pitch), yaw = drone heading.
+		Quaternion target = Quaternion.Euler(-sharedPitch, yaw, 0f);
 
-//		Debug.Log (nx);
-//		Debug.Log (nz);
-//	
-		Vector3 newEuler = new Vector3 (nx, euler.y, nz);
+		// Smooth toward the target, frame-rate independent.
+		transform.rotation = Quaternion.Slerp(transform.rotation, target,
+			1f - Mathf.Exp(-smoothSpeed * Time.deltaTime));
+	}
 
-//		Debug.Log (euler);
-//		Debug.Log (newEuler);
-
-		Quaternion target = Quaternion.Euler (newEuler);
-
-//		transform.position = new Vector3 (droneTransform.position.x, droneTransform.position.y, droneTransform.position.z + 0.45f);
-		transform.rotation = Quaternion.Slerp (transform.rotation, target, temp);
-//			Vector3.SmoothDamp(transform.position, drone.transform.TransformPoint(behindPosition) + Vector3.up * Input.GetAxis("Vertical"), ref velocityCameraFollow, .1f);
+	void OnValidate () {
+		pitch = Mathf.Clamp(pitch, MinPitch, MaxPitch);
+		if (Application.isPlaying) {
+			SetPitch(pitch);
+		}
 	}
 }
