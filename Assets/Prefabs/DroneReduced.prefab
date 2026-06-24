@@ -320,7 +320,7 @@ MonoBehaviour:
   NumDimensions: 2
   BoundaryEstimate: 0
   PointInwards: 0
-  YawCorrectionFactor: 0
+  YawCorrectionFactor: 1
   NeighborYawSmoothingFactor: 0.5
 --- !u!114 &474059409597466468
 MonoBehaviour:

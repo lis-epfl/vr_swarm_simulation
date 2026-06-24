@@ -17,12 +17,15 @@ public class AttitudeAlgorithm : MonoBehaviour
     public bool PointInwards = false;
     public float YawCorrectionFactor = 1.0f;
     public float NeighborYawSmoothingFactor = 0.1f;
+    [Tooltip("Seconds the hull-membership reading must persist before BoundaryEstimate flips. Prevents feed flicker.")]
+    public float BoundaryHysteresisTime = 0.5f;
 
     private string droneName;
     private SwarmManager swarmManager;
     private SwarmManager.AttitudeAlgorithm selectedAttitudeAlgorithm;
     private float inputYawRate = 0.0f;
     private float smoothedNeighborYaw = 0.0f;
+    private float boundaryTimer = 0.0f;
     
     // Awake is called before Start
     void Awake()
@@ -58,8 +61,11 @@ public class AttitudeAlgorithm : MonoBehaviour
             case SwarmManager.AttitudeAlgorithm.SIMPLE:
                 commandedYawRate = getYawRateFromNeighborMean();
                 break;
-            case SwarmManager.AttitudeAlgorithm.CONVEXHULL:
-                commandedYawRate = getYawRateFromConvexHull();
+            case SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL:
+                commandedYawRate = getYawRateFromLocalConvexHull();
+                break;
+            case SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL:
+                commandedYawRate = getYawRateFromGlobalConvexHull();
                 break;
             default:
                 Debug.LogError("Unknown Attitude Control Algorithm selected.");
@@ -75,6 +81,8 @@ public class AttitudeAlgorithm : MonoBehaviour
     public void Reset()
     {
         vc.attitude_control_yaw = 0.0f;
+        boundaryTimer = 0.0f;
+        BoundaryEstimate = false;
     }
 
     /// <summary>
@@ -147,10 +155,12 @@ public class AttitudeAlgorithm : MonoBehaviour
     }
 
     /// <summary>
-    /// Computes the desired yaw rate based on the convex hull algorithm.
+    /// Local-hull boundary algorithm: builds a convex hull from only the current drone and its
+    /// NumNeighbours nearest neighbours. Cheap, but tends to flag interior drones as boundary
+    /// because the local point set is small (with few neighbours nearly every drone is a vertex).
     /// </summary>
-    /// <returns>The desired yaw rate in radians based on the convex hull algorithm.</returns>
-    private float getYawRateFromConvexHull()
+    /// <returns>The desired yaw rate in radians.</returns>
+    private float getYawRateFromLocalConvexHull()
     {
          // Log an error if the number of dimensions is not 2
         if (NumDimensions != 2)
@@ -158,9 +168,9 @@ public class AttitudeAlgorithm : MonoBehaviour
             Debug.LogError("The number of dimensions must be 2");
             return 0.0f;
         }
-        
+
         // Sort the swarm by the distance to the current drone and get the closest numNeighbours
-        swarm.Sort((a, b) => 
+        swarm.Sort((a, b) =>
         {
             // Get the child of the neighbours
             GameObject aChild = a.transform.Find("DroneParent").gameObject;
@@ -188,44 +198,108 @@ public class AttitudeAlgorithm : MonoBehaviour
             positions2D.Add(new Vector2(position.x, position.z));
         }
 
-        // Compute the convex hull of the drone positions
+        // Compute the convex hull of the local point set (current drone + nearest neighbours)
         IList<Vector2> convexHull = ConvexHull.ComputeConvexHull(positions2D);
 
-        // Now you have the convex hull of the closest neighbours including the current drone
-        // You can use the convexHull list for further processing
-
-        // Check if the current drone is in the convex hull
         Vector2 currentDronePosition = new Vector2(transform.position.x, transform.position.z);
-        bool isInConvexHull = convexHull.Contains(currentDronePosition);
+        return getYawRateFromHull(convexHull, currentDronePosition);
+    }
 
-        // Check if not in the convex hull
-        if (!isInConvexHull)
+    /// <summary>
+    /// Global-hull boundary algorithm: builds the convex hull of the whole swarm, so only drones
+    /// on the true outer ring are flagged as boundary. More correct than the local variant for
+    /// deciding which feeds belong in the panorama / OUTER_CIRCLE, at O(n log n) per drone.
+    /// </summary>
+    /// <returns>The desired yaw rate in radians.</returns>
+    private float getYawRateFromGlobalConvexHull()
+    {
+        // Log an error if the number of dimensions is not 2
+        if (NumDimensions != 2)
         {
-            // Set the boundary estimate to false
-            BoundaryEstimate = false;
+            Debug.LogError("The number of dimensions must be 2");
             return 0.0f;
         }
 
-        // Compute the bisector at the current drone's position
-        Vector2 bisector = ConvexHull.ComputeBisector(convexHull, currentDronePosition, PointInwards);
-
-        // Set the desired yaw rate to be the the angle between the bisector and the current heading
-        float desiredYawRateDegrees = Vector2.SignedAngle(new Vector2(transform.forward.x, transform.forward.z), bisector);
-
-        // Convert the desired yaw rate from degrees to radians
-        float commandedYawRate = desiredYawRateDegrees * Mathf.Deg2Rad;
-
-        if (commandedYawRate > 0)
+        if (swarm == null || swarm.Count == 0)
         {
-            commandedYawRate = Mathf.PI - commandedYawRate;
-        }
-        else
-        {
-            commandedYawRate = -Mathf.PI - commandedYawRate;
+            return 0.0f;
         }
 
-        BoundaryEstimate = true;
-        return commandedYawRate;
+        // Collect every drone's position. The current drone is part of the swarm list, so its own
+        // position is included (and matches currentDronePosition below since both read the same
+        // DroneParent transform within this frame).
+        List<Vector2> positions2D = new List<Vector2>(swarm.Count);
+        foreach (GameObject drone in swarm)
+        {
+            Transform droneParent = drone.transform.Find("DroneParent");
+            if (droneParent == null)
+            {
+                continue;
+            }
+            Vector3 position = droneParent.position;
+            positions2D.Add(new Vector2(position.x, position.z));
+        }
+
+        // Compute the convex hull of the entire swarm
+        IList<Vector2> convexHull = ConvexHull.ComputeConvexHull(positions2D);
+
+        Vector2 currentDronePosition = new Vector2(transform.position.x, transform.position.z);
+        return getYawRateFromHull(convexHull, currentDronePosition);
+    }
+
+    /// <summary>
+    /// Shared tail of both convex-hull algorithms. Given a hull and the current drone's position,
+    /// debounces the boundary flag and, when the drone is a hull vertex, returns the yaw rate that
+    /// turns it to face outward (or inward when PointInwards is set).
+    /// </summary>
+    private float getYawRateFromHull(IList<Vector2> convexHull, Vector2 currentDronePosition)
+    {
+        // Check if the current drone is a vertex of the convex hull
+        bool onHullNow = convexHull.Contains(currentDronePosition);
+
+        // Publish the (debounced) boundary flag, then bail if there's no vertex to bisect.
+        // Yaw uses the instantaneous reading because a bisector only exists while the drone
+        // is actually a hull vertex; display gating uses the smoothed flag instead.
+        UpdateBoundaryEstimate(onHullNow);
+        if (!onHullNow)
+        {
+            return 0.0f;
+        }
+
+        // Interior angle bisector of a convex vertex points toward the swarm centroid (inward).
+        Vector2 inwardBisector = ConvexHull.ComputeBisector(convexHull, currentDronePosition, false);
+
+        // Default goal: face outward (away from centroid). PointInwards flips it to face the centroid.
+        Vector2 targetDir = PointInwards ? inwardBisector : -inwardBisector;
+
+        // forward == (sin yaw, cos yaw) in XZ, so Angles.y == Atan2(forward.x, forward.z).
+        // Express the target direction in that same yaw space and reuse the SIMPLE branch's P-law,
+        // which guarantees the sign convention matches VelocityControl.
+        float targetHeading = Mathf.Atan2(targetDir.x, targetDir.y);
+        float error = WrapAngle(targetHeading - vc.State.Angles.y);
+        return YawCorrectionFactor * error;
+    }
+
+    /// <summary>
+    /// Symmetric debounce for <see cref="BoundaryEstimate"/>: a hull-membership reading that
+    /// disagrees with the published flag must persist for <see cref="BoundaryHysteresisTime"/>
+    /// before we commit the flip. Display gating (panorama / OUTER_CIRCLE) therefore stays stable
+    /// even as a drone jitters across the hull edge.
+    /// </summary>
+    private void UpdateBoundaryEstimate(bool onHullNow)
+    {
+        if (onHullNow == BoundaryEstimate)
+        {
+            boundaryTimer = 0.0f;
+            return;
+        }
+
+        boundaryTimer += Time.fixedDeltaTime;
+        if (boundaryTimer >= BoundaryHysteresisTime)
+        {
+            BoundaryEstimate = onHullNow;
+            boundaryTimer = 0.0f;
+        }
     }
 
     void OnSwarmParamsChanged()

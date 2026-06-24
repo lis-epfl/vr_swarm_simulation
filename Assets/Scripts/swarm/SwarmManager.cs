@@ -40,7 +40,11 @@ public class SwarmManager : MonoBehaviour
     {
         NONE,
         SIMPLE,
-        CONVEXHULL,
+        // Boundary detected from the local hull of each drone's NumNeighbours nearest neighbours
+        // (cheap, but flags interior drones as boundary because the local point set is tiny).
+        LOCAL_CONVEXHULL,
+        // Boundary detected from the convex hull of the whole swarm (only true outer-ring drones).
+        GLOBAL_CONVEXHULL,
     }
 
     [Header("Attitude Control")]
