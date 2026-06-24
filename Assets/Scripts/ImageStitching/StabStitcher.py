@@ -230,6 +230,23 @@ class StabStitcher(BaseStitcher):
         self._bad_count = 0
         self._good_count = 0
 
+        # --- Quality diagnostics (for tuning which gate flags a bad stitch) ---
+        # Enabled by `timing` or env STABSTITCH_QUALITY_DEBUG=1 so it can be
+        # toggled without touching Unity / the shared-memory metadata contract.
+        self.quality_debug = bool(timing) or os.environ.get(
+            "STABSTITCH_QUALITY_DEBUG", "0").lower() not in ("0", "", "false", "no")
+        self.quality_summary_every = int(os.environ.get(
+            "STABSTITCH_QUALITY_SUMMARY_EVERY", "50"))
+        self._quality_eval_count = 0
+        self._quality_bad_count = 0
+        # Per-gate attribution; a single BAD frame can trip more than one gate.
+        self._quality_fail_counts = {'canvas': 0, 'distortion': 0, 'photometric': 0}
+        # Failing-gate bitmask of the most recent eval (canvas=1, distortion=2,
+        # photometric=4; 0 = good). Written by _record_quality and read back by
+        # _compute_warp_params — both in the warp thread — so Unity can be told
+        # *why* the panorama dropped to fallback. See REASON_* in PyUniSharingFast.
+        self.last_quality_reason = 0
+
         # --- Networks ---
         self.spatial_net = SpatialNet()
         self.temporal_net = TemporalNet()
@@ -640,6 +657,13 @@ class StabStitcher(BaseStitcher):
             canvas_ok = (1.0 <= w_ratio <= self.canvas_ratio_max) and \
                         (h_ratio <= self.canvas_ratio_max)
             if not canvas_ok:
+                # Degenerate canvas: skip the photometric warp (OOM guard) but
+                # still attribute/log canvas as the failing gate.
+                self._record_quality(
+                    canvas_ok=False, w_ratio=w_ratio, h_ratio=h_ratio,
+                    distortion=None, distortion_ok=None,
+                    psnr=None, photometric_ok=None, quality_ok=False,
+                )
                 return False, 0.0
 
             # --- mesh shape distortion (scale-invariant) ---
@@ -658,14 +682,72 @@ class StabStitcher(BaseStitcher):
 
             quality_ok = canvas_ok and distortion_ok and photometric_ok
 
-            if self.timing:
-                print(
-                    f"[StabStitch quality] psnr={psnr:.2f}dB "
-                    f"distortion={distortion:.3f} "
-                    f"canvas={w_ratio:.2f}x{h_ratio:.2f} -> "
-                    f"{'OK' if quality_ok else 'BAD'}"
-                )
+            self._record_quality(
+                canvas_ok=True, w_ratio=w_ratio, h_ratio=h_ratio,
+                distortion=distortion, distortion_ok=distortion_ok,
+                psnr=psnr, photometric_ok=photometric_ok, quality_ok=quality_ok,
+            )
         return quality_ok, psnr
+
+    def _record_quality(self, canvas_ok, w_ratio, h_ratio,
+                        distortion, distortion_ok, psnr, photometric_ok,
+                        quality_ok):
+        """
+        Attribute and log a quality verdict per gate, so it is clear *which*
+        metric flags a stitch as bad (and how each value compares to its
+        threshold).  ``*_ok=None`` means that gate was skipped (e.g. the
+        photometric warp is skipped when the canvas is already degenerate).
+
+        Maintains cumulative per-gate failure counts; a single BAD frame can
+        trip more than one gate, so the counts are independent (they need not
+        sum to the BAD-frame total).  When ``quality_debug`` is on, prints a
+        per-frame breakdown on BAD verdicts plus a periodic cumulative summary.
+        """
+        self._quality_eval_count += 1
+        reason_mask = 0
+        if not quality_ok:
+            self._quality_bad_count += 1
+            if canvas_ok is False:
+                reason_mask |= 1   # REASON_CANVAS
+                self._quality_fail_counts['canvas'] += 1
+            if distortion_ok is False:
+                reason_mask |= 2   # REASON_DISTORTION
+                self._quality_fail_counts['distortion'] += 1
+            if photometric_ok is False:
+                reason_mask |= 4   # REASON_PHOTOMETRIC
+                self._quality_fail_counts['photometric'] += 1
+        self.last_quality_reason = reason_mask
+
+        if not self.quality_debug:
+            return
+
+        # Per-frame breakdown on BAD frames (keeps the OK stream quiet).
+        if not quality_ok:
+            def _gate(ok, name, value, cmp, thresh):
+                if ok is None:
+                    return f"{name}={value}(skipped)"
+                return f"{name}={value} ({cmp}{thresh}) {'PASS' if ok else 'FAIL'}"
+            parts = [
+                _gate(canvas_ok, "canvas", f"{w_ratio:.2f}x{h_ratio:.2f}",
+                      "<=", f"{self.canvas_ratio_max:.1f}"),
+                _gate(distortion_ok, "distortion",
+                      "n/a" if distortion is None else f"{distortion:.3f}",
+                      "<=", f"{self.distortion_threshold:.2f}"),
+                _gate(photometric_ok, "psnr",
+                      "n/a" if psnr is None else f"{psnr:.2f}dB",
+                      ">=", f"{self.quality_threshold:.1f}"),
+            ]
+            print("[StabStitch quality] BAD  " + "  ".join(parts))
+
+        # Periodic cumulative attribution so the dominant cause is obvious.
+        if self._quality_eval_count % self.quality_summary_every == 0:
+            c = self._quality_fail_counts
+            print(
+                f"[StabStitch quality] summary over {self._quality_eval_count} "
+                f"evals: bad={self._quality_bad_count} "
+                f"(canvas={c['canvas']} distortion={c['distortion']} "
+                f"photometric={c['photometric']})"
+            )
 
     def _apply_hysteresis(self, raw_ok):
         """
@@ -709,10 +791,12 @@ class StabStitcher(BaseStitcher):
 
         Returns
         -------
-        (panorama, quality_ok) : (numpy uint8 array or None, bool)
+        (panorama, quality_ok, quality_reason) : (ndarray or None, bool, int)
             ``quality_ok`` is False when the panorama is judged bad; in that
             case ``panorama`` is None and the render is skipped so the caller
-            can display the individual feeds instead.
+            can display the individual feeds instead.  ``quality_reason`` is a
+            failing-gate bitmask (canvas=1, distortion=2, photometric=4; 0 when
+            good) so the caller can report *why* it fell back.
         """
         img1 = images[subset1[0]]   # left
         img2 = images[subset1[1]]   # centre
@@ -731,7 +815,7 @@ class StabStitcher(BaseStitcher):
         if not buf_ready:
             # Buffer still filling: show the crude concat, but don't trip the
             # quality fallback (no real warp has been computed yet).
-            return self._fallback_concat(img1, img2, img3), True
+            return self._fallback_concat(img1, img2, img3), True, 0
 
         # First computation: synchronous so the caller gets a real panorama.
         # Double-checked locking: the fast outer check avoids the lock on
@@ -751,14 +835,14 @@ class StabStitcher(BaseStitcher):
         # the caller switch to the individual feeds.
         quality_ok = warp_params.get('quality_ok', True)
         if not quality_ok:
-            return None, False
+            return None, False, warp_params.get('quality_reason', 0)
 
         # Fast render path using cached warps + current high-res images
         img1_hr_t = self._to_hr_tensor(img1).cuda()
         img2_hr_t = self._to_hr_tensor(img2).cuda()
         img3_hr_t = self._to_hr_tensor(img3).cuda()
         pano = self._render_with_params(img1_hr_t, img2_hr_t, img3_hr_t, warp_params)
-        return pano, True
+        return pano, True, 0
 
     def compute_warps(self):
         """
@@ -998,9 +1082,13 @@ class StabStitcher(BaseStitcher):
                 img1_list[-1], img2_list[-1], img3_list[-1],
             )
             quality_ok = self._apply_hysteresis(raw_ok)
+            # _estimate_quality just set self.last_quality_reason (same thread).
+            # Only meaningful once the debounced verdict has actually flipped bad.
+            quality_reason = 0 if quality_ok else self.last_quality_reason
         else:
             quality_score = float('nan')
             quality_ok = True
+            quality_reason = 0
 
         if self.timing:
             t_end = time.perf_counter()
@@ -1018,6 +1106,7 @@ class StabStitcher(BaseStitcher):
             'out_h2': out_h2, 'out_w2': out_w2, 'out_size': out_size,
             'blend_weights': blend_weights,
             'quality_ok': quality_ok, 'quality_score': quality_score,
+            'quality_reason': quality_reason,
         }
 
     def _render_with_params(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):

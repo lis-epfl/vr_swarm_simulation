@@ -3041,6 +3041,21 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 4319973523811335419, guid: 5bab6223848ed924392e5f9c5021182e,
         type: 3}
+      propertyPath: m_LocalScale.x
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4319973523811335419, guid: 5bab6223848ed924392e5f9c5021182e,
+        type: 3}
+      propertyPath: m_LocalScale.y
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4319973523811335419, guid: 5bab6223848ed924392e5f9c5021182e,
+        type: 3}
+      propertyPath: m_LocalScale.z
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4319973523811335419, guid: 5bab6223848ed924392e5f9c5021182e,
+        type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
       objectReference: {fileID: 0}
@@ -8656,6 +8671,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: qualityThreshold
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: panoramaImageWidth
       value: 1920
       objectReference: {fileID: 0}
@@ -8663,6 +8683,11 @@ PrefabInstance:
         type: 3}
       propertyPath: panoramaImageHeight
       value: 1080
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: hideStitchedDroneScreens
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6847994249360662215, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}

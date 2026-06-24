@@ -171,8 +171,16 @@ public class PyUniSharingFast : MonoBehaviour
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
     private const int FlagPosition = 0;             // panorama flag (int32) at region start
-    private const int panoramaQualityPosition = 4;  // quality_ok (int32): 1 = show panorama, 0 = show feeds
+    private const int panoramaQualityPosition = 4;  // packed quality word (int32) — see masks below
     private const int panoramaDataPosition = 8;      // RGB24 panorama data
+
+    // Packed quality word (PanoramaSharedMemory [4:8]), written by Python's
+    // write_panorama_memory. bit 0 = panorama good; bits 1-3 = failing-gate
+    // reason (only set when bit 0 == 0). Keep in sync with StitcherThreading.py.
+    private const int QUALITY_OK_BIT = 1 << 0;       // panorama good (show panorama)
+    private const int REASON_CANVAS = 1 << 1;        // degenerate warp canvas size
+    private const int REASON_DISTORTION = 1 << 2;    // folded/torn mesh (inter-grid loss)
+    private const int REASON_PHOTOMETRIC = 1 << 3;   // overlap PSNR below threshold
     // Per-drone block layout (matches image_stream.py / ImageSharing.cs):
     //   int32 flag | int32 droneId | float32 heading | RGB24 image
     private const int blockFlagOffset = 0;
@@ -391,14 +399,16 @@ public class PyUniSharingFast : MonoBehaviour
             {
                 Marshal.WriteInt32(panoramaPtr, FlagPosition, 1);
 
-                int qualityOk = Marshal.ReadInt32(panoramaPtr, panoramaQualityPosition);
+                int qualityWord = Marshal.ReadInt32(panoramaPtr, panoramaQualityPosition);
                 byte[] panoramaImageBytes = ReceivePanoramaImage();
                 Marshal.WriteInt32(panoramaPtr, FlagPosition, 0);
 
-                // When the panorama is bad (and fallback is enabled) show the
-                // individual drone feeds via ScreenSpawn instead of the panorama.
-                bool panoramaGood = !qualityFallbackEnabled || qualityOk != 0;
-                ApplyQualityFallback(panoramaGood);
+                // bit 0 = panorama good; bits 1-3 = failing-gate reason (only
+                // meaningful when bit 0 is clear). When the panorama is bad (and
+                // fallback is enabled) show the individual drone feeds instead.
+                bool qualityOk = (qualityWord & QUALITY_OK_BIT) != 0;
+                bool panoramaGood = !qualityFallbackEnabled || qualityOk;
+                ApplyQualityFallback(panoramaGood, qualityWord);
                 if (panoramaGood)
                 {
                     SetPanoramaImage(panoramaImageBytes);
@@ -413,13 +423,24 @@ public class PyUniSharingFast : MonoBehaviour
     // feeds (ScreenSpawn). Only acts on a transition so it doesn't fight
     // ScreenSpawn's per-frame positioning. Python already debounces the
     // quality verdict (hysteresis), so the flag is stable.
-    private void ApplyQualityFallback(bool panoramaGood)
+    private void ApplyQualityFallback(bool panoramaGood, int qualityWord)
     {
         if (panoramaGood == panoramaDisplayActive)
         {
             return; // no change
         }
         panoramaDisplayActive = panoramaGood;
+
+        // Log only on the transition so it doesn't spam every frame. When the
+        // panorama disappears, report which stitch-quality gate(s) tripped.
+        if (!panoramaGood)
+        {
+            Debug.Log($"[Panorama] hidden — showing individual feeds. Stitch quality bad: {DescribeQualityReason(qualityWord)}.");
+        }
+        else
+        {
+            Debug.Log("[Panorama] restored — stitch quality good again.");
+        }
 
         // Show/hide the curved panorama screen.
         if (panoramaRenderer != null)
@@ -432,6 +453,20 @@ public class PyUniSharingFast : MonoBehaviour
         {
             screenSpawn.ShowFallbackFeeds(!panoramaGood, fallbackScreenStyle);
         }
+    }
+
+    // Decode the failing-gate bits of the packed quality word into a readable
+    // reason, so the transition log says *why* the panorama was hidden.
+    private string DescribeQualityReason(int qualityWord)
+    {
+        string reasons = "";
+        if ((qualityWord & REASON_CANVAS) != 0)
+            reasons += (reasons.Length > 0 ? ", " : "") + "canvas (degenerate warp size)";
+        if ((qualityWord & REASON_DISTORTION) != 0)
+            reasons += (reasons.Length > 0 ? ", " : "") + "distortion (folded/torn mesh)";
+        if ((qualityWord & REASON_PHOTOMETRIC) != 0)
+            reasons += (reasons.Length > 0 ? ", " : "") + "photometric (overlap PSNR below threshold)";
+        return reasons.Length > 0 ? reasons : "unspecified";
     }
 
     private byte[] CaptureCameraImage(Camera camera)

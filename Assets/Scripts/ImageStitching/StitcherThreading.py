@@ -269,13 +269,14 @@ class StitcherManager:
             # warp params + standalone TPS warp (no neural network access).
             order = np.array(self.known_order)
             subset1, subset2 = self.get_subsets_from_order(order, len(images))
-            pano, quality_ok = self.active_stitcher.stab_pano(images, subset1, subset2)
+            pano, quality_ok, quality_reason = self.active_stitcher.stab_pano(images, subset1, subset2)
 
-            # Always queue (pano, quality_ok): when quality_ok is False the
-            # pano is None and only the quality flag is forwarded to Unity so
-            # it can switch to the individual feeds.
+            # Always queue (pano, quality_ok, quality_reason): when quality_ok is
+            # False the pano is None and only the quality flag + failing-gate
+            # reason are forwarded to Unity so it can switch to the individual
+            # feeds and log why.
             if self.panoram_queue.empty():
-                self.panoram_queue.put((pano, quality_ok))
+                self.panoram_queue.put((pano, quality_ok, quality_reason))
             return
 
         # All other stitchers: original behaviour with switching_lock2
@@ -298,7 +299,7 @@ class StitcherManager:
 
             # Non-STABSTITCH stitchers have no quality estimate: always good.
             if pano is not None and self.panoram_queue.empty():
-                self.panoram_queue.put((pano, True))
+                self.panoram_queue.put((pano, True, 0))
 
     def get_subsets_from_order(self, order, num_images):
         """
@@ -515,7 +516,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         
         # Write panorama / quality flag if available
         if not manager.panoram_queue.empty():
-            panorama, quality_ok = manager.panoram_queue.get()
+            panorama, quality_ok, quality_reason = manager.panoram_queue.get()
             quality_int = 1 if quality_ok else 0
             image_size = manager.processedImageWidth * manager.processedImageHeight * 3
 
@@ -530,7 +531,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 # Fallback: panorama is bad — only update the quality flag so
                 # Unity switches to the individual feeds. Leave image bytes stale.
                 try:
-                    write_panorama_memory(panoramaMMF, quality_int, image_size, None)
+                    write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, None)
                 except Exception as e:
                     if enable_debug_logging:
                         print(f"[first_thread] Error writing quality flag: {e}")
@@ -547,7 +548,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 try:
                     # Flip the panorama because unity texture starts bottom left
                     panorama = cv2.flip(panorama, 0)
-                    write_panorama_memory(panoramaMMF, quality_int, image_size, panorama)
+                    write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, panorama)
                     del panorama
                 except Exception as e:
                     if enable_debug_logging:
@@ -684,22 +685,31 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
             processedMMF.write(struct.pack('i', 0))
             break
 
-def write_panorama_memory(panoramaMMF, quality_int, image_size, image_data=None):
+def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, image_data=None):
     """
-    Write the panorama (and its quality flag) to shared memory with Unity.
+    Write the panorama (and its quality word) to shared memory with Unity.
 
     Panorama shared-memory layout:
         [0:4]  write-flag (int)   handshake with Unity (0 = free, 1 = writing)
-        [4:8]  quality_ok (int)   1 = show stitched panorama, 0 = show feeds
+        [4:8]  quality word (int) packed:
+                   bit 0 : panorama good (1) / bad (0) -> show panorama vs feeds
+                   bit 1 : canvas gate failed
+                   bit 2 : distortion gate failed
+                   bit 3 : photometric (PSNR) gate failed
+               (bits 1-3 = the failing-gate reason; only set when bit 0 == 0)
         [8:  ] RGB24 image data
 
-    When ``image_data`` is None (quality fallback) only the quality flag is
-    updated; the stale image bytes are left in place because Unity ignores
-    them while displaying the individual feeds.
+    ``quality_reason`` is the 3-bit failing-gate mask (canvas=1, distortion=2,
+    photometric=4) and is shifted into bits 1-3 of the word. When ``image_data``
+    is None (quality fallback) only the quality word is updated; the stale image
+    bytes are left in place because Unity ignores them while showing the feeds.
     """
     flag_position = 0
     quality_position = 4
     data_position = 8
+
+    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1-3).
+    quality_word = (quality_int & 1) | ((quality_reason & 0x7) << 1)
 
     while True:
         # Read the flag to check if Unity is ready for new data
@@ -711,9 +721,9 @@ def write_panorama_memory(panoramaMMF, quality_int, image_size, image_data=None)
             panoramaMMF.seek(flag_position)
             panoramaMMF.write(struct.pack('i', 1))
 
-            # Write the quality flag
+            # Write the packed quality word (good/bad flag + failing-gate reason)
             panoramaMMF.seek(quality_position)
-            panoramaMMF.write(struct.pack('i', quality_int))
+            panoramaMMF.write(struct.pack('i', quality_word))
 
             if image_data is not None:
                 image_bytes = image_data.tobytes()
