@@ -230,6 +230,12 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField] private ScreenSpawn screenSpawn;
     private bool panoramaDisplayActive = true;
 
+    [Header("Stitched Drone Screens")]
+    [SerializeField]
+    [Tooltip("Hide the individual ScreenSpawn feeds for the drones currently being stitched into the panorama (they already appear in the panorama). Only applies while the panorama is displayed; during quality-fallback all feeds reappear.")]
+    private bool hideStitchedDroneScreens = false;
+    private string lastHiddenScreensKey;
+
     // Other timing values to check the number of camera in the block
     private float cameraUpdateInterval = 3f;
     private float nextCameraUpdateTime = 0f;
@@ -324,6 +330,7 @@ public class PyUniSharingFast : MonoBehaviour
         // the screen snaps to the new view only when the selection changes.
         float centreYaw = SelectStitchCameras(headYaw, out selectedStitchIndices);
         UpdateStitchedDronesDisplay(selectedStitchIndices);
+        UpdateStitchedScreenHiding(selectedStitchIndices);
 
         if (enablePanoramaReading)
         {
@@ -675,6 +682,39 @@ public class PyUniSharingFast : MonoBehaviour
                 : $"#{j}";
             stitchedDrones.Add($"{role}: {DroneName(selected[j])}");
         }
+    }
+
+    // Tell ScreenSpawn which stitched drones' individual feeds to hide. Only hides
+    // while the flag is on AND the panorama is actually displayed (panoramaDisplayActive);
+    // otherwise pushes an empty set so all feeds show. Change-detected to avoid
+    // per-frame allocation.
+    private void UpdateStitchedScreenHiding(int[] selected)
+    {
+        if (screenSpawn == null) screenSpawn = FindObjectOfType<ScreenSpawn>();
+        if (screenSpawn == null) return;
+
+        bool hide = hideStitchedDroneScreens && panoramaDisplayActive;
+        string key = hide ? string.Join(",", selected) : "off";
+        if (key == lastHiddenScreensKey) return;
+        lastHiddenScreensKey = key;
+
+        if (!hide)
+        {
+            screenSpawn.SetStitchedDronesHidden(null);
+            return;
+        }
+
+        var drones = new List<GameObject>(selected.Length);
+        for (int j = 0; j < selected.Length; j++)
+        {
+            int camIdx = selected[j];
+            if (camerasToCapture == null || camIdx < 0 || camIdx >= camerasToCapture.Count) continue;
+            Camera cam = camerasToCapture[camIdx];
+            if (cam == null) continue;
+            Transform parent = cam.transform.parent;   // the "Drone N" GameObject
+            if (parent != null) drones.Add(parent.gameObject);
+        }
+        screenSpawn.SetStitchedDronesHidden(drones);
     }
 
     // Human-readable name of the drone owning a capture camera (the FPV camera's

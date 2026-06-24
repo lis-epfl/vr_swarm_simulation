@@ -71,7 +71,26 @@ public class ScreenSpawn : MonoBehaviour
     private ScreenStyle previousScreenStyle;
     private InterfaceManager interfaceManager;
 
+    // Drones whose individual feeds are suppressed because they are currently
+    // composited into the stitched panorama (driven by PyUniSharingFast). Matched
+    // by GameObject reference. Pass null/empty to show all feeds again.
+    private readonly HashSet<GameObject> stitchedDronesToHide = new HashSet<GameObject>();
+
     public bool IsSpawned => screens.Count > 0;
+
+    // Set which drones' individual feeds to hide because they already appear in
+    // the stitched panorama. Called by PyUniSharingFast; null/empty restores all.
+    public void SetStitchedDronesHidden(IEnumerable<GameObject> drones)
+    {
+        stitchedDronesToHide.Clear();
+        if (drones != null)
+        {
+            foreach (var d in drones)
+            {
+                if (d != null) stitchedDronesToHide.Add(d);
+            }
+        }
+    }
 
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm = null)
@@ -320,6 +339,15 @@ public class ScreenSpawn : MonoBehaviour
             GameObject drone = swarm.Find(d => d.name == "Drone " + i);
             GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
             GameObject screen = screens.Find(s => s.name == "screen_" + i);
+
+            // Hide the feed for any drone currently composited into the stitched
+            // panorama (mirrors the BoundaryEstimate gate below). Applies to every
+            // screen style.
+            if (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(drone))
+            {
+                screen.SetActive(false);
+                continue;
+            }
 
             switch (screenStyle)
             {
