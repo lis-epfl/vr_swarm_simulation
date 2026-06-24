@@ -17,8 +17,10 @@ using UnityEngine;
 ///   points (the image-stitching pipeline relies on camera yaw == drone heading).
 ///
 /// The gimbal pitch is a single <i>swarm-wide</i> value shared by every drone, which keeps the
-/// stitched panorama coherent (all cameras look the same direction). Set it from the Inspector
-/// <see cref="pitch"/> field or at runtime via <see cref="SetPitch"/>.
+/// stitched panorama coherent (all cameras look the same direction). It is normally driven from
+/// <c>SwarmManager.gimbalPitch</c> in the Inspector (the central control point, tunable at
+/// runtime); the per-instance <see cref="pitch"/> field is only a fallback when no SwarmManager
+/// is present. Either way the value is applied via <see cref="SetPitch"/>.
 ///
 /// The camera also hides the owning drone's own body during its render pass, so the drone never
 /// sees its own arms (which can swing into view during aggressive maneuvers) while still seeing
@@ -62,9 +64,14 @@ public class FPVCameraScript : MonoBehaviour {
 
 	// Use this for initialization
 	void Start () {
-		// Seed the swarm-wide angle from this instance's Inspector field. Every drone is an
-		// instance of the same prefab, so they all seed the same value.
-		SetPitch(pitch);
+		// Seed the swarm-wide angle. SwarmManager owns the gimbal pitch when present (central
+		// runtime control); fall back to this instance's Inspector field otherwise. Its Awake
+		// has already run by now, so Instance is set.
+		if (SwarmManager.Instance != null) {
+			SetPitch(SwarmManager.Instance.GetGimbalPitch());
+		} else {
+			SetPitch(pitch);
+		}
 
 		// Cache the owning drone's renderers (DroneObj, motors, props, minimap marker). The FPV
 		// camera is a sibling of the drone body, so it isn't included; the 3PV child is a Camera,

@@ -53,6 +53,13 @@ public class SwarmManager : MonoBehaviour
     public int numDimensions = 2;
     public bool pointInwards = true;
 
+    [Header("Camera Gimbal")]
+    [Tooltip("Swarm-wide FPV camera gimbal pitch in degrees (DJI convention): 0 = level " +
+             "horizon, negative = look down (to -90 = straight down), positive = look up " +
+             "(to +60). Changing this at runtime tilts every drone's camera.")]
+    [Range(FPVCameraScript.MinPitch, FPVCameraScript.MaxPitch)]
+    public float gimbalPitch = 0f;
+
 
     public delegate void OnSwarmParamsChanged();
     public event OnSwarmParamsChanged swarmParamsChanged;
@@ -70,11 +77,26 @@ public class SwarmManager : MonoBehaviour
         }
     }
 
+    void Start()
+    {
+        // Push the configured gimbal pitch to every drone's FPV camera at startup.
+        ApplyGimbalPitch();
+    }
+
     // Called whenever a value is changed in the Inspector
     private void OnValidate()
     {
         // Trigger the event to notify all subscribed drones
         swarmParamsChanged?.Invoke();
+
+        // Apply the gimbal pitch live so it can be tuned during runtime without selecting a drone.
+        ApplyGimbalPitch();
+    }
+
+    // Drives the swarm-wide FPV gimbal pitch (shared by every drone).
+    private void ApplyGimbalPitch()
+    {
+        FPVCameraScript.SetPitch(gimbalPitch);
     }
 
     // Getters
@@ -105,5 +127,8 @@ public class SwarmManager : MonoBehaviour
     public int GetNumDimensions() => numDimensions;
     public bool GetPointInwards() => pointInwards;  
     public AttitudeAlgorithm GetSelectedAttitudeAlgorithm() => SelectedAttitudeAlgorithm;
+
+    // Getter for the swarm-wide FPV camera gimbal pitch
+    public float GetGimbalPitch() => gimbalPitch;
 
 }
