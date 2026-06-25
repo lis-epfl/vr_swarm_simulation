@@ -24,8 +24,10 @@ Three Windows named memory maps. **If you change a layout/offset, change both
 `Assets/Scripts/ImageStitching/PyUniSharingFast.cs` and
 `Assets/Scripts/ImageStitching/StitcherThreading.py`** (`readMetadataMemory`/`WriteMetadata`).
 
-- `MetadataSharedMemory` — sizes + stitcher config + blur/border + quality settings + **live HMD yaw**
-  (yaw also rewritten every frame at a fixed offset).
+- `MetadataSharedMemory` — sizes + stitcher config + blur/border + quality settings + **body/pilot yaw**
+  (yaw also rewritten every frame at a fixed offset). This is the integrated *body heading*
+  (`PyUniSharingFast.bodyYaw`): seeded from the HMD's initial yaw, then advanced only by the controller
+  yaw-rate command — **not** live HMD direction, so head-look doesn't move the panorama.
 - `BlockSharedMemory` — one block per selected drone: `int flag | int droneId | float heading | RGB24 image`.
   `flag` is the handshake (0 = ready, 1 = busy). Images are **640×360 BGR, top-down**.
 - `PanoramaSharedMemory` — `int flag | int quality_ok | RGB24 panorama`. `quality_ok == 0` ⇒ Unity shows
@@ -33,7 +35,7 @@ Three Windows named memory maps. **If you change a layout/offset, change both
 
 ## Conventions & invariants (not enforced by code)
 
-- **Coupled 3-view selection:** the head-relative left/centre/right pick exists in *both* C#
+- **Coupled 3-view selection:** the body-yaw-relative left/centre/right pick exists in *both* C#
   (`SelectStitchCameras`) and Python (`get_drone_order` + `get_subsets_from_order`) and must agree.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Stitching and the
   `OUTER_CIRCLE` screen layout only use boundary drones.

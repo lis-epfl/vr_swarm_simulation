@@ -198,7 +198,9 @@ public class PyUniSharingFast : MonoBehaviour
     private const int maxPanoramaSize = maxPanoramaWidth * maxPanoramaHeight * 3;
     private const int maxTotalPanoramaSize = panoramaDataPosition + maxPanoramaSize;
 
-    // Metadata layout: head yaw (float) is appended after qualityThreshold.
+    // Metadata layout: the pilot heading yaw (float) is appended after
+    // qualityThreshold. This carries the integrated body yaw (WriteBodyYaw), not
+    // the live HMD direction, so Python selects the same views as SelectStitchCameras.
     // Offset = sizes(20) + stitcher(64) + cylindrical(1) + matcher(64) + ransac(1)
     //          + checks(4) + ratio(4) + score(4) + focal(4) + onlyIHN(1) + fusion(64)
     //          + blurKernel(4) + blurSigma(4) + border(4) + qualityEnabled(1) + qualityThreshold(4)
@@ -224,6 +226,26 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField]
     [Tooltip("Vertical offset of the curved screen above the Arena centre.")]
     private float screenHeightOffset = 0f;
+
+    [SerializeField]
+    [Tooltip("Degrees/second the body yaws at full controller yaw-stick deflection. The panorama " +
+             "heading integrates this command and the OVRCameraRig is rotated by the same amount " +
+             "to mimic body motion. Head tracking is excluded, so the pilot can look around at the " +
+             "side screens without moving the panorama.")]
+    private float bodyYawRate = 90f;
+
+    [SerializeField]
+    [Tooltip("Rotate the OVRCameraRig by the controller yaw-rate command to mimic body motion. " +
+             "Disable to advance the panorama heading only, leaving the rig untouched.")]
+    private bool driveCameraRigYaw = true;
+
+    // Body heading that drives the panorama. Seeded once from the head's initial
+    // yaw, then advanced only by the controller yaw-rate command (never by head
+    // tracking). cameraRigTransform is rotated by the same command so the rig
+    // turns with the body while the head still yaws freely relative to it.
+    private Transform cameraRigTransform;
+    private float bodyYaw;
+    private bool bodyYawInitialized = false;
 
     private GameObject arena;
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
@@ -326,17 +348,21 @@ public class PyUniSharingFast : MonoBehaviour
             GenerateCurvedScreen();
         }
 
-        // Headset direction drives which three views are stitched and where the
-        // curved panorama screen sits. Find the HMD head transform lazily (the
-        // OVRPlayerController / rig may be added to the scene later).
+        // The body heading (not the live head direction) drives which three views
+        // are stitched and where the curved panorama screen sits. It starts at the
+        // initial head yaw, then only advances with the controller yaw-rate command
+        // (which also rotates the camera rig to mimic body motion). The head can
+        // still yaw freely via HMD tracking to look at the side screens without
+        // moving the panorama. Resolve the rig/head lazily (the rig may be added to
+        // the scene later).
         FindHeadTransform();
-        float headYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
-        WriteHeadYaw(headYaw);
+        UpdateBodyYaw();
+        WriteBodyYaw(bodyYaw);
 
-        // Select the centre drone (camera yaw closest to the head yaw) plus the
+        // Select the centre drone (camera yaw closest to the body yaw) plus the
         // two yaw-neighbours. centreYaw drives the curved-screen orientation so
         // the screen snaps to the new view only when the selection changes.
-        float centreYaw = SelectStitchCameras(headYaw, out selectedStitchIndices);
+        float centreYaw = SelectStitchCameras(bodyYaw, out selectedStitchIndices);
         UpdateStitchedDronesDisplay(selectedStitchIndices);
         UpdateStitchedScreenHiding(selectedStitchIndices);
 
@@ -564,18 +590,53 @@ public class PyUniSharingFast : MonoBehaviour
     // are ready (then Camera.main as an editor fallback when there's no rig).
     private void FindHeadTransform()
     {
-        if (headTransform != null) return;
+        if (headTransform != null && cameraRigTransform != null) return;
 
         OVRCameraRig rig = FindObjectOfType<OVRCameraRig>();
-        if (rig != null && rig.centerEyeAnchor != null)
+        if (rig != null)
         {
-            headTransform = rig.centerEyeAnchor;
+            // The rig root is the "body" we rotate; centerEyeAnchor is the HMD-
+            // tracked head, which yaws relative to the rig as the pilot looks around.
+            if (cameraRigTransform == null) cameraRigTransform = rig.transform;
+            if (headTransform == null && rig.centerEyeAnchor != null) headTransform = rig.centerEyeAnchor;
+            if (headTransform != null) return;
+        }
+
+        // Editor fallback when no OVR rig is present: drive the main camera as both
+        // the head and the body so the behaviour is still testable.
+        if (Camera.main != null)
+        {
+            if (headTransform == null) headTransform = Camera.main.transform;
+            if (cameraRigTransform == null) cameraRigTransform = Camera.main.transform;
+        }
+    }
+
+    // Advances the body heading that drives the panorama. Seeded once from the
+    // head's initial yaw so the panorama starts where the pilot is first looking,
+    // then advanced only by the controller yaw-rate command (the same normalised
+    // [-1,1] "yaw" the swarm integrates). Head tracking is deliberately excluded
+    // so looking around doesn't move the panorama. The same command rotates the
+    // OVRCameraRig to mimic body motion; the head still yaws freely relative to it.
+    private void UpdateBodyYaw()
+    {
+        if (!bodyYawInitialized)
+        {
+            bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
+            bodyYawInitialized = true;
             return;
         }
 
-        if (Camera.main != null)
+        float normYaw = InputManager.Instance != null ? InputManager.Instance.InputStatus["yaw"] : 0f;
+        float deltaYaw = normYaw * bodyYawRate * Time.deltaTime;
+        if (deltaYaw == 0f) return;
+
+        bodyYaw = Mathf.Repeat(bodyYaw + deltaYaw, 360f);
+
+        if (driveCameraRigYaw && cameraRigTransform != null)
         {
-            headTransform = Camera.main.transform;
+            // Rotate the body about the world vertical at the rig's pivot. The head
+            // (centerEyeAnchor) rotates with it but keeps its own HMD-tracked yaw.
+            cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
         }
     }
 
@@ -588,19 +649,19 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
-    // Selects the three drones whose FPV cameras straddle the headset yaw: the
-    // centre drone (camera yaw closest to headYaw) plus the yaw-neighbour on
+    // Selects the three drones whose FPV cameras straddle the body yaw: the
+    // centre drone (camera yaw closest to bodyYaw) plus the yaw-neighbour on
     // each side. Mirrors the Python selection in StitcherThreading.py
     // (get_drone_order + get_subsets_from_order) so both sides agree on which
     // three views form the panorama. Returns the centre drone's yaw (used to
     // place the curved screen); 'selected' holds the camera indices written to
     // the three blocks, ordered [left, centre, right].
-    private float SelectStitchCameras(float headYaw, out int[] selected)
+    private float SelectStitchCameras(float bodyYaw, out int[] selected)
     {
         if (camerasToCapture == null || camerasToCapture.Count == 0)
         {
             selected = new int[0];
-            return headYaw;
+            return bodyYaw;
         }
 
         // Candidate set: boundary drones only (convex hull). If fewer than three
@@ -618,8 +679,8 @@ public class PyUniSharingFast : MonoBehaviour
 
         int n = candidates.Count;
 
-        // Centre = the candidate whose camera yaw is closest to headYaw.
-        int centreCam = candidates[ClosestInList(candidates, headYaw)];
+        // Centre = the candidate whose camera yaw is closest to bodyYaw.
+        int centreCam = candidates[ClosestInList(candidates, bodyYaw)];
 
         // Fewer than three candidates total: send what we have.
         if (n < 3)
@@ -688,10 +749,11 @@ public class PyUniSharingFast : MonoBehaviour
         transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
     }
 
-    // Lightweight per-frame write of just the head yaw into the metadata block
+    // Lightweight per-frame write of just the body yaw into the metadata block
     // (WriteMetadata is not called every frame). The Python stitcher reads this
-    // to choose the head-facing views.
-    private void WriteHeadYaw(float yaw)
+    // to choose the head-facing views, so it must match the yaw passed to
+    // SelectStitchCameras (the body heading, not the live HMD direction).
+    private void WriteBodyYaw(float yaw)
     {
         if (metadataPtr == IntPtr.Zero) return;
 
@@ -1128,9 +1190,9 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.Copy(qualityThresholdBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
         offset += 4;
 
-        // Headset yaw (live head direction). Also written every frame by
-        // WriteHeadYaw at the same offset; included here so the start-time
-        // full write seeds the field too.
+        // Body yaw (pilot heading). Also written every frame by WriteBodyYaw at the
+        // same offset; seeded here at the head's initial yaw so the start-time full
+        // write matches the first body heading (UpdateBodyYaw seeds it identically).
         byte[] headYawBytes = BitConverter.GetBytes(headTransform != null ? headTransform.eulerAngles.y : 0f);
         if (!BitConverter.IsLittleEndian) Array.Reverse(headYawBytes);
         Marshal.Copy(headYawBytes, 0, IntPtr.Add(metadataPtr, offset), 4);

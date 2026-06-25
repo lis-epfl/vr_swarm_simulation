@@ -72,8 +72,15 @@ public class AttitudeAlgorithm : MonoBehaviour
                 break;
         }
         
+        // In the convex-hull modes the controller yaw command steers the pilot's body /
+        // panorama view (the OVRCameraRig, rotated in PyUniSharingFast.UpdateBodyYaw) rather
+        // than the drones — the drones hold their hull-facing heading via attitude_control_yaw.
+        // Feeding inputYawRate into the drones as well would spin them redundantly, so suppress it.
+        bool convexHull = selectedAttitudeAlgorithm == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+                       || selectedAttitudeAlgorithm == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
+
         // Set the desired yaw rate in the velocity control script
-        vc.desiredYawRate = inputYawRate;
+        vc.desiredYawRate = convexHull ? 0.0f : inputYawRate;
         vc.attitude_control_yaw = commandedYawRate;
 
     }

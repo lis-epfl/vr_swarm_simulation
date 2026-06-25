@@ -3626,6 +3626,7 @@ MonoBehaviour:
   numNeighbours: 9
   numDimensions: 2
   pointInwards: 0
+  gimbalPitch: 0
 --- !u!114 &590275741
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3725,7 +3726,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0279b7ec075322248bc32f336079b1db, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  inputMode: 0
+  inputMode: 2
   commandFrame: 1
 --- !u!1 &593138284
 GameObject:
