@@ -39,6 +39,9 @@ public class VelocityControl : MonoBehaviour
     // When true, the velocity command is interpreted in world frame (fixed axes); when false,
     // in the drone's body frame (relative to heading). Set by InputManager via SwarmAlgorithm.
     [HideInInspector] public bool userCommandInWorldFrame = false;
+    // Yaw (degrees) the world-frame command is expressed relative to. 0 = fixed world axes (World frame);
+    // the pilot body yaw for the VR frame. Set by SwarmAlgorithm each tick.
+    [HideInInspector] public float commandReferenceYaw = 0f;
     public float desiredYawRate = 0.0f;
     public float attitude_control_yaw = 0.0f;
     // Swarm acceleration feedforward (world frame, set by SwarmAlgorithm)
@@ -151,17 +154,21 @@ public class VelocityControl : MonoBehaviour
 
         // --- User velocity controller ---
         // The command can be interpreted in the body frame (moves relative to the drone's
-        // heading) or the world frame (moves along fixed world axes). Either way the velocity
-        // error is expressed in world frame before being turned into an acceleration.
+        // heading) or the world frame (moves along fixed world axes, optionally rotated by a
+        // reference heading — see commandReferenceYaw, which the VR frame sets to the pilot body
+        // yaw). Either way the velocity error is expressed in world frame before being turned
+        // into an acceleration.
         Vector3 bodyVelocity = State.VelocityVector;
         Vector3 userVelCommand = new Vector3(userVelX, 0f, userVelZ);
 
         Vector3 worldUserVelError;
         if (userCommandInWorldFrame)
         {
-            // Command is already in world frame; compare against the world-frame velocity.
+            // Command is in world frame, expressed relative to commandReferenceYaw (0 = fixed
+            // world axes); rotate it into world space, then compare against the world velocity.
+            Vector3 worldCommand = Quaternion.Euler(0f, commandReferenceYaw, 0f) * userVelCommand;
             Vector3 worldVelocity = transform.TransformDirection(bodyVelocity);
-            worldUserVelError = worldVelocity - userVelCommand;
+            worldUserVelError = worldVelocity - worldCommand;
         }
         else
         {
@@ -341,9 +348,15 @@ public class VelocityControl : MonoBehaviour
 
     /// <summary>
     /// Selects whether the velocity command is interpreted in the world frame (fixed axes,
-    /// true) or the drone's body frame (relative to heading, false).
+    /// true) or the drone's body frame (relative to heading, false). When in world frame,
+    /// referenceYawDegrees rotates the command about the world vertical (0 = fixed axes;
+    /// the pilot body yaw for the VR frame).
     /// </summary>
-    public void SetCommandFrameWorld(bool useWorldFrame) => userCommandInWorldFrame = useWorldFrame;
+    public void SetCommandFrame(bool useWorldFrame, float referenceYawDegrees = 0f)
+    {
+        userCommandInWorldFrame = useWorldFrame;
+        commandReferenceYaw = referenceYawDegrees;
+    }
 
     /// <summary>
     /// Set yaw rate command from a normalised input in [-1, 1].

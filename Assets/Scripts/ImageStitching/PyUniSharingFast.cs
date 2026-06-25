@@ -247,6 +247,10 @@ public class PyUniSharingFast : MonoBehaviour
     private float bodyYaw;
     private bool bodyYawInitialized = false;
 
+    // Controller-integrated body heading in degrees (0-360). Exposed so the swarm's VR command
+    // frame can rotate velocity commands into the pilot's heading. Mirrors the private bodyYaw.
+    public static float BodyYawDegrees { get; private set; }
+
     private GameObject arena;
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 
@@ -623,6 +627,7 @@ public class PyUniSharingFast : MonoBehaviour
         {
             bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
             bodyYawInitialized = true;
+            BodyYawDegrees = bodyYaw;
             return;
         }
 
@@ -631,6 +636,7 @@ public class PyUniSharingFast : MonoBehaviour
         if (deltaYaw == 0f) return;
 
         bodyYaw = Mathf.Repeat(bodyYaw + deltaYaw, 360f);
+        BodyYawDegrees = bodyYaw;
 
         if (driveCameraRigYaw && cameraRigTransform != null)
         {

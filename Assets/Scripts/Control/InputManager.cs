@@ -18,6 +18,8 @@ public class InputManager : MonoBehaviour
     {
         Body,  // Velocity stick is relative to each drone's heading (yaw).
         World, // Velocity stick maps to fixed world axes regardless of heading.
+        VR,    // Velocity stick is relative to the pilot's body heading (the OVRCameraRig yaw,
+               // integrated from controller yaw in PyUniSharingFast).
     }
     [Header("Command Frame")]
     [Tooltip("Body: the velocity command moves the drone relative to its own heading. " +

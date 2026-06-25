@@ -161,9 +161,12 @@ public class SwarmAlgorithm : MonoBehaviour
             velocityControl.SetNormalisedVelocity(normRoll, normPitch); // Drones are facing forward in z
             velocityControl.SetNormalisedAltitudeRate(desired_alittude_rate);
 
-            // Forward the body/world command frame selected on the InputManager.
-            velocityControl.SetCommandFrameWorld(
-                InputManager.Instance.ActiveCommandFrame == InputManager.CommandFrame.World);
+            // Forward the command frame. Body rotates by each drone's heading; World uses fixed axes;
+            // VR rotates by the pilot body heading (OVRCameraRig yaw integrated in PyUniSharingFast).
+            InputManager.CommandFrame frame = InputManager.Instance.ActiveCommandFrame;
+            bool worldFrame = frame != InputManager.CommandFrame.Body;
+            float referenceYaw = frame == InputManager.CommandFrame.VR ? PyUniSharingFast.BodyYawDegrees : 0f;
+            velocityControl.SetCommandFrame(worldFrame, referenceYaw);
 
             if (inputStatus["spread"] > 0 && isSwarmSpreadEnabled)
                 SetSwarmSpread(inputStatus["spread"]);
