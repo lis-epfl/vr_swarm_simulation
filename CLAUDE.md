@@ -40,10 +40,14 @@ Three Windows named memory maps. **If you change a layout/offset, change both
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Stitching and the
   `OUTER_CIRCLE` screen layout only use boundary drones.
 - Image format across the bridge is **BGR + top-down**; the panorama is flipped once on the Python side.
-- `StitcherThreading.py` currently **hardcodes 640×360 input / 1920×1080 output**, overriding metadata
-  sizes (search `TODO: Remove hardcoding`). Keep `blockImageWidth/Height` at 640/360 in the C# inspector.
+- **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata
+  (`blockImageWidth/Height` + `panoramaImageWidth/Height` in `PyUniSharingFast`'s inspector); set those to
+  scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, so only the render + bridge
+  costs grow with resolution — not the 3 Hz warp pipeline.
 - **STABSTITCH render/warp are decoupled:** a ~15 fps render loop uses cached warp params only (no neural
-  net); a separate ~3 Hz thread runs the nets and updates the cache.
+  net); a separate ~3 Hz thread runs the nets and updates the cache. The render warp is a single
+  `grid_sample` over a **precomputed TPS sampling field** (`_compute_tps_flow`, cached per warp update) —
+  the float64 TPS solve + per-pixel RBF live in the warp thread, not the render loop.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

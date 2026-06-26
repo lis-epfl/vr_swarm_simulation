@@ -98,6 +98,62 @@ def _recover_mesh(norm_mesh, height, width):
     return mesh.reshape([batch_size, grid_h + 1, grid_w + 1, 2])
 
 
+def _compute_tps_flow(source, target, out_h, out_w):
+    """
+    Precompute the normalised TPS sampling field for ``F.grid_sample``.
+
+    Mirrors the FAST path of ``torch_tps_transform.transformer`` (solve the TPS
+    system, evaluate the radial-basis meshgrid over every output pixel, apply the
+    coefficient matrix) but returns the resulting flow field instead of a warped
+    image.  Because the field depends only on the meshes — not the pixels — it
+    can be computed once per warp update and reused by every render frame, which
+    removes the float64 solve + per-pixel RBF from the hot render loop.
+
+    Parameters
+    ----------
+    source, target : [B, P, 2] normalised control-point meshes (in [-1, 1]).
+    out_h, out_w   : output canvas size.
+
+    Returns
+    -------
+    flow : [B, out_h, out_w, 2] tensor for
+           ``F.grid_sample(img, flow, align_corners=True)``.
+    """
+    dev = source.device
+    B, P, _ = source.shape
+
+    # --- solve the TPS system (matches torch_tps_transform._solve_system) ---
+    ones = torch.ones(B, P, 1, device=dev)
+    p = torch.cat([ones, source], 2)                              # [B, P, 3]
+    d2 = torch.sum((p.reshape(B, -1, 1, 3) - p.reshape(B, 1, -1, 3)) ** 2, 3)
+    r = d2 * torch.log(d2 + 1e-6)                                 # [B, P, P]
+    zeros = torch.zeros(B, 3, 3, device=dev)
+    W = torch.cat([torch.cat([p, r], 2),
+                   torch.cat([zeros, p.permute(0, 2, 1)], 2)], 1)  # [B, P+3, P+3]
+    W_inv = torch.inverse(W.double())
+    tp = torch.cat([target, torch.zeros(B, 3, 2, device=dev)], 1)  # [B, P+3, 2]
+    T = torch.matmul(W_inv, tp.double()).permute(0, 2, 1).float()  # [B, 2, P+3]
+
+    # --- radial-basis meshgrid over the output canvas (matches _meshgrid) ---
+    x_t = torch.matmul(torch.ones(out_h, 1, device=dev),
+                       torch.linspace(-1.0, 1.0, out_w, device=dev).unsqueeze(0))
+    y_t = torch.matmul(torch.linspace(-1.0, 1.0, out_h, device=dev).unsqueeze(1),
+                       torch.ones(1, out_w, device=dev))
+    x_tf = x_t.reshape(1, 1, -1)                                  # [1, 1, h*w]
+    y_tf = y_t.reshape(1, 1, -1)
+    px = source[:, :, 0:1]                                        # [B, P, 1]
+    py = source[:, :, 1:2]
+    d2g = (x_tf - px) ** 2 + (y_tf - py) ** 2                     # [B, P, h*w]
+    rg = d2g * torch.log(d2g + 1e-6)
+    grid = torch.cat([torch.ones(B, 1, out_h * out_w, device=dev),
+                      x_tf.expand(B, -1, -1), y_tf.expand(B, -1, -1), rg], 1)  # [B, P+3, h*w]
+
+    Tg = torch.matmul(T, grid)                                   # [B, 2, h*w]
+    xs = Tg[:, 0, :].reshape(B, 1, out_h, out_w)
+    ys = Tg[:, 1, :].reshape(B, 1, out_h, out_w)
+    return torch.cat([xs, ys], 1).permute(0, 2, 3, 1)            # [B, out_h, out_w, 2]
+
+
 def _inter_grid_loss(mesh):
     """
     Angle-preservation (shape) distortion of a TPS mesh.
@@ -217,6 +273,14 @@ class StabStitcher(BaseStitcher):
         self.blur_sigma = blur_sigma
         self.border_size = border_size
 
+        # Mixed-precision toggles. Render fp16 halves the warp's compute + PCIe
+        # transfer and is visually lossless for image resampling. Net fp16 (the
+        # 3 Hz warp thread) is off by default — these StabStitch++ nets aren't
+        # validated in fp16 and a NaN there is hard to spot; enable it if the
+        # warp thread becomes the bottleneck.
+        self.render_fp16 = True
+        self.net_fp16 = False
+
         # --- Panorama quality estimate / auto-fallback ---
         # When the stitched panorama is judged bad (poor overlap alignment,
         # distorted/folded mesh, or a blown-up canvas) ``stab_pano`` returns
@@ -263,10 +327,10 @@ class StabStitcher(BaseStitcher):
         self._buf_img1 = deque(maxlen=self.BUFFER_LEN)   # left camera
         self._buf_img2 = deque(maxlen=self.BUFFER_LEN)   # centre camera
         self._buf_img3 = deque(maxlen=self.BUFFER_LEN)   # right camera
-        # High-res tensors (original resolution) for final warping
-        self._buf_img1_hr = deque(maxlen=self.BUFFER_LEN)
-        self._buf_img2_hr = deque(maxlen=self.BUFFER_LEN)
-        self._buf_img3_hr = deque(maxlen=self.BUFFER_LEN)
+        # Only the latest HR frame is ever warped (stab_pano supplies it directly),
+        # so the warp pipeline only needs the most-recent input's (H, W) — not a
+        # buffer of HR tensors. Stored by stab_pano each frame.
+        self._hr_shape = None
 
         # --- Warp caching for decoupled render/warp pipeline ---
         self._cached_warp = None   # dict with precomputed normalized meshes + output size
@@ -381,10 +445,11 @@ class StabStitcher(BaseStitcher):
         all_t1 = torch.cat([torch.cat(img1_list_a, 0), torch.cat(img1_list_b, 0)], 0).cuda()
         all_t2 = torch.cat([torch.cat(img2_list_a, 0), torch.cat(img2_list_b, 0)], 0).cuda()
 
-        out = build_SpatialNet(self.spatial_net, all_t1, all_t2)
-        # motion shapes: [2n, grid_h+1, grid_w+1, 2]
-        all_s1 = out["motion1"]
-        all_s2 = out["motion2"]
+        with torch.cuda.amp.autocast(enabled=self.net_fp16):
+            out = build_SpatialNet(self.spatial_net, all_t1, all_t2)
+        # motion shapes: [2n, grid_h+1, grid_w+1, 2] — back to fp32 for mesh math
+        all_s1 = out["motion1"].float()
+        all_s2 = out["motion2"].float()
 
         # Split back into per-frame lists for each pair
         def _split_to_lists(batched, offset, count):
@@ -420,8 +485,10 @@ class StabStitcher(BaseStitcher):
             torch.cat([img_list1[i], img_list2[i], img_list3[i]], 0).cuda()
             for i in range(len(img_list1))
         ]
-        out = build_TemporalNet(self.temporal_net, batched_list)
-        motion_list = out["motion_list"]  # list of BUFFER_LEN tensors [3, grid_h+1, grid_w+1, 2]
+        with torch.cuda.amp.autocast(enabled=self.net_fp16):
+            out = build_TemporalNet(self.temporal_net, batched_list)
+        # list of BUFFER_LEN tensors [3, grid_h+1, grid_w+1, 2] — fp32 for mesh math
+        motion_list = [m.float() for m in out["motion_list"]]
 
         # Unbatch: split each [3, ...] tensor into three [1, ...] tensors
         tmotion1 = [m[0:1] for m in motion_list]
@@ -483,14 +550,15 @@ class StabStitcher(BaseStitcher):
         combined_tsm1   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a1, tsmotion_b1)]
         combined_tsm2   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a2, tsmotion_b2)]
 
-        out = build_SmoothNet(
-            self.smooth_net,
-            combined_tsm1, combined_tsm2,
-            combined_smesh1, combined_smesh2,
-        )
-        # shape: [2, T, grid_h+1, grid_w+1, 2]
-        smooth1 = out["smooth_mesh1"]
-        smooth2 = out["smooth_mesh2"]
+        with torch.cuda.amp.autocast(enabled=self.net_fp16):
+            out = build_SmoothNet(
+                self.smooth_net,
+                combined_tsm1, combined_tsm2,
+                combined_smesh1, combined_smesh2,
+            )
+        # shape: [2, T, grid_h+1, grid_w+1, 2] — back to fp32 for mesh math
+        smooth1 = out["smooth_mesh1"].float()
+        smooth2 = out["smooth_mesh2"].float()
 
         return smooth1[0:1], smooth1[1:2], smooth2[0:1], smooth2[1:2]
 
@@ -807,9 +875,9 @@ class StabStitcher(BaseStitcher):
             self._buf_img1.append(self._preprocess(img1))
             self._buf_img2.append(self._preprocess(img2))
             self._buf_img3.append(self._preprocess(img3))
-            self._buf_img1_hr.append(self._to_hr_tensor(img1))
-            self._buf_img2_hr.append(self._to_hr_tensor(img2))
-            self._buf_img3_hr.append(self._to_hr_tensor(img3))
+            # Record only the latest HR size instead of buffering 7 unused
+            # HR tensors per camera (the warp pipeline reads just the dims).
+            self._hr_shape = (img1.shape[0], img1.shape[1])
             buf_ready = len(self._buf_img1) >= self.BUFFER_LEN
 
         if not buf_ready:
@@ -854,13 +922,12 @@ class StabStitcher(BaseStitcher):
         previous cached warps until this method stores a new set.
         """
         with self._buf_lock:
-            if len(self._buf_img1) < self.BUFFER_LEN:
+            if len(self._buf_img1) < self.BUFFER_LEN or self._hr_shape is None:
                 return
             img1_list = list(self._buf_img1)
             img2_list = list(self._buf_img2)
             img3_list = list(self._buf_img3)
-            hr_h = self._buf_img1_hr[-1].shape[2]
-            hr_w = self._buf_img1_hr[-1].shape[3]
+            hr_h, hr_w = self._hr_shape
 
         warp_params = self._compute_warp_params(
             img1_list, img2_list, img3_list, hr_h, hr_w
@@ -883,8 +950,7 @@ class StabStitcher(BaseStitcher):
             img1_list = list(self._buf_img1)
             img2_list = list(self._buf_img2)
             img3_list = list(self._buf_img3)
-            hr_h = self._buf_img1_hr[-1].shape[2]
-            hr_w = self._buf_img1_hr[-1].shape[3]
+            hr_h, hr_w = self._hr_shape
         return self._compute_warp_params(
             img1_list, img2_list, img3_list, hr_h, hr_w
         )
@@ -1073,6 +1139,16 @@ class StabStitcher(BaseStitcher):
         mask3_pre = masks_warped[2].unsqueeze(0)
         blend_weights = self._precompute_blend_weights(mask1_pre, mask2_pre, mask3_pre)
 
+        # ---------- precompute the TPS sampling field (geometry-only, warp thread) ----------
+        # The render loop only changes the input *pixels*; the warp field is fixed
+        # until the next warp update. Computing it here (once per ~3 Hz update)
+        # turns each render into a single grid_sample — removing the float64 solve
+        # and per-pixel RBF from the hot path, which is the dominant high-res cost.
+        flow = _compute_tps_flow(
+            torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3,
+            out_size[0], out_size[1],
+        )
+
         # ---------- panorama quality estimate + hysteresis (warp thread) ----------
         if self.quality_enabled:
             raw_ok, quality_score = self._estimate_quality(
@@ -1104,6 +1180,7 @@ class StabStitcher(BaseStitcher):
         return {
             'norm_m1': norm_m1, 'norm_m2': norm_m2, 'norm_m3': norm_m3,
             'out_h2': out_h2, 'out_w2': out_w2, 'out_size': out_size,
+            'flow': flow,
             'blend_weights': blend_weights,
             'quality_ok': quality_ok, 'quality_score': quality_score,
             'quality_reason': quality_reason,
@@ -1148,15 +1225,26 @@ class StabStitcher(BaseStitcher):
         norm_rigid_hr = self._norm_rigid_mesh_hr
         norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
 
+        flow          = warp_params.get('flow')
         blend_weights = warp_params.get('blend_weights')
+
+        def _warp(inp):
+            # Cached-field fast path: one grid_sample with the precomputed TPS
+            # sampling field (no float64 solve / per-pixel RBF). Falls back to the
+            # full TPS transformer only if a field wasn't cached (legacy params).
+            if flow is not None:
+                if self.render_fp16:
+                    return F.grid_sample(inp.half(), flow.half(),
+                                         align_corners=True).float()
+                return F.grid_sample(inp, flow, align_corners=True)
+            return torch_tps_transform.transformer(
+                inp, torch.cat([norm_m1, norm_m2, norm_m3], 0),
+                norm_rig3, out_size, mode=self.warp_mode,
+            )
 
         if blend_weights is not None:
             # ---------- fast path: RGB-only warp + precomputed weighted sum ----------
-            img_warp = torch_tps_transform.transformer(
-                torch.cat([img1_hr_t, img2_hr_t, img3_hr_t], 0),
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3, out_size, mode=self.warp_mode,
-            )
+            img_warp = _warp(torch.cat([img1_hr_t, img2_hr_t, img3_hr_t], 0))
             # w* shape [1, H, W] broadcasts over [3, H, W]
             fusion = (
                 img_warp[0, :3] * blend_weights['w1']
@@ -1167,12 +1255,10 @@ class StabStitcher(BaseStitcher):
             if self.save_masks:
                 # Regenerate masks from warped alpha for visualisation only
                 alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
-                _warp4 = torch_tps_transform.transformer(
+                _warp4 = _warp(
                     torch.cat([torch.cat([img1_hr_t, alpha], 1),
                                torch.cat([img2_hr_t, alpha], 1),
-                               torch.cat([img3_hr_t, alpha], 1)], 0),
-                    torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                    norm_rig3, out_size, mode=self.warp_mode,
+                               torch.cat([img3_hr_t, alpha], 1)], 0)
                 )
                 self._save_mask_viz(
                     _warp4[0, 3].unsqueeze(0).unsqueeze(0),
@@ -1188,11 +1274,7 @@ class StabStitcher(BaseStitcher):
             img2_t = torch.cat([img2_hr_t, alpha], 1)
             img3_t = torch.cat([img3_hr_t, alpha], 1)
 
-            img_warp = torch_tps_transform.transformer(
-                torch.cat([img1_t, img2_t, img3_t], 0),
-                torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3, out_size, mode=self.warp_mode,
-            )
+            img_warp = _warp(torch.cat([img1_t, img2_t, img3_t], 0))
 
             mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
             mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
@@ -1226,10 +1308,12 @@ class StabStitcher(BaseStitcher):
             else:
                 fusion = img_warp[0, :3]  # should not reach here
 
-        pano = fusion.cpu().numpy().transpose(1, 2, 0)
+        # Clamp + uint8 on the GPU so only 3 bytes/pixel cross PCIe (vs 12 as
+        # float32), then a single host copy. Output is HWC BGR uint8.
+        pano = fusion.clamp(0, 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
 
         if self.timing:
             t1 = time.perf_counter()
             print(f"[StabStitch render] warp+blend={t1-t0:.3f}s")
 
-        return pano.clip(0, 255).astype(np.uint8)
+        return pano

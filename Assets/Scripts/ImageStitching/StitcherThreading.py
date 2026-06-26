@@ -424,11 +424,20 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     output = readMetadataMemory(metadataMMF)
     batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
-    # ----------------- TODO: Remove hardcoding -----------------
-    batchImageWidth = 640
-    batchImageHeight = 360
-    
-    
+    # Resolution is driven entirely by Unity's metadata (blockImageWidth/Height +
+    # panoramaImageWidth/Height in PyUniSharingFast's inspector); scale resolution
+    # there. The neural-net warp runs at a fixed NET_W x NET_H regardless, so only
+    # the render + memory-bridge costs grow with resolution.
+    #
+    # Wait until Unity has published real (non-zero) sizes before sizing the block
+    # mapping — a pre-Start read yields zeros, which would make the mmap fail.
+    while batchImageWidth <= 0 or batchImageHeight <= 0:
+        if enable_debug_logging:
+            print("[first_thread] Waiting for Unity to publish image sizes...")
+        time.sleep(0.1)
+        output = readMetadataMemory(metadataMMF)
+        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
+
     # Calculate block-based memory layout
     metadataSize_per_block = 12  # flag (4) + droneId (4) + heading (4)
     imageSize = batchImageWidth * batchImageHeight * 3  # RGB24
@@ -446,6 +455,9 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     first_loop = True
     # Cache of last successfully read frame per block index {block_idx: (image, drone_id, heading)}
     block_cache = {}
+    # Panorama output mapping is opened once on the first write (below) and reused,
+    # rather than being re-created every frame as it was previously.
+    panoramaMMF = None
 
     while True:
         # Update metadata
@@ -457,14 +469,6 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             manager.checkHyperparaChanges(output)
         except NotImplementedError as e:
             print(f"[first_thread] fusion_mode error: {e}")
-
-        # ----------------- TODO: Remove hardcoding -----------------
-        batchImageWidth = 640
-        batchImageHeight = 360
-        imageCount = num_images
-        manager.processedImageWidth = 1920
-        manager.processedImageHeight = 1080
-        # print(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
 
         # Read images from block-based memory, falling back to cached frames for busy blocks
         try:
@@ -493,10 +497,12 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             sorted_headings = [headings[i] for i in sorted_indices]
 
             # DEBUG: dump frames read from BlockSharedMemory so the producer
-            # format (size / BGR order / orientation) can be eyeballed. Files are
-            # overwritten each cycle. Remove once verified.
-            for di, img in zip(sorted_drone_ids, sorted_images):
-                cv2.imwrite(f"debug_input_drone_{di}.jpg", img)
+            # format (size / BGR order / orientation) can be eyeballed. Gated behind
+            # enable_debug_logging — writing 3 JPEGs/frame is a disk-I/O stall that
+            # otherwise throttles this read/write loop.
+            if enable_debug_logging:
+                for di, img in zip(sorted_drone_ids, sorted_images):
+                    cv2.imwrite(f"debug_input_drone_{di}.jpg", img)
 
             # Store the images and metadata
             with manager.info_lock:
@@ -520,12 +526,13 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             quality_int = 1 if quality_ok else 0
             image_size = manager.processedImageWidth * manager.processedImageHeight * 3
 
-            try:
-                panoramaMMF = mmap.mmap(-1, image_size + 4 + 4, "PanoramaSharedMemory")
-            except Exception as e:
-                if enable_debug_logging:
-                    print(f"[first_thread] Error opening panorama memory: {e}")
-                continue
+            if panoramaMMF is None:
+                try:
+                    panoramaMMF = mmap.mmap(-1, image_size + 4 + 4, "PanoramaSharedMemory")
+                except Exception as e:
+                    if enable_debug_logging:
+                        print(f"[first_thread] Error opening panorama memory: {e}")
+                    continue
 
             if panorama is None:
                 # Fallback: panorama is bad — only update the quality flag so
@@ -541,7 +548,8 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 if H != manager.processedImageHeight or W != manager.processedImageWidth:
                     try:
                         panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
-                        cv2.imwrite("debug_panorama.jpg", panorama)  # Debug: save the panorama to disk
+                        if enable_debug_logging:
+                            cv2.imwrite("debug_panorama.jpg", panorama)
                     except:
                         continue
 
@@ -555,8 +563,11 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                         print(f"[first_thread] Error writing panorama to memory: {e}")
                     continue
         
-        time.sleep(0.05)
-        
+        # I/O poll period. End-to-end fps is the min of this, Unity's sendInterval /
+        # readInterval, and the render throughput — lower all of them together to
+        # raise fps. Kept modest so polling doesn't spin re-rendering unchanged frames.
+        time.sleep(0.02)
+
         if first_loop:
             first_loop = False
             time.sleep(1.)

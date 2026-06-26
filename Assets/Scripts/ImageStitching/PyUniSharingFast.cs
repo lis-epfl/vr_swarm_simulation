@@ -507,7 +507,9 @@ public class PyUniSharingFast : MonoBehaviour
 
         camera.Render();
         image.ReadPixels(new Rect(0, 0, blockImageWidth, blockImageHeight), 0, 0, false);
-        image.Apply(false);
+        // No image.Apply(): ReadPixels already populated the CPU-side pixel data
+        // that GetRawTextureData returns. Apply() would re-upload it to the GPU —
+        // pointless here since this texture is never rendered, only read on the CPU.
 
         byte[] imageBytes = image.GetRawTextureData();
         camera.targetTexture = previousRT;
