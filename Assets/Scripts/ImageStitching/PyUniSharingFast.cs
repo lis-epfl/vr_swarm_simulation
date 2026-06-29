@@ -124,6 +124,7 @@ public class PyUniSharingFast : MonoBehaviour
     public List<Camera> camerasToCapture;
     public List<bool> camerasToStitch;
     private List<AttitudeAlgorithm> stitchAttitudes;  // per-camera boundary estimator, index-aligned with camerasToCapture
+    private List<StateFinder> stitchStates;            // per-camera state (IsAlive), index-aligned with camerasToCapture
 
     private RenderTexture reusableTexture;
     private Texture2D image;
@@ -677,17 +678,20 @@ public class PyUniSharingFast : MonoBehaviour
             return bodyYaw;
         }
 
-        // Candidate set: boundary drones only (convex hull). If fewer than three
-        // are on the boundary, fall back to the full swarm so the panorama still forms.
+        // Candidate set: alive boundary drones only (convex hull). If fewer than three
+        // are on the boundary, fall back to all alive drones so the panorama still forms.
         List<int> candidates = new List<int>(camerasToCapture.Count);
         for (int i = 0; i < camerasToCapture.Count; i++)
         {
-            if (IsBoundary(i)) candidates.Add(i);
+            if (IsAlive(i) && IsBoundary(i)) candidates.Add(i);
         }
         if (candidates.Count < 3)
         {
             candidates.Clear();
-            for (int i = 0; i < camerasToCapture.Count; i++) candidates.Add(i);
+            for (int i = 0; i < camerasToCapture.Count; i++)
+            {
+                if (IsAlive(i)) candidates.Add(i);
+            }
         }
 
         int n = candidates.Count;
@@ -723,6 +727,17 @@ public class PyUniSharingFast : MonoBehaviour
             && i < stitchAttitudes.Count
             && stitchAttitudes[i] != null
             && stitchAttitudes[i].BoundaryEstimate;
+    }
+
+    // True when camera i's drone is still alive (DroneHealthMonitor parks dead drones
+    // far below the course). A missing/destroyed StateFinder is treated as alive so a
+    // setup gap never blanks the panorama. Read live each frame, like IsBoundary.
+    private bool IsAlive(int i)
+    {
+        return stitchStates == null
+            || i >= stitchStates.Count
+            || stitchStates[i] == null
+            || stitchStates[i].IsAlive;
     }
 
     // Local position within 'indices' whose camera yaw is closest to 'yaw' using
@@ -862,6 +877,7 @@ public class PyUniSharingFast : MonoBehaviour
     {
         camerasToCapture = new List<Camera>();
         stitchAttitudes = new List<AttitudeAlgorithm>();
+        stitchStates = new List<StateFinder>();
 
         GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase");
 
@@ -874,8 +890,12 @@ public class PyUniSharingFast : MonoBehaviour
                 camerasToCapture.Add(camera);
                 // Cache this drone's boundary estimator (aligned with camerasToCapture)
                 // so only convex-hull boundary drones are selected for stitching.
-                AttitudeAlgorithm attitude = drone.transform.Find("DroneParent")?.GetComponent<AttitudeAlgorithm>();
+                Transform droneParent = drone.transform.Find("DroneParent");
+                AttitudeAlgorithm attitude = droneParent?.GetComponent<AttitudeAlgorithm>();
                 stitchAttitudes.Add(attitude);
+                // Cache this drone's state too, so dead drones are excluded from stitching.
+                StateFinder state = droneParent?.GetComponent<VelocityControl>()?.State;
+                stitchStates.Add(state);
             }
             if(camerasToCapture.Count >maxBlockImageCount) break;
         }
