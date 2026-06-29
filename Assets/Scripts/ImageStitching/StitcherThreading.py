@@ -17,7 +17,39 @@ import networkx as nx
 import random
 from PIL import Image
 
+from collections import deque
+
 from BaseStitcher import *
+
+
+class RateMeter:
+    """
+    Tracks how often an event fires, averaged over a trailing time window.
+
+    Call ``tick()`` once per loop iteration; ``hz`` returns the average
+    frequency (completions per second) over the last ``window`` seconds.
+    """
+
+    def __init__(self, window=5.0):
+        self.window = window
+        self._times = deque()
+
+    def tick(self):
+        now = time.perf_counter()
+        self._times.append(now)
+        cutoff = now - self.window
+        while self._times and self._times[0] < cutoff:
+            self._times.popleft()
+
+    @property
+    def hz(self):
+        if len(self._times) < 2:
+            return 0.0
+        span = self._times[-1] - self._times[0]
+        if span <= 0:
+            return 0.0
+        # (n - 1) intervals over the elapsed span = average rate.
+        return (len(self._times) - 1) / span
 
 # --- UDIS ---
 HAS_UDIS = False
@@ -765,6 +797,7 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
     The ``timeout=0.1`` ensures non-STABSTITCH stitchers still loop even
     if the event is never explicitly signalled.
     """
+    rate = RateMeter(window=5.0)
     while True:
         # Block until first_thread signals new images (or timeout)
         manager.new_images_event.wait(timeout=0.1)
@@ -784,8 +817,10 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
             print("[stitching_thread] Error during stitching:")
             traceback.print_exc()
 
+        rate.tick()
+
         if verbose:
-            print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s")
+            print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s | {rate.hz:.1f} Hz (5s avg)")
 
         if debug:
             break
@@ -803,6 +838,7 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
     Acquires ``switching_lock2`` while computing to prevent stitcher
     switching from moving models off-GPU mid-computation.
     """
+    rate = RateMeter(window=5.0)
     while True:
         if manager.shared_images is None or manager.known_order is None:
             time.sleep(0.4)
@@ -820,9 +856,11 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
             print("[warp_thread] Error during warp computation:")
             traceback.print_exc()
 
+        rate.tick()
+
         if verbose:
             elapsed = time.perf_counter() - t
-            print(f"[warp_thread] Warp update: {elapsed:.3f}s")
+            print(f"[warp_thread] Warp update: {elapsed:.3f}s | {rate.hz:.1f} Hz (5s avg)")
 
         if debug:
             break
