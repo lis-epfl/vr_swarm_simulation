@@ -1,0 +1,48 @@
+fileFormatVersion: 2
+guid: 6940fa10651563d4685e4789aab359f2
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+  script: {fileID: 11500000, guid: 715df9372183c47e389bb6e19fbc3b52, type: 3}
+  editorImportSettings:
+    generateSecondaryUVSet: 0
+  importSettings:
+    nodeNameMethod: 1
+    animationMethod: 2
+    generateMipMaps: 1
+    texturesReadable: 0
+    defaultMinFilterMode: 9729
+    defaultMagFilterMode: 9729
+    anisotropicFilterLevel: 1
+  instantiationSettings:
+    mask: -1
+    layer: 0
+    skinUpdateWhenOffscreen: 1
+    lightIntensityFactor: 1
+    sceneObjectCreation: 2
+  assetDependencies:
+  - type: 0
+    originalUri: Assets\Models\dji_3_mini_pro_GLTF\scene.bin
+    assetPath: Assets\Models\dji_3_mini_pro_GLTF\scene.bin
+  - type: 1
+    originalUri: Assets\Models\dji_3_mini_pro_GLTF\textures\waike_baseColor.png
+    assetPath: Assets\Models\dji_3_mini_pro_GLTF\textures\waike_baseColor.png
+  - type: 1
+    originalUri: Assets\Models\dji_3_mini_pro_GLTF\textures\waike_metallicRoughness.png
+    assetPath: Assets\Models\dji_3_mini_pro_GLTF\textures\waike_metallicRoughness.png
+  - type: 1
+    originalUri: Assets\Models\dji_3_mini_pro_GLTF\textures\waike_normal.png
+    assetPath: Assets\Models\dji_3_mini_pro_GLTF\textures\waike_normal.png
+  reportItems:
+  - type: 0
+    code: 52
+    messages:
+    - 2
+  - type: 0
+    code: 52
+    messages:
+    - 3
