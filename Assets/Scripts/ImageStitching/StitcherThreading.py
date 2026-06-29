@@ -29,6 +29,12 @@ from BaseStitcher import *
 # the warp entirely and fall back to the individual feeds.
 MAX_STITCH_YAW_SEPARATION_DEG = 75.0   # FOV (~83 deg) minus a small overlap margin
 REASON_NO_OVERLAP = 8                  # new failing-gate reason (keep in sync with C# REASON_NO_OVERLAP)
+REASON_TOO_FEW_IMAGES = 16             # fewer than 3 selected feeds -> can't form L/C/R (keep in sync with C#)
+
+# A proper left/centre/right panorama needs at least this many distinct feeds.
+# With fewer, get_subsets_from_order wraps around and would stitch an image with
+# itself, so we skip the warp entirely and fall back to the individual feeds.
+MIN_STITCH_IMAGES = 3
 
 
 class RateMeter:
@@ -145,8 +151,9 @@ class StitcherManager:
 
         self.stitcherTypes = [k for k, v in self.stitchers.items() if v is not None]
         self.cylidnricalWarp = False
-        self.isRANSAC = False   
+        self.isRANSAC = False
         self.headAngle = 0
+        self.print_rate = True  # gates the per-loop stitch/warp Hz prints (driven by Unity metadata)
         self.shared_images = None
         self.shared_drone_ids = None
         self.shared_headings = None
@@ -303,6 +310,14 @@ class StitcherManager:
         """
         if self.known_order is None or len(self.known_order) != len(images):
             print(f"[WARNING] Known order not set or length mismatch. Expected {len(images)} images.")
+            return
+
+        # Need at least 3 distinct feeds to form a left/centre/right panorama.
+        # With fewer, get_subsets_from_order wraps around and stitches an image
+        # with itself (poor pano) -- skip stitching and fall back to feeds.
+        if len(images) < MIN_STITCH_IMAGES:
+            if self.panoram_queue.empty():
+                self.panoram_queue.put((None, False, REASON_TOO_FEW_IMAGES))
             return
 
         if self.active_stitcher_type == "STABSTITCH":
@@ -474,7 +489,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     """
     
     # Read metadata first to get image dimensions
-    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int), +1 quality_enabled (bool) +4 quality_threshold (float), +4 head_angle (float)
+    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4 + 1  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int), +1 quality_enabled (bool) +4 quality_threshold (float), +4 head_angle (float), +1 print_rate (bool)
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
     
     output = readMetadataMemory(metadataMMF)
@@ -521,6 +536,7 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
         # Live headset yaw drives which views are selected as centre/left/right.
         manager.headAngle = output["head_angle"]
+        manager.print_rate = output["print_rate"]
         try:
             manager.checkHyperparaChanges(output)
         except NotImplementedError as e:
@@ -843,7 +859,7 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
 
         rate.tick()
 
-        if verbose:
+        if verbose and manager.print_rate:
             print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s | {rate.hz:.1f} Hz (5s avg)")
 
         if debug:
@@ -882,7 +898,7 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
 
         rate.tick()
 
-        if verbose:
+        if verbose and manager.print_rate:
             elapsed = time.perf_counter() - t
             print(f"[warp_thread] Warp update: {elapsed:.3f}s | {rate.hz:.1f} Hz (5s avg)")
 
@@ -947,6 +963,10 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     # Read the live headset yaw (head look direction) used to pick stitched views
     head_angle = struct.unpack('f', metadataMMF.read(4))[0]
 
+    # Console-verbosity toggle: when False, suppress the per-loop stitch/warp rate prints
+    raw_bool = metadataMMF.read(1)
+    print_rate = bool(struct.unpack('B', raw_bool)[0])
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -965,6 +985,7 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "quality_enabled" : quality_enabled,
         "quality_threshold" : quality_threshold,
         "head_angle" : head_angle,
+        "print_rate" : print_rate,
     }
 
 def main():

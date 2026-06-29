@@ -786,6 +786,14 @@ class StabStitcher(BaseStitcher):
                 self._quality_fail_counts['photometric'] += 1
         self.last_quality_reason = reason_mask
 
+        # Per-eval metric print so the photometric signal can be watched live
+        # while tuning `quality_threshold`. Always on (the metric is computed at
+        # the ~3 Hz warp rate, so this is a few lines/sec, not a spam stream).
+        psnr_str = "n/a(canvas)" if psnr is None else f"{psnr:.2f}dB"
+        print(f"[StabStitch quality] psnr={psnr_str} "
+              f"(threshold>={self.quality_threshold:.1f}) "
+              f"{'OK' if quality_ok else 'BAD'}")
+
         if not self.quality_debug:
             return
 

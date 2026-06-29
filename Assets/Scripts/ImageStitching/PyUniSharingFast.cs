@@ -111,7 +111,7 @@ public class PyUniSharingFast : MonoBehaviour
     private int totalPanoramaSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4; // +8 blurKernelSize+blurSigma, +4 borderSize, +1 qualityFallbackEnabled (bool), +4 qualityThreshold (float), +4 headYaw (float)
+    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4 + 1; // +8 blurKernelSize+blurSigma, +4 borderSize, +1 qualityFallbackEnabled (bool), +4 qualityThreshold (float), +4 headYaw (float), +1 printStitchRate (bool)
 
     private IntPtr blockFileMap;
     private IntPtr blockPtr;
@@ -188,6 +188,7 @@ public class PyUniSharingFast : MonoBehaviour
     private const int REASON_DISTORTION = 1 << 2;    // folded/torn mesh (inter-grid loss)
     private const int REASON_PHOTOMETRIC = 1 << 3;   // overlap PSNR below threshold
     private const int REASON_NO_OVERLAP = 1 << 4;    // selected cameras' yaw gap exceeds FOV (pre-stitch gate)
+    private const int REASON_TOO_FEW_IMAGES = 1 << 5; // fewer than 3 selected feeds (pre-stitch gate)
     // Per-drone block layout (matches image_stream.py / ImageSharing.cs):
     //   int32 flag | int32 droneId | float32 heading | RGB24 image
     private const int blockFlagOffset = 0;
@@ -206,8 +207,9 @@ public class PyUniSharingFast : MonoBehaviour
     private const int maxTotalPanoramaSize = panoramaDataPosition + maxPanoramaSize;
 
     // Metadata layout: the pilot heading yaw (float) is appended after
-    // qualityThreshold. This carries the integrated body yaw (WriteBodyYaw), not
-    // the live HMD direction, so Python selects the same views as SelectStitchCameras.
+    // qualityThreshold (printStitchRate follows the yaw). This carries the
+    // integrated body yaw (WriteBodyYaw), not the live HMD direction, so Python
+    // selects the same views as SelectStitchCameras.
     // Offset = sizes(20) + stitcher(64) + cylindrical(1) + matcher(64) + ransac(1)
     //          + checks(4) + ratio(4) + score(4) + focal(4) + onlyIHN(1) + fusion(64)
     //          + blurKernel(4) + blurSigma(4) + border(4) + qualityEnabled(1) + qualityThreshold(4)
@@ -266,6 +268,10 @@ public class PyUniSharingFast : MonoBehaviour
     [Tooltip("Read-only: the drones currently sent to the stitcher, ordered left / centre / right. Updates during Play.")]
     private List<string> stitchedDrones = new List<string>();
     private string lastStitchedDronesKey;  // change-detection so the list only rebuilds when the selection changes
+
+    [SerializeField]
+    [Tooltip("Print the Python stitch/warp loop rate (Hz) to the console. Disable to declutter the log while reading other per-frame diagnostics (e.g. the StabStitch quality PSNR).")]
+    private bool printStitchRate = true;
 
     // Quality fallback: switch between the panorama screen and ScreenSpawn feeds
     [SerializeField] private ScreenSpawn screenSpawn;
@@ -505,6 +511,8 @@ public class PyUniSharingFast : MonoBehaviour
             reasons += (reasons.Length > 0 ? ", " : "") + "photometric (overlap PSNR below threshold)";
         if ((qualityWord & REASON_NO_OVERLAP) != 0)
             reasons += (reasons.Length > 0 ? ", " : "") + "no overlap (camera yaw gap exceeds FOV)";
+        if ((qualityWord & REASON_TOO_FEW_IMAGES) != 0)
+            reasons += (reasons.Length > 0 ? ", " : "") + "too few feeds (fewer than 3 selected)";
         return reasons.Length > 0 ? reasons : "unspecified";
     }
 
@@ -1233,6 +1241,10 @@ public class PyUniSharingFast : MonoBehaviour
         if (!BitConverter.IsLittleEndian) Array.Reverse(headYawBytes);
         Marshal.Copy(headYawBytes, 0, IntPtr.Add(metadataPtr, offset), 4);
         offset += 4;
+
+        // Console-verbosity toggle: gates Python's per-loop stitch/warp rate (Hz) prints.
+        Marshal.WriteByte(metadataPtr, offset, (byte)(printStitchRate ? 1 : 0));
+        offset += 1;
 
         if(hasStarted) return;
         offset += 64;
