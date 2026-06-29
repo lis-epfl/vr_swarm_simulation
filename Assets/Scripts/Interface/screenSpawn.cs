@@ -95,6 +95,20 @@ public class ScreenSpawn : MonoBehaviour
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm = null)
     {
+        // The per-drone feed resolution must match the block images PyUniSharingFast
+        // captures for the stitcher. PyUniSharingFast is the single source of truth:
+        // if its block resolution differs, adopt it here once, at spawn time (done
+        // before the render textures / aspect ratios below are built from width/height).
+        PyUniSharingFast stitchSharing = FindObjectOfType<PyUniSharingFast>();
+        if (stitchSharing != null &&
+            (width != stitchSharing.BlockImageWidth || height != stitchSharing.BlockImageHeight))
+        {
+            Debug.Log($"[ScreenSpawn] Overriding feed resolution {width}x{height} with " +
+                      $"PyUniSharingFast block resolution {stitchSharing.BlockImageWidth}x{stitchSharing.BlockImageHeight}.");
+            width = stitchSharing.BlockImageWidth;
+            height = stitchSharing.BlockImageHeight;
+        }
+
         // Find the OVRPlayerController in the scene if not already assigned
         if (player == null)
         {

@@ -25,6 +25,11 @@ public class PyUniSharingFast : MonoBehaviour
     [Tooltip("Must be 360 to match image_stream.py / StitcherThreading.py, which read a fixed 640x360 block.")]
     private int blockImageHeight = 360;
 
+    // Read-only access so ScreenSpawn can adopt the same FPV feed resolution
+    // (PyUniSharingFast is the single source of truth for the block resolution).
+    public int BlockImageWidth => blockImageWidth;
+    public int BlockImageHeight => blockImageHeight;
+
     [SerializeField]
     private int panoramaImageWidth = 600;
 
