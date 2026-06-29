@@ -22,6 +22,15 @@ from collections import deque
 from BaseStitcher import *
 
 
+# Camera horizontal FOV is ~83 deg (DJI Mini 3 Pro, 82.1 deg diagonal at 16:9 -- see
+# screenSpawn.cs). Two cameras share field-of-view only if their yaw headings are closer
+# than the FOV; require a margin so there is enough common region to stitch. If adjacent
+# selected cameras are farther apart than this, the perspectives can't overlap, so we skip
+# the warp entirely and fall back to the individual feeds.
+MAX_STITCH_YAW_SEPARATION_DEG = 75.0   # FOV (~83 deg) minus a small overlap margin
+REASON_NO_OVERLAP = 8                  # new failing-gate reason (keep in sync with C# REASON_NO_OVERLAP)
+
+
 class RateMeter:
     """
     Tracks how often an event fires, averaged over a trailing time window.
@@ -301,6 +310,21 @@ class StitcherManager:
             # warp params + standalone TPS warp (no neural network access).
             order = np.array(self.known_order)
             subset1, subset2 = self.get_subsets_from_order(order, len(images))
+
+            # Cheap geometric pre-check: only attempt the warp if adjacent selected
+            # cameras' yaw headings are close enough to actually share field-of-view.
+            # If either pair (left-centre or centre-right) is wider than the camera FOV,
+            # the perspectives don't overlap -- skip stitching and fall back to feeds.
+            def _yaw_gap(a_idx, b_idx):
+                d = abs(self.shared_headings[a_idx] - self.shared_headings[b_idx])
+                return 360 - d if d > 180 else d   # circular distance, matches get_subsets_from_order
+            gap_lc = _yaw_gap(subset1[0], subset1[1])
+            gap_cr = _yaw_gap(subset2[0], subset2[1])
+            if gap_lc > MAX_STITCH_YAW_SEPARATION_DEG or gap_cr > MAX_STITCH_YAW_SEPARATION_DEG:
+                if self.panoram_queue.empty():
+                    self.panoram_queue.put((None, False, REASON_NO_OVERLAP))
+                return
+
             pano, quality_ok, quality_reason = self.active_stitcher.stab_pano(images, subset1, subset2)
 
             # Always queue (pano, quality_ok, quality_reason): when quality_ok is
@@ -751,8 +775,8 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
     quality_position = 4
     data_position = 8
 
-    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1-3).
-    quality_word = (quality_int & 1) | ((quality_reason & 0x7) << 1)
+    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1-4).
+    quality_word = (quality_int & 1) | ((quality_reason & 0xF) << 1)
 
     while True:
         # Read the flag to check if Unity is ready for new data

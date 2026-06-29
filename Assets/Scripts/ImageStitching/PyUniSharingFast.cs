@@ -187,6 +187,7 @@ public class PyUniSharingFast : MonoBehaviour
     private const int REASON_CANVAS = 1 << 1;        // degenerate warp canvas size
     private const int REASON_DISTORTION = 1 << 2;    // folded/torn mesh (inter-grid loss)
     private const int REASON_PHOTOMETRIC = 1 << 3;   // overlap PSNR below threshold
+    private const int REASON_NO_OVERLAP = 1 << 4;    // selected cameras' yaw gap exceeds FOV (pre-stitch gate)
     // Per-drone block layout (matches image_stream.py / ImageSharing.cs):
     //   int32 flag | int32 droneId | float32 heading | RGB24 image
     private const int blockFlagOffset = 0;
@@ -502,6 +503,8 @@ public class PyUniSharingFast : MonoBehaviour
             reasons += (reasons.Length > 0 ? ", " : "") + "distortion (folded/torn mesh)";
         if ((qualityWord & REASON_PHOTOMETRIC) != 0)
             reasons += (reasons.Length > 0 ? ", " : "") + "photometric (overlap PSNR below threshold)";
+        if ((qualityWord & REASON_NO_OVERLAP) != 0)
+            reasons += (reasons.Length > 0 ? ", " : "") + "no overlap (camera yaw gap exceeds FOV)";
         return reasons.Length > 0 ? reasons : "unspecified";
     }
 
