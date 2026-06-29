@@ -27,6 +27,15 @@ public class InputManager : MonoBehaviour
     [SerializeField]
     private CommandFrame commandFrame = CommandFrame.Body;
 
+    [Header("Keyboard Spread (A/D)")]
+    [Tooltip("Hold D to widen the swarm and A to tighten it. Sets the Olfati-Saber d_ref. " +
+             "Stays inactive (-1) until first pressed, then holds the last value.")]
+    [SerializeField] private float spreadInitial = 7.0f;   // fallback start value if the SwarmManager isn't available
+    [SerializeField] private float spreadMin     = 1.0f;
+    [SerializeField] private float spreadMax     = 20.0f;
+    [SerializeField] private float spreadRate    = 0.5f;   // units per second while a key is held
+    private float keyboardSpread = -1.0f;                  // -1 ⇒ no override yet
+
     // Frame the user velocity command is expressed in. Read by SwarmAlgorithm each tick.
     public CommandFrame ActiveCommandFrame => commandFrame;
 
@@ -77,6 +86,7 @@ public class InputManager : MonoBehaviour
             inputStatus["pitch"] = 0.0f;
             inputStatus["roll"] = 0.0f;
             inputStatus["spread"] = -1.0f; // Default spread value
+            keyboardSpread = -1.0f;        // forget the integrated spread while locked
             inputStatus["userSwitch"] = -1;
             inputStatuRaw = new Dictionary<string, float>(inputStatus); // Keep raw status in sync
             return;
@@ -88,6 +98,21 @@ public class InputManager : MonoBehaviour
             inputStatus["pitch"]      = Input.GetAxisRaw("Pitch");
             inputStatus["roll"]       = Input.GetAxisRaw("Roll");
             inputStatus["userSwitch"] = Input.GetKey(KeyCode.Space) ? 1 : -1;
+
+            // A/D integrate a spread target (Olfati-Saber d_ref). Stays at -1 (no override)
+            // until first touched, then holds the last value after the keys are released.
+            float spreadDir = (Input.GetKey(KeyCode.D) ? 1f : 0f) - (Input.GetKey(KeyCode.A) ? 1f : 0f);
+            if (spreadDir != 0f)
+            {
+                if (keyboardSpread < 0f)
+                    keyboardSpread = SwarmManager.Instance != null
+                        ? SwarmManager.Instance.GetDRef()
+                        : spreadInitial;
+                keyboardSpread = Mathf.Clamp(keyboardSpread + spreadDir * spreadRate * Time.deltaTime,
+                                             spreadMin, spreadMax);
+            }
+            inputStatus["spread"] = keyboardSpread;
+
             inputStatuRaw = new Dictionary<string, float>(inputStatus);
         }
         if (inputMode == InputMode.JOYSTICK || (inputMode == InputMode.ANY && !Input.anyKeyDown))

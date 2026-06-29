@@ -335,7 +335,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   swarm: []
-  isSwarmSpreadEnabled: 0
+  isSwarmSpreadEnabled: 1
   desired_height: 4
 --- !u!65 &3658020977089312761
 BoxCollider:

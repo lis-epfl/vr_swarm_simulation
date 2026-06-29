@@ -129,6 +129,11 @@ public class SwarmAlgorithm : MonoBehaviour
         {
             olfatiSaberAlgorithm.d_ref = spread;
         }
+        // Mirror into the SwarmManager so the live spread is visible in the inspector.
+        if (swarmManager != null)
+        {
+            swarmManager.SetDRef(spread);
+        }
     }
     // Enable an algorithm script
     private void EnableAlgorithm(MonoBehaviour algorithm)

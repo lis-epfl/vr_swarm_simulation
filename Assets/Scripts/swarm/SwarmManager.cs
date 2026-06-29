@@ -109,6 +109,8 @@ public class SwarmManager : MonoBehaviour
 
     // Getters for the Olfati-Saber parameters
     public float GetDRef() => d_ref;
+    // Setter so the keyboard/joystick spread command is reflected in the inspector.
+    public void SetDRef(float value) => d_ref = value;
     public float GetR0Coh() => r0_coh;
     public float GetDelta() => delta;
     public float GetA() => a;
