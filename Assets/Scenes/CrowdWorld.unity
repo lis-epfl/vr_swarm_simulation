@@ -2129,14 +2129,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 337247161}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1 &345412766
 GameObject:
   m_ObjectHideFlags: 0
@@ -2990,14 +2993,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 462786096}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 11
   maxRadius: 15
-  speedMetersPerSec: 2
 --- !u!1 &473025812
 GameObject:
   m_ObjectHideFlags: 0
@@ -3468,14 +3474,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 565748911}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1001 &588009796
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4298,14 +4307,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 671517433}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1 &673671139
 GameObject:
   m_ObjectHideFlags: 0
@@ -4772,14 +4784,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 720977034}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1 &723357137
 GameObject:
   m_ObjectHideFlags: 0
@@ -4831,14 +4846,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 724115259}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 15
+  cornerRadius: 1
   minRadius: 21
   maxRadius: 23
-  speedMetersPerSec: 2
 --- !u!1 &738468594
 GameObject:
   m_ObjectHideFlags: 0
@@ -6636,14 +6654,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 1068240203}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1001 &1087706049
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -7321,14 +7342,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 1132343585}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1 &1135296749
 GameObject:
   m_ObjectHideFlags: 0
@@ -7529,14 +7553,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 1169857826}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1 &1171189838
 GameObject:
   m_ObjectHideFlags: 0
@@ -8058,14 +8085,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 1234713090}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 17
   maxRadius: 22
-  speedMetersPerSec: 2
 --- !u!1 &1235833964
 GameObject:
   m_ObjectHideFlags: 0
@@ -10216,14 +10246,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 1462976075}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1 &1470479952
 GameObject:
   m_ObjectHideFlags: 0
@@ -11430,14 +11463,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6526c01e962ac454da346177273ae6b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  shape: 0
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   obstacle: {fileID: 1605422369}
   verticalOffset: 0
   numWalkers: 20
+  speedMetersPerSec: 2
+  margin: 3
+  cornerRadius: 0.5
   minRadius: 14
   maxRadius: 19
-  speedMetersPerSec: 2
 --- !u!1 &1628145884
 GameObject:
   m_ObjectHideFlags: 0
