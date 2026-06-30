@@ -3665,9 +3665,12 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
+  spawnPattern: 0
   dronesAlongX: 3
   dronesAlongZ: 3
   droneSpacing: 5
+  circleDroneCount: 10
+  circleRadius: 5
   start_x: 1020
   start_y: 670
   start_z: 386
@@ -3728,10 +3731,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   inputMode: 2
   commandFrame: 1
-  spreadInitial: 7
-  spreadMin: 1
-  spreadMax: 20
-  spreadRate: 5
+  spreadInitial: 1
+  spreadMin: 0.5
+  spreadMax: 10
+  spreadRate: 0.5
 --- !u!1 &593138284
 GameObject:
   m_ObjectHideFlags: 0
