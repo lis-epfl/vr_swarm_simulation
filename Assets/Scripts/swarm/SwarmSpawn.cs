@@ -111,9 +111,14 @@ public class swarmSpawn : MonoBehaviour
         if (spawnPattern == SpawnPattern.Circle)
         {
             int count = Mathf.Max(1, circleDroneCount);
-            for (int i = 0; i < count; i++)
+
+            // One drone at the centre, the remaining (count - 1) evenly spaced on the ring.
+            yield return new Vector3(start_x, start_y, start_z);
+
+            int ringCount = count - 1;
+            for (int i = 0; i < ringCount; i++)
             {
-                float angle = i * Mathf.PI * 2f / count;
+                float angle = i * Mathf.PI * 2f / ringCount;
                 yield return new Vector3(
                     start_x + Mathf.Cos(angle) * circleRadius,
                     start_y,
