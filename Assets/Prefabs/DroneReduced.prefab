@@ -131,7 +131,7 @@ MonoBehaviour:
   maxPitchAngle: 0.75
   maxRollAngle: 0.75
   groundCollisionThreshold: 0.3
-  cohesionDistanceMultiplier: 0.1
+  cohesionDistanceMultiplier: 1
   stabilizationDelay: 1
   parkingY: -100
   droneCollisionRadius: 0.5
@@ -214,6 +214,7 @@ MonoBehaviour:
   gamma: 1
   c_vm: 1
   d_obs: 5
+  r0_obs: 6
   lambda_obs: 1
   c_obs: 4.3
   ScaleFactor: 10
