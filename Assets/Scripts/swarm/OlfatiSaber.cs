@@ -15,6 +15,7 @@ public class OlfatiSaber : MonoBehaviour
     public float gamma = 1.0f;
     public float c_vm = 1.0f;
     public float d_obs = 5.0f;
+    public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
     public float ScaleFactor = 10.0f;
@@ -103,7 +104,7 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 ObsCoh = Vector3.zero;
         Vector3 ObsVel = Vector3.zero;
 
-        Collider[] obstacles = Physics.OverlapSphere(dronePosition, d_obs * ScaleFactor, LayerMask.GetMask(k_ObstacleLayerName));
+        Collider[] obstacles = Physics.OverlapSphere(dronePosition, r0_obs * ScaleFactor, LayerMask.GetMask(k_ObstacleLayerName));
         foreach (Collider obstacleCollider in obstacles)
         {
             Vector3 closestPoint = obstacleCollider.ClosestPointOnBounds(dronePosition);
@@ -115,7 +116,7 @@ public class OlfatiSaber : MonoBehaviour
             float s_der = Vector3.Dot(droneVelocity, (pos_obs - dronePosition).normalized) / Mathf.Pow(1 + distanceToObstacle, 2);
             Vector3 vel_obs = s * droneVelocity - (s_der / s) * (pos_obs - dronePosition).normalized;
 
-            ObsCoh += GetCohesionForce(distanceToObstacle, d_obs, d_obs) * directionToObstacle.normalized;
+            ObsCoh += GetObstacleRepulsion(distanceToObstacle) * directionToObstacle.normalized;
             ObsVel += (vel_obs - droneVelocity);
         }
 
@@ -134,6 +135,17 @@ public class OlfatiSaber : MonoBehaviour
         float cohesionIntensityDerivative = GetCohesionIntensityDerivative(r, ref_d);
 
         return 1 / r0 * neighbourWeightDerivative * cohesionIntensity + neighbourWeight * cohesionIntensityDerivative;
+    }
+
+    // σ_1 saturation used by the paper's action functions: σ_1(z) = z / √(1 + z²)
+    private float Sigma1(float z) => z / Mathf.Sqrt(1.0f + z * z);
+
+    // Strictly-repulsive β-agent action function φ_β (Olfati-Saber Eq. 56):
+    //   φ_β(r) = ρ_h(r / d_obs) · (σ_1(r − d_obs) − 1)
+    // Always ≤ 0 (pushes the drone away from the obstacle) and exactly 0 for r ≥ d_obs.
+    public float GetObstacleRepulsion(float r)
+    {
+        return GetNeighbourWeight(r, d_obs) * (Sigma1(r - d_obs) - 1.0f);
     }
 
     // Cohesion intensity function

@@ -205,6 +205,7 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.gamma = swarmManager.GetGamma();
             olfatiSaberAlgorithm.c_vm = swarmManager.GetCVM();
             olfatiSaberAlgorithm.d_obs = swarmManager.GetDObs();
+            olfatiSaberAlgorithm.r0_obs = swarmManager.GetR0Obs();
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
             olfatiSaberAlgorithm.c_obs = swarmManager.GetCObs();
             olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();

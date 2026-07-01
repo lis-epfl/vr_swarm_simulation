@@ -11,7 +11,7 @@ public class TuneOlfatiSaberObstacle : MonoBehaviour
     [Header("Plot Settings")]
     public int textureWidth = 900;
     public int textureHeight = 400;
-    public float maxDistance = 10f;  // how far out to sample (obstacle detection range ~ d_obs)
+    public float maxDistance = 10f;  // how far out to sample (obstacle detection range ~ r0_obs)
     public float minDistance = 0f;   // usually 0
 
     [Header("Screen Placement")]
@@ -25,8 +25,8 @@ public class TuneOlfatiSaberObstacle : MonoBehaviour
 
     public enum plotChoice
     {
-        OBSTACLEFORCE,     // c_obs * GetCohesionForce(r, d_obs, d_obs)
-        NEIGHBOURWEIGHT,   // GetNeighbourWeight(r, d_obs)
+        OBSTACLEFORCE,     // c_obs * GetObstacleRepulsion(r)  (φ_β, strictly repulsive)
+        NEIGHBOURWEIGHT,   // GetNeighbourWeight(r, r0_obs)
         SHAPEFUNCTION,     // GetCohesionIntensity(r, d_obs)
     }
 
@@ -177,13 +177,13 @@ public class TuneOlfatiSaberObstacle : MonoBehaviour
     {
         if (plotType == plotChoice.OBSTACLEFORCE)
         {
-            // Obstacle cohesion term as used in GetObstacleForce: c_obs scales it,
-            // and d_obs is used for BOTH the reference distance and the cutoff radius.
-            return olfatiSaber.c_obs * olfatiSaber.GetCohesionForce(distance, olfatiSaber.d_obs, olfatiSaber.d_obs);
+            // Strictly-repulsive obstacle term as used in GetObstacleForce: c_obs scales the
+            // β action function φ_β, which repels only (≤ 0) and vanishes at/beyond d_obs.
+            return olfatiSaber.c_obs * olfatiSaber.GetObstacleRepulsion(distance);
         }
         else if (plotType == plotChoice.NEIGHBOURWEIGHT)
         {
-            return olfatiSaber.GetNeighbourWeight(distance, olfatiSaber.d_obs);
+            return olfatiSaber.GetNeighbourWeight(distance, olfatiSaber.r0_obs);
         }
         else // SHAPEFUNCTION
         {
@@ -208,7 +208,7 @@ public class TuneOlfatiSaberObstacle : MonoBehaviour
         // Find obstacles within the detection range (same query as GetObstacleForce)
         Collider[] obstacles = Physics.OverlapSphere(
             selectedPos,
-            olfatiSaber.d_obs * olfatiSaber.ScaleFactor,
+            olfatiSaber.r0_obs * olfatiSaber.ScaleFactor,
             LayerMask.GetMask(k_ObstacleLayerName));
 
         foreach (Collider obstacleCollider in obstacles)
