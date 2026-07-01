@@ -29,6 +29,7 @@ public class swarmSpawn : MonoBehaviour
     public bool RandomizeMassAndInertia = false;
     public int YawDegrees = 0;
     public bool trackBirdsEye = false;
+    public bool drawGizmos = true;
     public GameObject swarmParent;
     private InterfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
@@ -218,13 +219,14 @@ public class swarmSpawn : MonoBehaviour
             }
         }
 
+        if (!drawGizmos)
+            return;
+
         uint index = 0;
         float armSpacing = spawnPattern == SpawnPattern.Circle ? circleRadius : droneSpacing;
 
         foreach (Vector3 pos in GetSpawnPositions())
         {
-            index++;
-
             // Drone body
             Gizmos.color = new Color(0.3f, 0.8f, 1f, 0.9f);
             Gizmos.DrawSphere(pos, 0.25f);
@@ -235,9 +237,11 @@ public class swarmSpawn : MonoBehaviour
             Gizmos.DrawLine(pos + Vector3.left  * armLen, pos + Vector3.right   * armLen);
             Gizmos.DrawLine(pos + Vector3.back  * armLen, pos + Vector3.forward * armLen);
 
-            // Label for drone number on top of the sphere
+            // Label for drone number on top of the sphere (matches "Drone N" naming, starts at 0)
             UnityEditor.Handles.color = new Color(0.3f, 0.8f, 1f, 0.9f);
             UnityEditor.Handles.Label(pos + Vector3.up * 0.5f, $"{index}");
+
+            index++;
         }
 
         if (spawnPattern == SpawnPattern.Circle)
