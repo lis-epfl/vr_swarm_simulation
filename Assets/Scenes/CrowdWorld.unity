@@ -3870,8 +3870,6 @@ GameObject:
   - component: {fileID: 590275744}
   - component: {fileID: 590275745}
   - component: {fileID: 590275739}
-  - component: {fileID: 590275746}
-  - component: {fileID: 590275747}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -4035,44 +4033,6 @@ MonoBehaviour:
   spreadMin: 0.5
   spreadMax: 10
   spreadRate: 0.5
---- !u!114 &590275746
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a2770140ba209344fb020b729623ef52, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  olfatiSaber: {fileID: 0}
-  selectedDroneIndex: 3
-  textureWidth: 900
-  textureHeight: 400
-  maxDistance: 10
-  minDistance: 0
-  guiOriginX: 10
-  guiOriginY: 440
-  xTickCount: 5
-  yTickCount: 5
-  plotType: 0
-  forceRange: 10
---- !u!114 &590275747
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 5af3a3d4aace7594d97a91bccb56f12e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  selectedDroneIndex: 3
-  logInterval: 0.5
 --- !u!1 &593138284
 GameObject:
   m_ObjectHideFlags: 0
