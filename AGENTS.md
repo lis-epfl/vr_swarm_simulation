@@ -25,3 +25,7 @@ yaw is separate via AttitudeAlgorithm.
 
 - [StitcherThreading.py](Assets/Scripts/ImageStitching/StitcherThreading.py) — orchestrator + 3 threads (block read, fast render, slow warp); `StitcherManager` holds the backends.
 - [StabStitcher.py](Assets/Scripts/ImageStitching/StabStitcher.py) — StabStitch++ backend: rolling 7-frame buffer, Spatial/Temporal/Smooth nets, fusion modes, and the panorama-quality estimate.
+
+## Environment / scenery
+
+- [FountainTileReplacer.cs](Assets/Scripts/Environment/FountainTileReplacer.cs) — at play-mode Start, randomly swaps `n` of the `MC_Patch_*` tiles under `City_Pack_01` for a fountain prefab (X/Z from the tile, Y pinned to 0).
