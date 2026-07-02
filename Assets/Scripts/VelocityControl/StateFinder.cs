@@ -45,8 +45,16 @@ public class StateFinder : MonoBehaviour {
 		float Pitch = worldDown.z; // Small angle approximation (radians)
 		float Roll = -worldDown.x; // Small angle approximation (radians)
 
+		// Heading from the forward vector projected onto the horizontal plane, so it stays
+		// correct while the drone pitches/rolls under acceleration (reading eulerAngles.y
+		// directly drifts with tilt). Mirrors FPVCameraScript's yaw handling.
+		Vector3 fwd = vc.transform.forward;
+		fwd.y = 0f;
+		float rawYaw = fwd.sqrMagnitude > 1e-6f
+			? Quaternion.LookRotation(fwd, Vector3.up).eulerAngles.y
+			: vc.transform.eulerAngles.y;
+
 		// Normalize yaw to [-180, 180] range to avoid 360 degree wraparound issue
-		float rawYaw = vc.transform.eulerAngles.y;
 		float Yaw = (rawYaw > 180f) ? rawYaw - 360f : rawYaw; // Now in [-180, 180] degrees
 		Yaw *= Mathf.Deg2Rad; // Convert to radians
 

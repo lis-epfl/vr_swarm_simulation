@@ -217,8 +217,23 @@ public class VelocityControl : MonoBehaviour
         // Clamp the filtered yaw rate to the maximum allowed value
         filteredYawRate = Mathf.Clamp(filteredYawRate, -maxYawRate, maxYawRate);
 
-        // Use the filtered yaw rate for further calculations
-        desiredOmega.y = filteredYawRate;
+        // filteredYawRate is a heading rate about the WORLD vertical, but desiredOmega is a
+        // body-frame angular-velocity command (differenced against the body-frame
+        // State.AngularVelocityVector below). When the drone tilts to translate, body-Y is no
+        // longer world-up, so writing the yaw rate straight into desiredOmega.y under-rotates the
+        // heading and bleeds the command into pitch/roll — heading drifts during motion. Express
+        // the world-vertical yaw rate in the body frame instead. desiredOmega.y currently holds a
+        // meaningless -thetaError.y/tau term (desiredTheta.y is always 0), so clear it first.
+        desiredOmega.y = 0.0f;
+        Vector3 upBody = transform.InverseTransformDirection(Vector3.up);
+        // The pitch/roll rate commands themselves also have a world-vertical component while the
+        // drone is tilted, so aggressive tilt reversals rotate the heading even with a zero yaw
+        // command — far faster than the outer heading loop can correct. Subtract that component in
+        // the yaw channel so the commanded body rate's world-vertical projection equals
+        // filteredYawRate exactly (Dot(desiredOmega, upBody) == filteredYawRate), instead of
+        // filteredYawRate plus the tilt-correction leak.
+        float tiltHeadingLeak = desiredOmega.x * upBody.x + desiredOmega.z * upBody.z;
+        desiredOmega += (filteredYawRate - tiltHeadingLeak) * upBody;
 
         Vector3 omegaError = State.AngularVelocityVector - desiredOmega;
 

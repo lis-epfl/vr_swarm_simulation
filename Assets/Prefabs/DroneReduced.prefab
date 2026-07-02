@@ -108,7 +108,7 @@ MonoBehaviour:
   HeightKp: 5
   HeightKd: 2
   heightDerivFilterCoeff: 0.5
-  yawFilterCoefficient: 0.1
+  yawFilterCoefficient: 1
   SwarmAccelFilterCoefficient: 1
   timeConstantAcceleration: 0.75
   currentAlgorithm: 0

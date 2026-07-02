@@ -19,6 +19,9 @@ public class AttitudeAlgorithm : MonoBehaviour
     public float NeighborYawSmoothingFactor = 0.1f;
     [Tooltip("Seconds the hull-membership reading must persist before BoundaryEstimate flips. Prevents feed flicker.")]
     public float BoundaryHysteresisTime = 0.5f;
+    [Tooltip("Time constant (s) of the low-pass on the hull-derived target heading. Keeps the yaw " +
+             "setpoint steady while the hull deforms during manoeuvres; 0 = no smoothing.")]
+    public float TargetHeadingFilterTime = 0.3f;
 
     private string droneName;
     private SwarmManager swarmManager;
@@ -26,6 +29,10 @@ public class AttitudeAlgorithm : MonoBehaviour
     private float inputYawRate = 0.0f;
     private float smoothedNeighborYaw = 0.0f;
     private float boundaryTimer = 0.0f;
+    // Smoothed hull-derived heading setpoint, held across frames where the drone momentarily
+    // drops off the hull so the yaw command stays continuous instead of chattering to zero.
+    private float targetHeading = 0.0f;
+    private bool hasTargetHeading = false;
     
     // Awake is called before Start
     void Awake()
@@ -90,6 +97,7 @@ public class AttitudeAlgorithm : MonoBehaviour
         vc.attitude_control_yaw = 0.0f;
         boundaryTimer = 0.0f;
         BoundaryEstimate = false;
+        hasTargetHeading = false;
     }
 
     /// <summary>
@@ -243,8 +251,23 @@ public class AttitudeAlgorithm : MonoBehaviour
             {
                 continue;
             }
+            // Skip crashed drones: they stay in the swarm list where they fell, and their stale
+            // XZ position would otherwise stay a hull vertex and warp every neighbour's heading.
+            VelocityControl droneVC = droneParent.GetComponent<VelocityControl>();
+            if (droneVC != null && droneVC.State != null && !droneVC.State.IsAlive)
+            {
+                continue;
+            }
             Vector3 position = droneParent.position;
             positions2D.Add(new Vector2(position.x, position.z));
+        }
+
+        // Everyone crashed (or filtered out): no hull to build, and ComputeConvexHull
+        // cannot handle an empty point set.
+        if (positions2D.Count == 0)
+        {
+            UpdateBoundaryEstimate(false);
+            return 0.0f;
         }
 
         // Compute the convex hull of the entire swarm
@@ -256,33 +279,59 @@ public class AttitudeAlgorithm : MonoBehaviour
 
     /// <summary>
     /// Shared tail of both convex-hull algorithms. Given a hull and the current drone's position,
-    /// debounces the boundary flag and, when the drone is a hull vertex, returns the yaw rate that
-    /// turns it to face outward (or inward when PointInwards is set).
+    /// debounces the boundary flag and maintains a smoothed target heading that faces the drone
+    /// outward (or inward when PointInwards is set). The target is only *recomputed* while the
+    /// drone is a hull vertex, but it is *held* (and still tracked) while the debounced
+    /// BoundaryEstimate says the drone is still a boundary drone — so a momentary hull dropout
+    /// during a manoeuvre no longer zeroes the yaw command and lets the heading drift.
     /// </summary>
     private float getYawRateFromHull(IList<Vector2> convexHull, Vector2 currentDronePosition)
     {
         // Check if the current drone is a vertex of the convex hull
         bool onHullNow = convexHull.Contains(currentDronePosition);
 
-        // Publish the (debounced) boundary flag, then bail if there's no vertex to bisect.
-        // Yaw uses the instantaneous reading because a bisector only exists while the drone
-        // is actually a hull vertex; display gating uses the smoothed flag instead.
+        // Publish the (debounced) boundary flag used for display gating (panorama / OUTER_CIRCLE).
         UpdateBoundaryEstimate(onHullNow);
-        if (!onHullNow)
+
+        if (onHullNow)
+        {
+            // Interior angle bisector of a convex vertex points toward the swarm centroid (inward).
+            Vector2 inwardBisector = ConvexHull.ComputeBisector(convexHull, currentDronePosition, false);
+
+            // Default goal: face outward (away from centroid). PointInwards flips it to face the centroid.
+            Vector2 targetDir = PointInwards ? inwardBisector : -inwardBisector;
+
+            // forward == (sin yaw, cos yaw) in XZ, so Angles.y == Atan2(forward.x, forward.z).
+            // Express the target direction in that same yaw space so the sign convention matches
+            // VelocityControl.
+            float rawTargetHeading = Mathf.Atan2(targetDir.x, targetDir.y);
+
+            if (!hasTargetHeading || TargetHeadingFilterTime <= 0.0f)
+            {
+                targetHeading = rawTargetHeading;
+                hasTargetHeading = true;
+            }
+            else
+            {
+                // Frame-rate-independent circular low-pass: hull deformation during manoeuvres
+                // makes the raw bisector heading thrash; the drones should not chase every jump.
+                float alpha = 1.0f - Mathf.Exp(-Time.fixedDeltaTime / TargetHeadingFilterTime);
+                targetHeading = WrapAngle(targetHeading + alpha * WrapAngle(rawTargetHeading - targetHeading));
+            }
+        }
+        else if (!BoundaryEstimate)
+        {
+            // Debounce agrees the drone is genuinely interior: release the held heading.
+            hasTargetHeading = false;
+        }
+        // else: momentarily off the hull but still a boundary drone per the debounced flag —
+        // keep correcting toward the last hull-derived heading instead of free-drifting.
+
+        if (!hasTargetHeading)
         {
             return 0.0f;
         }
 
-        // Interior angle bisector of a convex vertex points toward the swarm centroid (inward).
-        Vector2 inwardBisector = ConvexHull.ComputeBisector(convexHull, currentDronePosition, false);
-
-        // Default goal: face outward (away from centroid). PointInwards flips it to face the centroid.
-        Vector2 targetDir = PointInwards ? inwardBisector : -inwardBisector;
-
-        // forward == (sin yaw, cos yaw) in XZ, so Angles.y == Atan2(forward.x, forward.z).
-        // Express the target direction in that same yaw space and reuse the SIMPLE branch's P-law,
-        // which guarantees the sign convention matches VelocityControl.
-        float targetHeading = Mathf.Atan2(targetDir.x, targetDir.y);
         float error = WrapAngle(targetHeading - vc.State.Angles.y);
         return YawCorrectionFactor * error;
     }
@@ -315,6 +364,10 @@ public class AttitudeAlgorithm : MonoBehaviour
         NumNeighbours = swarmManager.GetNumNeighbours();
         NumDimensions = swarmManager.GetNumDimensions();
         PointInwards = swarmManager.GetPointInwards();
+
+        // Parameter/algorithm changes invalidate the held hull heading (e.g. PointInwards flips
+        // the goal 180 degrees); drop it so the next hull pass rebuilds it from scratch.
+        hasTargetHeading = false;
     }
 
     void OnDestroy()
