@@ -547,7 +547,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ScreenSpawn: {fileID: 0}
   DroneIndicator: {fileID: 590275751}
-  numImages: 3
+  numImages: 4
   processedMapName: BlockSharedMemory
   readInterval: 0.05
   enableDebugLogging: 0
