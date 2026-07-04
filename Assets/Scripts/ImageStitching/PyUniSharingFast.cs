@@ -18,12 +18,12 @@ public class PyUniSharingFast : MonoBehaviour
 
     [Header("Image Dimensions")]
     [SerializeField]
-    [Tooltip("Must be 640 to match image_stream.py / StitcherThreading.py, which read a fixed 640x360 block.")]
-    private int blockImageWidth = 640;
+    [Tooltip("Must be 800 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
+    private int blockImageWidth = 800;
 
     [SerializeField]
-    [Tooltip("Must be 360 to match image_stream.py / StitcherThreading.py, which read a fixed 640x360 block.")]
-    private int blockImageHeight = 360;
+    [Tooltip("Must be 450 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
+    private int blockImageHeight = 450;
 
     // Read-only access so ScreenSpawn can adopt the same FPV feed resolution
     // (PyUniSharingFast is the single source of truth for the block resolution).

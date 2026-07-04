@@ -260,12 +260,12 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: blockImageWidth
-      value: 640
+      value: 800
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: blockImageHeight
-      value: 360
+      value: 450
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -275,12 +275,12 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: panoramaImageWidth
-      value: 1920
+      value: 1600
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: panoramaImageHeight
-      value: 1080
+      value: 600
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -547,8 +547,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ScreenSpawn: {fileID: 0}
   DroneIndicator: {fileID: 590275751}
-  numImages: 4
-  processedMapName: BlockSharedMemory
+  numImages: 5
+  processedMapName: DroneFeedSharedMemory
+  enableStitchWriting: 1
+  stitchFrameMaxAge: 1
+  headingOffsetDegrees: 0
   readInterval: 0.05
   enableDebugLogging: 0
   enableImageValidation: 0

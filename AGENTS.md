@@ -19,6 +19,7 @@ yaw is separate via AttitudeAlgorithm.
 ## VR display & camera capture (Unity ↔ Python bridge)
 
 - [PyUniSharingFast.cs](Assets/Scripts/ImageStitching/PyUniSharingFast.cs) — captures the 3 head-facing boundary feeds → `BlockSharedMemory`, writes metadata/HMD yaw, reads the panorama, renders the curved screen, and drives the quality fallback.
+- [ImageSharing.cs](Assets/Scripts/dji/ImageSharing.cs) — real-drone mode (DJIScene): reads all live feeds from `DroneFeedSharedMemory` (written by the DJI_Swarm repo's `image_stream_feed.py`), shows them on the feed screens, and re-publishes the 3 body-yaw-selected views into `BlockSharedMemory` for the stitcher.
 - [screenSpawn.cs](Assets/Scripts/Interface/screenSpawn.cs) — per-drone feed quads with several layouts; `ShowFallbackFeeds(on, style)` is the fallback entry point.
 
 ## Python stitching pipeline
