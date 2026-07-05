@@ -74,5 +74,5 @@ public class AngularVelocity
 public class Switches
 {
     public int s1;
-    public int s2;
+    public float s2; // Gimbal pitch dial (raw -1..1), mapped to swarm gimbal pitch in Unity.
 }

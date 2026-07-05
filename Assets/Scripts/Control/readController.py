@@ -54,7 +54,10 @@ def get_joystick_data(joystick, center_ang_x, current_ang_x):
 
     data['switches'] = {
         's1': 1 if panorama_enabled else -1, # Panorama enable (toggled by click switch)
-        's2': int(round(joystick.get_axis(6), 0))
+        # Gimbal pitch dial (axis 4): raw -1..1, mapped to the swarm-wide FPV camera
+        # pitch in Unity (InputManager -> SwarmManager). Sent as a float (not rounded)
+        # so the pitch sweeps smoothly across the gimbal range.
+        's2': joystick.get_axis(4)
     }
 
     return data

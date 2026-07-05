@@ -99,6 +99,18 @@ public class SwarmManager : MonoBehaviour
         FPVCameraScript.SetPitch(gimbalPitch);
     }
 
+    // Drives the swarm-wide FPV gimbal pitch from a normalized dial input in [-1, 1]
+    // (e.g. the joystick pitch dial), mapping linearly across the full gimbal range
+    // (dial -1 = straight down, +1 = up). Updates the Inspector field so the value is
+    // visible/tunable, then pushes it to every drone's camera.
+    public void SetGimbalPitchNormalized(float dial)
+    {
+        dial = Mathf.Clamp(dial, -1f, 1f);
+        gimbalPitch = Mathf.Lerp(FPVCameraScript.MinPitch, FPVCameraScript.MaxPitch,
+                                 (dial + 1f) * 0.5f);
+        ApplyGimbalPitch();
+    }
+
     // Getters
     public bool GetDimensions() => is3D;
 

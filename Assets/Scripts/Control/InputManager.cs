@@ -127,6 +127,10 @@ public class InputManager : MonoBehaviour
                 inputStatus["spread"]     = joystickData.angular.x;
                 inputStatus["userSwitch"] = joystickData.switches.s1;
                 inputStatuRaw = new Dictionary<string, float>(inputStatus);
+
+                // Pitch dial (s2, raw -1..1) drives the swarm-wide FPV gimbal pitch.
+                if (SwarmManager.Instance != null)
+                    SwarmManager.Instance.SetGimbalPitchNormalized(joystickData.switches.s2);
             }
         }
     }
