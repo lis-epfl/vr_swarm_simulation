@@ -282,6 +282,14 @@ public class PyUniSharingFast : MonoBehaviour
     [SerializeField] private ScreenSpawn screenSpawn;
     private bool panoramaDisplayActive = true;
 
+    // Pilot toggle for the panorama, driven by the controller click switch
+    // (InputManager "userSwitch": 1 = show panorama, -1 = show individual feeds).
+    // readController.py latches the spring-loaded switch into this on/off level,
+    // so here we just mirror the level. When off, the panorama is hidden and the
+    // individual feeds are shown (same display path as the quality fallback); the
+    // Python stitcher keeps running the whole time.
+    private bool panoramaUserEnabled = true;
+
     [Header("Stitched Drone Screens")]
     [SerializeField]
     [Tooltip("Hide the individual ScreenSpawn feeds for the drones currently being stitched into the panorama (they already appear in the panorama). Only applies while the panorama is displayed; during quality-fallback all feeds reappear.")]
@@ -448,6 +456,14 @@ public class PyUniSharingFast : MonoBehaviour
             }
         }
 
+        // Mirror the pilot's panorama toggle from the click switch. readController.py
+        // already latches the spring-loaded switch, so userSwitch is a stable on/off
+        // level (1 = show panorama, -1 = show feeds); Space does the same on keyboard.
+        if (InputManager.Instance != null)
+        {
+            panoramaUserEnabled = InputManager.Instance.InputStatus["userSwitch"] > 0f;
+        }
+
         // Handle panorama reading from PanoramaSharedMemory
         if (enablePanoramaReading)
         {
@@ -463,7 +479,9 @@ public class PyUniSharingFast : MonoBehaviour
                 // meaningful when bit 0 is clear). When the panorama is bad (and
                 // fallback is enabled) show the individual drone feeds instead.
                 bool qualityOk = (qualityWord & QUALITY_OK_BIT) != 0;
-                bool panoramaGood = !qualityFallbackEnabled || qualityOk;
+                // The pilot's click-switch toggle overrides quality: if they turned
+                // the panorama off, hide it and show the feeds regardless of quality.
+                bool panoramaGood = (!qualityFallbackEnabled || qualityOk) && panoramaUserEnabled;
                 ApplyQualityFallback(panoramaGood, qualityWord);
                 if (panoramaGood)
                 {
@@ -491,7 +509,10 @@ public class PyUniSharingFast : MonoBehaviour
         // panorama disappears, report which stitch-quality gate(s) tripped.
         if (!panoramaGood)
         {
-            Debug.Log($"[Panorama] hidden — showing individual feeds. Stitch quality bad: {DescribeQualityReason(qualityWord)}.");
+            string reason = !panoramaUserEnabled
+                ? "toggled off by pilot (click switch)"
+                : $"stitch quality bad: {DescribeQualityReason(qualityWord)}";
+            Debug.Log($"[Panorama] hidden — showing individual feeds. {reason}.");
         }
         else
         {

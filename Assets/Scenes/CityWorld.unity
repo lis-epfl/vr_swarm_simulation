@@ -3422,10 +3422,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   cityPack: {fileID: 1970270103}
-  fountainPrefab: {fileID: 8239218417245729434, guid: 9511c81f7b1b5b34eb68e1671e480a0a,
+  goalPrefab: {fileID: 8239218417245729434, guid: 9511c81f7b1b5b34eb68e1671e480a0a,
     type: 3}
   replaceCount: 3
   tilePrefix: MC_Patch
+  preventAdjacent: 1
+  blockDiagonalNeighbors: 1
   useFixedSeed: 0
   seed: 0
   destroyOriginal: 1
