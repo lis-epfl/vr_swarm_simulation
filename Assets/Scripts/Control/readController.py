@@ -18,8 +18,16 @@ def filter(value, current):
     # You can implement your own filtering logic here
     return value  # Just passing through for now
 
+# Panorama toggle state driven by the spring-loaded click switch (axis 5).
+# The switch rests at -1 and momentarily jumps to +1 while held; each press
+# (rising edge) flips the panorama on/off. Panorama starts enabled to match
+# PyUniSharingFast's default (enablePanoramaReading = true).
+panorama_enabled = True
+prev_click = -1.0
+
 # Function to get joystick data (focused on the relevant axes)
 def get_joystick_data(joystick, center_ang_x, current_ang_x):
+    global panorama_enabled, prev_click
     data = {}
 
     # Get specific axes data (from the controller mapping)
@@ -36,8 +44,16 @@ def get_joystick_data(joystick, center_ang_x, current_ang_x):
         'z': joystick.get_axis(3),  # Axis 3: angular.z 
     }
 
+    # Spring-loaded click switch on axis 5: rests at -1, jumps to +1 while held.
+    # Toggle the panorama enable state on the rising edge (press) only, so the
+    # panorama stays in its new state after the switch springs back to -1.
+    click = joystick.get_axis(5)
+    if click > 0.5 and prev_click <= 0.5:
+        panorama_enabled = not panorama_enabled
+    prev_click = click
+
     data['switches'] = {
-        's1': int(round(joystick.get_axis(5), 0)), # User click switch
+        's1': 1 if panorama_enabled else -1, # Panorama enable (toggled by click switch)
         's2': int(round(joystick.get_axis(6), 0))
     }
 
