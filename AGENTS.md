@@ -29,4 +29,4 @@ yaw is separate via AttitudeAlgorithm.
 
 ## Environment / scenery
 
-- [FountainTileReplacer.cs](Assets/Scripts/Environment/FountainTileReplacer.cs) — at play-mode Start, randomly swaps `n` of the `MC_Patch_*` tiles under `City_Pack_01` for a fountain prefab (X/Z from the tile, Y pinned to 0).
+- [GoalPatchReplacer.cs](Assets/Scripts/Environment/GoalPatchReplacer.cs) — at play-mode Start, randomly swaps `n` of the `MC_Patch_*` tiles under `City_Pack_01` for a `goal_patch` prefab (X/Z from the tile, Y pinned to 0; non-adjacent placement).
