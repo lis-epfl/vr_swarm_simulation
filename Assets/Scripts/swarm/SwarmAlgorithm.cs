@@ -169,6 +169,21 @@ public class SwarmAlgorithm : MonoBehaviour
             // Forward the command frame. Body rotates by each drone's heading; World uses fixed axes;
             // VR rotates by the pilot body heading (OVRCameraRig yaw integrated in PyUniSharingFast).
             InputManager.CommandFrame frame = InputManager.Instance.ActiveCommandFrame;
+
+            // In the convex-hull attitude modes the controller yaw command steers the pilot's body
+            // (the OVRCameraRig, rotated in PyUniSharingFast.UpdateBodyYaw) instead of the drones, so
+            // the velocity stick must follow that body heading — forward on the stick always matches
+            // where the rig faces. Force the VR frame here regardless of the inspector setting.
+            if (swarmManager != null)
+            {
+                SwarmManager.AttitudeAlgorithm attitude = swarmManager.GetSelectedAttitudeAlgorithm();
+                if (attitude == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+                 || attitude == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL)
+                {
+                    frame = InputManager.CommandFrame.VR;
+                }
+            }
+
             bool worldFrame = frame != InputManager.CommandFrame.Body;
             float referenceYaw = frame == InputManager.CommandFrame.VR ? PyUniSharingFast.BodyYawDegrees : 0f;
             velocityControl.SetCommandFrame(worldFrame, referenceYaw);
