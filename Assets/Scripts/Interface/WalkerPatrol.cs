@@ -13,7 +13,7 @@ using UnityEditor;
 //     rounded so walkers can smoothly make the turns.
 //   - Circle:    the original behaviour — each walker orbits at a random radius
 //     in [minRadius, maxRadius] around the centre.
-public class movingCircle : MonoBehaviour
+public class WalkerPatrol : MonoBehaviour
 {
     public enum PathShape { Rectangle, Circle }
 
@@ -21,15 +21,15 @@ public class movingCircle : MonoBehaviour
     public PathShape shape = PathShape.Rectangle;
     public GameObject walkerPrefab;
     public float verticalOffset = 0f;
-    public int numWalkers = 6;
+    public int numWalkers = 12;
     public float speedMetersPerSec = 2.0f;
 
     [Header("Rectangle Parameters")]
     [Tooltip("Fixed gap (metres) between the collider edge and the nearest path.")]
-    public float baseOffset = 2.0f;
+    public float baseOffset = 0.5f;
     [Tooltip("Extra distance (metres) added on top of the base offset. " +
              "Each walker gets a random expansion in [0, margin].")]
-    public float margin = 10.0f;
+    public float margin = 3.0f;
     [Tooltip("Radius of the rounded corners (metres). Clamped to fit the rectangle.")]
     public float cornerRadius = 1.0f;
 
@@ -94,7 +94,7 @@ public class movingCircle : MonoBehaviour
         footprint = GetComponent<Collider>();
         if (shape == PathShape.Rectangle && footprint == null)
         {
-            Debug.LogError("movingCircle Rectangle mode requires a Collider on the same GameObject to size the rectangle!");
+            Debug.LogError("WalkerPatrol Rectangle mode requires a Collider on the same GameObject to size the rectangle!");
             return;
         }
 
