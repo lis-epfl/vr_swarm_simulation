@@ -248,6 +248,11 @@ public class PyUniSharingFast : MonoBehaviour
              "Disable to advance the panorama heading only, leaving the rig untouched.")]
     private bool driveCameraRigYaw = true;
 
+    [SerializeField]
+    [Tooltip("Key that recalibrates the body heading to the current CenterEyeAnchor yaw, so the " +
+             "panorama centre and the VR velocity frame re-align with wherever the pilot is looking.")]
+    private KeyCode calibrateKey = KeyCode.C;
+
     // Body heading that drives the panorama. Seeded once from the head's initial
     // yaw, then advanced only by the controller yaw-rate command (never by head
     // tracking). cameraRigTransform is rotated by the same command so the rig
@@ -373,6 +378,14 @@ public class PyUniSharingFast : MonoBehaviour
         // moving the panorama. Resolve the rig/head lazily (the rig may be added to
         // the scene later).
         FindHeadTransform();
+
+        // Recalibrate on demand: snap the body heading (panorama centre + VR velocity frame)
+        // to the current head yaw so it re-aligns with wherever the pilot is looking.
+        if (Input.GetKeyDown(calibrateKey))
+        {
+            SeedBodyYawFromHead();
+        }
+
         UpdateBodyYaw();
         WriteBodyYaw(bodyYaw);
 
@@ -644,9 +657,7 @@ public class PyUniSharingFast : MonoBehaviour
     {
         if (!bodyYawInitialized)
         {
-            bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
-            bodyYawInitialized = true;
-            BodyYawDegrees = bodyYaw;
+            SeedBodyYawFromHead();
             return;
         }
 
@@ -663,6 +674,18 @@ public class PyUniSharingFast : MonoBehaviour
             // (centerEyeAnchor) rotates with it but keeps its own HMD-tracked yaw.
             cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
         }
+    }
+
+    // Snap the body heading to the current head (CenterEyeAnchor) world yaw. Used both to
+    // seed the heading on the first frame and to recalibrate on demand (the calibrateKey),
+    // so the panorama centre and the VR velocity frame re-align with wherever the pilot is
+    // currently looking. The rig is deliberately not rotated here — only the reference
+    // heading moves, matching the original seed behaviour.
+    private void SeedBodyYawFromHead()
+    {
+        bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
+        bodyYawInitialized = true;
+        BodyYawDegrees = bodyYaw;
     }
 
     // Lazily locate the Arena (same tag ScreenSpawn uses) for screen placement.
