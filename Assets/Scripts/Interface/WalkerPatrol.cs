@@ -20,6 +20,8 @@ public class WalkerPatrol : MonoBehaviour
     [Header("General")]
     public PathShape shape = PathShape.Rectangle;
     public GameObject walkerPrefab;
+    [Tooltip("Optional height tweak added on top of the collider base (ground level). " +
+             "Usually 0; use it to correct for the walker prefab's pivot.")]
     public float verticalOffset = 0f;
     public int numWalkers = 12;
     public float speedMetersPerSec = 2.0f;
@@ -189,8 +191,16 @@ public class WalkerPatrol : MonoBehaviour
 
     private Vector3 GetCenter()
     {
-        Vector3 c = footprint != null ? footprint.bounds.center : transform.position;
-        return new Vector3(c.x, c.y + verticalOffset, c.z);
+        // Ground the walkers on the base of the collider (bounds.min.y) rather than
+        // its centre, so they sit on the floor regardless of the building's height.
+        // verticalOffset is then just an optional tweak (e.g. for the walker pivot).
+        if (footprint != null)
+        {
+            Bounds b = footprint.bounds;
+            return new Vector3(b.center.x, b.min.y + verticalOffset, b.center.z);
+        }
+        Vector3 t = transform.position;
+        return new Vector3(t.x, t.y + verticalOffset, t.z);
     }
 
     private static Vector3 GetCircleXZ(WalkerInfo info, float angleDeg)
