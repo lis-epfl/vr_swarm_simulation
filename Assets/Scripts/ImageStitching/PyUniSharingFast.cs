@@ -260,6 +260,9 @@ public class PyUniSharingFast : MonoBehaviour
     private Transform cameraRigTransform;
     private float bodyYaw;
     private bool bodyYawInitialized = false;
+    // Set when the calibrate key is pressed; consumed the same frame once the centre-drone yaw
+    // is known, so the recentre snaps the view onto the (discrete) panorama centre.
+    private bool calibrationRequested = false;
 
     // Controller-integrated body heading in degrees (0-360). Exposed so the swarm's VR command
     // frame can rotate velocity commands into the pilot's heading. Mirrors the private bodyYaw.
@@ -387,11 +390,13 @@ public class PyUniSharingFast : MonoBehaviour
         // the scene later).
         FindHeadTransform();
 
-        // Recalibrate on demand: snap the body heading (panorama centre + VR velocity frame)
-        // to the current head yaw so it re-aligns with wherever the pilot is looking.
+        // Recalibrate on demand. Seed the body heading from the current head yaw so this frame's
+        // centre-drone selection is taken relative to where the pilot is looking; the recentre is
+        // finished below (once centreYaw is known) by rotating the view onto that centre drone.
         if (Input.GetKeyDown(calibrateKey))
         {
             SeedBodyYawFromHead();
+            calibrationRequested = true;
         }
 
         UpdateBodyYaw();
@@ -401,6 +406,15 @@ public class PyUniSharingFast : MonoBehaviour
         // two yaw-neighbours. centreYaw drives the curved-screen orientation so
         // the screen snaps to the new view only when the selection changes.
         float centreYaw = SelectStitchCameras(bodyYaw, out selectedStitchIndices);
+
+        // Finish a pending calibration now that the centre drone is known: recentre the view onto
+        // it so the head faces the (snapped) panorama centre and the VR velocity forward matches.
+        if (calibrationRequested)
+        {
+            CalibrateToCentre(centreYaw);
+            calibrationRequested = false;
+        }
+
         UpdateStitchedDronesDisplay(selectedStitchIndices);
         UpdateStitchedScreenHiding(selectedStitchIndices);
 
@@ -707,6 +721,26 @@ public class PyUniSharingFast : MonoBehaviour
         bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
         bodyYawInitialized = true;
         BodyYawDegrees = bodyYaw;
+    }
+
+    // Finishes an on-demand calibration. The panorama stays snapped to the centre drone's yaw,
+    // so to align it with the pilot we recentre the *view*: rotate the OVRCameraRig by the
+    // shortest angle that brings the head onto centreYaw, then set the body heading to centreYaw
+    // so the VR velocity forward matches the panorama centre. Removes the residual few-degree gap
+    // between the head and the snapped panorama centre. The view is only rotated when the rig is
+    // being driven (driveCameraRigYaw); otherwise the heading still aligns without moving the view.
+    private void CalibrateToCentre(float centreYaw)
+    {
+        if (driveCameraRigYaw && cameraRigTransform != null && headTransform != null)
+        {
+            float delta = Mathf.DeltaAngle(headTransform.eulerAngles.y, centreYaw);
+            cameraRigTransform.Rotate(0f, delta, 0f, Space.World);
+        }
+
+        bodyYaw = Mathf.Repeat(centreYaw, 360f);
+        BodyYawDegrees = bodyYaw;
+        bodyYawInitialized = true;
+        WriteBodyYaw(bodyYaw);
     }
 
     // Lazily locate the Arena (same tag ScreenSpawn uses) for screen placement.
