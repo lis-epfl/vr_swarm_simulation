@@ -38,6 +38,12 @@ public class GoalPatchReplacer : MonoBehaviour
     [Tooltip("If true, Destroy the replaced tile; otherwise just deactivate it (reversible).")]
     [SerializeField] private bool destroyOriginal = true;
 
+    // The goal patches instantiated this play session, in placement order. Populated in Start;
+    // exposed so experiment tooling (e.g. ExperimentRecorder) can find the goals at runtime
+    // without scanning by name. Empty until Start has run.
+    private readonly List<GameObject> placedGoals = new List<GameObject>();
+    public IReadOnlyList<GameObject> PlacedGoals => placedGoals;
+
     // Start is called before the first frame update
     private void Start()
     {
@@ -144,6 +150,8 @@ public class GoalPatchReplacer : MonoBehaviour
             goal.transform.localPosition = pos;
             goal.transform.localRotation = tile.localRotation;
             goal.transform.localScale = tile.localScale;
+
+            placedGoals.Add(goal);
 
             if (destroyOriginal)
             {
