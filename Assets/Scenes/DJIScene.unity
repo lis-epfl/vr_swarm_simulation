@@ -363,6 +363,8 @@ GameObject:
   - component: {fileID: 590275750}
   - component: {fileID: 590275748}
   - component: {fileID: 590275749}
+  - component: {fileID: 590275752}
+  - component: {fileID: 590275751}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -393,6 +395,7 @@ MonoBehaviour:
   doubleView: 0
   rotatingCircleDistance: 2
   numScreens: 3
+  screenLayerName: UI
 --- !u!4 &590275743
 Transform:
   m_ObjectHideFlags: 0
@@ -535,6 +538,37 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
+--- !u!114 &590275751
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0279b7ec075322248bc32f336079b1db, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  inputMode: 1
+  commandFrame: 2
+  spreadInitial: 7
+  spreadMin: 1
+  spreadMax: 20
+  spreadRate: 0.5
+--- !u!114 &590275752
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590275738}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6eabc2e9deeebef44a646ed83f64fda1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  port: 5055
 --- !u!1 &614986176
 GameObject:
   m_ObjectHideFlags: 0
