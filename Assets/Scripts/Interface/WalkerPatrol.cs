@@ -39,6 +39,11 @@ public class WalkerPatrol : MonoBehaviour
     public float minRadius = 1.5f;
     public float maxRadius = 3.0f;
 
+    // Set via RequestSpecial() by GoalSpecialWalker before Start runs: one of this
+    // patrol's walkers is spawned from this prefab instead of walkerPrefab and
+    // tagged with a SpecialWalker marker. Null = all walkers are ordinary.
+    private GameObject specialWalkerPrefab;
+
     private class WalkerInfo
     {
         public GameObject walker;
@@ -85,6 +90,13 @@ public class WalkerPatrol : MonoBehaviour
     }
 #endif
 
+    // Called by GoalSpecialWalker (in its Awake, before this Start) to request that
+    // exactly one of this patrol's walkers use the visually-distinct prefab.
+    public void RequestSpecial(GameObject prefab)
+    {
+        specialWalkerPrefab = prefab;
+    }
+
     void Start()
     {
         if (walkerPrefab == null)
@@ -92,6 +104,11 @@ public class WalkerPatrol : MonoBehaviour
             Debug.LogError("Walker Prefab is not assigned!");
             return;
         }
+
+        // Pick which walker (if any) is the special one. -1 = none.
+        int specialIndex = (specialWalkerPrefab != null && numWalkers > 0)
+            ? Random.Range(0, numWalkers)
+            : -1;
 
         footprint = GetComponent<Collider>();
         if (shape == PathShape.Rectangle && footprint == null)
@@ -143,8 +160,14 @@ public class WalkerPatrol : MonoBehaviour
                 position = center + GetCircleXZ(info, info.currentAngle);
             }
 
-            info.walker = Instantiate(walkerPrefab, position, Quaternion.identity, walkersContainer.transform);
-            info.walker.name = "Walker_" + i;
+            bool isSpecial = i == specialIndex;
+            GameObject prefab = isSpecial ? specialWalkerPrefab : walkerPrefab;
+            info.walker = Instantiate(prefab, position, Quaternion.identity, walkersContainer.transform);
+            info.walker.name = isSpecial ? "Walker_" + i + "_Special" : "Walker_" + i;
+            if (isSpecial && info.walker.GetComponent<SpecialWalker>() == null)
+            {
+                info.walker.AddComponent<SpecialWalker>();
+            }
             info.previousPosition = position;
 
             walkers.Add(info);

@@ -363,7 +363,6 @@ GameObject:
   - component: {fileID: 590275750}
   - component: {fileID: 590275748}
   - component: {fileID: 590275749}
-  - component: {fileID: 590275751}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -484,7 +483,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ScreenSpawn: {fileID: 0}
-  DroneIndicator: {fileID: 590275751}
+  DroneIndicator: {fileID: 0}
   numImages: 5
   processedMapName: DroneFeedSharedMemory
   enableStitchWriting: 1
@@ -536,22 +535,6 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
---- !u!114 &590275751
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590275738}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d0ec9a09b111e0c4b95bbc371b62a910, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  radius: 0.8
-  heightOffset: 0.1
-  triangleScale: 0.25
-  separationDegrees: 20
 --- !u!1 &614986176
 GameObject:
   m_ObjectHideFlags: 0
