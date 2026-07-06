@@ -33,6 +33,12 @@ public class ScreenSpawn : MonoBehaviour
     [HideInInspector] public float rotatingCircleDistance = 2.0f;
     [HideInInspector] public int numScreens = 2;
 
+    [Header("Rendering")]
+    [Tooltip("Layer the spawned feed screens are placed on, so the headset eye cameras " +
+             "can be culled to render only these screens (and the panorama) rather than " +
+             "the full world geometry. Must be an existing layer name (default 'UI').")]
+    public string screenLayerName = "UI";
+
     // GameObject references
     private OVRPlayerController player;
     private List<GameObject> swarm = new List<GameObject>();
@@ -145,6 +151,18 @@ public class ScreenSpawn : MonoBehaviour
         // Create an empty GameObject to serve as the parent for all screens
         screenParent = new GameObject("ScreenParent");
 
+        // Resolve the layer the feed screens live on so the headset eye cameras
+        // can be culled to render only these (and the panorama). Resolve once and
+        // warn if the layer is missing, rather than silently leaving screens on
+        // Default (where the eye-camera cull couldn't exclude the world geometry).
+        int screenLayer = LayerMask.NameToLayer(screenLayerName);
+        if (screenLayer < 0)
+        {
+            Debug.LogWarning($"[ScreenSpawn] Layer '{screenLayerName}' does not exist; " +
+                             "feed screens will stay on the Default layer. Add the layer " +
+                             "(Project Settings > Tags and Layers) or fix screenLayerName.");
+        }
+
         // Determine how many screens to create
         int count = (swarm != null) ? swarm.Count : numScreens;
 
@@ -163,6 +181,14 @@ public class ScreenSpawn : MonoBehaviour
 
             // Set the tag of the screen to 'Screen'
             screen.tag = "Screen";
+
+            // Put the screen on the feed-screen layer so the headset eye cameras
+            // can render only these. Quads have no children, so setting the layer
+            // on the screen itself is enough.
+            if (screenLayer >= 0)
+            {
+                screen.layer = screenLayer;
+            }
 
             // Add the screen to the screens list
             screens.Add(screen);

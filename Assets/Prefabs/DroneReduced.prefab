@@ -242,6 +242,7 @@ MonoBehaviour:
   YawCorrectionFactor: 1
   NeighborYawSmoothingFactor: 0.5
   BoundaryHysteresisTime: 0.5
+  TargetHeadingFilterTime: 0.3
 --- !u!114 &474059409597466468
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -477,7 +478,7 @@ Camera:
   m_Depth: 0
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 1655
+    m_Bits: 1607
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 7
