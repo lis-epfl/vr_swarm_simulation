@@ -562,6 +562,11 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: m_Enabled
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: typeOfStitcher
       value: 4
       objectReference: {fileID: 0}
@@ -3773,7 +3778,6 @@ GameObject:
   - component: {fileID: 1839174496}
   - component: {fileID: 1839174495}
   - component: {fileID: 1839174502}
-  - component: {fileID: 1839174504}
   - component: {fileID: 1839174503}
   m_Layer: 0
   m_Name: gameManager
@@ -3807,8 +3811,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0279b7ec075322248bc32f336079b1db, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  inputMode: 2
-  commandFrame: 1
+  inputMode: 1
+  commandFrame: 2
   spreadInitial: 1
   spreadMin: 0.5
   spreadMax: 10
@@ -3956,6 +3960,8 @@ MonoBehaviour:
     type: 3}
   replaceCount: 3
   tilePrefix: MC_Patch
+  mode: 1
+  replaySessionFile: ERIC_t3_SingleDrone_20260706_224257
   preventAdjacent: 1
   blockDiagonalNeighbors: 1
   useFixedSeed: 0
@@ -3970,29 +3976,17 @@ MonoBehaviour:
   m_GameObject: {fileID: 1839174494}
   m_Enabled: 0
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c485f72992ef33f418bf8bb082cbc2e5, type: 3}
+  m_Script: {fileID: 11500000, guid: dc57387dd9a883740b6af778f897e6b8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  toggleKey: 103
-  visible: 1
-  rayDistance: 5
-  cursorSize: 0.05
-  showRay: 1
-  color: {r: 0.2, g: 0.9, b: 1, a: 1}
---- !u!114 &1839174504
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1839174494}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d0c9c12fb3a83244bbfd42c385875ced, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  trackingSpace: {fileID: 0}
-  confidenceThreshold: 0.5
+  participantId: aaaa
+  trialNumber: 1
+  condition: 0
+  sampleHz: 10
+  correctKey: 49
+  incorrectKey: 50
+  skipKey: 51
+  endSessionKey: 8
 --- !u!1 &1895305426
 GameObject:
   m_ObjectHideFlags: 0

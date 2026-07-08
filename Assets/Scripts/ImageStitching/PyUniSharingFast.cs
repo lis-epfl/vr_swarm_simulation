@@ -260,6 +260,14 @@ public class PyUniSharingFast : MonoBehaviour
     private Transform cameraRigTransform;
     private float bodyYaw;
     private bool bodyYawInitialized = false;
+    // Body-locked mode (non-hull attitude modes): the pilot's yaw stick spins the
+    // drone(s) directly, so the body/rig heading is slaved to the followed drone's
+    // ACTUAL heading rather than the raw stick, giving zero relative motion between
+    // the headset view and the feed. Tracks the followed camera and its last heading
+    // so we advance by the true per-frame delta (and reseed cleanly on a drone swap).
+    private Camera bodyLockCamera;
+    private float previousDroneYaw;
+    private bool bodyLockInitialized = false;
     // Set when the calibrate key is pressed; consumed the same frame once the centre-drone yaw
     // is known, so the recentre snaps the view onto the (discrete) panorama centre.
     private bool calibrationRequested = false;
@@ -696,6 +704,18 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
+        // Non-hull attitude modes (NONE/SIMPLE) spin the drone(s) with the yaw stick,
+        // so slave the body/rig heading to the drone's ACTUAL heading instead of the
+        // raw stick. Matching rate constants wouldn't cancel relative motion: the drone
+        // lags its command through the yaw filter, inner rate loop and drag.
+        if (IsBodyLockedToDrone())
+        {
+            UpdateBodyYawFromDrone();
+            return;
+        }
+
+        // Hull modes: the drones hold their heading and the stick steers the view.
+        bodyLockInitialized = false; // reseed if we later switch back to a body-locked mode
         float normYaw = InputManager.Instance != null ? InputManager.Instance.InputStatus["yaw"] : 0f;
         float deltaYaw = normYaw * bodyYawRate * Time.deltaTime;
         if (deltaYaw == 0f) return;
@@ -709,6 +729,77 @@ public class PyUniSharingFast : MonoBehaviour
             // (centerEyeAnchor) rotates with it but keeps its own HMD-tracked yaw.
             cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
         }
+    }
+
+    // True in the non-hull attitude modes, where the yaw stick spins the drone(s)
+    // directly (AttitudeAlgorithm feeds inputYawRate into desiredYawRate). The hull
+    // modes instead zero the drone yaw and steer the view by the stick, so they keep
+    // the input-integrated path above. Defaults to the input path if no SwarmManager.
+    private bool IsBodyLockedToDrone()
+    {
+        SwarmManager sm = SwarmManager.Instance;
+        if (sm == null) return false;
+        SwarmManager.AttitudeAlgorithm algo = sm.GetSelectedAttitudeAlgorithm();
+        return algo != SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+            && algo != SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
+    }
+
+    // Advance the body heading by the followed drone's true per-frame yaw change and
+    // rotate the rig by the same amount, so the pilot turns exactly with the drone
+    // (no relative motion between the headset view and the feed). The followed drone
+    // is the alive camera whose heading is closest to the current body yaw (the view
+    // centre); on a drone swap we reseed rather than emit a phantom jump.
+    private void UpdateBodyYawFromDrone()
+    {
+        Camera lockCam = GetBodyLockCamera();
+        if (lockCam == null)
+        {
+            bodyLockInitialized = false; // nothing to follow this frame; hold heading
+            return;
+        }
+
+        float droneYaw = lockCam.transform.eulerAngles.y;
+        if (!bodyLockInitialized || lockCam != bodyLockCamera)
+        {
+            bodyLockCamera = lockCam;
+            previousDroneYaw = droneYaw;
+            bodyLockInitialized = true;
+            return;
+        }
+
+        float deltaYaw = Mathf.DeltaAngle(previousDroneYaw, droneYaw);
+        previousDroneYaw = droneYaw;
+        if (deltaYaw == 0f) return;
+
+        bodyYaw = Mathf.Repeat(bodyYaw + deltaYaw, 360f);
+        BodyYawDegrees = bodyYaw;
+
+        if (driveCameraRigYaw && cameraRigTransform != null)
+        {
+            cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
+        }
+    }
+
+    // The alive camera whose heading is closest to the current body yaw (the drone the
+    // pilot is facing). In NONE every drone yaws together, so for a single drone this is
+    // just that drone, and for a swarm it stays locked to the same centre drone.
+    private Camera GetBodyLockCamera()
+    {
+        if (camerasToCapture == null || camerasToCapture.Count == 0) return null;
+
+        int best = -1;
+        float bestDiff = float.MaxValue;
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (camerasToCapture[i] == null || !IsAlive(i)) continue;
+            float diff = Mathf.Abs(Mathf.DeltaAngle(camerasToCapture[i].transform.eulerAngles.y, bodyYaw));
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                best = i;
+            }
+        }
+        return best >= 0 ? camerasToCapture[best] : null;
     }
 
     // Snap the body heading to the current head (CenterEyeAnchor) world yaw. Used both to

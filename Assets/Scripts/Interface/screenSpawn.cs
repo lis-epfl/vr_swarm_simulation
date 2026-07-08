@@ -415,14 +415,38 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(false);
     }
 
+    // The convex-hull attitude modes are the only ones that populate
+    // BoundaryEstimate; under NONE/SIMPLE it stays false for every drone. The
+    // OUTER_CIRCLE feed gate must therefore only consult the flag when a hull
+    // mode is active, otherwise it would hide every feed. Defaults to false (show
+    // all feeds) when the SwarmManager can't be resolved.
+    private bool IsBoundaryGateActive()
+    {
+        SwarmManager sm = swarmManager != null ? swarmManager : SwarmManager.Instance;
+        if (sm == null)
+        {
+            return false;
+        }
+        SwarmManager.AttitudeAlgorithm algo = sm.GetSelectedAttitudeAlgorithm();
+        return algo == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+            || algo == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
+    }
+
     private void UpdateOuterCircleScreen(GameObject screen, GameObject droneChild)
     {
-        // Check if the drone is on the boundary
-        AttitudeAlgorithm attitudeControl = droneChild.GetComponent<AttitudeAlgorithm>();
-        if (!attitudeControl.BoundaryEstimate)
+        // Hide interior (non-boundary) drones — but only when an attitude hull
+        // algorithm is actually computing BoundaryEstimate. Under attitude modes
+        // NONE/SIMPLE the flag is never set (stays false for every drone), so
+        // gating on it would blank all feeds — e.g. a lone drone that fell back to
+        // OUTER_CIRCLE because its single feed couldn't stitch would show nothing.
+        if (IsBoundaryGateActive())
         {
-            screen.SetActive(false);
-            return;
+            AttitudeAlgorithm attitudeControl = droneChild.GetComponent<AttitudeAlgorithm>();
+            if (!attitudeControl.BoundaryEstimate)
+            {
+                screen.SetActive(false);
+                return;
+            }
         }
 
         // Get the drone's yaw
