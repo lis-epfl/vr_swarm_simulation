@@ -2,7 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PyUniSharingFast : MonoBehaviour
@@ -130,7 +134,55 @@ public class PyUniSharingFast : MonoBehaviour
     private Texture2D image;
     private byte[] blockImageBytes;   // reusable scratch for one converted drone image
     private float nextSendTime, nextReceiveTime = 0f;
-    private Color32[] pixels;
+
+    // Async capture: block images are read back from the GPU with
+    // AsyncGPUReadback (no ReadPixels stall) and converted RGBA->BGR by a Burst
+    // job in the completion callback. Each pending entry carries the slot /
+    // droneId / heading recorded at request time (1-2 frames before completion).
+    private struct PendingReadback
+    {
+        public bool inUse;
+        public int slot;               // block slot [left, centre, right]
+        public int droneId;            // camerasToCapture index
+        public float heading;          // camera yaw at request time
+        public byte[] verifyReference; // sync-captured reference, set only during row-order calibration
+    }
+    private PendingReadback[] pendingReadbacks;
+    private Action<AsyncGPUReadbackRequest>[] pendingCallbacks;  // one cached delegate per pool entry
+    private NativeArray<byte> convertedBlock;   // reusable BGR24 output of the conversion job
+    // AsyncGPUReadback returns rows in the GPU-native order, which differs per
+    // graphics API from the bottom-up order ReadPixels gives. The first readback
+    // is compared against a synchronous capture of the same RT contents to pick
+    // the flip that reproduces the existing top-down BGR block format exactly.
+    private bool readbackFlipRows;
+    private bool readbackFlipCalibrated = false;
+    private bool readbackFlipCalibrating = false;
+
+    // Row-wise RGBA32 -> BGR24 conversion (optionally flipping row order) into
+    // the top-down BGR block layout the Python stitcher consumes.
+    [BurstCompile]
+    private struct ConvertRgbaToBgrJob : IJobParallelFor
+    {
+        [ReadOnly, NativeDisableParallelForRestriction] public NativeArray<byte> src;  // RGBA32
+        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<byte> dst; // BGR24
+        public int width;
+        public int height;
+        public bool flipRows;
+
+        public void Execute(int y)
+        {
+            int srcRow = y * width * 4;
+            int dstRow = (flipRows ? height - 1 - y : y) * width * 3;
+            for (int x = 0; x < width; x++)
+            {
+                int s = srcRow + x * 4;
+                int d = dstRow + x * 3;
+                dst[d]     = src[s + 2];  // B
+                dst[d + 1] = src[s + 1];  // G
+                dst[d + 2] = src[s];      // R
+            }
+        }
+    }
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern IntPtr CreateFileMapping(IntPtr hFile, IntPtr lpFileMappingAttributes, uint flProtect, uint dwMaximumSizeHigh, uint dwMaximumSizeLow, string lpName);
@@ -350,7 +402,10 @@ public class PyUniSharingFast : MonoBehaviour
             curvedScreenMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
             curvedScreenMaterial.EnableKeyword("_EMISSION");
             panoTexture = new Texture2D(panoramaImageWidth, panoramaImageHeight, TextureFormat.RGB24, false);
-            pixels = new Color32[panoramaImageWidth * panoramaImageHeight];
+            // The texture object is stable (only its bytes change on each read),
+            // so bind it to the curved-screen material once here.
+            curvedScreenMaterial.mainTexture = panoTexture;
+            curvedScreenMaterial.SetTexture("_EmissionMap", panoTexture);
 
             // ScreenSpawn drives the per-drone feed fallback when the panorama is bad.
             if (screenSpawn == null)
@@ -364,6 +419,17 @@ public class PyUniSharingFast : MonoBehaviour
             reusableTexture = new RenderTexture(blockImageWidth, blockImageHeight, 24);
             image = new Texture2D(blockImageWidth, blockImageHeight, TextureFormat.RGB24, false);
             blockImageBytes = new byte[blockImageSize];
+            EnsureConvertedBlockBuffer();
+
+            // Readback pool: enough entries for a couple of in-flight 3-slot
+            // batches. One cached delegate per entry so requests never allocate.
+            pendingReadbacks = new PendingReadback[8];
+            pendingCallbacks = new Action<AsyncGPUReadbackRequest>[pendingReadbacks.Length];
+            for (int i = 0; i < pendingCallbacks.Length; i++)
+            {
+                int idx = i;
+                pendingCallbacks[i] = request => OnBlockReadback(idx, request);
+            }
         }
 
         hasStarted = true;
@@ -441,40 +507,18 @@ public class PyUniSharingFast : MonoBehaviour
             }
             else if (Time.time >= nextSendTime && blockPtr != IntPtr.Zero)
             {
-                // Write only the head-aligned drones selected this frame into the
-                // blocks the Python stitcher reads (slots ordered left/centre/right).
+                // Queue an async GPU readback for the head-aligned drones selected
+                // this frame (slots ordered left/centre/right). The block write to
+                // shared memory happens in the completion callback, 1-2 frames
+                // later — no ReadPixels stall on the main thread.
                 for (int j = 0; j < selectedStitchIndices.Length && j < blockImageCount; j++)
                 {
-                    int camIdx = selectedStitchIndices[j];
-                    IntPtr block = IntPtr.Add(blockPtr, j * blockSize);
-
-                    // Skip this slot if the consumer is mid-read on its block.
-                    if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
-                        continue;
-
-                    // Mark busy while we write the header + image.
-                    Marshal.WriteInt32(block, blockFlagOffset, 1);
-
-                    // Header: droneId + this drone's world yaw (heading).
-                    Marshal.WriteInt32(block, blockDroneIdOffset, camIdx);
-                    float heading = camerasToCapture[camIdx].transform.eulerAngles.y;
-                    byte[] headingBytes = BitConverter.GetBytes(heading);
-                    if (!BitConverter.IsLittleEndian) Array.Reverse(headingBytes);
-                    Marshal.Copy(headingBytes, 0, IntPtr.Add(block, blockHeadingOffset), 4);
-
-                    // Image: Unity RGB (bottom-up) -> BGR (top-down) for the consumer.
-                    byte[] imageBytes = CaptureCameraImage(camerasToCapture[camIdx]);
-                    if (imageBytes != null && imageBytes.Length == blockImageSize)
-                    {
-                        ConvertToBlockFormat(imageBytes, blockImageBytes);
-                        Marshal.Copy(blockImageBytes, 0, IntPtr.Add(block, blockImageDataOffset), blockImageSize);
-                    }
-
-                    // Ready for the consumer.
-                    Marshal.WriteInt32(block, blockFlagOffset, 0);
+                    RequestBlockCapture(j, selectedStitchIndices[j]);
                 }
 
-                nextSendTime += sendInterval;
+                // Advance by whole intervals, but never fall more than one interval
+                // behind — a long stall must not trigger a burst of catch-up sends.
+                nextSendTime = Mathf.Max(nextSendTime + sendInterval, Time.time - sendInterval);
             }
         }
 
@@ -494,8 +538,6 @@ public class PyUniSharingFast : MonoBehaviour
                 Marshal.WriteInt32(panoramaPtr, FlagPosition, 1);
 
                 int qualityWord = Marshal.ReadInt32(panoramaPtr, panoramaQualityPosition);
-                byte[] panoramaImageBytes = ReceivePanoramaImage();
-                Marshal.WriteInt32(panoramaPtr, FlagPosition, 0);
 
                 // bit 0 = panorama good; bits 1-3 = failing-gate reason (only
                 // meaningful when bit 0 is clear). When the panorama is bad (and
@@ -504,10 +546,20 @@ public class PyUniSharingFast : MonoBehaviour
                 // The pilot's click-switch toggle overrides quality: if they turned
                 // the panorama off, hide it and show the feeds regardless of quality.
                 bool panoramaGood = (!qualityFallbackEnabled || qualityOk) && panoramaUserEnabled;
+                if (panoramaGood)
+                {
+                    // Upload straight from the mapped view while the flag is held.
+                    // Python writes RGB24 bottom-up (flipped + BGR->RGB on its
+                    // side), exactly the layout the texture expects — no managed
+                    // copy, no per-pixel conversion.
+                    panoTexture.LoadRawTextureData(IntPtr.Add(panoramaPtr, panoramaDataPosition), panoramaImageSize);
+                }
+                Marshal.WriteInt32(panoramaPtr, FlagPosition, 0);
+
                 ApplyQualityFallback(panoramaGood, qualityWord);
                 if (panoramaGood)
                 {
-                    SetPanoramaImage(panoramaImageBytes);
+                    panoTexture.Apply(false);
                 }
 
                 nextReceiveTime += readInterval;
@@ -572,23 +624,189 @@ public class PyUniSharingFast : MonoBehaviour
         return reasons.Length > 0 ? reasons : "unspecified";
     }
 
-    private byte[] CaptureCameraImage(Camera camera)
+    // Renders (if needed) and queues an async GPU readback of one selected
+    // camera into the given block slot. The camera's ScreenSpawn feed RT is the
+    // capture source (SpawnScreens sizes it to the block resolution), so the
+    // camera is never rendered twice: an enabled camera's RT already holds this
+    // frame's image; a disabled one (feed screen hidden) is rendered on demand
+    // here, at the send rate only.
+    private void RequestBlockCapture(int slot, int camIdx)
     {
-        RenderTexture previousRT = camera.targetTexture;
-        camera.targetTexture = reusableTexture;
-        RenderTexture.active = reusableTexture;
+        if (pendingReadbacks == null) return;  // image writing was off at Start
+        if (camIdx < 0 || camIdx >= camerasToCapture.Count) return;
+        Camera camera = camerasToCapture[camIdx];
+        if (camera == null) return;
 
-        camera.Render();
-        image.ReadPixels(new Rect(0, 0, blockImageWidth, blockImageHeight), 0, 0, false);
-        // No image.Apply(): ReadPixels already populated the CPU-side pixel data
-        // that GetRawTextureData returns. Apply() would re-upload it to the GPU —
-        // pointless here since this texture is never rendered, only read on the CPU.
+        RenderTexture rt = camera.targetTexture;
+        if (rt != null && rt.width == blockImageWidth && rt.height == blockImageHeight)
+        {
+            if (!camera.enabled)
+            {
+                camera.Render();
+            }
+        }
+        else
+        {
+            // Fallback (no ScreenSpawn / mismatched RT): render into our own RT.
+            // The readback request below snapshots the RT at this point in the
+            // GPU command stream, so reusing one RT across cameras is safe.
+            RenderTexture previousRT = camera.targetTexture;
+            camera.targetTexture = reusableTexture;
+            camera.Render();
+            camera.targetTexture = previousRT;
+            rt = reusableTexture;
+        }
 
-        byte[] imageBytes = image.GetRawTextureData();
-        camera.targetTexture = previousRT;
-        RenderTexture.active = null;
+        int p = AcquirePendingSlot();
+        if (p < 0) return;  // pool exhausted (readbacks piling up) — drop this frame
 
-        return imageBytes;
+        pendingReadbacks[p].slot = slot;
+        pendingReadbacks[p].droneId = camIdx;
+        // Heading is recorded now, matching the image being read back — not at
+        // completion, when the drone may have yawed on.
+        pendingReadbacks[p].heading = camera.transform.eulerAngles.y;
+
+        // One-time row-order calibration: capture the same RT synchronously so
+        // the completion callback can pick the flip that reproduces the exact
+        // top-down BGR bytes the old ReadPixels path produced.
+        if (!readbackFlipCalibrated && !readbackFlipCalibrating)
+        {
+            readbackFlipCalibrating = true;
+            RenderTexture previousActive = RenderTexture.active;
+            RenderTexture.active = rt;
+            image.ReadPixels(new Rect(0, 0, blockImageWidth, blockImageHeight), 0, 0, false);
+            RenderTexture.active = previousActive;
+            byte[] reference = new byte[blockImageSize];
+            ConvertToBlockFormat(image.GetRawTextureData(), reference);
+            pendingReadbacks[p].verifyReference = reference;
+        }
+
+        AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32, pendingCallbacks[p]);
+    }
+
+    private int AcquirePendingSlot()
+    {
+        for (int i = 0; i < pendingReadbacks.Length; i++)
+        {
+            if (!pendingReadbacks[i].inUse)
+            {
+                pendingReadbacks[i].inUse = true;
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // Completion callback (main thread): convert the RGBA readback to the
+    // top-down BGR block format with a Burst job and write it into the slot's
+    // shared-memory block under the usual flag handshake. Runs 1-2 frames after
+    // the request; the handshake semantics are identical to the old synchronous
+    // path (a busy consumer just drops this frame).
+    private void OnBlockReadback(int p, AsyncGPUReadbackRequest request)
+    {
+        PendingReadback pending = pendingReadbacks[p];
+        pendingReadbacks[p].inUse = false;
+        pendingReadbacks[p].verifyReference = null;
+
+        // Teardown/resize safety: drop late readbacks once the maps or buffers
+        // are gone or the block resolution changed under this request.
+        if (request.hasError || blockPtr == IntPtr.Zero || !convertedBlock.IsCreated)
+            return;
+
+        NativeArray<byte> data = request.GetData<byte>();
+        if (data.Length < blockImageWidth * blockImageHeight * 4 || convertedBlock.Length != blockImageSize)
+            return;
+
+        if (pending.verifyReference != null)
+        {
+            CalibrateReadbackFlip(data, pending.verifyReference);
+        }
+
+        var job = new ConvertRgbaToBgrJob
+        {
+            src = data,
+            dst = convertedBlock,
+            width = blockImageWidth,
+            height = blockImageHeight,
+            flipRows = readbackFlipRows,
+        };
+        job.Schedule(blockImageHeight, 32).Complete();
+        convertedBlock.CopyTo(blockImageBytes);
+
+        IntPtr block = IntPtr.Add(blockPtr, pending.slot * blockSize);
+
+        // Skip this slot if the consumer is mid-read on its block.
+        if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
+            return;
+
+        // Mark busy while we write the header + image.
+        Marshal.WriteInt32(block, blockFlagOffset, 1);
+
+        Marshal.WriteInt32(block, blockDroneIdOffset, pending.droneId);
+        byte[] headingBytes = BitConverter.GetBytes(pending.heading);
+        if (!BitConverter.IsLittleEndian) Array.Reverse(headingBytes);
+        Marshal.Copy(headingBytes, 0, IntPtr.Add(block, blockHeadingOffset), 4);
+
+        Marshal.Copy(blockImageBytes, 0, IntPtr.Add(block, blockImageDataOffset), blockImageSize);
+
+        // Ready for the consumer.
+        Marshal.WriteInt32(block, blockFlagOffset, 0);
+    }
+
+    // Decides readbackFlipRows by converting the first readback both ways and
+    // comparing against the synchronous ReadPixels capture of the same RT
+    // contents. The winning flip reproduces the old block bytes exactly, so the
+    // bridge format is provably unchanged.
+    private void CalibrateReadbackFlip(NativeArray<byte> data, byte[] reference)
+    {
+        int noFlipMismatches = CountConversionMismatches(data, reference, false);
+        int flipMismatches = noFlipMismatches == 0 ? int.MaxValue
+                                                   : CountConversionMismatches(data, reference, true);
+        readbackFlipRows = flipMismatches < noFlipMismatches;
+        readbackFlipCalibrated = true;
+        readbackFlipCalibrating = false;
+
+        int winner = Mathf.Min(noFlipMismatches, flipMismatches);
+        if (winner == 0 || noFlipMismatches == 0)
+        {
+            Debug.Log($"[PyUniSharingFast] AsyncGPUReadback row order calibrated: flipRows={readbackFlipRows} (byte-identical to the ReadPixels path).");
+        }
+        else
+        {
+            Debug.LogWarning($"[PyUniSharingFast] AsyncGPUReadback calibration found no exact match " +
+                             $"(mismatched bytes: noFlip={noFlipMismatches}, flip={flipMismatches}); " +
+                             $"using flipRows={readbackFlipRows}. Verify the panorama orientation.");
+        }
+    }
+
+    // (Re)allocates the persistent conversion buffer to the current block size.
+    // Any readback still in flight across a resize is dropped by the length
+    // check in OnBlockReadback.
+    private void EnsureConvertedBlockBuffer()
+    {
+        if (convertedBlock.IsCreated && convertedBlock.Length == blockImageSize) return;
+        if (convertedBlock.IsCreated) convertedBlock.Dispose();
+        convertedBlock = new NativeArray<byte>(blockImageSize, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+    }
+
+    private int CountConversionMismatches(NativeArray<byte> data, byte[] reference, bool flipRows)
+    {
+        var job = new ConvertRgbaToBgrJob
+        {
+            src = data,
+            dst = convertedBlock,
+            width = blockImageWidth,
+            height = blockImageHeight,
+            flipRows = flipRows,
+        };
+        job.Schedule(blockImageHeight, 32).Complete();
+
+        int mismatches = 0;
+        for (int i = 0; i < blockImageSize; i++)
+        {
+            if (convertedBlock[i] != reference[i]) mismatches++;
+        }
+        return mismatches;
     }
 
     // Converts Unity's raw RGB24 texture data (bottom-left origin, RGB order)
@@ -611,13 +829,6 @@ public class PyUniSharingFast : MonoBehaviour
                 dst[d + 2] = src[s];      // R
             }
         }
-    }
-
-    byte[] ReceivePanoramaImage()
-    {
-        byte[] panoramaImageBytes = new byte[panoramaImageSize];
-        Marshal.Copy(IntPtr.Add(panoramaPtr, panoramaDataPosition), panoramaImageBytes, 0, panoramaImageBytes.Length);
-        return panoramaImageBytes;
     }
 
     private void GenerateCurvedScreen()
@@ -806,7 +1017,7 @@ public class PyUniSharingFast : MonoBehaviour
     // seed the heading on the first frame and to recalibrate on demand (the calibrateKey),
     // so the panorama centre and the VR velocity frame re-align with wherever the pilot is
     // currently looking. The rig is deliberately not rotated here — only the reference
-    // heading moves, matching the original seed behaviour.
+    // heading moves; CalibrateToCentre finishes the on-demand recentre.
     private void SeedBodyYawFromHead()
     {
         bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
@@ -815,17 +1026,52 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     // Finishes an on-demand calibration. The panorama stays snapped to the centre drone's yaw,
-    // so to align it with the pilot we recentre the *view*: rotate the OVRCameraRig by the
-    // shortest angle that brings the head onto centreYaw, then set the body heading to centreYaw
-    // so the VR velocity forward matches the panorama centre. Removes the residual few-degree gap
-    // between the head and the snapped panorama centre. The view is only rotated when the rig is
-    // being driven (driveCameraRigYaw); otherwise the heading still aligns without moving the view.
+    // so to align it with the pilot we recentre the *view*: rotate the OVRCameraRig so the head's
+    // forward points at the panorama centre (the screen's local +Z direction `dir`), then set the
+    // body heading to centreYaw so the stitch selection and VR velocity frame stay in the camera-yaw
+    // frame the rest of the system uses. The head look direction is 90 deg off from
+    // world-yaw==centreYaw because of how the curved screen is oriented, so we align the head to
+    // `dir` rather than to centreYaw itself. The view is only rotated when the rig is being driven
+    // (driveCameraRigYaw); otherwise the heading still aligns without moving the view. Also
+    // raises/lowers the rig so the pilot's eyes end up level with the curved screen.
     private void CalibrateToCentre(float centreYaw)
     {
         if (driveCameraRigYaw && cameraRigTransform != null && headTransform != null)
         {
-            float delta = Mathf.DeltaAngle(headTransform.eulerAngles.y, centreYaw);
+            // Aim the head at the panorama's centre, not at the raw camera yaw. The
+            // curved screen's centre column lies along the GameObject's local +Z (see
+            // GenerateCurvedScreen: the mid vertex is at (0, y, radius)), and
+            // UpdateCurvedScreenPose points that +Z at `dir`. So the pilot faces the
+            // panorama centre exactly when the head's forward equals `dir` — which is
+            // 90 deg off from world-yaw==centreYaw. Compute `dir` identically to
+            // UpdateCurvedScreenPose (same frame, same centreYaw) and rotate the rig
+            // by the signed horizontal angle from the current head forward onto it.
+            float radians = -centreYaw * Mathf.Deg2Rad;
+            Vector3 dir = new Vector3(Mathf.Cos(radians), 0f, Mathf.Sin(radians));
+
+            Vector3 headForward = headTransform.forward;
+            headForward.y = 0f;
+            float delta = Vector3.SignedAngle(headForward, dir, Vector3.up);
             cameraRigTransform.Rotate(0f, delta, 0f, Space.World);
+        }
+
+        // Raise/lower the rig so the pilot's eyes sit level with the curved screen
+        // (arena centre + screenHeightOffset, the same height used in
+        // UpdateCurvedScreenPose). The head (centerEyeAnchor) tracks vertically
+        // relative to the rig root, so shift the rig by the gap between the current
+        // head height and the target screen height. A yaw rotation about world-up
+        // never changes the head's Y, so reading it after the yaw recentre is safe.
+        if (cameraRigTransform != null && headTransform != null)
+        {
+            FindArena();
+            if (arena != null)
+            {
+                float screenY = arena.transform.position.y + screenHeightOffset;
+                float headOffsetFromRig = headTransform.position.y - cameraRigTransform.position.y;
+                Vector3 rigPos = cameraRigTransform.position;
+                rigPos.y = screenY - headOffsetFromRig;
+                cameraRigTransform.position = rigPos;
+            }
         }
 
         bodyYaw = Mathf.Repeat(centreYaw, 360f);
@@ -1032,25 +1278,6 @@ public class PyUniSharingFast : MonoBehaviour
         if (cam == null) return "?";
         Transform parent = cam.transform.parent;
         return parent != null ? parent.name : cam.name;
-    }
-
-    public void SetPanoramaImage(byte[] partPanorama)
-    {
-        LoadRawRGBTexture(partPanorama);
-        curvedScreenMaterial.mainTexture = panoTexture;
-        curvedScreenMaterial.SetTexture("_EmissionMap", panoTexture);
-    }
-
-    public void LoadRawRGBTexture(byte[] imageData)
-    {
-        for (int i = 0; i < pixels.Length; i++)
-        {
-            int byteIndex = i * 3;
-            pixels[i] = new Color32(imageData[byteIndex + 2], imageData[byteIndex + 1], imageData[byteIndex], 255);
-        }
-
-        panoTexture.SetPixels32(pixels);
-        panoTexture.Apply();
     }
 
     private void FindCameras()
@@ -1264,6 +1491,7 @@ public class PyUniSharingFast : MonoBehaviour
                 reusableTexture = new RenderTexture(blockImageWidth, blockImageHeight, 24);
                 image = new Texture2D(blockImageWidth, blockImageHeight, TextureFormat.RGB24, false);
                 blockImageBytes = new byte[blockImageSize];
+                EnsureConvertedBlockBuffer();
                 CreateBlockMap();
             }
 
@@ -1271,7 +1499,11 @@ public class PyUniSharingFast : MonoBehaviour
             if (enablePanoramaReading)
             {
                 panoTexture = new Texture2D(panoramaImageWidth, panoramaImageHeight, TextureFormat.RGB24, false);
-                pixels = new Color32[panoramaImageWidth * panoramaImageHeight];
+                if (curvedScreenMaterial != null)
+                {
+                    curvedScreenMaterial.mainTexture = panoTexture;
+                    curvedScreenMaterial.SetTexture("_EmissionMap", panoTexture);
+                }
             }
         }
     }
@@ -1308,6 +1540,7 @@ public class PyUniSharingFast : MonoBehaviour
             CreateBlockMap();          // resize the mapping to the new drone count
             WriteMetadata();
             blockImageBytes = new byte[blockImageSize];
+            EnsureConvertedBlockBuffer();
             ValidateTextures();
         }
     }
@@ -1441,11 +1674,16 @@ public class PyUniSharingFast : MonoBehaviour
 
     void OnDestroy()
     {
+        // Flush in-flight readbacks before unmapping so a late completion
+        // callback can never touch a dead pointer, then free the job buffer.
+        AsyncGPUReadback.WaitAllRequests();
         DestroyMemoryMaps();
+        if (convertedBlock.IsCreated) convertedBlock.Dispose();
     }
 
     void OnApplicationQuit()
     {
+        AsyncGPUReadback.WaitAllRequests();
         DestroyMemoryMaps();
         Debug.Log("Application quitting. Memory maps destroyed.");
     }

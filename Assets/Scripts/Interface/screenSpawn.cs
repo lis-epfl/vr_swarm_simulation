@@ -46,6 +46,21 @@ public class ScreenSpawn : MonoBehaviour
     private GameObject arena;
     private GameObject screenParent;
 
+    // Per-drone references resolved once at spawn so the per-frame update never
+    // searches by name or calls GetComponent. Bound by spawn index (screen_i is
+    // wired to swarm[i]'s FPV render texture at spawn), which stays valid even
+    // though the shared swarm list itself may later be re-sorted in place
+    // (AttitudeAlgorithm's LOCAL_CONVEXHULL sorts it every tick).
+    private struct DroneScreenBinding
+    {
+        public GameObject drone;
+        public GameObject screen;
+        public Camera fpvCamera;
+        public VelocityControl velocityControl;
+        public AttitudeAlgorithm attitude;
+    }
+    private readonly List<DroneScreenBinding> bindings = new List<DroneScreenBinding>();
+
     // Default parameters for each display mode
     private float outerCircleRadius = 2.0f;
     private float outerCircleScale = 1.0f;
@@ -257,11 +272,19 @@ public class ScreenSpawn : MonoBehaviour
                 float vertHalfRad = Mathf.Atan(Mathf.Tan(diagHalfRad) / Mathf.Sqrt(aspect * aspect + 1f));
                 cam.fieldOfView = vertHalfRad * 2f * Mathf.Rad2Deg;
 
-                // Set the camera's target texture to the render texture
-                if (screenStyle != ScreenStyle.OFF || screenStyle != ScreenStyle.REAL_DRONE)
+                // The feed RT doubles as the stitch-capture source in
+                // PyUniSharingFast, so it's needed regardless of screen style.
+                cam.targetTexture = rt;
+
+                Transform droneParent = drone.transform.Find("DroneParent");
+                bindings.Add(new DroneScreenBinding
                 {
-                    cam.GetComponent<Camera>().targetTexture = rt;
-                }
+                    drone = drone,
+                    screen = screen,
+                    fpvCamera = cam,
+                    velocityControl = droneParent != null ? droneParent.GetComponent<VelocityControl>() : null,
+                    attitude = droneParent != null ? droneParent.GetComponent<AttitudeAlgorithm>() : null,
+                });
             }
         }
 
@@ -374,43 +397,62 @@ public class ScreenSpawn : MonoBehaviour
     // Update the position of the screens based on the drone orientation
     void UpdateScreenPositions()
     {
-        if (swarm == null || swarm.Count == 0 || screens.Count == 0)
+        if (bindings.Count == 0)
         {
             return;
         }
 
-        for (int i = 0; i < swarm.Count; i++)
-        {
-            GameObject drone = swarm.Find(d => d.name == "Drone " + i);
-            GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
-            GameObject screen = screens.Find(s => s.name == "screen_" + i);
+        // Per-frame, not per-drone: the gate depends only on the selected
+        // attitude algorithm.
+        bool boundaryGate = IsBoundaryGateActive();
 
-            // Hide the feed for any drone currently composited into the stitched
-            // panorama (mirrors the BoundaryEstimate gate below). Applies to every
-            // screen style.
-            if (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(drone))
+        for (int i = 0; i < bindings.Count; i++)
+        {
+            DroneScreenBinding binding = bindings[i];
+            GameObject screen = binding.screen;
+            if (screen == null)
             {
-                screen.SetActive(false);
                 continue;
             }
 
-            switch (screenStyle)
+            // Hide the feed for any drone currently composited into the stitched
+            // panorama (mirrors the BoundaryEstimate gate below). Applies to every
+            // screen style. A destroyed drone also just hides its screen.
+            if (binding.drone == null ||
+                (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(binding.drone)))
             {
-                case ScreenStyle.OFF:
-                    HideScreen(screen);
-                    break;
-                case ScreenStyle.OUTER_CIRCLE:
-                    UpdateOuterCircleScreen(screen, droneChild);
-                    break;
-                case ScreenStyle.INNER_CIRCLE:
-                    UpdateInnerCircleScreen(screen, droneChild);
-                    break;
-                case ScreenStyle.BOTTOM_CIRCLE:
-                    UpdateBottomCircleScreen(screen, droneChild);
-                    break;
-                case ScreenStyle.ROTATING_CIRCLE:
-                    UpdateRotatingCircleScreen(screen, droneChild);
-                    break;
+                screen.SetActive(false);
+            }
+            else
+            {
+                switch (screenStyle)
+                {
+                    case ScreenStyle.OFF:
+                        HideScreen(screen);
+                        break;
+                    case ScreenStyle.OUTER_CIRCLE:
+                        UpdateOuterCircleScreen(screen, binding, boundaryGate);
+                        break;
+                    case ScreenStyle.INNER_CIRCLE:
+                        UpdateInnerCircleScreen(screen, binding);
+                        break;
+                    case ScreenStyle.BOTTOM_CIRCLE:
+                        UpdateBottomCircleScreen(screen, binding);
+                        break;
+                    case ScreenStyle.ROTATING_CIRCLE:
+                        UpdateRotatingCircleScreen(screen, binding);
+                        break;
+                }
+            }
+
+            // An FPV camera only needs to render while its feed screen is
+            // visible; otherwise it would draw the full world every frame for
+            // nothing. The stitch capture path (PyUniSharingFast) renders
+            // disabled cameras on demand at its own send rate.
+            Camera cam = binding.fpvCamera;
+            if (cam != null && cam.enabled != screen.activeSelf)
+            {
+                cam.enabled = screen.activeSelf;
             }
         }
     }
@@ -437,25 +479,21 @@ public class ScreenSpawn : MonoBehaviour
             || algo == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
     }
 
-    private void UpdateOuterCircleScreen(GameObject screen, GameObject droneChild)
+    private void UpdateOuterCircleScreen(GameObject screen, DroneScreenBinding binding, bool boundaryGate)
     {
         // Hide interior (non-boundary) drones — but only when an attitude hull
         // algorithm is actually computing BoundaryEstimate. Under attitude modes
         // NONE/SIMPLE the flag is never set (stays false for every drone), so
         // gating on it would blank all feeds — e.g. a lone drone that fell back to
         // OUTER_CIRCLE because its single feed couldn't stitch would show nothing.
-        if (IsBoundaryGateActive())
+        if (boundaryGate && binding.attitude != null && !binding.attitude.BoundaryEstimate)
         {
-            AttitudeAlgorithm attitudeControl = droneChild.GetComponent<AttitudeAlgorithm>();
-            if (!attitudeControl.BoundaryEstimate)
-            {
-                screen.SetActive(false);
-                return;
-            }
+            screen.SetActive(false);
+            return;
         }
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        StateFinder stateFinder = binding.velocityControl.State;
         float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on outer circle
@@ -470,11 +508,11 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
-    private void UpdateInnerCircleScreen(GameObject screen, GameObject droneChild)
+    private void UpdateInnerCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        StateFinder stateFinder = binding.velocityControl.State;
         float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on inner circle
@@ -489,11 +527,11 @@ public class ScreenSpawn : MonoBehaviour
     }
 
     // Update the bottom circle screen positions
-    private void UpdateBottomCircleScreen(GameObject screen, GameObject droneChild)
+    private void UpdateBottomCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        StateFinder stateFinder = binding.velocityControl.State;
         float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on bottom circle
@@ -522,7 +560,7 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
-    private void UpdateRotatingCircleScreen(GameObject screen, GameObject droneChild)
+    private void UpdateRotatingCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
         if (cameraRig == null)
         {
@@ -531,7 +569,7 @@ public class ScreenSpawn : MonoBehaviour
         }
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
+        StateFinder stateFinder = binding.velocityControl.State;
         float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate base position on inner circle
@@ -563,8 +601,13 @@ public class ScreenSpawn : MonoBehaviour
     // Update the position of the screens based on real drone orientation, called from ImageSharing.cs
     public void UpdateRealDroneScreen(int i, float yaw)
     {
-        // Find the screen
-        GameObject screen = screens.Find(s => s.name == "screen_" + i);
+        // screens[i] is "screen_i" by construction (SpawnScreens creates them in
+        // index order), so no name search is needed.
+        if (i < 0 || i >= screens.Count)
+        {
+            return;
+        }
+        GameObject screen = screens[i];
 
         // Calculate the screen position based on the yaw of the real drone
         float radians = -yaw * Mathf.Deg2Rad;

@@ -33,6 +33,25 @@ public class AttitudeAlgorithm : MonoBehaviour
     // drops off the hull so the yaw command stays continuous instead of chattering to zero.
     private float targetHeading = 0.0f;
     private bool hasTargetHeading = false;
+
+    // Shared global hull: every drone would otherwise rebuild the identical
+    // full-swarm hull every tick (O(n² log n) total). The first drone whose
+    // FixedUpdate runs in a physics tick rebuilds it; the rest reuse it.
+    // Transforms don't move between FixedUpdates of the same tick, so the shared
+    // hull is exactly what each drone would have computed itself.
+    private static readonly List<Vector2> sharedHullPositions = new List<Vector2>();
+    private static IList<Vector2> sharedGlobalHull;
+    private static float sharedGlobalHullTime = float.NegativeInfinity;
+    private static List<GameObject> sharedGlobalHullSwarm;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetSharedHullOnLoad()
+    {
+        sharedHullPositions.Clear();
+        sharedGlobalHull = null;
+        sharedGlobalHullTime = float.NegativeInfinity;
+        sharedGlobalHullSwarm = null;
+    }
     
     // Awake is called before Start
     void Awake()
@@ -138,7 +157,9 @@ public class AttitudeAlgorithm : MonoBehaviour
         {
             if (drone != null && drone != transform.parent.gameObject)
             {
-                VelocityControl droneVC = drone.GetNamedChild("DroneParent").GetComponent<VelocityControl>();
+                VelocityControl droneVC = SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)
+                    ? entry.velocityControl
+                    : null;
                 if (droneVC != null && droneVC.State != null && droneVC.State.IsAlive)
                 {
                     float yaw = droneVC.State.Angles.y;
@@ -187,12 +208,13 @@ public class AttitudeAlgorithm : MonoBehaviour
         // Sort the swarm by the distance to the current drone and get the closest numNeighbours
         swarm.Sort((a, b) =>
         {
-            // Get the child of the neighbours
-            GameObject aChild = a.transform.Find("DroneParent").gameObject;
-            GameObject bChild = b.transform.Find("DroneParent").gameObject;
+            // Positions come from the spawn-time registry so the comparator doesn't
+            // re-run a "DroneParent" string search twice per comparison.
+            Vector3 aPos = SwarmRegistry.TryGet(a, out SwarmRegistry.Entry ea) ? ea.droneParent.position : a.transform.position;
+            Vector3 bPos = SwarmRegistry.TryGet(b, out SwarmRegistry.Entry eb) ? eb.droneParent.position : b.transform.position;
 
             // Sort by the distance to the current drone
-            return Vector3.Distance(aChild.transform.position, transform.position).CompareTo(Vector3.Distance(bChild.transform.position, transform.position));
+            return Vector3.Distance(aPos, transform.position).CompareTo(Vector3.Distance(bPos, transform.position));
         });
 
         // Get the closest numNeighbours
@@ -208,8 +230,11 @@ public class AttitudeAlgorithm : MonoBehaviour
         // Add the positions of the neighbours
         foreach (GameObject neighbour in neighbours)
         {
-            GameObject neighbourChild = neighbour.transform.Find("DroneParent").gameObject;
-            Vector3 position = neighbourChild.transform.position;
+            if (!SwarmRegistry.TryGet(neighbour, out SwarmRegistry.Entry entry))
+            {
+                continue;
+            }
+            Vector3 position = entry.droneParent.position;
             positions2D.Add(new Vector2(position.x, position.z));
         }
 
@@ -240,41 +265,59 @@ public class AttitudeAlgorithm : MonoBehaviour
             return 0.0f;
         }
 
-        // Collect every drone's position. The current drone is part of the swarm list, so its own
-        // position is included (and matches currentDronePosition below since both read the same
-        // DroneParent transform within this frame).
-        List<Vector2> positions2D = new List<Vector2>(swarm.Count);
-        foreach (GameObject drone in swarm)
-        {
-            Transform droneParent = drone.transform.Find("DroneParent");
-            if (droneParent == null)
-            {
-                continue;
-            }
-            // Skip crashed drones: they stay in the swarm list where they fell, and their stale
-            // XZ position would otherwise stay a hull vertex and warp every neighbour's heading.
-            VelocityControl droneVC = droneParent.GetComponent<VelocityControl>();
-            if (droneVC != null && droneVC.State != null && !droneVC.State.IsAlive)
-            {
-                continue;
-            }
-            Vector3 position = droneParent.position;
-            positions2D.Add(new Vector2(position.x, position.z));
-        }
+        // The full-swarm hull is identical for every drone within a physics tick,
+        // so it is built once per tick and shared (see EnsureSharedGlobalHull).
+        EnsureSharedGlobalHull();
 
-        // Everyone crashed (or filtered out): no hull to build, and ComputeConvexHull
-        // cannot handle an empty point set.
-        if (positions2D.Count == 0)
+        // Everyone crashed (or filtered out): no hull to build.
+        if (sharedGlobalHull == null)
         {
             UpdateBoundaryEstimate(false);
             return 0.0f;
         }
 
-        // Compute the convex hull of the entire swarm
-        IList<Vector2> convexHull = ConvexHull.ComputeConvexHull(positions2D);
-
         Vector2 currentDronePosition = new Vector2(transform.position.x, transform.position.z);
-        return getYawRateFromHull(convexHull, currentDronePosition);
+        return getYawRateFromHull(sharedGlobalHull, currentDronePosition);
+    }
+
+    /// <summary>
+    /// Rebuilds the shared full-swarm hull if this is the first drone to need it this physics
+    /// tick (or the swarm list changed). Positions are read once from the spawn-time registry;
+    /// the current drone's own position is included and matches currentDronePosition exactly,
+    /// since both read the same DroneParent transform and transforms don't move mid-tick.
+    /// </summary>
+    private void EnsureSharedGlobalHull()
+    {
+        if (sharedGlobalHullSwarm == swarm && sharedGlobalHullTime == Time.fixedTime)
+        {
+            return;
+        }
+        sharedGlobalHullSwarm = swarm;
+        sharedGlobalHullTime = Time.fixedTime;
+
+        sharedHullPositions.Clear();
+        foreach (GameObject drone in swarm)
+        {
+            if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry))
+            {
+                continue;
+            }
+            // Skip crashed drones: they stay in the swarm list where they fell, and their stale
+            // XZ position would otherwise stay a hull vertex and warp every neighbour's heading.
+            VelocityControl droneVC = entry.velocityControl;
+            if (droneVC != null && droneVC.State != null && !droneVC.State.IsAlive)
+            {
+                continue;
+            }
+            Vector3 position = entry.droneParent.position;
+            sharedHullPositions.Add(new Vector2(position.x, position.z));
+        }
+
+        // ComputeConvexHull cannot handle an empty point set. sortInPlace avoids its
+        // defensive copy — the positions list is rebuilt from scratch next tick anyway.
+        sharedGlobalHull = sharedHullPositions.Count > 0
+            ? ConvexHull.ComputeConvexHull(sharedHullPositions, sortInPlace: true)
+            : null;
     }
 
     /// <summary>

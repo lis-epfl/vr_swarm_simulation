@@ -43,7 +43,8 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   (the producer rewrites `droneId` every write) — that marker is the new-frame detection, since the
   flag alone can't distinguish a fresh frame from a re-read.
 - `PanoramaSharedMemory` — `int flag | int quality_ok | RGB24 panorama`. `quality_ok == 0` ⇒ Unity shows
-  individual feeds instead of the panorama. Panorama is **vertically flipped** by Python (Unity textures start bottom-left).
+  individual feeds instead of the panorama. Panorama is **vertically flipped and converted BGR→RGB** by
+  Python (Unity textures start bottom-left; Unity uploads the bytes straight into an RGB24 texture).
 
 ## Conventions & invariants (not enforced by code)
 
@@ -52,7 +53,8 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   and in Python (`get_drone_order` + `get_subsets_from_order`) and all three must agree.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Stitching and the
   `OUTER_CIRCLE` screen layout only use boundary drones.
-- Image format across the bridge is **BGR + top-down**; the panorama is flipped once on the Python side.
+- Image format across the bridge is **BGR + top-down** for stitch inputs; the returned panorama is
+  flipped once and converted to RGB on the Python side.
 - **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata
   (`blockImageWidth/Height` + `panoramaImageWidth/Height` in `PyUniSharingFast`'s inspector); set those to
   scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, so only the render + bridge

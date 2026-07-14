@@ -24,8 +24,23 @@ public class OlfatiSaber : MonoBehaviour
     public float MaxMigrationDistance = 10.0f;
 
     private string droneName;
+    private VelocityControl selfVelocityControl;
+    private int obstacleLayerMask;
+    // Reusable overlap buffer: obstacle queries run per drone per tick, and the
+    // allocating OverlapSphere would churn the GC. FixedUpdate is single-threaded,
+    // so one shared buffer serves every drone.
+    private static readonly Collider[] overlapBuffer = new Collider[64];
 
     private const string k_ObstacleLayerName = "Obstacle";
+
+    // Awake, not Start: this component may sit disabled (SwarmAlgorithm toggles
+    // the algorithm components), and GetSwarmAcceleration can be called before
+    // Start would run — but Awake runs regardless of the enabled flag.
+    void Awake()
+    {
+        selfVelocityControl = GetComponent<VelocityControl>();
+        obstacleLayerMask = LayerMask.GetMask(k_ObstacleLayerName);
+    }
 
     void Start()
     {
@@ -40,7 +55,7 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 obstacle = Vector3.zero;
 
         // Get the position and velocity of the current drone
-        StateFinder currentDroneState = GetComponent<VelocityControl>().State;
+        StateFinder currentDroneState = selfVelocityControl.State;
         Vector3 position = currentDroneState.Position;
         Vector3 localVelocity = currentDroneState.VelocityVector;
         Vector3 velocity = transform.TransformDirection(localVelocity);
@@ -50,12 +65,13 @@ public class OlfatiSaber : MonoBehaviour
         int aliveNeighbourCount = 0;
         foreach (GameObject neighbour in swarm)
         {
-            GameObject neighbourChild = neighbour.transform.Find("DroneParent").gameObject;
-
-            if (neighbourChild == gameObject)
+            if (!SwarmRegistry.TryGet(neighbour, out SwarmRegistry.Entry entry) || entry.velocityControl == null)
                 continue;
 
-            StateFinder neighbourState = neighbourChild.GetComponent<VelocityControl>().State;
+            if (entry.droneParent.gameObject == gameObject)
+                continue;
+
+            StateFinder neighbourState = entry.velocityControl.State;
 
             if (!neighbourState.IsAlive)
                 continue;
@@ -64,7 +80,7 @@ public class OlfatiSaber : MonoBehaviour
 
             // Neighbour velocity in world frame
             Vector3 neighbourLocalVel = neighbourState.VelocityVector;
-            Vector3 neighbourVelocity = neighbourChild.transform.TransformDirection(neighbourLocalVel);
+            Vector3 neighbourVelocity = entry.droneParent.TransformDirection(neighbourLocalVel);
 
             // Velocity consensus: pull toward each neighbour's velocity
             velocityConsensus += c_vm * (neighbourVelocity - velocity);
@@ -104,9 +120,10 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 ObsCoh = Vector3.zero;
         Vector3 ObsVel = Vector3.zero;
 
-        Collider[] obstacles = Physics.OverlapSphere(dronePosition, r0_obs * ScaleFactor, LayerMask.GetMask(k_ObstacleLayerName));
-        foreach (Collider obstacleCollider in obstacles)
+        int obstacleCount = Physics.OverlapSphereNonAlloc(dronePosition, r0_obs * ScaleFactor, overlapBuffer, obstacleLayerMask);
+        for (int i = 0; i < obstacleCount; i++)
         {
+            Collider obstacleCollider = overlapBuffer[i];
             Vector3 closestPoint = obstacleCollider.ClosestPointOnBounds(dronePosition);
             Vector3 directionToObstacle = closestPoint - dronePosition;
             float distanceToObstacle = directionToObstacle.magnitude / ScaleFactor;

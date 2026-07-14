@@ -82,13 +82,18 @@ public class VelocityControl : MonoBehaviour
     private Quaternion initialRotation;
 
     private StreamWriter csvStreamWriter;
-    
+
+    private Rigidbody rb;  // cached: FixedUpdate applies force/torque every tick
+
+    void Awake() {
+        rb = GetComponent<Rigidbody> ();
+    }
+
     // Use this for initialization
     void Start() {
         ApplyControlStyle();
 
         State.GetState ();
-        Rigidbody rb = GetComponent<Rigidbody> ();
         Vector3 desiredForce = new Vector3 (0.0f, gravity * State.Mass, 0.0f);
         rb.AddForce (desiredForce, ForceMode.Acceleration);
 
@@ -264,8 +269,6 @@ public class VelocityControl : MonoBehaviour
 
         Vector3 desiredTorque = Vector3.Scale(desiredAlphaClamped, State.Inertia);
         Vector3 desiredForce = new Vector3(0.0f, desiredThrustClamped * State.Mass, 0.0f);
-
-        Rigidbody rb = GetComponent<Rigidbody>();
 
         rb.AddRelativeTorque(desiredTorque, ForceMode.Acceleration);
         rb.AddRelativeForce(desiredForce, ForceMode.Acceleration);

@@ -626,8 +626,11 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                         continue
 
                 try:
-                    # Flip the panorama because unity texture starts bottom left
-                    panorama = cv2.flip(panorama, 0)
+                    # Flip the panorama because unity texture starts bottom left,
+                    # and convert cv2's BGR to RGB so Unity can upload the bytes
+                    # straight into its RGB24 texture (LoadRawTextureData) with no
+                    # per-pixel channel swap on the render thread.
+                    panorama = cv2.cvtColor(cv2.flip(panorama, 0), cv2.COLOR_BGR2RGB)
                     write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, panorama)
                     del panorama
                 except Exception as e:

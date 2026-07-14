@@ -35,11 +35,20 @@ public class StateFinder : MonoBehaviour {
 	// Drone health status
 	public bool IsAlive = true;
 
+	// Cached lazily off vc (which is linked externally, so it may not be set yet
+	// in Awake) — GetState runs per drone per physics tick and was doing five
+	// GetComponent<Rigidbody> calls per invocation.
+	private Rigidbody rb;
+
 	void Awake() {
 		_rng = new System.Random();
 	}
 
 	public void GetState() {
+
+		if (rb == null) {
+			rb = vc.GetComponent<Rigidbody> ();
+		}
 
 		Vector3 worldDown = vc.transform.InverseTransformDirection (Vector3.down);
 		float Pitch = worldDown.z; // Small angle approximation (radians)
@@ -64,22 +73,22 @@ public class StateFinder : MonoBehaviour {
 
 		Altitude = vc.transform.position.y;
 
-		VelocityVector = vc.transform.GetComponent<Rigidbody> ().velocity;
+		VelocityVector = rb.velocity;
 		VelocityVector = vc.transform.InverseTransformDirection (VelocityVector);
 
-		AngularVelocityVector = vc.transform.GetComponent<Rigidbody> ().angularVelocity;
+		AngularVelocityVector = rb.angularVelocity;
 		AngularVelocityVector = vc.transform.InverseTransformDirection (AngularVelocityVector);
 
-		Acceleration = vc.transform.GetComponent<Rigidbody>().GetAccumulatedForce() / Mass;
+		Acceleration = rb.GetAccumulatedForce() / Mass;
 		Acceleration = vc.transform.InverseTransformDirection(Acceleration);
-		
-		AngularAcceleration = vc.transform.GetComponent<Rigidbody>().GetAccumulatedTorque() / Inertia.magnitude; //Approximation
+
+		AngularAcceleration = rb.GetAccumulatedTorque() / Inertia.magnitude; //Approximation
 		AngularAcceleration = vc.transform.InverseTransformDirection(AngularAcceleration);
 
 
 		if (flag) {
-			Inertia = vc.transform.GetComponent<Rigidbody> ().inertiaTensor;
-			Mass = vc.transform.GetComponent<Rigidbody> ().mass;
+			Inertia = rb.inertiaTensor;
+			Mass = rb.mass;
 			flag = false;
 		}
 

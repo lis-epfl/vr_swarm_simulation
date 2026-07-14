@@ -12,7 +12,15 @@ public class Reynolds : MonoBehaviour
     private Vector3 separation = new Vector3(0, 0, 0);
     private Vector3 alignment = new Vector3(0, 0, 0);
     private Vector3 swarmInput = new Vector3(0, 0, 0);
+    private VelocityControl selfVelocityControl;
 
+    // Awake, not Start: this component may sit disabled (SwarmAlgorithm toggles
+    // the algorithm components), and GetSwarmVelocityCommand can be called
+    // before Start would run — but Awake runs regardless of the enabled flag.
+    void Awake()
+    {
+        selfVelocityControl = GetComponent<VelocityControl>();
+    }
 
     // Update is called once per frame
     public Vector3 GetSwarmVelocityCommand(List<GameObject> swarm)
@@ -21,25 +29,28 @@ public class Reynolds : MonoBehaviour
         // Reset the vectors
         cohesion = new Vector3(0, 0, 0);
         separation = new Vector3(0, 0, 0);
-        alignment = new Vector3(0, 0, 0);       
+        alignment = new Vector3(0, 0, 0);
 
-        StateFinder currentDroneState = GetComponent<VelocityControl>().State;
-        
+        StateFinder currentDroneState = selfVelocityControl.State;
+
         // Calculate the relative position and velocity of each drone to the current drone
         foreach (GameObject neighbour in swarm)
         {
-            
-            // Get the child of the neighbour
-            GameObject neighbourChild = neighbour.transform.Find("DroneParent").gameObject;
+
+            // Get the neighbour's cached components (resolved once at spawn)
+            if (!SwarmRegistry.TryGet(neighbour, out SwarmRegistry.Entry entry) || entry.velocityControl == null)
+            {
+                continue;
+            }
 
             // Skip the current drone
-            if (neighbourChild == gameObject)
+            if (entry.droneParent.gameObject == gameObject)
             {
                 continue;
             }
 
             // Get the position of the neighbour
-            StateFinder neighbourState = neighbourChild.GetComponent<VelocityControl>().State;
+            StateFinder neighbourState = entry.velocityControl.State;
 
             if (!neighbourState.IsAlive)
                 continue;

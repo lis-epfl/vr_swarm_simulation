@@ -82,6 +82,9 @@ public class swarmSpawn : MonoBehaviour
             droneParent.GetComponent<SwarmAlgorithm>().swarm = swarm;
             droneParent.GetComponent<AttitudeAlgorithm>().swarm = swarm;
 
+            // Cache the per-drone components the swarm hot loops need every tick.
+            SwarmRegistry.Register(drone);
+
             // Per-drone mass/inertia variation for realism
             Rigidbody rb = droneParent.GetComponent<Rigidbody>();
             if (rb != null && RandomizeMassAndInertia)
