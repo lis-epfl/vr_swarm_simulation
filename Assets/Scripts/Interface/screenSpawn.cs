@@ -40,7 +40,7 @@ public class ScreenSpawn : MonoBehaviour
     public string screenLayerName = "UI";
 
     // GameObject references
-    private OVRPlayerController player;
+    private OVRCameraRig cameraRig;
     private List<GameObject> swarm = new List<GameObject>();
     private List<GameObject> screens = new List<GameObject>();
     private GameObject arena;
@@ -115,13 +115,18 @@ public class ScreenSpawn : MonoBehaviour
             height = stitchSharing.BlockImageHeight;
         }
 
-        // Find the OVRPlayerController in the scene if not already assigned
-        if (player == null)
+        // Find the OVRCameraRig in the scene if not already assigned. Fall back to
+        // FindObjectOfType so it resolves even if the rig isn't tagged 'Player'.
+        if (cameraRig == null)
         {
-            player = GameObject.FindGameObjectWithTag("Player")?.GetComponent<OVRPlayerController>();
-            if (player == null)
+            cameraRig = GameObject.FindGameObjectWithTag("Player")?.GetComponent<OVRCameraRig>();
+            if (cameraRig == null)
             {
-                Debug.LogWarning("No OVRPlayerController found in the scene!");
+                cameraRig = FindObjectOfType<OVRCameraRig>();
+            }
+            if (cameraRig == null)
+            {
+                Debug.LogWarning("No OVRCameraRig found in the scene!");
             }
         }
 
@@ -263,10 +268,10 @@ public class ScreenSpawn : MonoBehaviour
         // Place the screens based on the orientation of the drones
         UpdateScreenPositions();
 
-        // Move the player to the centre of the arena
-        if (player != null && arena != null)
+        // Move the camera rig to the centre of the arena
+        if (cameraRig != null && arena != null)
         {
-            player.transform.position = arena.transform.position;
+            cameraRig.transform.position = arena.transform.position;
         }
     }
 
@@ -519,7 +524,7 @@ public class ScreenSpawn : MonoBehaviour
 
     private void UpdateRotatingCircleScreen(GameObject screen, GameObject droneChild)
     {
-        if (player == null)
+        if (cameraRig == null)
         {
             screen.SetActive(false);
             return;
@@ -535,8 +540,14 @@ public class ScreenSpawn : MonoBehaviour
         float y = arena.transform.position.y + offset.y;
         Vector3 basePosition = new Vector3(x, y, z);
 
-        // Get player's forward direction (only using horizontal direction)
-        Vector3 playerForward = player.transform.forward;
+        // Get the player's forward direction (only using horizontal direction).
+        // The OVRCameraRig transform is just the tracking-space origin and does not
+        // rotate with the head, so read the head look direction from the HMD's
+        // centre-eye anchor (falling back to the rig transform if unavailable).
+        Transform headTransform = cameraRig.centerEyeAnchor != null
+            ? cameraRig.centerEyeAnchor
+            : cameraRig.transform;
+        Vector3 playerForward = headTransform.forward;
         playerForward.y = 0; // Zero out vertical component
         playerForward.Normalize();
 
