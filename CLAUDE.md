@@ -58,11 +58,19 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
 - **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata
   (`blockImageWidth/Height` + `panoramaImageWidth/Height` in `PyUniSharingFast`'s inspector); set those to
   scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, so only the render + bridge
-  costs grow with resolution — not the 3 Hz warp pipeline.
-- **STABSTITCH render/warp are decoupled:** a ~15 fps render loop uses cached warp params only (no neural
-  net); a separate ~3 Hz thread runs the nets and updates the cache. The render warp is a single
+  costs grow with resolution — not the warp pipeline.
+- **STABSTITCH render/warp are decoupled:** a ~21 Hz render loop uses cached warp params only (no neural
+  net); a separate ~6.6 Hz thread runs the nets and updates the cache. The render warp is a single
   `grid_sample` over a **precomputed TPS sampling field** (`_compute_tps_flow`, cached per warp update) —
   the float64 TPS solve + per-pixel RBF live in the warp thread, not the render loop.
+- **The two threads share one GPU and one GIL**, so wasted render work directly slows the warp update.
+  The render signal is rate-limited to `RENDER_MIN_PERIOD` in `StitcherThreading.py`: the shared memory
+  is polled much faster than Unity refills it, and re-rendering an unchanged frame measurably halved the
+  warp rate. Keep that pacing just above Unity's `sendInterval` (20 Hz) rather than removing it.
+- **Never use `torchvision.transforms.GaussianBlur` on canvas-sized tensors here** — it convolves with a
+  dense k×k kernel. At 1690×653 the 41×41 blur cost 125 ms and the 21×21 blur 38 ms, which was the single
+  largest cost in the warp update. Use `SeparableGaussianBlur` in `StabStitcher.py` (two 1-D passes,
+  same result to ~5e-5 relative). Likewise erode with two 1-D `max_pool2d` passes, not one k×k pass.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

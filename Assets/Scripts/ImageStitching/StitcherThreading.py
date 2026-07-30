@@ -31,6 +31,18 @@ MAX_STITCH_YAW_SEPARATION_DEG = 75.0   # FOV (~83 deg) minus a small overlap mar
 REASON_NO_OVERLAP = 8                  # new failing-gate reason (keep in sync with C# REASON_NO_OVERLAP)
 REASON_TOO_FEW_IMAGES = 16             # fewer than 3 selected feeds -> can't form L/C/R (keep in sync with C#)
 
+# How often the debug panorama snapshot is written to disk, in seconds. The JPEG
+# encode + write is a stall inside the shared-memory read/write loop, so it is
+# throttled rather than run on every frame.
+DEBUG_PANO_WRITE_PERIOD = 1.0
+
+# Minimum period between render-thread wake-ups, in seconds. Unity publishes new
+# feeds at 20 Hz (sendInterval = 0.05 in PyUniSharingFast), so signalling faster
+# than that only re-renders identical pixels -- and because the render and warp
+# threads share one GPU and one GIL, that wasted work directly slows the warp
+# update. Set just above the publish rate so the render never aliases below 20 Hz.
+RENDER_MIN_PERIOD = 0.045
+
 # A proper left/centre/right panorama needs at least this many distinct feeds.
 # With fewer, get_subsets_from_order wraps around and would stitch an image with
 # itself, so we skip the warp entirely and fall back to the individual feeds.
@@ -524,6 +536,8 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     processedMMF = mmap.mmap(-1, totalProcessedSize, "BlockSharedMemory")
     
     first_loop = True
+    last_debug_write = 0.0
+    last_render_signal = 0.0
     # Cache of last successfully read frame per block index {block_idx: (image, drone_id, heading)}
     block_cache = {}
     # Panorama output mapping is opened once on the first write (below) and reused,
@@ -586,8 +600,14 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 # headAngle comes from the live headset yaw (set above from metadata),
                 # not from the drone headings.
 
-            # Wake the stitching thread — new images are available.
-            manager.new_images_event.set()
+            # Wake the stitching thread — new images are available. Rate-limited
+            # to RENDER_MIN_PERIOD: the shared memory is polled far faster than
+            # Unity refills it, and re-rendering an unchanged frame just steals
+            # GPU time from the warp thread.
+            now = time.perf_counter()
+            if now - last_render_signal >= RENDER_MIN_PERIOD:
+                last_render_signal = now
+                manager.new_images_event.set()
 
             if enable_debug_logging:
                 print(f"[first_thread] Read {len(images)} images, sorted drone IDs: {sorted_drone_ids}, headings: {sorted_headings}")
@@ -623,7 +643,14 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                     except:
                         continue
 
-                cv2.imwrite("debug_panorama.jpg", panorama)
+                # Debug snapshot of the panorama. Throttled to ~1 Hz: a JPEG
+                # encode + disk write of the full panorama every frame was a
+                # ~10 ms stall inside this read/write loop, which caps the
+                # end-to-end rate. Once a second is plenty to eyeball quality.
+                now = time.perf_counter()
+                if now - last_debug_write >= DEBUG_PANO_WRITE_PERIOD:
+                    last_debug_write = now
+                    cv2.imwrite("debug_panorama.jpg", panorama)
 
                 try:
                     # Flip the panorama because unity texture starts bottom left,
@@ -640,8 +667,10 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         
         # I/O poll period. End-to-end fps is the min of this, Unity's sendInterval /
         # readInterval, and the render throughput — lower all of them together to
-        # raise fps. Kept modest so polling doesn't spin re-rendering unchanged frames.
-        time.sleep(0.02)
+        # raise fps. Unity publishes at 20 Hz (sendInterval = 0.05), so poll at a
+        # few times that rate: with a 0.02 s sleep the loop's own ~0.01-0.03 s of
+        # work pushed the period past 50 ms and capped the pipeline below 20 Hz.
+        time.sleep(0.005)
 
         if first_loop:
             first_loop = False

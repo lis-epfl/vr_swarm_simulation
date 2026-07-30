@@ -98,7 +98,7 @@ def _recover_mesh(norm_mesh, height, width):
     return mesh.reshape([batch_size, grid_h + 1, grid_w + 1, 2])
 
 
-def _compute_tps_flow(source, target, out_h, out_w):
+def _compute_tps_flow(source, target, out_h, out_w, downscale=1):
     """
     Precompute the normalised TPS sampling field for ``F.grid_sample``.
 
@@ -113,6 +113,12 @@ def _compute_tps_flow(source, target, out_h, out_w):
     ----------
     source, target : [B, P, 2] normalised control-point meshes (in [-1, 1]).
     out_h, out_w   : output canvas size.
+    downscale      : when > 1, evaluate the per-pixel RBF on a canvas reduced by
+                     this factor and bilinearly upsample the resulting field.
+                     The RBF term is the memory-bound part (a [B, P+3, h*w]
+                     tensor), so this cuts its cost quadratically. A TPS field is
+                     smooth between control points, so the upsampled field is
+                     visually indistinguishable at small factors.
 
     Returns
     -------
@@ -121,6 +127,11 @@ def _compute_tps_flow(source, target, out_h, out_w):
     """
     dev = source.device
     B, P, _ = source.shape
+
+    full_h, full_w = out_h, out_w
+    if downscale > 1:
+        out_h = max(2, int(round(out_h / downscale)))
+        out_w = max(2, int(round(out_w / downscale)))
 
     # --- solve the TPS system (matches torch_tps_transform._solve_system) ---
     ones = torch.ones(B, P, 1, device=dev)
@@ -151,7 +162,63 @@ def _compute_tps_flow(source, target, out_h, out_w):
     Tg = torch.matmul(T, grid)                                   # [B, 2, h*w]
     xs = Tg[:, 0, :].reshape(B, 1, out_h, out_w)
     ys = Tg[:, 1, :].reshape(B, 1, out_h, out_w)
-    return torch.cat([xs, ys], 1).permute(0, 2, 3, 1)            # [B, out_h, out_w, 2]
+    flow = torch.cat([xs, ys], 1)                                # [B, 2, out_h, out_w]
+
+    if downscale > 1:
+        # linspace(-1, 1, n) is align_corners=True sampling of the same normalised
+        # span at both resolutions, so bilinear upsampling with align_corners=True
+        # lands the coarse samples exactly on their full-res counterparts.
+        flow = F.interpolate(flow, size=(full_h, full_w),
+                             mode='bilinear', align_corners=True)
+
+    return flow.permute(0, 2, 3, 1)                              # [B, full_h, full_w, 2]
+
+
+class SeparableGaussianBlur:
+    """
+    Drop-in replacement for ``torchvision.transforms.GaussianBlur`` that applies
+    the kernel as two 1-D passes instead of one dense 2-D convolution.
+
+    A 2-D Gaussian is the outer product of two 1-D Gaussians, so this is the same
+    filter — but torchvision materialises the full k*k kernel and convolves with
+    it, costing O(k^2) per pixel. At the sizes used here that dominated the warp
+    update: on a 1690x653 mask the 41x41 blur measured 125 ms and the 21x21 blur
+    38 ms, versus ~6 ms and ~4 ms separably.
+
+    Padding is ``reflect`` to match torchvision's behaviour at the borders.
+    """
+
+    def __init__(self, kernel_size: int, sigma: float):
+        self.kernel_size = int(kernel_size)
+        self.sigma = float(sigma)
+        self._k1d = None      # cached [1, 1, 1, k] kernel
+        self._key = None      # (kernel_size, sigma, dtype, device)
+
+    def _kernel(self, dtype, device):
+        key = (self.kernel_size, self.sigma, dtype, device)
+        if self._key != key:
+            k = self.kernel_size
+            # Matches torchvision's _get_gaussian_kernel1d.
+            x = torch.linspace(-(k - 1) / 2.0, (k - 1) / 2.0, steps=k,
+                               dtype=dtype, device=device)
+            pdf = torch.exp(-0.5 * (x / self.sigma).pow(2))
+            self._k1d = (pdf / pdf.sum()).reshape(1, 1, 1, k)
+            self._key = key
+        return self._k1d
+
+    def __call__(self, img):
+        k = self.kernel_size
+        pad = k // 2
+        c = img.shape[-3]
+        k1d = self._kernel(img.dtype, img.device)
+
+        kh = k1d.reshape(1, 1, k, 1).expand(c, 1, k, 1)
+        kw = k1d.expand(c, 1, 1, k)
+
+        out = F.pad(img, (0, 0, pad, pad), mode='reflect')
+        out = F.conv2d(out, kh, groups=c)
+        out = F.pad(out, (pad, pad, 0, 0), mode='reflect')
+        return F.conv2d(out, kw, groups=c)
 
 
 def _inter_grid_loss(mesh):
@@ -192,29 +259,45 @@ def _compute_blend_weights(ref_m, tgt_m, blur):
     geometry-only: they do not depend on image pixel values, so they can
     be precomputed once per warp update and reused every render frame.
 
-    GPU→CPU syncs (torch.nonzero, scalar comparisons) are acceptable here
-    because this runs in the low-frequency warp thread, not the render loop.
+    Written to stay entirely on the GPU.  The original formulation used
+    ``torch.nonzero`` (three times per call, twice per warp update) to gather
+    mask centroids and the overlap extent; each of those is a device→host sync
+    that drains the whole CUDA queue, and under contention with the render
+    thread they dominated the warp update.  Centroids and the overlap min/max
+    are computed here as masked reductions instead, which is numerically the
+    same but never leaves the device.
     """
-    r1, c1 = torch.nonzero(ref_m[0, 0] > 0.01, as_tuple=True)
-    r2, c2 = torch.nonzero(tgt_m[0, 0] > 0.01, as_tuple=True)
+    dev = ref_m.device
+    H, W = ref_m.shape[-2:]
 
-    if r1.numel() == 0 or r2.numel() == 0:
-        return ref_m.clone(), tgt_m.clone()
+    m1 = (ref_m[0, 0] > 0.01).float()
+    m2 = (tgt_m[0, 0] > 0.01).float()
 
-    center1 = (r1.float().mean(), c1.float().mean())
-    center2 = (r2.float().mean(), c2.float().mean())
-    vec = (center2[0] - center1[0], center2[1] - center1[1])
+    rows = torch.arange(H, device=dev, dtype=torch.float32).unsqueeze(1)  # [H, 1]
+    cols = torch.arange(W, device=dev, dtype=torch.float32).unsqueeze(0)  # [1, W]
+
+    # Masked centroids. clamp_min(1) keeps an empty mask from producing NaN;
+    # the resulting centroid is unused because the overlap is empty too.
+    n1 = m1.sum().clamp_min(1.0)
+    n2 = m2.sum().clamp_min(1.0)
+    c1r, c1c = (m1 * rows).sum() / n1, (m1 * cols).sum() / n1
+    c2r, c2c = (m2 * rows).sum() / n2, (m2 * cols).sum() / n2
+    vec_r, vec_c = c2r - c1r, c2c - c1c
 
     ovl    = (ref_m * tgt_m)[:, 0].unsqueeze(1)
     ref_m_ = (ref_m[:, 0].unsqueeze(1) - ovl).clamp(0, 1)
 
-    r, c = torch.nonzero(ovl[0, 0] > 0.01, as_tuple=True)
-    ovl_mask = torch.zeros_like(ref_m_)
-    if r.numel() > 0:
-        proj_val = (r.float() - center1[0]) * vec[0] + (c.float() - center1[1]) * vec[1]
-        ovl_mask[0, 0, r, c] = (proj_val - proj_val.min()) / (
-            proj_val.max() - proj_val.min() + 1e-3
-        )
+    # Ramp across the overlap along the centre-to-centre direction, normalised by
+    # the overlap's own extent along that direction (masked min/max, no sync).
+    ovl_b = (ovl[0, 0] > 0.01)
+    proj  = (rows - c1r) * vec_r + (cols - c1c) * vec_c            # [H, W]
+    pmin  = proj.masked_fill(~ovl_b, float('inf')).amin()
+    pmax  = proj.masked_fill(~ovl_b, float('-inf')).amax()
+    ramp  = (proj - pmin) / (pmax - pmin + 1e-3)
+    # Empty overlap ⇒ pmin/pmax are ±inf and ramp is non-finite; zero it out so
+    # the result matches the original's all-zero ovl_mask in that case.
+    ramp  = torch.nan_to_num(ramp, nan=0.0, posinf=0.0, neginf=0.0)
+    ovl_mask = (ramp * ovl_b).reshape(1, 1, H, W)
 
     w_ref = (
         blur(ref_m_ + (1 - ovl_mask) * ref_m[:, 0].unsqueeze(1)) * ref_m + ref_m_
@@ -266,7 +349,10 @@ class StabStitcher(BaseStitcher):
 
         self.warp_mode = warp_mode
         self.fusion_mode = fusion_mode
-        self.timing = timing
+        # Env-gated so the per-stage warp/render breakdown can be turned on for
+        # profiling without touching Unity or the shared-memory metadata.
+        self.timing = timing or os.environ.get(
+            "STABSTITCH_TIMING", "0").lower() not in ("0", "", "false", "no")
         self.save_masks = save_masks
         self.mask_save_dir = mask_save_dir or os.path.join(_THIS_DIR, "mask_debug")
         self.blur_kernel_size = blur_kernel_size
@@ -279,7 +365,17 @@ class StabStitcher(BaseStitcher):
         # validated in fp16 and a NaN there is hard to spot; enable it if the
         # warp thread becomes the bottleneck.
         self.render_fp16 = True
+        # Net fp16 does not work with these StabStitch++ nets: SpatialNet's
+        # H2Mesh calls torch.inverse on the estimated homography, and
+        # linalg.inv has no half implementation ("Low precision dtypes not
+        # supported. Got Half"). Leave off unless that vendored code is patched
+        # to force the solve back to fp32.
         self.net_fp16 = False
+
+        # Downscale factor for the per-pixel TPS RBF evaluation (see
+        # _compute_tps_flow). 1 = exact; 2 evaluates on a half-size canvas and
+        # bilinearly upsamples the field.
+        self.flow_downscale = int(os.environ.get("STABSTITCH_FLOW_DOWNSCALE", "1"))
 
         # --- Panorama quality estimate / auto-fallback ---
         # When the stitched panorama is judged bad (poor overlap alignment,
@@ -345,11 +441,8 @@ class StabStitcher(BaseStitcher):
 
         # Pre-built blur kernels – reused every frame to avoid per-call
         # kernel allocation and recompilation overhead.
-        self._blur_linear = GaussianBlur(kernel_size=(21, 21), sigma=20)
-        self._blur_ref = GaussianBlur(
-            kernel_size=(self.blur_kernel_size, self.blur_kernel_size),
-            sigma=self.blur_sigma,
-        )
+        self._blur_linear = SeparableGaussianBlur(21, 20)
+        self._blur_ref = SeparableGaussianBlur(self.blur_kernel_size, self.blur_sigma)
 
         # --- Cached rigid meshes (avoid recomputation every call) ---
         self._rigid_mesh_net = None       # [1, grid_h+1, grid_w+1, 2] at NET resolution
@@ -496,35 +589,63 @@ class StabStitcher(BaseStitcher):
         tmotion3 = [m[2:3] for m in motion_list]
         return tmotion1, tmotion2, tmotion3
 
-    def _compute_tsmotion(self, smotion_list, smesh_list, tmotion_list):
+    def _compute_tsmotion_batched(self, specs):
         """
-        Convert frame-t temporal motion into a temporal-spatial motion relative
-        to the (t-1)-th frame's spatial mesh.  Mirrors the data-preparation step
-        in test_online_tra_threeview.py.
+        Convert frame-t temporal motion into a temporal-spatial motion relative to
+        the (t-1)-th frame's spatial mesh, for several streams at once.  Mirrors
+        the data-preparation step in test_online_tra_threeview.py.
+
+        Frame 0 has no predecessor and is defined as zero motion; every other
+        (stream, frame) is an independent TPS point transform.  Done one at a time
+        that is 4 streams x 6 frames = 24 tiny GPU launches, each carrying its own
+        float64 (P+3)x(P+3) inverse, and the launch overhead dominates.  Stacking
+        them into a single batch-24 call gives identical results for ~1/10 the time.
+
+        Parameters
+        ----------
+        specs : list of (smotion_list, smesh_list, tmotion_list) triples.
+
+        Returns
+        -------
+        list of tsmotion lists, one per input triple, in the same order.
         """
         rigid = self._rigid_mesh_net
         norm_rigid = self._norm_rigid_mesh_net
-        tsmotion_list = []
+        T = len(specs[0][0])
 
-        for k in range(len(smotion_list)):
-            if k == 0:
-                tsmotion = smotion_list[0].clone() * 0
-            else:
-                smesh_prev    = smesh_list[k - 1]
-                tmotion_k     = tmotion_list[k]           # temporal motion at frame k
-                tmesh         = rigid + tmotion_k
+        tmesh_all, smesh_prev_all = [], []
+        for _smotion_list, smesh_list, tmotion_list in specs:
+            for k in range(1, T):
+                tmesh_all.append(rigid + tmotion_list[k])
+                smesh_prev_all.append(smesh_list[k - 1])
 
-                norm_smesh_prev = _get_norm_mesh(smesh_prev, self.NET_H, self.NET_W)
-                norm_tmesh      = _get_norm_mesh(tmesh,      self.NET_H, self.NET_W)
+        if not tmesh_all:
+            # Only reachable with a single-frame buffer, where every entry is the
+            # zero-motion frame-0 case. SmoothNet requires BUFFER_LEN == 7, so this
+            # is a guard rather than a path the pipeline takes.
+            return [[spec[0][0] * 0] for spec in specs]
 
-                tsmesh   = torch_tps_transform_point.transformer(
-                    norm_tmesh, norm_rigid, norm_smesh_prev
-                )
-                tsmotion = _recover_mesh(tsmesh, self.NET_H, self.NET_W) - smesh_list[k]
+        tmesh_cat = torch.cat(tmesh_all, 0)
+        smesh_prev_cat = torch.cat(smesh_prev_all, 0)
+        n = tmesh_cat.size(0)
 
-            tsmotion_list.append(tsmotion)
+        norm_tmesh = _get_norm_mesh(tmesh_cat, self.NET_H, self.NET_W)
+        norm_smesh_prev = _get_norm_mesh(smesh_prev_cat, self.NET_H, self.NET_W)
+        norm_rigid_n = norm_rigid.expand(n, -1, -1)
 
-        return tsmotion_list
+        tsmesh = torch_tps_transform_point.transformer(
+            norm_tmesh, norm_rigid_n, norm_smesh_prev
+        )
+        recovered = _recover_mesh(tsmesh, self.NET_H, self.NET_W)
+
+        out, i = [], 0
+        for smotion_list, smesh_list, _tmotion_list in specs:
+            lst = [smotion_list[0] * 0]
+            for k in range(1, T):
+                lst.append(recovered[i:i + 1] - smesh_list[k])
+                i += 1
+            out.append(lst)
+        return out
 
     def _run_smooth_batched(self, tsmotion_a1, tsmotion_a2, smesh_a1, smesh_a2,
                             tsmotion_b1, tsmotion_b2, smesh_b1, smesh_b2):
@@ -585,14 +706,28 @@ class StabStitcher(BaseStitcher):
             return {'w1': w1, 'w2': w2, 'w3': w3}
 
         elif self.fusion_mode == "REFERENCE_BLEND":
+            # StitcherManager writes blur_kernel_size / blur_sigma straight onto
+            # the stitcher when Unity's metadata changes, so rebuild the kernel
+            # when they no longer match the one we cached.
+            if (self._blur_ref.kernel_size != self.blur_kernel_size
+                    or self._blur_ref.sigma != self.blur_sigma):
+                self._blur_ref = SeparableGaussianBlur(self.blur_kernel_size,
+                                                       self.blur_sigma)
+
             w1_12, w2_12 = _compute_blend_weights(mask1, mask2, self._blur_linear)
             mask12 = mask1 + mask2 - mask1 * mask2
             w12_123, w3_123 = _compute_blend_weights(mask12, mask3, self._blur_linear)
 
             mask2_b = (mask2 > 0.5).float()
             ks = 2 * self.border_size + 1
-            mask2_eroded = (-F.max_pool2d(-mask2_b, kernel_size=ks, stride=1,
-                                          padding=self.border_size)).clamp(0, 1)
+            # Separable erosion: a square structuring element factorises into a
+            # vertical then a horizontal pass, giving an identical result for
+            # O(H*W*2k) work instead of O(H*W*k^2). At border_size=60 (k=121) the
+            # square max_pool was ~0.2s -- by far the dominant warp-thread cost.
+            mask2_eroded = -F.max_pool2d(-mask2_b, kernel_size=(ks, 1), stride=1,
+                                         padding=(self.border_size, 0))
+            mask2_eroded = (-F.max_pool2d(-mask2_eroded, kernel_size=(1, ks), stride=1,
+                                          padding=(0, self.border_size))).clamp(0, 1)
             mask2_interior = self._blur_ref(mask2_eroded).clamp(0, 1) * mask2_b  # [1,1,H,W]
 
             mi = mask2_interior  # shorthand
@@ -931,6 +1066,10 @@ class StabStitcher(BaseStitcher):
         """
         with self._buf_lock:
             if len(self._buf_img1) < self.BUFFER_LEN or self._hr_shape is None:
+                # Buffer still filling — sleep instead of returning straight into
+                # the caller's tight loop, which otherwise spins a core at ~100 kHz
+                # and starves the render thread of GIL time while it warms up.
+                time.sleep(0.05)
                 return
             img1_list = list(self._buf_img1)
             img2_list = list(self._buf_img2)
@@ -1020,11 +1159,14 @@ class StabStitcher(BaseStitcher):
                 self._run_temporal_batched(img1_list, img2_list, img3_list)
             t2 = time.perf_counter() if self.timing else None
 
-            # ---------- TSMotion (cheap, CPU-bound mesh math) ----------
-            tsmotion12_1 = self._compute_tsmotion(smotion12_1, smesh12_1, tmotion_stream1)
-            tsmotion12_2 = self._compute_tsmotion(smotion12_2, smesh12_2, tmotion_stream2)
-            tsmotion23_1 = self._compute_tsmotion(smotion23_1, smesh23_1, tmotion_stream2)
-            tsmotion23_2 = self._compute_tsmotion(smotion23_2, smesh23_2, tmotion_stream3)
+            # ---------- TSMotion (all four streams in one batched TPS solve) ----------
+            tsmotion12_1, tsmotion12_2, tsmotion23_1, tsmotion23_2 = \
+                self._compute_tsmotion_batched([
+                    (smotion12_1, smesh12_1, tmotion_stream1),
+                    (smotion12_2, smesh12_2, tmotion_stream2),
+                    (smotion23_1, smesh23_1, tmotion_stream2),
+                    (smotion23_2, smesh23_2, tmotion_stream3),
+                ])
 
             # ---------- Smooth: both pairs batched (2 calls → 1) ----------
             smooth12_1, smooth23_1, smooth12_2, smooth23_2 = \
@@ -1132,30 +1274,39 @@ class StabStitcher(BaseStitcher):
         norm_m2 = _get_norm_mesh(m2_final, out_h2, out_w2)
         norm_m3 = _get_norm_mesh(m3_final, out_h2, out_w2)
 
-        # ---------- precompute blending weights (geometry-only, warp thread) ----------
+        if self.timing:
+            torch.cuda.synchronize()
+            t_mesh = time.perf_counter()
+
+        # ---------- precompute the TPS sampling field (geometry-only, warp thread) ----------
+        # The render loop only changes the input *pixels*; the warp field is fixed
+        # until the next warp update. Computing it here (once per warp update)
+        # turns each render into a single grid_sample — removing the float64 solve
+        # and per-pixel RBF from the hot path, which is the dominant high-res cost.
         norm_rigid_hr = self._norm_rigid_mesh_hr
         norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
-        alpha_dummy   = torch.ones(3, 1, hr_h, hr_w,
-                                   device='cuda' if torch.cuda.is_available() else 'cpu')
-        masks_warped = torch_tps_transform.transformer(
-            alpha_dummy,
-            torch.cat([norm_m1, norm_m2, norm_m3], 0),
-            norm_rig3, out_size, mode=self.warp_mode,
+        flow = _compute_tps_flow(
+            torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3,
+            out_size[0], out_size[1], downscale=self.flow_downscale,
         )
+
+        if self.timing:
+            torch.cuda.synchronize()
+            t_flow = time.perf_counter()
+
+        # ---------- precompute blending weights (geometry-only, warp thread) ----------
+        # The alpha masks are the same warp as the panorama, so sample them with the
+        # field we just built rather than running a second full-canvas TPS solve+RBF.
+        alpha_dummy  = torch.ones(3, 1, hr_h, hr_w, device=flow.device)
+        masks_warped = F.grid_sample(alpha_dummy, flow, align_corners=True)
         mask1_pre = masks_warped[0].unsqueeze(0)   # [1, 1, H, W]
         mask2_pre = masks_warped[1].unsqueeze(0)
         mask3_pre = masks_warped[2].unsqueeze(0)
         blend_weights = self._precompute_blend_weights(mask1_pre, mask2_pre, mask3_pre)
 
-        # ---------- precompute the TPS sampling field (geometry-only, warp thread) ----------
-        # The render loop only changes the input *pixels*; the warp field is fixed
-        # until the next warp update. Computing it here (once per ~3 Hz update)
-        # turns each render into a single grid_sample — removing the float64 solve
-        # and per-pixel RBF from the hot path, which is the dominant high-res cost.
-        flow = _compute_tps_flow(
-            torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3,
-            out_size[0], out_size[1],
-        )
+        if self.timing:
+            torch.cuda.synchronize()
+            t_blend = time.perf_counter()
 
         # ---------- panorama quality estimate + hysteresis (warp thread) ----------
         if self.quality_enabled:
@@ -1175,13 +1326,17 @@ class StabStitcher(BaseStitcher):
             quality_reason = 0
 
         if self.timing:
+            torch.cuda.synchronize()
             t_end = time.perf_counter()
             print(
-                f"[StabStitch warp] "
-                f"spatial={t1-t0:.3f}s  "
-                f"temporal={t2-t1:.3f}s  "
-                f"smooth+tsmotion={t3-t2:.3f}s  "
-                f"mesh={t_end-t3:.3f}s  "
+                f"[StabStitch warp] canvas={out_size[1]}x{out_size[0]} "
+                f"spatial={t1-t0:.3f}  "
+                f"temporal={t2-t1:.3f}  "
+                f"smooth+tsm={t3-t2:.3f}  "
+                f"mesh={t_mesh-t3:.3f}  "
+                f"tpsflow={t_flow-t_mesh:.3f}  "
+                f"blend={t_blend-t_flow:.3f}  "
+                f"quality={t_end-t_blend:.3f}  "
                 f"total={t_end-t0:.3f}s"
             )
 
