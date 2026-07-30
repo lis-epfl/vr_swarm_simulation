@@ -245,7 +245,7 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: typeOfFusion
-      value: 3
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -255,7 +255,7 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: typeOfStitcher
-      value: 1
+      value: 4
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -270,7 +270,7 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: enableImageWriting
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -487,15 +487,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ScreenSpawn: {fileID: 0}
   DroneIndicator: {fileID: 0}
-  numImages: 5
+  numImages: 3
   processedMapName: DroneFeedSharedMemory
   enableStitchWriting: 1
   stitchFrameMaxAge: 1
   headingOffsetDegrees: 0
   readInterval: 0.05
-  enableDebugLogging: 0
+  enableDebugLogging: 1
   enableImageValidation: 0
-  saveDebugImages: 0
+  saveDebugImages: 1
   debugImagePath: Assets/DebugImages/
 --- !u!114 &590275749
 MonoBehaviour:

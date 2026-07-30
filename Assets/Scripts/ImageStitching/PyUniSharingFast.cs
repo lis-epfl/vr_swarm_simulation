@@ -346,12 +346,25 @@ public class PyUniSharingFast : MonoBehaviour
     private bool panoramaDisplayActive = true;
 
     // Pilot toggle for the panorama, driven by the controller click switch
-    // (InputManager "userSwitch": 1 = show panorama, -1 = show individual feeds).
-    // readController.py latches the spring-loaded switch into this on/off level,
-    // so here we just mirror the level. When off, the panorama is hidden and the
-    // individual feeds are shown (same display path as the quality fallback); the
-    // Python stitcher keeps running the whole time.
+    // (InputManager "userSwitch": 1 = show panorama, -1 = show individual feeds),
+    // the Inspector checkbox below, or togglePanoramaKey. When off, the panorama
+    // is hidden and the individual feeds are shown (same display path as the
+    // quality fallback); the Python stitcher keeps running the whole time.
+    [SerializeField]
+    [Tooltip("Show the stitched panorama; unticked shows the individual drone feeds instead. " +
+             "Mirrors the controller's click switch when one is connected, but can also be " +
+             "toggled directly here or with togglePanoramaKey -- for testing without a controller.")]
     private bool panoramaUserEnabled = true;
+
+    [SerializeField]
+    [Tooltip("Key that toggles the panorama on/off (for testing without a controller connected).")]
+    private KeyCode togglePanoramaKey = KeyCode.T;
+
+    // Edge-detection for the controller's click switch, so a disconnected controller
+    // (InputManager's "userSwitch" resting at its default) doesn't fight the manual
+    // toggle above every frame -- only an actual change in the reading takes over.
+    private float lastControllerUserSwitch;
+    private bool controllerUserSwitchInitialized = false;
 
     [Header("Stitched Drone Screens")]
     [SerializeField]
@@ -522,12 +535,30 @@ public class PyUniSharingFast : MonoBehaviour
             }
         }
 
-        // Mirror the pilot's panorama toggle from the click switch. readController.py
-        // already latches the spring-loaded switch, so userSwitch is a stable on/off
-        // level (1 = show panorama, -1 = show feeds); Space does the same on keyboard.
+        if (Input.GetKeyDown(togglePanoramaKey))
+        {
+            panoramaUserEnabled = !panoramaUserEnabled;
+        }
+
+        // Mirror the pilot's panorama toggle from the click switch, but only on an
+        // actual change in its reading -- not every frame -- so a disconnected
+        // controller (userSwitch resting at InputManager's default) doesn't
+        // immediately undo the manual toggle/Inspector checkbox above. readController.py
+        // latches the spring-loaded switch, so userSwitch is a stable on/off level
+        // (1 = show panorama, -1 = show feeds) while a controller is connected.
         if (InputManager.Instance != null)
         {
-            panoramaUserEnabled = InputManager.Instance.InputStatus["userSwitch"] > 0f;
+            float userSwitch = InputManager.Instance.InputStatus["userSwitch"];
+            if (!controllerUserSwitchInitialized)
+            {
+                lastControllerUserSwitch = userSwitch;
+                controllerUserSwitchInitialized = true;
+            }
+            else if (userSwitch != lastControllerUserSwitch)
+            {
+                panoramaUserEnabled = userSwitch > 0f;
+                lastControllerUserSwitch = userSwitch;
+            }
         }
 
         // Handle panorama reading from PanoramaSharedMemory
@@ -584,7 +615,7 @@ public class PyUniSharingFast : MonoBehaviour
         if (!panoramaGood)
         {
             string reason = !panoramaUserEnabled
-                ? "toggled off by pilot (click switch)"
+                ? "toggled off by pilot (click switch / keyboard / inspector)"
                 : $"stitch quality bad: {DescribeQualityReason(qualityWord)}";
             Debug.Log($"[Panorama] hidden — showing individual feeds. {reason}.");
         }

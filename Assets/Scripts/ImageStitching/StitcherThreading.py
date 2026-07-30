@@ -620,10 +620,10 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 if H != manager.processedImageHeight or W != manager.processedImageWidth:
                     try:
                         panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
-                        if enable_debug_logging:
-                            cv2.imwrite("debug_panorama.jpg", panorama)
                     except:
                         continue
+
+                cv2.imwrite("debug_panorama.jpg", panorama)
 
                 try:
                     # Flip the panorama because unity texture starts bottom left,
