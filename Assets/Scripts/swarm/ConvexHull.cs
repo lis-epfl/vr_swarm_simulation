@@ -60,11 +60,28 @@ public static class ConvexHull
         int nextIndex = (locationInConvexHull + 1) % convexHull.Count;
         int previousIndex = ((locationInConvexHull - 1) + convexHull.Count) % convexHull.Count;
 
-        Vector2 edge1 = convexHull[nextIndex] - convexHull[locationInConvexHull];
-        Vector2 edge2 = convexHull[previousIndex] - convexHull[locationInConvexHull];
+        // Normalize the edges before summing: only the sum of two *unit* vectors bisects the
+        // interior angle. Summing raw edges skews the direction toward the longer edge, so the
+        // heading target would swing whenever adjacent edge lengths change (e.g. the formation
+        // stretching during manoeuvres) even though the vertex geometry barely moved.
+        Vector2 edge1 = (convexHull[nextIndex] - convexHull[locationInConvexHull]).normalized;
+        Vector2 edge2 = (convexHull[previousIndex] - convexHull[locationInConvexHull]).normalized;
 
         // Get the bisector of the first and last edge
         Vector2 bisector = (edge1 + edge2).normalized;
+
+        // Nearly-collinear vertex: the unit edges cancel and leave no usable direction.
+        // Fall back to aiming at the hull centroid, which is always inward for a convex polygon.
+        if (bisector == Vector2.zero)
+        {
+            Vector2 centroid = Vector2.zero;
+            for (int i = 0; i < convexHull.Count; i++)
+            {
+                centroid += convexHull[i];
+            }
+            centroid /= convexHull.Count;
+            bisector = (centroid - currentPosition).normalized;
+        }
 
         return pointInwards ? -bisector : bisector;
     }

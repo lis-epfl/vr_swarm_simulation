@@ -15,8 +15,10 @@ public class ViewManager : MonoBehaviour
         public float dot;
         public float cross;
     }
-    private List<int> views_idx; // front, left, back, right
+    private List<int> views_idx; // back, right, front, left
     private List<DroneInfo> droneInfos;
+
+    private bool droneFpvEnabled = true;
     // Start is called before the first frame update
     void Start()
     {
@@ -36,7 +38,14 @@ public class ViewManager : MonoBehaviour
         for (int i = 0; i < swarm.Count; i++)
         {
             GameObject drone = swarm[i];
-            Vector3 toDrone = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State.Position - center;
+            Transform droneParent = drone.transform.Find("DroneParent");
+            if (droneParent == null)
+                continue;
+            VelocityControl vc = droneParent.GetComponent<VelocityControl>();
+            if (vc == null || vc.State == null || !vc.State.IsAlive)
+                continue;
+
+            Vector3 toDrone = vc.State.GroundTruthPosition - center;
             float dot = Vector3.Dot(los, toDrone);
             Vector3 crossProduct = Vector3.Cross(toDrone, los);
             float cross = crossProduct.y; // Assuming a 2D swarm and y is up
@@ -54,16 +63,16 @@ public class ViewManager : MonoBehaviour
         // Select first (front most) and last (back most) drones
         if (droneInfos.Count >= 2)
         {
-            views_idx[0] = droneInfos[0].droneIdx; // Front most
-            views_idx[2] = droneInfos[droneInfos.Count - 1].droneIdx; // Back most
+            views_idx[2] = droneInfos[0].droneIdx; // Front most
+            views_idx[0] = droneInfos[droneInfos.Count - 1].droneIdx; // Back most
         }
         // Sort drones based on cross product descending (right to left)
         droneInfos.Sort((a, b) => b.cross >= a.cross ? 1 : -1);
         // Select first (right most) and last (left most) drones
         if (droneInfos.Count >= 2)
         {
-            views_idx[1] = droneInfos[0].droneIdx; // Left most
-            views_idx[3] = droneInfos[droneInfos.Count - 1].droneIdx; // Right most
+            views_idx[3] = droneInfos[0].droneIdx; // Left most
+            views_idx[1] = droneInfos[droneInfos.Count - 1].droneIdx; // Right most
         }
         // Clear the droneInfos list for the next update
         droneInfos.Clear();
@@ -79,12 +88,23 @@ public class ViewManager : MonoBehaviour
                 fpvCamera.enabled = false;
             }
         }
-        
+
+        if (visualize)
+        {
+            visualizeViews();
+        }
+
+        if (!droneFpvEnabled)
+            return;
+
         // Then enable and assign displays only for selected view drones
+        // Track assigned drones to prevent duplicates (each drone only gets one display, priority to first view)
+        HashSet<int> assignedDrones = new HashSet<int>();
         for (int i = 0; i < views_idx.Count; i++)
         {
             int droneIdx = views_idx[i];
-            if (droneIdx != -1)
+            // Skip if drone not specified, or already assigned to another view
+            if (droneIdx != -1 && !assignedDrones.Contains(droneIdx))
             {
                 GameObject drone = swarm[droneIdx];
                 Camera fpvCamera = drone.transform.Find("FPV").GetComponent<Camera>();
@@ -92,13 +112,9 @@ public class ViewManager : MonoBehaviour
                 {
                     fpvCamera.enabled = true;
                     fpvCamera.targetDisplay = i;
+                    assignedDrones.Add(droneIdx);
                 }
             }
-        }
-
-        if (visualize)
-        {
-            visualizeViews();
         }
         // Debug.Log("Views idx: " + string.Join(", ", views_idx));
     }
@@ -109,31 +125,51 @@ public class ViewManager : MonoBehaviour
         droneInfos = new List<DroneInfo>();
     }
 
+    public void ToggleAllViews(bool enabled)
+    {
+        droneFpvEnabled = enabled;
+    }
+
     private Vector3 GetSwarmCenter()
     {
         Vector3 center = Vector3.zero;
+        int validCount = 0;
         foreach (GameObject drone in swarm)
         {
-            StateFinder stateFinder = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State;
-            center += stateFinder.Position;
+            Transform droneParent = drone.transform.Find("DroneParent");
+            if (droneParent == null)
+                continue;
+            VelocityControl vc = droneParent.GetComponent<VelocityControl>();
+            if (vc == null || vc.State == null || !vc.State.IsAlive)
+                continue;
+            center += vc.State.GroundTruthPosition;
+            validCount++;
         }
-        center /= swarm.Count;
+        if (validCount > 0)
+            center /= validCount;
         return center;
     }
 
     private Vector3 GetSwarmHeading()
     {
         Vector3 heading = Vector3.zero;
-        Vector3 test = Vector3.zero;
-        Vector3 test_yaw = Vector3.zero;
+        int validCount = 0;
         foreach (GameObject drone in swarm)
         {
-            StateFinder stateFinder = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State;
-            float yaw = stateFinder.Angles.y * Mathf.Deg2Rad;
-            heading += new Vector3(Mathf.Cos(yaw), 0, Mathf.Sin(yaw));
-            
+            Transform droneParent = drone.transform.Find("DroneParent");
+            if (droneParent == null)
+                continue;
+            VelocityControl vc = droneParent.GetComponent<VelocityControl>();
+            if (vc == null || vc.State == null || !vc.State.IsAlive)
+                continue;
+            float yaw = vc.State.Angles.y; // Already in radians
+            // Since the drones are oriented forward in the z-axis, we can calculate the heading vector as follows:
+            heading += new Vector3(Mathf.Sin(yaw), 0, Mathf.Cos(yaw));
+            validCount++;
         }
-        return heading.normalized;
+        if (validCount > 0)
+            return heading.normalized;
+        return Vector3.zero;
     }
 
     // Visualize with a color coded sphere the detected drones (front, right, back, left)
@@ -147,9 +183,40 @@ public class ViewManager : MonoBehaviour
             {
                 GameObject drone = swarm[droneIdx];
                 StateFinder stateFinder = drone.transform.Find("DroneParent").GetComponent<VelocityControl>().State;
-                Vector3 position = stateFinder.Position;
+                Vector3 position = stateFinder.GroundTruthPosition;
                 Debug.DrawLine(position, position + Vector3.up * 2, colors[i], 0, false);
             }
         }
     }
+
+#if UNITY_EDITOR
+    private void OnDrawGizmos()
+    {
+        if (swarm == null)
+            return;
+
+        Gizmos.color = Color.red;
+        float size = 1.5f;
+
+        foreach (GameObject drone in swarm)
+        {
+            if (drone == null)
+                continue;
+
+            Transform droneParent = drone.transform.Find("DroneParent");
+            if (droneParent == null)
+                continue;
+
+            VelocityControl vc = droneParent.GetComponent<VelocityControl>();
+            if (vc == null || vc.State == null || vc.State.IsAlive)
+                continue;
+
+            Vector3 pos = vc.State.GroundTruthPosition;
+            // Draw red X
+            Gizmos.DrawLine(pos + new Vector3(-size, size, 0), pos + new Vector3(size, -size, 0));
+            Gizmos.DrawLine(pos + new Vector3(-size, -size, 0), pos + new Vector3(size, size, 0));
+            UnityEditor.Handles.Label(pos + Vector3.up * 2, "DEAD");
+        }
+    }
+#endif
 }

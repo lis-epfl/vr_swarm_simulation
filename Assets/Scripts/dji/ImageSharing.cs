@@ -16,18 +16,56 @@ public class ImageSharing : MonoBehaviour
     //   int flag (4 bytes), int imageIndex (4 bytes), float yaw (4 bytes), image data (ImageSize bytes)
     private const int MetadataSize = 12;  // flag (4) + index (4) + yaw (4)
 
-    // Processed image dimensions and sizes (RGB24)
-    private const int ImageWidth = 640;
-    private const int ImageHeight = 360;
+    // Processed image dimensions and sizes (RGB24). Must match the producer
+    // (image_stream_feed.py width/height) — the block layout is offset-based,
+    // so a mismatch misaligns every block in the mapping.
+    private const int ImageWidth = 800;
+    private const int ImageHeight = 450;
     private const int ImageSize = ImageWidth * ImageHeight * 3; // 3 bytes per pixel
     private int BlockSize = MetadataSize + ImageSize; // size per image block
 
-    // Number of image blocks expected in the shared memory (update as needed)
+    // Fixed capacity of the feed mapping (must match MAX_DRONES in
+    // image_stream_feed.py). The mapping is always this many blocks so its size
+    // never depends on the fleet size or on which process creates it first.
+    // droneId == -1 marks a block that holds no new frame (never written, or
+    // already consumed by the read loop); producers rewrite droneId every write.
+    private const int MaxFeedBlocks = 10;
+
+    // Number of screens/indicators to spawn (the fleet size for this run).
+    // All MaxFeedBlocks blocks are polled regardless.
     [SerializeField] private int numImages = 1;
     private int TotalProcessedSize;
 
-    // Memory mapped file name
-    [SerializeField] private string processedMapName = "BlockSharedMemory";
+    // Memory mapped file name (all-drone feed map written by image_stream_feed.py)
+    [SerializeField] private string processedMapName = "DroneFeedSharedMemory";
+
+    [Header("Stitcher Feed")]
+    [Tooltip("Re-publish the 3 body-yaw-selected feeds into the stitcher's 3-slot BlockSharedMemory, mirroring PyUniSharingFast.SelectStitchCameras in the sim.")]
+    [SerializeField] private bool enableStitchWriting = true;
+
+    [Tooltip("Frames older than this (seconds) are excluded from stitch selection, so a drone that stops streaming drops out of the panorama.")]
+    [SerializeField] private float stitchFrameMaxAge = 1f;
+
+    [Tooltip("Degrees added to every drone's compass heading to align compass north with the Unity/HMD yaw frame. Applied to screens, indicators and stitch selection alike.")]
+    [SerializeField] private float headingOffsetDegrees = 0f;
+
+    // The stitcher input map: 3 slots ordered [left, centre, right], consumed by
+    // StitcherThreading.py. Same contract PyUniSharingFast produces in the sim.
+    private const string stitchMapName = "BlockSharedMemory";
+    private const int StitchSlots = 3;
+    private IntPtr stitchFileMap = IntPtr.Zero;
+    private IntPtr stitchPtr = IntPtr.Zero;
+
+    // Latest frame per drone id, kept in the block's native format (BGR,
+    // top-down) so re-publishing to the stitch map is a straight copy.
+    private class CachedFrame
+    {
+        public byte[] imageBytes;
+        public float yaw;
+        public float lastUpdateTime;
+    }
+    private readonly Dictionary<int, CachedFrame> frameCache = new Dictionary<int, CachedFrame>();
+    private readonly List<int> stitchCandidates = new List<int>();
 
     // Update interval for reading from the memory mapped file
     [SerializeField] private float readInterval = 0.05f;
@@ -80,9 +118,10 @@ public class ImageSharing : MonoBehaviour
     {
         if (enableDebugLogging) Debug.Log("[ImageSharing] Starting ImageSharing component...");
         
-        // Compute total size of shared memory based on number of images
-        TotalProcessedSize = numImages * BlockSize;
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({numImages} images x {BlockSize} bytes per block)");
+        // The feed mapping always has the full fixed capacity (matches
+        // image_stream_feed.py) so its size never depends on the fleet size.
+        TotalProcessedSize = MaxFeedBlocks * BlockSize;
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({MaxFeedBlocks} blocks x {BlockSize} bytes per block, {numImages} screens)");
 
         // Create (or open) the memory-mapped file for the processed images and metadata
         processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
@@ -104,20 +143,30 @@ public class ImageSharing : MonoBehaviour
         }
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Memory view mapped successfully. Pointer: {processedPtr}");
 
-        // Initialize all memory blocks to zero (especially the flags)
-        if (enableDebugLogging) Debug.Log("[ImageSharing] Initializing memory blocks to zero...");
-        for (int block = 0; block < numImages; block++)
+        // Initialize all memory blocks (especially the flags). imageIndex is set
+        // to -1 as a "no drone has written here yet" marker so the read loop can
+        // skip empty capacity blocks; producers overwrite it on their first write.
+        if (enableDebugLogging) Debug.Log("[ImageSharing] Initializing memory blocks...");
+        for (int block = 0; block < MaxFeedBlocks; block++)
         {
             IntPtr blockPtr = IntPtr.Add(processedPtr, block * BlockSize);
             // Set flag to 0 (ready)
             Marshal.WriteInt32(blockPtr, 0, 0);
-            // Set imageIndex to 0
-            Marshal.WriteInt32(blockPtr, 4, 0);
+            // Set imageIndex to -1 (unwritten marker)
+            Marshal.WriteInt32(blockPtr, 4, -1);
             // Set yaw to 0.0f
             Marshal.WriteInt32(blockPtr, 8, 0);
             if (enableDebugLogging) Debug.Log($"[ImageSharing] Initialized block {block}: flag=0");
         }
         if (enableDebugLogging) Debug.Log("[ImageSharing] Memory initialization complete.");
+
+        // Create (or open) the stitcher's 3-slot input map. StitcherThreading.py
+        // consumes it; in the DJI scene this component is its sole producer
+        // (PyUniSharingFast must keep enableImageWriting disabled).
+        if (enableStitchWriting)
+        {
+            CreateStitchMap();
+        }
 
         // Get the ScreenSpawn script if it hasn't been set
         if (ScreenSpawn == null)
@@ -224,8 +273,8 @@ public class ImageSharing : MonoBehaviour
             totalReadsAttempted++;
             bool anyDataRead = false;
             
-            // Loop through each image block in the memory mapped file
-            for (int block = 0; block < numImages; block++)
+            // Loop through each capacity block in the memory mapped file
+            for (int block = 0; block < MaxFeedBlocks; block++)
             {
                 // Compute the pointer for the current block
                 IntPtr blockPtr = IntPtr.Add(processedPtr, block * BlockSize);
@@ -237,20 +286,30 @@ public class ImageSharing : MonoBehaviour
                 
                 if (flag == 0)
                 {
-                    anyDataRead = true;
-                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Block {block} is ready (flag=0), reading data...");
-                    
                     // Set flag to busy (1) so producer knows we're reading it
                     Marshal.WriteInt32(blockPtr, 0, 1);
-                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Set flag to 1 (busy)");
 
                     // Read the image index (offset 4) and yaw angle (offset 8)
                     int imageIndex = Marshal.ReadInt32(blockPtr, 4);
-                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Read imageIndex: {imageIndex}");
+
+                    // droneId == -1 means "no new frame": either never written
+                    // (marker from Start) or already consumed below. The producer
+                    // rewrites droneId on every write, which clears the marker.
+                    if (imageIndex < 0)
+                    {
+                        Marshal.WriteInt32(blockPtr, 0, 0);
+                        continue;
+                    }
+
+                    anyDataRead = true;
+                    if (enableDebugLogging) Debug.Log($"[ImageSharing] Block {block} is ready (flag=0), reading imageIndex: {imageIndex}");
 
                     byte[] yawBytes = new byte[4];
                     Marshal.Copy(IntPtr.Add(blockPtr, 8), yawBytes, 0, 4);
-                    float yaw = BitConverter.ToSingle(yawBytes, 0);
+                    // Normalise to 0-360 and apply the compass-to-Unity yaw frame
+                    // offset (used consistently by screens, indicators and the
+                    // stitch selection below).
+                    float yaw = Mathf.Repeat(BitConverter.ToSingle(yawBytes, 0) + headingOffsetDegrees, 360f);
                     if (enableDebugLogging) Debug.Log($"[ImageSharing] Read yaw: {yaw}");
 
                     // Copy image data from shared memory (starting at offset 12)
@@ -263,6 +322,7 @@ public class ImageSharing : MonoBehaviour
                     if (!isValidImage)
                     {
                         Debug.LogWarning($"[ImageSharing] Image {imageIndex} failed validation");
+                        Marshal.WriteInt32(blockPtr, 4, -1);  // consumed: don't retry this frame
                         Marshal.WriteInt32(blockPtr, 0, 0);
                         continue;
                     }
@@ -271,6 +331,20 @@ public class ImageSharing : MonoBehaviour
                     if (saveDebugImages)
                     {
                         SaveDebugImage(imageBytes, imageIndex, yaw);
+                    }
+
+                    // Cache the frame for the stitch re-publish. imageBytes is a
+                    // fresh array each read, so keeping the reference is safe.
+                    if (enableStitchWriting)
+                    {
+                        if (!frameCache.TryGetValue(imageIndex, out CachedFrame cached))
+                        {
+                            cached = new CachedFrame();
+                            frameCache[imageIndex] = cached;
+                        }
+                        cached.imageBytes = imageBytes;
+                        cached.yaw = yaw;
+                        cached.lastUpdateTime = Time.time;
                     }
 
                     // If a screen with the matching index exists, update its texture and orientation
@@ -300,7 +374,12 @@ public class ImageSharing : MonoBehaviour
                         Debug.LogWarning($"[ImageSharing] No screen found for image index {imageIndex}");
                     }
 
-                    // Reset the flag to 0 so the producer can write a new image block
+                    // Mark the block consumed (droneId = -1) before releasing it,
+                    // so we only process genuinely new frames: without this the
+                    // last frame of a drone that stopped streaming would be
+                    // re-read every cycle and stay "fresh" for stitch selection
+                    // forever. The producer's next write restores droneId.
+                    Marshal.WriteInt32(blockPtr, 4, -1);
                     Marshal.WriteInt32(blockPtr, 0, 0);
                     if (enableDebugLogging) Debug.Log($"[ImageSharing] Reset flag to 0 (ready for next write)");
                 }
@@ -315,8 +394,106 @@ public class ImageSharing : MonoBehaviour
             {
                 Debug.LogWarning($"[ImageSharing] No data read this cycle. Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
             }
-            
+
+            // Re-publish the 3 body-yaw-selected feeds to the stitcher.
+            PublishStitchBlocks();
+
             nextReceiveTime = Time.time + readInterval;
+        }
+    }
+
+    // Creates (or opens) the stitcher's 3-slot BlockSharedMemory and readies its
+    // flags. Same layout PyUniSharingFast produces in the sim: per slot
+    // int flag | int droneId | float heading | 800x450 BGR top-down image.
+    private void CreateStitchMap()
+    {
+        int totalStitchSize = StitchSlots * BlockSize;
+        stitchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
+            (uint)totalStitchSize, stitchMapName);
+        if (stitchFileMap == IntPtr.Zero)
+        {
+            Debug.LogError($"[ImageSharing] Unable to create stitch memory map '{stitchMapName}'. Error code: {Marshal.GetLastWin32Error()}");
+            return;
+        }
+
+        stitchPtr = MapViewOfFile(stitchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalStitchSize);
+        if (stitchPtr == IntPtr.Zero)
+        {
+            Debug.LogError($"[ImageSharing] Unable to map view of stitch memory map. Error code: {Marshal.GetLastWin32Error()}");
+            return;
+        }
+
+        for (int slot = 0; slot < StitchSlots; slot++)
+        {
+            Marshal.WriteInt32(IntPtr.Add(stitchPtr, slot * BlockSize), 0, 0);
+        }
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Stitch map '{stitchMapName}' ready ({StitchSlots} slots x {BlockSize} bytes).");
+    }
+
+    // Selects the three fresh feeds straddling the pilot's body yaw and writes
+    // them to the stitch map, ordered [left, centre, right]. Mirrors
+    // PyUniSharingFast.SelectStitchCameras and Python's get_subsets_from_order
+    // so both sides of the bridge agree on which views form the panorama.
+    private void PublishStitchBlocks()
+    {
+        if (!enableStitchWriting || stitchPtr == IntPtr.Zero) return;
+
+        // Candidates: drones with a frame fresher than stitchFrameMaxAge.
+        stitchCandidates.Clear();
+        foreach (KeyValuePair<int, CachedFrame> kv in frameCache)
+        {
+            if (Time.time - kv.Value.lastUpdateTime <= stitchFrameMaxAge)
+            {
+                stitchCandidates.Add(kv.Key);
+            }
+        }
+
+        // Fewer than three live feeds can't form a left/centre/right panorama
+        // (matches MIN_STITCH_IMAGES in StitcherThreading.py); leave the slots
+        // untouched so the stitcher's own gates hide the panorama.
+        if (stitchCandidates.Count < StitchSlots) return;
+
+        // Centre = heading closest to the pilot's body yaw (circular distance).
+        float bodyYaw = PyUniSharingFast.BodyYawDegrees;
+        int centreId = stitchCandidates[0];
+        float bestDiff = float.MaxValue;
+        foreach (int id in stitchCandidates)
+        {
+            float diff = Mathf.Abs(Mathf.DeltaAngle(frameCache[id].yaw, bodyYaw));
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                centreId = id;
+            }
+        }
+
+        // Order candidates by heading ascending and take the circular neighbours.
+        stitchCandidates.Sort((a, b) => frameCache[a].yaw.CompareTo(frameCache[b].yaw));
+        int n = stitchCandidates.Count;
+        int centrePos = stitchCandidates.IndexOf(centreId);
+        int[] selected =
+        {
+            stitchCandidates[(centrePos - 1 + n) % n],
+            centreId,
+            stitchCandidates[(centrePos + 1) % n],
+        };
+
+        for (int j = 0; j < StitchSlots; j++)
+        {
+            CachedFrame frame = frameCache[selected[j]];
+            IntPtr slot = IntPtr.Add(stitchPtr, j * BlockSize);
+
+            // Skip this slot if the stitcher is mid-read (same handshake as the
+            // sim producer in PyUniSharingFast).
+            if (Marshal.ReadInt32(slot, 0) != 0) continue;
+            Marshal.WriteInt32(slot, 0, 1);
+
+            Marshal.WriteInt32(slot, 4, selected[j]);
+            byte[] yawBytes = BitConverter.GetBytes(frame.yaw);
+            Marshal.Copy(yawBytes, 0, IntPtr.Add(slot, 8), 4);
+            Marshal.Copy(frame.imageBytes, 0, IntPtr.Add(slot, MetadataSize), ImageSize);
+
+            Marshal.WriteInt32(slot, 0, 0);
         }
     }
 
@@ -367,7 +544,17 @@ public class ImageSharing : MonoBehaviour
             processedFileMap = IntPtr.Zero;
             if (enableDebugLogging) Debug.Log("[ImageSharing] Closed file mapping handle");
         }
-        
+        if (stitchPtr != IntPtr.Zero)
+        {
+            UnmapViewOfFile(stitchPtr);
+            stitchPtr = IntPtr.Zero;
+        }
+        if (stitchFileMap != IntPtr.Zero)
+        {
+            CloseHandle(stitchFileMap);
+            stitchFileMap = IntPtr.Zero;
+        }
+
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Final stats - Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
     }
 

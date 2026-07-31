@@ -8,6 +8,7 @@ public class SwarmManager : MonoBehaviour
 
     public enum SwarmAlgorithm
     {
+        NONE,
         REYNOLDS,
         OLFATI_SABER,
     }
@@ -39,7 +40,11 @@ public class SwarmManager : MonoBehaviour
     {
         NONE,
         SIMPLE,
-        CONVEXHULL,
+        // Boundary detected from the local hull of each drone's NumNeighbours nearest neighbours
+        // (cheap, but flags interior drones as boundary because the local point set is tiny).
+        LOCAL_CONVEXHULL,
+        // Boundary detected from the convex hull of the whole swarm (only true outer-ring drones).
+        GLOBAL_CONVEXHULL,
     }
 
     [Header("Attitude Control")]
@@ -47,6 +52,13 @@ public class SwarmManager : MonoBehaviour
     public int numNeighbours = 5;
     public int numDimensions = 2;
     public bool pointInwards = true;
+
+    [Header("Camera Gimbal")]
+    [Tooltip("Swarm-wide FPV camera gimbal pitch in degrees (DJI convention): 0 = level " +
+             "horizon, negative = look down (to -90 = straight down), positive = look up " +
+             "(to +60). Changing this at runtime tilts every drone's camera.")]
+    [Range(FPVCameraScript.MinPitch, FPVCameraScript.MaxPitch)]
+    public float gimbalPitch = 0f;
 
 
     public delegate void OnSwarmParamsChanged();
@@ -65,11 +77,38 @@ public class SwarmManager : MonoBehaviour
         }
     }
 
+    void Start()
+    {
+        // Push the configured gimbal pitch to every drone's FPV camera at startup.
+        ApplyGimbalPitch();
+    }
+
     // Called whenever a value is changed in the Inspector
     private void OnValidate()
     {
         // Trigger the event to notify all subscribed drones
         swarmParamsChanged?.Invoke();
+
+        // Apply the gimbal pitch live so it can be tuned during runtime without selecting a drone.
+        ApplyGimbalPitch();
+    }
+
+    // Drives the swarm-wide FPV gimbal pitch (shared by every drone).
+    private void ApplyGimbalPitch()
+    {
+        FPVCameraScript.SetPitch(gimbalPitch);
+    }
+
+    // Drives the swarm-wide FPV gimbal pitch from a normalized dial input in [-1, 1]
+    // (e.g. the joystick pitch dial), mapping linearly across the full gimbal range
+    // (dial -1 = straight down, +1 = up). Updates the Inspector field so the value is
+    // visible/tunable, then pushes it to every drone's camera.
+    public void SetGimbalPitchNormalized(float dial)
+    {
+        dial = Mathf.Clamp(dial, -1f, 1f);
+        gimbalPitch = Mathf.Lerp(FPVCameraScript.MinPitch, FPVCameraScript.MaxPitch,
+                                 (dial + 1f) * 0.5f);
+        ApplyGimbalPitch();
     }
 
     // Getters
@@ -82,6 +121,8 @@ public class SwarmManager : MonoBehaviour
 
     // Getters for the Olfati-Saber parameters
     public float GetDRef() => d_ref;
+    // Setter so the keyboard/joystick spread command is reflected in the inspector.
+    public void SetDRef(float value) => d_ref = value;
     public float GetR0Coh() => r0_coh;
     public float GetDelta() => delta;
     public float GetA() => a;
@@ -100,5 +141,8 @@ public class SwarmManager : MonoBehaviour
     public int GetNumDimensions() => numDimensions;
     public bool GetPointInwards() => pointInwards;  
     public AttitudeAlgorithm GetSelectedAttitudeAlgorithm() => SelectedAttitudeAlgorithm;
+
+    // Getter for the swarm-wide FPV camera gimbal pitch
+    public float GetGimbalPitch() => gimbalPitch;
 
 }

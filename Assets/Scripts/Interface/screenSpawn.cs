@@ -33,12 +33,33 @@ public class ScreenSpawn : MonoBehaviour
     [HideInInspector] public float rotatingCircleDistance = 2.0f;
     [HideInInspector] public int numScreens = 2;
 
+    [Header("Rendering")]
+    [Tooltip("Layer the spawned feed screens are placed on, so the headset eye cameras " +
+             "can be culled to render only these screens (and the panorama) rather than " +
+             "the full world geometry. Must be an existing layer name (default 'UI').")]
+    public string screenLayerName = "UI";
+
     // GameObject references
-    private OVRPlayerController player;
+    private OVRCameraRig cameraRig;
     private List<GameObject> swarm = new List<GameObject>();
     private List<GameObject> screens = new List<GameObject>();
     private GameObject arena;
     private GameObject screenParent;
+
+    // Per-drone references resolved once at spawn so the per-frame update never
+    // searches by name or calls GetComponent. Bound by spawn index (screen_i is
+    // wired to swarm[i]'s FPV render texture at spawn), which stays valid even
+    // though the shared swarm list itself may later be re-sorted in place
+    // (AttitudeAlgorithm's LOCAL_CONVEXHULL sorts it every tick).
+    private struct DroneScreenBinding
+    {
+        public GameObject drone;
+        public GameObject screen;
+        public Camera fpvCamera;
+        public VelocityControl velocityControl;
+        public AttitudeAlgorithm attitude;
+    }
+    private readonly List<DroneScreenBinding> bindings = new List<DroneScreenBinding>();
 
     // Default parameters for each display mode
     private float outerCircleRadius = 2.0f;
@@ -71,18 +92,56 @@ public class ScreenSpawn : MonoBehaviour
     private ScreenStyle previousScreenStyle;
     private InterfaceManager interfaceManager;
 
+    // Drones whose individual feeds are suppressed because they are currently
+    // composited into the stitched panorama (driven by PyUniSharingFast). Matched
+    // by GameObject reference. Pass null/empty to show all feeds again.
+    private readonly HashSet<GameObject> stitchedDronesToHide = new HashSet<GameObject>();
+
     public bool IsSpawned => screens.Count > 0;
+
+    // Set which drones' individual feeds to hide because they already appear in
+    // the stitched panorama. Called by PyUniSharingFast; null/empty restores all.
+    public void SetStitchedDronesHidden(IEnumerable<GameObject> drones)
+    {
+        stitchedDronesToHide.Clear();
+        if (drones != null)
+        {
+            foreach (var d in drones)
+            {
+                if (d != null) stitchedDronesToHide.Add(d);
+            }
+        }
+    }
 
     // Function to spawn screens for the drones in the swarm
     public void SpawnScreens(List<GameObject> swarm = null)
     {
-        // Find the OVRPlayerController in the scene if not already assigned
-        if (player == null)
+        // The per-drone feed resolution must match the block images PyUniSharingFast
+        // captures for the stitcher. PyUniSharingFast is the single source of truth:
+        // if its block resolution differs, adopt it here once, at spawn time (done
+        // before the render textures / aspect ratios below are built from width/height).
+        PyUniSharingFast stitchSharing = FindObjectOfType<PyUniSharingFast>();
+        if (stitchSharing != null &&
+            (width != stitchSharing.BlockImageWidth || height != stitchSharing.BlockImageHeight))
         {
-            player = GameObject.FindGameObjectWithTag("Player")?.GetComponent<OVRPlayerController>();
-            if (player == null)
+            Debug.Log($"[ScreenSpawn] Overriding feed resolution {width}x{height} with " +
+                      $"PyUniSharingFast block resolution {stitchSharing.BlockImageWidth}x{stitchSharing.BlockImageHeight}.");
+            width = stitchSharing.BlockImageWidth;
+            height = stitchSharing.BlockImageHeight;
+        }
+
+        // Find the OVRCameraRig in the scene if not already assigned. Fall back to
+        // FindObjectOfType so it resolves even if the rig isn't tagged 'Player'.
+        if (cameraRig == null)
+        {
+            cameraRig = GameObject.FindGameObjectWithTag("Player")?.GetComponent<OVRCameraRig>();
+            if (cameraRig == null)
             {
-                Debug.LogWarning("No OVRPlayerController found in the scene!");
+                cameraRig = FindObjectOfType<OVRCameraRig>();
+            }
+            if (cameraRig == null)
+            {
+                Debug.LogWarning("No OVRCameraRig found in the scene!");
             }
         }
 
@@ -112,6 +171,18 @@ public class ScreenSpawn : MonoBehaviour
         // Create an empty GameObject to serve as the parent for all screens
         screenParent = new GameObject("ScreenParent");
 
+        // Resolve the layer the feed screens live on so the headset eye cameras
+        // can be culled to render only these (and the panorama). Resolve once and
+        // warn if the layer is missing, rather than silently leaving screens on
+        // Default (where the eye-camera cull couldn't exclude the world geometry).
+        int screenLayer = LayerMask.NameToLayer(screenLayerName);
+        if (screenLayer < 0)
+        {
+            Debug.LogWarning($"[ScreenSpawn] Layer '{screenLayerName}' does not exist; " +
+                             "feed screens will stay on the Default layer. Add the layer " +
+                             "(Project Settings > Tags and Layers) or fix screenLayerName.");
+        }
+
         // Determine how many screens to create
         int count = (swarm != null) ? swarm.Count : numScreens;
 
@@ -131,6 +202,14 @@ public class ScreenSpawn : MonoBehaviour
             // Set the tag of the screen to 'Screen'
             screen.tag = "Screen";
 
+            // Put the screen on the feed-screen layer so the headset eye cameras
+            // can render only these. Quads have no children, so setting the layer
+            // on the screen itself is enough.
+            if (screenLayer >= 0)
+            {
+                screen.layer = screenLayer;
+            }
+
             // Add the screen to the screens list
             screens.Add(screen);
 
@@ -143,8 +222,12 @@ public class ScreenSpawn : MonoBehaviour
             // Create a new Material object
             Material screenMaterial = new Material(Shader.Find("Standard"));
 
-            // Set the color to white
-            screenMaterial.color = Color.white;
+            // Set the color to black, then white for real drones
+            screenMaterial.color = Color.black;
+            if (screenStyle == ScreenStyle.REAL_DRONE)
+            {
+                screenMaterial.color = Color.white;
+            }
 
             // Set the smoothness to 0
             screenMaterial.SetFloat("_Glossiness", 0f);
@@ -178,24 +261,40 @@ public class ScreenSpawn : MonoBehaviour
 
                 // Get the camera and set the aspect ratio and field of view
                 Camera cam = camera.GetComponent<Camera>();
-                cam.aspect = (float)width / height;
-                cam.fieldOfView = 82.1f;
+                float aspect = (float)width / height;
+                cam.aspect = aspect;
 
-                // Set the camera's target texture to the render texture
-                if (screenStyle != ScreenStyle.OFF || screenStyle != ScreenStyle.REAL_DRONE)
+                // DJI Mini 3 Pro is specced at 82.1 deg diagonal FOV. Unity's
+                // Camera.fieldOfView is vertical, so convert the diagonal spec to
+                // the vertical FOV for the current aspect ratio (~46.4 deg at 16:9).
+                const float djiDiagonalFov = 82.1f;
+                float diagHalfRad = djiDiagonalFov * 0.5f * Mathf.Deg2Rad;
+                float vertHalfRad = Mathf.Atan(Mathf.Tan(diagHalfRad) / Mathf.Sqrt(aspect * aspect + 1f));
+                cam.fieldOfView = vertHalfRad * 2f * Mathf.Rad2Deg;
+
+                // The feed RT doubles as the stitch-capture source in
+                // PyUniSharingFast, so it's needed regardless of screen style.
+                cam.targetTexture = rt;
+
+                Transform droneParent = drone.transform.Find("DroneParent");
+                bindings.Add(new DroneScreenBinding
                 {
-                    cam.GetComponent<Camera>().targetTexture = rt;
-                }
+                    drone = drone,
+                    screen = screen,
+                    fpvCamera = cam,
+                    velocityControl = droneParent != null ? droneParent.GetComponent<VelocityControl>() : null,
+                    attitude = droneParent != null ? droneParent.GetComponent<AttitudeAlgorithm>() : null,
+                });
             }
         }
 
         // Place the screens based on the orientation of the drones
         UpdateScreenPositions();
 
-        // Move the player to the centre of the arena
-        if (player != null && arena != null)
+        // Move the camera rig to the centre of the arena
+        if (cameraRig != null && arena != null)
         {
-            player.transform.position = arena.transform.position;
+            cameraRig.transform.position = arena.transform.position;
         }
     }
 
@@ -298,34 +397,62 @@ public class ScreenSpawn : MonoBehaviour
     // Update the position of the screens based on the drone orientation
     void UpdateScreenPositions()
     {
-        if (swarm == null || swarm.Count == 0 || screens.Count == 0)
+        if (bindings.Count == 0)
         {
             return;
         }
 
-        for (int i = 0; i < swarm.Count; i++)
-        {
-            GameObject drone = swarm.Find(d => d.name == "Drone " + i);
-            GameObject droneChild = drone.transform.Find("DroneParent").gameObject;
-            GameObject screen = screens.Find(s => s.name == "screen_" + i);
+        // Per-frame, not per-drone: the gate depends only on the selected
+        // attitude algorithm.
+        bool boundaryGate = IsBoundaryGateActive();
 
-            switch (screenStyle)
+        for (int i = 0; i < bindings.Count; i++)
+        {
+            DroneScreenBinding binding = bindings[i];
+            GameObject screen = binding.screen;
+            if (screen == null)
             {
-                case ScreenStyle.OFF:
-                    HideScreen(screen);
-                    break;
-                case ScreenStyle.OUTER_CIRCLE:
-                    UpdateOuterCircleScreen(screen, droneChild);
-                    break;
-                case ScreenStyle.INNER_CIRCLE:
-                    UpdateInnerCircleScreen(screen, droneChild);
-                    break;
-                case ScreenStyle.BOTTOM_CIRCLE:
-                    UpdateBottomCircleScreen(screen, droneChild);
-                    break;
-                case ScreenStyle.ROTATING_CIRCLE:
-                    UpdateRotatingCircleScreen(screen, droneChild);
-                    break;
+                continue;
+            }
+
+            // Hide the feed for any drone currently composited into the stitched
+            // panorama (mirrors the BoundaryEstimate gate below). Applies to every
+            // screen style. A destroyed drone also just hides its screen.
+            if (binding.drone == null ||
+                (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(binding.drone)))
+            {
+                screen.SetActive(false);
+            }
+            else
+            {
+                switch (screenStyle)
+                {
+                    case ScreenStyle.OFF:
+                        HideScreen(screen);
+                        break;
+                    case ScreenStyle.OUTER_CIRCLE:
+                        UpdateOuterCircleScreen(screen, binding, boundaryGate);
+                        break;
+                    case ScreenStyle.INNER_CIRCLE:
+                        UpdateInnerCircleScreen(screen, binding);
+                        break;
+                    case ScreenStyle.BOTTOM_CIRCLE:
+                        UpdateBottomCircleScreen(screen, binding);
+                        break;
+                    case ScreenStyle.ROTATING_CIRCLE:
+                        UpdateRotatingCircleScreen(screen, binding);
+                        break;
+                }
+            }
+
+            // An FPV camera only needs to render while its feed screen is
+            // visible; otherwise it would draw the full world every frame for
+            // nothing. The stitch capture path (PyUniSharingFast) renders
+            // disabled cameras on demand at its own send rate.
+            Camera cam = binding.fpvCamera;
+            if (cam != null && cam.enabled != screen.activeSelf)
+            {
+                cam.enabled = screen.activeSelf;
             }
         }
     }
@@ -335,20 +462,39 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(false);
     }
 
-    private void UpdateOuterCircleScreen(GameObject screen, GameObject droneChild)
+    // The convex-hull attitude modes are the only ones that populate
+    // BoundaryEstimate; under NONE/SIMPLE it stays false for every drone. The
+    // OUTER_CIRCLE feed gate must therefore only consult the flag when a hull
+    // mode is active, otherwise it would hide every feed. Defaults to false (show
+    // all feeds) when the SwarmManager can't be resolved.
+    private bool IsBoundaryGateActive()
     {
-        // Check if the drone is on the boundary
-        AttitudeAlgorithm attitudeControl = droneChild.GetComponent<AttitudeAlgorithm>();
-        if (!attitudeControl.BoundaryEstimate)
+        SwarmManager sm = swarmManager != null ? swarmManager : SwarmManager.Instance;
+        if (sm == null)
+        {
+            return false;
+        }
+        SwarmManager.AttitudeAlgorithm algo = sm.GetSelectedAttitudeAlgorithm();
+        return algo == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+            || algo == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
+    }
+
+    private void UpdateOuterCircleScreen(GameObject screen, DroneScreenBinding binding, bool boundaryGate)
+    {
+        // Hide interior (non-boundary) drones — but only when an attitude hull
+        // algorithm is actually computing BoundaryEstimate. Under attitude modes
+        // NONE/SIMPLE the flag is never set (stays false for every drone), so
+        // gating on it would blank all feeds — e.g. a lone drone that fell back to
+        // OUTER_CIRCLE because its single feed couldn't stitch would show nothing.
+        if (boundaryGate && binding.attitude != null && !binding.attitude.BoundaryEstimate)
         {
             screen.SetActive(false);
             return;
         }
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        StateFinder stateFinder = binding.velocityControl.State;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on outer circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians);
@@ -362,13 +508,12 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
-    private void UpdateInnerCircleScreen(GameObject screen, GameObject droneChild)
+    private void UpdateInnerCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        StateFinder stateFinder = binding.velocityControl.State;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on inner circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
@@ -382,13 +527,12 @@ public class ScreenSpawn : MonoBehaviour
     }
 
     // Update the bottom circle screen positions
-    private void UpdateBottomCircleScreen(GameObject screen, GameObject droneChild)
+    private void UpdateBottomCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        StateFinder stateFinder = binding.velocityControl.State;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate the position on bottom circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
@@ -416,18 +560,17 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
-    private void UpdateRotatingCircleScreen(GameObject screen, GameObject droneChild)
+    private void UpdateRotatingCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
-        if (player == null)
+        if (cameraRig == null)
         {
             screen.SetActive(false);
             return;
         }
 
         // Get the drone's yaw
-        StateFinder stateFinder = droneChild.GetComponent<VelocityControl>().State;
-        float yaw = stateFinder.Angles.y;
-        float radians = -yaw * Mathf.Deg2Rad;
+        StateFinder stateFinder = binding.velocityControl.State;
+        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate base position on inner circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians);
@@ -435,8 +578,14 @@ public class ScreenSpawn : MonoBehaviour
         float y = arena.transform.position.y + offset.y;
         Vector3 basePosition = new Vector3(x, y, z);
 
-        // Get player's forward direction (only using horizontal direction)
-        Vector3 playerForward = player.transform.forward;
+        // Get the player's forward direction (only using horizontal direction).
+        // The OVRCameraRig transform is just the tracking-space origin and does not
+        // rotate with the head, so read the head look direction from the HMD's
+        // centre-eye anchor (falling back to the rig transform if unavailable).
+        Transform headTransform = cameraRig.centerEyeAnchor != null
+            ? cameraRig.centerEyeAnchor
+            : cameraRig.transform;
+        Vector3 playerForward = headTransform.forward;
         playerForward.y = 0; // Zero out vertical component
         playerForward.Normalize();
 
@@ -452,8 +601,13 @@ public class ScreenSpawn : MonoBehaviour
     // Update the position of the screens based on real drone orientation, called from ImageSharing.cs
     public void UpdateRealDroneScreen(int i, float yaw)
     {
-        // Find the screen
-        GameObject screen = screens.Find(s => s.name == "screen_" + i);
+        // screens[i] is "screen_i" by construction (SpawnScreens creates them in
+        // index order), so no name search is needed.
+        if (i < 0 || i >= screens.Count)
+        {
+            return;
+        }
+        GameObject screen = screens[i];
 
         // Calculate the screen position based on the yaw of the real drone
         float radians = -yaw * Mathf.Deg2Rad;
@@ -527,5 +681,45 @@ public class ScreenSpawn : MonoBehaviour
     public float GetScreenScale()
     {
         return scale;
+    }
+
+    // --- Panorama-quality fallback -------------------------------------------
+    // Toggle the individual per-drone feed screens on/off as a fallback for
+    // when the stitched panorama is judged bad (called by PyUniSharingFast).
+    // Reuses the already-spawned screens: on enable it switches to a visible
+    // screen style, on disable it restores the previous style. The normal
+    // Update()/UpdateScreenPositions() loop then shows or hides the feeds.
+    private ScreenStyle styleBeforeFallback = ScreenStyle.OFF;
+    private bool fallbackFeedsActive = false;
+
+    public void ShowFallbackFeeds(bool on, ScreenStyle fallbackStyle)
+    {
+        if (on == fallbackFeedsActive)
+        {
+            return; // no change
+        }
+
+        if (!IsSpawned)
+        {
+            Debug.LogWarning("[ScreenSpawn] ShowFallbackFeeds called but no screens are spawned; cannot display individual feeds.");
+        }
+
+        if (on)
+        {
+            styleBeforeFallback = screenStyle;
+            screenStyle = fallbackStyle;
+        }
+        else
+        {
+            screenStyle = styleBeforeFallback;
+        }
+
+        // Keep previousScreenStyle in sync so OnValidate doesn't fight us.
+        previousScreenStyle = screenStyle;
+        fallbackFeedsActive = on;
+
+        UpdateDisplayParameters();
+        UpdateScreenScale();
+        UpdateScreenPositions();
     }
 }

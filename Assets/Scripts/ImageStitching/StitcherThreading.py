@@ -17,7 +17,66 @@ import networkx as nx
 import random
 from PIL import Image
 
+from collections import deque
+
 from BaseStitcher import *
+
+
+# Camera horizontal FOV is ~83 deg (DJI Mini 3 Pro, 82.1 deg diagonal at 16:9 -- see
+# screenSpawn.cs). Two cameras share field-of-view only if their yaw headings are closer
+# than the FOV; require a margin so there is enough common region to stitch. If adjacent
+# selected cameras are farther apart than this, the perspectives can't overlap, so we skip
+# the warp entirely and fall back to the individual feeds.
+MAX_STITCH_YAW_SEPARATION_DEG = 75.0   # FOV (~83 deg) minus a small overlap margin
+REASON_NO_OVERLAP = 8                  # new failing-gate reason (keep in sync with C# REASON_NO_OVERLAP)
+REASON_TOO_FEW_IMAGES = 16             # fewer than 3 selected feeds -> can't form L/C/R (keep in sync with C#)
+
+# How often the debug panorama snapshot is written to disk, in seconds. The JPEG
+# encode + write is a stall inside the shared-memory read/write loop, so it is
+# throttled rather than run on every frame.
+DEBUG_PANO_WRITE_PERIOD = 1.0
+
+# Minimum period between render-thread wake-ups, in seconds. Unity publishes new
+# feeds at 20 Hz (sendInterval = 0.05 in PyUniSharingFast), so signalling faster
+# than that only re-renders identical pixels -- and because the render and warp
+# threads share one GPU and one GIL, that wasted work directly slows the warp
+# update. Set just above the publish rate so the render never aliases below 20 Hz.
+RENDER_MIN_PERIOD = 0.045
+
+# A proper left/centre/right panorama needs at least this many distinct feeds.
+# With fewer, get_subsets_from_order wraps around and would stitch an image with
+# itself, so we skip the warp entirely and fall back to the individual feeds.
+MIN_STITCH_IMAGES = 3
+
+
+class RateMeter:
+    """
+    Tracks how often an event fires, averaged over a trailing time window.
+
+    Call ``tick()`` once per loop iteration; ``hz`` returns the average
+    frequency (completions per second) over the last ``window`` seconds.
+    """
+
+    def __init__(self, window=5.0):
+        self.window = window
+        self._times = deque()
+
+    def tick(self):
+        now = time.perf_counter()
+        self._times.append(now)
+        cutoff = now - self.window
+        while self._times and self._times[0] < cutoff:
+            self._times.popleft()
+
+    @property
+    def hz(self):
+        if len(self._times) < 2:
+            return 0.0
+        span = self._times[-1] - self._times[0]
+        if span <= 0:
+            return 0.0
+        # (n - 1) intervals over the elapsed span = average rate.
+        return (len(self._times) - 1) / span
 
 # --- UDIS ---
 HAS_UDIS = False
@@ -104,8 +163,9 @@ class StitcherManager:
 
         self.stitcherTypes = [k for k, v in self.stitchers.items() if v is not None]
         self.cylidnricalWarp = False
-        self.isRANSAC = False   
+        self.isRANSAC = False
         self.headAngle = 0
+        self.print_rate = True  # gates the per-loop stitch/warp Hz prints (driven by Unity metadata)
         self.shared_images = None
         self.shared_drone_ids = None
         self.shared_headings = None
@@ -188,6 +248,8 @@ class StitcherManager:
         blur_kernel_size = output.get("blur_kernel_size", 41)
         blur_sigma = output.get("blur_sigma", 15.0)
         border_size = output.get("border_size", 60)
+        quality_enabled = output.get("quality_enabled", True)
+        quality_threshold = output.get("quality_threshold", 18.0)
         batchImageWidth, batchImageHeight = output["Sizes"][:2]
 
         def has_stitcher_changes():
@@ -239,6 +301,14 @@ class StitcherManager:
             with self.switching_lock1:
                 self.active_stitcher.border_size = border_size
 
+        # StabStitch panorama-quality fallback toggle + threshold
+        if getattr(self.active_stitcher, 'quality_enabled', None) != quality_enabled:
+            with self.switching_lock1:
+                self.active_stitcher.quality_enabled = quality_enabled
+        if getattr(self.active_stitcher, 'quality_threshold', None) != quality_threshold:
+            with self.switching_lock1:
+                self.active_stitcher.quality_threshold = quality_threshold
+
     def process_stitching(self, images, num_pano_img=3):
         """
         Simplified stitching process using known order from drone IDs.
@@ -254,15 +324,42 @@ class StitcherManager:
             print(f"[WARNING] Known order not set or length mismatch. Expected {len(images)} images.")
             return
 
+        # Need at least 3 distinct feeds to form a left/centre/right panorama.
+        # With fewer, get_subsets_from_order wraps around and stitches an image
+        # with itself (poor pano) -- skip stitching and fall back to feeds.
+        if len(images) < MIN_STITCH_IMAGES:
+            if self.panoram_queue.empty():
+                self.panoram_queue.put((None, False, REASON_TOO_FEW_IMAGES))
+            return
+
         if self.active_stitcher_type == "STABSTITCH":
             # Fast path: no switching_lock2 needed — render only uses cached
             # warp params + standalone TPS warp (no neural network access).
             order = np.array(self.known_order)
             subset1, subset2 = self.get_subsets_from_order(order, len(images))
-            pano = self.active_stitcher.stab_pano(images, subset1, subset2)
 
-            if pano is not None and self.panoram_queue.empty():
-                self.panoram_queue.put(pano)
+            # Cheap geometric pre-check: only attempt the warp if adjacent selected
+            # cameras' yaw headings are close enough to actually share field-of-view.
+            # If either pair (left-centre or centre-right) is wider than the camera FOV,
+            # the perspectives don't overlap -- skip stitching and fall back to feeds.
+            def _yaw_gap(a_idx, b_idx):
+                d = abs(self.shared_headings[a_idx] - self.shared_headings[b_idx])
+                return 360 - d if d > 180 else d   # circular distance, matches get_subsets_from_order
+            gap_lc = _yaw_gap(subset1[0], subset1[1])
+            gap_cr = _yaw_gap(subset2[0], subset2[1])
+            if gap_lc > MAX_STITCH_YAW_SEPARATION_DEG or gap_cr > MAX_STITCH_YAW_SEPARATION_DEG:
+                if self.panoram_queue.empty():
+                    self.panoram_queue.put((None, False, REASON_NO_OVERLAP))
+                return
+
+            pano, quality_ok, quality_reason = self.active_stitcher.stab_pano(images, subset1, subset2)
+
+            # Always queue (pano, quality_ok, quality_reason): when quality_ok is
+            # False the pano is None and only the quality flag + failing-gate
+            # reason are forwarded to Unity so it can switch to the individual
+            # feeds and log why.
+            if self.panoram_queue.empty():
+                self.panoram_queue.put((pano, quality_ok, quality_reason))
             return
 
         # All other stitchers: original behaviour with switching_lock2
@@ -283,8 +380,9 @@ class StitcherManager:
             else:
                 pano = None
 
+            # Non-STABSTITCH stitchers have no quality estimate: always good.
             if pano is not None and self.panoram_queue.empty():
-                self.panoram_queue.put(pano)
+                self.panoram_queue.put((pano, True, 0))
 
     def get_subsets_from_order(self, order, num_images):
         """
@@ -403,17 +501,26 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     """
     
     # Read metadata first to get image dimensions
-    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int)
+    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4 + 1  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int), +1 quality_enabled (bool) +4 quality_threshold (float), +4 head_angle (float), +1 print_rate (bool)
     metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
     
     output = readMetadataMemory(metadataMMF)
     batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
-    # ----------------- TODO: Remove hardcoding -----------------
-    batchImageWidth = 640
-    batchImageHeight = 360
-    
-    
+    # Resolution is driven entirely by Unity's metadata (blockImageWidth/Height +
+    # panoramaImageWidth/Height in PyUniSharingFast's inspector); scale resolution
+    # there. The neural-net warp runs at a fixed NET_W x NET_H regardless, so only
+    # the render + memory-bridge costs grow with resolution.
+    #
+    # Wait until Unity has published real (non-zero) sizes before sizing the block
+    # mapping — a pre-Start read yields zeros, which would make the mmap fail.
+    while batchImageWidth <= 0 or batchImageHeight <= 0:
+        if enable_debug_logging:
+            print("[first_thread] Waiting for Unity to publish image sizes...")
+        time.sleep(0.1)
+        output = readMetadataMemory(metadataMMF)
+        batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
+
     # Calculate block-based memory layout
     metadataSize_per_block = 12  # flag (4) + droneId (4) + heading (4)
     imageSize = batchImageWidth * batchImageHeight * 3  # RGB24
@@ -429,25 +536,25 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     processedMMF = mmap.mmap(-1, totalProcessedSize, "BlockSharedMemory")
     
     first_loop = True
+    last_debug_write = 0.0
+    last_render_signal = 0.0
     # Cache of last successfully read frame per block index {block_idx: (image, drone_id, heading)}
     block_cache = {}
+    # Panorama output mapping is opened once on the first write (below) and reused,
+    # rather than being re-created every frame as it was previously.
+    panoramaMMF = None
 
     while True:
         # Update metadata
         output = readMetadataMemory(metadataMMF)
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
+        # Live headset yaw drives which views are selected as centre/left/right.
+        manager.headAngle = output["head_angle"]
+        manager.print_rate = output["print_rate"]
         try:
             manager.checkHyperparaChanges(output)
         except NotImplementedError as e:
             print(f"[first_thread] fusion_mode error: {e}")
-
-        # ----------------- TODO: Remove hardcoding -----------------
-        batchImageWidth = 640
-        batchImageHeight = 360
-        imageCount = num_images
-        manager.processedImageWidth = 1920
-        manager.processedImageHeight = 1080
-        # print(batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight)
 
         # Read images from block-based memory, falling back to cached frames for busy blocks
         try:
@@ -474,7 +581,15 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             sorted_images = [images[i] for i in sorted_indices]
             sorted_drone_ids = [drone_ids[i] for i in sorted_indices]
             sorted_headings = [headings[i] for i in sorted_indices]
-            
+
+            # DEBUG: dump frames read from BlockSharedMemory so the producer
+            # format (size / BGR order / orientation) can be eyeballed. Gated behind
+            # enable_debug_logging — writing 3 JPEGs/frame is a disk-I/O stall that
+            # otherwise throttles this read/write loop.
+            if enable_debug_logging:
+                for di, img in zip(sorted_drone_ids, sorted_images):
+                    cv2.imwrite(f"debug_input_drone_{di}.jpg", img)
+
             # Store the images and metadata
             with manager.info_lock:
                 manager.shared_images = sorted_images
@@ -482,42 +597,81 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 manager.shared_headings = sorted_headings
                 # Create known order based on sorted drone IDs
                 manager.known_order = get_drone_order(sorted_drone_ids, sorted_headings)
-                # Set the head angle to the heading of the centre drone in the order
-                center_idx = len(sorted_headings) // 2
-                drone_id = manager.known_order[center_idx]
-                manager.headAngle = sorted_headings[drone_id]
+                # headAngle comes from the live headset yaw (set above from metadata),
+                # not from the drone headings.
 
-            # Wake the stitching thread — new images are available.
-            manager.new_images_event.set()
+            # Wake the stitching thread — new images are available. Rate-limited
+            # to RENDER_MIN_PERIOD: the shared memory is polled far faster than
+            # Unity refills it, and re-rendering an unchanged frame just steals
+            # GPU time from the warp thread.
+            now = time.perf_counter()
+            if now - last_render_signal >= RENDER_MIN_PERIOD:
+                last_render_signal = now
+                manager.new_images_event.set()
 
             if enable_debug_logging:
                 print(f"[first_thread] Read {len(images)} images, sorted drone IDs: {sorted_drone_ids}, headings: {sorted_headings}")
         
-        # Write panorama if available
+        # Write panorama / quality flag if available
         if not manager.panoram_queue.empty():
-            panorama = manager.panoram_queue.get()
-            H, W, _ = panorama.shape
-            if H != manager.processedImageHeight or W != manager.processedImageWidth:
-                try:
-                    panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
-                except:
-                    continue
-            
-            try:
-                panoramaMMF = mmap.mmap(-1, manager.processedImageWidth * manager.processedImageHeight * 3 + 4 + 4, "PanoramaSharedMemory")
-                
-                # Flip the panorama because unity texture starts bottom left
-                panorama = cv2.flip(panorama, 0)
+            panorama, quality_ok, quality_reason = manager.panoram_queue.get()
+            quality_int = 1 if quality_ok else 0
+            image_size = manager.processedImageWidth * manager.processedImageHeight * 3
 
-                write_memory(panoramaMMF, 0, 4, manager.processedImageWidth * manager.processedImageHeight * 3, panorama)
-                del panorama
-            except Exception as e:
-                if enable_debug_logging:
-                    print(f"[first_thread] Error writing panorama to memory: {e}")
-                continue
+            if panoramaMMF is None:
+                try:
+                    panoramaMMF = mmap.mmap(-1, image_size + 4 + 4, "PanoramaSharedMemory")
+                except Exception as e:
+                    if enable_debug_logging:
+                        print(f"[first_thread] Error opening panorama memory: {e}")
+                    continue
+
+            if panorama is None:
+                # Fallback: panorama is bad — only update the quality flag so
+                # Unity switches to the individual feeds. Leave image bytes stale.
+                try:
+                    write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, None)
+                except Exception as e:
+                    if enable_debug_logging:
+                        print(f"[first_thread] Error writing quality flag: {e}")
+                    continue
+            else:
+                H, W, _ = panorama.shape
+                if H != manager.processedImageHeight or W != manager.processedImageWidth:
+                    try:
+                        panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
+                    except:
+                        continue
+
+                # Debug snapshot of the panorama. Throttled to ~1 Hz: a JPEG
+                # encode + disk write of the full panorama every frame was a
+                # ~10 ms stall inside this read/write loop, which caps the
+                # end-to-end rate. Once a second is plenty to eyeball quality.
+                now = time.perf_counter()
+                if now - last_debug_write >= DEBUG_PANO_WRITE_PERIOD:
+                    last_debug_write = now
+                    cv2.imwrite("debug_panorama.jpg", panorama)
+
+                try:
+                    # Flip the panorama because unity texture starts bottom left,
+                    # and convert cv2's BGR to RGB so Unity can upload the bytes
+                    # straight into its RGB24 texture (LoadRawTextureData) with no
+                    # per-pixel channel swap on the render thread.
+                    panorama = cv2.cvtColor(cv2.flip(panorama, 0), cv2.COLOR_BGR2RGB)
+                    write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, panorama)
+                    del panorama
+                except Exception as e:
+                    if enable_debug_logging:
+                        print(f"[first_thread] Error writing panorama to memory: {e}")
+                    continue
         
-        time.sleep(0.05)
-        
+        # I/O poll period. End-to-end fps is the min of this, Unity's sendInterval /
+        # readInterval, and the render throughput — lower all of them together to
+        # raise fps. Unity publishes at 20 Hz (sendInterval = 0.05), so poll at a
+        # few times that rate: with a 0.02 s sleep the loop's own ~0.01-0.03 s of
+        # work pushed the period past 50 ms and capped the pipeline below 20 Hz.
+        time.sleep(0.005)
+
         if first_loop:
             first_loop = False
             time.sleep(1.)
@@ -646,6 +800,62 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
             processedMMF.write(struct.pack('i', 0))
             break
 
+def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, image_data=None):
+    """
+    Write the panorama (and its quality word) to shared memory with Unity.
+
+    Panorama shared-memory layout:
+        [0:4]  write-flag (int)   handshake with Unity (0 = free, 1 = writing)
+        [4:8]  quality word (int) packed:
+                   bit 0 : panorama good (1) / bad (0) -> show panorama vs feeds
+                   bit 1 : canvas gate failed
+                   bit 2 : distortion gate failed
+                   bit 3 : photometric (PSNR) gate failed
+               (bits 1-3 = the failing-gate reason; only set when bit 0 == 0)
+        [8:  ] RGB24 image data
+
+    ``quality_reason`` is the 3-bit failing-gate mask (canvas=1, distortion=2,
+    photometric=4) and is shifted into bits 1-3 of the word. When ``image_data``
+    is None (quality fallback) only the quality word is updated; the stale image
+    bytes are left in place because Unity ignores them while showing the feeds.
+    """
+    flag_position = 0
+    quality_position = 4
+    data_position = 8
+
+    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1-4).
+    quality_word = (quality_int & 1) | ((quality_reason & 0xF) << 1)
+
+    while True:
+        # Read the flag to check if Unity is ready for new data
+        panoramaMMF.seek(flag_position)
+        flag = struct.unpack('i', panoramaMMF.read(4))[0]
+
+        if flag == 0:  # Unity isn't reading
+            # Set flag to 1, indicating we're writing
+            panoramaMMF.seek(flag_position)
+            panoramaMMF.write(struct.pack('i', 1))
+
+            # Write the packed quality word (good/bad flag + failing-gate reason)
+            panoramaMMF.seek(quality_position)
+            panoramaMMF.write(struct.pack('i', quality_word))
+
+            if image_data is not None:
+                image_bytes = image_data.tobytes()
+                if len(image_bytes) != image_size:
+                    # Reset flag before raising so Unity isn't left blocked
+                    panoramaMMF.seek(flag_position)
+                    panoramaMMF.write(struct.pack('i', 0))
+                    raise ValueError(f"Image size mismatch: expected {image_size}, got {len(image_bytes)}")
+
+                panoramaMMF.seek(data_position)
+                panoramaMMF.write(image_bytes)
+
+            # Reset flag to 0, indicating we've finished writing
+            panoramaMMF.seek(flag_position)
+            panoramaMMF.write(struct.pack('i', 0))
+            break
+
 def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, debug=False):
     """
     Simplified stitching thread that uses known order from drone IDs.
@@ -659,6 +869,7 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
     The ``timeout=0.1`` ensures non-STABSTITCH stitchers still loop even
     if the event is never explicitly signalled.
     """
+    rate = RateMeter(window=5.0)
     while True:
         # Block until first_thread signals new images (or timeout)
         manager.new_images_event.wait(timeout=0.1)
@@ -678,8 +889,10 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
             print("[stitching_thread] Error during stitching:")
             traceback.print_exc()
 
-        if verbose:
-            print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s")
+        rate.tick()
+
+        if verbose and manager.print_rate:
+            print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s | {rate.hz:.1f} Hz (5s avg)")
 
         if debug:
             break
@@ -697,6 +910,7 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
     Acquires ``switching_lock2`` while computing to prevent stitcher
     switching from moving models off-GPU mid-computation.
     """
+    rate = RateMeter(window=5.0)
     while True:
         if manager.shared_images is None or manager.known_order is None:
             time.sleep(0.4)
@@ -714,9 +928,11 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
             print("[warp_thread] Error during warp computation:")
             traceback.print_exc()
 
-        if verbose:
+        rate.tick()
+
+        if verbose and manager.print_rate:
             elapsed = time.perf_counter() - t
-            print(f"[warp_thread] Warp update: {elapsed:.3f}s")
+            print(f"[warp_thread] Warp update: {elapsed:.3f}s | {rate.hz:.1f} Hz (5s avg)")
 
         if debug:
             break
@@ -771,6 +987,18 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     blur_sigma = struct.unpack('f', metadataMMF.read(4))[0]
     border_size = struct.unpack('i', metadataMMF.read(4))[0]
 
+    # Read StabStitch panorama-quality fallback parameters
+    raw_bool = metadataMMF.read(1)
+    quality_enabled = bool(struct.unpack('B', raw_bool)[0])
+    quality_threshold = struct.unpack('f', metadataMMF.read(4))[0]
+
+    # Read the live headset yaw (head look direction) used to pick stitched views
+    head_angle = struct.unpack('f', metadataMMF.read(4))[0]
+
+    # Console-verbosity toggle: when False, suppress the per-loop stitch/warp rate prints
+    raw_bool = metadataMMF.read(1)
+    print_rate = bool(struct.unpack('B', raw_bool)[0])
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -786,6 +1014,10 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "blur_kernel_size" : blur_kernel_size,
         "blur_sigma" : blur_sigma,
         "border_size" : border_size,
+        "quality_enabled" : quality_enabled,
+        "quality_threshold" : quality_threshold,
+        "head_angle" : head_angle,
+        "print_rate" : print_rate,
     }
 
 def main():
