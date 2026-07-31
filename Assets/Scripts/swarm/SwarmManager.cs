@@ -70,6 +70,13 @@ public class SwarmManager : MonoBehaviour
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
+
+            // The swarming plane is toggled at runtime and read by every drone, so it must exist
+            // wherever a swarm does. Attach it here rather than making every scene remember to.
+            if (SwarmPlaneController.Instance == null && GetComponent<SwarmPlaneController>() == null)
+            {
+                gameObject.AddComponent<SwarmPlaneController>();
+            }
         }
         else
         {

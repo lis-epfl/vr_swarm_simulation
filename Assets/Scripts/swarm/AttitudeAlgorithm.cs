@@ -33,6 +33,7 @@ public class AttitudeAlgorithm : MonoBehaviour
     // drops off the hull so the yaw command stays continuous instead of chattering to zero.
     private float targetHeading = 0.0f;
     private bool hasTargetHeading = false;
+    private bool wasPlaneMode = false;
 
     // Shared global hull: every drone would otherwise rebuild the identical
     // full-swarm hull every tick (O(n² log n) total). The first drone whose
@@ -78,6 +79,23 @@ public class AttitudeAlgorithm : MonoBehaviour
     void FixedUpdate()
     {
         readInputs();
+
+        // Vertical-plane swarming replaces the hull-facing heading rule entirely: the whole wall
+        // points one way, along the anchor drone's heading.
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+        bool planeMode = plane != null && plane.PlaneModeActive;
+        if (planeMode != wasPlaneMode)
+        {
+            // The hull-derived heading means something different on each side of the switch.
+            hasTargetHeading = false;
+            wasPlaneMode = planeMode;
+        }
+        if (planeMode)
+        {
+            ApplyPlaneModeAttitude(plane);
+            return;
+        }
+
         float commandedYawRate = 0.0f;
         switch(selectedAttitudeAlgorithm)
         {
@@ -126,6 +144,72 @@ public class AttitudeAlgorithm : MonoBehaviour
     public void SetYawRateFromCommand(float yawRateRadians)
     {
         inputYawRate = yawRateRadians;
+    }
+
+    /// <summary>
+    /// Attitude rule for vertical-plane swarming. The plane is perpendicular to the anchor drone's
+    /// heading, so the anchor keeps the pilot's yaw stick (turning it re-aims the whole wall) while
+    /// every other drone slaves its heading to the anchor's — the wall then faces one way, which is
+    /// what makes it readable from the pilot's seat.
+    /// </summary>
+    private void ApplyPlaneModeAttitude(SwarmPlaneController plane)
+    {
+        // BoundaryEstimate still gates the feed displays, and the usual XZ hull of a vertical wall
+        // collapses to a line, so recompute it in the plane's own axes.
+        UpdatePlaneBoundaryEstimate();
+
+        if (plane.IsAnchor(gameObject))
+        {
+            vc.desiredYawRate = inputYawRate;
+            vc.attitude_control_yaw = 0.0f;
+            return;
+        }
+
+        vc.desiredYawRate = 0.0f;
+        vc.attitude_control_yaw = YawCorrectionFactor * WrapAngle(plane.AnchorYaw - vc.State.Angles.y);
+    }
+
+    /// <summary>
+    /// Debounced boundary flag from the swarm hull taken in the swarming plane's own axes. Only the
+    /// convex-hull attitude modes publish a boundary today (the display gating keys off that), so
+    /// this keeps the same contract while in plane mode.
+    /// </summary>
+    private void UpdatePlaneBoundaryEstimate()
+    {
+        bool hullMode = selectedAttitudeAlgorithm == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+                     || selectedAttitudeAlgorithm == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
+        if (!hullMode || swarm == null || swarm.Count == 0)
+        {
+            UpdateBoundaryEstimate(false);
+            return;
+        }
+
+        EnsureSharedGlobalHull();
+        if (sharedGlobalHull == null)
+        {
+            UpdateBoundaryEstimate(false);
+            return;
+        }
+
+        UpdateBoundaryEstimate(sharedGlobalHull.Contains(ProjectForHull(transform.position)));
+    }
+
+    /// <summary>
+    /// Projects a world position into the 2D space the convex hull is built in: the XZ plane
+    /// normally, or the swarming plane's own (horizontal, vertical) axes while in plane mode.
+    /// Every caller must use this so hull membership can still be tested by exact equality.
+    /// </summary>
+    private static Vector2 ProjectForHull(Vector3 position)
+    {
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+        if (plane == null || !plane.PlaneModeActive)
+        {
+            return new Vector2(position.x, position.z);
+        }
+
+        plane.GetPlaneAxes(out Vector3 planeRight, out Vector3 planeUp);
+        Vector3 offset = position - plane.PlaneOrigin;
+        return new Vector2(Vector3.Dot(offset, planeRight), Vector3.Dot(offset, planeUp));
     }
 
     /// <summary>
@@ -224,7 +308,7 @@ public class AttitudeAlgorithm : MonoBehaviour
         List<Vector2> positions2D = new List<Vector2>
         {
             // Add the position of the current drone
-            new Vector2(transform.position.x, transform.position.z)
+            ProjectForHull(transform.position)
         };
 
         // Add the positions of the neighbours
@@ -234,14 +318,13 @@ public class AttitudeAlgorithm : MonoBehaviour
             {
                 continue;
             }
-            Vector3 position = entry.droneParent.position;
-            positions2D.Add(new Vector2(position.x, position.z));
+            positions2D.Add(ProjectForHull(entry.droneParent.position));
         }
 
         // Compute the convex hull of the local point set (current drone + nearest neighbours)
         IList<Vector2> convexHull = ConvexHull.ComputeConvexHull(positions2D);
 
-        Vector2 currentDronePosition = new Vector2(transform.position.x, transform.position.z);
+        Vector2 currentDronePosition = ProjectForHull(transform.position);
         return getYawRateFromHull(convexHull, currentDronePosition);
     }
 
@@ -276,7 +359,7 @@ public class AttitudeAlgorithm : MonoBehaviour
             return 0.0f;
         }
 
-        Vector2 currentDronePosition = new Vector2(transform.position.x, transform.position.z);
+        Vector2 currentDronePosition = ProjectForHull(transform.position);
         return getYawRateFromHull(sharedGlobalHull, currentDronePosition);
     }
 
@@ -309,8 +392,7 @@ public class AttitudeAlgorithm : MonoBehaviour
             {
                 continue;
             }
-            Vector3 position = entry.droneParent.position;
-            sharedHullPositions.Add(new Vector2(position.x, position.z));
+            sharedHullPositions.Add(ProjectForHull(entry.droneParent.position));
         }
 
         // ComputeConvexHull cannot handle an empty point set. sortInPlace avoids its

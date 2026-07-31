@@ -5,9 +5,25 @@ using UnityEngine;
 public class Reynolds : MonoBehaviour
 {
     public bool Is3D = true;
+
+    // Unit normal of the plane the swarm is constrained to when !Is3D. Vector3.up gives the
+    // horizontal formation; SwarmPlaneController swings it onto the anchor drone's heading for a
+    // vertical wall. Pushed every tick by SwarmAlgorithm.
+    public Vector3 PlaneNormal = Vector3.up;
+
+    // When set, drones are pulled onto the *fixed* plane at PlaneAnchorOffset along the normal
+    // rather than onto the consensus of their neighbours. See the matching fields in OlfatiSaber.
+    public bool HasPlaneAnchor = false;
+    public float PlaneAnchorOffset = 0.0f;
+
     public float CohesionWeight = 1.0f;
     public float SeparationWeight = 1.0f;
     public float AlignmentWeight = 1.0f;
+
+    // Gain of the term that pulls a drone back onto the swarming plane, toward the mean neighbour
+    // offset along the normal. Reynolds has no such term of its own, so without it nothing holds
+    // the swarm in the plane at all — the projections below only stop it being pushed *out*.
+    public float PlaneWeight = 1.0f;
     private Vector3 cohesion = new Vector3(0, 0, 0);
     private Vector3 separation = new Vector3(0, 0, 0);
     private Vector3 alignment = new Vector3(0, 0, 0);
@@ -32,6 +48,9 @@ public class Reynolds : MonoBehaviour
         alignment = new Vector3(0, 0, 0);
 
         StateFinder currentDroneState = selfVelocityControl.State;
+
+        float totalNeighbourPlaneOffset = 0f;
+        int aliveNeighbourCount = 0;
 
         // Calculate the relative position and velocity of each drone to the current drone
         foreach (GameObject neighbour in swarm)
@@ -60,10 +79,12 @@ public class Reynolds : MonoBehaviour
             // Relative Position
             Vector3 relativePosition = neighbourPosition - currentDroneState.Position;
 
-            // Set the y-component to zero if in 2D mode
+            // Drop the out-of-plane component if constrained to a plane
             if (!Is3D)
             {
-                relativePosition.y = 0;
+                relativePosition -= PlaneNormal * Vector3.Dot(relativePosition, PlaneNormal);
+                totalNeighbourPlaneOffset += Vector3.Dot(neighbourPosition, PlaneNormal);
+                aliveNeighbourCount++;
             }
 
             // Get the distance to the neighbour
@@ -71,11 +92,11 @@ public class Reynolds : MonoBehaviour
 
             // Relative Velocity
             Vector3 relativeVelocity = transform.TransformDirection(neighbourState.VelocityVector) - transform.TransformDirection(currentDroneState.VelocityVector);
-            
-            // Set the y-component to zero if in 2D mode
+
+            // Drop the out-of-plane component if constrained to a plane
             if (!Is3D)
             {
-                relativeVelocity.y = 0;
+                relativeVelocity -= PlaneNormal * Vector3.Dot(relativeVelocity, PlaneNormal);
             }
 
             // Cohesion
@@ -94,8 +115,22 @@ public class Reynolds : MonoBehaviour
         separation *= SeparationWeight / swarm.Count;
         alignment *= AlignmentWeight / swarm.Count;
 
+        // Constrained mode: pull back onto the plane, toward the mean neighbour offset along the
+        // normal. Mirrors OlfatiSaber's plane correction; the projections above only remove the
+        // out-of-plane forcing, they don't restore drift.
+        Vector3 planeCorrection = Vector3.zero;
+        if (!Is3D && (HasPlaneAnchor || aliveNeighbourCount > 0))
+        {
+            float targetOffset = HasPlaneAnchor
+                ? PlaneAnchorOffset
+                : totalNeighbourPlaneOffset / aliveNeighbourCount;
+            planeCorrection = PlaneWeight
+                            * (targetOffset - Vector3.Dot(currentDroneState.Position, PlaneNormal))
+                            * PlaneNormal;
+        }
+
         // Sum the total and send it to the velocity control script as the swarm input
-        swarmInput = cohesion + separation + alignment;
+        swarmInput = cohesion + separation + alignment + planeCorrection;
 
         return swarmInput;
     }

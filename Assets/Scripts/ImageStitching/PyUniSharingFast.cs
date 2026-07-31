@@ -328,6 +328,12 @@ public class PyUniSharingFast : MonoBehaviour
     // frame can rotate velocity commands into the pilot's heading. Mirrors the private bodyYaw.
     public static float BodyYawDegrees { get; private set; }
 
+    // The "Drone N" root of the drone at the centre of the stitch selection (camera yaw closest to
+    // the body yaw), i.e. the drone the pilot is looking through. Refreshed every frame whether or
+    // not stitching is running, so systems that need "whatever the pilot is facing" can anchor on it
+    // — SwarmPlaneController orients the vertical swarming plane from this drone's heading.
+    public static Transform CentreStitchDrone { get; private set; }
+
     private GameObject arena;
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 
@@ -387,9 +393,12 @@ public class PyUniSharingFast : MonoBehaviour
 
         // Discover cameras first so the block mapping can be sized to the
         // exact drone count (matches image_stream.py / StitcherThreading.py).
+        // Discovery is unconditional (it only builds a few lists): the centre-drone
+        // selection publishes CentreStitchDrone every frame, and consumers such as
+        // SwarmPlaneController need it whether or not stitching is running.
+        FindCameras();
         if (enableImageWriting)
         {
-            FindCameras();
             blockImageCount = Mathf.Min(STITCH_COUNT, camerasToCapture.Count);
         }
 
@@ -457,7 +466,7 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
-        if (enableImageWriting && Time.time >= nextCameraUpdateTime)
+        if (Time.time >= nextCameraUpdateTime)
         {
             UpdateCameras();
             nextCameraUpdateTime = Time.time + cameraUpdateInterval;
@@ -1132,6 +1141,7 @@ public class PyUniSharingFast : MonoBehaviour
         if (camerasToCapture == null || camerasToCapture.Count == 0)
         {
             selected = new int[0];
+            CentreStitchDrone = null;
             return bodyYaw;
         }
 
@@ -1155,6 +1165,11 @@ public class PyUniSharingFast : MonoBehaviour
 
         // Centre = the candidate whose camera yaw is closest to bodyYaw.
         int centreCam = candidates[ClosestInList(candidates, bodyYaw)];
+
+        // Publish the centre drone (the FPV camera's parent is the "Drone N" root, see DroneName)
+        // so other systems can anchor on whatever the pilot is looking at — SwarmPlaneController
+        // uses it to orient the vertical swarming plane.
+        CentreStitchDrone = camerasToCapture[centreCam].transform.parent;
 
         // Fewer than three candidates total: send what we have.
         if (n < 3)
@@ -1558,12 +1573,14 @@ public class PyUniSharingFast : MonoBehaviour
 
     private void UpdateCameras()
     {
+        // Re-discovery keeps CentreStitchDrone live for non-stitching consumers, so it runs
+        // regardless; only the shared-memory resize below depends on image writing.
+        FindCameras();
+        UpdateCameraToStitch();
+
         if (!enableImageWriting) return;
 
-        FindCameras();
-
         int newblockImageCount = Mathf.Min(STITCH_COUNT, camerasToCapture.Count);
-        UpdateCameraToStitch();
         if (newblockImageCount != blockImageCount)
         {
             blockImageCount = newblockImageCount;

@@ -46,6 +46,13 @@ public class VelocityControl : MonoBehaviour
     public float attitude_control_yaw = 0.0f;
     // Swarm acceleration feedforward (world frame, set by SwarmAlgorithm)
     [HideInInspector] public Vector3 swarmAcceleration = Vector3.zero;
+    // When true, the vertical channel is handed to the swarm: the altitude-hold PD is replaced by a
+    // vertical *velocity* loop (symmetric with the horizontal one), so the swarm's vertical
+    // acceleration drives the drone instead of being fought by the height setpoint. Set every tick
+    // by SwarmAlgorithm; true only while swarming in a non-horizontal plane.
+    [HideInInspector] public bool verticalSwarmAuthority = false;
+    // Altitude the vertical leash is measured against — the plane's anchor drone. Set by SwarmAlgorithm.
+    [HideInInspector] public float verticalReferenceAltitude = 0f;
     // Last-frame horizontal (XZ) acceleration magnitudes — read by FlightHUD
     [HideInInspector] public float lastUserAccelMag  = 0f;
     [HideInInspector] public float lastSwarmAccelMag = 0f;
@@ -62,6 +69,16 @@ public class VelocityControl : MonoBehaviour
              "Larger = softer velocity response = more angle budget left for swarm corrections. " +
              "Saturation threshold ≈ g × maxPitch × tau.")]
     public float timeConstantAcceleration = 0.5f;
+
+    [Tooltip("Seconds. Converts the swarm's vertical acceleration into a climb rate for the height " +
+             "setpoint while the swarm owns the vertical channel (verticalSwarmAuthority). Larger = " +
+             "the wall forms faster vertically. The resulting rate is clamped to maxAltitudeRate.")]
+    public float swarmVerticalSetpointGain = 0.5f;
+
+    [Tooltip("Metres. Hard limit on how far above or below the anchor drone the height setpoint may " +
+             "be driven while swarming in a tilted plane — i.e. the wall's half-height. This is the " +
+             "absolute bound on vertical drift, so keep it near the formation size you expect.")]
+    public float swarmVerticalLeash = 30.0f;
 
     private float previousHeightError = 0.0f;
     private float filteredHeightErrorDerivative = 0.0f;
@@ -148,8 +165,42 @@ public class VelocityControl : MonoBehaviour
         Vector3 desiredOmega;
 
 
+        // --- Swarm feedforward acceleration (world frame) ---
+        // Swarm already computes acceleration in world frame. Filtered here, ahead of the height
+        // loop, because the vertical channel consumes it below.
+        worldFilteredSwarmAccel = Vector3.Lerp(worldFilteredSwarmAccel, swarmAcceleration, SwarmAccelFilterCoefficient);
+
         // --- Height control (PD) ---
-        desired_height += userAltitudeRate * Time.deltaTime;
+        // The throttle stick always moves the setpoint. While the swarm owns the vertical channel
+        // (a tilted swarming plane, where the formation's spread is mostly vertical) the swarm's
+        // vertical acceleration moves the setpoint as well, rather than being added into thrust.
+        //
+        // Driving the *setpoint* is what keeps this stable. Handing the channel over as a velocity
+        // command — the obvious symmetric counterpart of the horizontal controller — leaves the
+        // vertical axis with no position feedback at all, and a velocity loop has no DC gain on
+        // position: any sustained bias (ground repulsion, an asymmetric formation, drones dying off
+        // the bottom of the wall) then integrates into a permanent climb instead of settling at a
+        // bounded offset. Through the setpoint the PD keeps its disturbance rejection — at formation
+        // equilibrium the swarm force is zero, the setpoint stops moving, and the PD holds the drone
+        // exactly where the wall wants it.
+        float heightRate = userAltitudeRate;
+        if (verticalSwarmAuthority)
+        {
+            heightRate += Mathf.Clamp(swarmVerticalSetpointGain * worldFilteredSwarmAccel.y,
+                                      -maxAltitudeRate, maxAltitudeRate);
+        }
+
+        desired_height += heightRate * Time.deltaTime;
+
+        if (verticalSwarmAuthority)
+        {
+            // The wall has a finite vertical extent, so leash the setpoint to the anchor drone's
+            // altitude. This is the absolute bound on drift, whatever its source.
+            desired_height = Mathf.Clamp(desired_height,
+                                         verticalReferenceAltitude - swarmVerticalLeash,
+                                         verticalReferenceAltitude + swarmVerticalLeash);
+        }
+
         desired_height = Mathf.Max(desired_height, MinHeight);
 
         float currentHeightError = desired_height - State.Altitude;
@@ -185,11 +236,20 @@ public class VelocityControl : MonoBehaviour
         // Force any "ghost" y component coming from the drone's tilt to zero (altitude handled separately).
         worldUserAccel.y = 0f;
 
-        // --- Swarm feedforward acceleration (world frame) ---
-        // Swarm already computes acceleration in world frame
-        worldFilteredSwarmAccel = Vector3.Lerp(worldFilteredSwarmAccel, swarmAcceleration, SwarmAccelFilterCoefficient);
-
+        // worldFilteredSwarmAccel was filtered above, ahead of the height loop that consumes it.
         Vector3 desiredAcceleration = worldUserAccel + worldFilteredSwarmAccel;
+
+        if (verticalSwarmAuthority)
+        {
+            // The swarm's vertical force is already being applied through the height setpoint above,
+            // so it must not go into thrust as well. Dropping it here also keeps it out of the tilt
+            // map below, where InverseTransformDirection would otherwise bleed it into pitch/roll in
+            // proportion to the drone's tilt — corrupting the horizontal command exactly when the
+            // swarm is pushing hardest vertically. The thrust clamp's [0, 2.7g] asymmetry stops
+            // mattering for the same reason: the vertical demand now goes through the PD, which is
+            // bounded by the setpoint rather than by the raw swarm force.
+            desiredAcceleration.y = 0f;
+        }
 
         // Convert combined acceleration back to body frame before mapping to pitch/roll.
         Vector3 bodyDesiredAccel = transform.InverseTransformDirection(desiredAcceleration);

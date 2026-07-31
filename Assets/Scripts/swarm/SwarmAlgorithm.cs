@@ -62,6 +62,7 @@ public class SwarmAlgorithm : MonoBehaviour
     void FixedUpdate()
     {
         readInputs();
+        bool isAnchor = ApplyPlaneConstraint();
         Vector3 swarmAccel = Vector3.zero;
 
         switch (currentAlgorithm)
@@ -75,7 +76,61 @@ public class SwarmAlgorithm : MonoBehaviour
                 break;
         }
 
+        // The plane is anchored on one drone, and the pilot expects it to sit still while the rest
+        // of the swarm redistributes around it. Dropping its swarm acceleration pins it without
+        // freezing it: the velocity stick still moves it, so the whole wall can be flown around.
+        if (isAnchor)
+        {
+            swarmAccel = Vector3.zero;
+        }
+
         velocityControl.swarmAcceleration = swarmAccel;
+    }
+
+    /// <summary>
+    /// Pushes the swarming plane onto the active algorithm. This has to happen every tick rather
+    /// than through OnSwarmParamsChanged (which only fires on inspector edits) because the plane
+    /// normal tracks the anchor drone's live heading.
+    /// </summary>
+    /// <returns>True when this drone is the plane's anchor.</returns>
+    private bool ApplyPlaneConstraint()
+    {
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+        bool planeMode = plane != null && plane.PlaneModeActive;
+
+        bool is3D = !planeMode && swarmManager.GetDimensions();
+        Vector3 planeNormal = planeMode ? plane.PlaneNormal : Vector3.up;
+        // Pin the plane to the anchor drone rather than to the swarm's own consensus, which would
+        // settle at the mean position along the normal and leave the anchor beside the wall.
+        float planeAnchorOffset = planeMode ? Vector3.Dot(plane.PlaneOrigin, planeNormal) : 0f;
+
+        if (reynoldsAlgorithm != null)
+        {
+            reynoldsAlgorithm.Is3D = is3D;
+            reynoldsAlgorithm.PlaneNormal = planeNormal;
+            reynoldsAlgorithm.HasPlaneAnchor = planeMode;
+            reynoldsAlgorithm.PlaneAnchorOffset = planeAnchorOffset;
+        }
+        if (olfatiSaberAlgorithm != null)
+        {
+            olfatiSaberAlgorithm.Is3D = is3D;
+            olfatiSaberAlgorithm.PlaneNormal = planeNormal;
+            olfatiSaberAlgorithm.HasPlaneAnchor = planeMode;
+            olfatiSaberAlgorithm.PlaneAnchorOffset = planeAnchorOffset;
+        }
+
+        bool isAnchor = planeMode && plane.IsAnchor(gameObject);
+
+        // A vertical plane puts the formation's spread on the vertical axis, which the altitude-hold
+        // PD would fight, so the swarm takes the vertical channel (see
+        // VelocityControl.verticalSwarmAuthority). The anchor is the exception: its swarm
+        // acceleration is zeroed anyway, and keeping it on altitude hold gives the wall the absolute
+        // vertical reference it otherwise lacks — without one, nothing stops the whole formation
+        // drifting up or down, since a velocity loop only damps motion, it doesn't undo it.
+        velocityControl.verticalSwarmAuthority = planeMode && !isAnchor;
+        velocityControl.verticalReferenceAltitude = planeMode ? plane.AnchorAltitude : 0f;
+
+        return isAnchor;
     }
 
     // Cleanup when the script is destroyed
@@ -198,7 +253,8 @@ public class SwarmAlgorithm : MonoBehaviour
     {
         if (reynoldsAlgorithm != null)
         {
-            reynoldsAlgorithm.Is3D = swarmManager.GetDimensions();
+            // Is3D is owned by ApplyPlaneConstraint (it depends on the live plane mode, not just
+            // the inspector setting), so it is deliberately not pushed here.
             reynoldsAlgorithm.CohesionWeight = swarmManager.GetCohesionWeight();
             reynoldsAlgorithm.SeparationWeight = swarmManager.GetSeparationWeight();
             reynoldsAlgorithm.AlignmentWeight = swarmManager.GetAlignmentWeight();
@@ -210,7 +266,7 @@ public class SwarmAlgorithm : MonoBehaviour
     {
         if (olfatiSaberAlgorithm != null)
         {
-            olfatiSaberAlgorithm.Is3D = swarmManager.GetDimensions();
+            // Is3D is owned by ApplyPlaneConstraint (see above).
             olfatiSaberAlgorithm.d_ref = swarmManager.GetDRef();
             olfatiSaberAlgorithm.r0_coh = swarmManager.GetR0Coh();
             olfatiSaberAlgorithm.delta = swarmManager.GetDelta();

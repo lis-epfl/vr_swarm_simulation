@@ -2,10 +2,23 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Security;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 public class OlfatiSaber : MonoBehaviour
 {
     public bool Is3D = true;
+
+    // Unit normal of the plane the swarm is constrained to when !Is3D. Vector3.up gives the
+    // horizontal (altitude-holding) formation this started as; SwarmPlaneController swings it onto
+    // the anchor drone's heading for a vertical wall. Pushed every tick by SwarmAlgorithm.
+    public Vector3 PlaneNormal = Vector3.up;
+
+    // When set, drones are pulled onto the *fixed* plane at PlaneAnchorOffset along the normal
+    // rather than onto the consensus of their neighbours. The consensus form drifts to the swarm's
+    // mean, which is not where the anchor drone is — and the anchor never joins the consensus
+    // because its swarm acceleration is pinned to zero, so the wall would form beside it.
+    public bool HasPlaneAnchor = false;
+    public float PlaneAnchorOffset = 0.0f;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
     public float delta = 0.1f;
@@ -19,7 +32,9 @@ public class OlfatiSaber : MonoBehaviour
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
     public float ScaleFactor = 10.0f;
-    public float c_altitude_2d = 1.0f;
+    // Gain of the term that pulls a drone back onto the swarming plane (formerly altitude-only).
+    [FormerlySerializedAs("c_altitude_2d")]
+    public float c_plane = 1.0f;
 
     public float MaxMigrationDistance = 10.0f;
 
@@ -61,7 +76,7 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 velocity = transform.TransformDirection(localVelocity);
 
         // Calculate cohesion and velocity consensus for each neighbour
-        float totalNeighbourAltitude = 0f;
+        float totalNeighbourPlaneOffset = 0f;
         int aliveNeighbourCount = 0;
         foreach (GameObject neighbour in swarm)
         {
@@ -87,14 +102,16 @@ public class OlfatiSaber : MonoBehaviour
 
             if (!Is3D)
             {
-                totalNeighbourAltitude += neighbourPosition.y;
+                totalNeighbourPlaneOffset += Vector3.Dot(neighbourPosition, PlaneNormal);
                 aliveNeighbourCount++;
             }
 
             Vector3 relativePosition = neighbourPosition - position;
 
+            // Constrained mode: only the in-plane part of the separation drives cohesion, so the
+            // formation spreads within the plane rather than around the neighbour in 3D.
             if (!Is3D)
-                relativePosition.y = 0;
+                relativePosition -= PlaneNormal * Vector3.Dot(relativePosition, PlaneNormal);
 
             float distance = relativePosition.magnitude / ScaleFactor;
 
@@ -102,17 +119,22 @@ public class OlfatiSaber : MonoBehaviour
             cohesion += GetCohesionForce(distance, d_ref, r0_coh) * relativePosition.normalized;
         }
 
-        // In 2D mode, correct altitude drift by pulling toward the mean neighbour altitude
-        Vector3 altitudeCorrection = Vector3.zero;
-        if (!Is3D && aliveNeighbourCount > 0)
+        // In constrained mode, correct drift off the plane. The target offset along the normal is
+        // the anchor's when the plane is pinned to one (vertical mode), otherwise the mean of the
+        // neighbours — which with PlaneNormal == Vector3.up is exactly the altitude-hold term this
+        // grew out of.
+        Vector3 planeCorrection = Vector3.zero;
+        if (!Is3D && (HasPlaneAnchor || aliveNeighbourCount > 0))
         {
-            float meanNeighbourAltitude = totalNeighbourAltitude / aliveNeighbourCount;
-            altitudeCorrection.y = c_altitude_2d * (meanNeighbourAltitude - position.y);
+            float targetOffset = HasPlaneAnchor
+                ? PlaneAnchorOffset
+                : totalNeighbourPlaneOffset / aliveNeighbourCount;
+            planeCorrection = c_plane * (targetOffset - Vector3.Dot(position, PlaneNormal)) * PlaneNormal;
         }
 
         obstacle = GetObstacleForce(position, velocity);
 
-        return velocityConsensus + cohesion + obstacle + altitudeCorrection;
+        return velocityConsensus + cohesion + obstacle + planeCorrection;
     }
 
     private Vector3 GetObstacleForce(Vector3 dronePosition, Vector3 droneVelocity)
