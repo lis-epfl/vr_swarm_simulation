@@ -28,8 +28,12 @@ from BaseStitcher import *
 # selected cameras are farther apart than this, the perspectives can't overlap, so we skip
 # the warp entirely and fall back to the individual feeds.
 MAX_STITCH_YAW_SEPARATION_DEG = 75.0   # FOV (~83 deg) minus a small overlap margin
-REASON_NO_OVERLAP = 8                  # new failing-gate reason (keep in sync with C# REASON_NO_OVERLAP)
-REASON_TOO_FEW_IMAGES = 16             # fewer than 3 selected feeds -> can't form L/C/R (keep in sync with C#)
+# Failing-gate reasons. These are the *pre-shift* values: write_panorama_memory packs
+# them one bit up, above the good/bad flag, so REASON_X here becomes C#'s REASON_X.
+# i.e. 8 -> C# REASON_NO_OVERLAP (1<<4), 16 -> C# REASON_TOO_FEW_IMAGES (1<<5).
+# Adding a reason here means widening the pack mask in write_panorama_memory too.
+REASON_NO_OVERLAP = 8                  # keep in sync with C# REASON_NO_OVERLAP
+REASON_TOO_FEW_IMAGES = 16             # fewer than 3 selected feeds -> can't form L/C/R
 
 # How often the debug panorama snapshot is written to disk, in seconds. The JPEG
 # encode + write is a stall inside the shared-memory read/write loop, so it is
@@ -811,20 +815,26 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
                    bit 1 : canvas gate failed
                    bit 2 : distortion gate failed
                    bit 3 : photometric (PSNR) gate failed
-               (bits 1-3 = the failing-gate reason; only set when bit 0 == 0)
+                   bit 4 : no overlap (camera yaw gap exceeds FOV)
+                   bit 5 : too few feeds
+               (bits 1+ = the failing-gate reason; only set when bit 0 == 0)
         [8:  ] RGB24 image data
 
-    ``quality_reason`` is the 3-bit failing-gate mask (canvas=1, distortion=2,
-    photometric=4) and is shifted into bits 1-3 of the word. When ``image_data``
-    is None (quality fallback) only the quality word is updated; the stale image
-    bytes are left in place because Unity ignores them while showing the feeds.
+    ``quality_reason`` is the failing-gate mask (canvas=1, distortion=2,
+    photometric=4, no-overlap=8, too-few-images=16) and is shifted up one bit to
+    sit above the good/bad flag.  Keep the mask below wide enough for every
+    REASON_* constant: it previously truncated at 0xF, which silently discarded
+    REASON_TOO_FEW_IMAGES (16) and made Unity log "unspecified" instead.  When
+    ``image_data`` is None (quality fallback) only the quality word is updated;
+    the stale image bytes are left in place because Unity ignores them while
+    showing the feeds.
     """
     flag_position = 0
     quality_position = 4
     data_position = 8
 
-    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1-4).
-    quality_word = (quality_int & 1) | ((quality_reason & 0xF) << 1)
+    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1+).
+    quality_word = (quality_int & 1) | ((quality_reason & 0xFF) << 1)
 
     while True:
         # Read the flag to check if Unity is ready for new data
