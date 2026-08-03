@@ -1374,6 +1374,18 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
+        // Vertical-plane swarming also spins the drones with the yaw stick (the anchor takes
+        // it directly, the rest of the wall slaves to the anchor), so it needs the same
+        // treatment as the non-hull modes below — regardless of which attitude algorithm is
+        // selected, since plane mode replaces the heading rule entirely.
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+        if (plane != null && plane.PlaneModeActive)
+        {
+            bodyLockInitialized = false; // reseed the camera-follow path when plane mode ends
+            UpdateBodyYawFromPlane(plane);
+            return;
+        }
+
         // Non-hull attitude modes (NONE/SIMPLE) spin the drone(s) with the yaw stick,
         // so slave the body/rig heading to the drone's ACTUAL heading instead of the
         // raw stick. Matching rate constants wouldn't cancel relative motion: the drone
@@ -1397,6 +1409,40 @@ public class PyUniSharingFast : MonoBehaviour
         {
             // Rotate the body about the world vertical at the rig's pivot. The head
             // (centerEyeAnchor) rotates with it but keeps its own HMD-tracked yaw.
+            cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
+        }
+    }
+
+    // Lock the body heading (and the rig) onto the swarming plane's own heading while
+    // vertical-plane mode is on.
+    //
+    // In that mode the yaw stick has two effects at once: AttitudeAlgorithm.ApplyPlaneModeAttitude
+    // feeds it to the anchor drone as a yaw-rate command (and every other drone slaves its heading
+    // to the anchor), while the hull path below would *also* integrate the same stick into bodyYaw.
+    // Those two integrations don't agree — different gains (bodyYawRate deg/s vs
+    // VelocityControl.maxYawRate rad/s), and the drones additionally lag through the yaw filter,
+    // the inner rate loop, drag, and SwarmPlaneController's own low-pass — so the view drifts off
+    // the wall as soon as the stick moves. In the radially-outward configuration that drift is
+    // invisible (the panorama re-snaps to whichever camera is now closest to bodyYaw), but here
+    // every drone shares one heading: bodyYaw is what aims the VR velocity frame at the wall, and
+    // the wall's own heading is the only value that can't be wrong.
+    //
+    // The lock is absolute rather than incremental, so any offset already present when plane mode
+    // was entered is corrected on the first frame instead of being carried forever. Following
+    // AnchorYaw (the low-passed plane heading) and not the anchor drone's instantaneous heading is
+    // deliberate: it is the heading the rest of the wall is being driven to, so it is what the
+    // panorama actually shows.
+    private void UpdateBodyYawFromPlane(SwarmPlaneController plane)
+    {
+        float planeYaw = plane.AnchorYaw * Mathf.Rad2Deg;
+        float deltaYaw = Mathf.DeltaAngle(bodyYaw, planeYaw);
+        if (deltaYaw == 0f) return;
+
+        bodyYaw = Mathf.Repeat(planeYaw, 360f);
+        BodyYawDegrees = bodyYaw;
+
+        if (driveCameraRigYaw && cameraRigTransform != null)
+        {
             cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
         }
     }

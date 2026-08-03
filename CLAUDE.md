@@ -91,6 +91,12 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   heading, so yaw proximity is a tie broken by jitter and the centre changes almost every frame. That
   matters because the scene-plane raycast originates at this camera and `PlanarStitcher` frames the
   canvas on it — a flickering centre both steps the published plane offset and slides the mosaic.
+- **In vertical-plane mode the body/rig yaw is slaved to the plane, not to the yaw stick**
+  (`PyUniSharingFast.UpdateBodyYawFromPlane`). The stick already spins the anchor drone and the rest
+  of the wall follows it, so also integrating that stick into `bodyYaw` walks the view off the wall —
+  different gain, none of the drone's lag. Invisible in the radially-outward ring (the panorama
+  re-snaps to the nearest camera), but under a shared heading `bodyYaw` is what aims the VR velocity
+  frame at the wall. The lock is absolute, so entering plane mode also clears any pre-existing offset.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - Image format across the bridge is **BGR + top-down** for stitch inputs; the returned panorama is
