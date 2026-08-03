@@ -65,6 +65,10 @@ Assets/Scripts/ImageStitching/StabStitch2_main*
 Assets/Scripts/ImageStitching/mask_debug*
 Assets/Scripts/ImageStitching/*.jpg
 Assets/Scripts/ImageStitching/*.jpg.meta
+# Debug/diagnostic output from the stitching tools (planar_selftest, replay_planar)
+Assets/Scripts/ImageStitching/tools/*.jpg
+Assets/Scripts/ImageStitching/tools/*.png
+Assets/Scripts/ImageStitching/tools/*.npz
 
 # Ignore big packages
 Assets/Asphalt_materials/
