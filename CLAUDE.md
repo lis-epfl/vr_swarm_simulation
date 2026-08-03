@@ -13,8 +13,8 @@ Two largely independent subsystems — touching one rarely affects the other:
   swarm flight control          VR display / capture      |   real-time stitching
   SwarmManager → SwarmAlgorithm  PyUniSharingFast  ──MMF──>|   StitcherThreading
    → OlfatiSaber/Reynolds         screenSpawn     <─MMF────|    → StabStitcher (StabStitch++)
-   → AttitudeAlgorithm                                     |
-   → VelocityControl                                       |
+   → AttitudeAlgorithm                                     |    → PlanarStitcher (pose-driven)
+   → VelocityControl                                       |       → planar_geometry
   └──────────────────────────────────────────────┘       |  └─────────────────────────┘
 ```
 
@@ -30,11 +30,23 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   (yaw also rewritten every frame at a fixed offset). This is the integrated *body heading*
   (`PyUniSharingFast.bodyYaw`): seeded from the HMD's initial yaw, then advanced only by the controller
   yaw-rate command — **not** live HMD direction, so head-look doesn't move the panorama.
-- `BlockSharedMemory` — the **stitcher input**: 3 slots ordered left/centre/right, one block per selected
-  drone: `int flag | int droneId | float heading | RGB24 image`. `flag` is the handshake (0 = ready,
-  1 = busy). Images are **640×360 BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole producer:
-  sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep `enableImageWriting`
-  off on `PyUniSharingFast` there).
+- `BlockSharedMemory` — the **stitcher input**, one block per selected drone. `flag` is the handshake
+  (0 = ready, 1 = busy). Images are **BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole
+  producer: sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep
+  `enableImageWriting` off on `PyUniSharingFast` there). Two header versions coexist; Unity publishes
+  which one it writes as `blockHeaderSize` in metadata, and Python reads that rather than assuming:
+  - **v1, 12 bytes** — `int flag | int droneId | float heading | RGB24 image`. What `ImageSharing.cs`
+    writes (real drones publish yaw only).
+  - **v2, 48 bytes** — appends `float camPos[3] | float camRot[4] (xyzw) | float captureTime |
+    int poseStatus`, all in **Unity world / left-handed**. Required by `PLANAR`. The pose lives in the
+    block, not in metadata, because it must be the pose of *that* frame: it is snapshotted in
+    `RequestBlockCapture` 1–2 frames before the readback completes, and Python may re-serve a cached
+    block, which then needs its own pose.
+
+  Slot count is `blockImageCount` (metadata): 3 for the left/centre/right stitchers, up to
+  `maxStitchViews` for `PLANAR`. It is sized from the *camera count*, never the per-frame selection —
+  `CreateBlockMap` recreates the named section, and Python holds a single mapping of it. Slots the
+  selection doesn't reach are marked `droneId == -1`.
 - `DroneFeedSharedMemory` — **all real-drone feeds** (DJIScene only), same per-block layout as above but
   a fixed capacity of **10 blocks** indexed by zero-based drone id (must match `MAX_DRONES` in the
   DJI_Swarm repo's `image_stream_feed.py`, which is the producer). Consumer: `ImageSharing.cs`, which
@@ -48,11 +60,19 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
 
 ## Conventions & invariants (not enforced by code)
 
-- **Coupled 3-view selection:** the body-yaw-relative left/centre/right pick exists in C#
-  (`PyUniSharingFast.SelectStitchCameras` for sim, `ImageSharing.PublishStitchBlocks` for real drones)
-  and in Python (`get_drone_order` + `get_subsets_from_order`) and all three must agree.
-- **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Stitching and the
-  `OUTER_CIRCLE` screen layout only use boundary drones.
+- **Coupled 3-view selection** (all stitchers *except* `PLANAR`)**:** the body-yaw-relative
+  left/centre/right pick exists in C# (`PyUniSharingFast.SelectStitchCameras` for sim,
+  `ImageSharing.PublishStitchBlocks` for real drones) and in Python (`get_drone_order` +
+  `get_subsets_from_order`) and all three must agree. Those two Python functions are
+  left/centre/right-only — `PLANAR` does not use them.
+- **Planar selection is C#-only:** `PyUniSharingFast.SelectPlanarStitchCameras` picks the views and
+  Python consumes that selection rather than re-deriving it, so there is only one rule to keep in sync.
+  It deliberately does **not** filter on `BoundaryEstimate`: in vertical-plane mode the convex hull is
+  the *rim of the wall*, so boundary drones are exactly the wrong subset (every drone in the wall sees
+  the facade), and in nadir the interior drones tile the middle of the mosaic. The boundary rule exists
+  because the radially-outward config nests interior views inside other views.
+- **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
+  and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - Image format across the bridge is **BGR + top-down** for stitch inputs; the returned panorama is
   flipped once and converted to RGB on the Python side.
 - **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata
@@ -71,6 +91,51 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   dense k×k kernel. At 1690×653 the 41×41 blur cost 125 ms and the 21×21 blur 38 ms, which was the single
   largest cost in the warp update. Use `SeparableGaussianBlur` in `StabStitcher.py` (two 1-D passes,
   same result to ~5e-5 relative). Likewise erode with two 1-D `max_pool2d` passes, not one k×k pass.
+
+## PLANAR stitcher (pose-driven, for the plane configurations)
+
+Selected via `typeOfStitcher = PLANAR`. Intended for the **vertical-plane / facade** configuration
+(`SwarmPlaneController`, key `V`) and the **nadir** one (`SwarmManager.gimbalPitch = -90`). In both the
+scene is one dominant plane and parallax is structurally absent, so **one homography per view is exact**
+and computable from intrinsics + pose + the plane with no image content — hence no feature matching, no
+neural net, and no failure on asphalt/water/uniform facades. It is an *alternative* to `STABSTITCH`, not
+an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radially-outward config work.
+
+- **`G = K R [e1 | e2 | (O − C)]`** (`planar_geometry.build_G`), not the textbook
+  `K(R − t nᵀ/d)K⁻¹` — no reference view, no `d` in a denominator, nothing to invert. Its **third
+  component is camera depth in metres**, so behind-camera rejection, max-range clipping and the sampling
+  coordinate all come out of one batched matmul.
+- **All handedness lives in `planar_geometry.unity_pose_to_cv` / `unity_dir_to_rh`.** Unity is
+  left-handed Y-up; CV is right-handed with +Y down and image row 0 at the top. Every world quantity
+  (plane normal, origin, basis) must go through the same conversion. This is the highest-risk area —
+  `tools/planar_selftest.py` cross-checks it against an independent implementation derived from Unity's
+  documented `worldToCameraMatrix`, which never calls into `planar_geometry`, so a shared sign error
+  cannot cancel out.
+- **The scene plane is a raycast** from the centre stitch drone (`UpdateScenePlane`), low-passed, sent
+  as unit normal + offset under a **seqlock** (a torn normal is neither unit length nor perpendicular to
+  anything). `scenePlaneMask` must exclude the feed screens and the curved panorama screen — those float
+  in world space near the pilot, and hitting one puts the "scene plane" a few metres away, which then
+  looks exactly like a geometry bug.
+- **Blending is an analytic distance-to-border feather** in *source* pixels, normalised per pixel across
+  all contributing views. A homography's alpha mask has a closed form, so unlike `StabStitcher` this
+  needs no blur or erosion, and it generalises to any N for free.
+- **The projective-sanity gate is local Jacobian anisotropy** (`homography_anisotropy`), not the SVD
+  condition number of the raw 3×3 — the latter is dominated by the metres-per-pixel unit scaling and
+  reads ~35 000 for a perfectly benign nadir view, where the Jacobian reads 1.000. Mesh-distortion
+  metrics are meaningless here: a homography cannot fold.
+- **With `poseSource = GroundTruth` the mosaic must be pixel-exact** on a truly planar scene. Nothing is
+  being estimated, so a visible seam is a bug, not a limitation. `StitchPoseSource.cs` injects
+  GNSS-magnitude error (Ornstein–Uhlenbeck, with a **common-mode fraction** — nearby receivers share most
+  of their error, and common-mode error translates the mosaic rigidly and costs nothing) for sizing how
+  much refinement real drones would need.
+- **`compute_warps` is intentionally a no-op**: the geometric solve is microseconds and runs inline every
+  frame, because the poses change every frame. That method is the slot for a future refiner, which would
+  estimate the slowly-varying *corrections* at the warp thread's cadence.
+
+Two checkers, both runnable without Unity:
+`python tools/planar_selftest.py` (geometry + end-to-end render) and
+`python tools/check_wire_layout.py` (asserts the C# and Python layout constants agree — a mismatch there
+is silent, since neither side fails to compile, it just reads a float from the middle of another field).
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

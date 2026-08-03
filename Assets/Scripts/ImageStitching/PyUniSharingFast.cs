@@ -370,7 +370,7 @@ public class PyUniSharingFast : MonoBehaviour
     // as many overlapping views as the formation offers.
     private const int STITCH_COUNT_LRC = 3;
 
-    public enum StitchPoseSource
+    public enum StitchPoseSourceMode
     {
         GroundTruth,          // camera transform, exact
         NoisyState,           // StateFinder's simulated GPS/IMU noise (sigma ~0.03 m)
@@ -439,6 +439,13 @@ public class PyUniSharingFast : MonoBehaviour
     private float planarMaxRange = 200f;
 
     [SerializeField]
+    [Range(10f, 89f)]
+    [Tooltip("Drop views whose optical axis meets the plane at a shallower angle than this " +
+             "(measured from the plane normal). A grazing view contributes a long thin " +
+             "smear and trips the anisotropy gate anyway.")]
+    private float maxObliquityDeg = 70f;
+
+    [SerializeField]
     [Tooltip("Blend feather width, in SOURCE pixels — so the seam width in canvas pixels " +
              "scales with each view's local magnification.")]
     private int planarFeatherPx = 40;
@@ -476,7 +483,15 @@ public class PyUniSharingFast : MonoBehaviour
              "so with it the mosaic should be pixel-perfect on a truly planar scene -- any " +
              "seam is a bug rather than a limitation. The noisy modes exist to size how much " +
              "refinement real drones would need.")]
-    private StitchPoseSource poseSource = StitchPoseSource.GroundTruth;
+    private StitchPoseSourceMode poseSource = StitchPoseSourceMode.GroundTruth;
+
+    [SerializeField]
+    [Tooltip("GNSS error model used when poseSource is GroundTruthPlusGnss.")]
+    private StitchPoseSource.Settings gnssSettings = new StitchPoseSource.Settings();
+
+    private StitchPoseSource gnssNoise;
+    private float lastPoseNoiseTime = -1f;
+    private float poseNoiseDt = 0f;
 
     /// <summary>
     /// Pose of camera <paramref name="camIdx"/> to publish with its frame.
@@ -492,9 +507,17 @@ public class PyUniSharingFast : MonoBehaviour
         rot = camera.transform.rotation;
         status = POSE_VALID;
 
-        if (poseSource == StitchPoseSource.GroundTruth)
+        if (poseSource == StitchPoseSourceMode.GroundTruth)
         {
             status |= POSE_GROUND_TRUTH;
+            return;
+        }
+
+        if (poseSource == StitchPoseSourceMode.GroundTruthPlusGnss)
+        {
+            if (gnssNoise == null) gnssNoise = new StitchPoseSource(gnssSettings);
+            gnssNoise.Apply(camIdx, poseNoiseDt, ref pos, ref rot);
+            status |= POSE_NOISE_INJECTED;
             return;
         }
 
@@ -506,17 +529,24 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
-        if (poseSource == StitchPoseSource.NoisyState)
-        {
-            // Carry the camera's offset from the body across, so this stays the optical
-            // centre; identical to camera.transform.position when the noise is zero.
-            pos += state.Position - state.transform.position;
-            status |= POSE_NOISE_INJECTED;
-            return;
-        }
+        // NoisyState: carry the camera's offset from the body across, so this stays the
+        // optical centre; identical to camera.transform.position when the noise is zero.
+        pos += state.Position - state.transform.position;
+        status |= POSE_NOISE_INJECTED;
+    }
 
-        // GroundTruthPlusGnss is wired up in a later stage; until then it is exact pose.
-        status |= POSE_GROUND_TRUTH;
+    // Advances the shared common-mode GNSS bias once per frame, so every drone in a
+    // frame draws against the same common-mode sample -- which is the entire point of
+    // that term. Per-drone bias advances inside Apply.
+    private void StepPoseNoise()
+    {
+        float now = Time.time;
+        poseNoiseDt = (lastPoseNoiseTime < 0f) ? 0f : Mathf.Max(0f, now - lastPoseNoiseTime);
+        lastPoseNoiseTime = now;
+
+        if (poseSource != StitchPoseSourceMode.GroundTruthPlusGnss) return;
+        if (gnssNoise == null) gnssNoise = new StitchPoseSource(gnssSettings);
+        gnssNoise.Step(now);
     }
 
     // Slots in the block map. Deliberately a function of the *camera count* and the
@@ -786,10 +816,22 @@ public class PyUniSharingFast : MonoBehaviour
         // the screen snaps to the new view only when the selection changes.
         float centreYaw = SelectStitchCameras(bodyYaw, out selectedStitchIndices);
 
+        // Advance the pose-error model once per frame, before any pose is snapshotted.
+        StepPoseNoise();
+
         // Resolve and publish the scene plane before the capture loop, so the plane
         // Python sees for this frame matches the frame's pose snapshots.
         UpdateScenePlane(centreStitchCameraIndex);
         WriteDynamicState();
+
+        // Planar overrides the left/centre/right triple with its own selection rule.
+        // SelectStitchCameras still runs first and unconditionally above: it is the sole
+        // publisher of CentreStitchDrone, which SwarmPlaneController anchors on and the
+        // scene-plane raycast needs.
+        if (typeOfStitcher == stitcherType.PLANAR)
+        {
+            SelectPlanarStitchCameras(out selectedStitchIndices);
+        }
 
         // Finish a pending calibration now that the centre drone is known: recentre the view onto
         // it so the head faces the (snapped) panorama centre and the VR velocity forward matches.
@@ -1525,6 +1567,189 @@ public class PyUniSharingFast : MonoBehaviour
 
         selected = new int[] { candidates[leftPos], candidates[centrePos], candidates[rightPos] };
         return camerasToCapture[centreCam].transform.eulerAngles.y;
+    }
+
+    /// <summary>
+    /// Picks the cameras that contribute to a planar mosaic: every alive drone actually
+    /// looking at the scene plane, closest-first, capped at the block count.
+    ///
+    /// Deliberately does <b>not</b> filter on <c>AttitudeAlgorithm.BoundaryEstimate</c>,
+    /// which is the key difference from <see cref="SelectStitchCameras"/>. In
+    /// vertical-plane mode the convex hull is the <i>rim of the wall</i>, so boundary
+    /// drones are precisely the wrong subset -- every drone in the wall, interior
+    /// included, is looking at the facade and contributes footprint. In nadir the hull
+    /// is the outline of the formation and the interior drones tile the middle of the
+    /// ground mosaic. The boundary rule exists because the radially-outward config nests
+    /// interior views inside other views; that reasoning does not transfer.
+    /// </summary>
+    private void SelectPlanarStitchCameras(out int[] selected)
+    {
+        selected = new int[0];
+        if (camerasToCapture == null || camerasToCapture.Count == 0) return;
+
+        float cosObliquity = Mathf.Cos(maxObliquityDeg * Mathf.Deg2Rad);
+        List<int> candidates = new List<int>(camerasToCapture.Count);
+        List<float> distances = new List<float>(camerasToCapture.Count);
+
+        Vector3 centreHit = Vector3.zero;
+        bool haveCentreHit = false;
+        if (centreStitchCameraIndex >= 0 && centreStitchCameraIndex < camerasToCapture.Count)
+        {
+            haveCentreHit = TryPlaneHit(camerasToCapture[centreStitchCameraIndex],
+                                        out centreHit, out _);
+        }
+
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (!IsAlive(i)) continue;
+            Camera cam = camerasToCapture[i];
+            if (cam == null) continue;
+
+            if (!TryPlaneHit(cam, out Vector3 hit, out float range)) continue;
+            if (range > planarMaxRange) continue;
+
+            // Reject grazing views: they contribute a long thin smear and blow up the
+            // anisotropy gate on the Python side anyway.
+            if (Mathf.Abs(Vector3.Dot(cam.transform.forward, scenePlaneNormal)) < cosObliquity)
+                continue;
+
+            candidates.Add(i);
+            distances.Add(haveCentreHit ? Vector3.SqrMagnitude(hit - centreHit) : range);
+        }
+
+        if (candidates.Count == 0) return;
+
+        // Over-subscribed: keep the views whose footprints cluster around the centre
+        // one, so the mosaic is contiguous rather than a scattered set with holes.
+        if (candidates.Count > blockImageCount)
+        {
+            int[] order = new int[candidates.Count];
+            for (int i = 0; i < order.Length; i++) order[i] = i;
+            Array.Sort(order, (a, b) => distances[a].CompareTo(distances[b]));
+
+            List<int> trimmed = new List<int>(blockImageCount);
+            for (int i = 0; i < blockImageCount; i++) trimmed.Add(candidates[order[i]]);
+            candidates = trimmed;
+        }
+
+        // Sort by camera index, NOT by yaw. The slot a drone occupies must be stable
+        // frame to frame, or Python's busy-block cache serves one drone's frame in
+        // another's slot. Python sorts by drone_id, so index order makes both agree.
+        candidates.Sort();
+        selected = candidates.ToArray();
+    }
+
+    /// <summary>
+    /// Draws the scene plane, the centre camera's ray, and each selected view's
+    /// footprint. Worth having: a raycast that latched onto a feed screen, an inverted
+    /// plane normal or a selection that dropped the interior drones all look identical
+    /// from Python (a wrong-looking mosaic) but are obvious here at a glance.
+    /// </summary>
+    private void OnDrawGizmosSelected()
+    {
+        if (!Application.isPlaying || typeOfStitcher != stitcherType.PLANAR) return;
+        if (camerasToCapture == null || !scenePlaneInitialised) return;
+
+        // Plane patch, drawn in the plane's own axes around the centre camera's hit.
+        Vector3 origin = scenePlaneNormal * scenePlaneD;
+        if (centreStitchCameraIndex >= 0 && centreStitchCameraIndex < camerasToCapture.Count)
+        {
+            Camera centre = camerasToCapture[centreStitchCameraIndex];
+            if (centre != null)
+            {
+                Gizmos.color = scenePlaneValid ? Color.cyan : new Color(1f, 0.5f, 0f);
+                Vector3 dir = (resolvedPlaneMode == ScenePlaneMode.Nadir)
+                    ? Vector3.down : centre.transform.forward;
+                if (TryPlaneHit(centre, out Vector3 hit, out _))
+                {
+                    Gizmos.DrawLine(centre.transform.position, hit);
+                    Gizmos.DrawWireSphere(hit, 0.4f);
+                    origin = hit;
+                }
+                else
+                {
+                    Gizmos.DrawRay(centre.transform.position, dir * fallbackPlaneDistance);
+                }
+            }
+        }
+
+        Vector3 right = Vector3.Cross(Vector3.up, scenePlaneNormal);
+        if (right.sqrMagnitude < 1e-6f) right = Vector3.right;
+        right.Normalize();
+        Vector3 up = Vector3.Cross(scenePlaneNormal, right).normalized;
+
+        float half = Mathf.Max(5f, planarMetresPerPixel * planarCanvasWidth * 0.5f);
+        float halfV = Mathf.Max(5f, planarMetresPerPixel * planarCanvasHeight * 0.5f);
+        Gizmos.color = scenePlaneValid
+            ? new Color(0f, 1f, 1f, 0.8f) : new Color(1f, 0.5f, 0f, 0.8f);
+        Vector3 a = origin + right * half + up * halfV;
+        Vector3 b = origin - right * half + up * halfV;
+        Vector3 c = origin - right * half - up * halfV;
+        Vector3 d = origin + right * half - up * halfV;
+        Gizmos.DrawLine(a, b); Gizmos.DrawLine(b, c);
+        Gizmos.DrawLine(c, d); Gizmos.DrawLine(d, a);
+
+        // Plane normal, so an inverted orientation is immediately visible.
+        Gizmos.color = Color.magenta;
+        Gizmos.DrawRay(origin, scenePlaneNormal * 3f);
+
+        // Each selected view's footprint on the plane.
+        if (selectedStitchIndices == null) return;
+        foreach (int idx in selectedStitchIndices)
+        {
+            if (idx < 0 || idx >= camerasToCapture.Count) continue;
+            Camera cam = camerasToCapture[idx];
+            if (cam == null) continue;
+            DrawFootprintGizmo(cam);
+        }
+    }
+
+    // Back-projects the image corners onto the scene plane. Corners that miss (behind
+    // the camera, or past the horizon) leave the quad open, which is the visual cue
+    // that the view is being clipped.
+    private void DrawFootprintGizmo(Camera cam)
+    {
+        Vector3[] corners = new Vector3[4];
+        bool[] ok = new bool[4];
+        Vector2[] viewport = { new Vector2(0, 0), new Vector2(1, 0),
+                               new Vector2(1, 1), new Vector2(0, 1) };
+
+        for (int i = 0; i < 4; i++)
+        {
+            Ray ray = cam.ViewportPointToRay(viewport[i]);
+            float denom = Vector3.Dot(scenePlaneNormal, ray.direction);
+            if (Mathf.Abs(denom) < 1e-6f) continue;
+            float t = (scenePlaneD - Vector3.Dot(scenePlaneNormal, ray.origin)) / denom;
+            if (t <= 0f || t > planarMaxRange) continue;
+            corners[i] = ray.origin + ray.direction * t;
+            ok[i] = true;
+        }
+
+        Gizmos.color = Color.green;
+        for (int i = 0; i < 4; i++)
+        {
+            int j = (i + 1) % 4;
+            if (ok[i] && ok[j]) Gizmos.DrawLine(corners[i], corners[j]);
+        }
+    }
+
+    // Where a camera's principal ray meets the current scene plane.
+    private bool TryPlaneHit(Camera cam, out Vector3 hit, out float range)
+    {
+        hit = Vector3.zero;
+        range = 0f;
+
+        Vector3 origin = cam.transform.position;
+        Vector3 dir = cam.transform.forward;
+        float denom = Vector3.Dot(scenePlaneNormal, dir);
+        if (Mathf.Abs(denom) < 1e-6f) return false;          // parallel to the plane
+
+        float t = (scenePlaneD - Vector3.Dot(scenePlaneNormal, origin)) / denom;
+        if (t <= 0f) return false;                            // plane is behind the camera
+
+        hit = origin + dir * t;
+        range = t;
+        return true;
     }
 
     /// <summary>
