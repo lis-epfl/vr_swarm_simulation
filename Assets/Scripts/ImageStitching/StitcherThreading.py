@@ -34,6 +34,7 @@ MAX_STITCH_YAW_SEPARATION_DEG = 75.0   # FOV (~83 deg) minus a small overlap mar
 # Adding a reason here means widening the pack mask in write_panorama_memory too.
 REASON_NO_OVERLAP = 8                  # keep in sync with C# REASON_NO_OVERLAP
 REASON_TOO_FEW_IMAGES = 16             # fewer than 3 selected feeds -> can't form L/C/R
+REASON_PLANE_INVALID = 32              # planar: no usable scene plane / pose on the wire
 
 # How often the debug panorama snapshot is written to disk, in seconds. The JPEG
 # encode + write is a stall inside the shared-memory read/write loop, so it is
@@ -51,6 +52,50 @@ RENDER_MIN_PERIOD = 0.045
 # With fewer, get_subsets_from_order wraps around and would stitch an image with
 # itself, so we skip the warp entirely and fall back to the individual feeds.
 MIN_STITCH_IMAGES = 3
+
+# A planar mosaic only needs two overlapping views to be worth showing.
+MIN_PLANAR_IMAGES = 2
+
+# ---------------------------------------------------------------------------------
+# Shared-memory layout (wire v2). Mirrors the meta*/block* constants in
+# PyUniSharingFast.cs -- change one, change the other.
+#
+# Metadata is a contiguous prefix of v1 fields (0..252, read sequentially by
+# readMetadataMemory) followed by a v2 tail addressed by absolute offset. Every tail
+# offset is 4-byte aligned so the seqlock counter can be written atomically.
+# ---------------------------------------------------------------------------------
+METADATA_SIZE = 412                  # must equal PyUniSharingFast.metadataSize
+PLANAR_WIRE_VERSION = 2
+
+# The v1 prefix ends at 253; the tail starts at 256 so every 4-byte field is aligned.
+META_BLOCK_HEADER_SIZE_OFFSET = 256  # int32
+META_WIRE_VERSION_OFFSET = 260       # int32
+META_FX_OFFSET = 264                 # float32 fx, fy, cx, cy
+META_PLANAR_CANVAS_OFFSET = 280      # int32 width, height
+META_PLANAR_MPP_OFFSET = 288         # float32 metres per pixel, then max range
+META_PLANAR_FEATHER_OFFSET = 296     # int32
+META_PLANAR_ANISO_OFFSET = 300       # float32 aniso max, then min coverage
+META_PLANAR_POSE_SOURCE_OFFSET = 308  # uint8, then uint8 psnr gate
+# 310-311 padding
+META_DYN_SEQ_OFFSET = 312            # int32 seqlock counter
+META_PLANE_N_OFFSET = 316            # float32 nx, ny, nz, d
+META_PLANE_VALID_OFFSET = 332        # uint8, then uint8 mode
+# 334-335 padding
+META_GIMBAL_PITCH_OFFSET = 336       # float32
+
+# Per-drone block header. v1 is flag|droneId|heading; v2 appends the camera pose that
+# was snapshotted with the image. Unity advertises which one it is writing in
+# metadata's block_header_size, so both producers can coexist (ImageSharing.cs in the
+# DJI scene stays on v1 -- real drones publish no position).
+BLOCK_HEADER_SIZE_V1 = 12
+BLOCK_HEADER_SIZE_V2 = 48
+BLOCK_CAM_POS_OFFSET = 12            # float32 x, y, z  (Unity world, LEFT-handed)
+BLOCK_CAM_ROT_OFFSET = 24            # float32 x, y, z, w (Unity Transform.rotation)
+BLOCK_CAPTURE_TIME_OFFSET = 40       # float32
+BLOCK_POSE_STATUS_OFFSET = 44        # int32 bitfield
+POSE_VALID = 1 << 0
+POSE_GROUND_TRUTH = 1 << 1
+POSE_NOISE_INJECTED = 1 << 2
 
 
 class RateMeter:
@@ -134,6 +179,15 @@ except ImportError as e:
     print("StabStitch modules could not be imported. STABSTITCH stitcher will not be available.")
     print(e)
 
+# --- PLANAR ---
+HAS_PLANAR = False
+try:
+    from PlanarStitcher import PlanarStitcher
+    HAS_PLANAR = True
+except ImportError as e:
+    print("Planar modules could not be imported. PLANAR stitcher will not be available.")
+    print(e)
+
 # Activate environnement
 # cmd
 # cd Assets\Scripts\ImageStitching
@@ -148,6 +202,7 @@ class StitcherManager:
             "NIS": NISStitcher() if HAS_NIS else None,
             "REWARP": REStitcher() if HAS_REWARP else None,
             "STABSTITCH": StabStitcher() if HAS_STABSTITCH else None,
+            "PLANAR": PlanarStitcher() if HAS_PLANAR else None,
         }
         
 
@@ -175,6 +230,17 @@ class StitcherManager:
         self.shared_headings = None
         self.known_order = None  # Store the known order of images
 
+        # Full view records (image + pose + timing), published under info_lock
+        # alongside the legacy parallel lists above. Used by the PLANAR path.
+        self.shared_views = None
+
+        # Planar geometry inputs, refreshed from metadata each loop.
+        self.intrinsics = None       # (fx, fy, cx, cy)
+        self.scene_plane = None      # dict from read_dynamic_state
+        self.planar_config = {}
+        self.wire_version = 0
+        self._planar_wire_warned = False
+
         self.processedImageWidth = None
         self.processedImageHeight = None
         self.batchImageWidth = None
@@ -184,6 +250,47 @@ class StitcherManager:
 
         # Set the stitcher to setup the device properly
         self.set_stitcher(self.active_stitcher_type, onlyIHN=False)
+
+    def update_planar_metadata(self, output):
+        """Refresh the planar geometry inputs from a metadata read."""
+        self.wire_version = output.get("wire_version", 0)
+        self.intrinsics = output.get("intrinsics")
+        self.planar_config = {
+            "canvas": output.get("planar_canvas", (0, 0)),
+            "metres_per_pixel": output.get("planar_metres_per_pixel", 0.0),
+            "max_range": output.get("planar_max_range", 0.0),
+            "feather_px": output.get("planar_feather_px", 0),
+            "aniso_max": output.get("planar_aniso_max", 0.0),
+            "min_coverage": output.get("planar_min_coverage", 0.0),
+            "pose_source": output.get("planar_pose_source", 0),
+            "psnr_gate": output.get("planar_psnr_gate", False),
+        }
+
+    def planar_inputs_ready(self):
+        """
+        True when Unity is publishing everything the planar backbone needs.
+
+        Warns once rather than per frame: a v1 producer (the DJI scene, or an older
+        Unity build) publishes no pose at all, and the useful thing is to say so and
+        fall back to the feeds, not to flood the console.
+        """
+        reasons = []
+        if self.wire_version != PLANAR_WIRE_VERSION:
+            reasons.append(f"wire version {self.wire_version} != {PLANAR_WIRE_VERSION}")
+        if not self.intrinsics or self.intrinsics[0] <= 0.0:
+            reasons.append("no camera intrinsics")
+        if self.scene_plane is None:
+            reasons.append("no scene plane")
+
+        if reasons:
+            if not self._planar_wire_warned:
+                self._planar_wire_warned = True
+                print("[PLANAR] unavailable: " + "; ".join(reasons) +
+                      ". Falling back to individual feeds.")
+            return False
+
+        self._planar_wire_warned = False
+        return True
 
     def set_stitcher(self, stitcher_type, onlyIHN):
         """
@@ -204,8 +311,13 @@ class StitcherManager:
             self.active_stitcher.spatial_net.cpu()
             self.active_stitcher.temporal_net.cpu()
             self.active_stitcher.smooth_net.cpu()
+        # PLANAR has no networks to evict: its warp is closed-form from pose.
 
         torch.cuda.empty_cache()
+        if self.stitchers.get(stitcher_type) is None:
+            print(f"[StitcherManager] '{stitcher_type}' is unavailable "
+                  f"(module missing); keeping {self.active_stitcher_type}.")
+            return
         self.active_stitcher = self.stitchers[stitcher_type]
         self.active_stitcher_type = stitcher_type
         print(f"Switched to {self.active_stitcher.__class__.__name__}")
@@ -313,7 +425,7 @@ class StitcherManager:
             with self.switching_lock1:
                 self.active_stitcher.quality_threshold = quality_threshold
 
-    def process_stitching(self, images, num_pano_img=3):
+    def process_stitching(self, images, num_pano_img=3, views=None):
         """
         Simplified stitching process using known order from drone IDs.
         No need for homography computation - just stitch based on known order.
@@ -326,6 +438,26 @@ class StitcherManager:
         """
         if self.known_order is None or len(self.known_order) != len(images):
             print(f"[WARNING] Known order not set or length mismatch. Expected {len(images)} images.")
+            return
+
+        if self.active_stitcher_type == "PLANAR":
+            # Planar takes its views straight from Unity's selection -- it does not use
+            # the heading-sorted ring order or the left/centre/right subsets, which are
+            # concepts belonging to the radially-outward configuration.
+            if views is None or len(views) < MIN_PLANAR_IMAGES:
+                if self.panoram_queue.empty():
+                    self.panoram_queue.put((None, False, REASON_TOO_FEW_IMAGES))
+                return
+            if not self.planar_inputs_ready():
+                if self.panoram_queue.empty():
+                    self.panoram_queue.put((None, False, REASON_PLANE_INVALID))
+                return
+
+            # Lock-free like the STABSTITCH arm: the planar solve touches no networks.
+            pano, quality_ok, quality_reason = self.active_stitcher.planar_pano(
+                views, self.intrinsics, self.scene_plane, self.planar_config)
+            if self.panoram_queue.empty():
+                self.panoram_queue.put((pano, quality_ok, quality_reason))
             return
 
         # Need at least 3 distinct feeds to form a left/centre/right panorama.
@@ -498,16 +630,15 @@ def get_drone_order(drone_ids, headings):
     sorted_indices = [idx for idx, _ in sorted_indexed_headings]
     return sorted_indices
 
-def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_debug_logging=False):
+def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=False):
     """
     This method reads images from the block-based shared memory structure.
     Each block contains: flag (4 bytes), droneId (4 bytes), heading (4 bytes), image data
     """
     
     # Read metadata first to get image dimensions
-    metadataSize = 20 + 64 + 1 + 64 + 1 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4 + 1  # +8 for blur_kernel_size (int) + blur_sigma (float), +4 for border_size (int), +1 quality_enabled (bool) +4 quality_threshold (float), +4 head_angle (float), +1 print_rate (bool)
-    metadataMMF = mmap.mmap(-1, metadataSize, "MetadataSharedMemory")
-    
+    metadataMMF = mmap.mmap(-1, METADATA_SIZE, "MetadataSharedMemory")
+
     output = readMetadataMemory(metadataMMF)
     batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
@@ -517,33 +648,25 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
     # the render + memory-bridge costs grow with resolution.
     #
     # Wait until Unity has published real (non-zero) sizes before sizing the block
-    # mapping — a pre-Start read yields zeros, which would make the mmap fail.
-    while batchImageWidth <= 0 or batchImageHeight <= 0:
+    # mapping — a pre-Start read yields zeros, which would make the mmap fail. The
+    # block header size has to be published too, since it sets the block stride.
+    while batchImageWidth <= 0 or batchImageHeight <= 0 or output["block_header_size"] <= 0:
         if enable_debug_logging:
             print("[first_thread] Waiting for Unity to publish image sizes...")
         time.sleep(0.1)
         output = readMetadataMemory(metadataMMF)
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
-    # Calculate block-based memory layout
-    metadataSize_per_block = 12  # flag (4) + droneId (4) + heading (4)
-    imageSize = batchImageWidth * batchImageHeight * 3  # RGB24
-    blockSize = metadataSize_per_block + imageSize
-    totalProcessedSize = num_images * blockSize
-    
-    if enable_debug_logging:
-        print(f"[first_thread] Initializing with {num_images} image blocks")
-        print(f"[first_thread] Block size: {blockSize} bytes (metadata: {metadataSize_per_block}, image: {imageSize})")
-        print(f"[first_thread] Total memory size: {totalProcessedSize} bytes")
-    
-    # Open the block-based shared memory (same one ImageSharing.cs uses)
-    processedMMF = mmap.mmap(-1, totalProcessedSize, "BlockSharedMemory")
-    
+    # The block map is sized from Unity's metadata rather than from a fixed count, so
+    # PLANAR can publish more than three views. Unity keeps the section a fixed size
+    # for a given camera count (spare slots are marked droneId = -1), so this normally
+    # opens once; it re-opens only if the count, resolution or header version changes.
+    block_map = None
+    block_cache = {}
+
     first_loop = True
     last_debug_write = 0.0
     last_render_signal = 0.0
-    # Cache of last successfully read frame per block index {block_idx: (image, drone_id, heading)}
-    block_cache = {}
     # Panorama output mapping is opened once on the first write (below) and reused,
     # rather than being re-created every frame as it was previously.
     panoramaMMF = None
@@ -560,14 +683,30 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
         except NotImplementedError as e:
             print(f"[first_thread] fusion_mode error: {e}")
 
+        # Planar geometry inputs: static config from metadata, live plane from the
+        # seqlock block. A failed seqlock read leaves the previous plane in place.
+        manager.update_planar_metadata(output)
+        dynamic = read_dynamic_state(metadataMMF)
+        if dynamic is not None:
+            manager.scene_plane = dynamic
+
+        block_map, changed = _ensure_block_map(
+            block_map, imageCount, output["block_header_size"],
+            batchImageWidth, batchImageHeight, enable_debug_logging)
+        if changed:
+            block_cache.clear()
+        if block_map is None:
+            time.sleep(0.05)
+            continue
+
         # Read images from block-based memory, falling back to cached frames for busy blocks
         try:
-            images, drone_ids, headings = read_block_memory(
-                processedMMF,
-                num_images,
-                blockSize,
-                metadataSize_per_block,
-                imageSize,
+            views = read_block_memory(
+                block_map["mmf"],
+                block_map["num_blocks"],
+                block_map["block_size"],
+                block_map["header_size"],
+                block_map["image_size"],
                 batchImageWidth,
                 batchImageHeight,
                 enable_debug_logging,
@@ -579,28 +718,41 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
             time.sleep(0.05)
             continue
 
-        if len(images) == num_images:
-            # Sort images by drone ID to get known order
-            sorted_indices = np.argsort(drone_ids)
-            sorted_images = [images[i] for i in sorted_indices]
-            sorted_drone_ids = [drone_ids[i] for i in sorted_indices]
-            sorted_headings = [headings[i] for i in sorted_indices]
+        # A planar mosaic tolerates a variable view count (drones die, the selection
+        # shrinks); the left/centre/right stitchers need their exact triple, so they
+        # keep the original all-or-nothing rule and hold the previous frame otherwise.
+        if manager.active_stitcher_type == "PLANAR":
+            have_enough = len(views) >= MIN_PLANAR_IMAGES
+        else:
+            have_enough = len(views) == block_map["num_blocks"]
+
+        if have_enough:
+            # Sort by drone ID to get a stable known order
+            views = sorted(views, key=lambda v: v['drone_id'])
+            sorted_images, sorted_drone_ids, sorted_headings = views_to_legacy(views)
 
             # DEBUG: dump frames read from BlockSharedMemory so the producer
             # format (size / BGR order / orientation) can be eyeballed. Gated behind
-            # enable_debug_logging — writing 3 JPEGs/frame is a disk-I/O stall that
-            # otherwise throttles this read/write loop.
+            # enable_debug_logging — writing a JPEG per drone per frame is a disk-I/O
+            # stall that otherwise throttles this read/write loop.
             if enable_debug_logging:
                 for di, img in zip(sorted_drone_ids, sorted_images):
                     cv2.imwrite(f"debug_input_drone_{di}.jpg", img)
 
-            # Store the images and metadata
+            # Store the images and metadata. shared_views is published under the same
+            # lock as the legacy lists so a consumer can never pair one frame's images
+            # with another frame's poses.
             with manager.info_lock:
+                manager.shared_views = views
                 manager.shared_images = sorted_images
                 manager.shared_drone_ids = sorted_drone_ids
                 manager.shared_headings = sorted_headings
-                # Create known order based on sorted drone IDs
-                manager.known_order = get_drone_order(sorted_drone_ids, sorted_headings)
+                if manager.active_stitcher_type == "PLANAR":
+                    # Planar receives the selection from Unity rather than re-deriving
+                    # it; the heading-sorted ring order is a left/centre/right concept.
+                    manager.known_order = list(range(len(views)))
+                else:
+                    manager.known_order = get_drone_order(sorted_drone_ids, sorted_headings)
                 # headAngle comes from the live headset yaw (set above from metadata),
                 # not from the drone headings.
 
@@ -614,8 +766,8 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
                 manager.new_images_event.set()
 
             if enable_debug_logging:
-                print(f"[first_thread] Read {len(images)} images, sorted drone IDs: {sorted_drone_ids}, headings: {sorted_headings}")
-        
+                print(f"[first_thread] Read {len(views)} views, sorted drone IDs: {sorted_drone_ids}, headings: {sorted_headings}")
+
         # Write panorama / quality flag if available
         if not manager.panoram_queue.empty():
             panorama, quality_ok, quality_reason = manager.panoram_queue.get()
@@ -685,30 +837,35 @@ def first_thread(manager: StitcherManager, num_images=3, debug=False, enable_deb
 
 def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSize, imageWidth, imageHeight, enable_debug=False, cache=None):
     """
-    Reads images from block-based shared memory.
+    Reads images (and, on wire v2, camera poses) from block-based shared memory.
 
     Block layout for each image:
         - int flag (4 bytes)
-        - int droneId (4 bytes)
+        - int droneId (4 bytes)        -- negative means the slot carries no view
         - float heading (4 bytes)
+        - [v2 only] float camPos[3], camRot[4] (xyzw), captureTime, int poseStatus
         - image data (imageSize bytes)
 
+    ``metadataSize`` is the block *header* size and selects between the two layouts;
+    Unity advertises it in the metadata block.
+
     Parameters:
-        - cache: optional dict {block_idx: (image, drone_id, heading)} used to
-                 substitute the previous frame when a block is busy being written.
-                 Updated in-place with each successfully read block.
+        - cache: optional dict {block_idx: view} used to substitute the previous frame
+                 when a block is busy being written. Updated in-place. The pose travels
+                 inside the view, so a re-served frame keeps *its* pose rather than
+                 silently borrowing the current one.
 
     Returns:
-        - images: list of numpy arrays
-        - drone_ids: list of drone IDs
-        - headings: list of heading angles
+        - views: list of dicts, one per populated slot:
+              {'slot', 'drone_id', 'heading', 'image', 'pos', 'quat',
+               'capture_time', 'pose_status', 'cached'}
+          'pos'/'quat' are None on wire v1.
     """
-    images = []
-    drone_ids = []
-    headings = []
+    views = []
+    has_pose = metadataSize >= BLOCK_HEADER_SIZE_V2
 
     if enable_debug:
-        print(f"Reading {num_blocks} blocks from mmmf... blockSize={blockSize}, imageSize={imageSize}, imageWidth={imageWidth}, imageHeight={imageHeight}")
+        print(f"Reading {num_blocks} blocks from mmmf... blockSize={blockSize}, imageSize={imageSize}, imageWidth={imageWidth}, imageHeight={imageHeight}, header={metadataSize}")
 
     for block_idx in range(num_blocks):
         blockOffset = block_idx * blockSize
@@ -736,6 +893,16 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
             processedMMF.seek(blockOffset + 8)
             heading = struct.unpack('f', processedMMF.read(4))[0]
 
+            pos = quat = None
+            capture_time = 0.0
+            pose_status = 0
+            if has_pose:
+                processedMMF.seek(blockOffset + BLOCK_CAM_POS_OFFSET)
+                pos = struct.unpack('<fff', processedMMF.read(12))
+                quat = struct.unpack('<ffff', processedMMF.read(16))
+                capture_time = struct.unpack('<f', processedMMF.read(4))[0]
+                pose_status = struct.unpack('<i', processedMMF.read(4))[0]
+
             # Read image data
             processedMMF.seek(blockOffset + metadataSize)
             image_data = processedMMF.read(imageSize)
@@ -744,30 +911,105 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
             processedMMF.seek(blockOffset)
             processedMMF.write(struct.pack('i', 0))
 
+            # A negative droneId marks a slot Unity deliberately left empty this frame
+            # (the selection was shorter than the map). Drop it from the cache too, or
+            # a drone that leaves the selection lingers in the mosaic forever.
+            if droneId < 0:
+                if cache is not None:
+                    cache.pop(block_idx, None)
+                continue
+
             if len(image_data) == imageSize:
                 image = np.frombuffer(image_data, dtype=np.uint8).reshape((imageHeight, imageWidth, 3)).copy()
-
-                images.append(image)
-                drone_ids.append(droneId)
-                headings.append(heading)
+                view = {
+                    'slot': block_idx,
+                    'drone_id': droneId,
+                    'heading': heading,
+                    'image': image,
+                    'pos': pos,
+                    'quat': quat,
+                    'capture_time': capture_time,
+                    'pose_status': pose_status,
+                    'cached': False,
+                }
+                views.append(view)
 
                 if cache is not None:
-                    cache[block_idx] = (image, droneId, heading)
+                    cache[block_idx] = view
 
                 if enable_debug:
                     print(f"[read_block_memory] Successfully read block {block_idx}: droneId={droneId}, heading={heading:.2f}")
 
         elif cache is not None and block_idx in cache:
-            # Block is busy being written — reuse the previous frame for this drone
-            cached_image, cached_drone_id, cached_heading = cache[block_idx]
-            images.append(cached_image)
-            drone_ids.append(cached_drone_id)
-            headings.append(cached_heading)
+            # Block is busy being written — reuse the previous frame for this drone,
+            # pose included, since the two belong together.
+            cached = dict(cache[block_idx])
+            cached['cached'] = True
+            views.append(cached)
 
             if enable_debug:
-                print(f"[read_block_memory] Block {block_idx}: busy, using cached frame for droneId={cached_drone_id}")
+                print(f"[read_block_memory] Block {block_idx}: busy, using cached frame for droneId={cached['drone_id']}")
 
-    return images, drone_ids, headings
+    return views
+
+
+def _ensure_block_map(block_map, num_blocks, header_size, image_w, image_h, debug=False):
+    """
+    Open (or re-open) BlockSharedMemory whenever its geometry changes.
+
+    Unity's CreateBlockMap destroys and recreates the named section when the block
+    count changes, so a mapping held across that is stale -- it silently keeps reading
+    a dead section. Unity avoids churning it by sizing from the camera count rather
+    than the per-frame selection, but a stitcher-mode switch (3 <-> N views) or a
+    resolution change still resizes it, and this is what notices.
+
+    Returns ``(block_map, changed)``; ``block_map`` is None if the mapping failed.
+    """
+    image_size = image_w * image_h * 3
+    block_size = header_size + image_size
+    key = (num_blocks, header_size, image_size)
+
+    if block_map is not None and block_map["key"] == key:
+        return block_map, False
+
+    if num_blocks <= 0 or header_size <= 0 or image_size <= 0:
+        return None, block_map is not None
+
+    try:
+        mmf = mmap.mmap(-1, num_blocks * block_size, "BlockSharedMemory")
+    except Exception as e:
+        print(f"[first_thread] Could not map BlockSharedMemory "
+              f"({num_blocks} x {block_size} B): {e}")
+        return None, block_map is not None
+
+    if block_map is not None:
+        try:
+            block_map["mmf"].close()
+        except Exception:
+            pass
+
+    wire = "v2 (pose)" if header_size >= BLOCK_HEADER_SIZE_V2 else "v1 (no pose)"
+    print(f"[first_thread] Block map: {num_blocks} blocks x {block_size} B "
+          f"({image_w}x{image_h}, header {header_size} B, {wire})")
+
+    return {
+        "mmf": mmf,
+        "key": key,
+        "num_blocks": num_blocks,
+        "block_size": block_size,
+        "header_size": header_size,
+        "image_size": image_size,
+    }, True
+
+
+def views_to_legacy(views):
+    """
+    Unpack view records into the three parallel lists the pre-v2 stitchers expect,
+    so the STABSTITCH/CLASSIC paths are untouched by the N-view plumbing.
+    """
+    return ([v['image'] for v in views],
+            [v['drone_id'] for v in views],
+            [v['heading'] for v in views])
 
 def write_memory(processedMMF, processedFlagPosition, processedDataPosition, processedImageSize, image_data):
     """
@@ -888,13 +1130,16 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
         if manager.shared_images is None or manager.known_order is None:
             continue
 
+        # Snapshot images and views together: they must come from the same frame, or a
+        # planar solve would warp one frame's pixels with another frame's poses.
         with manager.info_lock:
             images = manager.shared_images
+            views = manager.shared_views
 
         t = time.time()
 
         try:
-            manager.process_stitching(images, num_pano_img=num_pano_img)
+            manager.process_stitching(images, num_pano_img=num_pano_img, views=views)
         except Exception:
             print("[stitching_thread] Error during stitching:")
             traceback.print_exc()
@@ -926,7 +1171,11 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
             time.sleep(0.4)
             continue
 
-        if manager.active_stitcher_type != "STABSTITCH":
+        # Capability check rather than a name check: any stitcher exposing compute_warps
+        # gets the slow lane. PLANAR provides one as the slot a future refiner will fill
+        # (its geometric solve is microseconds and runs inline, every frame, because the
+        # poses change every frame -- only the *corrections* are slowly varying).
+        if not hasattr(manager.active_stitcher, 'compute_warps'):
             time.sleep(0.1)
             continue
 
@@ -1009,6 +1258,20 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     raw_bool = metadataMMF.read(1)
     print_rate = bool(struct.unpack('B', raw_bool)[0])
 
+    # ---- Wire v2 static tail -------------------------------------------------------
+    # Read by absolute offset rather than sequentially: the dynamic block that follows
+    # is rewritten every frame by Unity's WriteDynamicState, so both sides address these
+    # by constant. A v1 producer leaves this region zeroed, which reads as
+    # wire_version 0 -- checked by require_planar_wire() before PLANAR is allowed.
+    metadataMMF.seek(META_BLOCK_HEADER_SIZE_OFFSET)
+    block_header_size, wire_version = struct.unpack('<ii', metadataMMF.read(8))
+    fx, fy, cx, cy = struct.unpack('<ffff', metadataMMF.read(16))
+    canvas_w, canvas_h = struct.unpack('<ii', metadataMMF.read(8))
+    metres_per_pixel, max_range = struct.unpack('<ff', metadataMMF.read(8))
+    feather_px = struct.unpack('<i', metadataMMF.read(4))[0]
+    aniso_max, min_coverage = struct.unpack('<ff', metadataMMF.read(8))
+    pose_source, psnr_gate = struct.unpack('<BB', metadataMMF.read(2))
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -1028,7 +1291,53 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "quality_threshold" : quality_threshold,
         "head_angle" : head_angle,
         "print_rate" : print_rate,
+        # wire v2
+        "block_header_size" : block_header_size,
+        "wire_version" : wire_version,
+        "intrinsics" : (fx, fy, cx, cy),
+        "planar_canvas" : (canvas_w, canvas_h),
+        "planar_metres_per_pixel" : metres_per_pixel,
+        "planar_max_range" : max_range,
+        "planar_feather_px" : feather_px,
+        "planar_aniso_max" : aniso_max,
+        "planar_min_coverage" : min_coverage,
+        "planar_pose_source" : pose_source,
+        "planar_psnr_gate" : bool(psnr_gate),
     }
+
+
+def read_dynamic_state(metadataMMF):
+    """
+    Read the seqlock-protected dynamic block: the scene plane and gimbal pitch.
+
+    Unity bumps the sequence counter to an odd value before writing the payload and to
+    the next even value after, so an odd counter -- or a counter that changed across the
+    read -- means the fields were in flux.  Retry a few times, then give up and let the
+    caller keep its previous plane; a torn normal is not unit length and not
+    perpendicular to anything, and would produce one frame of garbage geometry.
+
+    Returns a dict, or None if no stable read was obtained.
+    """
+    for _ in range(4):
+        metadataMMF.seek(META_DYN_SEQ_OFFSET)
+        seq0 = struct.unpack('<i', metadataMMF.read(4))[0]
+        if seq0 & 1:
+            continue
+        nx, ny, nz, d = struct.unpack('<ffff', metadataMMF.read(16))
+        valid, mode = struct.unpack('<BB', metadataMMF.read(2))
+        metadataMMF.seek(META_GIMBAL_PITCH_OFFSET)
+        gimbal_pitch = struct.unpack('<f', metadataMMF.read(4))[0]
+
+        metadataMMF.seek(META_DYN_SEQ_OFFSET)
+        if struct.unpack('<i', metadataMMF.read(4))[0] == seq0:
+            return {
+                "plane_normal": (nx, ny, nz),
+                "plane_d": d,
+                "plane_valid": bool(valid),
+                "plane_mode": mode,
+                "gimbal_pitch": gimbal_pitch,
+            }
+    return None
 
 def main():
     """
@@ -1045,11 +1354,11 @@ def main():
     for key in manager.stitchers.keys():
         print(f"- {key}")
 
-    # Number of image blocks to read (should match numImages in ImageSharing.cs)
-    num_images = 3  # Update this to match your configuration
+    # The block count is read from Unity's metadata (blockImageCount), not fixed here:
+    # PLANAR publishes as many views as the formation offers, the others publish 3.
     num_pano_img = 3  # Number of images in the panorama
 
-    first_t = threading.Thread(target=first_thread, args=(manager, num_images, debug, enable_debug_logging))
+    first_t = threading.Thread(target=first_thread, args=(manager, debug, enable_debug_logging))
     first_t.daemon = True
     first_t.start()
 

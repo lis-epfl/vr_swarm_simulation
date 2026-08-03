@@ -463,6 +463,137 @@ def test_mosaic_roundtrip():
     print(f"       wrote {out}  (top = source texture, bottom = stitched)")
 
 
+def test_planar_stitcher_end_to_end():
+    """
+    Drive the real PlanarStitcher.planar_pano over synthetic views, exercising the
+    torch render path (batched homography, validity masks, border feather, N-view
+    weight normalisation) against the numpy geometry the earlier tests pinned down.
+
+    PlanarStitcher is built with __new__ rather than __init__ on purpose: BaseStitcher's
+    constructor downloads and loads a SuperPoint model, which this test neither needs
+    nor should depend on a network for. Only the attributes the render path touches are
+    populated.
+    """
+    print("\n7. PlanarStitcher end-to-end (torch render path)")
+    if cv2 is None:
+        check("cv2 available", False, "opencv not installed; skipped")
+        return
+    try:
+        import torch  # noqa: F401
+        import PlanarStitcher as ps_mod
+    except ImportError as e:
+        check("torch + PlanarStitcher importable", False, f"{e}")
+        return
+
+    stitcher = ps_mod.PlanarStitcher.__new__(ps_mod.PlanarStitcher)
+    stitcher.render_device = torch.device("cpu")   # deterministic; fp16 CUDA path differs
+    stitcher._correction = {"dpose": None, "plane": None}
+    stitcher._grid_key = None
+    stitcher._grid = None
+    stitcher._plane_invalid_since = None
+    stitcher._last_stats = {}
+    stitcher._last_log = 1e18                      # suppress the periodic log line
+
+    W, H, vfov = 800, 450, 46.4
+    altitude = 26.0
+    texture = make_test_texture(square=60)
+    th, tw = texture.shape[:2]
+    K = intrinsics_from_unity(vfov, W, H)
+    s_tex = altitude / float(K[1, 1])
+
+    n_unity = (0.0, 1.0, 0.0)
+    frame = pg.build_plane_frame(
+        pg.unity_dir_to_rh(n_unity), 0.0, pg.unity_point_to_rh((0.0, 0.0, 0.0)),
+        Camera((0.0, altitude, 0.0), euler_to_quat(90, 0, 0), vfov, W, H).right_rh)
+    M_tex = pg.canvas_to_plane_matrix(s_tex, tw / 2.0, th / 2.0)
+
+    # Five nadir views on a cross pattern, overlapping heavily. Ordered so the MIDDLE
+    # of the list sits over the plane origin: _build_geometry centres the canvas on the
+    # middle view of the published selection, so this is what makes the stitcher's
+    # canvas frame coincide with the texture frame the reference below is built in.
+    offsets = [(-4.0, 0.0), (0.0, 4.0), (0.0, 0.0), (0.0, -4.0), (4.0, 0.0)]
+    views = []
+    for i, (dx, dz) in enumerate(offsets):
+        pos = (dx, altitude, dz)
+        quat = euler_to_quat(90.0, 0.0, 0.0)
+        cam = Camera(pos, quat, vfov, W, H)
+        H_tex_to_img = pg.homography_canvas_to_image(
+            pg.build_G(cam.K, cam.R_cv, cam.C, frame), M_tex)
+        img = cv2.warpPerspective(texture, H_tex_to_img, (W, H), flags=cv2.INTER_LINEAR)
+        views.append({
+            'slot': i, 'drone_id': i, 'heading': 0.0, 'image': img,
+            'pos': pos, 'quat': tuple(float(c) for c in quat),
+            'capture_time': 0.0, 'pose_status': 3, 'cached': False,
+        })
+
+    canvas_w, canvas_h = 1000, 700
+    config = {
+        "canvas": (canvas_w, canvas_h),
+        "metres_per_pixel": s_tex,
+        "max_range": 200.0,
+        "feather_px": 40,
+        "aniso_max": 12.0,
+        "min_coverage": 0.2,
+        "pose_source": 0,
+        "psnr_gate": False,
+    }
+    plane = {"plane_normal": n_unity, "plane_d": 0.0,
+             "plane_valid": True, "plane_mode": 1, "gimbal_pitch": -90.0}
+
+    pano, ok, reason = stitcher.planar_pano(
+        views, (K[0, 0], K[1, 1], K[0, 2], K[1, 2]), plane, config)
+
+    if not check("planar_pano returned a panorama", ok and pano is not None,
+                 f"ok={ok} reason={reason}"):
+        return
+    check("panorama has the requested canvas shape",
+          pano.shape == (canvas_h, canvas_w, 3), f"{pano.shape}")
+
+    stats = stitcher._last_stats
+    check("all five views were kept", stats.get("views") == 5,
+          f"kept {stats.get('views')}, dropped {stats.get('dropped')}")
+    check("nadir views are isotropic", abs(stats.get("max_aniso", 9) - 1.0) < 1e-3,
+          f"max anisotropy {stats.get('max_aniso'):.4f}")
+    check("coverage is reported", stats.get("coverage", 0) > 0.3,
+          f"{stats.get('coverage', 0):.0%}")
+
+    # The decisive check: the panorama must reproduce the plane texture. Compare against
+    # the texture resampled through the *canvas* mapping, so only geometry is under test.
+    # ref_H maps canvas pixels -> texture pixels, which is the inverse of the direction
+    # cv2.warpPerspective applies by default, hence WARP_INVERSE_MAP.
+    covered = pano.any(axis=2)
+    M_canvas = pg.canvas_to_plane_matrix(
+        config["metres_per_pixel"], canvas_w * 0.5, canvas_h * 0.5)
+    ref_H = np.linalg.inv(M_tex) @ M_canvas
+    ref = cv2.warpPerspective(texture, ref_H, (canvas_w, canvas_h),
+                              flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+
+    er = cv2.erode(covered.astype(np.uint8), np.ones((15, 15), np.uint8)) > 0
+    if er.sum() < 5000:
+        check("enough interior pixels to compare", False, f"{er.sum()}")
+        return
+    blur_a = cv2.GaussianBlur(pano, (0, 0), 1.5).astype(np.float64)
+    blur_b = cv2.GaussianBlur(ref, (0, 0), 1.5).astype(np.float64)
+    rmse = float(np.sqrt(((blur_a[er] - blur_b[er]) ** 2).mean()))
+    check("panorama matches the plane texture", rmse < 6.0, f"RMSE {rmse:.3f} (0-255)")
+
+    # Sanity-check that the PSNR diagnostic is being computed and reported, not that it
+    # is high: on this checkerboard the metric is floored around 26-29 dB by resampling
+    # phase even at zero misregistration (see test 6), so a tight threshold here would
+    # be measuring interpolation rather than alignment. The RMSE check above is the
+    # precise geometric assertion; in production this number matters as a *relative*
+    # signal that degrades as pose error grows.
+    psnr = stats.get("overlap_psnr")
+    check("overlap PSNR is reported and sane",
+          psnr is not None and (not np.isfinite(psnr) or psnr > 25.0),
+          f"{psnr:.1f} dB (resampling-limited)" if psnr is not None and np.isfinite(psnr)
+          else str(psnr))
+
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "selftest_planar_pano.jpg")
+    cv2.imwrite(out, np.concatenate([ref, pano], axis=0))
+    print(f"       wrote {out}  (top = expected, bottom = PlanarStitcher output)")
+
+
 def main():
     print("=" * 74)
     print("planar_geometry self-test")
@@ -473,6 +604,7 @@ def main():
     test_canvas_orientation()
     test_rejection_cases()
     test_mosaic_roundtrip()
+    test_planar_stitcher_end_to_end()
 
     print("\n" + "=" * 74)
     if _failures:
