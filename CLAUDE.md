@@ -50,6 +50,15 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   `maxStitchViews` for `PLANAR`. It is sized from the *camera count*, never the per-frame selection —
   `CreateBlockMap` recreates the named section, and Python holds a single mapping of it. Slots the
   selection doesn't reach are marked `droneId == -1`.
+
+  **`PyUniSharingFast` publishes `blockImageCount` + `blockHeaderSize` even when it is not the
+  producer**, because Python sizes its mapping from them and only this component writes metadata.
+  In the DJI scene the section is created by `ImageSharing.cs` (`StitchSlots = 3`,
+  `MetadataSize = 12`), so `DesiredBlockCount()` returns `STITCH_COUNT_LRC` there **without** the
+  `camerasToCapture` clamp — that scene has no sim FPV cameras, and clamping advertises 0 blocks,
+  which makes Python map none of the section and the real-drone panorama silently never appear.
+  `create` and `describe` being split across two files that never reference each other is the
+  hazard; `tools/check_wire_layout.py` now asserts the two pairs agree.
 - `DroneFeedSharedMemory` — **all real-drone feeds** (DJIScene only), same per-block layout as above but
   a fixed capacity of **10 blocks** indexed by zero-based drone id (must match `MAX_DRONES` in the
   DJI_Swarm repo's `image_stream_feed.py`, which is the producer). Consumer: `ImageSharing.cs`, which

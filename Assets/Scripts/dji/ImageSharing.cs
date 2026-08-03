@@ -51,6 +51,15 @@ public class ImageSharing : MonoBehaviour
 
     // The stitcher input map: 3 slots ordered [left, centre, right], consumed by
     // StitcherThreading.py. Same contract PyUniSharingFast produces in the sim.
+    //
+    // This component CREATES the section, but PyUniSharingFast DESCRIBES it: Python sizes
+    // its mapping from metadata (blockImageCount x [blockHeaderSize + w*h*3]), and only
+    // PyUniSharingFast writes metadata. So StitchSlots must equal what its
+    // DesiredBlockCount() reports when enableImageWriting is off (STITCH_COUNT_LRC), and
+    // MetadataSize must equal its ActiveBlockHeaderSize() there (blockLegacyHeaderSize).
+    // Changing either number here without changing it there makes Python map a section of
+    // the wrong stride or the wrong length — it does not fail to compile, it just reads
+    // image bytes as headers.
     private const string stitchMapName = "BlockSharedMemory";
     private const int StitchSlots = 3;
     private IntPtr stitchFileMap = IntPtr.Zero;

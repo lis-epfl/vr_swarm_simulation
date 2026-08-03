@@ -573,6 +573,14 @@ public class PyUniSharingFast : MonoBehaviour
     // Frames where fewer cameras are selected mark the spare slots droneId = -1 instead.
     private int DesiredBlockCount()
     {
+        // Not the producer (DJI scene): ImageSharing.cs owns BlockSharedMemory and creates a
+        // fixed StitchSlots(=3)-slot section. The count still has to be published, because
+        // Python sizes its mapping from metadata and this component owns the metadata map
+        // either way. Deliberately NOT clamped by camerasToCapture here: that scene has no
+        // sim FPV cameras, so the clamp would advertise 0 blocks and Python would map none
+        // of the section ImageSharing is filling.
+        if (!enableImageWriting) return STITCH_COUNT_LRC;
+
         int wanted = (typeOfStitcher == stitcherType.PLANAR)
             ? Mathf.Clamp(maxStitchViews, 3, maxBlockImageCount)
             : STITCH_COUNT_LRC;
@@ -719,10 +727,15 @@ public class PyUniSharingFast : MonoBehaviour
         FindCameras();
         blockHeaderSize = ActiveBlockHeaderSize();
         blockImageDataOffset = blockHeaderSize;
+        // Published unconditionally, alongside blockHeaderSize: Python sizes its
+        // BlockSharedMemory mapping from these two, and in the DJI scene the section is
+        // created by ImageSharing.cs rather than here. Leaving the count at 0 there (as it
+        // was when this assignment sat inside the enableImageWriting branch) makes Python
+        // map nothing and the real-drone panorama never appears. CreateBlockMap stays gated
+        // on enableImageWriting, so this does not make us a second producer.
+        blockImageCount = DesiredBlockCount();
         if (enableImageWriting)
         {
-            blockImageCount = DesiredBlockCount();
-
             // Two producers writing one block map with different header sizes would
             // corrupt it. In the DJI scene this component must have image writing off.
             if (FindObjectOfType<ImageSharing>() != null)

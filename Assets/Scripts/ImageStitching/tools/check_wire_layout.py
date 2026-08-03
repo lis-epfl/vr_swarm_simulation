@@ -17,6 +17,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CS = os.path.join(ROOT, "PyUniSharingFast.cs")
 PY = os.path.join(ROOT, "StitcherThreading.py")
+# The real-drone producer, in the DJI scene. Sits outside ImageStitching/.
+SHARING_CS = os.path.join(os.path.dirname(ROOT), "dji", "ImageSharing.cs")
 
 # C# constant name -> Python constant name
 PAIRS = [
@@ -165,6 +167,35 @@ def main():
 
     dyn_end = cs.get("metaCentreDroneIdOffset", 0) + 4
     print(f"  dynamic block spans {cs.get('metaDynSeqOffset')}..{dyn_end}")
+
+    # Real-drone path: ImageSharing.cs CREATES BlockSharedMemory in the DJI scene, but
+    # PyUniSharingFast DESCRIBES it in metadata (Python sizes its mapping from that). The
+    # two files never reference each other, so a mismatch is silent on both sides.
+    print()
+    print("Real-drone path (ImageSharing.cs creates BlockSharedMemory, "
+          "PyUniSharingFast describes it)")
+    print("-" * 90)
+    if not os.path.exists(SHARING_CS):
+        print(f"  ImageSharing.cs not found at {SHARING_CS}; skipped")
+    else:
+        sh = parse_cs(SHARING_CS)
+        for label, sh_name, cs_name in [
+                ("stitch slots", "StitchSlots", "STITCH_COUNT_LRC"),
+                ("block header", "MetadataSize", "blockLegacyHeaderSize"),
+        ]:
+            a, b = sh.get(sh_name), cs.get(cs_name)
+            ok = a is not None and a == b
+            print(f"  {label:<14} ImageSharing.{sh_name} = {a}, "
+                  f"PyUniSharingFast.{cs_name} = {b}  {'OK' if ok else 'MISMATCH'}")
+            if not ok:
+                failures.append(f"ImageSharing.{sh_name} ({a}) != {cs_name} ({b})")
+
+        # image_stream_feed.py writes this map in the DJI_Swarm repo; its MAX_DRONES must
+        # equal MaxFeedBlocks. Reported rather than asserted -- that repo is not here.
+        print(f"  feed capacity  ImageSharing.MaxFeedBlocks = {sh.get('MaxFeedBlocks')} "
+              f"(must equal MAX_DRONES in DJI_Swarm/AOS server/image_stream_feed.py)")
+        print(f"  feed image     {sh.get('ImageWidth')}x{sh.get('ImageHeight')} "
+              f"(must equal that file's width/height)")
 
     print()
     if failures:

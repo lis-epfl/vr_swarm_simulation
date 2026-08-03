@@ -654,9 +654,19 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
     # Wait until Unity has published real (non-zero) sizes before sizing the block
     # mapping — a pre-Start read yields zeros, which would make the mmap fail. The
     # block header size has to be published too, since it sets the block stride.
-    while batchImageWidth <= 0 or batchImageHeight <= 0 or output["block_header_size"] <= 0:
-        if enable_debug_logging:
-            print("[first_thread] Waiting for Unity to publish image sizes...")
+    # imageCount is waited on too: it is the block-map slot count, and a producer that
+    # publishes 0 (a Unity build that only assigns it when it owns the section) otherwise
+    # sails past here and dies silently inside _ensure_block_map's num_blocks <= 0 guard.
+    waited = False
+    while (batchImageWidth <= 0 or batchImageHeight <= 0
+           or imageCount <= 0 or output["block_header_size"] <= 0):
+        if not waited:
+            # Unconditional, unlike the debug chatter below: without it a producer that
+            # never publishes one of these fields looks like a silent hang at startup.
+            waited = True
+            print(f"[first_thread] Waiting for Unity metadata: "
+                  f"size {batchImageWidth}x{batchImageHeight}, {imageCount} blocks, "
+                  f"header {output['block_header_size']} B")
         time.sleep(0.1)
         output = readMetadataMemory(metadataMMF)
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
