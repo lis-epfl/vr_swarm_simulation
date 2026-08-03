@@ -507,11 +507,12 @@ def test_planar_stitcher_end_to_end():
         Camera((0.0, altitude, 0.0), euler_to_quat(90, 0, 0), vfov, W, H).right_rh)
     M_tex = pg.canvas_to_plane_matrix(s_tex, tw / 2.0, th / 2.0)
 
-    # Five nadir views on a cross pattern, overlapping heavily. Ordered so the MIDDLE
-    # of the list sits over the plane origin: _build_geometry centres the canvas on the
-    # middle view of the published selection, so this is what makes the stitcher's
-    # canvas frame coincide with the texture frame the reference below is built in.
-    offsets = [(-4.0, 0.0), (0.0, 4.0), (0.0, 0.0), (0.0, -4.0), (4.0, 0.0)]
+    # Five nadir views on a cross pattern, overlapping heavily. Drone 0 sits over the
+    # plane origin and is nominated as the centre below, while the *median* of the
+    # id-sorted list is drone 2 at (0, 4) -- deliberately a different drone. The canvas
+    # is framed on the reference view, so the RMSE check further down passes only if
+    # _build_geometry honours the published centre rather than taking the median.
+    offsets = [(0.0, 0.0), (-4.0, 0.0), (0.0, 4.0), (0.0, -4.0), (4.0, 0.0)]
     views = []
     for i, (dx, dz) in enumerate(offsets):
         pos = (dx, altitude, dz)
@@ -538,7 +539,8 @@ def test_planar_stitcher_end_to_end():
         "psnr_gate": False,
     }
     plane = {"plane_normal": n_unity, "plane_d": 0.0,
-             "plane_valid": True, "plane_mode": 1, "gimbal_pitch": -90.0}
+             "plane_valid": True, "plane_mode": 1, "gimbal_pitch": -90.0,
+             "centre_drone_id": 0}
 
     pano, ok, reason = stitcher.planar_pano(
         views, (K[0, 0], K[1, 1], K[0, 2], K[1, 2]), plane, config)
@@ -592,6 +594,26 @@ def test_planar_stitcher_end_to_end():
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "selftest_planar_pano.jpg")
     cv2.imwrite(out, np.concatenate([ref, pano], axis=0))
     print(f"       wrote {out}  (top = expected, bottom = PlanarStitcher output)")
+
+    # Prove the check above has teeth. Unity nominates the centre drone because the canvas
+    # origin and axes are built from it; re-deriving it here (the old median-of-selection
+    # rule) frames the mosaic on whichever drone happens to sit at the median id, and the
+    # mosaic translates when the selection changes. Drone 0 is at the plane origin and
+    # drone 2 is 4 m away, so dropping the published centre must visibly move the canvas.
+    # If this came out equal, the RMSE assertion would be passing for the wrong reason.
+    plane_no_centre = dict(plane)
+    plane_no_centre["centre_drone_id"] = -1
+    stitcher._plane_invalid_since = None
+    pano_median, ok_median, _ = stitcher.planar_pano(
+        views, (K[0, 0], K[1, 1], K[0, 2], K[1, 2]), plane_no_centre, config)
+    if ok_median and pano_median is not None:
+        shift_rmse = float(np.sqrt(((pano_median.astype(np.float64)
+                                     - pano.astype(np.float64)) ** 2).mean()))
+        check("published centre drone actually frames the canvas", shift_rmse > 20.0,
+              f"median-fallback canvas differs by RMSE {shift_rmse:.1f}")
+    else:
+        check("median-fallback canvas rendered for comparison", False,
+              f"ok={ok_median}")
 
 
 def main():

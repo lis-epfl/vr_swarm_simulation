@@ -34,6 +34,7 @@ PAIRS = [
     ("metaPlaneNxOffset",             "META_PLANE_N_OFFSET"),
     ("metaPlaneValidOffset",          "META_PLANE_VALID_OFFSET"),
     ("metaGimbalPitchOffset",         "META_GIMBAL_PITCH_OFFSET"),
+    ("metaCentreDroneIdOffset",       "META_CENTRE_DRONE_OFFSET"),
     ("blockLegacyHeaderSize",         "BLOCK_HEADER_SIZE_V1"),
     ("blockPoseHeaderSize",           "BLOCK_HEADER_SIZE_V2"),
     ("blockCamPosOffset",             "BLOCK_CAM_POS_OFFSET"),
@@ -127,6 +128,7 @@ def main():
         ("planeValid", "metaPlaneValidOffset", 1),
         ("planeMode", "metaPlaneModeOffset", 1),
         ("gimbalPitch", "metaGimbalPitchOffset", 4),
+        ("centreDroneId", "metaCentreDroneIdOffset", 4),
     ]
     cursor = 253
     for label, const, size in fields:
@@ -146,13 +148,22 @@ def main():
         if cs.get("metadataTailEnd", 0) < cursor:
             failures.append(f"metadataTailEnd {cs.get('metadataTailEnd')} < actual end {cursor}")
 
-    expected_size = cs.get("metadataTailEnd", 0) + 64 + 8
-    print(f"  metadataTailEnd + 64 reserved + 8 = {expected_size} "
+    # The reserved gap shrinks as the tail grows so metadataSize stays fixed; read it from
+    # C# rather than hardcoding, or this check silently drifts the next time a field lands.
+    gap = cs.get("metadataReservedGap")
+    if gap is None:
+        failures.append("missing C# constant metadataReservedGap")
+        gap = 0
+    expected_size = cs.get("metadataTailEnd", 0) + gap + 8
+    print(f"  metadataTailEnd + {gap} reserved + 8 = {expected_size} "
           f"(C# metadataSize = {cs.get('metadataSize')})")
     if expected_size != cs.get("metadataSize"):
         failures.append(f"metadataSize {cs.get('metadataSize')} != {expected_size}")
+    if gap < 0:
+        failures.append(f"metadataReservedGap is negative ({gap}): the tail has outgrown "
+                        "metadataSize, which must be raised on both sides together")
 
-    dyn_end = cs.get("metaGimbalPitchOffset", 0) + 4
+    dyn_end = cs.get("metaCentreDroneIdOffset", 0) + 4
     print(f"  dynamic block spans {cs.get('metaDynSeqOffset')}..{dyn_end}")
 
     print()

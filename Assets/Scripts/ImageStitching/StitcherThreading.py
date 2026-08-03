@@ -82,6 +82,10 @@ META_PLANE_N_OFFSET = 316            # float32 nx, ny, nz, d
 META_PLANE_VALID_OFFSET = 332        # uint8, then uint8 mode
 # 334-335 padding
 META_GIMBAL_PITCH_OFFSET = 336       # float32
+META_CENTRE_DRONE_OFFSET = 340       # int32, -1 = none. Inside the seqlock on purpose:
+                                     # the canvas is framed on this drone, so pairing it
+                                     # with another frame's plane tears the same way a
+                                     # torn normal does.
 
 # Per-drone block header. v1 is flag|droneId|heading; v2 appends the camera pose that
 # was snapshotted with the image. Unity advertises which one it is writing in
@@ -1326,7 +1330,7 @@ def read_dynamic_state(metadataMMF):
         nx, ny, nz, d = struct.unpack('<ffff', metadataMMF.read(16))
         valid, mode = struct.unpack('<BB', metadataMMF.read(2))
         metadataMMF.seek(META_GIMBAL_PITCH_OFFSET)
-        gimbal_pitch = struct.unpack('<f', metadataMMF.read(4))[0]
+        gimbal_pitch, centre_drone_id = struct.unpack('<fi', metadataMMF.read(8))
 
         metadataMMF.seek(META_DYN_SEQ_OFFSET)
         if struct.unpack('<i', metadataMMF.read(4))[0] == seq0:
@@ -1336,6 +1340,7 @@ def read_dynamic_state(metadataMMF):
                 "plane_valid": bool(valid),
                 "plane_mode": mode,
                 "gimbal_pitch": gimbal_pitch,
+                "centre_drone_id": centre_drone_id,
             }
     return None
 

@@ -30,6 +30,9 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   (yaw also rewritten every frame at a fixed offset). This is the integrated *body heading*
   (`PyUniSharingFast.bodyYaw`): seeded from the HMD's initial yaw, then advanced only by the controller
   yaw-rate command — **not** live HMD direction, so head-look doesn't move the panorama.
+  It also carries a seqlocked **dynamic block** (scene plane, gimbal pitch, planar centre drone id) —
+  see the PLANAR section. Its total size is pinned at 412 bytes: new tail fields come out of
+  `metadataReservedGap`, because changing the size would strand an already-running Python.
 - `BlockSharedMemory` — the **stitcher input**, one block per selected drone. `flag` is the handshake
   (0 = ready, 1 = busy). Images are **BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole
   producer: sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep
@@ -71,6 +74,14 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   the *rim of the wall*, so boundary drones are exactly the wrong subset (every drone in the wall sees
   the facade), and in nadir the interior drones tile the middle of the mosaic. The boundary rule exists
   because the radially-outward config nests interior views inside other views.
+- **The planar centre drone is also C#-only**, and picked by a different rule from every other stitcher:
+  `SelectPlanarCentreCamera` takes the alive drone nearest the swarm centroid *measured in the swarming
+  plane* (`SwarmPlaneController.GetPlaneAxes`), with metre-valued hysteresis. It is **not**
+  `SelectStitchCameras`'s "camera yaw closest to body yaw" rule, which is only meaningful for the
+  radially-outward ring: in vertical-plane mode `AttitudeAlgorithm` drives every drone to the anchor's
+  heading, so yaw proximity is a tie broken by jitter and the centre changes almost every frame. That
+  matters because the scene-plane raycast originates at this camera and `PlanarStitcher` frames the
+  canvas on it — a flickering centre both steps the published plane offset and slides the mosaic.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - Image format across the bridge is **BGR + top-down** for stitch inputs; the returned panorama is
@@ -116,6 +127,12 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   anything). `scenePlaneMask` must exclude the feed screens and the curved panorama screen — those float
   in world space near the pilot, and hitting one puts the "scene plane" a few metres away, which then
   looks exactly like a geometry bug.
+- **The canvas is framed on the centre drone Unity nominates**, whose id rides in the *same seqlock* as
+  the plane (`centre_drone_id`; `-1` falls back to the median of the selection, for a pre-field v2
+  producer). Same reasoning as the plane normal: the canvas origin and axes are built from that view, so
+  a centre paired with another frame's plane tears exactly like a torn normal. `_build_geometry` must
+  never re-derive it — the median of the id-sorted selection is the median *drone id*, not the geometric
+  centre, and it jumps whenever the selection gains or loses a drone.
 - **Blending is an analytic distance-to-border feather** in *source* pixels, normalised per pixel across
   all contributing views. A homography's alpha mask has a closed form, so unlike `StabStitcher` this
   needs no blur or erosion, and it generalises to any N for free.

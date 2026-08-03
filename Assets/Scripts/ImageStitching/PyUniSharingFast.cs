@@ -125,7 +125,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     private string metadataMapName = "MetadataSharedMemory";
     // Total bytes WriteMetadata actually writes, including the trailing reserved gap.
-    // Must equal metadataTailEnd + 64 + 8 and must match StitcherThreading.py's
+    // Must equal metadataTailEnd + metadataReservedGap + 8 and must match StitcherThreading.py's
     // METADATA_SIZE, or the two processes request different section sizes.
     // (This used to read 261 while the code wrote through 325; it only survived
     // because Windows rounds a section up to a 4 KB page.)
@@ -364,7 +364,17 @@ public class PyUniSharingFast : MonoBehaviour
     private const int metaPlaneModeOffset = 333;          // uint8
     // 334-335 padding
     private const int metaGimbalPitchOffset = 336;
-    private const int metadataTailEnd = 340;
+    // Which drone the planar canvas is framed on. Dynamic, not static: it changes when
+    // the centre drone dies or the formation reshapes, and it must be read in the same
+    // seqlock as the plane -- a canvas origin paired with the wrong frame's plane is the
+    // same class of bug as a torn normal.
+    private const int metaCentreDroneIdOffset = 340;      // int32, -1 = none
+    private const int metadataTailEnd = 344;
+
+    // Trailing gap between the tail and the two size fields metadataSize ends with. It
+    // shrinks as the tail grows so metadataSize -- and hence the mapped section size --
+    // stays fixed at 412; a changed map size would strand any already-running Python.
+    private const int metadataReservedGap = 60;
 
     // A left/centre/right panorama is always exactly 3 views; a planar mosaic can take
     // as many overlapping views as the formation offers.
@@ -446,6 +456,13 @@ public class PyUniSharingFast : MonoBehaviour
     private float maxObliquityDeg = 70f;
 
     [SerializeField]
+    [Tooltip("Centre-drone hysteresis in metres. The incumbent centre drone is kept until " +
+             "another is closer to the formation centroid by more than this. The scene-plane " +
+             "raycast is cast from the centre drone, so a swap steps the published plane " +
+             "offset and visibly shifts the mosaic — worth resisting near a tie.")]
+    private float planarCentreHysteresis = 1.5f;
+
+    [SerializeField]
     [Tooltip("Blend feather width, in SOURCE pixels — so the seam width in canvas pixels " +
              "scales with each view's local magnification.")]
     private int planarFeatherPx = 40;
@@ -465,8 +482,9 @@ public class PyUniSharingFast : MonoBehaviour
              "once pose noise is injected, which defeats the point of injecting it.")]
     private bool planarPsnrGateEnabled = false;
 
-    // Index into camerasToCapture of the centre stitch camera, set by
-    // SelectStitchCameras. The scene-plane raycast and the intrinsics are taken from it.
+    // Index into camerasToCapture of the centre stitch camera, set once per frame by
+    // SelectStitchCameras or, in PLANAR mode, SelectPlanarCentreCamera. The scene-plane
+    // raycast and the intrinsics are taken from it.
     private int centreStitchCameraIndex = -1;
 
     // Live scene-plane state, published every frame by WriteDynamicState.
@@ -811,10 +829,25 @@ public class PyUniSharingFast : MonoBehaviour
         UpdateBodyYaw();
         WriteBodyYaw(bodyYaw);
 
-        // Select the centre drone (camera yaw closest to the body yaw) plus the
-        // two yaw-neighbours. centreYaw drives the curved-screen orientation so
-        // the screen snaps to the new view only when the selection changes.
-        float centreYaw = SelectStitchCameras(bodyYaw, out selectedStitchIndices);
+        // Resolve the centre drone. Both branches publish CentreStitchDrone (which
+        // SwarmPlaneController anchors on) and centreStitchCameraIndex (which the scene-plane
+        // raycast and the intrinsics are taken from), and both return the centre camera's yaw,
+        // which drives the curved-screen orientation so the screen snaps to the new view only
+        // when the selection changes.
+        //
+        // The rule differs because the two configurations disagree on what "centre" means: a
+        // left/centre/right panorama is centred on what the pilot is looking at, whereas a
+        // planar mosaic is centred on the formation, and under the shared heading of
+        // vertical-plane mode the yaw rule has no unique answer at all.
+        float centreYaw;
+        if (typeOfStitcher == stitcherType.PLANAR)
+        {
+            centreYaw = SelectPlanarCentreCamera();
+        }
+        else
+        {
+            centreYaw = SelectStitchCameras(bodyYaw, out selectedStitchIndices);
+        }
 
         // Advance the pose-error model once per frame, before any pose is snapshotted.
         StepPoseNoise();
@@ -824,10 +857,8 @@ public class PyUniSharingFast : MonoBehaviour
         UpdateScenePlane(centreStitchCameraIndex);
         WriteDynamicState();
 
-        // Planar overrides the left/centre/right triple with its own selection rule.
-        // SelectStitchCameras still runs first and unconditionally above: it is the sole
-        // publisher of CentreStitchDrone, which SwarmPlaneController anchors on and the
-        // scene-plane raycast needs.
+        // Planar picks its contributing views separately from its centre, and must do it after
+        // UpdateScenePlane: the selection tests each camera against the current scene plane.
         if (typeOfStitcher == stitcherType.PLANAR)
         {
             SelectPlanarStitchCameras(out selectedStitchIndices);
@@ -1570,6 +1601,96 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     /// <summary>
+    /// Picks the centre camera for a planar mosaic: the alive drone nearest the swarm's
+    /// centroid, measured <i>in the plane the swarm is currently constrained to</i>.
+    ///
+    /// Deliberately not <see cref="SelectStitchCameras"/>'s "camera yaw closest to the body
+    /// yaw" rule. In vertical-plane mode <c>AttitudeAlgorithm.ApplyPlaneModeAttitude</c> drives
+    /// every drone to the anchor's heading, so yaw proximity becomes a near-tie broken by
+    /// residual jitter and the centre drone changes almost every frame. That is not cosmetic:
+    /// the scene-plane raycast is cast from this camera, so each swap steps the published plane
+    /// offset, and <c>PlanarStitcher</c> builds the canvas frame and origin from the centre of
+    /// the selection — the whole mosaic shifts. Geometric centrality has a unique answer under a
+    /// shared heading; yaw proximity does not.
+    ///
+    /// Returns the centre camera's yaw, for the curved-screen orientation.
+    /// </summary>
+    private float SelectPlanarCentreCamera()
+    {
+        if (camerasToCapture == null || camerasToCapture.Count == 0)
+        {
+            CentreStitchDrone = null;
+            centreStitchCameraIndex = -1;
+            return bodyYaw;
+        }
+
+        // In-plane basis of the swarming plane: the vertical wall while plane mode is on, the
+        // horizontal plane otherwise. GetPlaneAxes already returns (X, Z) for a horizontal
+        // plane, so both configurations share one code path.
+        Vector3 planeRight, planeUp;
+        SwarmPlaneController swarmPlane = SwarmPlaneController.Instance;
+        if (swarmPlane != null)
+        {
+            swarmPlane.GetPlaneAxes(out planeRight, out planeUp);
+        }
+        else
+        {
+            planeRight = Vector3.right;
+            planeUp = Vector3.forward;
+        }
+
+        Vector3 centroid = Vector3.zero;
+        int alive = 0;
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (!IsAlive(i) || camerasToCapture[i] == null) continue;
+            centroid += camerasToCapture[i].transform.position;
+            alive++;
+        }
+        if (alive == 0)
+        {
+            CentreStitchDrone = null;
+            centreStitchCameraIndex = -1;
+            return bodyYaw;
+        }
+        centroid /= alive;
+
+        // Distance is measured in-plane, not in 3D: in vertical-plane mode the swarm's spread
+        // along the plane normal is formation error the restoring term is actively removing,
+        // and letting it vote would hand the centre to whichever drone happens to be lagging
+        // out of the wall.
+        int best = -1;
+        float bestDist = float.MaxValue;
+        float incumbentDist = float.MaxValue;
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (!IsAlive(i) || camerasToCapture[i] == null) continue;
+
+            Vector3 rel = camerasToCapture[i].transform.position - centroid;
+            float dist = new Vector2(Vector3.Dot(rel, planeRight),
+                                     Vector3.Dot(rel, planeUp)).magnitude;
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                best = i;
+            }
+            if (i == centreStitchCameraIndex) incumbentDist = dist;
+        }
+
+        // Hysteresis: two drones straddling the centroid are otherwise still free to swap on
+        // noise alone, which reintroduces exactly the flicker this method exists to remove.
+        // Metres, not squared metres, so the inspector value means what it says.
+        if (incumbentDist < float.MaxValue && incumbentDist <= bestDist + planarCentreHysteresis)
+        {
+            best = centreStitchCameraIndex;
+        }
+
+        centreStitchCameraIndex = best;
+        CentreStitchDrone = camerasToCapture[best].transform.parent;
+        return camerasToCapture[best].transform.eulerAngles.y;
+    }
+
+    /// <summary>
     /// Picks the cameras that contribute to a planar mosaic: every alive drone actually
     /// looking at the scene plane, closest-first, capped at the block count.
     ///
@@ -2004,6 +2125,9 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteByte(metadataPtr, metaPlaneValidOffset, (byte)(scenePlaneValid ? 1 : 0));
         Marshal.WriteByte(metadataPtr, metaPlaneModeOffset, (byte)resolvedPlaneMode);
         WriteFloat(metadataPtr, metaGimbalPitchOffset, FPVCameraScript.SharedPitch);
+        // droneId in the block header is the camerasToCapture index, so the centre camera
+        // index is already in Python's id space -- no mapping table to keep in sync.
+        Marshal.WriteInt32(metadataPtr, metaCentreDroneIdOffset, centreStitchCameraIndex);
 
         System.Threading.Thread.MemoryBarrier();
         Marshal.WriteInt32(metadataPtr, metaDynSeqOffset, (seq | 1) + 1); // stable again
@@ -2486,7 +2610,7 @@ public class PyUniSharingFast : MonoBehaviour
         WriteDynamicState();
 
         if(hasStarted) return;
-        offset = metadataTailEnd + 64;
+        offset = metadataTailEnd + metadataReservedGap;
 
         Marshal.WriteInt32(metadataPtr, offset, maxTotalBlockSize);
         offset += 4;

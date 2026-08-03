@@ -194,10 +194,20 @@ class PlanarStitcher(BaseStitcher):
         n = n / np.linalg.norm(n)
         d = float(plane["plane_d"])
 
-        # Reference view = the middle of the published selection. Unity orders slots by
-        # camera index, so this is a stable choice frame to frame, which matters because
-        # the canvas frame is built from it.
-        ref = posed[len(posed) // 2]
+        # Reference view = the drone Unity nominated as the centre of the swarming plane
+        # (SelectPlanarCentreCamera).  The canvas origin and axes are built from it, so a
+        # reference that changes identity translates and rotates the whole mosaic -- which
+        # is why it is Unity's decision rather than one re-derived here.  Taking the median
+        # of the id-sorted selection instead, as this used to, picks the median *drone id*:
+        # not the geometric centre, and it jumps whenever the selection gains or loses a
+        # drone.  Falling back to that only when Unity publishes no centre (-1, or a centre
+        # whose view was dropped) keeps a v2 producer that predates the field working.
+        ref = None
+        centre_id = plane.get("centre_drone_id", -1)
+        if centre_id >= 0:
+            ref = next((v for v in posed if v.get("drone_id") == centre_id), None)
+        if ref is None:
+            ref = posed[len(posed) // 2]
         R_ref, C_ref = pg.unity_pose_to_cv(ref["pos"], ref["quat"])
 
         # Canvas origin: where the reference camera's principal ray meets the plane.
