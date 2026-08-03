@@ -615,6 +615,173 @@ def test_planar_stitcher_end_to_end():
         check("median-fallback canvas rendered for comparison", False,
               f"ok={ok_median}")
 
+    test_blend_modes(stitcher, views, K, plane, config)
+    test_unwritten_blocks(stitcher, views, K, plane, config, pano)
+
+
+def test_unwritten_blocks(stitcher, views, K, plane, config, good_pano):
+    """
+    A block slot Unity has never written must cost its own view, not the frame.
+
+    Such a slot reads back zero-filled: flag 0 ("ready"), droneId 0 -- a *legal* id, not
+    the -1 sentinel a retired slot carries -- and an all-zero quaternion.  That used to
+    reach quat_to_matrix and raise ValueError("degenerate quaternion") out of
+    planar_pano, so one unwritten slot killed the whole panorama and the traceback
+    pointed at the geometry rather than at the wire.  The zeroed slot is placed *first*
+    and given the same drone id as the published centre, which is the worst case: it is
+    what both the centre lookup and the median fallback would otherwise land on.
+    """
+    print("\n9. Unwritten / degenerate block slots")
+    import PlanarStitcher as ps_mod
+    intr = (K[0, 0], K[1, 1], K[0, 2], K[1, 2])
+    zero_slot = {
+        'slot': 9, 'drone_id': plane["centre_drone_id"], 'heading': 0.0,
+        'image': np.zeros_like(views[0]['image']),
+        'pos': (0.0, 0.0, 0.0), 'quat': (0.0, 0.0, 0.0, 0.0),
+        'capture_time': 0.0, 'pose_status': 0, 'cached': False,
+    }
+
+    stitcher._plane_invalid_since = None
+    pano, ok, reason = stitcher.planar_pano([zero_slot] + list(views), intr, plane, config)
+    if not check("a zeroed block does not abort the frame", ok and pano is not None,
+                 f"ok={ok} reason={reason}"):
+        return
+    check("the zeroed block is counted as unposed",
+          stitcher._last_stats.get("unposed") == 1,
+          f"unposed={stitcher._last_stats.get('unposed')}, "
+          f"views={stitcher._last_stats.get('views')}")
+    check("the surviving views mosaic identically",
+          np.array_equal(pano, good_pano),
+          "byte-identical" if np.array_equal(pano, good_pano)
+          else f"max diff {int(np.abs(pano.astype(int) - good_pano.astype(int)).max())}")
+
+    # All slots unwritten (Python mapped the section before Unity filled any of it): a
+    # clean quality reason, still no exception. PLANE_INVALID is the bit Unity prints as
+    # "no usable scene plane / pose".
+    stitcher._plane_invalid_since = None
+    pano_none, ok_none, reason_none = stitcher.planar_pano(
+        [dict(zero_slot, slot=i, drone_id=i) for i in range(3)], intr, plane, config)
+    check("all-unwritten reports a pose failure, not a crash",
+          (not ok_none) and pano_none is None
+          and reason_none == ps_mod.REASON_PLANE_INVALID,
+          f"ok={ok_none} reason={reason_none}")
+
+
+def test_blend_modes(stitcher, views, K, plane, config):
+    """
+    BLEND_NEAREST must not average overlapping views, BLEND_FEATHER must.
+
+    Measured on deliberately *wrong* poses, because that is the only regime where the
+    two modes differ: with exact poses every view agrees pixel for pixel and averaging
+    them is harmless.  Alternate drones are displaced 0.3 m in the plane -- about 6
+    canvas pixels here -- which is GNSS-scale error.  Feathering then superimposes two
+    offset copies of the texture, and the giveaway is lost high-frequency energy: a
+    ghosted checkerboard is a blurred checkerboard.  Winner-take-all cannot blur,
+    because no pixel ever has two contributors.
+    """
+    print("\n8. PlanarStitcher blend modes (ghosting under pose error)")
+    import PlanarStitcher as ps_mod
+    intr = (K[0, 0], K[1, 1], K[0, 2], K[1, 2])
+
+    noisy = []
+    for i, v in enumerate(views):
+        w = dict(v)
+        w["pos"] = (v["pos"][0] + (0.3 if i % 2 else -0.3), v["pos"][1], v["pos"][2])
+        noisy.append(w)
+
+    panos = {}
+    for name, mode in (("feather", ps_mod.BLEND_FEATHER),
+                       ("nearest", ps_mod.BLEND_NEAREST)):
+        cfg = dict(config)
+        cfg["blend_mode"] = mode
+        stitcher._plane_invalid_since = None
+        pano, ok, reason = stitcher.planar_pano(noisy, intr, plane, cfg)
+        if not check(f"{name} mode rendered", ok and pano is not None,
+                     f"ok={ok} reason={reason}"):
+            return
+        panos[name] = pano
+
+    cov = {k: (p.any(axis=2)) for k, p in panos.items()}
+    check("winner-take-all loses no coverage",
+          abs(cov["nearest"].sum() - cov["feather"].sum())
+          <= 0.02 * max(1, cov["feather"].sum()),
+          f"nearest {cov['nearest'].sum()} px vs feather {cov['feather'].sum()} px")
+
+    interior = cv2.erode((cov["nearest"] & cov["feather"]).astype(np.uint8),
+                         np.ones((21, 21), np.uint8)) > 0
+    if interior.sum() < 5000:
+        check("enough interior pixels to compare", False, f"{interior.sum()}")
+        return
+
+    # Squared gradient energy, not |gradient|: blurring an edge across w pixels leaves
+    # the sum of |gradient| unchanged (it is the step height either way) and divides the
+    # sum of gradient^2 by w. Only the squared form can tell a sharp seam from a smear.
+    energy = {}
+    for name, p in panos.items():
+        g = cv2.cvtColor(p, cv2.COLOR_BGR2GRAY).astype(np.float64)
+        gx = cv2.Sobel(g, cv2.CV_64F, 1, 0, ksize=3)
+        gy = cv2.Sobel(g, cv2.CV_64F, 0, 1, ksize=3)
+        energy[name] = float((gx * gx + gy * gy)[interior].mean())
+
+    check("feathering visibly ghosts under pose error",
+          energy["nearest"] > 1.25 * energy["feather"],
+          f"edge energy: nearest {energy['nearest']:.0f} vs "
+          f"feather {energy['feather']:.0f} "
+          f"(ratio {energy['nearest'] / max(energy['feather'], 1e-9):.2f}x)")
+
+    # The overlap PSNR diagnostic is derived from geometric coverage, not from the blend
+    # weights -- under winner-take-all the weights are one-hot, so a weight-based test
+    # would report "no overlap anywhere" and quietly retire the metric that quantifies
+    # pose error, exactly when pose error is what is being looked at.
+    psnr = stitcher._last_stats.get("overlap_psnr")
+    check("overlap PSNR survives winner-take-all",
+          psnr is not None and np.isfinite(psnr),
+          f"{psnr}")
+
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "selftest_planar_blend.jpg")
+    cv2.imwrite(out, np.concatenate([panos["feather"], panos["nearest"]], axis=0))
+    print(f"       wrote {out}  (top = feather/ghosted, bottom = nearest)")
+
+    # Debug overlay. FLAT under NEAREST is the strongest assertion available here: the
+    # panorama must consist of exactly the palette colours of the drones in the
+    # selection and nothing else. Anything blended, mis-indexed or off-by-one in the
+    # BGR/RGB conversion shows up as a colour that is not in the palette.
+    cfg = dict(config)
+    cfg["blend_mode"] = ps_mod.BLEND_NEAREST
+    cfg["debug_view"] = ps_mod.DEBUG_FLAT
+    stitcher._plane_invalid_since = None
+    flat, ok, reason = stitcher.planar_pano(noisy, intr, plane, cfg)
+    if not check("debug FLAT rendered", ok and flat is not None,
+                 f"ok={ok} reason={reason}"):
+        return
+
+    expected = {ps_mod.debug_colour(v["drone_id"])[1] for v in noisy}
+    seen = {tuple(int(c) for c in px)
+            for px in np.unique(flat[cov["nearest"]].reshape(-1, 3), axis=0)}
+    check("flat overlay uses only the drones' palette colours",
+          seen <= expected, f"unexpected {sorted(seen - expected)[:4]}")
+    check("every selected drone owns some of the canvas",
+          len(seen) == len(expected), f"{len(seen)} of {len(expected)} drones visible")
+
+    cfg["debug_view"] = ps_mod.DEBUG_TINT
+    stitcher._plane_invalid_since = None
+    tint, ok, reason = stitcher.planar_pano(noisy, intr, plane, cfg)
+    if not check("debug TINT rendered", ok and tint is not None,
+                 f"ok={ok} reason={reason}"):
+        return
+    # The point of TINT over FLAT is that the imagery survives the wash, so assert the
+    # contrast does: a tint strength high enough to flatten the scene is a tint nobody
+    # can navigate by.
+    contrast = float(cv2.cvtColor(tint, cv2.COLOR_BGR2GRAY)[interior].std())
+    check("debug TINT keeps the imagery legible", contrast > 40.0,
+          f"interior contrast {contrast:.1f} (flat would be ~0)")
+
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "selftest_planar_debug.jpg")
+    cv2.imwrite(out, np.concatenate([flat, tint], axis=0))
+    print(f"       wrote {out}  (top = flat, bottom = tint)")
+
 
 def main():
     print("=" * 74)

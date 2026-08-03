@@ -49,7 +49,12 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   Slot count is `blockImageCount` (metadata): 3 for the left/centre/right stitchers, up to
   `maxStitchViews` for `PLANAR`. It is sized from the *camera count*, never the per-frame selection —
   `CreateBlockMap` recreates the named section, and Python holds a single mapping of it. Slots the
-  selection doesn't reach are marked `droneId == -1`.
+  selection doesn't reach are marked `droneId == -1` — **including at creation**, because a fresh
+  section is zero-filled and `0` is a legal drone id: until its first readback lands, a never-written
+  slot otherwise advertises itself as a ready block from drone 0 carrying an all-zero pose.
+  The readback pool is sized to two full batches (`EnsureReadbackPool`) for the same reason: with a
+  pool smaller than `blockImageCount`, `AcquirePendingSlot` starves the *same* tail slots every send,
+  so they are never written at all rather than merely late.
 
   **`PyUniSharingFast` publishes `blockImageCount` + `blockHeaderSize` even when it is not the
   producer**, because Python sizes its mapping from them and only this component writes metadata.
@@ -137,6 +142,12 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   `tools/planar_selftest.py` cross-checks it against an independent implementation derived from Unity's
   documented `worldToCameraMatrix`, which never calls into `planar_geometry`, so a shared sign error
   cannot cancel out.
+- **Every block's pose is validated before use** (`PlanarStitcher.pose_is_usable`: `POSE_VALID` set,
+  finite, non-degenerate quaternion) and a failing view is *dropped*, not raised on. This is a
+  shared-memory handshake with no schema enforcement, so a stale or unwritten block must cost its own
+  view rather than the frame — an uncaught `degenerate quaternion` out of `quat_to_matrix` kills the
+  panorama and points the traceback at the geometry instead of at the producer. Dropped views are
+  counted as `unposed` on the periodic `[PLANAR]` line.
 - **The scene plane is a raycast** from the centre stitch drone (`UpdateScenePlane`), low-passed, sent
   as unit normal + offset under a **seqlock** (a torn normal is neither unit length nor perpendicular to
   anything). `scenePlaneMask` must exclude the feed screens and the curved panorama screen — those float
@@ -148,9 +159,28 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   a centre paired with another frame's plane tears exactly like a torn normal. `_build_geometry` must
   never re-derive it — the median of the id-sorted selection is the median *drone id*, not the geometric
   centre, and it jumps whenever the selection gains or loses a drone.
-- **Blending is an analytic distance-to-border feather** in *source* pixels, normalised per pixel across
-  all contributing views. A homography's alpha mask has a closed form, so unlike `StabStitcher` this
-  needs no blur or erosion, and it generalises to any N for free.
+- **The default blend is winner-take-all, not a cross-fade** (`planarBlendMode`, default `Nearest`).
+  Each canvas pixel goes to the single view seeing that plane point closest to the plane normal —
+  `cos = h_v / √((a−a_v)² + (b−b_v)² + h_v²)` from the camera's in-plane footprint `(a_v, b_v)` and
+  standoff `h_v`, which is a Voronoi partition of the plane by camera footprint. Cross-fading (`Feather`)
+  is only clean while the geometry is *exact*: any residual error (pose noise, a facade that isn't quite
+  planar) then superimposes two offset copies, and in a wall formation the views overlap over most of the
+  canvas, so the ghosting is everywhere rather than confined to a seam. Winner-take-all cannot ghost —
+  no pixel ever has two contributors — at the cost of a visible seam where the winner changes.
+- **Blending weights are an analytic distance-to-border feather** in *source* pixels, normalised per
+  pixel across all contributing views. A homography's alpha mask has a closed form, so unlike
+  `StabStitcher` this needs no blur or erosion, and it generalises to any N for free. Under `Nearest`
+  that falloff *multiplies* the obliquity score instead of blending, which keeps the seam off the
+  source-image edges: a view running out of frame loses to a neighbour before it runs out of pixels.
+- **`planarDebugView` colours each patch by its source drone** (`Tint` washes colour over the imagery,
+  `Flat` replaces it) — the quickest read on where the seams fall. The palette is keyed on **drone id**,
+  not on position in the selection, so a colour means the same thing frame to frame; the key is printed
+  on Python's periodic `[PLANAR]` line, because the selection changes as drones join or drop out. The
+  overlay is applied to the warped stack, so it works in both blend modes, and it is applied *after*
+  the PSNR measurement so the logged number still describes the real mosaic.
+- **Overlap PSNR is measured over geometric coverage, not blend weight.** Under `Nearest` the weights
+  are one-hot, so a weight-based overlap test finds no overlap anywhere and silently retires the one
+  diagnostic that quantifies pose error.
 - **The projective-sanity gate is local Jacobian anisotropy** (`homography_anisotropy`), not the SVD
   condition number of the raw 3×3 — the latter is dominated by the metres-per-pixel unit scaling and
   reads ~35 000 for a perfectly benign nadir view, where the Jacobian reads 1.000. Mesh-distortion

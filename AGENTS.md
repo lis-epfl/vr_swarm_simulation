@@ -27,7 +27,7 @@ yaw is separate via AttitudeAlgorithm.
 
 - [StitcherThreading.py](Assets/Scripts/ImageStitching/StitcherThreading.py) — orchestrator + 3 threads (block read, fast render, slow warp); `StitcherManager` holds the backends.
 - [StabStitcher.py](Assets/Scripts/ImageStitching/StabStitcher.py) — StabStitch++ backend: rolling 7-frame buffer, Spatial/Temporal/Smooth nets, fusion modes, and the panorama-quality estimate.
-- [PlanarStitcher.py](Assets/Scripts/ImageStitching/PlanarStitcher.py) — pose-driven planar backend for the facade/nadir configurations: builds one exact homography per view from pose, warps and feather-blends N views, and owns the projective/coverage/plane gates. `compute_warps` is the (empty) refiner slot.
+- [PlanarStitcher.py](Assets/Scripts/ImageStitching/PlanarStitcher.py) — pose-driven planar backend for the facade/nadir configurations: builds one exact homography per view from pose, warps and combines N views (winner-take-all by obliquity, or feather-blend), and owns the projective/coverage/plane gates. `compute_warps` is the (empty) refiner slot.
 - [planar_geometry.py](Assets/Scripts/ImageStitching/planar_geometry.py) — pure-numpy geometry for the above: Unity→CV frame conversion, plane frame, `G`, footprints, Jacobian anisotropy. No Unity, torch or shared-memory dependency, so it is testable in isolation.
 - [tools/planar_selftest.py](Assets/Scripts/ImageStitching/tools/planar_selftest.py) — offline geometry + end-to-end render checks; cross-checks projection against an independent Unity-derived reference.
 - [tools/check_wire_layout.py](Assets/Scripts/ImageStitching/tools/check_wire_layout.py) — parses `PyUniSharingFast.cs` and `StitcherThreading.py` and asserts their shared-memory layout constants agree.

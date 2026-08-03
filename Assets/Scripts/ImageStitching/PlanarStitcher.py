@@ -46,6 +46,80 @@ REASON_DISTORTION = 2
 REASON_PHOTOMETRIC = 4
 REASON_PLANE_INVALID = 32
 
+# How overlapping views are combined. Mirrors PlanarBlendMode in PyUniSharingFast.cs.
+#
+# FEATHER cross-fades every view that covers a pixel, weighted by distance to its own
+# image border. That is the right thing only while the geometry is exact: any residual
+# misalignment (pose error, a facade that is not quite a plane) shows up as ghosting
+# across the whole overlap region, and in a wall formation the overlap *is* most of the
+# canvas, so the ghosting is everywhere rather than confined to a seam.
+#
+# NEAREST gives each pixel to exactly one view -- the one seeing that point closest to
+# the plane normal, i.e. the most face-on -- so nothing is ever averaged and residual
+# error can only appear as a discontinuity along the seam, not as a doubled image.
+BLEND_FEATHER = 0
+BLEND_NEAREST = 1
+
+# Diagnostic overlay: which view a patch came from. Mirrors PlanarDebugView in
+# PyUniSharingFast.cs. TINT keeps the imagery legible under a colour wash (so you can
+# see both the content and its provenance); FLAT discards the imagery and shows the
+# partition alone, which is the clearer picture of where the seams actually fall.
+DEBUG_OFF = 0
+DEBUG_TINT = 1
+DEBUG_FLAT = 2
+
+# Keyed on DRONE ID, not on position in the selection: a colour that reshuffles whenever
+# a drone joins or leaves the selection tells you nothing frame to frame. BGR, because
+# that is the format on the wire.
+DEBUG_PALETTE = [
+    ("red",     (0, 0, 255)),
+    ("green",   (0, 255, 0)),
+    ("blue",    (255, 0, 0)),
+    ("yellow",  (0, 255, 255)),
+    ("magenta", (255, 0, 255)),
+    ("cyan",    (255, 255, 0)),
+    ("orange",  (0, 140, 255)),
+    ("violet",  (255, 0, 130)),
+    ("lime",    (0, 255, 140)),
+    ("pink",    (180, 105, 255)),
+]
+
+# How far TINT pulls a pixel toward its view's colour.
+DEBUG_TINT_STRENGTH = 0.45
+
+# Bit 0 of the block header's poseStatus: Unity sets it on every pose it actually
+# writes. Mirrors POSE_VALID in PyUniSharingFast.cs / StitcherThreading.py.
+POSE_VALID = 1 << 0
+
+
+def pose_is_usable(view):
+    """
+    Whether a block's pose can be turned into a rotation at all.
+
+    A block slot Unity has never written reads back as zeros: flag 0 ("ready"),
+    droneId 0 (a *legal* drone id, unlike the -1 Unity writes to retire a slot) and an
+    all-zero quaternion.  That used to reach ``quat_to_matrix`` and raise, which aborts
+    the whole frame -- one unwritten slot cost the entire panorama, and the traceback
+    pointed at the geometry rather than at the wire.  The producer no longer leaves such
+    slots claiming to be drone 0, but the consumer must not depend on that: this is a
+    shared-memory handshake with no schema enforcement, so a torn or stale block is
+    always possible and costs at most its own view.
+    """
+    pos, quat = view.get("pos"), view.get("quat")
+    if pos is None or quat is None:
+        return False
+    if not (np.all(np.isfinite(pos)) and np.all(np.isfinite(quat))):
+        return False
+    if float(np.dot(quat, quat)) < 1e-6:
+        return False
+    # Explicitly-invalid pose (a retired slot, or a v1 producer's zeroed tail).
+    return bool(int(view.get("pose_status", 0)) & POSE_VALID)
+
+
+def debug_colour(drone_id):
+    """``(name, (B, G, R))`` for a drone id. Stable for the lifetime of that drone."""
+    return DEBUG_PALETTE[int(drone_id) % len(DEBUG_PALETTE)]
+
 
 class PlanarStitcher(BaseStitcher):
     # How long the plane may stay raycast-invalid before the panorama is pulled. A
@@ -75,6 +149,7 @@ class PlanarStitcher(BaseStitcher):
         self._grid = None
 
         self._plane_invalid_since = None
+        self._unposed = 0
         self._last_stats = {}
         self._last_log = 0.0
 
@@ -108,6 +183,11 @@ class PlanarStitcher(BaseStitcher):
         K = pg.intrinsics_matrix(*intrinsics)
         frame, cams = self._build_geometry(views, K, plane, config)
         if frame is None:
+            # Every block arriving without a usable pose is a wire/producer problem, and
+            # REASON_PLANE_INVALID is the bit Unity spells as "no usable scene plane /
+            # pose", so report it as that rather than as a canvas failure.
+            if views and self._unposed == len(views):
+                return None, False, REASON_PLANE_INVALID
             return None, False, REASON_CANVAS
         if len(cams) < 2:
             return None, False, REASON_CANVAS
@@ -136,17 +216,23 @@ class PlanarStitcher(BaseStitcher):
         if len(kept) < 2:
             return None, False, REASON_DISTORTION
 
-        pano, coverage, overlap_psnr = self._render(kept, canvas_w, canvas_h, config)
+        pano, coverage, overlap_psnr = self._render(kept, canvas_w, canvas_h, config, M)
         if pano is None:
             return None, False, REASON_CANVAS
 
         self._last_stats = {
             "views": len(kept),
             "dropped": len(cams) - len(kept),
+            "unposed": self._unposed,
             "coverage": coverage,
             "mean_range": float(np.mean([c["range"] for c in kept])),
             "max_aniso": float(max(c["aniso"] for c in kept)),
             "overlap_psnr": overlap_psnr,
+            "blend": ("nearest"
+                      if config.get("blend_mode", BLEND_NEAREST) == BLEND_NEAREST
+                      else "feather"),
+            "debug_view": int(config.get("debug_view", DEBUG_OFF)),
+            "drone_ids": [c["view"]["drone_id"] for c in kept],
         }
         self._maybe_log()
 
@@ -184,7 +270,8 @@ class PlanarStitcher(BaseStitcher):
         Convert Unity poses to CV convention, build the plane frame, and compute G per
         view.  Returns ``(PlaneFrame | None, [cam dicts])``.
         """
-        posed = [v for v in views if v.get("pos") is not None and v.get("quat") is not None]
+        posed = [v for v in views if pose_is_usable(v)]
+        self._unposed = len(views) - len(posed)
         if not posed:
             return None, []
 
@@ -236,10 +323,16 @@ class PlanarStitcher(BaseStitcher):
             if not np.isfinite(rng):
                 continue
 
+            # Camera centre in the plane frame: (a, b) is its footprint on the plane and
+            # h its perpendicular standoff. BLEND_NEAREST needs only these three scalars
+            # per view -- see _render for why the per-pixel obliquity reduces to them.
+            rel = C - frame.O
             cams.append({
                 "view": v,
                 "G": pg.build_G(K, R, C, frame),
                 "range": rng,
+                "plane_ab": (float(rel @ frame.e1), float(rel @ frame.e2)),
+                "plane_h": abs(float(rel @ frame.n)),
             })
 
         return frame, cams
@@ -273,9 +366,12 @@ class PlanarStitcher(BaseStitcher):
         self._grid_key, self._grid = key, grid
         return grid
 
-    def _render(self, cams, canvas_w, canvas_h, config):
+    def _render(self, cams, canvas_w, canvas_h, config, M):
         """
-        Warp every view into the canvas and blend.
+        Warp every view into the canvas and combine.
+
+        ``M`` is the canvas-pixel -> plane-coordinate matrix, needed by BLEND_NEAREST to
+        put each canvas pixel in the same frame as the camera footprints.
 
         Returns ``(pano BGR uint8, coverage, worst pairwise overlap PSNR)``.
         """
@@ -284,6 +380,8 @@ class PlanarStitcher(BaseStitcher):
         src_h, src_w = cams[0]["view"]["image"].shape[:2]
         max_range = float(config.get("max_range", 0.0)) or float("inf")
         feather_px = max(1.0, float(config.get("feather_px", 1)))
+        blend_mode = int(config.get("blend_mode", BLEND_NEAREST))
+        debug_view = int(config.get("debug_view", DEBUG_OFF))
 
         H_stack = torch.from_numpy(
             np.stack([c["H"] for c in cams]).astype(np.float32)).to(dev)   # [N,3,3]
@@ -300,14 +398,19 @@ class PlanarStitcher(BaseStitcher):
         in_bounds = (u >= 0) & (u <= src_w - 1) & (v >= 0) & (v <= src_h - 1)
         valid = valid_depth & in_bounds                                    # [N,HW]
 
-        # Distance-to-border feather. A homography's alpha mask has a closed form, so
+        # Distance-to-border falloff. A homography's alpha mask has a closed form, so
         # this needs no convolution at all -- unlike a TPS mesh's, which is why
         # StabStitcher blurs and erodes instead. Measured in SOURCE pixels, so the seam
         # width in canvas pixels scales with each view's local magnification.
+        # Under BLEND_FEATHER this *is* the blend weight; under BLEND_NEAREST it only
+        # biases the winner away from image edges.
         du = torch.minimum(u, (src_w - 1) - u)
         dv = torch.minimum(v, (src_h - 1) - v)
         feather = (torch.minimum(du, dv) / feather_px).clamp(0.0, 1.0)
         weight = torch.where(valid, feather, torch.zeros_like(feather))    # [N,HW]
+
+        if blend_mode == BLEND_NEAREST:
+            weight = self._nearest_weights(cams, weight, grid, M)
 
         # Upload uint8 and convert on the GPU: at N=8 and 800x450 that is 8.6 MB over
         # PCIe instead of 34 MB, and moves the cast off the CPU.
@@ -328,6 +431,26 @@ class PlanarStitcher(BaseStitcher):
                                mode="bilinear", padding_mode="zeros",
                                align_corners=True).float()
 
+        # Always measured: this is the number that quantifies pose error, and it costs
+        # only a few ops given the already-warped stack. Whether it gates is the
+        # caller's decision.
+        #
+        # Measured over geometric *coverage*, not over the blend weights: BLEND_NEAREST
+        # makes the weights one-hot, so a weight-based overlap test would find no
+        # overlapping pixels at all and silently retire the one diagnostic that
+        # quantifies pose error. Two views still see the same ground there whether or
+        # not both are drawn.
+        #
+        # Taken before the debug overlay, which would otherwise be measured instead of
+        # the imagery -- and it stays measured while the overlay is on, so the number in
+        # the log still refers to the mosaic you would get with the overlay off.
+        cover = valid.view(len(cams), 1, canvas_h, canvas_w).float()
+        overlap_psnr = self._overlap_psnr(warped, cover)
+
+        # In place, so the overlay costs no extra [N,3,Hc,Wc] allocation.
+        if debug_view != DEBUG_OFF:
+            self._apply_debug_colours(cams, warped, debug_view)
+
         wgt = weight.view(len(cams), 1, canvas_h, canvas_w)
         wsum = wgt.sum(dim=0)                                              # [1,Hc,Wc]
         covered = wsum > 1e-6
@@ -339,10 +462,73 @@ class PlanarStitcher(BaseStitcher):
         coverage = float(covered.float().mean().item())
         out = pano.clamp(0, 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
 
-        # Always measured: this is the number that quantifies pose error, and it costs
-        # only a few ops given the already-warped stack. Whether it gates is the
-        # caller's decision.
-        return out, coverage, self._overlap_psnr(warped, wgt)
+        return out, coverage, overlap_psnr
+
+    @staticmethod
+    def _apply_debug_colours(cams, warped, debug_view):
+        """
+        Colour each view's contribution in place, so a patch's origin is readable off
+        the panorama itself.
+
+        Applied to the warped stack rather than to the mosaic, which means it works the
+        same in both blend modes and tells you something different in each: under
+        NEAREST the regions come out flat and hard-edged (that *is* the partition),
+        while under FEATHER the overlaps come out as blends of two colours, which is a
+        direct picture of how much of the canvas is being averaged.
+        """
+        colours = torch.tensor(
+            [debug_colour(c["view"]["drone_id"])[1] for c in cams],
+            dtype=warped.dtype, device=warped.device).view(len(cams), 3, 1, 1)
+
+        if debug_view == DEBUG_FLAT:
+            warped.copy_(colours.expand_as(warped))
+        else:
+            warped.lerp_(colours.expand_as(warped), DEBUG_TINT_STRENGTH)
+
+    def _nearest_weights(self, cams, border, grid, M):
+        """
+        Winner-take-all weights: each covered canvas pixel goes to a single view.
+
+        The winner is the view seeing that plane point closest to the plane normal --
+        the most face-on, least foreshortened look at it. Because every canvas pixel
+        lies *on* the plane, that obliquity has a closed form in three per-view scalars:
+        with the camera at in-plane footprint ``(a_v, b_v)`` and perpendicular standoff
+        ``h_v``, the incidence cosine at plane point ``(a, b)`` is
+
+            cos = h_v / sqrt((a - a_v)^2 + (b - b_v)^2 + h_v^2)
+
+        (the numerator is constant per view precisely because ``n . X == d`` everywhere
+        on the canvas). Maximising it is a Voronoi partition of the plane by camera
+        footprint, so each drone renders the patch of facade it is parked in front of.
+
+        The border falloff multiplies the score rather than gating it, which keeps seams
+        off the source-image edges: a view running out of frame fades below a
+        neighbour's score before it runs out of pixels, so the winner changes over solid
+        image on both sides instead of at a hard image boundary.
+        """
+        M_t = torch.as_tensor(np.asarray(M, dtype=np.float32), device=grid.device)
+        ab = torch.matmul(M_t, grid)                       # [3,HW]; M's last row is [0,0,1]
+
+        cam_a = torch.tensor([c["plane_ab"][0] for c in cams],
+                             dtype=torch.float32, device=grid.device).unsqueeze(1)
+        cam_b = torch.tensor([c["plane_ab"][1] for c in cams],
+                             dtype=torch.float32, device=grid.device).unsqueeze(1)
+        cam_h = torch.tensor([c["plane_h"] for c in cams],
+                             dtype=torch.float32, device=grid.device).unsqueeze(1)
+
+        # In-place after the first subtraction: these are [N, H*W] float32 temporaries,
+        # 30 MB apiece at a 1200x800 canvas and 8 views, and the render loop shares its
+        # GPU with the warp thread.
+        da = ab[0].unsqueeze(0) - cam_a
+        db = ab[1].unsqueeze(0) - cam_b
+        d2 = da.mul_(da).add_(db.mul_(db)).add_(cam_h * cam_h)
+        score = d2.sqrt_().clamp_min_(1e-6).reciprocal_().mul_(cam_h).mul_(border)
+
+        best_score, best = score.max(dim=0)
+        weight = torch.zeros_like(score)
+        weight.scatter_(0, best.unsqueeze(0),
+                        (best_score > 0).to(score.dtype).unsqueeze(0))
+        return weight
 
     @staticmethod
     def _overlap_psnr(warped, wgt):
@@ -369,7 +555,22 @@ class PlanarStitcher(BaseStitcher):
         s = self._last_stats
         psnr = s.get("overlap_psnr", float("inf"))
         psnr_txt = "n/a" if not np.isfinite(psnr) else f"{psnr:.1f} dB"
+        # "unposed" is a producer-side symptom, not a geometry one: blocks that arrived
+        # without a usable pose (never written, or retired mid-frame). Reported
+        # separately from the anisotropy drops so the two are not confused.
+        unposed = s.get("unposed", 0)
+        unposed_txt = f", {unposed} unposed" if unposed else ""
         print(f"[PLANAR] {s.get('views', 0)} views "
-              f"(+{s.get('dropped', 0)} dropped) | coverage {s.get('coverage', 0):.0%} | "
+              f"(+{s.get('dropped', 0)} dropped{unposed_txt}) | blend {s.get('blend', '?')} | "
+              f"coverage {s.get('coverage', 0):.0%} | "
               f"mean range {s.get('mean_range', 0):.1f} m | "
               f"max anisotropy {s.get('max_aniso', 0):.2f} | overlap PSNR {psnr_txt}")
+
+        # A colour map is useless without the key, and the selection changes as drones
+        # join, die or fall out of range -- so reprint it alongside the stats rather
+        # than once at startup.
+        if s.get("debug_view", DEBUG_OFF) != DEBUG_OFF:
+            legend = "  ".join(f"drone {i} = {debug_colour(i)[0]}"
+                               for i in s.get("drone_ids", []))
+            mode = "flat" if s["debug_view"] == DEBUG_FLAT else "tint"
+            print(f"[PLANAR] debug view ({mode}):  {legend}")

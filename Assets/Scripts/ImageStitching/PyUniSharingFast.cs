@@ -171,6 +171,8 @@ public class PyUniSharingFast : MonoBehaviour
     }
     private PendingReadback[] pendingReadbacks;
     private Action<AsyncGPUReadbackRequest>[] pendingCallbacks;  // one cached delegate per pool entry
+    private const float readbackPoolWarnInterval = 5f;           // throttle for the exhaustion warning
+    private float nextReadbackPoolWarnTime = 0f;
     private NativeArray<byte> convertedBlock;   // reusable BGR24 output of the conversion job
     // AsyncGPUReadback returns rows in the GPU-native order, which differs per
     // graphics API from the bottom-up order ReadPixels gives. The first readback
@@ -347,7 +349,10 @@ public class PyUniSharingFast : MonoBehaviour
     private const int metaPlanarMinCoverageOffset = 304;
     private const int metaPlanarPoseSourceOffset = 308;   // uint8
     private const int metaPlanarPsnrGateOffset = 309;     // uint8
-    // 310-311 padding, so metaDynSeqOffset lands 4-byte aligned.
+    private const int metaPlanarBlendModeOffset = 310;    // uint8
+    private const int metaPlanarDebugViewOffset = 311;    // uint8
+    // The tail's 4-byte padding slot is now full: the next field must come out of
+    // metadataReservedGap, after metadataTailEnd.
 
     // Dynamic: rewritten every frame by WriteDynamicState under a seqlock.
     // A bare blit is fine for a lone scalar like bodyYaw, but a torn plane normal
@@ -385,6 +390,39 @@ public class PyUniSharingFast : MonoBehaviour
         GroundTruth,          // camera transform, exact
         NoisyState,           // StateFinder's simulated GPS/IMU noise (sigma ~0.03 m)
         GroundTruthPlusGnss,  // exact pose + injected drifting GNSS error (see StitchPoseSource.cs)
+    }
+
+    /// <summary>
+    /// How the planar stitcher combines views where their footprints overlap.
+    /// Mirrored by <c>BLEND_*</c> in PlanarStitcher.py.
+    /// </summary>
+    public enum PlanarBlendMode
+    {
+        // Cross-fade every contributing view, weighted by distance to its own image
+        // border. Correct only while the geometry is exact; any residual misalignment
+        // ghosts across the whole overlap, which in a wall formation is most of the
+        // canvas.
+        Feather,
+        // One view per pixel: whichever sees that point closest to the plane normal.
+        // Nothing is averaged, so residual pose error shows as a seam rather than a
+        // doubled image.
+        Nearest,
+    }
+
+    /// <summary>
+    /// Diagnostic overlay that colours each patch of the planar mosaic by the drone it
+    /// came from. Testing aid only — leave it Off for flight. Mirrored by <c>DEBUG_*</c>
+    /// in PlanarStitcher.py; the drone-to-colour key is printed by the Python console's
+    /// periodic [PLANAR] line, since the selection changes as drones join or drop out.
+    /// </summary>
+    public enum PlanarDebugView
+    {
+        Off,
+        // Colour wash over the imagery: shows provenance without hiding the content.
+        Tint,
+        // Flat colour per view, imagery discarded. The clearest read on where the seams
+        // fall and how big each drone's patch is.
+        Flat,
     }
 
     /// <summary>
@@ -463,8 +501,25 @@ public class PyUniSharingFast : MonoBehaviour
     private float planarCentreHysteresis = 1.5f;
 
     [SerializeField]
-    [Tooltip("Blend feather width, in SOURCE pixels — so the seam width in canvas pixels " +
-             "scales with each view's local magnification.")]
+    [Tooltip("How overlapping views are combined. Nearest gives every pixel to the single " +
+             "most face-on view, so nothing is averaged and pose error shows as a seam " +
+             "rather than ghosting; Feather cross-fades the overlap, which is only clean " +
+             "while the geometry is exact. In a facade wall the views overlap almost " +
+             "everywhere, so Feather ghosts across the whole mosaic.")]
+    private PlanarBlendMode planarBlendMode = PlanarBlendMode.Nearest;
+
+    [SerializeField]
+    [Tooltip("Testing aid: colour each patch of the mosaic by the drone that supplied it. " +
+             "Tint washes colour over the imagery, Flat replaces it entirely. The " +
+             "drone-to-colour key is printed on the Python console's periodic [PLANAR] " +
+             "line. Leave Off for flight.")]
+    private PlanarDebugView planarDebugView = PlanarDebugView.Off;
+
+    [SerializeField]
+    [Tooltip("Border falloff width, in SOURCE pixels — so the width in canvas pixels " +
+             "scales with each view's local magnification. Under Feather this is the " +
+             "cross-fade width; under Nearest it only keeps the seam off the source-image " +
+             "edges, by making a view lose to a neighbour before it runs out of frame.")]
     private int planarFeatherPx = 40;
 
     [SerializeField]
@@ -787,15 +842,7 @@ public class PyUniSharingFast : MonoBehaviour
             blockImageBytes = new byte[blockImageSize];
             EnsureConvertedBlockBuffer();
 
-            // Readback pool: enough entries for a couple of in-flight 3-slot
-            // batches. One cached delegate per entry so requests never allocate.
-            pendingReadbacks = new PendingReadback[8];
-            pendingCallbacks = new Action<AsyncGPUReadbackRequest>[pendingReadbacks.Length];
-            for (int i = 0; i < pendingCallbacks.Length; i++)
-            {
-                int idx = i;
-                pendingCallbacks[i] = request => OnBlockReadback(idx, request);
-            }
+            EnsureReadbackPool();
         }
 
         hasStarted = true;
@@ -1081,7 +1128,23 @@ public class PyUniSharingFast : MonoBehaviour
         }
 
         int p = AcquirePendingSlot();
-        if (p < 0) return;  // pool exhausted (readbacks piling up) — drop this frame
+        if (p < 0)
+        {
+            // Pool exhausted (readbacks piling up): this slot keeps its previous frame.
+            // Warned about rather than dropped silently — sustained exhaustion starves
+            // the same slots every send (AcquirePendingSlot scans from 0), and a slot
+            // that has never been written still carries the empty-slot sentinel, so the
+            // drone simply never appears in the mosaic.
+            if (Time.time >= nextReadbackPoolWarnTime)
+            {
+                nextReadbackPoolWarnTime = Time.time + readbackPoolWarnInterval;
+                Debug.LogWarning($"[PyUniSharingFast] GPU readback pool exhausted " +
+                                 $"({pendingReadbacks.Length} entries, {blockImageCount} block slots): " +
+                                 "block slots are being skipped. Readbacks are completing slower than " +
+                                 "sendInterval; lower the block resolution or the send rate.");
+            }
+            return;
+        }
 
         pendingReadbacks[p].slot = slot;
         pendingReadbacks[p].droneId = camIdx;
@@ -1130,6 +1193,34 @@ public class PyUniSharingFast : MonoBehaviour
             Marshal.WriteInt32(block, blockPoseStatusOffset, 0);
         }
         Marshal.WriteInt32(block, blockFlagOffset, 0);
+    }
+
+    // Sizes the readback pool for two full in-flight batches, one entry per block slot.
+    //
+    // It used to be a flat 8, which was "a couple of in-flight 3-slot batches" back when
+    // every stitcher captured exactly 3 views. PLANAR captures up to blockImageCount
+    // (maxStitchViews) per send, and a readback completes 1-2 frames later, so an
+    // undersized pool does not merely drop a frame: AcquirePendingSlot scans from index
+    // 0, so it is always the *same* tail slots that lose the race, and a slot that never
+    // wins never gets written at all. Those blocks then sit at their initial contents
+    // forever, which is what surfaced on the Python side as a degenerate quaternion.
+    //
+    // Grow-only, and the array is replaced wholesale rather than re-indexed: a pending
+    // entry keeps its index, so a readback still in flight across the resize completes
+    // into the same entry it reserved.
+    private void EnsureReadbackPool()
+    {
+        int wanted = Mathf.Clamp(blockImageCount * 2, 8, 2 * maxBlockImageCount);
+        int have = pendingReadbacks != null ? pendingReadbacks.Length : 0;
+        if (have >= wanted) return;
+
+        Array.Resize(ref pendingReadbacks, wanted);
+        Array.Resize(ref pendingCallbacks, wanted);
+        for (int i = have; i < wanted; i++)
+        {
+            int idx = i;   // one cached delegate per entry, so requests never allocate
+            pendingCallbacks[i] = request => OnBlockReadback(idx, request);
+        }
     }
 
     private int AcquirePendingSlot()
@@ -2390,10 +2481,22 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
-        // Initialise every block's flag to 0 (ready for the consumer).
+        // Initialise every block: flag 0 (ready for the consumer) and droneId -1.
+        //
+        // The droneId matters as much as the flag. A fresh section is zero-filled, and
+        // zero is a *legal* drone id -- so until a slot's first readback lands, the
+        // consumer reads a ready block claiming to be drone 0 with an all-zero pose,
+        // which on the PLANAR path is a degenerate quaternion rather than an empty
+        // slot. -1 is the sentinel that already means "no view here", so say that from
+        // the moment the section exists rather than from the first frame that fills it.
         for (int i = 0; i < blockImageCount; i++)
         {
             Marshal.WriteInt32(blockPtr, i * blockSize + blockFlagOffset, 0);
+            Marshal.WriteInt32(blockPtr, i * blockSize + blockDroneIdOffset, -1);
+            if (blockHeaderSize >= blockPoseHeaderSize)
+            {
+                Marshal.WriteInt32(blockPtr, i * blockSize + blockPoseStatusOffset, 0);
+            }
         }
     }
 
@@ -2519,6 +2622,7 @@ public class PyUniSharingFast : MonoBehaviour
             WriteMetadata();
             blockImageBytes = new byte[blockImageSize];
             EnsureConvertedBlockBuffer();
+            EnsureReadbackPool();      // more slots per send needs more in-flight entries
             ValidateTextures();
         }
     }
@@ -2663,6 +2767,8 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteByte(metadataPtr, metaPlanarPoseSourceOffset, (byte)poseSource);
         Marshal.WriteByte(metadataPtr, metaPlanarPsnrGateOffset,
                           (byte)(planarPsnrGateEnabled ? 1 : 0));
+        Marshal.WriteByte(metadataPtr, metaPlanarBlendModeOffset, (byte)planarBlendMode);
+        Marshal.WriteByte(metadataPtr, metaPlanarDebugViewOffset, (byte)planarDebugView);
 
         // Seed the dynamic block so Python never reads an uninitialised plane before
         // the first Update tick.

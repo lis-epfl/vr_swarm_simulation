@@ -76,7 +76,8 @@ META_PLANAR_MPP_OFFSET = 288         # float32 metres per pixel, then max range
 META_PLANAR_FEATHER_OFFSET = 296     # int32
 META_PLANAR_ANISO_OFFSET = 300       # float32 aniso max, then min coverage
 META_PLANAR_POSE_SOURCE_OFFSET = 308  # uint8, then uint8 psnr gate
-# 310-311 padding
+META_PLANAR_BLEND_MODE_OFFSET = 310  # uint8, PlanarStitcher.BLEND_*
+META_PLANAR_DEBUG_VIEW_OFFSET = 311  # uint8, PlanarStitcher.DEBUG_*
 META_DYN_SEQ_OFFSET = 312            # int32 seqlock counter
 META_PLANE_N_OFFSET = 316            # float32 nx, ny, nz, d
 META_PLANE_VALID_OFFSET = 332        # uint8, then uint8 mode
@@ -268,6 +269,8 @@ class StitcherManager:
             "min_coverage": output.get("planar_min_coverage", 0.0),
             "pose_source": output.get("planar_pose_source", 0),
             "psnr_gate": output.get("planar_psnr_gate", False),
+            "blend_mode": output.get("planar_blend_mode", 1),
+            "debug_view": output.get("planar_debug_view", 0),
         }
 
     def planar_inputs_ready(self):
@@ -1284,7 +1287,8 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     metres_per_pixel, max_range = struct.unpack('<ff', metadataMMF.read(8))
     feather_px = struct.unpack('<i', metadataMMF.read(4))[0]
     aniso_max, min_coverage = struct.unpack('<ff', metadataMMF.read(8))
-    pose_source, psnr_gate = struct.unpack('<BB', metadataMMF.read(2))
+    pose_source, psnr_gate, blend_mode, debug_view = struct.unpack(
+        '<BBBB', metadataMMF.read(4))
 
     return {
         "Sizes": int_values,
@@ -1317,6 +1321,8 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "planar_min_coverage" : min_coverage,
         "planar_pose_source" : pose_source,
         "planar_psnr_gate" : bool(psnr_gate),
+        "planar_blend_mode" : blend_mode,
+        "planar_debug_view" : debug_view,
     }
 
 
