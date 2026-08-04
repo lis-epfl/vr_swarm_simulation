@@ -32,7 +32,10 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   yaw-rate command — **not** live HMD direction, so head-look doesn't move the panorama.
   It also carries a seqlocked **dynamic block** (scene plane, gimbal pitch, planar centre drone id) —
   see the PLANAR section. Its total size is pinned at 412 bytes: new tail fields come out of
-  `metadataReservedGap`, because changing the size would strand an already-running Python.
+  `metadataReservedGap`, because changing the size would strand an already-running Python. The static
+  tail's padding filled up at 311, so the estimator settings (344–363) sit *after* the dynamic block;
+  both sides address every tail field by absolute offset, so the ordering is cosmetic, but it is why
+  `readMetadataMemory` seeks a second time rather than reading straight through.
 - `BlockSharedMemory` — the **stitcher input**, one block per selected drone. `flag` is the handshake
   (0 = ready, 1 = busy). Images are **BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole
   producer: sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep
@@ -190,9 +193,42 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   GNSS-magnitude error (Ornstein–Uhlenbeck, with a **common-mode fraction** — nearby receivers share most
   of their error, and common-mode error translates the mosaic rigidly and costs nothing) for sizing how
   much refinement real drones would need.
-- **`compute_warps` is intentionally a no-op**: the geometric solve is microseconds and runs inline every
-  frame, because the poses change every frame. That method is the slot for a future refiner, which would
-  estimate the slowly-varying *corrections* at the warp thread's cadence.
+- **`compute_warps` runs the two photometric estimators**, not the geometric solve — that costs
+  microseconds and stays inline in `planar_pano` every frame, because the poses change every frame.
+  What belongs on the warp thread is the *slowly-varying corrections*, which are what `_correction`
+  holds. Each is independently switchable from the inspector (`planarPlaneSweep` / `planarPoseRefine`),
+  and they move different parameters, so they are complementary rather than alternative:
+  - **`_correction["plane"]` — plane sweep.** One global scalar: an *additive* offset on the published
+    plane distance (additive so Unity's raycast keeps tracking the facade and the sweep only estimates
+    the residual), chosen by scanning `planarSweepSteps` candidates over ±`planarSweepRange` and keeping
+    the lowest photometric disagreement, then parabola-refined between samples. A plane-distance error
+    appears in each view as a *scale* about its own footprint, so no per-view translation can absorb it.
+  - **`_correction["dpose"]` — pose refiner.** Two DoF per view: a per-drone translation recovered by
+    phase-correlating each view against the **leave-one-out** consensus of the others (not against the
+    finished mosaic — under winner-take-all a view *is* the mosaic where it wins, so it would correlate
+    against itself and report a confident zero). Differential GNSS and compass bias both appear at a
+    facade as a lateral shift, so one translation absorbs the bulk of both.
+  - **The sweep measures on `apply_dpose=False` geometry.** Not incidental: the refiner readily absorbs
+    part of a depth error as per-view translation, and a sweep measuring on already-refined geometry is
+    then hunting an error the refiner has hidden — it gets driven the wrong way.
+  - **Corrections are residuals and accumulate** (`prev + rate * measured`), because `_build_geometry`
+    has already applied the standing correction by the time the estimator sees the stack. Overwriting
+    instead of accumulating caps convergence at one step's worth and oscillates.
+  - **Known degeneracy, asserted in the self-test so it cannot be "fixed" by accident:** a depth error
+    dilates each view about its own footprint, which over the overlap *is* a convergent translation
+    field — so convergent per-drone position error is indistinguishable from a plane-depth error. On
+    that case the sweep alone moves the plane and gains nothing (17.0 → 17.1 dB overlap PSNR) while the
+    refiner still recovers most of it (→ 24.9 dB). Turn the sweep on when the **plane** is what you are
+    unsure of (a map-drawn facade distance, a raycast onto geometry that may not be there); leave it off
+    when per-drone error dominates.
+  - The confidence gate rejects a *measurement* with no dominant correlation peak — most usefully in
+    early passes while the consensus is still a blur of misaligned views. It is **not** a guarantee
+    against a repetitive facade: run to convergence, a periodic scene can settle into a self-consistent
+    solution shifted by a whole period, and no per-measurement test can see that. `planarRefineMaxShift`
+    is what bounds the damage. Both estimators apodise before correlating — masking both inputs with the
+    same hard mask correlates the *mask*, which pins the answer at zero shift regardless of the pixels.
+  - Estimator passes run on a quarter-resolution canvas with their **own** grid cache; sharing the
+    render path's cache would miss on every call (different canvas size) and race across two threads.
 
 Two checkers, both runnable without Unity:
 `python tools/planar_selftest.py` (geometry + end-to-end render) and

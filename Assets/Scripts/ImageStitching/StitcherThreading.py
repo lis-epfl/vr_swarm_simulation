@@ -88,6 +88,15 @@ META_CENTRE_DRONE_OFFSET = 340       # int32, -1 = none. Inside the seqlock on p
                                      # with another frame's plane tears the same way a
                                      # torn normal does.
 
+# Warp-thread estimator settings. Static (inspector-driven), but they live *after* the
+# dynamic block because the tail's 4-byte padding slot was already full -- they come out
+# of metadataReservedGap, which is why metadataSize does not change.
+META_PLANAR_SWEEP_ENABLED_OFFSET = 344   # uint8, then uint8 pose-refine enabled
+META_PLANAR_SWEEP_RANGE_OFFSET = 348     # float32, metres either side
+META_PLANAR_SWEEP_STEPS_OFFSET = 352     # int32
+META_PLANAR_REFINE_RATE_OFFSET = 356     # float32, low-pass rate per warp update
+META_PLANAR_REFINE_MAX_SHIFT_OFFSET = 360  # float32, metres; 0 = unclamped
+
 # Per-drone block header. v1 is flag|droneId|heading; v2 appends the camera pose that
 # was snapshotted with the image. Unity advertises which one it is writing in
 # metadata's block_header_size, so both producers can coexist (ImageSharing.cs in the
@@ -271,6 +280,15 @@ class StitcherManager:
             "psnr_gate": output.get("planar_psnr_gate", False),
             "blend_mode": output.get("planar_blend_mode", 1),
             "debug_view": output.get("planar_debug_view", 0),
+            # Warp-thread estimators. Independent switches: the sweep moves one global
+            # plane offset, the refiner moves a per-view translation, and they fix
+            # different error sources (see PlanarStitcher's module docstring).
+            "plane_sweep": output.get("planar_plane_sweep", False),
+            "pose_refine": output.get("planar_pose_refine", False),
+            "sweep_range": output.get("planar_sweep_range", 0.0),
+            "sweep_steps": output.get("planar_sweep_steps", 0),
+            "refine_rate": output.get("planar_refine_rate", 0.0),
+            "refine_max_shift": output.get("planar_refine_max_shift", 0.0),
         }
 
     def planar_inputs_ready(self):
@@ -1290,6 +1308,15 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     pose_source, psnr_gate, blend_mode, debug_view = struct.unpack(
         '<BBBB', metadataMMF.read(4))
 
+    # Separate seek: these sit past the dynamic block rather than contiguously after the
+    # static tail, because the tail's padding slot was full when they were added.
+    metadataMMF.seek(META_PLANAR_SWEEP_ENABLED_OFFSET)
+    sweep_enabled, refine_enabled = struct.unpack('<BB', metadataMMF.read(2))
+    metadataMMF.seek(META_PLANAR_SWEEP_RANGE_OFFSET)
+    sweep_range = struct.unpack('<f', metadataMMF.read(4))[0]
+    sweep_steps = struct.unpack('<i', metadataMMF.read(4))[0]
+    refine_rate, refine_max_shift = struct.unpack('<ff', metadataMMF.read(8))
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -1323,6 +1350,12 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "planar_psnr_gate" : bool(psnr_gate),
         "planar_blend_mode" : blend_mode,
         "planar_debug_view" : debug_view,
+        "planar_plane_sweep" : bool(sweep_enabled),
+        "planar_pose_refine" : bool(refine_enabled),
+        "planar_sweep_range" : sweep_range,
+        "planar_sweep_steps" : sweep_steps,
+        "planar_refine_rate" : refine_rate,
+        "planar_refine_max_shift" : refine_max_shift,
     }
 
 

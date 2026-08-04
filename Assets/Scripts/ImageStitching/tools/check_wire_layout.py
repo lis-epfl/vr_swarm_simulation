@@ -39,6 +39,11 @@ PAIRS = [
     ("metaPlaneValidOffset",          "META_PLANE_VALID_OFFSET"),
     ("metaGimbalPitchOffset",         "META_GIMBAL_PITCH_OFFSET"),
     ("metaCentreDroneIdOffset",       "META_CENTRE_DRONE_OFFSET"),
+    ("metaPlanarPlaneSweepOffset",    "META_PLANAR_SWEEP_ENABLED_OFFSET"),
+    ("metaPlanarSweepRangeOffset",    "META_PLANAR_SWEEP_RANGE_OFFSET"),
+    ("metaPlanarSweepStepsOffset",    "META_PLANAR_SWEEP_STEPS_OFFSET"),
+    ("metaPlanarRefineRateOffset",    "META_PLANAR_REFINE_RATE_OFFSET"),
+    ("metaPlanarRefineMaxShiftOffset", "META_PLANAR_REFINE_MAX_SHIFT_OFFSET"),
     ("blockLegacyHeaderSize",         "BLOCK_HEADER_SIZE_V1"),
     ("blockPoseHeaderSize",           "BLOCK_HEADER_SIZE_V2"),
     ("blockCamPosOffset",             "BLOCK_CAM_POS_OFFSET"),
@@ -135,6 +140,14 @@ def main():
         ("planeMode", "metaPlaneModeOffset", 1),
         ("gimbalPitch", "metaGimbalPitchOffset", 4),
         ("centreDroneId", "metaCentreDroneIdOffset", 4),
+        # Estimator settings: static, but after the dynamic block (the static tail's
+        # padding slot was full), so they are checked as a continuation of the cursor.
+        ("planeSweep", "metaPlanarPlaneSweepOffset", 1),
+        ("poseRefine", "metaPlanarPoseRefineOffset", 1),
+        ("sweepRange", "metaPlanarSweepRangeOffset", 4),
+        ("sweepSteps", "metaPlanarSweepStepsOffset", 4),
+        ("refineRate", "metaPlanarRefineRateOffset", 4),
+        ("refineMaxShift", "metaPlanarRefineMaxShiftOffset", 4),
     ]
     cursor = 253
     for label, const, size in fields:

@@ -374,12 +374,25 @@ public class PyUniSharingFast : MonoBehaviour
     // seqlock as the plane -- a canvas origin paired with the wrong frame's plane is the
     // same class of bug as a torn normal.
     private const int metaCentreDroneIdOffset = 340;      // int32, -1 = none
-    private const int metadataTailEnd = 344;
+
+    // Warp-thread estimator settings. Static like the 256..311 block, but placed after
+    // the dynamic one because that block's 4-byte padding slot was already full, so
+    // these came out of metadataReservedGap instead. Ordering is irrelevant to
+    // correctness -- both sides address every one of these by absolute offset -- but the
+    // split is worth knowing about when adding the next field.
+    private const int metaPlanarPlaneSweepOffset = 344;    // uint8
+    private const int metaPlanarPoseRefineOffset = 345;    // uint8
+    // 346-347 padding
+    private const int metaPlanarSweepRangeOffset = 348;
+    private const int metaPlanarSweepStepsOffset = 352;
+    private const int metaPlanarRefineRateOffset = 356;
+    private const int metaPlanarRefineMaxShiftOffset = 360;
+    private const int metadataTailEnd = 364;
 
     // Trailing gap between the tail and the two size fields metadataSize ends with. It
     // shrinks as the tail grows so metadataSize -- and hence the mapped section size --
     // stays fixed at 412; a changed map size would strand any already-running Python.
-    private const int metadataReservedGap = 60;
+    private const int metadataReservedGap = 40;
 
     // A left/centre/right panorama is always exactly 3 views; a planar mosaic can take
     // as many overlapping views as the formation offers.
@@ -536,6 +549,55 @@ public class PyUniSharingFast : MonoBehaviour
              "diagnostic either way, and gating on it would hide the panorama permanently " +
              "once pose noise is injected, which defeats the point of injecting it.")]
     private bool planarPsnrGateEnabled = false;
+
+    [Header("Planar Stitcher — Warp-Thread Estimators")]
+
+    [SerializeField]
+    [Tooltip("Plane sweep: correct the published plane DISTANCE by scanning candidate " +
+             "offsets and keeping the one where the views agree best. Fixes the one error " +
+             "no per-view translation can absorb — a wrong plane distance appears in each " +
+             "view as a scale about its own footprint. Being a single global number it " +
+             "cannot fix per-drone error; that is what the pose refiner is for. " +
+             "Independent of it: either, both or neither may be on.")]
+    private bool planarPlaneSweep = false;
+
+    [SerializeField]
+    [Tooltip("Pose refiner: correct each drone's camera position by phase-correlating its " +
+             "view against the consensus of the others. Absorbs differential GNSS error " +
+             "and compass bias, which both show up at a facade as a lateral shift of that " +
+             "view's footprint. Cannot represent scale (use the plane sweep) or the " +
+             "keystone from a gimbal-pitch bias. Views whose correlation peak is not " +
+             "clearly dominant are left uncorrected rather than guessed at.")]
+    private bool planarPoseRefine = false;
+
+    [SerializeField]
+    [Range(0.5f, 50f)]
+    [Tooltip("Plane sweep half-range, metres either side of the current estimate. Size it " +
+             "to how wrong the plane could plausibly be — a map-drawn facade is worth a few " +
+             "metres, a raycast onto real geometry much less. Too wide wastes candidates; " +
+             "too narrow and the sweep cannot reach the answer.")]
+    private float planarSweepRange = 4f;
+
+    [SerializeField]
+    [Range(3, 21)]
+    [Tooltip("Plane sweep candidate count. Forced odd in Python so the incumbent estimate " +
+             "is always itself a candidate; the result is parabola-refined between samples, " +
+             "so this sets the capture range's resolution rather than the final precision.")]
+    private int planarSweepSteps = 9;
+
+    [SerializeField]
+    [Range(0.01f, 1f)]
+    [Tooltip("Low-pass rate applied to both estimators, per warp update. The corrections " +
+             "are slowly-varying by premise (GNSS bias, plane distance), so heavy smoothing " +
+             "costs nothing and keeps a single bad measurement from reaching the mosaic. " +
+             "1.0 snaps to the raw estimate — useful for seeing what it actually measured.")]
+    private float planarRefineRate = 0.25f;
+
+    [SerializeField]
+    [Tooltip("Largest per-view correction the refiner may apply, metres. A correlation " +
+             "peak further out than the pose could plausibly be wrong is a mismatch, not a " +
+             "measurement. 0 disables the clamp.")]
+    private float planarRefineMaxShift = 3f;
 
     // Index into camerasToCapture of the centre stitch camera, set once per frame by
     // SelectStitchCameras or, in PLANAR mode, SelectPlanarCentreCamera. The scene-plane
@@ -2769,6 +2831,15 @@ public class PyUniSharingFast : MonoBehaviour
                           (byte)(planarPsnrGateEnabled ? 1 : 0));
         Marshal.WriteByte(metadataPtr, metaPlanarBlendModeOffset, (byte)planarBlendMode);
         Marshal.WriteByte(metadataPtr, metaPlanarDebugViewOffset, (byte)planarDebugView);
+
+        Marshal.WriteByte(metadataPtr, metaPlanarPlaneSweepOffset,
+                          (byte)(planarPlaneSweep ? 1 : 0));
+        Marshal.WriteByte(metadataPtr, metaPlanarPoseRefineOffset,
+                          (byte)(planarPoseRefine ? 1 : 0));
+        WriteFloat(metadataPtr, metaPlanarSweepRangeOffset, planarSweepRange);
+        Marshal.WriteInt32(metadataPtr, metaPlanarSweepStepsOffset, planarSweepSteps);
+        WriteFloat(metadataPtr, metaPlanarRefineRateOffset, planarRefineRate);
+        WriteFloat(metadataPtr, metaPlanarRefineMaxShiftOffset, planarRefineMaxShift);
 
         // Seed the dynamic block so Python never reads an uninitialised plane before
         // the first Update tick.

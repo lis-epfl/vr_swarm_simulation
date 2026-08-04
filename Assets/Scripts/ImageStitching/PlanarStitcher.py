@@ -22,12 +22,55 @@ Structure
 The geometry lives in :mod:`planar_geometry` (pure numpy, unit-tested offline by
 ``tools/planar_selftest.py``).  This class owns the torch render path and the gates.
 
-``_correction`` holds delta-pose and plane corrections and is applied on top of the
-published pose every frame.  It is the identity here; :meth:`compute_warps` is the slot
-where a future refiner (photometric or bundle-adjustment) will optimise it on the slow
-thread.  That split is deliberate: poses change every frame, so the geometric solve must
-run inline at frame rate, but pose *corrections* (GNSS bias) drift slowly and belong at
-the warp thread's cadence.
+``_correction`` holds plane and delta-pose corrections applied on top of the published
+pose every frame.  Both are estimated by :meth:`compute_warps` on the warp thread, and
+each is independently switchable from Unity (``planarPlaneSweep`` / ``planarPoseRefine``).
+That split is deliberate: poses change every frame, so the geometric solve must run
+inline at frame rate, but the *corrections* drift slowly and belong at the warp thread's
+cadence.
+
+The two estimators are complementary rather than alternative, because they move
+different parameters:
+
+``_correction["plane"]`` -- **plane sweep**, one global scalar: an additive offset on the
+published plane distance, chosen by scanning candidate offsets and keeping the one that
+minimises photometric disagreement between views.  A plane-distance error appears in each
+view as a *scale* about its own footprint, so no per-view translation can absorb it; this
+is the only thing that can.  Correspondingly it can only fix errors that are common to
+the whole formation -- there is one of it, so it cannot make drone 3 agree with drones 2
+and 4 at the same time.
+
+``_correction["dpose"]`` -- **pose refiner**, two DoF per view: a per-drone canvas-plane
+translation, recovered by phase-correlating each view against the consensus of the
+others.  Differential GNSS error and compass bias both appear as a lateral shift of that
+view's footprint (a yaw error rotates the ray bundle, which at a facade is dominantly a
+translation plus a second-order keystone), so one translation absorbs the bulk of both.
+It cannot represent scale -- hence the sweep -- nor the keystone from a gimbal-pitch bias.
+
+They are complementary but not fully separable.  A depth error dilates each view's
+content about that view's own footprint, and averaged over the overlap that is a
+*convergent* translation field -- so a convergent set of per-drone position errors is
+indistinguishable from a plane-depth error by any amount of image evidence.  Measured on
+a symmetric formation with such an error, the sweep moves the plane and buys nothing
+(``tools/planar_selftest.py`` asserts exactly that, so it cannot be "fixed" by accident),
+while the refiner still recovers most of it.  The practical guidance: turn the sweep on
+when the *plane* is the thing you are unsure of -- a facade distance drawn off a map, or
+a raycast onto geometry that may not be there -- and leave it off when per-drone position
+error dominates.  With both on, the views are still driven into mutual agreement; what is
+not identifiable is which parameter deserved the credit, which shows up as a clean mosaic
+at a slightly wrong absolute scale rather than as a visible seam.
+
+Both estimators are *gated*, not trusted: the sweep rejects candidates whose overlap
+collapses, and the refiner rejects any view whose correlation peak is not clearly
+dominant.  Be precise about what that second gate buys, because it is easy to overclaim:
+it rejects an individual *measurement* that has no clear answer -- most usefully in the
+first passes, while the consensus is still made of misaligned views -- and together with
+``refine_max_shift`` it bounds how far one bad measurement can move a patch.  It is not a
+guarantee against a repetitive facade: run to convergence, a periodic scene can settle
+into a self-consistent solution shifted by a whole period, and at that point every view
+genuinely does agree with every other, so no per-measurement confidence test can see it.
+What protects against that is the clamp plus the fact that the correction is a residual
+on top of a pose that is already roughly right.
 """
 
 import time
@@ -85,7 +128,7 @@ DEBUG_PALETTE = [
 ]
 
 # How far TINT pulls a pixel toward its view's colour.
-DEBUG_TINT_STRENGTH = 0.45
+DEBUG_TINT_STRENGTH = 0.22
 
 # Bit 0 of the block header's poseStatus: Unity sets it on every pose it actually
 # writes. Mirrors POSE_VALID in PyUniSharingFast.cs / StitcherThreading.py.
@@ -139,14 +182,43 @@ class PlanarStitcher(BaseStitcher):
         self.render_device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
 
-        # Refiner slot. dpose is per-view (rotation, translation) corrections in the
-        # camera frame; plane is a (normal, d) override. Identity for now.
+        # Estimated corrections, applied on top of the published pose every frame.
+        #   "plane" : float, additive metres on the published plane distance
+        #   "dpose" : {drone_id: (dR, dC)} in right-handed world
+        # Rebound as a whole new dict by compute_warps, never mutated in place: the
+        # render thread reads it without a lock, so it must see one consistent
+        # generation rather than a half-updated one.
         self._correction = {"dpose": None, "plane": None}
 
         # Cached canvas pixel grid, keyed on canvas size: the only thing that changes
         # between frames is the homography, so this is built once.
+        #
+        # The estimators get their OWN cache rather than sharing this one. Their canvas
+        # is a different size, so a single cache would miss on every call and rebuild the
+        # grid twice per frame -- and it would be doing that from two threads onto one
+        # pair of attributes, which is a race as well as a waste.
         self._grid_key = None
         self._grid = None
+        self._est_grid_key = None
+        self._est_grid = None
+        self._hann_key = None
+        self._hann = None
+
+        # Latest-wins snapshot published by planar_pano for the warp thread. One
+        # attribute rebind, so the reader gets a whole frame or the previous one -- the
+        # same mailbox discipline the shared-memory producers use.
+        self._frame_snapshot = None
+
+        # Estimator state (warp thread only).
+        self._plane_offset = 0.0        # low-passed sweep result, metres
+        # drone_id -> low-passed camera-centre correction, right-handed WORLD metres.
+        # Deliberately not stored in plane coordinates: the plane frame's e1 comes from
+        # the reference camera's right axis, so it rotates when the reference drone yaws
+        # or is re-elected, and a stored (a, b) would then silently mean something
+        # different from the value that was measured.
+        self._pose_shift = {}
+        self._sweep_stats = {}
+        self._refine_stats = {}
 
         self._plane_invalid_since = None
         self._unposed = 0
@@ -220,6 +292,13 @@ class PlanarStitcher(BaseStitcher):
         if pano is None:
             return None, False, REASON_CANVAS
 
+        # Hand this frame to the warp thread. Published only once a frame has actually
+        # rendered, so the estimators never run on geometry the render path itself
+        # rejected. One rebind of one attribute: the reader takes a whole frame or the
+        # previous one, never a mixture.
+        if config.get("plane_sweep", False) or config.get("pose_refine", False):
+            self._frame_snapshot = (views, K, plane, config)
+
         self._last_stats = {
             "views": len(kept),
             "dropped": len(cams) - len(kept),
@@ -252,23 +331,475 @@ class PlanarStitcher(BaseStitcher):
 
     def compute_warps(self):
         """
-        Refiner slot, run on the warp thread.
+        Estimate ``_correction`` on the warp thread.
 
-        Intentionally a no-op: the planar geometric solve costs microseconds and runs
-        inline in :meth:`planar_pano` every frame, because the poses it consumes change
-        every frame -- deferring it here would reintroduce exactly the pose lag the
-        per-block pose snapshot exists to remove.  What belongs on this thread is
-        estimating ``_correction`` (photometric alignment or a 2-DoF-landmark bundle
-        adjustment), since pose *corrections* are slowly varying even though poses are not.
+        The geometric solve itself is *not* here: it costs microseconds and runs inline
+        in :meth:`planar_pano` every frame, because the poses it consumes change every
+        frame -- deferring it would reintroduce exactly the pose lag the per-block pose
+        snapshot exists to remove.  What runs here is the estimation of the slowly-varying
+        corrections on top of those poses.
+
+        The two estimators are independently switchable and share one warped stack per
+        pass, since both need the same thing: every view resampled into a common canvas.
+        With both off this costs one sleep, matching the previous no-op behaviour.
         """
-        time.sleep(0.1)
+        snapshot = self._frame_snapshot
+        if snapshot is None:
+            time.sleep(0.1)
+            return
+
+        views, K, plane, config = snapshot
+        do_sweep = bool(config.get("plane_sweep", False))
+        do_refine = bool(config.get("pose_refine", False))
+        if not (do_sweep or do_refine):
+            # Let a correction estimated before the flag was cleared decay out rather
+            # than stay frozen in the geometry: switching an estimator off in the
+            # inspector should visibly return to the raw published pose.
+            if self._plane_offset != 0.0 or self._pose_shift:
+                self._plane_offset = 0.0
+                self._pose_shift = {}
+                self._sweep_stats = {}
+                self._refine_stats = {}
+                self._correction = {"dpose": None, "plane": None}
+            time.sleep(0.1)
+            return
+
+        try:
+            if do_sweep:
+                self._sweep_plane(views, K, plane, config)
+            else:
+                self._plane_offset = 0.0
+                self._sweep_stats = {}
+
+            if do_refine:
+                self._refine_poses(views, K, plane, config)
+            else:
+                self._pose_shift = {}
+                self._refine_stats = {}
+        finally:
+            # One rebind, so a render mid-update sees either generation whole. Built even
+            # on failure, or a half-applied estimate would persist into the next frame.
+            self._correction = {
+                "plane": self._plane_offset if do_sweep else None,
+                "dpose": self._pose_to_dpose() if do_refine else None,
+            }
+
+        # The estimators are cheap (a handful of reduced-resolution warps); without a
+        # floor this thread would spin on the same snapshot at hundreds of Hz and steal
+        # the GPU from the render loop it shares a device and a GIL with.
+        time.sleep(0.05)
+
+    def _pose_to_dpose(self):
+        """Per-view world corrections -> the ``{drone_id: (dR, dC)}`` shape."""
+        if not self._pose_shift:
+            return None
+        return {did: (None, dC) for did, dC in self._pose_shift.items()}
+
+    # ------------------------------------------------------------------ estimators
+
+    # Canvas downscale for the estimator passes. The corrections are sub-metre
+    # quantities over a canvas tens of metres across, so a quarter-resolution canvas
+    # still resolves them to well under a source pixel -- and it cuts the sweep's cost
+    # by 16x, which is what keeps this off the render loop's GPU budget.
+    ESTIMATOR_SCALE = 0.25
+
+    # A candidate whose multi-covered area falls below this fraction of the incumbent's
+    # is rejected outright. Photometric cost is a mean over overlapping pixels, so a
+    # depth that shrinks the overlap to a small well-aligned patch would otherwise win
+    # by destroying the very evidence it is scored on.
+    SWEEP_MIN_OVERLAP_RATIO = 0.6
+
+    # Correlation peak must beat the best rival outside its own neighbourhood by this
+    # much. Chiefly this refuses measurements taken against a consensus that is itself
+    # still a blur of misaligned views -- in the first pass over a badly-posed formation
+    # most views fail it, and they start passing as the correction converges. See the
+    # module docstring for what it does *not* protect against.
+    REFINE_MIN_PEAK_RATIO = 1.25
+
+    def _sweep_plane(self, views, K, plane, config):
+        """
+        One global scalar: the additive plane-distance offset that best aligns the views.
+
+        Scans ``sweep_steps`` candidates spanning +/- ``sweep_range`` metres around the
+        *current* estimate, then fits a parabola through the best sample and its two
+        neighbours so the result is not quantised to the step size.  Brute force rather
+        than gradient descent on purpose: the cost is a 1-D curve over a bounded interval
+        with one broad minimum, so a scan cannot diverge or find a spurious local
+        optimum, and its cost is fixed and predictable -- which matters on a thread that
+        shares a GPU with the render loop.
+        """
+        span = float(config.get("sweep_range", 0.0))
+        steps = int(config.get("sweep_steps", 0))
+        if span <= 0.0 or steps < 3:
+            self._sweep_stats = {"skipped": "range/steps not set"}
+            return
+
+        # Odd count so the incumbent estimate is always itself a candidate: without it a
+        # converged sweep dithers between the two samples straddling the true value.
+        if steps % 2 == 0:
+            steps += 1
+
+        centre = self._plane_offset
+        offsets = np.linspace(centre - span, centre + span, steps)
+
+        costs, areas = [], []
+        for off in offsets:
+            cost, area = self._photometric_cost(views, K, plane, config, float(off))
+            costs.append(cost)
+            areas.append(area)
+
+        costs = np.asarray(costs, dtype=np.float64)
+        areas = np.asarray(areas, dtype=np.float64)
+
+        # Score only candidates that still have enough overlap to have been scored
+        # fairly, measured against the best-covered candidate rather than an absolute
+        # area (the formation's own spread sets what "full overlap" even means).
+        ref_area = float(areas.max()) if areas.size else 0.0
+        usable = np.isfinite(costs) & (areas >= self.SWEEP_MIN_OVERLAP_RATIO * ref_area)
+        if ref_area <= 0.0 or not np.any(usable):
+            self._sweep_stats = {"skipped": "no candidate had usable overlap"}
+            return
+
+        masked = np.where(usable, costs, np.inf)
+        i = int(np.argmin(masked))
+        best = float(offsets[i])
+
+        # Sub-step refinement, but only from an interior sample flanked by two usable
+        # ones -- a parabola through an edge sample extrapolates outside the scanned
+        # interval, which is precisely where nothing was measured.
+        if 0 < i < steps - 1 and usable[i - 1] and usable[i + 1]:
+            c0, c1, c2 = masked[i - 1], masked[i], masked[i + 1]
+            denom = c0 - 2.0 * c1 + c2
+            if denom > 1e-12:
+                step = float(offsets[1] - offsets[0])
+                best += 0.5 * step * float(c0 - c2) / denom
+
+        rate = float(config.get("refine_rate", 0.25))
+        rate = min(1.0, max(0.0, rate))
+        self._plane_offset = (1.0 - rate) * self._plane_offset + rate * best
+
+        self._sweep_stats = {
+            "offset": self._plane_offset,
+            "raw": best,
+            "cost": float(masked[i]),
+            "cost_span": float(np.nanmax(masked[np.isfinite(masked)]) - masked[i]),
+            "usable": int(usable.sum()),
+            "steps": steps,
+        }
+
+    def _refine_poses(self, views, K, plane, config):
+        """
+        Two DoF per view: the canvas-plane translation aligning each view to the others.
+
+        Each view is phase-correlated against the mean of every *other* view over the
+        region they share.  Leave-one-out rather than against the finished mosaic,
+        because under winner-take-all a view *is* the mosaic wherever it wins, so
+        correlating against the blend would compare a view largely against itself and
+        report a confident zero shift.
+        """
+        # Explicitly the offset the sweep just produced, not the one still sitting in
+        # _correction: that is only rebound at the end of compute_warps, so reading it
+        # here would measure the pose residual against last pass's plane and leave the
+        # two estimators permanently one generation out of step.
+        frame, cams, M_s, cw, ch, mpp_s = self._estimator_geometry(
+            views, K, plane, config, plane_offset=self._plane_offset)
+        if frame is None or len(cams) < 2:
+            self._refine_stats = {"skipped": "fewer than 2 usable views"}
+            return
+
+        grey, valid = self._warp_grey(cams, M_s, cw, ch)
+        n, ch_c, cw_c = grey.shape
+
+        # Exposure differs per aircraft (independent auto-exposure on real drones), and
+        # phase correlation is only invariant to it once the DC term is removed.
+        count = valid.sum(dim=0, keepdim=True)
+        shared = count >= 2
+        grey = self._zero_mean(grey, valid & shared)
+
+        max_shift_m = float(config.get("refine_max_shift", 0.0))
+        rate = min(1.0, max(0.0, float(config.get("refine_rate", 0.25))))
+
+        raw, rejected = {}, 0
+        for i in range(n):
+            other_valid = valid.clone()
+            other_valid[i] = False
+            other_count = other_valid.sum(dim=0)
+            both = valid[i] & (other_count > 0) & shared[0]
+            if int(both.sum().item()) < 4096:
+                rejected += 1
+                continue
+
+            consensus = (grey * other_valid).sum(dim=0) / other_count.clamp_min(1)
+
+            # Apodise, do not just mask. Multiplying both inputs by the same hard mask
+            # correlates the *mask* as well as the imagery, and the mask is identical in
+            # both -- so it contributes a large peak at zero shift no matter what the
+            # pixels say. That both biases the estimate toward "no correction needed" and
+            # defeats the confidence gate, because the spurious peak is always dominant.
+            # Softening the mask edge and tapering the canvas boundary leaves the peak
+            # determined by image content, which is the only thing that carries the
+            # answer.
+            win = self._soften(both) * self._hann_window(ch_c, cw_c)
+            dx, dy, ratio = self._phase_shift(grey[i] * win, consensus * win)
+            if ratio < self.REFINE_MIN_PEAK_RATIO:
+                rejected += 1
+                continue
+
+            # Two sign flips, both easy to get backwards -- hence the end-to-end
+            # assertion in tools/planar_selftest.py rather than trust in this comment:
+            #   1. _phase_shift reports where view i sits *relative to* the consensus,
+            #      so the correction that moves it back is the negation.
+            #   2. canvas rows grow downward while e2 points up the plane (the -s in
+            #      canvas_to_plane_matrix), so the y axis flips again on the way out.
+            # The two cancel on b and compose on a.
+            da, db = -dx * mpp_s, dy * mpp_s
+            if max_shift_m > 0.0 and (da * da + db * db) > max_shift_m * max_shift_m:
+                rejected += 1
+                continue
+            raw[cams[i]["view"]["drone_id"]] = da * frame.e1 + db * frame.e2
+
+        if not raw:
+            self._refine_stats = {"skipped": f"all {n} views rejected"}
+            return
+
+        # Gauge fix. Every view's shift is free, so the whole set can slide together and
+        # cost nothing photometrically -- the mosaic would then wander off the plane
+        # frame over successive updates while every pairwise alignment stayed perfect.
+        # Removing the mean pins that one unobservable direction.
+        mean = sum(raw.values()) / len(raw)
+
+        # These are RESIDUALS, not absolute corrections: _build_geometry already applied
+        # the standing correction before this stack was warped, so what was just measured
+        # is what is still left over. Accumulate; do not overwrite, or the correction can
+        # never converge past one step's worth and instead oscillates around the error.
+        shifts = {}
+        for did, dC in raw.items():
+            prev = self._pose_shift.get(did)
+            total = (dC - mean) * rate
+            if prev is not None:
+                total = prev + total
+            if max_shift_m > 0.0:
+                mag = float(np.linalg.norm(total))
+                if mag > max_shift_m:
+                    total = total * (max_shift_m / mag)
+            shifts[did] = total
+
+        # Views that dropped out of the selection drop out of the correction too, or a
+        # drone that returns is warped by an offset measured minutes ago against a
+        # formation that has since moved.
+        self._pose_shift = shifts
+        self._refine_stats = {
+            "accepted": len(shifts),
+            "rejected": rejected,
+            "worst_shift": max(float(np.linalg.norm(v)) for v in shifts.values()),
+            "worst_residual": max(float(np.linalg.norm(v - mean)) for v in raw.values()),
+        }
+
+    # ------------------------------------------------------------------ estimator internals
+
+    def _estimator_geometry(self, views, K, plane, config, plane_offset=None,
+                            apply_dpose=True):
+        """
+        Geometry for one estimator pass, on a canvas reduced by ``ESTIMATOR_SCALE``.
+
+        The canvas covers the same *plane extent* as the render canvas but with fewer
+        pixels, so metres-per-pixel grows by the inverse of the scale -- shrinking the
+        pixel count without shrinking the field of view, which is what keeps the two
+        estimators looking at the same overlap the render path does.
+        """
+        canvas_w, canvas_h = config["canvas"]
+        mpp = float(config.get("metres_per_pixel", 0.0))
+        if canvas_w <= 0 or canvas_h <= 0 or mpp <= 0.0:
+            return None, [], None, 0, 0, 0.0
+
+        frame, cams = self._build_geometry(views, K, plane, config,
+                                           plane_offset=plane_offset,
+                                           apply_dpose=apply_dpose)
+        if frame is None:
+            return None, [], None, 0, 0, 0.0
+
+        cw = max(16, int(canvas_w * self.ESTIMATOR_SCALE))
+        ch = max(16, int(canvas_h * self.ESTIMATOR_SCALE))
+        mpp_s = mpp * (canvas_w / float(cw))
+        M_s = pg.canvas_to_plane_matrix(mpp_s, cw * 0.5, ch * 0.5)
+        return frame, cams, M_s, cw, ch, mpp_s
+
+    def _warp_grey(self, cams, M, canvas_w, canvas_h):
+        """
+        Warp every view into the estimator canvas as greyscale.
+
+        Returns ``(grey [N,H,W] float32, valid [N,H,W] bool)``.  A lean sibling of
+        :meth:`_render`: no blending, no debug overlay, no colour -- the estimators score
+        agreement between views, and all three of those would only add cost and, in the
+        blend's case, mix the very views being compared.
+        """
+        dev = self.render_device
+        grid = self._estimator_grid(canvas_w, canvas_h)
+        src_h, src_w = cams[0]["view"]["image"].shape[:2]
+
+        H_stack = torch.from_numpy(
+            np.stack([pg.homography_canvas_to_image(c["G"], M)
+                      for c in cams]).astype(np.float32)).to(dev)
+
+        uvw = torch.matmul(H_stack, grid)
+        w = uvw[:, 2]
+        valid_depth = w > 1e-6
+        w_safe = torch.where(valid_depth, w, torch.ones_like(w))
+        u, v = uvw[:, 0] / w_safe, uvw[:, 1] / w_safe
+        valid = (valid_depth & (u >= 0) & (u <= src_w - 1)
+                 & (v >= 0) & (v <= src_h - 1))
+
+        imgs = torch.from_numpy(
+            np.stack([c["view"]["image"] for c in cams])).to(dev)
+        grey = imgs.permute(0, 3, 1, 2).float().mean(dim=1, keepdim=True)
+
+        flow = torch.stack([2.0 * u / (src_w - 1) - 1.0,
+                            2.0 * v / (src_h - 1) - 1.0], dim=-1)
+        flow = flow.view(len(cams), canvas_h, canvas_w, 2)
+
+        # float32 throughout: phase correlation takes an FFT of this, and fp16 rounding
+        # on a near-flat facade costs more accuracy than the sampling speed is worth.
+        warped = F.grid_sample(grey, flow, mode="bilinear",
+                               padding_mode="zeros", align_corners=True)
+        return warped[:, 0], valid.view(len(cams), canvas_h, canvas_w)
+
+    # Width of the box blur that softens the overlap mask, in estimator-canvas pixels.
+    # Wide enough that the mask edge stops looking like a step to the FFT, narrow enough
+    # that it does not eat the overlap on a small shared region.
+    MASK_SOFTEN_PX = 9
+
+    @staticmethod
+    def _soften(mask, k=MASK_SOFTEN_PX):
+        """0/1 mask -> smooth window. Two box passes ~ a triangular roll-off."""
+        m = mask.float().unsqueeze(0).unsqueeze(0)
+        m = F.avg_pool2d(m, k, stride=1, padding=k // 2)
+        m = F.avg_pool2d(m, k, stride=1, padding=k // 2)
+        return m[0, 0]
+
+    def _hann_window(self, h, w):
+        """Separable Hann over the canvas, cached. Tapers the canvas boundary itself."""
+        key = (h, w, str(self.render_device))
+        if getattr(self, "_hann_key", None) == key:
+            return self._hann
+        wy = torch.hann_window(h, periodic=False, device=self.render_device)
+        wx = torch.hann_window(w, periodic=False, device=self.render_device)
+        self._hann_key, self._hann = key, wy[:, None] * wx[None, :]
+        return self._hann
+
+    @staticmethod
+    def _zero_mean(grey, mask):
+        """Per-view DC removal over ``mask``, so exposure differences do not score."""
+        m = mask.float()
+        count = m.sum(dim=(1, 2)).clamp_min(1.0)
+        mean = (grey * m).sum(dim=(1, 2)) / count
+        return (grey - mean.view(-1, 1, 1)) * m
+
+    def _photometric_cost(self, views, K, plane, config, plane_offset):
+        """
+        Disagreement between views at one candidate plane offset.
+
+        Returns ``(cost, area)``: the mean across-view variance over pixels at least two
+        views cover, and how many such pixels there were.  Variance across all covering
+        views rather than the pairwise PSNR ``_render`` logs -- that one is O(N^2) with a
+        GPU sync per pair, and this runs once per sweep candidate.
+
+        Each view is DC-removed over the shared region first, so the cost measures
+        *misalignment* rather than the exposure differences between aircraft.
+        """
+        # apply_dpose=False: see _build_geometry. The plane must be measured against the
+        # published poses, or the refiner's absorption of part of the depth error hides
+        # exactly what this is trying to find.
+        frame, cams, M_s, cw, ch, _ = self._estimator_geometry(
+            views, K, plane, config, plane_offset=plane_offset, apply_dpose=False)
+        if frame is None or len(cams) < 2:
+            return float("inf"), 0.0
+
+        grey, valid = self._warp_grey(cams, M_s, cw, ch)
+        count = valid.sum(dim=0)
+        shared = count >= 2
+        area = float(shared.sum().item())
+        if area < 1024:
+            return float("inf"), area
+
+        grey = self._zero_mean(grey, valid & shared.unsqueeze(0))
+        m = (valid & shared.unsqueeze(0)).float()
+        denom = m.sum(dim=0).clamp_min(1.0)
+        mean = (grey * m).sum(dim=0) / denom
+        var = ((grey - mean) ** 2 * m).sum(dim=0) / denom
+        return float(var[shared].mean().item()), area
+
+    @staticmethod
+    def _phase_shift(a, b):
+        """
+        Shift ``(dx, dy)`` in pixels that moves ``a`` onto ``b``, plus a confidence.
+
+        Normalised cross-power spectrum: the phase of ``A * conj(B)`` carries the
+        translation alone, so a pure shift gives a single sharp delta regardless of image
+        content or contrast.  Confidence is the peak divided by the largest rival outside
+        its immediate neighbourhood; it reads near 1.0 when no shift explains the pair
+        better than any other, which is the case worth throwing away.
+
+        The shift is quantised to whole pixels of the estimator canvas.  That is not a
+        precision limit in practice: the estimator canvas is coarse but the correction is
+        re-measured as a *residual* every pass, so the accumulated value converges well
+        inside one of its pixels.
+
+        The sign convention is fixed by ``tools/planar_selftest.py``, which injects a
+        known offset and asserts it is recovered; it is far too easy to get backwards by
+        reasoning alone.
+        """
+        h, w = a.shape
+        A = torch.fft.rfft2(a)
+        B = torch.fft.rfft2(b)
+        R = A * B.conj()
+        R = R / R.abs().clamp_min(1e-9)
+        corr = torch.fft.irfft2(R, s=(h, w))
+
+        flat = corr.reshape(-1)
+        peak_idx = int(torch.argmax(flat).item())
+        peak = float(flat[peak_idx].item())
+        py, px = divmod(peak_idx, w)
+
+        # Second peak, with the winner's neighbourhood masked out so its own shoulder
+        # does not count as the rival.
+        rival = corr.clone()
+        r = max(2, min(h, w) // 32)
+        ys = [(py + dy) % h for dy in range(-r, r + 1)]
+        xs = [(px + dx) % w for dx in range(-r, r + 1)]
+        rival[torch.tensor(ys, device=corr.device).unsqueeze(1),
+              torch.tensor(xs, device=corr.device).unsqueeze(0)] = float("-inf")
+        second = float(rival.max().item())
+
+        ratio = float("inf") if second <= 1e-9 else peak / max(second, 1e-9)
+
+        # Wrap to signed: the correlation is circular, so a peak past the midpoint is a
+        # negative shift, not a large positive one.
+        dy = py - h if py > h // 2 else py
+        dx = px - w if px > w // 2 else px
+        return float(dx), float(dy), ratio
 
     # ------------------------------------------------------------------ geometry
 
-    def _build_geometry(self, views, K, plane, config):
+    def _build_geometry(self, views, K, plane, config, plane_offset=None,
+                        apply_dpose=True):
         """
         Convert Unity poses to CV convention, build the plane frame, and compute G per
         view.  Returns ``(PlaneFrame | None, [cam dicts])``.
+
+        ``plane_offset`` overrides the stored sweep correction with an explicit additive
+        offset in metres -- that is how the sweep evaluates a candidate without
+        disturbing the correction the render path is currently using.  ``None`` means
+        "use the stored one", which is what the render path passes.
+
+        ``apply_dpose=False`` ignores the refiner's per-view corrections.  Only the sweep
+        passes this, and it is what keeps the two estimators from fighting: a plane-depth
+        error appears in any view whose footprint is off-centre as a local *translation*,
+        so the refiner will happily absorb part of it: measured on already-refined
+        geometry the sweep then sees an error the refiner has hidden, and can be driven
+        the wrong way entirely.  Measuring the plane on raw poses keeps the sweep
+        unbiased by whatever the refiner has done; the per-drone errors it does not
+        correct for shift every candidate's cost about equally and so do not move the
+        minimum.
         """
         posed = [v for v in views if pose_is_usable(v)]
         self._unposed = len(views) - len(posed)
@@ -280,6 +811,13 @@ class PlanarStitcher(BaseStitcher):
             return None, []
         n = n / np.linalg.norm(n)
         d = float(plane["plane_d"])
+
+        # Additive, not absolute: Unity's raycast keeps tracking the facade as the swarm
+        # flies, and the sweep estimates only the slowly-varying residual on top of it.
+        # An absolute override would freeze the plane at whatever the sweep last saw.
+        if plane_offset is None:
+            plane_offset = self._correction.get("plane") or 0.0
+        d += float(plane_offset)
 
         # Reference view = the drone Unity nominated as the centre of the swarming plane
         # (SelectPlanarCentreCamera).  The canvas origin and axes are built from it, so a
@@ -316,7 +854,8 @@ class PlanarStitcher(BaseStitcher):
         cams = []
         for v in posed:
             R, C = pg.unity_pose_to_cv(v["pos"], v["quat"])
-            R, C = self._apply_correction(v, R, C)
+            if apply_dpose:
+                R, C = self._apply_correction(v, R, C)
 
             # Reject views that cannot see the plane at all before doing any work.
             _, rng = pg.ray_plane_intersect(C, R[2], n, d, max_range=max_range)
@@ -338,7 +877,14 @@ class PlanarStitcher(BaseStitcher):
         return frame, cams
 
     def _apply_correction(self, view, R, C):
-        """Apply the refiner's delta-pose. Identity until compute_warps estimates one."""
+        """
+        Apply the refiner's delta-pose.  Identity until compute_warps estimates one.
+
+        ``dR`` may be ``None``: the current refiner estimates translation only, and a
+        None here means "no rotation correction" rather than costing an identity matmul
+        per view per frame.  The slot is kept so a rotation-capable refiner can fill it
+        without changing this call site.
+        """
         dpose = self._correction.get("dpose")
         if dpose is None:
             return R, C
@@ -346,24 +892,37 @@ class PlanarStitcher(BaseStitcher):
         if delta is None:
             return R, C
         dR, dC = delta
-        return dR @ R, C + dC
+        if dR is not None:
+            R = dR @ R
+        return R, C if dC is None else C + dC
 
     # ------------------------------------------------------------------ render
+
+    def _make_grid(self, canvas_w, canvas_h):
+        ys, xs = torch.meshgrid(
+            torch.arange(canvas_h, dtype=torch.float32, device=self.render_device),
+            torch.arange(canvas_w, dtype=torch.float32, device=self.render_device),
+            indexing="ij")
+        return torch.stack([xs.reshape(-1), ys.reshape(-1),
+                            torch.ones(canvas_h * canvas_w, dtype=torch.float32,
+                                       device=self.render_device)], dim=0)
 
     def _canvas_grid(self, canvas_w, canvas_h):
         """Homogeneous canvas pixel grid ``[3, H*W]``, cached per canvas size."""
         key = (canvas_w, canvas_h, str(self.render_device))
         if self._grid_key == key:
             return self._grid
-
-        ys, xs = torch.meshgrid(
-            torch.arange(canvas_h, dtype=torch.float32, device=self.render_device),
-            torch.arange(canvas_w, dtype=torch.float32, device=self.render_device),
-            indexing="ij")
-        grid = torch.stack([xs.reshape(-1), ys.reshape(-1),
-                            torch.ones(canvas_h * canvas_w, dtype=torch.float32,
-                                       device=self.render_device)], dim=0)
+        grid = self._make_grid(canvas_w, canvas_h)
         self._grid_key, self._grid = key, grid
+        return grid
+
+    def _estimator_grid(self, canvas_w, canvas_h):
+        """As :meth:`_canvas_grid`, on the warp thread's own cache. See ``__init__``."""
+        key = (canvas_w, canvas_h, str(self.render_device))
+        if self._est_grid_key == key:
+            return self._est_grid
+        grid = self._make_grid(canvas_w, canvas_h)
+        self._est_grid_key, self._est_grid = key, grid
         return grid
 
     def _render(self, cams, canvas_w, canvas_h, config, M):
@@ -565,6 +1124,30 @@ class PlanarStitcher(BaseStitcher):
               f"coverage {s.get('coverage', 0):.0%} | "
               f"mean range {s.get('mean_range', 0):.1f} m | "
               f"max anisotropy {s.get('max_aniso', 0):.2f} | overlap PSNR {psnr_txt}")
+
+        # Estimator state. Printed only when the corresponding flag is on, so the line
+        # stays short in the default pose-only configuration -- and so that "no
+        # correction line" unambiguously means "the estimator is off" rather than
+        # "the estimator ran and found nothing".
+        sweep, refine = self._sweep_stats, self._refine_stats
+        if sweep:
+            if "skipped" in sweep:
+                print(f"[PLANAR] plane sweep idle: {sweep['skipped']}")
+            else:
+                print(f"[PLANAR] plane sweep: {sweep['offset']:+.2f} m "
+                      f"(raw {sweep['raw']:+.2f}) | {sweep['usable']}/{sweep['steps']} "
+                      f"candidates usable | cost drop {sweep['cost_span']:.1f}")
+        if refine:
+            if "skipped" in refine:
+                print(f"[PLANAR] pose refine idle: {refine['skipped']}")
+            else:
+                # Residual is the convergence read-out: it should fall toward zero as
+                # the accumulated correction absorbs the error. A residual that stays
+                # high while the correction grows means the two are fighting.
+                print(f"[PLANAR] pose refine: {refine['accepted']} accepted, "
+                      f"{refine['rejected']} rejected (weak peak) | "
+                      f"worst correction {refine['worst_shift']:.2f} m | "
+                      f"residual {refine['worst_residual']:.3f} m")
 
         # A colour map is useless without the key, and the selection changes as drones
         # join, die or fall out of range -- so reprint it alongside the stats rather

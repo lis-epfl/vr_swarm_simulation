@@ -165,6 +165,36 @@ class Camera:
 _failures = []
 
 
+def make_bare_stitcher(ps_mod, torch):
+    """
+    A PlanarStitcher with no BaseStitcher constructor run.
+
+    ``__new__`` rather than ``__init__`` on purpose: BaseStitcher's constructor downloads
+    and loads a SuperPoint model, which none of these tests need and none should require
+    a network for.  The cost is that every attribute the render or estimator paths touch
+    has to be populated here -- so it lives in one helper rather than being copied into
+    each test, where the copies would silently drift out of date the next time
+    ``__init__`` gains a field.
+    """
+    s = ps_mod.PlanarStitcher.__new__(ps_mod.PlanarStitcher)
+    s.render_device = torch.device("cpu")   # deterministic; the fp16 CUDA path differs
+    s._correction = {"dpose": None, "plane": None}
+    s._grid_key = None
+    s._grid = None
+    s._est_grid_key = None
+    s._est_grid = None
+    s._frame_snapshot = None
+    s._plane_offset = 0.0
+    s._pose_shift = {}
+    s._sweep_stats = {}
+    s._refine_stats = {}
+    s._plane_invalid_since = None
+    s._unposed = 0
+    s._last_stats = {}
+    s._last_log = 1e18                      # suppress the periodic log line
+    return s
+
+
 def check(name, ok, detail=""):
     status = "PASS" if ok else "FAIL"
     print(f"  [{status}] {name}" + (f"  --  {detail}" if detail else ""))
@@ -485,14 +515,7 @@ def test_planar_stitcher_end_to_end():
         check("torch + PlanarStitcher importable", False, f"{e}")
         return
 
-    stitcher = ps_mod.PlanarStitcher.__new__(ps_mod.PlanarStitcher)
-    stitcher.render_device = torch.device("cpu")   # deterministic; fp16 CUDA path differs
-    stitcher._correction = {"dpose": None, "plane": None}
-    stitcher._grid_key = None
-    stitcher._grid = None
-    stitcher._plane_invalid_since = None
-    stitcher._last_stats = {}
-    stitcher._last_log = 1e18                      # suppress the periodic log line
+    stitcher = make_bare_stitcher(ps_mod, torch)
 
     W, H, vfov = 800, 450, 46.4
     altitude = 26.0
@@ -783,6 +806,382 @@ def test_blend_modes(stitcher, views, K, plane, config):
     print(f"       wrote {out}  (top = flat, bottom = tint)")
 
 
+# Textures for the estimator tests are deliberately larger than the swarm's combined
+# footprint (~50 x 32 m here, i.e. ~1000 x 650 texture px). A texture the views can see
+# the edge of hands the correlator a unique, unambiguous cue for free -- which quietly
+# turns the periodic-texture check into a test of the border rather than of the pattern.
+def make_unique_texture(h=1400, w=2000, seed=7):
+    """
+    Low-pass filtered noise: locally unique, so cross-correlation has one clear peak.
+
+    Deliberately NOT the checkerboard ``make_test_texture`` builds.  A periodic pattern
+    is the case the refiner is supposed to *refuse*, and it gets its own check below --
+    using it here would test the rejection path while claiming to test the accuracy one.
+    """
+    rng = np.random.default_rng(seed)
+    noise = rng.random((h, w)).astype(np.float32)
+    smooth = cv2.GaussianBlur(noise, (0, 0), 3.0)
+    smooth = (smooth - smooth.min()) / max(1e-9, smooth.ptp())
+    grey = (smooth * 235 + 10).astype(np.uint8)
+    return np.stack([grey] * 3, axis=-1)
+
+
+def make_periodic_texture(h=1400, w=2000, square=40):
+    """
+    A pure checkerboard: no markers, no border features, genuinely ambiguous.
+
+    Distinct from ``make_test_texture``, which adds a chiral L and a corner block
+    precisely so that mirrors and rotations are detectable -- those markers also make it
+    globally solvable, so it is the wrong tool for testing that ambiguity is refused.
+    This is the stand-in for a facade of identical windows.
+    """
+    yy, xx = np.mgrid[0:h, 0:w]
+    board = (((yy // square) + (xx // square)) % 2).astype(np.uint8) * 200 + 30
+    return np.stack([board] * 3, axis=-1)
+
+
+def _nadir_scene(texture, altitude=26.0, W=800, H=450, vfov=46.4,
+                 offsets=((0.0, 0.0), (-5.0, 0.0), (0.0, 5.0),
+                          (0.0, -5.0), (5.0, 0.0))):
+    """
+    Five nadir views over a textured ground plane at y = 0.
+
+    Returns ``(views, K, s_tex, plane)``.  Images are rendered from the TRUE poses; the
+    caller is free to publish something else in the view dicts, which is exactly how the
+    estimators get something to find.
+    """
+    K = intrinsics_from_unity(vfov, W, H)
+    th, tw = texture.shape[:2]
+    s_tex = altitude / float(K[1, 1])
+    n_unity = (0.0, 1.0, 0.0)
+    frame = pg.build_plane_frame(
+        pg.unity_dir_to_rh(n_unity), 0.0, pg.unity_point_to_rh((0.0, 0.0, 0.0)),
+        Camera((0.0, altitude, 0.0), euler_to_quat(90, 0, 0), vfov, W, H).right_rh)
+    M_tex = pg.canvas_to_plane_matrix(s_tex, tw / 2.0, th / 2.0)
+
+    views = []
+    for i, (dx, dz) in enumerate(offsets):
+        pos = (dx, altitude, dz)
+        quat = euler_to_quat(90.0, 0.0, 0.0)
+        cam = Camera(pos, quat, vfov, W, H)
+        H_tex = pg.homography_canvas_to_image(
+            pg.build_G(cam.K, cam.R_cv, cam.C, frame), M_tex)
+        views.append({
+            'slot': i, 'drone_id': i, 'heading': 0.0,
+            'image': cv2.warpPerspective(texture, H_tex, (W, H), flags=cv2.INTER_LINEAR),
+            'pos': pos, 'quat': tuple(float(c) for c in quat),
+            'capture_time': 0.0, 'pose_status': 3, 'cached': False,
+        })
+
+    plane = {"plane_normal": n_unity, "plane_d": 0.0, "plane_valid": True,
+             "plane_mode": 1, "gimbal_pitch": -90.0, "centre_drone_id": 0}
+    return views, K, s_tex, plane
+
+
+def _run_estimator(stitcher, views, intr, plane, config, passes):
+    """planar_pano (publishes the snapshot) then compute_warps, ``passes`` times."""
+    for _ in range(passes):
+        stitcher._plane_invalid_since = None
+        stitcher.planar_pano(views, intr, plane, config)
+        stitcher.compute_warps()
+
+
+def test_estimators():
+    """
+    The two warp-thread estimators, each against an error of known size.
+
+    Both are checked for what they fix *and* for what they must leave alone: the flags
+    are independent, so "sweep on" must not quietly produce a pose correction and vice
+    versa.  The accuracy checks use a locally-unique texture; the rejection check uses a
+    periodic one, which is the failure mode that matters on a real facade of identical
+    windows.
+    """
+    print("\n10. Warp-thread estimators (plane sweep + pose refiner)")
+    if cv2 is None:
+        check("cv2 available", False, "opencv not installed; skipped")
+        return
+    try:
+        import torch  # noqa: F401
+        import PlanarStitcher as ps_mod
+    except ImportError as e:
+        check("torch + PlanarStitcher importable", False, f"{e}")
+        return
+
+    texture = make_unique_texture()
+    views, K, s_tex, plane = _nadir_scene(texture)
+    intr = (K[0, 0], K[1, 1], K[0, 2], K[1, 2])
+    base_config = {
+        "canvas": (1000, 700), "metres_per_pixel": s_tex, "max_range": 200.0,
+        "feather_px": 40, "aniso_max": 12.0, "min_coverage": 0.2,
+        "pose_source": 0, "psnr_gate": False,
+        "blend_mode": ps_mod.BLEND_NEAREST, "debug_view": ps_mod.DEBUG_OFF,
+        "plane_sweep": False, "pose_refine": False,
+        "sweep_range": 4.0, "sweep_steps": 9,
+        "refine_rate": 1.0, "refine_max_shift": 3.0,
+    }
+
+    # --- both flags off: the estimators must not run at all ---------------------------
+    s = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s, views, intr, plane, base_config, passes=2)
+    check("both flags off leaves the correction identity",
+          s._correction == {"dpose": None, "plane": None}
+          and s._frame_snapshot is None,
+          f"correction={s._correction}, snapshot={'set' if s._frame_snapshot else 'None'}")
+
+    # --- plane sweep: recover a known plane-distance error -----------------------------
+    # Publish the ground 1.35 m too low. Not a whole number of sweep steps (range 4,
+    # 9 steps = 1.0 m apart), so this only passes if the parabolic sub-step fit works.
+    true_error = 1.35
+    wrong_plane = dict(plane, plane_d=-true_error)
+
+    s = make_bare_stitcher(ps_mod, torch)
+    cfg = dict(base_config, plane_sweep=True)
+    _run_estimator(s, views, intr, wrong_plane, cfg, passes=3)
+    found = s._correction.get("plane")
+    check("plane sweep recovers the plane-distance error",
+          found is not None and abs(found - true_error) < 0.2,
+          f"recovered {found:+.3f} m, injected {true_error:+.3f} m"
+          if found is not None else "no offset produced")
+    check("plane sweep alone produces no pose correction",
+          s._correction.get("dpose") is None,
+          f"dpose={s._correction.get('dpose')}")
+
+    # --- pose refiner: recover known per-drone position errors -------------------------
+    # In-plane only. The refiner has two DoF per view by construction, so a component
+    # along the plane normal is not observable to it and asserting on one would be
+    # testing a capability it does not claim.
+    # Chosen to sum to zero across the formation. The refiner removes the mean correction
+    # on purpose (a shift common to every view is unobservable, and leaving it in lets the
+    # mosaic wander), so a set of errors with a non-zero mean would leave the corrected
+    # mosaic rigidly translated from the reference -- and the image comparison further
+    # down would then be measuring that gauge rather than the alignment.
+    injected = {1: (0.6, 0.0, 0.0), 4: (-0.6, 0.0, 0.0),
+                2: (0.0, 0.0, 0.45), 3: (0.0, 0.0, -0.45)}
+    drifted = []
+    for v in views:
+        w = dict(v)
+        e = injected.get(v["drone_id"])
+        if e:
+            w["pos"] = (v["pos"][0] + e[0], v["pos"][1] + e[1], v["pos"][2] + e[2])
+        drifted.append(w)
+
+    s = make_bare_stitcher(ps_mod, torch)
+    cfg = dict(base_config, pose_refine=True)
+    _run_estimator(s, drifted, intr, plane, cfg, passes=6)
+    dpose = s._correction.get("dpose")
+
+    if not check("pose refiner produced corrections", dpose is not None,
+                 f"stats={s._refine_stats}"):
+        return
+    check("pose refiner alone produces no plane offset",
+          s._correction.get("plane") is None,
+          f"plane={s._correction.get('plane')}")
+
+    # Expected correction is minus the injected error, in right-handed world. Both sides
+    # are zero-meaned before comparing: the refiner deliberately removes the mean (a
+    # shift common to every view is unobservable and would let the mosaic wander), so an
+    # absolute comparison would be testing the gauge rather than the estimate.
+    want = {v["drone_id"]: -pg.unity_dir_to_rh(injected.get(v["drone_id"], (0.0, 0.0, 0.0)))
+            for v in views}
+    common = [d for d in want if d in dpose]
+    want_mean = sum(want[d] for d in common) / len(common)
+    got_mean = sum(dpose[d][1] for d in common) / len(common)
+    worst = max(float(np.linalg.norm((dpose[d][1] - got_mean) - (want[d] - want_mean)))
+                for d in common)
+    check("pose refiner recovers the per-drone error",
+          worst < 0.12,
+          f"worst residual {worst:.3f} m over {len(common)} views "
+          f"(injected up to {max(np.linalg.norm(v) for v in injected.values()):.2f} m)")
+    check("pose refiner leaves rotation alone (translation-only by design)",
+          all(dpose[d][0] is None for d in dpose), "dR is None for every view")
+
+    # --- the correction must actually improve the mosaic -------------------------------
+    # The numeric checks above could pass while the render path applied the correction
+    # with the wrong sign or in the wrong frame; only rendering catches that.
+    # The reference and the uncorrected mosaic must both come from stitchers with NO
+    # correction: `s` is carrying the one it just estimated, and rendering the true poses
+    # through it would apply the drift correction to undrifted views.
+    ref_pano, ok_ref, _ = _mosaic(make_bare_stitcher(ps_mod, torch),
+                                  views, intr, plane, base_config)
+    bad_pano, ok_bad, _ = _mosaic(make_bare_stitcher(ps_mod, torch),
+                                  drifted, intr, plane, base_config)
+    fixed_pano, ok_fix, _ = _mosaic(s, drifted, intr, plane, base_config)  # keeps _correction
+
+    if check("all three comparison mosaics rendered",
+             ok_ref and ok_bad and ok_fix, f"{ok_ref}/{ok_bad}/{ok_fix}"):
+        cover = (ref_pano.any(axis=2) & bad_pano.any(axis=2) & fixed_pano.any(axis=2))
+        er = cv2.erode(cover.astype(np.uint8), np.ones((21, 21), np.uint8)) > 0
+        if er.sum() > 5000:
+            def rmse(a, b):
+                return float(np.sqrt(((a[er].astype(np.float64)
+                                       - b[er].astype(np.float64)) ** 2).mean()))
+            before, after = rmse(bad_pano, ref_pano), rmse(fixed_pano, ref_pano)
+            check("applying the correction improves the mosaic",
+                  after < 0.6 * before,
+                  f"RMSE vs truth: {before:.1f} -> {after:.1f} (0-255)")
+        else:
+            check("enough shared coverage to compare", False, f"{er.sum()} px")
+
+    # --- the confidence gate must actually fire ----------------------------------------
+    # On the first pass the consensus is still a blur of misaligned views, so most
+    # measurements have no dominant peak. That is exactly what the gate is for, and a
+    # gate that never rejects anything is not a gate.
+    s_gate = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s_gate, drifted, intr, plane, dict(base_config, pose_refine=True),
+                   passes=1)
+    check("confidence gate rejects measurements with no dominant peak",
+          s_gate._refine_stats.get("rejected", 0) > 0,
+          f"pass 1: {s_gate._refine_stats.get('accepted')} accepted, "
+          f"{s_gate._refine_stats.get('rejected')} rejected")
+
+    # --- a periodic texture must not be made worse -------------------------------------
+    # Deliberately NOT "must be rejected": run to convergence a repetitive scene can
+    # settle into a self-consistent alignment that every view agrees with, and no
+    # per-measurement confidence test can detect that (see PlanarStitcher's docstring).
+    # The property that actually matters operationally is that the refiner does not
+    # degrade a mosaic it cannot improve.
+    checker = make_periodic_texture()
+    checker_views, K2, s_tex2, plane2 = _nadir_scene(checker)
+    intr2 = (K2[0, 0], K2[1, 1], K2[0, 2], K2[1, 2])
+    drifted2 = []
+    for v in checker_views:
+        w = dict(v)
+        e = injected.get(v["drone_id"])
+        if e:
+            w["pos"] = (v["pos"][0] + e[0], v["pos"][1] + e[1], v["pos"][2] + e[2])
+        drifted2.append(w)
+
+    cfg2 = dict(base_config, metres_per_pixel=s_tex2)
+    s2 = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s2, drifted2, intr2, plane2, dict(cfg2, pose_refine=True), passes=6)
+
+    ref2, ok_r2, _ = _mosaic(make_bare_stitcher(ps_mod, torch),
+                             checker_views, intr2, plane2, cfg2)
+    bad2, ok_b2, _ = _mosaic(make_bare_stitcher(ps_mod, torch),
+                             drifted2, intr2, plane2, cfg2)
+    fixed2, ok_f2, _ = _mosaic(s2, drifted2, intr2, plane2, cfg2)
+    if check("periodic-texture mosaics rendered", ok_r2 and ok_b2 and ok_f2,
+             f"{ok_r2}/{ok_b2}/{ok_f2}"):
+        cov2 = ref2.any(axis=2) & bad2.any(axis=2) & fixed2.any(axis=2)
+        er2 = cv2.erode(cov2.astype(np.uint8), np.ones((21, 21), np.uint8)) > 0
+        if er2.sum() > 5000:
+            def rmse2(a, b):
+                return float(np.sqrt(((a[er2].astype(np.float64)
+                                       - b[er2].astype(np.float64)) ** 2).mean()))
+            before2, after2 = rmse2(bad2, ref2), rmse2(fixed2, ref2)
+            check("a periodic texture is not made worse by the refiner",
+                  after2 <= before2 * 1.05,
+                  f"RMSE vs truth: {before2:.1f} -> {after2:.1f} "
+                  f"({s2._refine_stats.get('accepted')} accepted, "
+                  f"{s2._refine_stats.get('rejected')} rejected)")
+        else:
+            check("enough shared coverage on the checkerboard", False, f"{er2.sum()} px")
+
+    # --- both flags on -----------------------------------------------------------------
+    # The two estimators are separable only when the per-drone error has no dilation
+    # component. A plane-depth error scales each view's content about that view's own
+    # footprint, and averaged over the overlap that is a convergent translation field --
+    # so a convergent set of position errors is genuinely NOT distinguishable from a
+    # depth error by any amount of image evidence. Both cases are worth pinning: a
+    # separable one, where each estimator must land on its own quantity, and a degenerate
+    # one, where the split is arbitrary but the mosaic must still come out right.
+    def drift(base_views, errors):
+        out = []
+        for v in base_views:
+            w = dict(v)
+            e = errors.get(v["drone_id"])
+            if e:
+                w["pos"] = (v["pos"][0] + e[0], v["pos"][1] + e[1], v["pos"][2] + e[2])
+            out.append(w)
+        return out
+
+    # Shear: drones on the x arm displaced along z, in opposite directions. Zero-mean and
+    # pure rotation/shear, so it has no overlap with the dilation a depth error produces.
+    shear = {1: (0.0, 0.0, 0.5), 4: (0.0, 0.0, -0.5)}
+    sheared = drift(views, shear)
+    wrong = dict(plane, plane_d=-true_error)
+
+    s_both = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s_both, sheared, intr, wrong,
+                   dict(base_config, plane_sweep=True, pose_refine=True), passes=8)
+    off_both = s_both._correction.get("plane")
+    dp_both = s_both._correction.get("dpose")
+    check("with both on, the sweep still recovers the plane error",
+          off_both is not None and abs(off_both - true_error) < 0.35,
+          f"recovered {off_both:+.3f} m of {true_error:+.3f} m" if off_both is not None
+          else "no offset")
+    if dp_both is not None:
+        want_b = {v["drone_id"]: -pg.unity_dir_to_rh(shear.get(v["drone_id"],
+                                                               (0.0, 0.0, 0.0)))
+                  for v in views}
+        common_b = [d for d in want_b if d in dp_both]
+        wb_mean = sum(want_b[d] for d in common_b) / len(common_b)
+        gb_mean = sum(dp_both[d][1] for d in common_b) / len(common_b)
+        worst_b = max(float(np.linalg.norm((dp_both[d][1] - gb_mean)
+                                           - (want_b[d] - wb_mean)))
+                      for d in common_b)
+        check("with both on, the refiner still recovers the per-drone error",
+              worst_b < 0.25, f"worst {worst_b:.3f} m over {len(common_b)} views")
+    else:
+        check("with both on, the refiner still produces corrections", False,
+              f"stats={s_both._refine_stats}")
+
+    # Degenerate case: convergent position errors *plus* a depth error.
+    #
+    # Scored on overlap PSNR (how well the views agree with each *other*), not on RMSE
+    # against the true mosaic. The estimators can only ever drive the views into mutual
+    # agreement; when the error is degenerate they reach a self-consistent solution whose
+    # absolute scale differs slightly from truth. That is a clean mosaic at a marginally
+    # wrong scale -- a success for a pilot's situational-awareness view -- and an
+    # RMSE-against-truth test would score it as a failure while the seams it is supposed
+    # to be measuring had in fact improved.
+    degen = drift(views, injected)
+
+    def consistency(stitcher, vs, pl, cfg_extra=None, passes=0):
+        if passes:
+            _run_estimator(stitcher, vs, intr, pl, dict(base_config, **cfg_extra), passes)
+        stitcher._plane_invalid_since = None
+        stitcher.planar_pano(vs, intr, pl, dict(base_config))
+        return stitcher._last_stats.get("overlap_psnr", float("nan"))
+
+    psnr_bad = consistency(make_bare_stitcher(ps_mod, torch), degen, wrong)
+    s_deg = make_bare_stitcher(ps_mod, torch)
+    psnr_both = consistency(s_deg, degen, wrong,
+                            {"plane_sweep": True, "pose_refine": True}, passes=8)
+    check("plane + pose error together: the views are driven into agreement",
+          np.isfinite(psnr_bad) and psnr_both > psnr_bad + 5.0,
+          f"overlap PSNR {psnr_bad:.1f} -> {psnr_both:.1f} dB "
+          f"(plane {s_deg._correction.get('plane'):+.2f} m; the split between plane and "
+          f"pose is not identifiable here)")
+
+    # The known limitation, asserted so it cannot be "fixed" by accident: a convergent
+    # per-drone position error is indistinguishable from a depth error, so the sweep on
+    # its own moves the plane and buys nothing. The refiner is what rescues this case,
+    # which is the practical reason the two flags are separate.
+    s_sweep_only = make_bare_stitcher(ps_mod, torch)
+    psnr_sweep = consistency(s_sweep_only, degen, wrong, {"plane_sweep": True}, passes=8)
+    check("the sweep alone cannot fix a convergent position error (known limitation)",
+          psnr_sweep < psnr_bad + 2.0,
+          f"overlap PSNR {psnr_bad:.1f} -> {psnr_sweep:.1f} dB after moving the plane "
+          f"{s_sweep_only._correction.get('plane'):+.2f} m")
+
+    # --- the low-pass rate must damp -----------------------------------------------
+    s3 = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s3, views, intr, dict(plane, plane_d=-true_error),
+                   dict(base_config, plane_sweep=True, refine_rate=0.2), passes=1)
+    damped = s3._correction.get("plane")
+    check("refine rate damps a single update",
+          damped is not None and 0.0 < damped < 0.6 * true_error,
+          f"one pass at rate 0.2 gave {damped:+.3f} m of {true_error:+.3f} m"
+          if damped is not None else "no offset")
+
+
+def _mosaic(stitcher, views, intr, plane, config):
+    """Render once with whatever ``stitcher._correction`` currently holds."""
+    stitcher._plane_invalid_since = None
+    return stitcher.planar_pano(views, intr, plane, dict(config))
+
+
 def main():
     print("=" * 74)
     print("planar_geometry self-test")
@@ -794,6 +1193,7 @@ def main():
     test_rejection_cases()
     test_mosaic_roundtrip()
     test_planar_stitcher_end_to_end()
+    test_estimators()
 
     print("\n" + "=" * 74)
     if _failures:
