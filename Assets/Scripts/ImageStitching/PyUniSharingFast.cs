@@ -82,9 +82,6 @@ public class PyUniSharingFast : MonoBehaviour
     private int focal_length = 1000;
 
     [SerializeField]
-    private bool onlyIHN = true;
-
-    [SerializeField]
     private FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
 
     [Header("StabStitch REFERENCE_BLEND Blur")]
@@ -225,17 +222,18 @@ public class PyUniSharingFast : MonoBehaviour
 
     public enum stitcherType
     {
-        CLASSIC,
-        UDIS,
-        NIS,
-        REWARP,
-        STABSTITCH,
+        // The values are pinned rather than sequential because Unity serializes the enum
+        // as a plain int: the scenes hold 4 (STABSTITCH) and 5 (PLANAR), so closing the
+        // gap left by the retired UDIS(1)/NIS(2)/REWARP(3) options would silently repoint
+        // every scene at a different stitcher. Python matches on the name, not the value.
+        CLASSIC = 0,
+        STABSTITCH = 4,
         // Pose-initialized planar homography. For the vertical-plane and nadir
         // configurations, where the scene is one dominant plane and a single
         // homography per view is exact. Needs camera pose, so it requires the v2
         // block header and is unavailable in the DJI scene (real drones publish
         // yaw only).
-        PLANAR
+        PLANAR = 5
     }
 
     public enum matcherType
@@ -319,7 +317,7 @@ public class PyUniSharingFast : MonoBehaviour
     // integrated body yaw (WriteBodyYaw), not the live HMD direction, so Python
     // selects the same views as SelectStitchCameras.
     // Offset = sizes(20) + stitcher(64) + cylindrical(1) + matcher(64) + ransac(1)
-    //          + checks(4) + ratio(4) + score(4) + focal(4) + onlyIHN(1) + fusion(64)
+    //          + checks(4) + ratio(4) + score(4) + focal(4) + reserved(1) + fusion(64)
     //          + blurKernel(4) + blurSigma(4) + border(4) + qualityEnabled(1) + qualityThreshold(4)
     private const int metadataHeadYawOffset = 248;
 
@@ -2751,7 +2749,11 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteInt32(metadataPtr, offset, focal_length);
         offset += 4;
 
-        Marshal.WriteByte(metadataPtr, offset, (byte)(onlyIHN ? 1 : 0));
+        // Reserved: this byte carried the retired NIS stitcher's onlyIHN flag. It is still
+        // written (as 0) rather than removed because every field after it -- including
+        // metadataHeadYawOffset -- is addressed by a position Python reaches by reading
+        // sequentially, so dropping the byte would shift the whole v1 prefix.
+        Marshal.WriteByte(metadataPtr, offset, 0);
         offset += 1;
 
         byte[] fusionModeBytes = Encoding.UTF8.GetBytes(typeOfFusion.ToString());

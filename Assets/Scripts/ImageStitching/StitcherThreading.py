@@ -1,8 +1,6 @@
 import numpy as np
 import cv2
 import glob
-import os
-import sys
 import torch
 import time
 import traceback
@@ -141,49 +139,6 @@ class RateMeter:
         # (n - 1) intervals over the elapsed span = average rate.
         return (len(self._times) - 1) / span
 
-# --- UDIS ---
-HAS_UDIS = False
-try:
-    sys.path.append(os.path.abspath("UDIS2_main\Warp\Codes"))
-    import UDIS2_main.Warp.Codes.utils_udis as udis_utils
-    import UDIS2_main.Warp.Codes.utils_udis.torch_DLT as torch_DLT
-    import UDIS2_main.Warp.Codes.grid_res as grid_res
-    from UDIS2_main.Warp.Codes.network import build_output_model, get_stitched_result, Network, build_new_ft_model
-    from UDIS2_main.Warp.Codes.loss import cal_lp_loss2
-    from UDISStitcher import *
-    HAS_UDIS = True
-except ImportError as e:
-    print("UDIS modules could not be imported. UDIS stitcher will not be available.")
-    print(e)
-
-# --- NIS ---
-HAS_NIS = False
-try:
-    sys.path.append(os.path.abspath("Neural_Image_Stitching_main"))
-    import Neural_Image_Stitching_main.srwarp
-    import Neural_Image_Stitching_main.utils as nis_utils
-    from Neural_Image_Stitching_main.models.ihn import *
-    from Neural_Image_Stitching_main.models import *
-    from Neural_Image_Stitching_main import stitch
-    import Neural_Image_Stitching_main.pretrained
-    from NISStitcher import *
-    HAS_NIS = True
-except ImportError as e:
-    print("NIS modules could not be imported. NIS stitcher will not be available.")
-    print(e)
-
-# --- REWARP ---
-HAS_REWARP = False
-try:
-    sys.path.append(os.path.abspath("Residual_Elastic_Warp_main"))
-    import Residual_Elastic_Warp_main.models
-    import Residual_Elastic_Warp_main.utils
-    from REStitcher import *
-    HAS_REWARP = True
-except ImportError as e:
-    print("REWARP modules could not be imported. REWARP stitcher will not be available.")
-    print(e)
-
 # --- STABSTITCH ---
 HAS_STABSTITCH = False
 try:
@@ -212,17 +167,9 @@ class StitcherManager:
 
         self.stitchers = {
             "CLASSIC": BaseStitcher(algorithm=1, trees=5, checks=50, ratio_thresh=0.7, score_threshold=0.05, device=device),
-            "UDIS": UDISStitcher() if HAS_UDIS else None,
-            "NIS": NISStitcher() if HAS_NIS else None,
-            "REWARP": REStitcher() if HAS_REWARP else None,
             "STABSTITCH": StabStitcher() if HAS_STABSTITCH else None,
             "PLANAR": PlanarStitcher() if HAS_PLANAR else None,
         }
-        
-
-        # Manually remove models of NIS from GPU because they load them directly on GPU
-        if HAS_NIS:
-            self.stitchers["NIS"].model.cpu(), self.stitchers["NIS"].H_model.cpu()
 
         self.active_stitcher = self.stitchers["STABSTITCH"]
         self.active_stitcher_type = "STABSTITCH"
@@ -263,7 +210,7 @@ class StitcherManager:
         self.panoram_queue = queue.Queue(1)
 
         # Set the stitcher to setup the device properly
-        self.set_stitcher(self.active_stitcher_type, onlyIHN=False)
+        self.set_stitcher(self.active_stitcher_type)
 
     def update_planar_metadata(self, output):
         """Refresh the planar geometry inputs from a metadata read."""
@@ -317,21 +264,15 @@ class StitcherManager:
         self._planar_wire_warned = False
         return True
 
-    def set_stitcher(self, stitcher_type, onlyIHN):
+    def set_stitcher(self, stitcher_type):
         """
         Safely switch the active stitcher.
         Waits for both threads to finish their current work before switching.
         """
-        
+
         # Remove devices from GPU
         if self.active_stitcher_type == "CLASSIC":
             self.active_stitcher.superpoint_model.cpu()
-        elif self.active_stitcher_type == "UDIS":
-            self.active_stitcher.net.cpu()
-        elif self.active_stitcher_type == "NIS":
-            self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
-        elif self.active_stitcher_type == "REWARP":
-            self.active_stitcher.model.cpu(), self.active_stitcher.H_model.cpu()
         elif self.active_stitcher_type == "STABSTITCH":
             self.active_stitcher.spatial_net.cpu()
             self.active_stitcher.temporal_net.cpu()
@@ -348,13 +289,6 @@ class StitcherManager:
         print(f"Switched to {self.active_stitcher.__class__.__name__}")
         if self.active_stitcher_type == "CLASSIC":
             self.active_stitcher.superpoint_model.to(self.device)
-        elif self.active_stitcher_type == "UDIS":
-            self.active_stitcher.net.to(self.device)
-        elif self.active_stitcher_type == "NIS":
-            self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
-            self.active_stitcher.onlyIHN = onlyIHN
-        elif self.active_stitcher_type == "REWARP":
-            self.active_stitcher.model.to(self.device), self.active_stitcher.H_model.to(self.device)
         elif self.active_stitcher_type == "STABSTITCH":
             self.active_stitcher.spatial_net.to(self.device)
             self.active_stitcher.temporal_net.to(self.device)
@@ -372,7 +306,7 @@ class StitcherManager:
         else:
             raise NotImplementedError(
                 f"Stitcher '{self.active_stitcher_type}' does not implement fusion_mode. "
-                f"Switch to UDIS or STABSTITCH to use fusion modes."
+                f"Switch to STABSTITCH to use fusion modes."
             )
 
     def checkHyperparaChanges(self, output : dict):
@@ -384,7 +318,7 @@ class StitcherManager:
         """
         
         typeOfStitcher, isCylindrical, matcherType, isRANSAC  = output["typeOfStitcher"], output["isCylindrical"], output["matcherType"], output["isRANSAC"]
-        checks, ratio_thresh, score_threshold, focal, onlyIHN = output["checks"], output["ratio_thresh"], output["score_threshold"], output["focal"], output["onlyIHN"]
+        checks, ratio_thresh, score_threshold, focal = output["checks"], output["ratio_thresh"], output["score_threshold"], output["focal"]
         fusion_mode = output.get("fusion_mode", "REFERENCE")
         blur_kernel_size = output.get("blur_kernel_size", 41)
         blur_sigma = output.get("blur_sigma", 15.0)
@@ -416,17 +350,13 @@ class StitcherManager:
         if has_stitcher_changes():
             with self.switching_lock1:
                 with self.switching_lock2:
-                    self.set_stitcher(typeOfStitcher, onlyIHN)
+                    self.set_stitcher(typeOfStitcher)
                     self.changeCylindrical(isCylindrical)
                     self.changeCalculationsHyperpara(output)
                     pass
         if has_hyperparameter_changes():
             with self.switching_lock1:
                 self.changeCalculationsHyperpara(output)
-        
-        if self.active_stitcher_type == "NIS" and self.active_stitcher.onlyIHN != onlyIHN:
-            with self.switching_lock2:
-                self.active_stitcher.onlyIHN = onlyIHN
 
         if getattr(self.active_stitcher, 'fusion_mode', '__unset__') != fusion_mode:
             with self.switching_lock1:
@@ -523,25 +453,16 @@ class StitcherManager:
                 self.panoram_queue.put((pano, quality_ok, quality_reason))
             return
 
-        # All other stitchers: original behaviour with switching_lock2
+        # CLASSIC: original behaviour with switching_lock2
         with self.switching_lock2:
             order = np.array(self.known_order)
 
             if self.active_stitcher_type == "CLASSIC":
                 pano = self.stitch_with_known_order(images, order, num_pano_img)
-            elif self.active_stitcher_type == "UDIS":
-                subset1, subset2 = self.get_subsets_from_order(order, len(images))
-                pano = self.active_stitcher.UDIS_pano(images, subset1, subset2)
-            elif self.active_stitcher_type == "NIS":
-                subset1, subset2 = self.get_subsets_from_order(order, len(images))
-                pano = None  # Placeholder
-            elif self.active_stitcher_type == "REWARP":
-                subset1, subset2 = self.get_subsets_from_order(order, len(images))
-                pano = None  # Placeholder
             else:
                 pano = None
 
-            # Non-STABSTITCH stitchers have no quality estimate: always good.
+            # CLASSIC has no quality estimate: always good.
             if pano is not None and self.panoram_queue.empty():
                 self.panoram_queue.put((pano, True, 0))
 
@@ -1268,9 +1189,10 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     # Read the integer for focal
     focal = struct.unpack('i', metadataMMF.read(4))[0]
 
-    # Read the boolean for onlyIHN
-    raw_bool = metadataMMF.read(1)
-    onlyIHN = bool(struct.unpack('B', raw_bool)[0])
+    # Reserved byte: this carried the retired NIS stitcher's onlyIHN flag. Unity still
+    # writes it (as 0), because every field after it is reached by reading sequentially
+    # from here, so skipping it on only one side would shift the whole v1 prefix.
+    metadataMMF.read(1)
 
     # Read the string for fusion mode
     raw_string = metadataMMF.read(64)
@@ -1327,7 +1249,6 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "ratio_thresh" : floats[0],
         "score_threshold" : floats[1],
         "focal" : focal,
-        "onlyIHN" : onlyIHN,
         "fusion_mode" : fusion_mode,
         "blur_kernel_size" : blur_kernel_size,
         "blur_sigma" : blur_sigma,
