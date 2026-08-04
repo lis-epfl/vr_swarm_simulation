@@ -204,9 +204,32 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   belongs. Both default **off**, so the pose-only backbone is unchanged until they are enabled.
   - **`_correction["plane"]` — plane sweep.** One global scalar: an *additive* offset on the published
     plane distance (additive so Unity's raycast keeps tracking the facade and the sweep only estimates
-    the residual), chosen by scanning `planarSweepSteps` candidates over ±`planarSweepRange` and keeping
-    the lowest photometric disagreement, then parabola-refined between samples. A plane-distance error
-    appears in each view as a *scale* about its own footprint, so no per-view translation can absorb it.
+    the residual), chosen by scanning candidates and keeping the lowest photometric disagreement, then
+    parabola-refined between samples. A plane-distance error appears in each view as a *scale* about its
+    own footprint, so no per-view translation can absorb it.
+  - **The sweep samples uniformly in disparity (`f·B/Z`), not in metres, and has two modes.** This is not
+    a refinement — a single metres-uniform scan was the cause of the "sweep gets stuck on a wrong plane
+    until you toggle it off and on" bug. Misalignment is linear in disparity, and the basin of attraction
+    is a roughly fixed *pixel* width (≈`L·Z/B`), so one step size in pixels is correct at every standoff
+    and no step size in metres is correct at two. The shipped defaults scanned ±4 m over 9 candidates —
+    **1.0 m apart, against a basin about a metre wide.** To be sure of landing a candidate inside a
+    minimum of width `W` the step must be ≤ `W/2`, so the minimum was never resolved: the argmin was
+    noise, the low-pass then walked the plane ~1 m per pass in an arbitrary direction, and toggling the
+    estimator merely re-rolled the dice. `planar_selftest.py` measures the real cost curve on two
+    textures and pins both halves of that (`[…] the fine scan step resolves the basin` / `… the old
+    metres-uniform step did not`).
+    - **ACQUIRE** — wide, coarse (`SWEEP_COARSE_STEP_PX`), spanning ±`planarSweepRange` metres, which
+      stays the honest way to say "how wrong could my prior be". It **snaps** on success rather than
+      low-passing: this is the initial lock, and damping it would leave the estimate outside the basin it
+      just found, where the fine scan has no signal. Rate-limited, since it costs several tracking scans.
+    - **TRACK** — a few pixels either side of the incumbent at `SWEEP_FINE_STEP_PX`, low-passed by
+      `planarRefineRate`, and it only moves for a measurable improvement on the incumbent so a converged
+      sweep sits still instead of dithering.
+    - A **contrast gate** (fractional cost drop from the median candidate to the best) is what separates
+      "a minimum" from "the lowest sample of a flat curve". A flat window must mean *no measurement*, not
+      *argmin of noise* — that distinction is the whole difference between tracking and random-walking.
+      A run of `SWEEP_LOST_PASSES` unusable scans, or an argmin pinned to the window edge, drops back to
+      ACQUIRE. That is the automatic form of the operator toggle that used to be the only cure.
   - **`_correction["dpose"]` — pose refiner.** Two DoF per view: a per-drone translation recovered by
     phase-correlating each view against the **leave-one-out** consensus of the others (not against the
     finished mosaic — under winner-take-all a view *is* the mosaic where it wins, so it would correlate
@@ -218,6 +241,36 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   - **Corrections are residuals and accumulate** (`prev + rate * measured`), because `_build_geometry`
     has already applied the standing correction by the time the estimator sees the stack. Overwriting
     instead of accumulating caps convergence at one step's worth and oscillates.
+  - **A gated-out measurement must not delete the correction that view already earned.** Rebuilding
+    `_pose_shift` from only the views accepted this pass meant one weak correlation peak wiped that
+    drone's history, snapped its patch back to the raw pose and left it to re-converge — which flaps.
+    Only genuine absence from the *selection* retires a correction. The old behaviour was backwards as
+    well as wrong: rejecting **all** views hit an early return that preserved everything, so only a
+    **partial** rejection destroyed anything, which is why the self-test now gates exactly one view.
+  - **The gauge is re-applied to the accumulated set, not just to each pass's residuals.** Each pass is
+    zero-meaned against whichever subset it accepted, so residual-only gauging lets the accumulated set
+    drift off zero mean as membership changes — a net translation that slides the whole mosaic.
+    Relatedly, the **reference view gets the same correction every other view gets**: building the canvas
+    frame from a raw pose the render then moves is a whole-image drift on top of the per-view alignment.
+  - **Estimator switches come from the live metadata, the frame comes from the snapshot.** They must have
+    independent freshness. When both were read out of `_frame_snapshot`, and the snapshot was only
+    published while an estimator was on, the "both off" reset branch was *unreachable by construction*
+    and turning an estimator off simply froze the last frame with the flag still set — the estimator kept
+    running on one dead frame forever. `StitcherManager.update_planar_metadata` now pushes the config via
+    `set_live_config` on every metadata read, which is the one path that keeps running while the render
+    path is failing. The snapshot is timestamped and older than `SNAPSHOT_MAX_AGE_S` stops the
+    estimators: every `planar_pano` path that skips the publish also returns a *blank* panorama, so a
+    frozen snapshot means the render is already down and converging onto it poisons the recovery.
+  - **Estimator logging lives on the warp thread** (`_maybe_log_estimators`), not on the `[PLANAR]` line.
+    That line is printed at the end of `planar_pano`, after every early return, so it goes silent in
+    exactly the situations worth diagnosing. What it prints is the cost curve's *shape* — mode, contrast,
+    step in disparity pixels, interior-vs-edge argmin — because shape means the same thing in the sim and
+    in the field, whereas the cost at zero offset measures how good the operator's prior was.
+  - **Views whose frame has stopped advancing are dropped** (`MAX_CAPTURE_SKEW_S`, measured as lag behind
+    the freshest block). `read_block_memory` re-serves a busy block's previous frame indefinitely, so one
+    view's pixels can freeze while the formation moves; `capture_time` and `cached` were already on the
+    wire and were being decoded and discarded. Never empties the solve — if every view is old they are
+    old together, which is a stalled producer, and a frozen panorama beats a vanished one.
   - **Known degeneracy, asserted in the self-test so it cannot be "fixed" by accident:** a depth error
     dilates each view about its own footprint, which over the overlap *is* a convergent translation
     field — so convergent per-drone position error is indistinguishable from a plane-depth error. On
@@ -268,18 +321,28 @@ per-frame camera pose and a scene plane — both come from Unity internals that 
   distance). Stand back, keep the formation tight, and expect no help from range on compass error.
 - **Pose/video sync is a first-order term, not a detail.** DJI telemetry is only ~5 Hz fresh and the
   video has its own pipeline latency; at the 40 °/s yaw clamp, 300 ms of skew is ~55 px — larger than
-  everything else combined. Hold station and yaw slowly while capturing.
+  everything else combined. Hold station and yaw slowly while capturing. `MAX_CAPTURE_SKEW_S` drops a
+  view that has fallen behind the freshest one, which bounds this but cannot remove a skew common to
+  every aircraft.
 - **Keep `planarBlendMode = Nearest`.** At 20–60 px of residual, `Feather` superimposes two offset
   copies over most of the canvas; winner-take-all confines the error to a seam.
-- **The sweep's capture range is narrower than `planarSweepRange` suggests.** Its basin of attraction is
-  roughly `L·Z/B`, where `L` is the scene texture's correlation length — on brick at 30 m behind a 15 m
-  wall that is ±0.2–0.6 m, not ±4 m. The 4 m default is sized for the sim's raycast prior; a map-drawn
-  plane at ±2–3 m can start **outside the basin**, where the sweep has no signal to follow and a bigger
-  step size would simply skip over the minimum. The fix is a coarse-to-fine search sampled uniformly in
-  **disparity** (`f·B/Z`, in which misalignment is linear) — tens of candidates covers 10–150 m — which
-  is **not implemented**. Cross-drone triangulation is the other route and needs no new dependency:
-  `BaseStitcher` already loads SuperPoint plus BF/FLANN, and the formation's 8–25 m baselines put
-  triangulated depth at ~0.2 m at 30 m, well inside a fine sweep's basin.
+- **The sweep's capture range is narrower than `planarSweepRange` suggests, and the field is where that
+  bites.** Its basin of attraction is roughly `L·Z/B`, where `L` is the scene texture's correlation
+  length — on brick at 30 m behind a 15 m wall that is ±0.2–0.6 m, not ±4 m. The ACQUIRE/TRACK split and
+  disparity-uniform sampling described above are the implemented half of the fix, and they matter *more*
+  here than in the sim: with no raycast the plane is static and wrong from frame one, so the sweep starts
+  outside its basin rather than being knocked out of a good one. There is no transient to ride out and
+  nothing for a watchdog to notice — `ScenePlaneMode.Manual` sets `scenePlaneValid = true`
+  unconditionally, so `REASON_PLANE_INVALID` and the 2 s grace never fire out there. What the field case
+  needs is **capture range**, not an escape hatch.
+- **Do not reason about the sweep by asking "is the correction better than zero?"** In the sim zero is
+  the raycast, which is a good prior; in the field zero is whatever standoff the operator typed, so that
+  test measures the guess rather than the lock. The deployment-invariant read-out is the cost curve's
+  shape, which is what `_maybe_log_estimators` prints.
+- **Cross-drone triangulation remains the stronger prior** and needs no new dependency: `BaseStitcher`
+  already loads SuperPoint plus BF/FLANN, and the formation's 8–25 m baselines put triangulated depth at
+  ~0.2 m at 30 m — inside the fine scan's basin directly, with no acquisition pass at all. **Not
+  implemented**; it is the next thing to build if ACQUIRE proves too slow or too easily fooled.
 
 Two checkers, both runnable without Unity:
 `python tools/planar_selftest.py` (geometry + end-to-end render) and

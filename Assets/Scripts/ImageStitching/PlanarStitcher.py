@@ -40,6 +40,20 @@ is the only thing that can.  Correspondingly it can only fix errors that are com
 the whole formation -- there is one of it, so it cannot make drone 3 agree with drones 2
 and 4 at the same time.
 
+Its candidates are sampled uniformly in **disparity** (``f*B/Z``) and it runs in two modes.
+Both are load-bearing rather than tuning.  Misalignment is linear in disparity, and the
+basin of attraction is a roughly fixed *pixel* width (``~L*Z/B``, L = the texture's
+correlation length), so one step size in pixels is right at every standoff and no step size
+in metres is right at two.  A single metres-uniform scan is what made this estimator appear
+to latch: at the shipped defaults it stepped 1.0 m against a basin about a metre wide, so
+no candidate reliably landed inside the minimum, the argmin was noise, and the low-pass
+walked the plane a metre a pass in an arbitrary direction until an operator toggled the
+estimator and re-rolled it.  ACQUIRE therefore scans wide and coarse and *snaps* (it is the
+initial lock, and damping it would leave the estimate outside the basin it just found);
+TRACK scans a few pixels either side of the incumbent, low-passes, and moves only for a
+measurable improvement, so a converged sweep sits still.  A run of unusable scans returns
+to ACQUIRE -- the automatic form of that operator toggle.
+
 ``_correction["dpose"]`` -- **pose refiner**, two DoF per view: a per-drone canvas-plane
 translation, recovered by phase-correlating each view against the consensus of the
 others.  Differential GNSS error and compass bias both appear as a lateral shift of that
@@ -61,8 +75,12 @@ not identifiable is which parameter deserved the credit, which shows up as a cle
 at a slightly wrong absolute scale rather than as a visible seam.
 
 Both estimators are *gated*, not trusted: the sweep rejects candidates whose overlap
-collapses, and the refiner rejects any view whose correlation peak is not clearly
-dominant.  Be precise about what that second gate buys, because it is easy to overclaim:
+collapses and refuses a scan whose cost curve is too flat to contain a minimum at all (a
+flat window must mean "no measurement", not "argmin of noise" -- that distinction is the
+whole difference between tracking and random-walking), and the refiner rejects any view
+whose correlation peak is not clearly dominant.  A view the refiner rejects keeps the
+correction it has already earned; only leaving the *selection* retires one.  Be precise
+about what that second gate buys, because it is easy to overclaim:
 it rejects an individual *measurement* that has no clear answer -- most usefully in the
 first passes, while the consensus is still made of misaligned views -- and together with
 ``refine_max_shift`` it bounds how far one bad measurement can move a patch.  It is not a
@@ -207,7 +225,20 @@ class PlanarStitcher(BaseStitcher):
         # Latest-wins snapshot published by planar_pano for the warp thread. One
         # attribute rebind, so the reader gets a whole frame or the previous one -- the
         # same mailbox discipline the shared-memory producers use.
+        #
+        # It carries the frame's DATA ONLY -- (views, K, plane). It deliberately does not
+        # carry the config: compute_warps must read the estimator switches from the LIVE
+        # metadata, or turning an estimator off cannot take effect. Publishing the config
+        # alongside the frame is what made the "both estimators off" reset unreachable --
+        # the snapshot was only published when a flag was on, so the branch that tested
+        # for both being off could never see a config with both off.
         self._frame_snapshot = None
+        self._snapshot_time = 0.0
+
+        # Live estimator config, pushed by StitcherManager.update_planar_metadata on every
+        # metadata read -- i.e. it keeps updating while the render path is failing, which
+        # is exactly when an operator reaches for the switch.
+        self._live_config = None
 
         # Estimator state (warp thread only).
         self._plane_offset = 0.0        # low-passed sweep result, metres
@@ -220,10 +251,32 @@ class PlanarStitcher(BaseStitcher):
         self._sweep_stats = {}
         self._refine_stats = {}
 
+        # Sweep search mode. ACQUIRE runs a wide coarse scan to find the basin at all;
+        # TRACK runs a narrow fine scan inside it. They are separate because one scan
+        # cannot do both jobs: the basin of attraction is roughly L*Z/B (L = the scene
+        # texture's correlation length), which on brick at 30 m is a few tenths of a
+        # metre, while the plane prior can be metres wrong. A single scan wide enough to
+        # capture the error steps straight over the minimum it is looking for.
+        self._sweep_mode = "acquire"
+        self._sweep_lost = 0            # consecutive TRACK passes with no usable measurement
+        self._last_acquire = 0.0
+
         self._plane_invalid_since = None
         self._unposed = 0
+        self._stale = 0
         self._last_stats = {}
         self._last_log = 0.0
+        self._last_est_log = 0.0
+
+    def set_live_config(self, config):
+        """
+        Publish the current planar metadata for the warp thread.
+
+        Called from the metadata-reading loop rather than from the render path, because
+        the switches have to keep arriving while the render path is failing.  One rebind
+        of one attribute, same as the frame snapshot.
+        """
+        self._live_config = config
 
     # ------------------------------------------------------------------ public API
 
@@ -253,7 +306,7 @@ class PlanarStitcher(BaseStitcher):
             self._plane_invalid_since = None
 
         K = pg.intrinsics_matrix(*intrinsics)
-        frame, cams = self._build_geometry(views, K, plane, config)
+        frame, cams = self._build_geometry(views, K, plane, config, record=True)
         if frame is None:
             # Every block arriving without a usable pose is a wire/producer problem, and
             # REASON_PLANE_INVALID is the bit Unity spells as "no usable scene plane /
@@ -292,17 +345,23 @@ class PlanarStitcher(BaseStitcher):
         if pano is None:
             return None, False, REASON_CANVAS
 
-        # Hand this frame to the warp thread. Published only once a frame has actually
-        # rendered, so the estimators never run on geometry the render path itself
-        # rejected. One rebind of one attribute: the reader takes a whole frame or the
-        # previous one, never a mixture.
-        if config.get("plane_sweep", False) or config.get("pose_refine", False):
-            self._frame_snapshot = (views, K, plane, config)
+        # Hand this frame to the warp thread. Published on every frame that rendered,
+        # unconditionally -- gating the publish on the estimator switches is what froze
+        # the snapshot (config included) the moment an estimator was switched off, so the
+        # estimator kept running on one stale frame and "off" never reached it.
+        #
+        # Data only, no config: see __init__. Timestamped so compute_warps can tell a
+        # live frame from one frozen by a render failure -- every early return above
+        # yields a blank panorama, so a freeze is silent unless the age is checked.
+        # One rebind of one tuple: the reader takes a whole frame or the previous one.
+        self._frame_snapshot = (views, K, plane)
+        self._snapshot_time = time.monotonic()
 
         self._last_stats = {
             "views": len(kept),
             "dropped": len(cams) - len(kept),
             "unposed": self._unposed,
+            "stale": self._stale,
             "coverage": coverage,
             "mean_range": float(np.mean([c["range"] for c in kept])),
             "max_aniso": float(max(c["aniso"] for c in kept)),
@@ -342,13 +401,31 @@ class PlanarStitcher(BaseStitcher):
         The two estimators are independently switchable and share one warped stack per
         pass, since both need the same thing: every view resampled into a common canvas.
         With both off this costs one sleep, matching the previous no-op behaviour.
+
+        The switches and tuning come from ``_live_config`` while the frame comes from
+        ``_frame_snapshot``.  Reading both from the snapshot made "off" unreachable and
+        let a render failure freeze the estimator on one frame; the two now have
+        independent freshness, which is the point.
         """
         snapshot = self._frame_snapshot
-        if snapshot is None:
+        config = self._live_config
+        if snapshot is None or config is None:
             time.sleep(0.1)
             return
 
-        views, K, plane, config = snapshot
+        # A frame the render path stopped refreshing. Every path that skips the publish
+        # returns a blank panorama, so a stale snapshot means the render is already down;
+        # continuing to estimate on it converges the correction onto a dead frame and then
+        # applies that answer to live geometry once the render recovers.
+        age = time.monotonic() - self._snapshot_time
+        if age > self.SNAPSHOT_MAX_AGE_S:
+            self._sweep_stats = {"skipped": f"snapshot stale ({age:.1f} s)"}
+            self._refine_stats = {"skipped": f"snapshot stale ({age:.1f} s)"}
+            self._maybe_log_estimators()
+            time.sleep(0.1)
+            return
+
+        views, K, plane = snapshot
         do_sweep = bool(config.get("plane_sweep", False))
         do_refine = bool(config.get("pose_refine", False))
         if not (do_sweep or do_refine):
@@ -360,6 +437,8 @@ class PlanarStitcher(BaseStitcher):
                 self._pose_shift = {}
                 self._sweep_stats = {}
                 self._refine_stats = {}
+                self._sweep_mode = "acquire"
+                self._sweep_lost = 0
                 self._correction = {"dpose": None, "plane": None}
             time.sleep(0.1)
             return
@@ -368,7 +447,13 @@ class PlanarStitcher(BaseStitcher):
             if do_sweep:
                 self._sweep_plane(views, K, plane, config)
             else:
+                # Only this estimator's state. The two are independently switchable by
+                # design and the self-test pins a case where the refiner is the only one
+                # that helps, so clearing both together would throw away a good
+                # correction to fix a bad one.
                 self._plane_offset = 0.0
+                self._sweep_mode = "acquire"
+                self._sweep_lost = 0
                 self._sweep_stats = {}
 
             if do_refine:
@@ -383,6 +468,11 @@ class PlanarStitcher(BaseStitcher):
                 "plane": self._plane_offset if do_sweep else None,
                 "dpose": self._pose_to_dpose() if do_refine else None,
             }
+
+        # Logged from HERE, not from _maybe_log: that line is printed at the end of
+        # planar_pano, after every early return, so it goes silent in exactly the
+        # situations worth diagnosing.
+        self._maybe_log_estimators()
 
         # The estimators are cheap (a handful of reduced-resolution warps); without a
         # floor this thread would spin on the same snapshot at hundreds of Hz and steal
@@ -416,31 +506,171 @@ class PlanarStitcher(BaseStitcher):
     # module docstring for what it does *not* protect against.
     REFINE_MIN_PEAK_RATIO = 1.25
 
+    # A snapshot older than this is a frozen frame, not a slow one. Comfortably longer
+    # than a render period (~20 Hz) and shorter than the plane-invalid grace, so a brief
+    # render hiccup does not stop the estimators but a sustained failure does.
+    SNAPSHOT_MAX_AGE_S = 0.5
+
+    # ---- sweep sampling, in DISPARITY rather than metres --------------------------------
+    #
+    # Misalignment between two views of a plane is linear in disparity f*B/Z, not in Z.
+    # A scan sampled uniformly in metres therefore has the wrong step everywhere except
+    # at one range: at the defaults that shipped (+/-4 m over 9 candidates = 1.0 m apart)
+    # the step was WIDER than the basin of attraction it was searching, so zero or one
+    # candidate landed inside the minimum and the argmin was effectively a dice roll --
+    # which is what made a bad lock persist until an operator toggled the estimator and
+    # re-rolled it. These are the two step sizes that matter; both are in source pixels
+    # of disparity and so mean the same thing at every standoff.
+    SWEEP_FINE_STEP_PX = 0.5      # TRACK: comfortably inside a brick-facade basin
+    SWEEP_COARSE_STEP_PX = 4.0    # ACQUIRE: coarse enough to cover metres of prior error
+    SWEEP_TRACK_HALF_SPAN_PX = 3.0
+    SWEEP_MAX_CANDIDATES = 41     # bounds one acquisition pass's GPU cost
+
+    # The minimum must be a real minimum, not the lowest sample of a flat curve. Measured
+    # as the fractional cost drop from the median usable candidate to the best one, so it
+    # is scale-free (the cost is an across-view variance whose absolute size depends on
+    # scene contrast). A flat window must mean "no measurement", not "argmin of noise" --
+    # that distinction is the whole difference between tracking and random-walking.
+    SWEEP_MIN_CONTRAST = 0.05
+    # In TRACK the incumbent is always a candidate; require a new sample to beat it by
+    # this fraction before moving, so a converged sweep sits still instead of dithering.
+    SWEEP_IMPROVE_MARGIN = 0.02
+    # Consecutive TRACK passes with no usable measurement before falling back to a wide
+    # scan. At ~10-20 passes/s this is 1-2 s of no signal.
+    SWEEP_LOST_PASSES = 20
+    # Floor on how often a (much more expensive) acquisition scan may run.
+    SWEEP_ACQUIRE_MIN_PERIOD_S = 1.0
+
+    # Largest lag behind the freshest block before a view is dropped from the solve.
+    # Pose/video skew is a first-order error term on real drones -- telemetry is ~5 Hz
+    # and the video pipeline has its own latency -- and a re-served block (see
+    # read_block_memory's cache) can repeat one frame's pixels indefinitely while the
+    # formation moves. 0.25 s at the 40 deg/s yaw clamp is already ~45 px of seam.
+    MAX_CAPTURE_SKEW_S = 0.25
+
+    def _sweep_candidates(self, K, cams, config):
+        """
+        Candidate plane offsets for one scan, sampled uniformly in **disparity**.
+
+        Returns ``(offsets_metres, mode, step_px)``, or ``(None, ...)`` if the formation
+        is too degenerate to define a baseline.
+
+        Why disparity and not metres: two views of a plane disagree by ``f*B/Z`` pixels
+        for a depth error, so equal steps in ``f*B/Z`` are equal steps in the quantity the
+        photometric cost actually measures.  Equal steps in metres are far too coarse at
+        long range and pointlessly fine at short range -- and since the basin of
+        attraction is itself a roughly fixed number of pixels wide, a metres-uniform scan
+        can only be correctly sized at one standoff.  This is also why the clamp and the
+        capture range are expressed here rather than as a metre-valued inspector field:
+        a metre value tuned against the sim's raycast prior caps out exactly when a
+        map-drawn plane needs it most.
+
+        ACQUIRE covers the operator's stated uncertainty (``sweep_range``, metres, which
+        remains the honest way to say "how wrong could my prior be") at a coarse step;
+        TRACK covers a few pixels either side of the incumbent at a step comfortably
+        inside a real facade's basin.
+        """
+        span_m = float(config.get("sweep_range", 0.0))
+        if span_m <= 0.0:
+            return None, self._sweep_mode, 0.0
+
+        # Standoff and in-plane baseline straight off the current geometry. The baseline
+        # that matters is the separation of the views *in the plane* -- that is the B in
+        # f*B/Z -- and the median nearest-neighbour distance is the one that describes
+        # the overlapping pairs rather than the formation's overall extent.
+        Z = float(np.median([c["plane_h"] for c in cams]))
+        ab = np.array([c["plane_ab"] for c in cams], dtype=np.float64)
+        if len(ab) >= 2:
+            d2 = ((ab[:, None, :] - ab[None, :, :]) ** 2).sum(axis=2)
+            np.fill_diagonal(d2, np.inf)
+            B = float(np.median(np.sqrt(d2.min(axis=1))))
+        else:
+            B = 0.0
+        f = float(K[0, 0])
+
+        fB = f * B
+        if not np.isfinite(Z) or Z <= 1e-3 or fB <= 1e-6:
+            # No usable baseline (one view, or a formation collapsed to a point). Fall
+            # back to the old metres-uniform scan rather than failing: it is a poor
+            # sampling but it is not wrong, and this configuration cannot be stitched
+            # anyway.
+            steps = max(3, int(config.get("sweep_steps", 9)) | 1)
+            return (np.linspace(self._plane_offset - span_m,
+                                self._plane_offset + span_m, steps),
+                    self._sweep_mode, 0.0)
+
+        d0 = fB / Z                                  # incumbent disparity, px
+
+        if self._sweep_mode == "track":
+            step_px = self.SWEEP_FINE_STEP_PX
+            half_px = self.SWEEP_TRACK_HALF_SPAN_PX
+            n = int(round(2.0 * half_px / step_px)) + 1
+            dd = np.linspace(-half_px, half_px, n)
+        else:
+            # Convert the operator's metre range into the disparity interval it spans.
+            # Asymmetric by construction -- a metre nearer costs more disparity than a
+            # metre further -- which is precisely the asymmetry a metres-uniform scan
+            # gets wrong.
+            z_near = max(0.25 * Z, Z - span_m)
+            z_far = Z + span_m
+            d_hi, d_lo = fB / z_near, fB / z_far
+            step_px = self.SWEEP_COARSE_STEP_PX
+            n = int(np.ceil((d_hi - d_lo) / step_px)) + 1
+            n = int(np.clip(n, max(3, int(config.get("sweep_steps", 9))),
+                            self.SWEEP_MAX_CANDIDATES))
+            dd = np.linspace(d_lo - d0, d_hi - d0, n)
+
+        # Force the incumbent to be a candidate: a converged sweep that cannot sample its
+        # own current answer dithers between the two samples straddling it.
+        dd = np.unique(np.concatenate([dd, [0.0]]))
+
+        z_cand = fB / np.clip(d0 + dd, 1e-6, None)
+        return self._plane_offset + (z_cand - Z), self._sweep_mode, step_px
+
     def _sweep_plane(self, views, K, plane, config):
         """
         One global scalar: the additive plane-distance offset that best aligns the views.
 
-        Scans ``sweep_steps`` candidates spanning +/- ``sweep_range`` metres around the
-        *current* estimate, then fits a parabola through the best sample and its two
-        neighbours so the result is not quantised to the step size.  Brute force rather
-        than gradient descent on purpose: the cost is a 1-D curve over a bounded interval
-        with one broad minimum, so a scan cannot diverge or find a spurious local
-        optimum, and its cost is fixed and predictable -- which matters on a thread that
-        shares a GPU with the render loop.
+        Two-mode search.  ACQUIRE scans wide and coarse to find which basin the truth is
+        in; TRACK scans narrow and fine inside it and refuses to move without evidence.
+        A single scan cannot do both, and the version that tried was the primary bug:
+        with a step wider than the basin, the minimum was never resolved, so the argmin
+        was noise and the low-pass then walked the plane a metre per pass in an arbitrary
+        direction.  What looked like a latch was a dice roll that an operator toggle
+        re-rolled.
+
+        Brute force rather than gradient descent still: the cost over a bounded interval
+        has one broad minimum, a scan cannot diverge, and its cost is fixed and
+        predictable on a thread sharing a GPU with the render loop.
         """
-        span = float(config.get("sweep_range", 0.0))
-        steps = int(config.get("sweep_steps", 0))
-        if span <= 0.0 or steps < 3:
-            self._sweep_stats = {"skipped": "range/steps not set"}
+        if float(config.get("sweep_range", 0.0)) <= 0.0:
+            self._sweep_stats = {"skipped": "range not set"}
             return
 
-        # Odd count so the incumbent estimate is always itself a candidate: without it a
-        # converged sweep dithers between the two samples straddling the true value.
-        if steps % 2 == 0:
-            steps += 1
+        # apply_dpose=False for the same reason _photometric_cost uses it: the baseline
+        # and standoff that size the scan must describe the published formation, not the
+        # refiner's adjusted one.
+        frame, cams = self._build_geometry(views, K, plane, config,
+                                           plane_offset=self._plane_offset,
+                                           apply_dpose=False)
+        if frame is None or len(cams) < 2:
+            self._sweep_stats = {"skipped": "fewer than 2 usable views"}
+            return
 
-        centre = self._plane_offset
-        offsets = np.linspace(centre - span, centre + span, steps)
+        now = time.monotonic()
+        if (self._sweep_mode == "acquire"
+                and now - self._last_acquire < self.SWEEP_ACQUIRE_MIN_PERIOD_S):
+            # A wide scan costs several times a tracking one; rate-limit it so a scene the
+            # sweep cannot lock onto does not permanently occupy the GPU it shares.
+            self._sweep_stats = {"held": "waiting to re-acquire", "mode": "acquire",
+                                 "offset": self._plane_offset, "lost": self._sweep_lost}
+            return
+        offsets, mode, step_px = self._sweep_candidates(K, cams, config)
+        if offsets is None or len(offsets) < 3:
+            self._sweep_stats = {"skipped": "no usable baseline for a scan"}
+            return
+        if mode == "acquire":
+            self._last_acquire = now
 
         costs, areas = [], []
         for off in offsets:
@@ -456,36 +686,96 @@ class PlanarStitcher(BaseStitcher):
         # area (the formation's own spread sets what "full overlap" even means).
         ref_area = float(areas.max()) if areas.size else 0.0
         usable = np.isfinite(costs) & (areas >= self.SWEEP_MIN_OVERLAP_RATIO * ref_area)
-        if ref_area <= 0.0 or not np.any(usable):
-            self._sweep_stats = {"skipped": "no candidate had usable overlap"}
+        if ref_area <= 0.0 or int(usable.sum()) < 3:
+            self._note_no_measurement(mode, "no candidate had usable overlap")
             return
 
         masked = np.where(usable, costs, np.inf)
         i = int(np.argmin(masked))
+        c_best = float(masked[i])
+        interior = 0 < i < len(offsets) - 1
+
+        # Is this a minimum, or the lowest sample of a flat curve? Fractional drop from
+        # the median usable candidate, so the test is free of the scene's absolute
+        # contrast. This is the gate that stops a textureless wall from being "measured".
+        med = float(np.median(costs[usable]))
+        contrast = (med - c_best) / max(c_best, 1e-12)
+        if not np.isfinite(contrast) or contrast < self.SWEEP_MIN_CONTRAST:
+            self._note_no_measurement(
+                mode, f"flat cost curve (contrast {contrast:.3f} "
+                      f"< {self.SWEEP_MIN_CONTRAST})")
+            return
+
         best = float(offsets[i])
 
         # Sub-step refinement, but only from an interior sample flanked by two usable
         # ones -- a parabola through an edge sample extrapolates outside the scanned
         # interval, which is precisely where nothing was measured.
-        if 0 < i < steps - 1 and usable[i - 1] and usable[i + 1]:
+        if interior and usable[i - 1] and usable[i + 1]:
             c0, c1, c2 = masked[i - 1], masked[i], masked[i + 1]
             denom = c0 - 2.0 * c1 + c2
             if denom > 1e-12:
-                step = float(offsets[1] - offsets[0])
+                step = float(offsets[i + 1] - offsets[i - 1]) * 0.5
                 best += 0.5 * step * float(c0 - c2) / denom
 
-        rate = float(config.get("refine_rate", 0.25))
-        rate = min(1.0, max(0.0, rate))
-        self._plane_offset = (1.0 - rate) * self._plane_offset + rate * best
+        if mode == "acquire":
+            # Snap. This IS the initial lock, not a refinement of one: low-passing an
+            # acquisition would leave the estimate outside the basin it just found, where
+            # the fine scan has no signal, and the two would fight indefinitely.
+            self._plane_offset = best
+            self._sweep_mode = "track"
+            self._sweep_lost = 0
+        else:
+            # The incumbent is always a candidate; only move for a measurable improvement
+            # on it, so a converged sweep sits still rather than dithering.
+            c_inc = float(masked[int(np.argmin(np.abs(offsets - self._plane_offset)))])
+            if np.isfinite(c_inc) and c_best > c_inc * (1.0 - self.SWEEP_IMPROVE_MARGIN):
+                self._note_no_measurement(mode, "no improvement on the incumbent",
+                                          contrast=contrast, keep_lock=True)
+                return
+            rate = min(1.0, max(0.0, float(config.get("refine_rate", 0.25))))
+            self._plane_offset = (1.0 - rate) * self._plane_offset + rate * best
+            # An argmin pinned to the edge means the truth is outside the fine window --
+            # the scan still steps toward it, but a run of them means the lock is gone.
+            self._sweep_lost = 0 if interior else self._sweep_lost + 1
+            if self._sweep_lost >= self.SWEEP_LOST_PASSES:
+                self._sweep_mode = "acquire"
+                self._sweep_lost = 0
 
         self._sweep_stats = {
             "offset": self._plane_offset,
             "raw": best,
-            "cost": float(masked[i]),
-            "cost_span": float(np.nanmax(masked[np.isfinite(masked)]) - masked[i]),
+            "mode": mode,
+            "cost": c_best,
+            "contrast": contrast,
+            "step_px": step_px,
+            "interior": interior,
             "usable": int(usable.sum()),
-            "steps": steps,
+            "steps": len(offsets),
         }
+
+    def _note_no_measurement(self, mode, why, contrast=None, keep_lock=False):
+        """
+        Record a scan that produced no usable answer, and count it toward losing lock.
+
+        Separate from a hard skip because the distinction matters operationally: the
+        sweep having nothing to measure on a blank wall is normal and the right response
+        is to hold the current estimate, whereas a long run of it means the estimate is
+        no longer in the basin and only a wide scan can recover.
+        """
+        if mode == "track" and not keep_lock:
+            self._sweep_lost += 1
+            if self._sweep_lost >= self.SWEEP_LOST_PASSES:
+                self._sweep_mode = "acquire"
+                self._sweep_lost = 0
+        self._sweep_stats = {
+            "held": why,
+            "mode": mode,
+            "offset": self._plane_offset,
+            "lost": self._sweep_lost,
+        }
+        if contrast is not None:
+            self._sweep_stats["contrast"] = contrast
 
     def _refine_poses(self, views, K, plane, config):
         """
@@ -558,7 +848,23 @@ class PlanarStitcher(BaseStitcher):
                 continue
             raw[cams[i]["view"]["drone_id"]] = da * frame.e1 + db * frame.e2
 
+        # Start from the corrections already earned, keeping every view still in the
+        # selection. A view whose measurement was gated out this pass MUST keep its
+        # accumulated correction: rebuilding the set from this pass's accepted views only
+        # meant a single weak correlation peak deleted that drone's whole history, snapped
+        # its patch back to the raw pose, and left it to re-converge from scratch -- which
+        # flaps frame to frame. Note the old behaviour was backwards as well as wrong:
+        # when ALL views were rejected the early return preserved everything, and only a
+        # PARTIAL rejection destroyed history.
+        #
+        # Genuine absence from the selection is the one thing that does retire a
+        # correction, or a drone that returns is warped by an offset measured minutes ago
+        # against a formation that has since moved.
+        present = {v["drone_id"] for v in views}
+        shifts = {did: dC for did, dC in self._pose_shift.items() if did in present}
+
         if not raw:
+            self._pose_shift = shifts
             self._refine_stats = {"skipped": f"all {n} views rejected"}
             return
 
@@ -572,25 +878,37 @@ class PlanarStitcher(BaseStitcher):
         # the standing correction before this stack was warped, so what was just measured
         # is what is still left over. Accumulate; do not overwrite, or the correction can
         # never converge past one step's worth and instead oscillates around the error.
-        shifts = {}
         for did, dC in raw.items():
-            prev = self._pose_shift.get(did)
+            prev = shifts.get(did)
             total = (dC - mean) * rate
             if prev is not None:
                 total = prev + total
-            if max_shift_m > 0.0:
-                mag = float(np.linalg.norm(total))
-                if mag > max_shift_m:
-                    total = total * (max_shift_m / mag)
             shifts[did] = total
 
-        # Views that dropped out of the selection drop out of the correction too, or a
-        # drone that returns is warped by an offset measured minutes ago against a
-        # formation that has since moved.
+        # Re-gauge the ACCUMULATED set, not merely this pass's residuals. Zero-meaning the
+        # residuals alone leaves the accumulated set free to drift off zero mean as
+        # membership changes -- each pass is individually gauged against a different
+        # subset -- and a net translation slides the whole mosaic across the canvas.
+        if shifts:
+            acc_mean = sum(shifts.values()) / len(shifts)
+            shifts = {did: v - acc_mean for did, v in shifts.items()}
+
+        # Clamp last, so it bounds the value actually applied rather than a pre-gauge
+        # intermediate.
+        if max_shift_m > 0.0:
+            for did, v in shifts.items():
+                mag = float(np.linalg.norm(v))
+                if mag > max_shift_m:
+                    shifts[did] = v * (max_shift_m / mag)
+
         self._pose_shift = shifts
         self._refine_stats = {
-            "accepted": len(shifts),
+            "accepted": len(raw),
             "rejected": rejected,
+            # Views carrying a correction they did not re-measure this pass. A steady
+            # non-zero count is the signature of a scene the refiner can only partly
+            # measure -- useful, and invisible if "accepted" is reported as len(shifts).
+            "held": len(shifts) - len(raw),
             "worst_shift": max(float(np.linalg.norm(v)) for v in shifts.values()),
             "worst_residual": max(float(np.linalg.norm(v - mean)) for v in raw.values()),
         }
@@ -780,8 +1098,37 @@ class PlanarStitcher(BaseStitcher):
 
     # ------------------------------------------------------------------ geometry
 
+    def _drop_stale(self, posed):
+        """
+        Drop views whose frame is too far behind the freshest one.
+
+        ``read_block_memory`` re-serves the previous frame for a block that is busy being
+        written, and will do so indefinitely for a block that never becomes ready again --
+        the pixels of one moment then get warped by a homography built for the formation's
+        position now.  Both halves of the evidence are already on the wire and were
+        previously decoded and discarded: ``capture_time`` (the pose's own timestamp) and
+        ``cached``.
+
+        Degrades safely: a producer that publishes no capture time leaves every view at
+        the same value, so nothing is dropped.
+        """
+        times = [float(v.get("capture_time", 0.0) or 0.0) for v in posed]
+        if not times:
+            return posed, 0
+        newest = max(times)
+        if newest <= 0.0:
+            return posed, 0
+        fresh = [v for v, t in zip(posed, times)
+                 if newest - t <= self.MAX_CAPTURE_SKEW_S]
+        # Never let this empty the solve: if every view is old they are old *together*,
+        # which is a stalled producer rather than a skew problem, and the panorama
+        # freezing is a better failure than it vanishing.
+        if len(fresh) < 2:
+            return posed, 0
+        return fresh, len(posed) - len(fresh)
+
     def _build_geometry(self, views, K, plane, config, plane_offset=None,
-                        apply_dpose=True):
+                        apply_dpose=True, record=False):
         """
         Convert Unity poses to CV convention, build the plane frame, and compute G per
         view.  Returns ``(PlaneFrame | None, [cam dicts])``.
@@ -802,7 +1149,13 @@ class PlanarStitcher(BaseStitcher):
         minimum.
         """
         posed = [v for v in views if pose_is_usable(v)]
-        self._unposed = len(views) - len(posed)
+        unposed = len(views) - len(posed)
+        posed, stale = self._drop_stale(posed)
+        if record:
+            # Written only by the render path. _build_geometry is called from both
+            # threads, so an unconditional write here races the warp thread and the
+            # count Unity is shown belongs to whichever call happened last.
+            self._unposed, self._stale = unposed, stale
         if not posed:
             return None, []
 
@@ -834,6 +1187,13 @@ class PlanarStitcher(BaseStitcher):
         if ref is None:
             ref = posed[len(posed) // 2]
         R_ref, C_ref = pg.unity_pose_to_cv(ref["pos"], ref["quat"])
+        # The reference gets the same correction every other view gets. Leaving it on the
+        # raw pose builds the canvas frame around a camera that the render then moves,
+        # so any net translation in the refiner's output slides the mosaic across a
+        # canvas that does not follow it -- a whole-image drift on top of the per-view
+        # alignment the refiner was asked for.
+        if apply_dpose:
+            R_ref, C_ref = self._apply_correction(ref, R_ref, C_ref)
 
         # Canvas origin: where the reference camera's principal ray meets the plane.
         # Its forward axis is the third row of the world->camera rotation.
@@ -1106,6 +1466,55 @@ class PlanarStitcher(BaseStitcher):
                     worst = min(worst, 10.0 * np.log10(255.0 ** 2 / mse))
         return worst
 
+    def _maybe_log_estimators(self, period=5.0):
+        """
+        Estimator state, printed from the WARP thread.
+
+        Deliberately not folded into ``_maybe_log``: that runs at the end of
+        ``planar_pano``, after every early return, so it falls silent in precisely the
+        situations worth diagnosing -- a frozen snapshot or a plane the render path is
+        rejecting produce no line at all rather than a line saying so.
+
+        What is printed is chosen to identify the failure mode without a second
+        photometric evaluation: the search mode, the fractional contrast at the minimum,
+        the sampling step in disparity pixels, and whether the argmin was interior or
+        pinned to an edge.  Those are properties of the cost curve's SHAPE, which means
+        the same thing in the sim and in the field -- unlike the cost at zero offset,
+        which on a real drone measures how good the operator's typed prior was rather
+        than whether the sweep is locked.
+        """
+        now = time.time()
+        if now - self._last_est_log < period:
+            return
+        self._last_est_log = now
+
+        sweep, refine = self._sweep_stats, self._refine_stats
+        if sweep:
+            if "skipped" in sweep:
+                print(f"[PLANAR] plane sweep idle: {sweep['skipped']}")
+            elif "held" in sweep:
+                print(f"[PLANAR] plane sweep holding {sweep['offset']:+.2f} m "
+                      f"[{sweep['mode']}]: {sweep['held']} "
+                      f"({sweep.get('lost', 0)}/{self.SWEEP_LOST_PASSES} to re-acquire)")
+            else:
+                print(f"[PLANAR] plane sweep [{sweep['mode']}]: {sweep['offset']:+.2f} m "
+                      f"(raw {sweep['raw']:+.2f}) | {sweep['usable']}/{sweep['steps']} "
+                      f"candidates @ {sweep['step_px']:.1f} px | "
+                      f"contrast {sweep['contrast']:.3f} | "
+                      f"argmin {'interior' if sweep['interior'] else 'EDGE'}")
+        if refine:
+            if "skipped" in refine:
+                print(f"[PLANAR] pose refine idle: {refine['skipped']}")
+            else:
+                # Residual is the convergence read-out: it should fall toward zero as
+                # the accumulated correction absorbs the error. A residual that stays
+                # high while the correction grows means the two are fighting.
+                print(f"[PLANAR] pose refine: {refine['accepted']} accepted, "
+                      f"{refine['rejected']} rejected (weak peak), "
+                      f"{refine.get('held', 0)} held | "
+                      f"worst correction {refine['worst_shift']:.2f} m | "
+                      f"residual {refine['worst_residual']:.3f} m")
+
     def _maybe_log(self, period=5.0):
         now = time.time()
         if now - self._last_log < period:
@@ -1118,36 +1527,14 @@ class PlanarStitcher(BaseStitcher):
         # without a usable pose (never written, or retired mid-frame). Reported
         # separately from the anisotropy drops so the two are not confused.
         unposed = s.get("unposed", 0)
+        stale = s.get("stale", 0)
         unposed_txt = f", {unposed} unposed" if unposed else ""
+        unposed_txt += f", {stale} stale" if stale else ""
         print(f"[PLANAR] {s.get('views', 0)} views "
               f"(+{s.get('dropped', 0)} dropped{unposed_txt}) | blend {s.get('blend', '?')} | "
               f"coverage {s.get('coverage', 0):.0%} | "
               f"mean range {s.get('mean_range', 0):.1f} m | "
               f"max anisotropy {s.get('max_aniso', 0):.2f} | overlap PSNR {psnr_txt}")
-
-        # Estimator state. Printed only when the corresponding flag is on, so the line
-        # stays short in the default pose-only configuration -- and so that "no
-        # correction line" unambiguously means "the estimator is off" rather than
-        # "the estimator ran and found nothing".
-        sweep, refine = self._sweep_stats, self._refine_stats
-        if sweep:
-            if "skipped" in sweep:
-                print(f"[PLANAR] plane sweep idle: {sweep['skipped']}")
-            else:
-                print(f"[PLANAR] plane sweep: {sweep['offset']:+.2f} m "
-                      f"(raw {sweep['raw']:+.2f}) | {sweep['usable']}/{sweep['steps']} "
-                      f"candidates usable | cost drop {sweep['cost_span']:.1f}")
-        if refine:
-            if "skipped" in refine:
-                print(f"[PLANAR] pose refine idle: {refine['skipped']}")
-            else:
-                # Residual is the convergence read-out: it should fall toward zero as
-                # the accumulated correction absorbs the error. A residual that stays
-                # high while the correction grows means the two are fighting.
-                print(f"[PLANAR] pose refine: {refine['accepted']} accepted, "
-                      f"{refine['rejected']} rejected (weak peak) | "
-                      f"worst correction {refine['worst_shift']:.2f} m | "
-                      f"residual {refine['worst_residual']:.3f} m")
 
         # A colour map is useless without the key, and the selection changes as drones
         # join, die or fall out of range -- so reprint it alongside the stats rather

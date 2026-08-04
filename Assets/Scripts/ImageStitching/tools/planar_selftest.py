@@ -184,14 +184,21 @@ def make_bare_stitcher(ps_mod, torch):
     s._est_grid_key = None
     s._est_grid = None
     s._frame_snapshot = None
+    s._snapshot_time = 0.0
+    s._live_config = None
     s._plane_offset = 0.0
     s._pose_shift = {}
     s._sweep_stats = {}
     s._refine_stats = {}
+    s._sweep_mode = "acquire"
+    s._sweep_lost = 0
+    s._last_acquire = 0.0
     s._plane_invalid_since = None
     s._unposed = 0
+    s._stale = 0
     s._last_stats = {}
-    s._last_log = 1e18                      # suppress the periodic log line
+    s._last_log = 1e18                      # suppress the periodic log lines
+    s._last_est_log = 1e18
     return s
 
 
@@ -879,7 +886,14 @@ def _nadir_scene(texture, altitude=26.0, W=800, H=450, vfov=46.4,
 
 
 def _run_estimator(stitcher, views, intr, plane, config, passes):
-    """planar_pano (publishes the snapshot) then compute_warps, ``passes`` times."""
+    """
+    planar_pano (publishes the frame) then compute_warps, ``passes`` times.
+
+    The config is pushed separately via ``set_live_config``, mirroring production: the
+    render path supplies the frame and the metadata loop supplies the switches.  Passing
+    it only to ``planar_pano`` would leave ``compute_warps`` with nothing to read.
+    """
+    stitcher.set_live_config(config)
     for _ in range(passes):
         stitcher._plane_invalid_since = None
         stitcher.planar_pano(views, intr, plane, config)
@@ -924,9 +938,57 @@ def test_estimators():
     s = make_bare_stitcher(ps_mod, torch)
     _run_estimator(s, views, intr, plane, base_config, passes=2)
     check("both flags off leaves the correction identity",
-          s._correction == {"dpose": None, "plane": None}
-          and s._frame_snapshot is None,
-          f"correction={s._correction}, snapshot={'set' if s._frame_snapshot else 'None'}")
+          s._correction == {"dpose": None, "plane": None},
+          f"correction={s._correction}")
+
+    # --- switching an estimator OFF must actually turn it off --------------------------
+    # This is the check that matters, and the one this suite previously did not make. The
+    # old version started from a fresh stitcher with both flags already off, so the frame
+    # snapshot was never published and compute_warps returned at its first line -- it
+    # asserted nothing about the reset path. Meanwhile the real code read the switches
+    # from the snapshot, which was itself only published while a switch was ON, so the
+    # both-off branch was unreachable by construction and an operator turning the sweep
+    # off got a frozen frame with the sweep still running on it.
+    #
+    # A TRANSITION is therefore the only meaningful form of this test: converge with the
+    # estimator on, then turn it off and require the correction to actually clear.
+    s_off = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s_off, views, intr, dict(plane, plane_d=-1.35),
+                   dict(base_config, plane_sweep=True), passes=3)
+    converged = s_off._correction.get("plane")
+    _run_estimator(s_off, views, intr, dict(plane, plane_d=-1.35), base_config, passes=2)
+    check("turning the sweep off clears its correction",
+          converged is not None and abs(converged) > 0.1
+          and s_off._correction.get("plane") is None and s_off._plane_offset == 0.0,
+          f"{converged} -> {s_off._correction.get('plane')}")
+
+    s_off2 = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s_off2, views, intr, plane, dict(base_config, pose_refine=True),
+                   passes=3)
+    had_dpose = s_off2._correction.get("dpose") is not None
+    _run_estimator(s_off2, views, intr, plane, base_config, passes=2)
+    check("turning the refiner off clears its correction",
+          had_dpose and s_off2._correction.get("dpose") is None
+          and s_off2._pose_shift == {},
+          f"dpose set={had_dpose} -> {s_off2._correction.get('dpose')}")
+
+    # --- a frozen frame must not keep driving the estimators ---------------------------
+    # Every planar_pano path that skips the publish also returns a blank panorama, so a
+    # stale snapshot means the render is already down. Continuing to estimate on it
+    # converges the correction onto a dead frame and then applies that answer to live
+    # geometry the moment the render recovers.
+    s_stale = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s_stale, views, intr, dict(plane, plane_d=-1.35),
+                   dict(base_config, plane_sweep=True), passes=2)
+    frozen = s_stale._plane_offset
+    s_stale._snapshot_time -= 10.0 * ps_mod.PlanarStitcher.SNAPSHOT_MAX_AGE_S
+    for _ in range(3):
+        s_stale.compute_warps()
+    check("a stale frame snapshot stops the estimators",
+          s_stale._plane_offset == frozen
+          and "stale" in s_stale._sweep_stats.get("skipped", ""),
+          f"offset {frozen:+.3f} -> {s_stale._plane_offset:+.3f}, "
+          f"stats={s_stale._sweep_stats}")
 
     # --- plane sweep: recover a known plane-distance error -----------------------------
     # Publish the ground 1.35 m too low. Not a whole number of sweep steps (range 4,
@@ -1165,15 +1227,179 @@ def test_estimators():
           f"overlap PSNR {psnr_bad:.1f} -> {psnr_sweep:.1f} dB after moving the plane "
           f"{s_sweep_only._correction.get('plane'):+.2f} m")
 
-    # --- the low-pass rate must damp -----------------------------------------------
+    # --- the low-pass rate must damp a TRACKING update -------------------------------
+    # Acquisition deliberately snaps: it is the initial lock, not a refinement of one, and
+    # low-passing it would leave the estimate outside the basin it just found, where the
+    # fine scan has no signal to follow. So the rate is tested where it applies -- on a
+    # tracking update, after a lock exists.
     s3 = make_bare_stitcher(ps_mod, torch)
     _run_estimator(s3, views, intr, dict(plane, plane_d=-true_error),
                    dict(base_config, plane_sweep=True, refine_rate=0.2), passes=1)
-    damped = s3._correction.get("plane")
-    check("refine rate damps a single update",
-          damped is not None and 0.0 < damped < 0.6 * true_error,
-          f"one pass at rate 0.2 gave {damped:+.3f} m of {true_error:+.3f} m"
-          if damped is not None else "no offset")
+    locked = s3._correction.get("plane")
+    if check("one pass acquires a lock", locked is not None and s3._sweep_mode == "track",
+             f"offset {locked} mode {s3._sweep_mode}"):
+        moved = 0.30                                  # inside the fine window
+        _run_estimator(s3, views, intr, dict(plane, plane_d=-(true_error + moved)),
+                       dict(base_config, plane_sweep=True, refine_rate=0.2), passes=1)
+        damped = s3._correction.get("plane")
+        check("refine rate damps a tracking update",
+              damped is not None and locked < damped < locked + 0.6 * moved,
+              f"plane moved {moved:.2f} m; one pass at rate 0.2 took the offset "
+              f"{locked:+.3f} -> {damped:+.3f} m" if damped is not None else "no offset")
+
+    # --- the scan step must resolve the basin it is searching --------------------------
+    # THE invariant behind the original bug, measured against the real cost curve rather
+    # than asserted from theory. To be sure of landing a candidate inside a minimum of
+    # width W the step must be at most W/2; the defaults that shipped scanned +/-4 m with
+    # 9 candidates, i.e. 1.0 m apart, against a basin of about a metre. The minimum was
+    # therefore never resolved: the argmin was noise, the low-pass walked the plane a
+    # metre per pass in an arbitrary direction, and toggling the estimator only re-rolled
+    # the dice.
+    #
+    # Measured on BOTH textures because the basin is roughly L*Z/B and L is a property of
+    # the scene. Note this synthetic nadir scene is a generous case -- smooth texture,
+    # 26 m standoff, 5 m baselines. On the brick facade CLAUDE.md sizes (30 m behind a
+    # 15 m wall) the basin is several times narrower, so the margin here is the best case,
+    # not the typical one.
+    K_probe = pg.intrinsics_matrix(*intr)
+    grid_m = np.arange(-2.0, 2.0001, 0.05)
+    old_m = 2.0 * base_config["sweep_range"] / (base_config["sweep_steps"] - 1)
+
+    for tex_name, tex_views, tex_intr, tex_plane, tex_mpp in (
+            ("smooth", views, intr, plane, s_tex),
+            ("periodic", checker_views, intr2, plane2, s_tex2)):
+        s_probe = make_bare_stitcher(ps_mod, torch)
+        probe_cfg = dict(base_config, plane_sweep=True, metres_per_pixel=tex_mpp)
+        K_p = pg.intrinsics_matrix(*tex_intr)
+        curve = np.array([s_probe._photometric_cost(tex_views, K_p, tex_plane,
+                                                    probe_cfg, float(o))[0]
+                          for o in grid_m])
+        finite = np.isfinite(curve)
+        if not check(f"[{tex_name}] sweep cost curve evaluated", finite.sum() > 20,
+                     f"{finite.sum()} samples"):
+            continue
+
+        # Width of the contiguous run around the argmin that stays below half way from
+        # the minimum to the median -- i.e. the region a scan must land in to be pulled
+        # toward the right answer rather than a noise sample.
+        g, c = grid_m[finite], curve[finite]
+        half = float(c.min()) + 0.5 * (float(np.median(c)) - float(c.min()))
+        i0 = int(np.argmin(c))
+        lo = hi = i0
+        while lo > 0 and c[lo - 1] <= half:
+            lo -= 1
+        while hi < len(c) - 1 and c[hi + 1] <= half:
+            hi += 1
+        basin_m = float(g[hi] - g[lo])
+
+        # The fine step in metres AT THIS SCENE's standoff and baseline -- the whole point
+        # of sampling in disparity being that one constant in pixels is the right step at
+        # every range, and no constant in metres is at any two.
+        _, cams_p = s_probe._build_geometry(tex_views, K_p, tex_plane, probe_cfg,
+                                            plane_offset=0.0, apply_dpose=False)
+        Z = float(np.median([cc["plane_h"] for cc in cams_p]))
+        ab = np.array([cc["plane_ab"] for cc in cams_p])
+        d2 = ((ab[:, None, :] - ab[None, :, :]) ** 2).sum(axis=2)
+        np.fill_diagonal(d2, np.inf)
+        B = float(np.median(np.sqrt(d2.min(axis=1))))
+        fine_m = Z * Z * ps_mod.PlanarStitcher.SWEEP_FINE_STEP_PX / (float(tex_intr[0]) * B)
+
+        check(f"[{tex_name}] the fine scan step resolves the basin",
+              0.0 < fine_m <= 0.5 * basin_m,
+              f"basin {basin_m:.2f} m, so the step must be <= {0.5 * basin_m:.2f} m; "
+              f"fine step {fine_m:.2f} m "
+              f"({ps_mod.PlanarStitcher.SWEEP_FINE_STEP_PX} px at Z={Z:.0f} m, B={B:.0f} m)")
+        check(f"[{tex_name}] the old metres-uniform step did not",
+              old_m > 0.5 * basin_m,
+              f"basin {basin_m:.2f} m, so the step must be <= {0.5 * basin_m:.2f} m; "
+              f"old step {old_m:.2f} m "
+              f"(+/-{base_config['sweep_range']} m over {base_config['sweep_steps']})")
+
+    # --- a lock lost outside the fine window must be re-acquired ------------------------
+    # The tracking scan spans a few pixels of disparity by design, so it cannot see an
+    # error metres away. That is not a regression from the old wide-and-coarse scan, it
+    # is the trade: the fine scan resolves the minimum, and the mode machine is what
+    # supplies the capture range. Seeding TRACK at a wrong offset exercises the path an
+    # operator previously had to trigger by hand.
+    s_lost = make_bare_stitcher(ps_mod, torch)
+    s_lost._sweep_mode = "track"
+    s_lost._plane_offset = -2.5                       # far outside the fine window
+    _run_estimator(s_lost, views, intr, dict(plane, plane_d=-true_error),
+                   dict(base_config, plane_sweep=True, refine_rate=1.0),
+                   passes=ps_mod.PlanarStitcher.SWEEP_LOST_PASSES + 6)
+    recovered = s_lost._correction.get("plane")
+    check("a lock seeded outside the fine window is re-acquired",
+          recovered is not None and abs(recovered - true_error) < 0.4,
+          f"seeded -2.50 m, recovered {recovered:+.3f} m of {true_error:+.3f} m "
+          f"(mode now {s_lost._sweep_mode})" if recovered is not None else "no offset")
+
+    # --- a gated-out measurement must not delete the correction it already earned -------
+    # Rebuilding _pose_shift from this pass's accepted views only meant one weak
+    # correlation peak deleted that drone's whole history and snapped its patch back to
+    # the raw pose. Backwards, too: rejecting ALL views hit an early return that preserved
+    # everything, so only a PARTIAL rejection destroyed anything.
+    s_keep = make_bare_stitcher(ps_mod, torch)
+    _run_estimator(s_keep, drifted, intr, plane, dict(base_config, pose_refine=True),
+                   passes=6)
+    before_shift = dict(s_keep._pose_shift)
+    if check("refiner converged before the rejection pass", len(before_shift) >= 2,
+             f"{len(before_shift)} views carrying a correction"):
+        # PARTIAL rejection specifically: one view still measures, the rest are gated out.
+        # Rejecting every view hits an early return that always preserved the set, so a
+        # test that gates all of them exercises the path that was never broken.
+        real_shift = ps_mod.PlanarStitcher._phase_shift
+        calls = {"n": 0}
+
+        def partial(a, b):
+            calls["n"] += 1
+            return real_shift(a, b) if calls["n"] == 1 else (0.0, 0.0, 1.0)
+
+        s_keep._phase_shift = partial     # instance attribute shadows the staticmethod
+        _run_estimator(s_keep, drifted, intr, plane, dict(base_config, pose_refine=True),
+                       passes=1)
+        after = s_keep._pose_shift
+
+        # Compared as PAIRWISE DIFFERENCES: the accumulated set is re-gauged to zero mean
+        # every pass, and that common translation is unobservable by construction (it is
+        # removed on purpose so the mosaic cannot wander). What must survive a rejection
+        # is each view's correction *relative to the others*.
+        ids = sorted(before_shift)
+        same = set(after) == set(before_shift)
+        if same and len(ids) >= 2:
+            d_before = [before_shift[d] - before_shift[ids[0]] for d in ids]
+            d_after = [after[d] - after[ids[0]] for d in ids]
+            worst_drift = max(float(np.linalg.norm(a - b))
+                              for a, b in zip(d_after, d_before))
+        else:
+            worst_drift = float("inf")
+        check("a gate-rejected view keeps its accumulated correction",
+              same and worst_drift < 1e-6
+              and s_keep._refine_stats.get("rejected", 0) > 0
+              and s_keep._refine_stats.get("held", 0) > 0,
+              f"{len(before_shift)} -> {len(after)} views, worst relative drift "
+              f"{worst_drift:.2e} m, stats={s_keep._refine_stats}")
+
+    # --- a view whose frame has stopped advancing must be dropped ----------------------
+    # read_block_memory re-serves the previous frame for a busy block indefinitely, so
+    # one view's pixels can freeze while the formation keeps moving. Both halves of the
+    # evidence were already on the wire and were being decoded and thrown away.
+    fresh = [dict(v, capture_time=100.0) for v in views]
+    fresh[2]["capture_time"] = 100.0 - 10.0 * ps_mod.PlanarStitcher.MAX_CAPTURE_SKEW_S
+    s_skew = make_bare_stitcher(ps_mod, torch)
+    _mosaic(s_skew, fresh, intr, plane, base_config)
+    check("a stale view is dropped from the solve",
+          s_skew._last_stats.get("stale") == 1
+          and s_skew._last_stats.get("views") == len(views) - 1,
+          f"stale={s_skew._last_stats.get('stale')}, "
+          f"views={s_skew._last_stats.get('views')} of {len(views)}")
+
+    s_sync = make_bare_stitcher(ps_mod, torch)
+    _mosaic(s_sync, [dict(v, capture_time=0.0) for v in views], intr, plane, base_config)
+    check("a producer publishing no capture time drops nothing",
+          s_sync._last_stats.get("stale") == 0
+          and s_sync._last_stats.get("views") == len(views),
+          f"stale={s_sync._last_stats.get('stale')}, "
+          f"views={s_sync._last_stats.get('views')}")
 
 
 def _mosaic(stitcher, views, intr, plane, config):

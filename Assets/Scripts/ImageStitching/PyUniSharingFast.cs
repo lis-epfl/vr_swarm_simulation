@@ -308,16 +308,18 @@ public class PyUniSharingFast : MonoBehaviour
         public bool planarPoseRefine = false;
 
         [Range(0.5f, 50f)]
-        [Tooltip("Plane sweep half-range, metres either side of the current estimate. Size it " +
-                 "to how wrong the plane could plausibly be — a map-drawn facade is worth a few " +
-                 "metres, a raycast onto real geometry much less. Too wide wastes candidates; " +
-                 "too narrow and the sweep cannot reach the answer.")]
+        [Tooltip("Plane sweep ACQUISITION half-range, metres either side of the current estimate. " +
+                 "Size it to how wrong the plane could plausibly be — a map-drawn facade is worth " +
+                 "a few metres, a raycast onto real geometry much less. This bounds the wide scan " +
+                 "only; once locked, the sweep tracks in a narrow window sized automatically from " +
+                 "the formation's baseline and standoff, so widening this does not coarsen it.")]
         public float planarSweepRange = 4f;
 
         [Range(3, 21)]
-        [Tooltip("Plane sweep candidate count. Forced odd in Python so the incumbent estimate " +
-                 "is always itself a candidate; the result is parabola-refined between samples, " +
-                 "so this sets the capture range's resolution rather than the final precision.")]
+        [Tooltip("Minimum acquisition candidate count. Python samples uniformly in DISPARITY " +
+                 "(f·B/Z) rather than in metres and adds candidates as needed to keep the step " +
+                 "inside the basin of attraction, so this is a floor, not the actual count. " +
+                 "Tracking ignores it entirely and uses a fixed sub-pixel disparity step.")]
         public int planarSweepSteps = 9;
 
         [Range(0.01f, 1f)]

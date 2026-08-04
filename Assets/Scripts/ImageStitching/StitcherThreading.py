@@ -238,6 +238,16 @@ class StitcherManager:
             "refine_max_shift": output.get("planar_refine_max_shift", 0.0),
         }
 
+        # Push the switches straight to the stitcher rather than letting the warp thread
+        # pick them out of the frame snapshot. This loop keeps running while the render
+        # path is failing -- which is exactly when an operator reaches for the switch --
+        # so it is the only path on which "off" reliably arrives. Pushed even when PLANAR
+        # is not the active stitcher; it costs one attribute write and means the config is
+        # already current the moment it is selected.
+        planar = self.stitchers.get("PLANAR")
+        if planar is not None:
+            planar.set_live_config(self.planar_config)
+
     def planar_inputs_ready(self):
         """
         True when Unity is publishing everything the planar backbone needs.
