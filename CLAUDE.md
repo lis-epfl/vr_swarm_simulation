@@ -197,7 +197,11 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   microseconds and stays inline in `planar_pano` every frame, because the poses change every frame.
   What belongs on the warp thread is the *slowly-varying corrections*, which are what `_correction`
   holds. Each is independently switchable from the inspector (`planarPlaneSweep` / `planarPoseRefine`),
-  and they move different parameters, so they are complementary rather than alternative:
+  and they move different parameters, so they are complementary rather than alternative.
+  In one line each: the **sweep** fixes *how far away the surface is* — get that wrong and every view is
+  drawn at the wrong size, so neighbours cannot line up however good the poses are; the **refiner** fixes
+  *where each drone thinks it is* — get that wrong and one view's patch lands sideways of where it
+  belongs. Both default **off**, so the pose-only backbone is unchanged until they are enabled.
   - **`_correction["plane"]` — plane sweep.** One global scalar: an *additive* offset on the published
     plane distance (additive so Unity's raycast keeps tracking the facade and the sweep only estimates
     the residual), chosen by scanning `planarSweepSteps` candidates over ±`planarSweepRange` and keeping
@@ -229,6 +233,53 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
     same hard mask correlates the *mask*, which pins the answer at zero shift regardless of the pixels.
   - Estimator passes run on a quarter-resolution canvas with their **own** grid cache; sharing the
     render path's cache would miss on every call (different canvas size) and race across two threads.
+
+### PLANAR on real drones — there is no raycast out there
+
+Everything above assumes the sim. In the DJI scene the two things `PLANAR` depends on most — a
+per-frame camera pose and a scene plane — both come from Unity internals that do not exist in the field.
+
+- **It cannot run on the DJI path today.** `ImageSharing.cs` / the DJI_Swarm repo's
+  `image_stream_feed.py` write the **v1 12-byte** block header; `PLANAR` needs **v2** with a per-frame
+  camera pose. `planar_inputs_ready()` detects the v1 producer, prints one `[PLANAR] unavailable: …`
+  line and falls back to the individual feeds — a blank panorama, not a crash. Use `STABSTITCH` there.
+  The blocker is a *pose source*, not wiring, but the ingredients already exist: the RC app subscribes to
+  `KeyAircraftLocation3D`, `KeyCompassHeading`, `KeyAircraftAttitude` and `KeyGimbalAttitude`, and all
+  four already reach Python inside the 17-field telemetry string. A camera pose is GPS → local ENU →
+  Unity world, plus the gimbal attitude as the rotation. The open question is accuracy, not availability.
+- **`UpdateScenePlane` casts against Unity colliders**, and a real facade has none, so the plane has to
+  be published some other way. In rough order of effort:
+  - `ScenePlaneMode.Manual` + `manualPlaneNormal` / `manualPlaneDistance` — the operator types the
+    standoff. `fallbackPlaneDistance` covers a raycast miss the same way.
+  - `snapNormalToFormation` — in vertical-plane mode the wall is flown *parallel* to the facade, so the
+    formation normal **is** the facade normal, and it is the half that is hardest to get off a map.
+    Only the distance is then left to supply.
+  - A facade traced on the DJI_Swarm GUI map (`shapes.json`). Two traps: obstacles there are
+    **axis-aligned rectangles**, so a facade on an arbitrary bearing needs the geofence polygon or a new
+    shape type; and trace the **base** of the building, not the roofline — satellite imagery displaces
+    the roof from the footprint by `height × tan(off-nadir)`, which is ~7 m for a 20 m building.
+- **The plane is the least sensitive of the four error sources**, so a rough distance really is enough.
+  Budget for a ≤5 px seam at 30 m standoff / 8 m baseline (f ≈ 525 px at 800×450): plane distance
+  ≤ 1.07 m, differential position ≤ 0.29 m, differential yaw ≤ 0.55°, gimbal pitch ≤ 0.55°. Stock DJI
+  values land at 20–60 px (1–3.5 m on the facade) — a recognisable mosaic with visibly broken seams.
+  Two levers, both worth more than tightening the plane: plane error scales as `f·B·δZ/Z²`, so it is
+  **quadratic in standoff** (3 m plane error = 56 px at 15 m, 14 px at 30 m, 3.5 px at 60 m) and linear
+  in baseline; attitude error is `f·δθ` and therefore **range-invariant** (0.5° = 4.6 px at any
+  distance). Stand back, keep the formation tight, and expect no help from range on compass error.
+- **Pose/video sync is a first-order term, not a detail.** DJI telemetry is only ~5 Hz fresh and the
+  video has its own pipeline latency; at the 40 °/s yaw clamp, 300 ms of skew is ~55 px — larger than
+  everything else combined. Hold station and yaw slowly while capturing.
+- **Keep `planarBlendMode = Nearest`.** At 20–60 px of residual, `Feather` superimposes two offset
+  copies over most of the canvas; winner-take-all confines the error to a seam.
+- **The sweep's capture range is narrower than `planarSweepRange` suggests.** Its basin of attraction is
+  roughly `L·Z/B`, where `L` is the scene texture's correlation length — on brick at 30 m behind a 15 m
+  wall that is ±0.2–0.6 m, not ±4 m. The 4 m default is sized for the sim's raycast prior; a map-drawn
+  plane at ±2–3 m can start **outside the basin**, where the sweep has no signal to follow and a bigger
+  step size would simply skip over the minimum. The fix is a coarse-to-fine search sampled uniformly in
+  **disparity** (`f·B/Z`, in which misalignment is linear) — tens of candidates covers 10–150 m — which
+  is **not implemented**. Cross-drone triangulation is the other route and needs no new dependency:
+  `BaseStitcher` already loads SuperPoint plus BF/FLANN, and the formation's 8–25 m baselines put
+  triangulated depth at ~0.2 m at 30 m, well inside a fine sweep's basin.
 
 Two checkers, both runnable without Unity:
 `python tools/planar_selftest.py` (geometry + end-to-end render) and
