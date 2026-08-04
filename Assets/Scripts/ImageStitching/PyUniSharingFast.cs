@@ -11,104 +11,452 @@ using UnityEngine.Rendering;
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PyUniSharingFast : MonoBehaviour
 {   
-    [Header("Feature Flags")]
-    [SerializeField]
-    [Tooltip("Enable writing images to BlockSharedMemory")]
-    private bool enableImageWriting = true;
+    // ------------------------------------------------------------------
+    // INSPECTOR LAYOUT
+    //
+    // The settings that actually change between runs sit flat at the top;
+    // everything else is bucketed into the [Serializable] groups below, which
+    // Unity draws as one collapsible row each. Most groups apply to exactly
+    // one `typeOfStitcher`, so on any given run most of them are inert.
+    //
+    // This is presentation only. The metadata wire layout is untouched -- the
+    // grouped fields are still reached by their original names through the
+    // forwarding properties further down, so WriteMetadata and every call site
+    // are unchanged and tools/check_wire_layout.py still holds.
+    // ------------------------------------------------------------------
 
-    [SerializeField]
-    [Tooltip("Enable reading panorama from PanoramaSharedMemory")]
-    private bool enablePanoramaReading = true;
-
-    [Header("Image Dimensions")]
-    [SerializeField]
-    [Tooltip("Must be 800 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
-    private int blockImageWidth = 800;
-
-    [SerializeField]
-    [Tooltip("Must be 450 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
-    private int blockImageHeight = 450;
-
-    // Read-only access so ScreenSpawn can adopt the same FPV feed resolution
-    // (PyUniSharingFast is the single source of truth for the block resolution).
-    public int BlockImageWidth => blockImageWidth;
-    public int BlockImageHeight => blockImageHeight;
-
-    [SerializeField]
-    private int panoramaImageWidth = 600;
-
-    [SerializeField]
-    private int panoramaImageHeight = 400;
-
-    [Header("Timing")]
-    [SerializeField]
-    private float sendInterval = 0.05f;
-
-    [SerializeField]
-    private float readInterval = 0.05f;
-
-    [Header("Stitcher Configuration")]
+    [Tooltip("Which stitcher Python runs. This picks which of the grouped settings below " +
+             "are live: Classic, StabStitch and Planar are mutually exclusive.")]
     [SerializeField]
     private stitcherType typeOfStitcher = stitcherType.CLASSIC;
 
+    [Tooltip("Which camera pose is published to the planar stitcher. GroundTruth is exact, " +
+             "so with it the mosaic should be pixel-perfect on a truly planar scene -- any " +
+             "seam is a bug rather than a limitation. The noisy modes exist to size how much " +
+             "refinement real drones would need. PLANAR only.")]
     [SerializeField]
-    [Range(3, 12)]
-    [Tooltip("Block slots published to Python in PLANAR mode. A planar mosaic generalises " +
-             "to any number of overlapping views, unlike the fixed left/centre/right triple " +
-             "the other stitchers need (they stay pinned to 3 regardless of this). The block " +
-             "map is sized from this once at startup, so restart the Python stitcher after " +
-             "changing it.")]
-    private int maxStitchViews = 8;
+    private StitchPoseSourceMode poseSource = StitchPoseSourceMode.GroundTruth;
 
+    [Tooltip("Which surface the planar stitcher treats as the scene plane. Auto picks Nadir " +
+             "when the gimbal is pitched down and Facade otherwise. PLANAR only.")]
     [SerializeField]
-    private bool cylindrical = false;
+    private ScenePlaneMode scenePlaneMode = ScenePlaneMode.Auto;
 
+    [Tooltip("How overlapping views are combined. Nearest gives every pixel to the single " +
+             "most face-on view, so nothing is averaged and pose error shows as a seam " +
+             "rather than ghosting; Feather cross-fades the overlap, which is only clean " +
+             "while the geometry is exact. In a facade wall the views overlap almost " +
+             "everywhere, so Feather ghosts across the whole mosaic. PLANAR only.")]
     [SerializeField]
-    private matcherType typeOfMatcher = matcherType.BF;
+    private PlanarBlendMode planarBlendMode = PlanarBlendMode.Nearest;
 
+    [Tooltip("Testing aid: colour each patch of the mosaic by the drone that supplied it. " +
+             "Tint washes colour over the imagery, Flat replaces it entirely. The " +
+             "drone-to-colour key is printed on the Python console's periodic [PLANAR] " +
+             "line. Leave Off for flight. PLANAR only.")]
     [SerializeField]
-    private bool ransac = false;
+    private PlanarDebugView planarDebugView = PlanarDebugView.Off;
 
+    [Tooltip("Show the stitched panorama; unticked shows the individual drone feeds instead. " +
+             "Mirrors the controller's click switch when one is connected, but can also be " +
+             "toggled directly here or with vr.togglePanoramaKey -- for testing without a controller.")]
     [SerializeField]
-    private int checks = 50;
+    private bool panoramaUserEnabled = true;
 
+    [Tooltip("Hide the individual ScreenSpawn feeds for the drones currently being stitched into " +
+             "the panorama (they already appear in the panorama). Only applies while the panorama " +
+             "is displayed; during quality-fallback all feeds reappear.")]
     [SerializeField]
-    private float ratio_thresh = 0.7f;
+    private bool hideStitchedDroneScreens = false;
 
+    [Tooltip("Print the Python stitch/warp loop rate (Hz) to the console. Disable to declutter " +
+             "the log while reading other per-frame diagnostics (e.g. the StabStitch quality PSNR).")]
     [SerializeField]
-    private float score_threshold = 0.1f;
+    private bool printStitchRate = true;
 
-    [SerializeField]
-    private int focal_length = 1000;
+    // ---------------- grouped settings ----------------
 
+    [Space(6)]
+    [Tooltip("Shared-memory bridge sizing and pacing. Every field here is consumed once in " +
+             "Start() to size a named section, so changes need a Play restart AND a Python restart.")]
     [SerializeField]
-    private FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
+    private BridgeSettings bridge = new BridgeSettings();
 
-    [Header("StabStitch REFERENCE_BLEND Blur")]
+    [Tooltip("PLANAR stitcher settings: scene-plane raycast, canvas framing, sanity gates and " +
+             "the warp-thread estimators. Inert unless typeOfStitcher is PLANAR.")]
     [SerializeField]
-    [Tooltip("Gaussian blur kernel size for the reference-image soft mask (must be an odd integer)")]
-    private int blurKernelSize = 41;
+    private PlanarSettings planar = new PlanarSettings();
 
+    [Tooltip("STABSTITCH settings: fusion mode, REFERENCE_BLEND feathering and the panorama " +
+             "quality fallback. Inert unless typeOfStitcher is STABSTITCH.")]
     [SerializeField]
-    [Tooltip("Gaussian blur sigma for the reference-image soft mask feathering width (pixels)")]
-    private float blurSigma = 15f;
+    private StabStitchSettings stabStitch = new StabStitchSettings();
 
+    [Tooltip("CLASSIC feature-matching settings. Inert under STABSTITCH and PLANAR, " +
+             "which do not do feature matching at all.")]
     [SerializeField]
-    [Tooltip("Width in pixels of the edge strip where LINEAR blending is applied to hide seams (REFERENCE_BLEND mode only). Interior of the reference image is left pixel-perfect.")]
-    private int borderSize = 60;
+    private ClassicSettings classic = new ClassicSettings();
 
-    [Header("StabStitch Panorama Quality Fallback")]
+    [Tooltip("Curved panorama screen geometry, the HMD transform and the body-yaw controls.")]
     [SerializeField]
-    [Tooltip("When the StabStitch panorama is judged bad (poor alignment / distorted warp), hide it and show the individual drone feeds (via ScreenSpawn) instead.")]
-    private bool qualityFallbackEnabled = true;
+    private VrDisplaySettings vr = new VrDisplaySettings();
 
+    [Tooltip("GNSS error model. Only used when poseSource is GroundTruthPlusGnss.")]
     [SerializeField]
-    [Tooltip("Minimum overlap PSNR (dB) for the panorama to be considered good. Higher = stricter (falls back to feeds more readily).")]
-    private float qualityThreshold = 18f;
+    private StitchPoseSource.Settings gnssSettings = new StitchPoseSource.Settings();
 
-    [SerializeField]
-    [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is in fallback.")]
-    private ScreenSpawn.ScreenStyle fallbackScreenStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+    // ---------------- group definitions ----------------
+
+    /// <summary>
+    /// Shared-memory bridge sizing + pacing. These size the named sections in
+    /// <c>Start</c> and are published in metadata for Python to size its own mappings
+    /// from, so changing any of them requires restarting both Play mode and
+    /// StitcherThreading.py.
+    /// </summary>
+    [Serializable]
+    public class BridgeSettings
+    {
+        [Tooltip("Enable writing images to BlockSharedMemory. Must be OFF in the DJI scene: " +
+                 "ImageSharing.cs is the producer there, and two producers with different " +
+                 "header sizes would corrupt the map.")]
+        public bool enableImageWriting = true;
+
+        [Tooltip("Enable reading panorama from PanoramaSharedMemory")]
+        public bool enablePanoramaReading = true;
+
+        [Tooltip("Must be 800 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
+        public int blockImageWidth = 800;
+
+        [Tooltip("Must be 450 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
+        public int blockImageHeight = 450;
+
+        [Tooltip("Panorama width Python renders and Unity uploads to the curved screen.")]
+        public int panoramaImageWidth = 600;
+
+        [Tooltip("Panorama height Python renders and Unity uploads to the curved screen.")]
+        public int panoramaImageHeight = 400;
+
+        [Tooltip("Seconds between block publishes. StitcherThreading.py's RENDER_MIN_PERIOD is " +
+                 "paced just above this; lowering it here without matching that starves the warp thread.")]
+        public float sendInterval = 0.05f;
+
+        [Tooltip("Seconds between panorama reads.")]
+        public float readInterval = 0.05f;
+
+        [Range(3, 12)]
+        [Tooltip("Block slots published to Python in PLANAR mode. A planar mosaic generalises " +
+                 "to any number of overlapping views, unlike the fixed left/centre/right triple " +
+                 "the other stitchers need (they stay pinned to 3 regardless of this). The block " +
+                 "map is sized from this once at startup, so restart the Python stitcher after " +
+                 "changing it.")]
+        public int maxStitchViews = 8;
+    }
+
+    /// <summary>
+    /// CLASSIC feature-matching parameters. Published in metadata unconditionally
+    /// (PlanarStitcher.py reads them off the active stitcher regardless), but they only
+    /// affect the output under the CLASSIC stitcher.
+    /// </summary>
+    [Serializable]
+    public class ClassicSettings
+    {
+        [Tooltip("Warp inputs to cylindrical coordinates before matching.")]
+        public bool cylindrical = false;
+
+        [Tooltip("Descriptor matcher: brute force or FLANN.")]
+        public matcherType typeOfMatcher = matcherType.BF;
+
+        [Tooltip("Refine the homography with RANSAC.")]
+        public bool ransac = false;
+
+        [Tooltip("FLANN search checks.")]
+        public int checks = 50;
+
+        [Tooltip("Lowe ratio test threshold.")]
+        public float ratio_thresh = 0.7f;
+
+        [Tooltip("Minimum keypoint score to keep a match.")]
+        public float score_threshold = 0.1f;
+
+        [Tooltip("Assumed focal length in pixels, used by the cylindrical warp.")]
+        public int focal_length = 1000;
+    }
+
+    /// <summary>
+    /// STABSTITCH-only settings: how the warped views are fused, how the REFERENCE_BLEND
+    /// soft mask is feathered, and the quality fallback that hides a bad panorama.
+    /// </summary>
+    [Serializable]
+    public class StabStitchSettings
+    {
+        [Tooltip("How warped views are fused into the panorama.")]
+        public FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
+
+        [Tooltip("Gaussian blur kernel size for the reference-image soft mask (must be an odd integer)")]
+        public int blurKernelSize = 41;
+
+        [Tooltip("Gaussian blur sigma for the reference-image soft mask feathering width (pixels)")]
+        public float blurSigma = 15f;
+
+        [Tooltip("Width in pixels of the edge strip where LINEAR blending is applied to hide seams (REFERENCE_BLEND mode only). Interior of the reference image is left pixel-perfect.")]
+        public int borderSize = 60;
+
+        [Tooltip("When the panorama is judged bad (poor alignment / distorted warp), hide it and show the individual drone feeds (via ScreenSpawn) instead.")]
+        public bool qualityFallbackEnabled = true;
+
+        [Tooltip("Minimum overlap PSNR (dB) for the panorama to be considered good. Higher = stricter (falls back to feeds more readily).")]
+        public float qualityThreshold = 18f;
+
+        [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is in fallback.")]
+        public ScreenSpawn.ScreenStyle fallbackScreenStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+    }
+
+    /// <summary>
+    /// PLANAR-only settings. The mode selector, blend mode and debug overlay stay at the
+    /// top of the inspector because they are flipped between runs; everything here is
+    /// tuning that is set once for a scene.
+    /// </summary>
+    [Serializable]
+    public class PlanarSettings
+    {
+        [Header("Scene plane")]
+        [Tooltip("Layers the scene-plane raycast may hit. This matters more than it looks: the " +
+                 "ScreenSpawn feed quads and this component's own curved panorama screen float " +
+                 "in world space near the pilot, and an unfiltered raycast will happily return " +
+                 "one of them, putting the 'scene plane' a few metres away. Obstacle + Default " +
+                 "is the intended setting.")]
+        public LayerMask scenePlaneMask = ~0;
+
+        [Tooltip("Plane distance used when the raycast misses. A wrong distance is a uniform " +
+                 "scale error and degrades gracefully, so this is preferable to blanking the " +
+                 "panorama every time the ray clips a window.")]
+        public float fallbackPlaneDistance = 30f;
+
+        [Tooltip("Smoothing time constant for the plane normal and distance, so a car driving " +
+                 "through the ray or a one-frame miss doesn't jerk the mosaic.")]
+        public float planeFilterTime = 0.5f;
+
+        [Tooltip("Facade mode: snap the plane normal to the swarm formation normal rather than " +
+                 "trusting the raycast hit normal. Useful when the facade has ledges or mullions " +
+                 "that make the hit normal flicker.")]
+        public bool snapNormalToFormation = false;
+
+        [Tooltip("Plane normal used when scenePlaneMode is Manual.")]
+        public Vector3 manualPlaneNormal = Vector3.up;
+
+        [Tooltip("Plane offset used when scenePlaneMode is Manual.")]
+        public float manualPlaneDistance = 0f;
+
+        [Header("Canvas & gates")]
+        public int planarCanvasWidth = 1200;
+        public int planarCanvasHeight = 800;
+
+        [Tooltip("Fixed canvas scale. The output resolution never changes per solve (that would " +
+                 "flicker), so this sets how much of the plane fits in it. Fixed rather than " +
+                 "auto-fitted so measurements stay comparable across runs.")]
+        public float planarMetresPerPixel = 0.05f;
+
+        [Tooltip("Rays landing beyond this distance are rejected. Without it an oblique view's " +
+                 "footprint is unbounded whenever the horizon is in frame.")]
+        public float planarMaxRange = 200f;
+
+        [Range(10f, 89f)]
+        [Tooltip("Drop views whose optical axis meets the plane at a shallower angle than this " +
+                 "(measured from the plane normal). A grazing view contributes a long thin " +
+                 "smear and trips the anisotropy gate anyway.")]
+        public float maxObliquityDeg = 70f;
+
+        [Tooltip("Centre-drone hysteresis in metres. The incumbent centre drone is kept until " +
+                 "another is closer to the formation centroid by more than this. The scene-plane " +
+                 "raycast is cast from the centre drone, so a swap steps the published plane " +
+                 "offset and visibly shifts the mosaic — worth resisting near a tie.")]
+        public float planarCentreHysteresis = 1.5f;
+
+        [Tooltip("Border falloff width, in SOURCE pixels — so the width in canvas pixels " +
+                 "scales with each view's local magnification. Under Feather this is the " +
+                 "cross-fade width; under Nearest it only keeps the seam off the source-image " +
+                 "edges, by making a view lose to a neighbour before it runs out of frame.")]
+        public int planarFeatherPx = 40;
+
+        [Tooltip("Projective-sanity gate: worst local stretch ratio allowed across the canvas. " +
+                 "1.0 is an isotropic similarity; near-horizon views blow up.")]
+        public float planarAnisoMax = 12f;
+
+        [Tooltip("Minimum fraction of the canvas that must be covered by some view.")]
+        public float planarMinCoverage = 0.35f;
+
+        [Tooltip("Gate the panorama on overlap PSNR. Off by default: it is logged as a " +
+                 "diagnostic either way, and gating on it would hide the panorama permanently " +
+                 "once pose noise is injected, which defeats the point of injecting it.")]
+        public bool planarPsnrGateEnabled = false;
+
+        [Header("Warp-thread estimators")]
+        [Tooltip("Plane sweep: correct the published plane DISTANCE by scanning candidate " +
+                 "offsets and keeping the one where the views agree best. Fixes the one error " +
+                 "no per-view translation can absorb — a wrong plane distance appears in each " +
+                 "view as a scale about its own footprint. Being a single global number it " +
+                 "cannot fix per-drone error; that is what the pose refiner is for. " +
+                 "Independent of it: either, both or neither may be on.")]
+        public bool planarPlaneSweep = false;
+
+        [Tooltip("Pose refiner: correct each drone's camera position by phase-correlating its " +
+                 "view against the consensus of the others. Absorbs differential GNSS error " +
+                 "and compass bias, which both show up at a facade as a lateral shift of that " +
+                 "view's footprint. Cannot represent scale (use the plane sweep) or the " +
+                 "keystone from a gimbal-pitch bias. Views whose correlation peak is not " +
+                 "clearly dominant are left uncorrected rather than guessed at.")]
+        public bool planarPoseRefine = false;
+
+        [Range(0.5f, 50f)]
+        [Tooltip("Plane sweep half-range, metres either side of the current estimate. Size it " +
+                 "to how wrong the plane could plausibly be — a map-drawn facade is worth a few " +
+                 "metres, a raycast onto real geometry much less. Too wide wastes candidates; " +
+                 "too narrow and the sweep cannot reach the answer.")]
+        public float planarSweepRange = 4f;
+
+        [Range(3, 21)]
+        [Tooltip("Plane sweep candidate count. Forced odd in Python so the incumbent estimate " +
+                 "is always itself a candidate; the result is parabola-refined between samples, " +
+                 "so this sets the capture range's resolution rather than the final precision.")]
+        public int planarSweepSteps = 9;
+
+        [Range(0.01f, 1f)]
+        [Tooltip("Low-pass rate applied to both estimators, per warp update. The corrections " +
+                 "are slowly-varying by premise (GNSS bias, plane distance), so heavy smoothing " +
+                 "costs nothing and keeps a single bad measurement from reaching the mosaic. " +
+                 "1.0 snaps to the raw estimate — useful for seeing what it actually measured.")]
+        public float planarRefineRate = 0.25f;
+
+        [Tooltip("Largest per-view correction the refiner may apply, metres. A correlation " +
+                 "peak further out than the pose could plausibly be wrong is a mismatch, not a " +
+                 "measurement. 0 disables the clamp.")]
+        public float planarRefineMaxShift = 3f;
+    }
+
+    /// <summary>
+    /// Curved panorama screen geometry plus the headset-direction controls. This is the
+    /// VR display side of the component and is independent of which stitcher is running.
+    /// </summary>
+    [Serializable]
+    public class VrDisplaySettings
+    {
+        [Header("Curved screen")]
+        [Tooltip("Curved screen radius from the pilot, metres.")]
+        public float radius = 5f;
+
+        [Tooltip("Horizontal arc the curved screen subtends, degrees.")]
+        public float angleRange = 90f;
+
+        [Tooltip("Mesh segments across the arc.")]
+        public int segments = 20;
+
+        [Tooltip("Curved screen height, metres.")]
+        public float height = 3f;
+
+        [Tooltip("Re-derive the screen aspect from the panorama dimensions each time they change.")]
+        public bool resize_dimension = false;
+
+        [Tooltip("Vertical offset of the curved screen above the Arena centre.")]
+        public float screenHeightOffset = 0f;
+
+        [Header("Headset direction")]
+        [Tooltip("HMD head transform (OVRCameraRig.centerEyeAnchor). Auto-found from the OVRPlayerController if left empty.")]
+        public Transform headTransform;
+
+        [Tooltip("Degrees/second the body yaws at full controller yaw-stick deflection. The panorama " +
+                 "heading integrates this command and the OVRCameraRig is rotated by the same amount " +
+                 "to mimic body motion. Head tracking is excluded, so the pilot can look around at the " +
+                 "side screens without moving the panorama.")]
+        public float bodyYawRate = 90f;
+
+        [Tooltip("Rotate the OVRCameraRig by the controller yaw-rate command to mimic body motion. " +
+                 "Disable to advance the panorama heading only, leaving the rig untouched.")]
+        public bool driveCameraRigYaw = true;
+
+        [Tooltip("Key that recalibrates the body heading to the current CenterEyeAnchor yaw, so the " +
+                 "panorama centre and the VR velocity frame re-align with wherever the pilot is looking.")]
+        public KeyCode calibrateKey = KeyCode.C;
+
+        [Tooltip("Key that toggles the panorama on/off (for testing without a controller connected).")]
+        public KeyCode togglePanoramaKey = KeyCode.T;
+
+        [Tooltip("ScreenSpawn that shows the individual drone feeds. Auto-found if left empty.")]
+        public ScreenSpawn screenSpawn;
+    }
+
+    // ---------------- forwarding properties ----------------
+    //
+    // Every grouped field keeps its original name here, so the ~2500 lines below this
+    // block -- WriteMetadata's offset writes above all -- are untouched by the grouping.
+    // Read/write throughout because a handful (the image dimensions, screenSpawn) are
+    // clamped or auto-found at runtime.
+
+    private bool enableImageWriting { get => bridge.enableImageWriting; set => bridge.enableImageWriting = value; }
+    private bool enablePanoramaReading { get => bridge.enablePanoramaReading; set => bridge.enablePanoramaReading = value; }
+    private int blockImageWidth { get => bridge.blockImageWidth; set => bridge.blockImageWidth = value; }
+    private int blockImageHeight { get => bridge.blockImageHeight; set => bridge.blockImageHeight = value; }
+    private int panoramaImageWidth { get => bridge.panoramaImageWidth; set => bridge.panoramaImageWidth = value; }
+    private int panoramaImageHeight { get => bridge.panoramaImageHeight; set => bridge.panoramaImageHeight = value; }
+    private float sendInterval { get => bridge.sendInterval; set => bridge.sendInterval = value; }
+    private float readInterval { get => bridge.readInterval; set => bridge.readInterval = value; }
+    private int maxStitchViews { get => bridge.maxStitchViews; set => bridge.maxStitchViews = value; }
+
+    private bool cylindrical { get => classic.cylindrical; set => classic.cylindrical = value; }
+    private matcherType typeOfMatcher { get => classic.typeOfMatcher; set => classic.typeOfMatcher = value; }
+    private bool ransac { get => classic.ransac; set => classic.ransac = value; }
+    private int checks { get => classic.checks; set => classic.checks = value; }
+    private float ratio_thresh { get => classic.ratio_thresh; set => classic.ratio_thresh = value; }
+    private float score_threshold { get => classic.score_threshold; set => classic.score_threshold = value; }
+    private int focal_length { get => classic.focal_length; set => classic.focal_length = value; }
+
+    private FusionMode typeOfFusion { get => stabStitch.typeOfFusion; set => stabStitch.typeOfFusion = value; }
+    private int blurKernelSize { get => stabStitch.blurKernelSize; set => stabStitch.blurKernelSize = value; }
+    private float blurSigma { get => stabStitch.blurSigma; set => stabStitch.blurSigma = value; }
+    private int borderSize { get => stabStitch.borderSize; set => stabStitch.borderSize = value; }
+    private bool qualityFallbackEnabled { get => stabStitch.qualityFallbackEnabled; set => stabStitch.qualityFallbackEnabled = value; }
+    private float qualityThreshold { get => stabStitch.qualityThreshold; set => stabStitch.qualityThreshold = value; }
+    private ScreenSpawn.ScreenStyle fallbackScreenStyle { get => stabStitch.fallbackScreenStyle; set => stabStitch.fallbackScreenStyle = value; }
+
+    private LayerMask scenePlaneMask { get => planar.scenePlaneMask; set => planar.scenePlaneMask = value; }
+    private float fallbackPlaneDistance { get => planar.fallbackPlaneDistance; set => planar.fallbackPlaneDistance = value; }
+    private float planeFilterTime { get => planar.planeFilterTime; set => planar.planeFilterTime = value; }
+    private bool snapNormalToFormation { get => planar.snapNormalToFormation; set => planar.snapNormalToFormation = value; }
+    private Vector3 manualPlaneNormal { get => planar.manualPlaneNormal; set => planar.manualPlaneNormal = value; }
+    private float manualPlaneDistance { get => planar.manualPlaneDistance; set => planar.manualPlaneDistance = value; }
+    private int planarCanvasWidth { get => planar.planarCanvasWidth; set => planar.planarCanvasWidth = value; }
+    private int planarCanvasHeight { get => planar.planarCanvasHeight; set => planar.planarCanvasHeight = value; }
+    private float planarMetresPerPixel { get => planar.planarMetresPerPixel; set => planar.planarMetresPerPixel = value; }
+    private float planarMaxRange { get => planar.planarMaxRange; set => planar.planarMaxRange = value; }
+    private float maxObliquityDeg { get => planar.maxObliquityDeg; set => planar.maxObliquityDeg = value; }
+    private float planarCentreHysteresis { get => planar.planarCentreHysteresis; set => planar.planarCentreHysteresis = value; }
+    private int planarFeatherPx { get => planar.planarFeatherPx; set => planar.planarFeatherPx = value; }
+    private float planarAnisoMax { get => planar.planarAnisoMax; set => planar.planarAnisoMax = value; }
+    private float planarMinCoverage { get => planar.planarMinCoverage; set => planar.planarMinCoverage = value; }
+    private bool planarPsnrGateEnabled { get => planar.planarPsnrGateEnabled; set => planar.planarPsnrGateEnabled = value; }
+    private bool planarPlaneSweep { get => planar.planarPlaneSweep; set => planar.planarPlaneSweep = value; }
+    private bool planarPoseRefine { get => planar.planarPoseRefine; set => planar.planarPoseRefine = value; }
+    private float planarSweepRange { get => planar.planarSweepRange; set => planar.planarSweepRange = value; }
+    private int planarSweepSteps { get => planar.planarSweepSteps; set => planar.planarSweepSteps = value; }
+    private float planarRefineRate { get => planar.planarRefineRate; set => planar.planarRefineRate = value; }
+    private float planarRefineMaxShift { get => planar.planarRefineMaxShift; set => planar.planarRefineMaxShift = value; }
+
+    private float radius { get => vr.radius; set => vr.radius = value; }
+    private float angleRange { get => vr.angleRange; set => vr.angleRange = value; }
+    private int segments { get => vr.segments; set => vr.segments = value; }
+    private float height { get => vr.height; set => vr.height = value; }
+    private float screenHeightOffset { get => vr.screenHeightOffset; set => vr.screenHeightOffset = value; }
+    private bool resize_dimension { get => vr.resize_dimension; set => vr.resize_dimension = value; }
+    private Transform headTransform { get => vr.headTransform; set => vr.headTransform = value; }
+    private float bodyYawRate { get => vr.bodyYawRate; set => vr.bodyYawRate = value; }
+    private bool driveCameraRigYaw { get => vr.driveCameraRigYaw; set => vr.driveCameraRigYaw = value; }
+    private KeyCode calibrateKey { get => vr.calibrateKey; set => vr.calibrateKey = value; }
+    private KeyCode togglePanoramaKey { get => vr.togglePanoramaKey; set => vr.togglePanoramaKey = value; }
+    private ScreenSpawn screenSpawn { get => vr.screenSpawn; set => vr.screenSpawn = value; }
+
+    // Read-only access so ScreenSpawn can adopt the same FPV feed resolution
+    // (PyUniSharingFast is the single source of truth for the block resolution).
+    public int BlockImageWidth => bridge.blockImageWidth;
+    public int BlockImageHeight => bridge.blockImageHeight;
 
     private string blockMapName = "BlockSharedMemory";
     private int blockImageCount = 0;
@@ -136,8 +484,22 @@ public class PyUniSharingFast : MonoBehaviour
     private IntPtr metadataFileMap;
     private IntPtr metadataPtr;
 
+    // ---------------- debug readouts ----------------
+    // Populated by FindCameras / the stitch selection, not configuration. Kept visible
+    // (rather than [HideInInspector]) because they are the quickest way to confirm which
+    // drones were discovered and which of them are currently going to the stitcher.
+
+    [Header("Debug — populated at runtime")]
+    [Tooltip("Read-only: every FPV camera discovered in the scene. Rebuilt every few seconds; " +
+             "the block header's droneId is an index into this list.")]
     public List<Camera> camerasToCapture;
+
+    [Tooltip("Read-only: per-camera boundary flag, index-aligned with camerasToCapture.")]
     public List<bool> camerasToStitch;
+
+    [SerializeField]
+    [Tooltip("Read-only: the drones currently sent to the stitcher, ordered left / centre / right. Updates during Play.")]
+    private List<string> stitchedDrones = new List<string>();
     private List<AttitudeAlgorithm> stitchAttitudes;  // per-camera boundary estimator, index-aligned with camerasToCapture
     private List<StateFinder> stitchStates;            // per-camera state (IsAlive), index-aligned with camerasToCapture
 
@@ -450,153 +812,6 @@ public class PyUniSharingFast : MonoBehaviour
         Manual,   // inspector normal + distance, no raycast
     }
 
-    [Header("Planar Stitcher — Scene Plane")]
-    [SerializeField]
-    private ScenePlaneMode scenePlaneMode = ScenePlaneMode.Auto;
-
-    [SerializeField]
-    [Tooltip("Layers the scene-plane raycast may hit. This matters more than it looks: the " +
-             "ScreenSpawn feed quads and this component's own curved panorama screen float " +
-             "in world space near the pilot, and an unfiltered raycast will happily return " +
-             "one of them, putting the 'scene plane' a few metres away. Obstacle + Default " +
-             "is the intended setting.")]
-    private LayerMask scenePlaneMask = ~0;
-
-    [SerializeField]
-    [Tooltip("Plane distance used when the raycast misses. A wrong distance is a uniform " +
-             "scale error and degrades gracefully, so this is preferable to blanking the " +
-             "panorama every time the ray clips a window.")]
-    private float fallbackPlaneDistance = 30f;
-
-    [SerializeField]
-    [Tooltip("Smoothing time constant for the plane normal and distance, so a car driving " +
-             "through the ray or a one-frame miss doesn't jerk the mosaic.")]
-    private float planeFilterTime = 0.5f;
-
-    [SerializeField]
-    [Tooltip("Facade mode: snap the plane normal to the swarm formation normal rather than " +
-             "trusting the raycast hit normal. Useful when the facade has ledges or mullions " +
-             "that make the hit normal flicker.")]
-    private bool snapNormalToFormation = false;
-
-    [SerializeField] private Vector3 manualPlaneNormal = Vector3.up;
-    [SerializeField] private float manualPlaneDistance = 0f;
-
-    [Header("Planar Stitcher — Canvas & Gates")]
-    [SerializeField] private int planarCanvasWidth = 1200;
-    [SerializeField] private int planarCanvasHeight = 800;
-
-    [SerializeField]
-    [Tooltip("Fixed canvas scale. The output resolution never changes per solve (that would " +
-             "flicker), so this sets how much of the plane fits in it. Fixed rather than " +
-             "auto-fitted so measurements stay comparable across runs.")]
-    private float planarMetresPerPixel = 0.05f;
-
-    [SerializeField]
-    [Tooltip("Rays landing beyond this distance are rejected. Without it an oblique view's " +
-             "footprint is unbounded whenever the horizon is in frame.")]
-    private float planarMaxRange = 200f;
-
-    [SerializeField]
-    [Range(10f, 89f)]
-    [Tooltip("Drop views whose optical axis meets the plane at a shallower angle than this " +
-             "(measured from the plane normal). A grazing view contributes a long thin " +
-             "smear and trips the anisotropy gate anyway.")]
-    private float maxObliquityDeg = 70f;
-
-    [SerializeField]
-    [Tooltip("Centre-drone hysteresis in metres. The incumbent centre drone is kept until " +
-             "another is closer to the formation centroid by more than this. The scene-plane " +
-             "raycast is cast from the centre drone, so a swap steps the published plane " +
-             "offset and visibly shifts the mosaic — worth resisting near a tie.")]
-    private float planarCentreHysteresis = 1.5f;
-
-    [SerializeField]
-    [Tooltip("How overlapping views are combined. Nearest gives every pixel to the single " +
-             "most face-on view, so nothing is averaged and pose error shows as a seam " +
-             "rather than ghosting; Feather cross-fades the overlap, which is only clean " +
-             "while the geometry is exact. In a facade wall the views overlap almost " +
-             "everywhere, so Feather ghosts across the whole mosaic.")]
-    private PlanarBlendMode planarBlendMode = PlanarBlendMode.Nearest;
-
-    [SerializeField]
-    [Tooltip("Testing aid: colour each patch of the mosaic by the drone that supplied it. " +
-             "Tint washes colour over the imagery, Flat replaces it entirely. The " +
-             "drone-to-colour key is printed on the Python console's periodic [PLANAR] " +
-             "line. Leave Off for flight.")]
-    private PlanarDebugView planarDebugView = PlanarDebugView.Off;
-
-    [SerializeField]
-    [Tooltip("Border falloff width, in SOURCE pixels — so the width in canvas pixels " +
-             "scales with each view's local magnification. Under Feather this is the " +
-             "cross-fade width; under Nearest it only keeps the seam off the source-image " +
-             "edges, by making a view lose to a neighbour before it runs out of frame.")]
-    private int planarFeatherPx = 40;
-
-    [SerializeField]
-    [Tooltip("Projective-sanity gate: worst local stretch ratio allowed across the canvas. " +
-             "1.0 is an isotropic similarity; near-horizon views blow up.")]
-    private float planarAnisoMax = 12f;
-
-    [SerializeField]
-    [Tooltip("Minimum fraction of the canvas that must be covered by some view.")]
-    private float planarMinCoverage = 0.35f;
-
-    [SerializeField]
-    [Tooltip("Gate the panorama on overlap PSNR. Off by default: it is logged as a " +
-             "diagnostic either way, and gating on it would hide the panorama permanently " +
-             "once pose noise is injected, which defeats the point of injecting it.")]
-    private bool planarPsnrGateEnabled = false;
-
-    [Header("Planar Stitcher — Warp-Thread Estimators")]
-
-    [SerializeField]
-    [Tooltip("Plane sweep: correct the published plane DISTANCE by scanning candidate " +
-             "offsets and keeping the one where the views agree best. Fixes the one error " +
-             "no per-view translation can absorb — a wrong plane distance appears in each " +
-             "view as a scale about its own footprint. Being a single global number it " +
-             "cannot fix per-drone error; that is what the pose refiner is for. " +
-             "Independent of it: either, both or neither may be on.")]
-    private bool planarPlaneSweep = false;
-
-    [SerializeField]
-    [Tooltip("Pose refiner: correct each drone's camera position by phase-correlating its " +
-             "view against the consensus of the others. Absorbs differential GNSS error " +
-             "and compass bias, which both show up at a facade as a lateral shift of that " +
-             "view's footprint. Cannot represent scale (use the plane sweep) or the " +
-             "keystone from a gimbal-pitch bias. Views whose correlation peak is not " +
-             "clearly dominant are left uncorrected rather than guessed at.")]
-    private bool planarPoseRefine = false;
-
-    [SerializeField]
-    [Range(0.5f, 50f)]
-    [Tooltip("Plane sweep half-range, metres either side of the current estimate. Size it " +
-             "to how wrong the plane could plausibly be — a map-drawn facade is worth a few " +
-             "metres, a raycast onto real geometry much less. Too wide wastes candidates; " +
-             "too narrow and the sweep cannot reach the answer.")]
-    private float planarSweepRange = 4f;
-
-    [SerializeField]
-    [Range(3, 21)]
-    [Tooltip("Plane sweep candidate count. Forced odd in Python so the incumbent estimate " +
-             "is always itself a candidate; the result is parabola-refined between samples, " +
-             "so this sets the capture range's resolution rather than the final precision.")]
-    private int planarSweepSteps = 9;
-
-    [SerializeField]
-    [Range(0.01f, 1f)]
-    [Tooltip("Low-pass rate applied to both estimators, per warp update. The corrections " +
-             "are slowly-varying by premise (GNSS bias, plane distance), so heavy smoothing " +
-             "costs nothing and keeps a single bad measurement from reaching the mosaic. " +
-             "1.0 snaps to the raw estimate — useful for seeing what it actually measured.")]
-    private float planarRefineRate = 0.25f;
-
-    [SerializeField]
-    [Tooltip("Largest per-view correction the refiner may apply, metres. A correlation " +
-             "peak further out than the pose could plausibly be wrong is a mismatch, not a " +
-             "measurement. 0 disables the clamp.")]
-    private float planarRefineMaxShift = 3f;
-
     // Index into camerasToCapture of the centre stitch camera, set once per frame by
     // SelectStitchCameras or, in PLANAR mode, SelectPlanarCentreCamera. The scene-plane
     // raycast and the intrinsics are taken from it.
@@ -609,18 +824,6 @@ public class PyUniSharingFast : MonoBehaviour
     private ScenePlaneMode resolvedPlaneMode = ScenePlaneMode.Nadir;
     private bool scenePlaneInitialised = false;
     private RaycastHit[] scenePlaneHits = new RaycastHit[8];
-
-    [Header("Stitch Pose Source")]
-    [SerializeField]
-    [Tooltip("Which camera pose is published to the planar stitcher. GroundTruth is exact, " +
-             "so with it the mosaic should be pixel-perfect on a truly planar scene -- any " +
-             "seam is a bug rather than a limitation. The noisy modes exist to size how much " +
-             "refinement real drones would need.")]
-    private StitchPoseSourceMode poseSource = StitchPoseSourceMode.GroundTruth;
-
-    [SerializeField]
-    [Tooltip("GNSS error model used when poseSource is GroundTruthPlusGnss.")]
-    private StitchPoseSource.Settings gnssSettings = new StitchPoseSource.Settings();
 
     private StitchPoseSource gnssNoise;
     private float lastPoseNoiseTime = -1f;
@@ -711,42 +914,10 @@ public class PyUniSharingFast : MonoBehaviour
         return enableImageWriting ? blockPoseHeaderSize : blockLegacyHeaderSize;
     }
 
-    // Parameters for screen in front of the pilot
-    public float radius = 5f;
-    public float angleRange = 90f;
-    public int segments = 20;
-    public float height = 3f;
+    // Curved-screen runtime objects; the geometry itself lives in VrDisplaySettings.
     private Material curvedScreenMaterial;
     private MeshRenderer panoramaRenderer;
     private Texture2D panoTexture;
-    public bool resize_dimension = false;
-
-    // Headset-directed stitching + curved-screen placement
-    [Header("Headset Direction")]
-    [SerializeField]
-    [Tooltip("HMD head transform (OVRCameraRig.centerEyeAnchor). Auto-found from the OVRPlayerController if left empty.")]
-    private Transform headTransform;
-
-    [SerializeField]
-    [Tooltip("Vertical offset of the curved screen above the Arena centre.")]
-    private float screenHeightOffset = 0f;
-
-    [SerializeField]
-    [Tooltip("Degrees/second the body yaws at full controller yaw-stick deflection. The panorama " +
-             "heading integrates this command and the OVRCameraRig is rotated by the same amount " +
-             "to mimic body motion. Head tracking is excluded, so the pilot can look around at the " +
-             "side screens without moving the panorama.")]
-    private float bodyYawRate = 90f;
-
-    [SerializeField]
-    [Tooltip("Rotate the OVRCameraRig by the controller yaw-rate command to mimic body motion. " +
-             "Disable to advance the panorama heading only, leaving the rig untouched.")]
-    private bool driveCameraRigYaw = true;
-
-    [SerializeField]
-    [Tooltip("Key that recalibrates the body heading to the current CenterEyeAnchor yaw, so the " +
-             "panorama centre and the VR velocity frame re-align with wherever the pilot is looking.")]
-    private KeyCode calibrateKey = KeyCode.C;
 
     // Body heading that drives the panorama. Seeded once from the head's initial
     // yaw, then advanced only by the controller yaw-rate command (never by head
@@ -780,34 +951,12 @@ public class PyUniSharingFast : MonoBehaviour
     private GameObject arena;
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 
-    [Header("Stitching Debug")]
-    [SerializeField]
-    [Tooltip("Read-only: the drones currently sent to the stitcher, ordered left / centre / right. Updates during Play.")]
-    private List<string> stitchedDrones = new List<string>();
-    private string lastStitchedDronesKey;  // change-detection so the list only rebuilds when the selection changes
+    // Change-detection so the stitchedDrones readout only rebuilds when the selection changes.
+    private string lastStitchedDronesKey;
 
-    [SerializeField]
-    [Tooltip("Print the Python stitch/warp loop rate (Hz) to the console. Disable to declutter the log while reading other per-frame diagnostics (e.g. the StabStitch quality PSNR).")]
-    private bool printStitchRate = true;
-
-    // Quality fallback: switch between the panorama screen and ScreenSpawn feeds
-    [SerializeField] private ScreenSpawn screenSpawn;
+    // Panorama display state. The pilot toggle itself (panoramaUserEnabled) is at the top of
+    // the inspector; this is the resolved state after the quality fallback has had its say.
     private bool panoramaDisplayActive = true;
-
-    // Pilot toggle for the panorama, driven by the controller click switch
-    // (InputManager "userSwitch": 1 = show panorama, -1 = show individual feeds),
-    // the Inspector checkbox below, or togglePanoramaKey. When off, the panorama
-    // is hidden and the individual feeds are shown (same display path as the
-    // quality fallback); the Python stitcher keeps running the whole time.
-    [SerializeField]
-    [Tooltip("Show the stitched panorama; unticked shows the individual drone feeds instead. " +
-             "Mirrors the controller's click switch when one is connected, but can also be " +
-             "toggled directly here or with togglePanoramaKey -- for testing without a controller.")]
-    private bool panoramaUserEnabled = true;
-
-    [SerializeField]
-    [Tooltip("Key that toggles the panorama on/off (for testing without a controller connected).")]
-    private KeyCode togglePanoramaKey = KeyCode.T;
 
     // Edge-detection for the controller's click switch, so a disconnected controller
     // (InputManager's "userSwitch" resting at its default) doesn't fight the manual
@@ -815,10 +964,6 @@ public class PyUniSharingFast : MonoBehaviour
     private float lastControllerUserSwitch;
     private bool controllerUserSwitchInitialized = false;
 
-    [Header("Stitched Drone Screens")]
-    [SerializeField]
-    [Tooltip("Hide the individual ScreenSpawn feeds for the drones currently being stitched into the panorama (they already appear in the panorama). Only applies while the panorama is displayed; during quality-fallback all feeds reappear.")]
-    private bool hideStitchedDroneScreens = false;
     private string lastHiddenScreensKey;
 
     // Other timing values to check the number of camera in the block

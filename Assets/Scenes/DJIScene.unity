@@ -234,22 +234,22 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blurSigma
+      propertyPath: stabStitch.blurSigma
       value: 20
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: borderSize
+      propertyPath: stabStitch.borderSize
       value: 35
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: typeOfFusion
+      propertyPath: stabStitch.typeOfFusion
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blurKernelSize
+      propertyPath: stabStitch.blurKernelSize
       value: 61
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
@@ -259,27 +259,27 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blockImageWidth
+      propertyPath: bridge.blockImageWidth
       value: 800
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blockImageHeight
+      propertyPath: bridge.blockImageHeight
       value: 450
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: enableImageWriting
+      propertyPath: bridge.enableImageWriting
       value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: panoramaImageWidth
+      propertyPath: bridge.panoramaImageWidth
       value: 1600
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: panoramaImageHeight
+      propertyPath: bridge.panoramaImageHeight
       value: 600
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,

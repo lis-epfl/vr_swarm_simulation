@@ -96,25 +96,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: afc009acad950df4ca680c00ef4682ee, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  batchImageWidth: 300
-  batchImageHeight: 300
-  processedImageWidth: 600
-  processedImageHeight: 400
-  sendInterval: 0.05
-  readInterval: 0.05
   typeOfStitcher: 0
-  cylindrical: 0
-  typeOfMatcher: 0
-  ransac: 0
-  checks: 50
-  ratio_thresh: 0.7
-  score_threshold: 0.1
-  focal_length: 1000
-  onlyIHN: 1
   camerasToCapture: []
   camerasToStitch: 
-  radius: 5
-  angleRange: 90
-  segments: 20
-  height: 3
-  resize_dimension: 0
