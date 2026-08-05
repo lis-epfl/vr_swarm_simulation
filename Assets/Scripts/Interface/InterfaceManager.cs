@@ -125,6 +125,25 @@ public class InterfaceManager : MonoBehaviour
         interfaceParamsChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Changes the screen layout at runtime, on the same path an inspector edit takes.
+    /// <see cref="SwarmPlaneController"/> calls this when the swarming plane changes:
+    /// OUTER_CIRCLE only spreads the screens out while the drones' yaws are spread out, so a
+    /// shared-heading formation needs FORMATION_WALL instead.
+    ///
+    /// This field stays the single source of truth for the layout — pushing the style into
+    /// ScreenSpawn directly would be overwritten by the next parameter change, and would skip
+    /// the panorama-fallback substitution ScreenSpawn re-applies on top of it.
+    /// </summary>
+    public void SetScreenStyle(ScreenSpawn.ScreenStyle style)
+    {
+        if (screenStyle == style) return;
+
+        screenStyle = style;
+        UpdateScreenSpawnParameters();
+        interfaceParamsChanged?.Invoke();
+    }
+
     // Called by ScreenSpawn to update display parameters with defaults
     public void UpdateDisplayParameters(float newRadius, float newScale, Vector3 newOffset, Vector3 newLookAtOffset)
     {

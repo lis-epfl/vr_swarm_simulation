@@ -39,15 +39,23 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
 - `BlockSharedMemory` — the **stitcher input**, one block per selected drone. `flag` is the handshake
   (0 = ready, 1 = busy). Images are **BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole
   producer: sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep
-  `enableImageWriting` off on `PyUniSharingFast` there). Two header versions coexist; Unity publishes
-  which one it writes as `blockHeaderSize` in metadata, and Python reads that rather than assuming:
-  - **v1, 12 bytes** — `int flag | int droneId | float heading | RGB24 image`. What `ImageSharing.cs`
-    writes (real drones publish yaw only).
+  `enableImageWriting` off on `PyUniSharingFast` there). Unity publishes the header size as
+  `blockHeaderSize` in metadata and Python reads that rather than assuming, so the size is declared in
+  exactly one place even though two components write blocks:
+  - **v1, 12 bytes** — `int flag | int droneId | float heading | RGB24 image`. Historical; **no
+    producer writes it any more**. Kept named because the constant is what `check_wire_layout.py`
+    asserts against, and because a v1 producer's blocks are still *readable* — they simply arrive with
+    `poseStatus == 0` and are dropped by the planar solve.
   - **v2, 48 bytes** — appends `float camPos[3] | float camRot[4] (xyzw) | float captureTime |
-    int poseStatus`, all in **Unity world / left-handed**. Required by `PLANAR`. The pose lives in the
-    block, not in metadata, because it must be the pose of *that* frame: it is snapshotted in
-    `RequestBlockCapture` 1–2 frames before the readback completes, and Python may re-serve a cached
-    block, which then needs its own pose.
+    int poseStatus`, all in **Unity world / left-handed**. Required by `PLANAR`, written by **both**
+    producers. The pose lives in the block, not in metadata, because it must be the pose of *that*
+    frame: it is snapshotted in `RequestBlockCapture` 1–2 frames before the readback completes, and
+    Python may re-serve a cached block, which then needs its own pose. On the real-drone path the same
+    argument is why the pose is computed in the DJI producer's `frame_sink` — the image bytes and the
+    telemetry come out of one `ds_wrapper` fetch there, which is the tightest pairing available.
+  - `captureTime` is **seconds since the producer started, not a wall clock**. The field is float32, in
+    which `time.time()` (~1.75e9) has ~128 s of resolution; it is only ever read as a difference
+    (`MAX_CAPTURE_SKEW_S`), so a since-start clock is both sufficient and the only one that works.
 
   Slot count is `blockImageCount` (metadata): 3 for the left/centre/right stitchers, up to
   `maxStitchViews` for `PLANAR`. It is sized from the *camera count*, never the per-frame selection —
@@ -61,12 +69,15 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
 
   **`PyUniSharingFast` publishes `blockImageCount` + `blockHeaderSize` even when it is not the
   producer**, because Python sizes its mapping from them and only this component writes metadata.
-  In the DJI scene the section is created by `ImageSharing.cs` (`StitchSlots = 3`,
-  `MetadataSize = 12`), so `DesiredBlockCount()` returns `STITCH_COUNT_LRC` there **without** the
-  `camerasToCapture` clamp — that scene has no sim FPV cameras, and clamping advertises 0 blocks,
-  which makes Python map none of the section and the real-drone panorama silently never appear.
+  In the DJI scene the section is created by `ImageSharing.cs`, so `DesiredBlockCount()` **reads that
+  component's `StitchSlotCount`** rather than assuming a number, and skips the `camerasToCapture` clamp
+  — that scene has no sim FPV cameras, and clamping advertises 0 blocks, which makes Python map none of
+  the section and the real-drone panorama silently never appear. `ImageSharing.stitchSlots` is a
+  serialized field, not a constant, because `PLANAR` mosaics every drone that sees the facade while
+  `STABSTITCH` takes exactly 3; raise it to the fleet size before flying `PLANAR`.
   `create` and `describe` being split across two files that never reference each other is the
-  hazard; `tools/check_wire_layout.py` now asserts the two pairs agree.
+  hazard; `tools/check_wire_layout.py` asserts the header size and the LRC count, and — when the
+  `DJI_Swarm` repo is checked out beside this one — the feed header across both repos too.
 - `DroneFeedSharedMemory` — **all real-drone feeds** (DJIScene only), same per-block layout as above but
   a fixed capacity of **10 blocks** indexed by zero-based drone id (must match `MAX_DRONES` in the
   DJI_Swarm repo's `image_stream_feed.py`, which is the producer). Consumer: `ImageSharing.cs`, which
@@ -105,6 +116,19 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   different gain, none of the drone's lag. Invisible in the radially-outward ring (the panorama
   re-snaps to the nearest camera), but under a shared heading `bodyYaw` is what aims the VR velocity
   frame at the wall. The lock is absolute, so entering plane mode also clears any pre-existing offset.
+- **Toggling the swarming plane also switches the stitcher and the screen layout**
+  (`SwarmPlaneController.ApplyDisplayConfiguration`): vertical ⇒ `PLANAR` + `FORMATION_WALL`,
+  horizontal ⇒ `STABSTITCH` + `OUTER_CIRCLE`. Neither pairing is taste — a wall is one dominant plane
+  where the pose-driven homographies are exact and the shared heading collapses `OUTER_CIRCLE` onto a
+  single arc position, and the ring is the parallax-heavy case StabStitch++ exists for. It fires only
+  on an actual mode change, so the inspector's choices stand until the first toggle, and
+  `driveDisplayConfiguration` turns it off for comparing two stitchers on one formation. Both setters
+  go through the owning component (`PyUniSharingFast.SetStitcherType`,
+  `InterfaceManager.SetScreenStyle`) rather than writing the fields: the stitcher switch has to resize
+  `BlockSharedMemory` (`PLANAR` wants `maxStitchViews` slots, the others 3) and republish metadata for
+  Python to pick up, and the layout has to stay owned by `InterfaceManager` per the source-of-truth rule
+  below. The resize is a no-op in the DJI scene, where the slot count comes from
+  `ImageSharing.stitchSlots` instead — raise that by hand before flying `PLANAR` there.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - **`OUTER_CIRCLE` is only meaningful for the radially-outward ring**, and `ScreenStyle.FORMATION_WALL`
@@ -325,32 +349,50 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
 ### PLANAR on real drones — there is no raycast out there
 
 Everything above assumes the sim. In the DJI scene the two things `PLANAR` depends on most — a
-per-frame camera pose and a scene plane — both come from Unity internals that do not exist in the field.
+per-frame camera pose and a scene plane — come from Unity internals that do not exist in the field, so
+both are supplied differently there. **Three settings and one flag** are what make it run:
 
-- **It cannot run on the DJI path today.** `ImageSharing.cs` / the DJI_Swarm repo's
-  `image_stream_feed.py` write the **v1 12-byte** block header; `PLANAR` needs **v2** with a per-frame
-  camera pose. Nothing crashes — one `[PLANAR] unavailable: …` line is printed and Unity falls back to
-  the individual feeds — but note *which* guard fires, because it is **not** a header-version check:
-  `planar_inputs_ready()` never looks at `blockHeaderSize`. In the DJI scene the reason it reports is
-  `no camera intrinsics`, because those are derived from `camerasToCapture` and that scene has no sim FPV
-  cameras. The v1 header itself is caught one layer deeper: `read_block_memory` leaves `pos`/`quat` as
-  `None` and `poseStatus` 0 for a 12-byte header, `pose_is_usable` then drops every view as unposed, and
-  `planar_pano` returns `REASON_PLANE_INVALID`. Use `STABSTITCH` there.
-  The blocker is a *pose source*, not wiring, but the ingredients already exist: the RC app subscribes to
-  `KeyAircraftLocation3D`, `KeyCompassHeading`, `KeyAircraftAttitude` and `KeyGimbalAttitude`, and all
-  four already reach Python inside the 17-field telemetry string. A camera pose is GPS → local ENU →
-  Unity world, plus the gimbal attitude as the rotation. The open question is accuracy, not availability.
-- **`UpdateScenePlane` casts against Unity colliders**, and a real facade has none, so the plane has to
-  be published some other way. In rough order of effort:
-  - `ScenePlaneMode.Manual` + `manualPlaneNormal` / `manualPlaneDistance` — the operator types the
-    standoff. `fallbackPlaneDistance` covers a raycast miss the same way.
-  - `snapNormalToFormation` — in vertical-plane mode the wall is flown *parallel* to the facade, so the
-    formation normal **is** the facade normal, and it is the half that is hardest to get off a map.
-    Only the distance is then left to supply.
-  - A facade traced on the DJI_Swarm GUI map (`shapes.json`). Two traps: obstacles there are
-    **axis-aligned rectangles**, so a facade on an arbitrary bearing needs the geofence polygon or a new
-    shape type; and trace the **base** of the building, not the roofline — satellite imagery displaces
-    the roof from the footprint by `height × tan(off-nadir)`, which is ~7 m for a 20 m building.
+| Where | Setting |
+|---|---|
+| `PyUniSharingFast` | `useManualIntrinsics = true`, `manualVerticalFovDeg = 46.4` (Mini 3 Pro at 16:9) |
+| `PyUniSharingFast` | `scenePlaneMode = FormationRelative`, `planarStandoffMetres` = distance to the facade |
+| `ImageSharing` | `stitchSlots` ≥ fleet size (it defaults to 3, which is STABSTITCH's number) |
+| DJI_Swarm | `-ImageStreamPose` / `ImageStreamPose = $true` / `--image-stream-pose` |
+
+- **The pose comes from `dji_camera_pose.CameraPoseSolver`** (DJI_Swarm repo), called inside
+  `image_stream_feed.py`'s `frame_sink` — where the image bytes and the telemetry come out of the *same*
+  `ds_wrapper` fetch, which is the tightest pose/frame pairing the system can offer. Position is metres
+  from a **latched** origin (the first valid fix), *not* the per-tick swarm centroid `swarm_flocking.py`
+  uses: that one drifts with the formation, which is right for flocking and wrong here, because a moving
+  origin puts every frame's poses in a different frame from the plane. Rotation is the **gimbal**
+  attitude, not the aircraft's. Frame is Unity-world left-handed, `+X = East, +Y = Up, +Z = North`.
+  `dji_pose_selftest.py` pins every sign against an independently derived construction — do not "tidy"
+  those signs without running it.
+- **The plane is derived from the poses, not raycast** (`ScenePlaneMode.FormationRelative` →
+  `PlanarStitcher._plane_from_formation`). The operator supplies one number, `planarStandoffMetres`, the
+  *perpendicular* distance from the formation to the surface. No georeferenced origin has to be agreed
+  between Unity and the drone telemetry, because the whole solve is invariant to a common translation.
+  The normal comes from a plane fitted to the camera **positions** when the formation spans a plane —
+  immune to gimbal pitch, and correct for nadir as well as facade — and falls back to the mean camera
+  **forward** when the drones are collinear (a single row), where no plane fits. The `[PLANAR]` log line
+  says which rule won; `forward` means the wall has collapsed to a row and the normal now follows the
+  gimbal.
+- **The other plane modes still exist and still work**, and `Manual` is now reachable in that scene at
+  all: it and `FormationRelative` are resolved *before* `UpdateScenePlane`'s camera guard, which used to
+  return early whenever `camerasToCapture` was empty — i.e. always, in the DJI scene.
+  - `ScenePlaneMode.Manual` + `manualPlaneNormal` / `manualPlaneDistance` — world coordinates, so it
+    needs an origin agreed with the pose frame. Prefer `FormationRelative` unless you have one.
+  - A facade traced on the DJI_Swarm GUI map (`shapes.json`) is the georeferenced route, and is **not
+    implemented**. Two traps waiting there: obstacles are **axis-aligned rectangles**, so a facade on an
+    arbitrary bearing needs the geofence polygon or a new shape type; and trace the **base** of the
+    building, not the roofline — satellite imagery displaces the roof from the footprint by
+    `height × tan(off-nadir)`, ~7 m for a 20 m building.
+- **Test it without aircraft**: `python tools/planar_feed_bench.py --drones 6 --rows 2` writes real
+  `DroneFeedSharedMemory` blocks from a synthetic facade, so Unity and `StitcherThreading.py` run
+  unmodified. `--selftest` does the same headless, with no Unity at all, and `--pose-error` /
+  `--depth-error` / `--yaw-error` reproduce the field error budget on the bench. The two error knobs are
+  separate on purpose: the refiner recovers lateral error and structurally cannot recover depth error,
+  and lumping them together makes it look broken when it is working exactly as claimed.
 - **The plane is the least sensitive of the four error sources**, so a rough distance really is enough.
   Budget for a ≤5 px seam at 30 m standoff / 8 m baseline (f ≈ 525 px at 800×450): plane distance
   ≤ 1.07 m, differential position ≤ 0.29 m, differential yaw ≤ 0.55°, gimbal pitch ≤ 0.55°. Stock DJI

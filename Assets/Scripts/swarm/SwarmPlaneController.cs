@@ -33,6 +33,13 @@ public class SwarmPlaneController : MonoBehaviour
              "0 = no smoothing.")]
     public float planeNormalFilterTime = 0.5f;
 
+    [Header("Display")]
+    [Tooltip("Switch the stitcher and the screen layout with the swarming plane: vertical gets " +
+             "PLANAR + FORMATION_WALL, horizontal gets STABSTITCH + OUTER_CIRCLE. Untick to keep " +
+             "whatever PyUniSharingFast and InterfaceManager are configured with, e.g. to compare " +
+             "two stitchers on the same formation.")]
+    public bool driveDisplayConfiguration = true;
+
     [Header("Status (read-only)")]
     [SerializeField] private bool planeModeActive = false;
     [SerializeField] private string anchorDroneName = "";
@@ -48,6 +55,10 @@ public class SwarmPlaneController : MonoBehaviour
     private Transform anchorParent;          // the anchor's "DroneParent" (carries VelocityControl)
     private GameObject anchorRoot;           // the anchor's "Drone N" root
     private VelocityControl anchorControl;
+
+    // Display components driven by the mode change; see ApplyDisplayConfiguration.
+    private PyUniSharingFast sharing;
+    private InterfaceManager interfaceManager;
 
     public bool PlaneModeActive => planeModeActive;
 
@@ -175,6 +186,50 @@ public class SwarmPlaneController : MonoBehaviour
             anchorControl = null;
             anchorDroneName = "";
             Debug.Log("SwarmPlaneController: vertical-plane swarming OFF.");
+        }
+
+        ApplyDisplayConfiguration(planeModeActive);
+    }
+
+    /// <summary>
+    /// Points the stitcher and the screen layout at the configuration the new swarming plane
+    /// calls for. Both choices follow from the plane rather than from taste:
+    ///
+    /// <list type="bullet">
+    /// <item>the wall is one dominant plane with no parallax, where PLANAR's pose-driven
+    /// homographies are exact and need no image content, while the horizontal ring is exactly
+    /// the parallax-heavy case StabStitch++'s TPS warps exist for;</item>
+    /// <item>OUTER_CIRCLE places each screen at its own drone's yaw, which works only because
+    /// the ring spreads those yaws — in plane mode every drone shares the anchor's heading and
+    /// the screens stack on one arc position, which is what FORMATION_WALL is for.</item>
+    /// </list>
+    ///
+    /// Only ever called on an actual mode change, so the operator's inspector choices stand
+    /// until the mode is first toggled. Both components refuse a change they cannot honour
+    /// (the DJI scene has no camera pose for PLANAR), so neither call is asserted here.
+    /// </summary>
+    private void ApplyDisplayConfiguration(bool vertical)
+    {
+        if (!driveDisplayConfiguration) return;
+
+        // Resolved lazily and cached: this runs once per mode change, but FindObjectOfType is
+        // far too slow to reach for casually, and neither component is guaranteed to exist
+        // (the swarm runs headless in some scenes).
+        if (sharing == null) sharing = FindObjectOfType<PyUniSharingFast>();
+        if (interfaceManager == null) interfaceManager = FindObjectOfType<InterfaceManager>();
+
+        if (sharing != null)
+        {
+            sharing.SetStitcherType(vertical
+                ? PyUniSharingFast.stitcherType.PLANAR
+                : PyUniSharingFast.stitcherType.STABSTITCH);
+        }
+
+        if (interfaceManager != null)
+        {
+            interfaceManager.SetScreenStyle(vertical
+                ? ScreenSpawn.ScreenStyle.FORMATION_WALL
+                : ScreenSpawn.ScreenStyle.OUTER_CIRCLE);
         }
     }
 
