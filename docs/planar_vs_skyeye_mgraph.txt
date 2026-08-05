@@ -1,0 +1,376 @@
+================================================================================
+ THE PLANAR STITCHER COMPARED WITH SkyEye AND MGRAPH
+================================================================================
+
+Subject : Assets/Scripts/ImageStitching/PlanarStitcher.py + planar_geometry.py
+Date    : 2026-08-05
+Status  : rev 2. The recommendation list in rev 1 was reviewed and substantially
+          re-ranked; see section 5. Code is cited BY FUNCTION NAME, not by line
+          number -- the module is under active edit and every line number in
+          rev 1 had already drifted by ~100 lines within the day.
+
+Papers compared:
+
+  [SkyEye]  Lin, Bu, Wang, Ling, Xie, Wang, Yin, Lu.
+            "SkyEye: Multi-Modal Perception Based Video Stitching for
+            Multi-UAV Surveillance System."
+            ACM Trans. Sensor Netw. 21(6), Article 62, November 2025.
+            https://doi.org/10.1145/3772285
+
+  [MGRAPH]  Ruiz, Caballero, Merino.
+            "MGRAPH: A Multi-Graph Homography Method to Generate Incremental
+            Mosaics in Real-Time from UAV Swarms."
+            IEEE Robotics and Automation Letters, accepted May 2018.
+
+
+--------------------------------------------------------------------------------
+ 1. THE FRAMING DIFFERENCE THAT GOVERNS EVERYTHING ELSE
+--------------------------------------------------------------------------------
+
+Both papers are INCREMENTAL GEOREFERENCED MOSAICKING: images arrive
+asynchronously, coverage grows over minutes, the output is a map, and being
+complete at any given instant is not a requirement. MGRAPH is explicit --
+out-of-order injection is its headline feature. SkyEye's reference-frame scheme
+is an amortization over a video that keeps arriving.
+
+PLANAR is LIVE VIEW SYNTHESIS: every frame, exactly the currently-selected N
+views, into a fixed canvas framed on a nominated centre drone, at 20 Hz, for an
+HMD. Nothing persists. No map, no accumulation, no out-of-order arrival, no
+reference frame to drift from.
+
+That difference is why most of the machinery in both papers is inapplicable, and
+why the parts that ARE applicable sit in the correction layer, never the
+backbone. It also sets the standard both papers can be held to: a mapping
+product can drop a bad frame because a later frame fills in. A live single-frame
+HMD view has no later frame. Any mechanism borrowed from these papers that
+DISCARDS data has to be re-justified against that, and mostly cannot be.
+
+
+--------------------------------------------------------------------------------
+ 2. AXIS-BY-AXIS
+--------------------------------------------------------------------------------
+
+WARP SOURCE
+  PLANAR   Closed form from K, R, C, plane:  G = K R [e1 | e2 | (O - C)]
+  SkyEye   Sensor rotation for SHAPE only; vision supplies position and scale
+  MGRAPH   Vision only (ORB -> RANSAC); GPS used solely to prune candidates
+
+DEGREES OF FREEDOM
+  PLANAR   Full 8-DoF projective, geometrically exact
+  SkyEye   Orthorectify, then 4-DoF similarity
+  MGRAPH   4-DoF similarity (s, alpha, dx, dy)
+
+CORRESPONDENCES
+  PLANAR   NONE in the backbone
+  SkyEye   SIFT + RANSAC + oRANSAC, every frame
+  MGRAPH   ORB + BF-Hamming + ratio filter + RANSAC
+
+REFERENCE VIEW
+  PLANAR   None -- every view is absolute w.r.t. the plane frame
+  SkyEye   Per-stream reference frame, updated on drift / sensor change
+  MGRAPH   Per-graph reference vertex; absolute H by cascading strong edges
+
+GLOBAL CONSISTENCY
+  PLANAR   Nothing to enforce -- no cascade, therefore no drift
+  SkyEye   Puzzle-stitching greedy ordering by confidence
+  MGRAPH   Ceres bundle adjustment over absolute homographies
+
+PLANE ASSUMPTION
+  PLANAR   ARBITRARY plane (facade or nadir), published per frame
+  SkyEye   Horizontal ground, implied by gravity-referenced orthorectification
+  MGRAPH   Horizontal ground, altitude >> relief, gyrostabilized nadir
+
+LOW-TEXTURE BEHAVIOUR
+  PLANAR   Backbone unaffected; only the estimators lose signal
+  SkyEye   Documented failure (7.3.6(4): deserts, calm lakes)
+  MGRAPH   Documented failure -- image dropped below keypoint threshold
+
+OBLIQUITY
+  PLANAR   Exact at any angle
+  SkyEye   Sensor path invariant; vision path collapses by 30-40 deg
+  MGRAPH   Assumes near-nadir
+
+BLENDING
+  PLANAR   Voronoi-by-obliquity x analytic border feather, or cross-fade
+  SkyEye   Not addressed
+  MGRAPH   SKIPPED ENTIRELY -- GIS overlay, artifacts accepted
+
+POSE / VIDEO SYNC
+  PLANAR   DETECTED AND BOUNDED, NEVER CORRECTED. MAX_CAPTURE_SKEW_S drops a
+           view lagging the freshest one; it does not synchronize anything, and
+           CLAUDE.md notes skew COMMON to every aircraft passes through it
+           untouched.
+  SkyEye   Not addressed
+  MGRAPH   Not addressed
+
+COST
+  PLANAR   The geometric solve is microseconds, but that is not the frame cost.
+           _render also runs _nearest_weights ([N,HW] float32 temporaries, ~30 MB
+           apiece at 8 views by its own comment) and _overlap_psnr, which is
+           O(N^2) with TWO .item() GPU syncs per pair -- 56 stalls per frame at
+           N=8 -- unconditionally. The number comparable to SkyEye's 8.8 fps is
+           the ~21 Hz render loop, not the solve.
+  SkyEye   8.8 fps at 5 streams (i7-10510U + MX250)
+  MGRAPH   104 images in 32 s including optimization
+
+Two consequences worth stating plainly.
+
+(a) NEITHER PAPER'S METHOD WOULD WORK ON THE VERTICAL-FACADE CONFIGURATION AT
+    ALL. SkyEye's orthorectification is defined against gravity -- the target is
+    a top-down view and the accelerometer supplies the down vector -- so a
+    90-degree off-nadir facade has no orthorectified view in its sense. MGRAPH's
+    4-DoF similarity is justified explicitly by a gyrostabilized nadir camera.
+    They are not competitors for the primary use case; they are component
+    sources for the correction layer.
+
+(b) MGRAPH's 7-11 px reprojection error is NOT a usable accuracy anchor for us,
+    and rev 1 was wrong to treat it as one. It is the self-consistency residual
+    of a 4-DoF similarity model fitted to ORB matches at 1000x750-1152x864 --
+    not agreement with ground truth, not a seam displacement, and not at our
+    focal length or resolution. A 4-DoF fit over real terrain with relief
+    carries large residuals from un-modelled projective distortion that an
+    8-DoF pose-parameterized model would not; their std EXCEEDING their mean
+    says the distribution is outlier-dominated, so the mean is not a scale for a
+    typical seam. No conclusion about what a vision front-end would achieve on
+    the DJI path follows from that table.
+
+
+--------------------------------------------------------------------------------
+ 3. THE SkyEye SENSOR-BASED BASELINE SPECIFICALLY
+--------------------------------------------------------------------------------
+
+The closest thing in either paper to what PLANAR does, and instructive because
+it is STRICTLY A SUBSET.
+
+Their baseline is P_I = K [R|T] P_W with R from accelerometer + magnetometer
+(Eq. 3), then M = R^-1 K^-1 to rectify. Then the decisive admission:
+
+    "Due to the typically large data errors in GPS and barometer measurements,
+     our method does not utilize these sensors, which means that after image
+     orthorectification, we can only obtain the shape of the images but cannot
+     determine their relative positional relationships and scaling factors."
+
+So their baseline discards the POSITION half of the pose and the SCALE, handing
+both to vision. PLANAR keeps both: metric camera centres plus an explicit plane
+give absolute scale and absolute placement in one matmul, no reference view.
+Structurally ours is the stronger formulation on identical sensors -- R^-1 K^-1
+followed by a similarity search needs a reference and only works for a
+horizontal plane; G needs neither.
+
+The catch is that their reason for discarding GPS is exactly what CLAUDE.md
+flags as the open question for the DJI path. Their Fig. 18(c) -- "approximately
+correct image shapes, alignment compromised due to substantial GPS errors" -- is
+a photograph of what our pose-only backbone produces on stock DJI telemetry, and
+it matches the documented 20-60 px / 1-3.5 m budget. That is empirical
+confirmation that the pose-only path degrades as predicted, and that vision is
+what recovers it. It argues FOR a correction layer and AGAINST trusting raw pose
+in the field -- not against the G parameterization.
+
+Directly usable number: their Fig. 5 measures inlier count against pose error
+(38 -> 24 -> 18 inliers at 0 / 10 / 20 degrees).
+
+
+--------------------------------------------------------------------------------
+ 4. THE FINDING THAT MATTERS MOST
+--------------------------------------------------------------------------------
+
+CLAUDE.md's error budget for a <=5 px seam at 30 m / 8 m baseline:
+
+    plane distance          <= 1.07 m     <-- LEAST sensitive
+    differential position   <= 0.29 m
+    differential yaw        <= 0.55 deg
+    gimbal pitch            <= 0.55 deg
+    pose/video skew         ~55 px for 300 ms at the 40 deg/s yaw clamp
+                                          <-- "larger than everything else
+                                              combined"
+
+Neither paper addresses skew at all. SkyEye's sensor confidence machinery
+assumes the sensor sample and the frame describe the same instant; MGRAPH does
+not discuss timing.
+
+THAT IS THE RESULT OF THIS COMPARISON, not a gap to be filled with whatever the
+papers happen to offer. Rev 1 ranked plane-distance bootstrap first -- the least
+sensitive term -- listed sync as a PLANAR strength in the table and never
+returned to it. Two of six rev-1 items addressed the plane; none addressed the
+dominant term. That ranking is inverted and section 5 fixes it.
+
+
+--------------------------------------------------------------------------------
+ 5. PLAN
+--------------------------------------------------------------------------------
+
+Ordered by (error-budget weight) x (testable today). Everything below is
+additive; nothing replaces a working path.
+
+P1. MAKE SKEW OBSERVABLE.
+    Highest budget weight, and neither paper helps -- so it is ours to build.
+    Cannot be "fixed" today (the DJI path is still v1-header, no per-frame pose),
+    but it can be MEASURED today, which is the actionable half. capture_time is
+    already on the wire and already decoded by the staleness drop; report the
+    skew DISTRIBUTION across views -- spread, and the common-mode component that
+    MAX_CAPTURE_SKEW_S cannot see -- on the estimator log line rather than only
+    gating on it. Cost: near zero, the data is in hand. Without this the field
+    error budget's dominant term is the only one with no read-out at all.
+
+P2. PER-VIEW GAIN COMPENSATION.
+    The one rev-1 item to survive review intact, and the only one testable
+    today. Independent auto-exposure across aircraft is guaranteed; under
+    NEAREST an exposure mismatch is a brightness step at every winner boundary.
+    _zero_mean protects the ESTIMATORS only -- _render and the PSNR diagnostic
+    are unprotected.
+    Three constraints, all learned from existing code rather than the papers:
+      - Solve it on the warp thread's existing quarter-res pass, not in _render.
+      - Measure over GEOMETRIC COVERAGE, not blend weight -- the same trap the
+        overlap-PSNR comment already documents, since NEAREST makes the weights
+        one-hot.
+      - It has its own global gauge (a common gain on every view is free) and
+        needs anchoring, like the refiner's zero-mean.
+    Citation correction: SkyEye 7.3.6(3) measures FEATURE-MATCHING error under
+    lighting mismatch, not seam appearance under a blend. It does not support
+    this item. The item stands on its own.
+
+P3. TEMPORAL METRICS -- SPLIT THREE WAYS, NOT SkyEye's SINGLE SCALAR.
+    We have no temporal metric; overlap PSNR is static. But SkyEye's jitter
+    metric (Eqs. 9-10) is not the drop-in rev 1 claimed:
+      - Under poseSource = GroundTruth with estimators off, Hhat == H, so H_err
+        is identity and it reads exactly zero. It scores the ESTIMATORS, not the
+        pipeline.
+      - It lumps together three mechanisms with different causes and different
+        fixes. Report them separately:
+            (a) winner-label churn fraction -- a patch popping to another
+                drone's exposure and detail while every warp is perfectly
+                stable. Invisible to a homography-residual metric.
+            (b) canvas origin/axis delta -- centre-drone re-election rigidly
+                shifts the whole mosaic. SkyEye's metric reports this as
+                enormous uniform jitter, indistinguishable from per-view noise.
+            (c) per-view residual jitter -- the only one SkyEye's scalar
+                actually measures.
+    Only (c) needs GT; (a) and (b) are free and are the artifacts an HMD wearer
+    actually notices.
+    Units: metres-on-surface is right for a mapping product. For an HMD the
+    pilot-relevant quantity is angular error in the headset, and for seam
+    visibility it is canvas pixels -- both already tracked. Keep MGRAPH's
+    report-mean-AND-std discipline; _overlap_psnr already reports the WORST pair
+    rather than the mean, which is the same instinct.
+
+P4. TREAT THE REFINER'S OUTPUT AS A MEASUREMENT-QUALITY READ-OUT ONLY.
+    Rev 1 proposed a "cheap analogue" of SkyEye's deformation coefficient C_d.
+    It is not the same measurement and must not carry the same name.
+    C_d works because F_n (raw RANSAC) and F_o (sensor-rectified RANSAC) are two
+    INDEPENDENT modalities -- the ratio means something precisely because one
+    side never touches the sensor. Correlating each view against a leave-one-out
+    consensus warped BY THE POSES BEING ASSESSED has no independent modality
+    left, only relative disagreement with ambiguous attribution:
+        one bad pose        -> that view's residual rises           (wanted)
+        plane wrong         -> every residual rises, misreads as
+                               fleet-wide sensor failure
+        untextured overlap  -> low peak ratio, misreads as sensor failure --
+                               and the contrast / REFINE_MIN_PEAK_RATIO gates
+                               already exist to call that NO MEASUREMENT
+    Worst, the consensus is a MEAN, so its breakdown point is zero: at N=3 with
+    one bad view, the two good views each correlate against a consensus
+    containing the bad one, and the bad drone can score no worse than the clean
+    ones. A median consensus is a prerequisite for the number to mean anything.
+    Rev 1 also overstated readiness: the peak ratio exists, but no per-view
+    residual variance is computed anywhere. That is new work, not "90% built".
+    SCOPE: log it, never act on it, never label it telemetry health.
+
+P5. CROSS-DRONE TRIANGULATION FOR THE PLANE -- CONDITIONAL, ALONGSIDE ACQUIRE.
+    Demoted from rev 1's #1. Restored to exactly what CLAUDE.md already says it
+    is: "the next thing to build IF ACQUIRE proves too slow or too easily
+    fooled." No measurement has established that it has. Three reasons the
+    rev-1 framing ("replace ACQUIRE") was wrong:
+      - It puts vision on the acquisition critical path in the scene class the
+        module exists to serve. Section 2 rejects both papers partly because
+        vision collapses on low texture; PLANAR exists so there is "no failure
+        on asphalt/water/uniform facades". Replacing ACQUIRE removes the
+        fallback in exactly that case.
+      - Sparse matching escapes the BASIN, not the DEGENERACY. A correspondence
+        between views i and j constrains relative geometry only, so (wrong d,
+        correct poses) and (correct d, convergently-wrong poses) fit the same
+        match set exactly -- the identifiability nullspace planar_selftest.py
+        already pins. The 1-D RANSAC in d is an elegant reduction and inherits
+        it whole.
+      - It assumes the plane NORMAL is right. In the field that comes from
+        snapNormalToFormation or an operator. Normal error is not absorbable by
+        d, so it appears as irreducible residual and RANSAC begins rejecting
+        good matches.
+    If built: supplement, keep ACQUIRE as fallback, gate on texture, and note it
+    targets the LEAST sensitive term in the budget.
+
+
+--------------------------------------------------------------------------------
+ 6. REJECTED
+--------------------------------------------------------------------------------
+
+From the papers:
+
+- MGRAPH's multi-graph + graph fusion. Solves out-of-order arrival and
+  disconnected coverage; we have a simultaneous C#-chosen selection and no
+  persistent map. Added state and a new failure mode for zero gain.
+
+- Cascaded relative homographies + BA to remove the resulting drift. Ours are
+  absolute by construction; the cascade would manufacture the drift Ceres then
+  undoes.
+
+- SkyEye's reference-frame and adjacency-frame schemes. Both amortize
+  feature-matching cost we do not pay. Freezing a reference frame is
+  structurally the "frozen snapshot poisons the recovery" failure the module
+  already documents. Their STABILITY argument is sound and we reached it
+  independently (centre-drone hysteresis; TRACK refusing to move without
+  measurable improvement).
+
+- M = R^-1 K^-1 orthorectify-then-similarity. Strictly weaker than G: discards
+  metric position and scale, needs a reference, horizontal-plane only.
+
+- The 4-DoF similarity as the PRIMARY warp. Valid only for gyrostabilized nadir
+  at altitude; vertical-plane mode violates it outright.
+
+From rev 1 of this document, dropped on review:
+
+- CONFIDENCE-GATED DROPPING OF VIEWS (rev-1 item 3, wrongly called
+  highest-value). Under NEAREST, demoting a view does not hand its pixels to a
+  better neighbour -- the runner-up may not cover that plane region at all, so
+  the result is a HOLE. Every other decision in the module resolves this trade
+  the other way ("a frozen panorama beats a vanished one"; the border falloff
+  MULTIPLIES the obliquity score rather than gating). A view with 60 px of error
+  still shows real imagery of that facade, displaced 3.5 m. SkyEye can afford a
+  threshold because puzzle-stitching chooses among alternatives over a batch;
+  a Voronoi partition has one incumbent per pixel. And since the available
+  confidence signal is texture-dominated (P4), the concrete effect is dropping
+  coverage over blank facade -- where the geometry is still exact and no other
+  evidence exists. It is also untestable today: PLANAR cannot run on the DJI
+  path, and under sim GroundTruth there is nothing to demote.
+
+- JOINT SOLVE REPLACING THE LEAVE-ONE-OUT ITERATION (rev-1 item 4). MGRAPH
+  Eq. 5 minimizes reprojection over point correspondences; we have none, so
+  "take the cost function shape" means either N^2 phase correlations (28 instead
+  of 8 at N=8) or a nonlinear pixel-domain solve -- on the warp thread that
+  shares one GPU and one GIL with the render loop. Further: "converges in fewer
+  passes" is not a benefit, since refine_rate damping and TRACK's
+  refuse-to-move-without-improvement are deliberate temporal stability for an
+  HMD, so faster convergence is either low-passed away or buys jitter. The gauge
+  freedom does NOT become a constraint -- a relative-only cost has the identical
+  nullspace, and the re-gauging bookkeeping exists because MEMBERSHIP changes
+  between passes, which a per-pass joint solve also has. The current
+  one-vs-rest-with-accumulation is Gauss-Seidel on that same objective and
+  converges to the same fixed point under stable membership; the gain is a
+  step-count constant, not a different answer. (The footprint-based pair
+  selection sub-point was correct but solves a problem only this item creates --
+  the refiner's shared-coverage mask already restricts to genuine overlap.)
+
+- WIDENING THE PER-VIEW CORRECTION TO INCLUDE ROTATION (rev-1 item 5). The
+  motivation did not match the proposal: keystone is the PROJECTIVE part, and
+  in-plane rotation represents none of it. The error-to-artifact mapping was
+  also wrong -- at a vertical facade, yaw bias gives lateral shift plus a
+  horizontal scale gradient, and gimbal-pitch bias gives vertical shift plus
+  vertical keystone. In-plane patch rotation is what ROLL error produces, and
+  gimbal roll is the best-stabilized axis and is not in the budget. Mechanically
+  it is not a translation-space extension either: dpose is a correction to the
+  camera CENTRE in world metres, so rotation means dR, which _phase_shift cannot
+  measure (one rFFT gives translation only; rotation needs log-polar or
+  iteration). And rev 1 accepted the degeneracy argument for keeping scale
+  global without applying it to rotation, which over limited overlap has a short
+  angular lever arm and trades directly against neighbours' translations.
+
+================================================================================
