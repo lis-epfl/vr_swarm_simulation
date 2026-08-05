@@ -11,7 +11,19 @@ public class ScreenSpawn : MonoBehaviour
         INNER_CIRCLE,
         BOTTOM_CIRCLE,
         ROTATING_CIRCLE,
-        REAL_DRONE
+        REAL_DRONE,
+
+        // Curved video wall for the shared-heading configurations (SwarmPlaneController's
+        // vertical plane, or nadir). OUTER_CIRCLE places each screen at its own drone's yaw,
+        // which collapses to a single stack of screens once every drone points the same way;
+        // this style keeps the yaw (the wall as a whole sits in the direction the swarm is
+        // looking) and resolves the collision from the drones' relative positions inside the
+        // swarming plane. See UpdateFormationWallScreen.
+        //
+        // Appended rather than inserted next to OUTER_CIRCLE on purpose: Unity serialises
+        // enum fields by integer value, so inserting a member would silently re-point every
+        // scene and prefab that already stores a later style.
+        FORMATION_WALL
     }
 
     [Header("Display Settings")]
@@ -32,6 +44,20 @@ public class ScreenSpawn : MonoBehaviour
     [HideInInspector] public bool doubleView = false;
     [HideInInspector] public float rotatingCircleDistance = 2.0f;
     [HideInInspector] public int numScreens = 2;
+
+    [Header("Formation Wall Settings")]
+    // Clearance between neighbouring cells, as a multiple of the screen's own size. 1.0 makes
+    // them touch exactly; anything above leaves a gap. Values below 1 are clamped away, since
+    // the whole point of the style is that the screens do not overlap.
+    [HideInInspector] public float formationWallPadding = 1.08f;
+    // Columns in the grid. 0 = auto, which shapes the grid like the formation itself.
+    [HideInInspector] public int formationWallColumns = 0;
+    // Widest azimuth the wall may span, in degrees. Extra feeds go into extra rows rather than
+    // wrapping around the pilot. 0 = unbounded.
+    [HideInInspector] public float formationWallMaxSpanDeg = 120.0f;
+    // Time constant (s) of the low-pass on the wall's azimuth and on each screen's glide
+    // between cells. 0 = snap.
+    [HideInInspector] public float formationWallSmoothTime = 0.15f;
 
     [Header("Rendering")]
     [Tooltip("Layer the spawned feed screens are placed on, so the headset eye cameras " +
@@ -86,6 +112,15 @@ public class ScreenSpawn : MonoBehaviour
     private float realDroneScale = 1.0f;
     private Vector3 realDroneOffset = new Vector3(0.0f, 0.0f, 0.0f);
     private Vector3 realDroneLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
+
+    // A grid needs both more standoff and smaller screens than the single ring of
+    // OUTER_CIRCLE: at radius 3 / scale 0.55 a padded 16:9 screen subtends ~20 deg, so the
+    // 120 deg span budget holds 6 columns and four rows stack ~1.8 m of height. Halving the
+    // scale is what buys more columns, since the pitch is proportional to the screen width.
+    private float formationWallRadius = 2.0f;
+    private float formationWallScale = 0.55f;
+    private Vector3 formationWallOffset = new Vector3(0.0f, 0.0f, 0.0f);
+    private Vector3 formationWallLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
 
     private SwarmManager swarmManager;
     private bool pointInwards = false;
@@ -333,7 +368,18 @@ public class ScreenSpawn : MonoBehaviour
                 offset = realDroneOffset;
                 lookAtOffset = realDroneLookAtOffset;
                 break;
+            case ScreenStyle.FORMATION_WALL:
+                radius = formationWallRadius;
+                scale = formationWallScale;
+                offset = formationWallOffset;
+                lookAtOffset = formationWallLookAtOffset;
+                break;
         }
+
+        // The wall eases towards its cells, so a style change (or a radius/scale change that
+        // moves every cell at once) must not be animated from wherever the screens happened
+        // to be sitting under the previous layout.
+        InvalidateFormationWall();
     }
 
     // Get default parameters for a given screen style and send them to InterfaceManager
@@ -388,6 +434,12 @@ public class ScreenSpawn : MonoBehaviour
                 defaultOffset = realDroneOffset;
                 defaultLookAtOffset = realDroneLookAtOffset;
                 break;
+            case ScreenStyle.FORMATION_WALL:
+                defaultRadius = formationWallRadius;
+                defaultScale = formationWallScale;
+                defaultOffset = formationWallOffset;
+                defaultLookAtOffset = formationWallLookAtOffset;
+                break;
         }
 
         // Call InterfaceManager to update its display parameters
@@ -406,6 +458,14 @@ public class ScreenSpawn : MonoBehaviour
         // attitude algorithm.
         bool boundaryGate = IsBoundaryGateActive();
 
+        // FORMATION_WALL is the one style whose placement is not a pure function of its own
+        // drone — a cell index only means something relative to the rest of the visible set —
+        // so the whole grid is solved once here, before any screen is placed.
+        if (screenStyle == ScreenStyle.FORMATION_WALL)
+        {
+            BuildFormationWallLayout();
+        }
+
         for (int i = 0; i < bindings.Count; i++)
         {
             DroneScreenBinding binding = bindings[i];
@@ -418,8 +478,7 @@ public class ScreenSpawn : MonoBehaviour
             // Hide the feed for any drone currently composited into the stitched
             // panorama (mirrors the BoundaryEstimate gate below). Applies to every
             // screen style. A destroyed drone also just hides its screen.
-            if (binding.drone == null ||
-                (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(binding.drone)))
+            if (IsFeedSuppressed(binding))
             {
                 screen.SetActive(false);
             }
@@ -432,6 +491,9 @@ public class ScreenSpawn : MonoBehaviour
                         break;
                     case ScreenStyle.OUTER_CIRCLE:
                         UpdateOuterCircleScreen(screen, binding, boundaryGate);
+                        break;
+                    case ScreenStyle.FORMATION_WALL:
+                        UpdateFormationWallScreen(screen, i);
                         break;
                     case ScreenStyle.INNER_CIRCLE:
                         UpdateInnerCircleScreen(screen, binding);
@@ -460,6 +522,16 @@ public class ScreenSpawn : MonoBehaviour
     private void HideScreen(GameObject screen)
     {
         screen.SetActive(false);
+    }
+
+    // A feed is suppressed when its drone is gone, or when that drone is currently
+    // composited into the stitched panorama. Shared by the placement loop and by
+    // BuildFormationWallLayout: the grid is only non-overlapping if it is solved over
+    // exactly the set of screens that is about to be shown.
+    private bool IsFeedSuppressed(DroneScreenBinding binding)
+    {
+        return binding.drone == null
+            || (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(binding.drone));
     }
 
     // The convex-hull attitude modes are the only ones that populate
@@ -506,6 +578,349 @@ public class ScreenSpawn : MonoBehaviour
         screen.transform.LookAt(arena.transform.position + lookAtOffset);
         screen.transform.Rotate(0, 180f, 0); // Face outward
         screen.SetActive(true);
+    }
+
+    // --- FORMATION_WALL ------------------------------------------------------
+    // OUTER_CIRCLE reads one number per drone (its yaw) and needs nothing else, because in
+    // the radially-outward ring the yaws are spread around the circle and therefore already
+    // separate the screens. Under a shared heading — SwarmPlaneController's vertical wall, or
+    // a nadir formation — every yaw is the same number and every screen lands on the same
+    // arc position. This style keeps yaw as the thing that aims the display (the wall sits in
+    // the direction the swarm is looking, and turning the formation turns the wall), and takes
+    // the *separation* from the drones' relative positions inside the swarming plane instead.
+    //
+    // Deliberately naive: the drones are ranked into a grid rather than placed at scaled-down
+    // copies of their true in-plane coordinates. A proportional mapping preserves the
+    // formation's shape but guarantees nothing about spacing — two drones a metre apart in a
+    // 40 m wall would still overlap — whereas ranking gives non-overlap by construction and
+    // still preserves the reading that matters ("that feed is the drone up and to the left").
+
+    // Grid cell each binding occupies this frame, as offsets centred on the wall's own axis,
+    // so a short bottom row ends up centred instead of left-aligned. Parallel to `bindings`;
+    // wallPlaced[i] == false means "not in the visible set this frame".
+    private float[] wallColOffset = new float[0];
+    private float[] wallRowOffset = new float[0];
+    private bool[] wallPlaced = new bool[0];
+
+    // Eased screen positions, so a cell swap glides instead of teleporting.
+    private Vector3[] wallSmoothedPos = new Vector3[0];
+    private bool[] wallSmoothedValid = new bool[0];
+
+    // Azimuth the wall is centred on, in the same negated-yaw convention as every other style
+    // here (screen at radius * (cos a, sin a) around the arena centre).
+    private float wallAnchorAzimuth = 0.0f;
+    private bool wallAnchorInitialised = false;
+
+    // Cell pitch, solved once per frame in BuildFormationWallLayout from the live screen size.
+    private float wallAzimuthStep = 0.0f;
+    private float wallRowStep = 0.0f;
+
+    private struct WallEntry
+    {
+        public int binding;
+        public float across;  // in-plane horizontal coordinate relative to the centroid, metres
+        public float up;      // in-plane vertical coordinate relative to the centroid, metres
+    }
+    private readonly List<WallEntry> wallEntries = new List<WallEntry>();
+
+    // Static so the sort takes no per-frame delegate allocation. Both fall back to the binding
+    // index, which keeps two drones at identical coordinates from trading places every frame.
+    private static readonly IComparer<WallEntry> ByUpDescending = Comparer<WallEntry>.Create(
+        (a, b) =>
+        {
+            int c = b.up.CompareTo(a.up);
+            return c != 0 ? c : a.binding.CompareTo(b.binding);
+        });
+    private static readonly IComparer<WallEntry> ByAcrossAscending = Comparer<WallEntry>.Create(
+        (a, b) =>
+        {
+            int c = a.across.CompareTo(b.across);
+            return c != 0 ? c : a.binding.CompareTo(b.binding);
+        });
+
+    private void BuildFormationWallLayout()
+    {
+        EnsureWallArrays();
+        for (int i = 0; i < wallPlaced.Length; i++)
+        {
+            wallPlaced[i] = false;
+        }
+
+        // In-plane basis of whatever plane the swarm is currently constrained to: the vertical
+        // wall while plane mode is on, (X, Z) otherwise — GetPlaneAxes already returns the
+        // horizontal pair for a horizontal plane, so one code path covers both. In the
+        // horizontal case the grid degenerates to a top-down map of the formation drawn on the
+        // wall (rows = distance along the heading), which is still a usable arrangement.
+        Vector3 planeRight, planeUp;
+        SwarmPlaneController swarmPlane = SwarmPlaneController.Instance;
+        if (swarmPlane != null)
+        {
+            swarmPlane.GetPlaneAxes(out planeRight, out planeUp);
+        }
+        else
+        {
+            planeRight = Vector3.right;
+            planeUp = Vector3.forward;
+        }
+
+        wallEntries.Clear();
+        Vector3 centroid = Vector3.zero;
+        float yawSin = 0.0f;
+        float yawCos = 0.0f;
+
+        for (int i = 0; i < bindings.Count; i++)
+        {
+            DroneScreenBinding binding = bindings[i];
+            if (binding.screen == null || IsFeedSuppressed(binding))
+            {
+                continue;
+            }
+
+            // Guarded, unlike the older styles: a drone with no VelocityControl contributes no
+            // yaw and no ranking key, so it costs its own screen rather than the whole layout.
+            StateFinder state = binding.velocityControl != null ? binding.velocityControl.State : null;
+            if (state == null)
+            {
+                continue;
+            }
+
+            wallEntries.Add(new WallEntry { binding = i });
+            centroid += WallSamplePosition(binding);
+
+            float azimuth = -state.Angles.y;
+            yawSin += Mathf.Sin(azimuth);
+            yawCos += Mathf.Cos(azimuth);
+        }
+
+        int n = wallEntries.Count;
+        if (n == 0)
+        {
+            return;
+        }
+        centroid /= n;
+
+        float minAcross = float.MaxValue, maxAcross = float.MinValue;
+        float minUp = float.MaxValue, maxUp = float.MinValue;
+        for (int k = 0; k < n; k++)
+        {
+            WallEntry entry = wallEntries[k];
+            Vector3 rel = WallSamplePosition(bindings[entry.binding]) - centroid;
+            entry.across = Vector3.Dot(rel, planeRight);
+            entry.up = Vector3.Dot(rel, planeUp);
+            wallEntries[k] = entry;
+
+            if (entry.across < minAcross) minAcross = entry.across;
+            if (entry.across > maxAcross) maxAcross = entry.across;
+            if (entry.up < minUp) minUp = entry.up;
+            if (entry.up > maxUp) maxUp = entry.up;
+        }
+
+        // Circular mean, not a plain average: the latter tears at the +/-pi wrap, which is
+        // exactly where a wall flown on a northerly heading sits. When the yaws cancel out —
+        // a radially-outward ring, where this style has nothing useful to say anyway and
+        // OUTER_CIRCLE is the right choice — the resultant collapses and we hold the previous
+        // azimuth rather than snapping the wall to atan2(0, 0) == 0.
+        float resultant = Mathf.Sqrt(yawSin * yawSin + yawCos * yawCos) / n;
+        if (resultant > 0.05f)
+        {
+            float target = Mathf.Atan2(yawSin, yawCos);
+            if (!wallAnchorInitialised)
+            {
+                wallAnchorAzimuth = target;
+                wallAnchorInitialised = true;
+            }
+            else
+            {
+                wallAnchorAzimuth = WrapPi(
+                    wallAnchorAzimuth + WallSmoothAlpha() * WrapPi(target - wallAnchorAzimuth));
+            }
+        }
+
+        // Non-overlap is geometric rather than a heuristic: the column pitch is the angle whose
+        // chord at `radius` is one padded screen width, and the row pitch one padded screen
+        // height. Recomputed every frame from the live scale so it keeps holding while the
+        // operator drags the scale slider. Screens wider than the wall's own diameter can't be
+        // separated at all — the clamp caps the pitch at 180 deg rather than producing NaN.
+        float padding = Mathf.Max(1.0f, formationWallPadding);
+        float cellWidth = (float)width / height * scale * padding;
+        float cellHeight = scale * padding;
+        float r = Mathf.Max(0.01f, radius);
+        wallAzimuthStep = 2.0f * Mathf.Asin(Mathf.Clamp(cellWidth / (2.0f * r), 0.0f, 1.0f));
+        wallRowStep = cellHeight;
+
+        int columns = formationWallColumns > 0
+            ? Mathf.Min(formationWallColumns, n)
+            : AutoColumnCount(n, maxAcross - minAcross, maxUp - minUp);
+
+        // Bound how far around the pilot the wall may wrap. A formation eight drones wide asks
+        // for eight columns, which at ~20 deg of pitch is 142 deg of azimuth — the outermost
+        // feeds end up beside the pilot's ears, and unlike the OUTER_CIRCLE ring (where a screen
+        // behind you means a drone behind you) that placement carries no information, it is just
+        // where the grid ran out of room. Overflow goes into extra rows instead, which stay in
+        // front. Honoured for an explicit column count too: the operator is choosing the shape
+        // of the grid, not asking for screens they cannot see.
+        if (wallAzimuthStep > 1e-4f && formationWallMaxSpanDeg > 0.0f)
+        {
+            int spanLimit = 1 + Mathf.FloorToInt(formationWallMaxSpanDeg * Mathf.Deg2Rad / wallAzimuthStep);
+            columns = Mathf.Min(columns, Mathf.Max(1, spanLimit));
+        }
+
+        int rows = Mathf.CeilToInt(n / (float)columns);
+
+        // Rank into rows top-down, then each row left-to-right. Two sorts rather than one
+        // composite key: banding by rank keeps the rows exactly `columns` wide (so the cell
+        // pitch is all that non-overlap depends on), where banding by a coordinate threshold
+        // would let an unevenly spread formation pile six drones into one row.
+        wallEntries.Sort(0, n, ByUpDescending);
+        for (int row = 0; row < rows; row++)
+        {
+            int start = row * columns;
+            int count = Mathf.Min(columns, n - start);
+            if (count <= 0)
+            {
+                break;
+            }
+
+            wallEntries.Sort(start, count, ByAcrossAscending);
+            for (int c = 0; c < count; c++)
+            {
+                int b = wallEntries[start + c].binding;
+                wallColOffset[b] = c - (count - 1) * 0.5f;
+                wallRowOffset[b] = (rows - 1) * 0.5f - row;
+                wallPlaced[b] = true;
+            }
+        }
+    }
+
+    private void UpdateFormationWallScreen(GameObject screen, int index)
+    {
+        if (arena == null || index >= wallPlaced.Length || !wallPlaced[index])
+        {
+            screen.SetActive(false);
+            if (index < wallSmoothedValid.Length)
+            {
+                wallSmoothedValid[index] = false;
+            }
+            return;
+        }
+
+        float azimuth = wallAnchorAzimuth + wallColOffset[index] * wallAzimuthStep;
+        float r = Mathf.Max(0.01f, radius);
+        Vector3 target = new Vector3(
+            arena.transform.position.x + r * Mathf.Cos(azimuth),
+            arena.transform.position.y + offset.y + wallRowOffset[index] * wallRowStep,
+            arena.transform.position.z + r * Mathf.Sin(azimuth));
+
+        // Cells are re-ranked from live positions, so two drones crossing over in the formation
+        // swap cells. Easing between cells makes that read as a swap rather than a teleport,
+        // and the crossing is the only thing that ever puts two screens on top of each other.
+        if (!wallSmoothedValid[index])
+        {
+            wallSmoothedPos[index] = target;
+            wallSmoothedValid[index] = true;
+        }
+        else
+        {
+            wallSmoothedPos[index] = Vector3.Lerp(wallSmoothedPos[index], target, WallSmoothAlpha());
+        }
+
+        // Aimed at the wall's own vertical centre, not at the arena origin the single-row styles
+        // use. With rows stacked either side of `offset.y`, aiming everything at the origin tilts
+        // the whole grid down by however far the wall was raised; aiming at its centre keeps the
+        // tilt symmetric, so the top row leans down and the bottom row up by the same amount.
+        // `lookAtOffset` is still the operator's control on top of that.
+        Vector3 aim = arena.transform.position + lookAtOffset;
+        aim.y += offset.y;
+
+        screen.transform.position = wallSmoothedPos[index];
+        screen.transform.LookAt(aim);
+        screen.transform.Rotate(0, 180f, 0); // textured face towards the pilot, as OUTER_CIRCLE
+        screen.SetActive(true);
+    }
+
+    // Shapes the grid like the formation instead of like a square, so the screens keep the
+    // arrangement the pilot would see out of the window: a wall five drones wide and two tall
+    // lays out 5x2, not the 4x3 a near-square grid would pick.
+    //
+    // Estimates the ROW count from the aspect and derives the columns from it, rather than the
+    // other way round. Rows are the small number, so rounding it to an integer costs little,
+    // whereas rounding the columns directly overshoots — a 5x2 wall reads as ratio 4, and
+    // round(sqrt(10 * 4)) is 6 columns, which splits the ten drones 6/4 across rows that are
+    // really 5 and 5. Rounding two rows and dividing recovers 5 exactly.
+    //
+    // The degenerate spreads answer themselves: a single horizontal line of drones asks for one
+    // row of n columns and a vertical line for n rows of one, both of which are worth getting
+    // right because a one-row wall is a perfectly ordinary formation.
+    private static int AutoColumnCount(int n, float spreadAcross, float spreadUp)
+    {
+        if (n <= 1)
+        {
+            return 1;
+        }
+        if (spreadUp <= 1e-3f)
+        {
+            return n;      // one horizontal line
+        }
+        if (spreadAcross <= 1e-3f)
+        {
+            return 1;      // one vertical line
+        }
+
+        int rows = Mathf.Clamp(Mathf.RoundToInt(Mathf.Sqrt(n * spreadUp / spreadAcross)), 1, n);
+        return Mathf.Clamp(Mathf.CeilToInt(n / (float)rows), 1, n);
+    }
+
+    // The FPV camera, not the "Drone N" root: it is what actually produces the feed, and it is
+    // the same transform PyUniSharingFast measures its planar centre-drone selection from, so
+    // the wall's notion of "centre of the formation" matches the panorama's.
+    private static Vector3 WallSamplePosition(DroneScreenBinding binding)
+    {
+        return binding.fpvCamera != null
+            ? binding.fpvCamera.transform.position
+            : binding.drone.transform.position;
+    }
+
+    private void EnsureWallArrays()
+    {
+        if (wallPlaced.Length == bindings.Count)
+        {
+            return;
+        }
+
+        wallColOffset = new float[bindings.Count];
+        wallRowOffset = new float[bindings.Count];
+        wallPlaced = new bool[bindings.Count];
+        wallSmoothedPos = new Vector3[bindings.Count];
+        wallSmoothedValid = new bool[bindings.Count];
+    }
+
+    // Frame-rate-independent exponential low-pass coefficient, matching the convention used by
+    // SwarmPlaneController / AttitudeAlgorithm. Snaps outside play mode, where deltaTime is not
+    // a meaningful step and an eased layout would simply never arrive.
+    private float WallSmoothAlpha()
+    {
+        float dt = Time.deltaTime;
+        if (!Application.isPlaying || formationWallSmoothTime <= 0.0f || dt <= 0.0f)
+        {
+            return 1.0f;
+        }
+        return 1.0f - Mathf.Exp(-dt / formationWallSmoothTime);
+    }
+
+    private void InvalidateFormationWall()
+    {
+        wallAnchorInitialised = false;
+        for (int i = 0; i < wallSmoothedValid.Length; i++)
+        {
+            wallSmoothedValid[i] = false;
+        }
+    }
+
+    private static float WrapPi(float angle)
+    {
+        while (angle > Mathf.PI) angle -= 2f * Mathf.PI;
+        while (angle < -Mathf.PI) angle += 2f * Mathf.PI;
+        return angle;
     }
 
     private void UpdateInnerCircleScreen(GameObject screen, DroneScreenBinding binding)
@@ -644,6 +1059,12 @@ public class ScreenSpawn : MonoBehaviour
     // Called when InterfaceManager parameters change
     public void OnInterfaceParamsChanged()
     {
+        // InterfaceManager has just pushed its configured style straight into `screenStyle`,
+        // which wipes any fallback substitution — re-apply it before the change detection
+        // below, so editing an unrelated inspector field while the panorama is hidden
+        // doesn't blank the feeds until the next panorama transition.
+        screenStyle = ResolveScreenStyle(screenStyle);
+
         if (screenStyle != previousScreenStyle)
         {
             previousScreenStyle = screenStyle;
@@ -684,12 +1105,20 @@ public class ScreenSpawn : MonoBehaviour
     }
 
     // --- Panorama-quality fallback -------------------------------------------
-    // Toggle the individual per-drone feed screens on/off as a fallback for
-    // when the stitched panorama is judged bad (called by PyUniSharingFast).
-    // Reuses the already-spawned screens: on enable it switches to a visible
-    // screen style, on disable it restores the previous style. The normal
+    // Toggle the individual per-drone feed screens on/off as a fallback for when the
+    // stitched panorama is judged bad, or the pilot switches it off (called by
+    // PyUniSharingFast). Reuses the already-spawned screens; the normal
     // Update()/UpdateScreenPositions() loop then shows or hides the feeds.
+    //
+    // The caller's fallback style is a *substitute for a layout that shows nothing*,
+    // not a layout of its own, so it only applies when the configured style is OFF.
+    // Overwriting the style unconditionally loses the operator's choice (someone who
+    // configured FORMATION_WALL asked for the feeds in a wall) and desyncs
+    // InterfaceManager, whose inspector still reads the configured style: the feeds
+    // come back in the caller's default layout when the panorama is toggled off, and
+    // only recover once the style is nudged in the inspector and pushed down again.
     private ScreenStyle styleBeforeFallback = ScreenStyle.OFF;
+    private ScreenStyle fallbackStyleWhenOff = ScreenStyle.OUTER_CIRCLE;
     private bool fallbackFeedsActive = false;
 
     public void ShowFallbackFeeds(bool on, ScreenStyle fallbackStyle)
@@ -706,20 +1135,50 @@ public class ScreenSpawn : MonoBehaviour
 
         if (on)
         {
+            // Only read back in a scene with no InterfaceManager — see ConfiguredScreenStyle.
             styleBeforeFallback = screenStyle;
-            screenStyle = fallbackStyle;
         }
-        else
-        {
-            screenStyle = styleBeforeFallback;
-        }
-
-        // Keep previousScreenStyle in sync so OnValidate doesn't fight us.
-        previousScreenStyle = screenStyle;
+        fallbackStyleWhenOff = fallbackStyle;
         fallbackFeedsActive = on;
 
-        UpdateDisplayParameters();
-        UpdateScreenScale();
+        ScreenStyle wanted = ResolveScreenStyle(ConfiguredScreenStyle());
+        bool layoutChanged = wanted != screenStyle;
+        screenStyle = wanted;
+        // Keep previousScreenStyle in sync so OnValidate doesn't fight us.
+        previousScreenStyle = screenStyle;
+
+        if (layoutChanged)
+        {
+            // Resets radius/scale/offset to the new style's defaults and restarts the
+            // wall's easing — neither of which a fallback that kept the configured
+            // layout has any business doing, since its screens are already in place.
+            UpdateDisplayParameters();
+            UpdateScreenScale();
+        }
         UpdateScreenPositions();
+    }
+
+    // The style the operator configured. InterfaceManager owns it and pushes it into
+    // `screenStyle` whenever its parameters change, so ask it rather than reading our own
+    // field back: while a fallback substitution is in place `screenStyle` holds the
+    // substitute. A snapshot taken when the fallback engaged is no better — it would undo a
+    // style change made while it was active — so that snapshot is only the answer in a scene
+    // with no InterfaceManager to ask (DJIScene drives ScreenSpawn from ImageSharing).
+    private ScreenStyle ConfiguredScreenStyle()
+    {
+        if (interfaceManager == null)
+        {
+            interfaceManager = GetComponent<InterfaceManager>();
+        }
+        return interfaceManager != null ? interfaceManager.screenStyle : styleBeforeFallback;
+    }
+
+    // Configured style + the fallback substitution, which is the only thing that may
+    // override it and only when it would show nothing at all.
+    private ScreenStyle ResolveScreenStyle(ScreenStyle configured)
+    {
+        return fallbackFeedsActive && configured == ScreenStyle.OFF
+            ? fallbackStyleWhenOff
+            : configured;
     }
 }

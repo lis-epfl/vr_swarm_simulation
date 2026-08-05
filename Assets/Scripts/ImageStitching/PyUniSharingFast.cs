@@ -207,7 +207,10 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("Minimum overlap PSNR (dB) for the panorama to be considered good. Higher = stricter (falls back to feeds more readily).")]
         public float qualityThreshold = 18f;
 
-        [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is in fallback.")]
+        [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is " +
+                 "in fallback, and ONLY when the InterfaceManager's own screen style is OFF. Any " +
+                 "other configured style is already a visible feed layout, and is kept as-is: the " +
+                 "fallback's job is to make the feeds visible, not to re-choose how they are laid out.")]
         public ScreenSpawn.ScreenStyle fallbackScreenStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
     }
 

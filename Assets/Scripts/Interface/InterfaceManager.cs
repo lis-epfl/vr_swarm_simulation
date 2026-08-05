@@ -32,7 +32,23 @@ public class InterfaceManager : MonoBehaviour
     public bool invertBottomScreen = false;
     public bool doubleView = false;
     public float rotatingCircleDistance = 2.0f;
-    
+
+    [Header("Formation Wall Settings (FORMATION_WALL)")]
+    [Tooltip("Clearance between neighbouring screens, as a multiple of the screen's own size. " +
+             "1.0 makes them touch exactly; below 1 is clamped away, since the point of the " +
+             "style is that the screens do not overlap.")]
+    public float formationWallPadding = 1.08f;
+    [Tooltip("Columns in the grid. 0 = auto, which shapes the grid like the formation itself " +
+             "(a wall five drones wide and two tall lays out 5x2).")]
+    public int formationWallColumns = 0;
+    [Tooltip("Widest azimuth the wall may span, in degrees. Feeds that do not fit go into extra " +
+             "rows rather than wrapping around the pilot. Lower the scale to fit more columns " +
+             "into the same span. 0 = unbounded.")]
+    public float formationWallMaxSpanDeg = 120.0f;
+    [Tooltip("Time constant (s) of the low-pass on the wall's heading and on each screen's " +
+             "glide between grid cells. 0 = snap.")]
+    public float formationWallSmoothTime = 0.15f;
+
     public delegate void OnInterfaceParamsChanged();
     public event OnInterfaceParamsChanged interfaceParamsChanged;
     
@@ -133,6 +149,10 @@ public class InterfaceManager : MonoBehaviour
             spawnScreens.invertBottomScreen = invertBottomScreen;
             spawnScreens.doubleView = doubleView;
             spawnScreens.rotatingCircleDistance = rotatingCircleDistance;
+            spawnScreens.formationWallPadding = formationWallPadding;
+            spawnScreens.formationWallColumns = formationWallColumns;
+            spawnScreens.formationWallMaxSpanDeg = formationWallMaxSpanDeg;
+            spawnScreens.formationWallSmoothTime = formationWallSmoothTime;
         }
     }
 

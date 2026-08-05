@@ -107,6 +107,41 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   frame at the wall. The lock is absolute, so entering plane mode also clears any pre-existing offset.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
+- **`OUTER_CIRCLE` is only meaningful for the radially-outward ring**, and `ScreenStyle.FORMATION_WALL`
+  is its shared-heading counterpart (vertical plane, or nadir). Placing each screen at its own drone's
+  yaw works only because the ring *spreads* the yaws; under a shared heading every screen lands on the
+  same arc position and they stack. `FORMATION_WALL` keeps yaw as the thing that aims the display — the
+  circular mean of the yaws sets one azimuth for the wall, so turning the formation turns the wall — and
+  takes the *separation* from each drone's rank inside the swarming plane (`SwarmPlaneController.
+  GetPlaneAxes`, the same basis the planar centre-drone rule uses). Consequences worth knowing:
+  - **It ranks into a grid rather than scaling the true in-plane coordinates.** Proportional placement
+    preserves the formation's shape but guarantees nothing about spacing — two drones a metre apart in a
+    40 m wall still overlap — whereas ranking is non-overlapping by construction, and the reading that
+    actually matters ("that feed is the drone up and to the left") survives either way.
+  - **The whole grid is solved once per frame, before any screen is placed**, and over exactly the set
+    about to be shown (`IsFeedSuppressed`) — a cell index only means something relative to the others,
+    so a screen hidden into the panorama has to leave its cell rather than hold a gap.
+  - Unlike `OUTER_CIRCLE` it does **not** gate on `BoundaryEstimate`, for the same reason
+    `SelectPlanarStitchCameras` doesn't: in a wall the hull is the rim, and every drone in it is looking
+    at the facade.
+  - **Non-overlap is geometric, not a tuned constant:** the column pitch is the angle whose chord at
+    `radius` is one padded screen width, the row pitch one padded screen height, both recomputed each
+    frame from the live `scale`. `formationWallMaxSpanDeg` (default 120°) then caps how far the wall may
+    wrap, and overflow goes into extra rows — a screen beside the pilot's ear carries information in the
+    ring (a drone behind you) but none here. Lowering `scale` is what buys more columns.
+  - The auto grid estimates the **row** count from the formation's aspect and divides to get the columns.
+    Rounding the columns directly overshoots: a 5×2 wall reads as aspect 4, and `round(√(10·4))` is 6
+    columns, splitting ten drones 6/4 across rows that are really 5 and 5.
+- **`InterfaceManager.screenStyle` is the single source of truth for the layout, and the panorama
+  fallback may not overwrite it.** `PyUniSharingFast.fallbackScreenStyle` is a substitute for a layout
+  that shows *nothing* — `ScreenSpawn.ShowFallbackFeeds` only applies it when the configured style is
+  `OFF`, and otherwise keeps the configured one. Overwriting it unconditionally was silently
+  layout-changing (toggle the panorama off and `FORMATION_WALL` feeds came back as `OUTER_CIRCLE`) and
+  it desyncs the two components: InterfaceManager pushes its style *into* `ScreenSpawn.screenStyle`
+  (which is `[HideInInspector]`), so the inspector goes on reading the configured style while the
+  screens are in the fallback's, and only nudging the style in the inspector pushes it down again.
+  For the same reason the restore reads InterfaceManager's field rather than a snapshot taken when the
+  fallback engaged, and `OnInterfaceParamsChanged` re-applies the substitution *after* the push.
 - Image format across the bridge is **BGR + top-down** for stitch inputs; the returned panorama is
   flipped once and converted to RGB on the Python side.
 - **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata
@@ -294,8 +329,13 @@ per-frame camera pose and a scene plane — both come from Unity internals that 
 
 - **It cannot run on the DJI path today.** `ImageSharing.cs` / the DJI_Swarm repo's
   `image_stream_feed.py` write the **v1 12-byte** block header; `PLANAR` needs **v2** with a per-frame
-  camera pose. `planar_inputs_ready()` detects the v1 producer, prints one `[PLANAR] unavailable: …`
-  line and falls back to the individual feeds — a blank panorama, not a crash. Use `STABSTITCH` there.
+  camera pose. Nothing crashes — one `[PLANAR] unavailable: …` line is printed and Unity falls back to
+  the individual feeds — but note *which* guard fires, because it is **not** a header-version check:
+  `planar_inputs_ready()` never looks at `blockHeaderSize`. In the DJI scene the reason it reports is
+  `no camera intrinsics`, because those are derived from `camerasToCapture` and that scene has no sim FPV
+  cameras. The v1 header itself is caught one layer deeper: `read_block_memory` leaves `pos`/`quat` as
+  `None` and `poseStatus` 0 for a 12-byte header, `pose_is_usable` then drops every view as unposed, and
+  `planar_pano` returns `REASON_PLANE_INVALID`. Use `STABSTITCH` there.
   The blocker is a *pose source*, not wiring, but the ingredients already exist: the RC app subscribes to
   `KeyAircraftLocation3D`, `KeyCompassHeading`, `KeyAircraftAttitude` and `KeyGimbalAttitude`, and all
   four already reach Python inside the 17-field telemetry string. A camera pose is GPS → local ENU →

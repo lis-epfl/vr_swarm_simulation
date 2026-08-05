@@ -21,7 +21,7 @@ yaw is separate via AttitudeAlgorithm.
 - [PyUniSharingFast.cs](Assets/Scripts/ImageStitching/PyUniSharingFast.cs) — captures the selected feeds → `BlockSharedMemory` (3 head-facing boundary drones normally; up to `maxStitchViews` plane-facing ones in `PLANAR`, with camera pose in the block header), writes metadata/HMD yaw, resolves and publishes the scene plane, reads the panorama, renders the curved screen, and drives the quality fallback.
 - [StitchPoseSource.cs](Assets/Scripts/ImageStitching/StitchPoseSource.cs) — injects drifting GNSS-magnitude error (Ornstein–Uhlenbeck + common-mode + yaw bias) into the published camera poses. Deliberately separate from `StateFinder`, whose noise feeds the flight controller.
 - [ImageSharing.cs](Assets/Scripts/dji/ImageSharing.cs) — real-drone mode (DJIScene): reads all live feeds from `DroneFeedSharedMemory` (written by the DJI_Swarm repo's `image_stream_feed.py`), shows them on the feed screens, and re-publishes the 3 body-yaw-selected views into `BlockSharedMemory` for the stitcher.
-- [screenSpawn.cs](Assets/Scripts/Interface/screenSpawn.cs) — per-drone feed quads with several layouts; `ShowFallbackFeeds(on, style)` is the fallback entry point.
+- [screenSpawn.cs](Assets/Scripts/Interface/screenSpawn.cs) — per-drone feed quads with several layouts; `ShowFallbackFeeds(on, style)` is the fallback entry point (the passed style only substitutes for a configured `OFF`; any visible layout is kept). `OUTER_CIRCLE` places each screen at its own drone's yaw; `FORMATION_WALL` is the shared-heading equivalent (yaw aims the wall, in-plane rank separates the screens).
 
 ## Python stitching pipeline
 
