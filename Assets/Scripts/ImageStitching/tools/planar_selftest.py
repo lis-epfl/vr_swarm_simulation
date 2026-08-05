@@ -193,6 +193,7 @@ def make_bare_stitcher(ps_mod, torch):
     s._sweep_mode = "acquire"
     s._sweep_lost = 0
     s._last_acquire = 0.0
+    s._plane_source = None
     s._plane_invalid_since = None
     s._unposed = 0
     s._stale = 0
@@ -1402,6 +1403,112 @@ def test_estimators():
           f"views={s_sync._last_stats.get('views')}")
 
 
+def _pose_view(drone_id, pos, quat):
+    """Minimal view record: _plane_from_formation reads only pos/quat/pose_status."""
+    return {'slot': drone_id, 'drone_id': drone_id, 'heading': 0.0, 'image': None,
+            'pos': pos, 'quat': tuple(float(c) for c in quat),
+            'capture_time': 0.0, 'pose_status': 3, 'cached': False}
+
+
+def test_formation_plane():
+    """
+    The FormationRelative plane: derived from the poses, with no raycast and no collider.
+
+    This is the only plane source that can work on real drones, so it is checked against
+    cases that actually distinguish its two rules rather than just the easy one.
+    """
+    print("\n11. FormationRelative plane (derived from poses, no raycast)")
+    try:
+        import torch  # noqa: F401
+        import PlanarStitcher as ps_mod
+    except ImportError as e:
+        check("torch + PlanarStitcher importable", False, str(e))
+        return
+
+    s = ps_mod.PlanarStitcher.__new__(ps_mod.PlanarStitcher)
+    s._plane_source = None
+
+    # --- nadir cross, cameras straight down over ground at y = 0 ----------------------
+    alt = 26.0
+    nadir = [_pose_view(i, (dx, alt, dz), euler_to_quat(90.0, 0.0, 0.0))
+             for i, (dx, dz) in enumerate(
+                 [(0.0, 0.0), (-5.0, 0.0), (0.0, 5.0), (0.0, -5.0), (5.0, 0.0)])]
+    n, d = s._plane_from_formation(nadir, alt)
+    check("nadir: normal is world up",
+          n is not None and np.allclose(n, [0.0, 1.0, 0.0], atol=1e-6),
+          f"n = {np.round(n, 6) if n is not None else None}")
+    check("nadir: standoff places the plane at the ground", abs(d - 0.0) < 1e-6,
+          f"d = {d:.6f} (true plane d = 0)")
+    check("nadir: the position fit is what resolved it", s._plane_source == "positions",
+          f"source = {s._plane_source}")
+
+    # --- vertical wall with the gimbal pitched DOWN 15 deg ----------------------------
+    # The discriminating case. Fitting the camera positions is immune to gimbal pitch;
+    # the mean-forward rule would tilt the plane by the full 15 deg. A facade is vertical
+    # regardless of where the gimbal happens to be aimed, so "positions" must win here.
+    wall = []
+    k = 0
+    for dx in (-8.0, -4.0, 0.0, 4.0, 8.0):
+        for dy in (12.0, 18.0):
+            wall.append(_pose_view(k, (dx, dy, 0.0), euler_to_quat(15.0, 0.0, 0.0)))
+            k += 1
+    n_w, d_w = s._plane_from_formation(wall, 30.0)
+    check("wall + pitched gimbal: normal stays perpendicular to the facade",
+          n_w is not None and np.allclose(n_w, [0.0, 0.0, 1.0], atol=1e-6),
+          f"n = {np.round(n_w, 6) if n_w is not None else None} "
+          "(the mean-forward rule would give ~[0, 0.26, 0.97])")
+    check("wall + pitched gimbal: plane sits one standoff in front",
+          abs(d_w - (-30.0)) < 1e-6, f"d = {d_w:.6f}, expected -30")
+
+    # --- a single row of drones is degenerate and must fall back ----------------------
+    row = [_pose_view(i, (dx, 15.0, 0.0), euler_to_quat(0.0, 0.0, 0.0))
+           for i, dx in enumerate((-8.0, -4.0, 0.0, 4.0, 8.0))]
+    n_r, d_r = s._plane_from_formation(row, 30.0)
+    check("single row: falls back to the mean-forward rule",
+          n_r is not None and s._plane_source == "forward",
+          f"source = {s._plane_source}")
+    check("single row: forward rule still gives a sane facade normal",
+          n_r is not None and np.allclose(n_r, [0.0, 0.0, 1.0], atol=1e-6),
+          f"n = {np.round(n_r, 6) if n_r is not None else None}")
+
+    # --- refusals ---------------------------------------------------------------------
+    check("no standoff is refused rather than guessed",
+          s._plane_from_formation(nadir, 0.0)[0] is None, "returns None")
+    check("no views is refused", s._plane_from_formation([], 30.0)[0] is None, "returns None")
+    opposed = [_pose_view(0, (0.0, 20.0, 0.0), euler_to_quat(0.0, 0.0, 0.0)),
+               _pose_view(1, (0.0, 20.0, 0.0), euler_to_quat(0.0, 180.0, 0.0))]
+    check("cameras facing opposite ways are refused",
+          s._plane_from_formation(opposed, 30.0)[0] is None,
+          "no single surface they are all looking at")
+
+    # --- end to end: the derived plane must mosaic identically to the published one ----
+    if cv2 is None:
+        check("cv2 available for the render comparison", False, "opencv not installed")
+        return
+    views, K, s_tex, plane = _nadir_scene(make_unique_texture())
+    intr = (K[0, 0], K[1, 1], K[0, 2], K[1, 2])
+    cfg = {"canvas": (1000, 700), "metres_per_pixel": s_tex, "max_range": 200.0,
+           "feather_px": 40, "aniso_max": 12.0, "min_coverage": 0.2,
+           "pose_source": 0, "psnr_gate": False,
+           "blend_mode": ps_mod.BLEND_NEAREST, "debug_view": ps_mod.DEBUG_OFF,
+           "plane_sweep": False, "pose_refine": False,
+           "sweep_range": 4.0, "sweep_steps": 9,
+           "refine_rate": 0.25, "refine_max_shift": 3.0,
+           "standoff": 26.0}
+
+    published, ok_p, _ = _mosaic(make_bare_stitcher(ps_mod, torch), views, intr, plane, cfg)
+    derived, ok_d, reason_d = _mosaic(
+        make_bare_stitcher(ps_mod, torch), views, intr,
+        dict(plane, plane_mode=ps_mod.PLANE_MODE_FORMATION_RELATIVE), cfg)
+
+    if check("both mosaics rendered", ok_p and ok_d, f"published={ok_p} derived={ok_d} "
+             f"reason={reason_d}"):
+        check("derived plane reproduces the published-plane mosaic exactly",
+              np.array_equal(published, derived),
+              "byte-identical" if np.array_equal(published, derived)
+              else f"max diff {int(np.abs(published.astype(int) - derived.astype(int)).max())}")
+
+
 def _mosaic(stitcher, views, intr, plane, config):
     """Render once with whatever ``stitcher._correction`` currently holds."""
     stitcher._plane_invalid_since = None
@@ -1420,6 +1527,7 @@ def main():
     test_mosaic_roundtrip()
     test_planar_stitcher_end_to_end()
     test_estimators()
+    test_formation_plane()
 
     print("\n" + "=" * 74)
     if _failures:

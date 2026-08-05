@@ -94,6 +94,13 @@ META_PLANAR_SWEEP_RANGE_OFFSET = 348     # float32, metres either side
 META_PLANAR_SWEEP_STEPS_OFFSET = 352     # int32
 META_PLANAR_REFINE_RATE_OFFSET = 356     # float32, low-pass rate per warp update
 META_PLANAR_REFINE_MAX_SHIFT_OFFSET = 360  # float32, metres; 0 = unclamped
+META_PLANAR_STANDOFF_OFFSET = 364        # float32, metres in front of the formation
+
+# ScenePlaneMode.FormationRelative in PyUniSharingFast.cs. In this mode Unity publishes no
+# usable normal/offset -- there is no raycast to produce one, which is the entire reason the
+# mode exists -- so Python derives the plane from the block poses instead. Mirrors the C#
+# const planeModeFormationRelative, which check_wire_layout.py asserts against this.
+PLANE_MODE_FORMATION_RELATIVE = 4
 
 # Per-drone block header. v1 is flag|droneId|heading; v2 appends the camera pose that
 # was snapshotted with the image. Unity advertises which one it is writing in
@@ -236,6 +243,9 @@ class StitcherManager:
             "sweep_steps": output.get("planar_sweep_steps", 0),
             "refine_rate": output.get("planar_refine_rate", 0.0),
             "refine_max_shift": output.get("planar_refine_max_shift", 0.0),
+            # FormationRelative: how far in front of the formation the surface is. Used
+            # only when the plane mode says so; see PlanarStitcher._plane_from_formation.
+            "standoff": output.get("planar_standoff", 0.0),
         }
 
         # Push the switches straight to the stitcher rather than letting the warp thread
@@ -1248,6 +1258,7 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     sweep_range = struct.unpack('<f', metadataMMF.read(4))[0]
     sweep_steps = struct.unpack('<i', metadataMMF.read(4))[0]
     refine_rate, refine_max_shift = struct.unpack('<ff', metadataMMF.read(8))
+    planar_standoff = struct.unpack('<f', metadataMMF.read(4))[0]
 
     return {
         "Sizes": int_values,
@@ -1287,6 +1298,7 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "planar_sweep_steps" : sweep_steps,
         "planar_refine_rate" : refine_rate,
         "planar_refine_max_shift" : refine_max_shift,
+        "planar_standoff" : planar_standoff,
     }
 
 

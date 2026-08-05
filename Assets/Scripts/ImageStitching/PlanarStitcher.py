@@ -152,6 +152,12 @@ DEBUG_TINT_STRENGTH = 0.22
 # writes. Mirrors POSE_VALID in PyUniSharingFast.cs / StitcherThreading.py.
 POSE_VALID = 1 << 0
 
+# ScenePlaneMode.FormationRelative. In this mode Unity publishes no usable normal or
+# offset -- there is no raycast out there to produce one -- and the plane is derived here
+# from the poses instead (_plane_from_formation). Mirrors StitcherThreading's copy and the
+# C# const planeModeFormationRelative; check_wire_layout.py asserts the pair.
+PLANE_MODE_FORMATION_RELATIVE = 4
+
 
 def pose_is_usable(view):
     """
@@ -260,6 +266,11 @@ class PlanarStitcher(BaseStitcher):
         self._sweep_mode = "acquire"
         self._sweep_lost = 0            # consecutive TRACK passes with no usable measurement
         self._last_acquire = 0.0
+
+        # Which rule _plane_from_formation last used ("positions" / "forward"), or None in
+        # the raycast modes. Worth logging: the two behave differently under gimbal pitch,
+        # and a wall that has collapsed to a single row switches between them silently.
+        self._plane_source = None
 
         self._plane_invalid_since = None
         self._unposed = 0
@@ -1159,11 +1170,17 @@ class PlanarStitcher(BaseStitcher):
         if not posed:
             return None, []
 
-        n = pg.unity_dir_to_rh(plane["plane_normal"])
-        if np.linalg.norm(n) < 1e-6:
-            return None, []
-        n = n / np.linalg.norm(n)
-        d = float(plane["plane_d"])
+        if int(plane.get("plane_mode", -1)) == PLANE_MODE_FORMATION_RELATIVE:
+            n, d = self._plane_from_formation(
+                posed, float(config.get("standoff", 0.0)))
+            if n is None:
+                return None, []
+        else:
+            n = pg.unity_dir_to_rh(plane["plane_normal"])
+            if np.linalg.norm(n) < 1e-6:
+                return None, []
+            n = n / np.linalg.norm(n)
+            d = float(plane["plane_d"])
 
         # Additive, not absolute: Unity's raycast keeps tracking the facade as the swarm
         # flies, and the sweep estimates only the slowly-varying residual on top of it.
@@ -1235,6 +1252,82 @@ class PlanarStitcher(BaseStitcher):
             })
 
         return frame, cams
+
+    # Below this ratio of smallest to middle singular value, the camera positions are
+    # treated as spanning a plane. A wall of drones with half a metre of GNSS scatter
+    # across 20 m reads ~0.025; a single row of drones reads ~1 and is rejected.
+    FORMATION_PLANARITY_MAX = 0.2
+
+    def _plane_from_formation(self, posed, standoff):
+        """
+        Derive ``(n, d)`` from the camera poses alone.  Returns ``(None, 0.0)`` on failure.
+
+        This is the only plane source that works on real drones: ``UpdateScenePlane``
+        raycasts Unity colliders, and a real facade has none.  All the operator supplies is
+        ``standoff`` -- the perpendicular distance from the formation to the surface -- so
+        no georeferenced origin has to be agreed between Unity and the drone telemetry.
+
+        The normal comes from a plane fitted to the camera *positions* where the formation
+        actually spans a plane, and from the mean camera *forward* where it does not:
+
+        - Fitting the positions is immune to gimbal pitch, which matters because a facade
+          wall flown with the gimbal 20 deg down would otherwise yield a plane tilted 20
+          deg off vertical.  It also handles nadir for free: drones spread over a
+          horizontal plane fit a horizontal plane, whose normal is up.
+        - It degenerates for a single row of drones (any normal perpendicular to the row
+          fits equally well), which is exactly when the mean forward is reliable instead.
+
+        The mean forward is used either way to orient the result toward the cameras, so the
+        plane's "front" is unambiguous downstream -- the same convention
+        ``UpdateScenePlane`` applies to its raycast hit normal.
+
+        Uses the *published* poses, not the refiner-corrected ones: the corrections are
+        zero-meaned, so they cannot move the centroid, and leaving them out keeps the plane
+        from moving in lockstep with the estimator that is being measured against it.
+        """
+        if not posed or standoff <= 0.0:
+            return None, 0.0
+
+        centres, forwards = [], []
+        for v in posed:
+            R, C = pg.unity_pose_to_cv(v["pos"], v["quat"])
+            centres.append(C)
+            forwards.append(R[2])          # rows of a world->camera rotation are the axes
+        centres = np.asarray(centres, dtype=np.float64)
+
+        f_mean = np.asarray(forwards, dtype=np.float64).mean(axis=0)
+        f_norm = np.linalg.norm(f_mean)
+        if f_norm < 1e-6:
+            # Cameras pointing in opposing directions average to nothing; there is no
+            # single surface they are all looking at, so refuse rather than invent one.
+            return None, 0.0
+        f_mean = f_mean / f_norm
+
+        centroid = centres.mean(axis=0)
+        n = None
+        if len(centres) >= 3:
+            sv = np.linalg.svd(centres - centroid, full_matrices=False)
+            s, vt = sv[1], sv[2]
+            if s[1] > 1e-6 and (s[2] / s[1]) < self.FORMATION_PLANARITY_MAX:
+                n = vt[2]
+
+        source = "positions"
+        if n is None:
+            n = -f_mean
+            source = "forward"
+
+        # Orient toward the cameras: the surface is in front of them, so the normal must
+        # oppose the direction they are looking.
+        if float(np.dot(n, f_mean)) > 0.0:
+            n = -n
+        n = n / np.linalg.norm(n)
+
+        # Standoff is the PERPENDICULAR distance from the formation to the surface, which
+        # is what an operator means by "the facade is 30 m in front of the wall". Stepping
+        # along -n rather than along f_mean is what makes that true when the two differ.
+        d = float(np.dot(n, centroid)) - float(standoff)
+        self._plane_source = source
+        return n, d
 
     def _apply_correction(self, view, R, C):
         """
@@ -1534,7 +1627,11 @@ class PlanarStitcher(BaseStitcher):
               f"(+{s.get('dropped', 0)} dropped{unposed_txt}) | blend {s.get('blend', '?')} | "
               f"coverage {s.get('coverage', 0):.0%} | "
               f"mean range {s.get('mean_range', 0):.1f} m | "
-              f"max anisotropy {s.get('max_aniso', 0):.2f} | overlap PSNR {psnr_txt}")
+              f"max anisotropy {s.get('max_aniso', 0):.2f} | overlap PSNR {psnr_txt}"
+              # Only in FormationRelative, where the plane is derived here rather than
+              # published. Which rule won matters: "forward" means the formation collapsed
+              # to a row and the normal now follows the gimbal.
+              + (f" | plane from {self._plane_source}" if self._plane_source else ""))
 
         # A colour map is useless without the key, and the selection changes as drones
         # join, die or fall out of range -- so reprint it alongside the stats rather

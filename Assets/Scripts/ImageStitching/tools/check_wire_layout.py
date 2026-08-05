@@ -19,6 +19,20 @@ CS = os.path.join(ROOT, "PyUniSharingFast.cs")
 PY = os.path.join(ROOT, "StitcherThreading.py")
 # The real-drone producer, in the DJI scene. Sits outside ImageStitching/.
 SHARING_CS = os.path.join(os.path.dirname(ROOT), "dji", "ImageSharing.cs")
+# The other end of the feed map, in a sibling repo. Checked when present, skipped when not
+# -- this file has to keep working for anyone who only has the sim checked out.
+DJI_SHARING_PY = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(ROOT)))),
+    "DJI_Swarm", "AOS server", "utils", "imageSharingUtil.py")
+
+
+def _parse_py_const(path, name):
+    """One int constant out of a Python file, or None if the file is not there."""
+    if not os.path.exists(path):
+        return None
+    src = open(path, encoding="utf-8").read()
+    m = re.search(r"^%s\s*=\s*(\d+)" % re.escape(name), src, re.M)
+    return int(m.group(1)) if m else None
 
 # C# constant name -> Python constant name
 PAIRS = [
@@ -44,6 +58,11 @@ PAIRS = [
     ("metaPlanarSweepStepsOffset",    "META_PLANAR_SWEEP_STEPS_OFFSET"),
     ("metaPlanarRefineRateOffset",    "META_PLANAR_REFINE_RATE_OFFSET"),
     ("metaPlanarRefineMaxShiftOffset", "META_PLANAR_REFINE_MAX_SHIFT_OFFSET"),
+    ("metaPlanarStandoffOffset",       "META_PLANAR_STANDOFF_OFFSET"),
+    # Not an offset: Python switches on the plane-mode byte by number, so the enum value
+    # itself is part of the contract. C# mirrors it as a const because this parser reads
+    # `const int` and cannot evaluate an enum member.
+    ("planeModeFormationRelative",     "PLANE_MODE_FORMATION_RELATIVE"),
     ("blockLegacyHeaderSize",         "BLOCK_HEADER_SIZE_V1"),
     ("blockPoseHeaderSize",           "BLOCK_HEADER_SIZE_V2"),
     ("blockCamPosOffset",             "BLOCK_CAM_POS_OFFSET"),
@@ -148,6 +167,7 @@ def main():
         ("sweepSteps", "metaPlanarSweepStepsOffset", 4),
         ("refineRate", "metaPlanarRefineRateOffset", 4),
         ("refineMaxShift", "metaPlanarRefineMaxShiftOffset", 4),
+        ("standoff", "metaPlanarStandoffOffset", 4),
     ]
     cursor = 253
     for label, const, size in fields:
@@ -196,9 +216,13 @@ def main():
         print(f"  ImageSharing.cs not found at {SHARING_CS}; skipped")
     else:
         sh = parse_cs(SHARING_CS)
+        # Both producers write the pose-carrying v2 header now, so ImageSharing's block
+        # header must equal blockPoseHeaderSize, not the legacy size. Its slot count is
+        # a serialized field rather than a const (PLANAR wants more than three views), so
+        # only its floor is assertable here — DesiredBlockCount() reads the live value off
+        # the component at runtime, which is what actually keeps the two in step.
         for label, sh_name, cs_name in [
-                ("stitch slots", "StitchSlots", "STITCH_COUNT_LRC"),
-                ("block header", "MetadataSize", "blockLegacyHeaderSize"),
+                ("block header", "MetadataSize", "blockPoseHeaderSize"),
         ]:
             a, b = sh.get(sh_name), cs.get(cs_name)
             ok = a is not None and a == b
@@ -206,6 +230,29 @@ def main():
                   f"PyUniSharingFast.{cs_name} = {b}  {'OK' if ok else 'MISMATCH'}")
             if not ok:
                 failures.append(f"ImageSharing.{sh_name} ({a}) != {cs_name} ({b})")
+
+        lrc_sh, lrc_cs = sh.get("STITCH_COUNT_LRC"), cs.get("STITCH_COUNT_LRC")
+        ok = lrc_sh is not None and lrc_sh == lrc_cs
+        print(f"  {'lrc views':<14} ImageSharing.STITCH_COUNT_LRC = {lrc_sh}, "
+              f"PyUniSharingFast.STITCH_COUNT_LRC = {lrc_cs}  {'OK' if ok else 'MISMATCH'}")
+        if not ok:
+            failures.append(f"ImageSharing.STITCH_COUNT_LRC ({lrc_sh}) != "
+                            f"PyUniSharingFast.STITCH_COUNT_LRC ({lrc_cs})")
+
+        # The other repo's feed-block header. Reported when DJI_Swarm is not checked out
+        # beside this one, asserted when it is: nothing else guards this pair, and a
+        # mismatch is silent on both sides -- it reads image bytes as a header.
+        feed_hdr = _parse_py_const(DJI_SHARING_PY, "BLOCK_HEADER_V2_BYTES")
+        if feed_hdr is None:
+            print(f"  feed header    DJI_Swarm not found at {DJI_SHARING_PY}; skipped")
+        else:
+            ok = feed_hdr == sh.get("MetadataSize")
+            print(f"  feed header    imageSharingUtil.BLOCK_HEADER_V2_BYTES = {feed_hdr}, "
+                  f"ImageSharing.MetadataSize = {sh.get('MetadataSize')}  "
+                  f"{'OK' if ok else 'MISMATCH'}")
+            if not ok:
+                failures.append(f"imageSharingUtil.BLOCK_HEADER_V2_BYTES ({feed_hdr}) != "
+                                f"ImageSharing.MetadataSize ({sh.get('MetadataSize')})")
 
         # image_stream_feed.py writes this map in the DJI_Swarm repo; its MAX_DRONES must
         # equal MaxFeedBlocks. Reported rather than asserted -- that repo is not here.

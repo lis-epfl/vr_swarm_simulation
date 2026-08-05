@@ -12,9 +12,24 @@ public class ImageSharing : MonoBehaviour
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
     
-    // Block layout for each image:
-    //   int flag (4 bytes), int imageIndex (4 bytes), float yaw (4 bytes), image data (ImageSize bytes)
-    private const int MetadataSize = 12;  // flag (4) + index (4) + yaw (4)
+    // Block layout for each image (wire v2), mirroring PyUniSharingFast's
+    // blockPoseHeaderSize and utils/imageSharingUtil.py's BLOCK_HEADER_BYTES:
+    //   int flag | int droneId | float yaw
+    //   | float camPos[3] | float camRot[4] xyzw | float captureTime | int poseStatus
+    //   | image data (ImageSize bytes)
+    //
+    // The pose is what the sim's PLANAR stitcher needs and the v1 12-byte header could
+    // not carry: a heading alone is one scalar, giving no position and one of three
+    // rotation degrees of freedom. It is passed straight through from the feed map to
+    // the stitch map -- this component does not compute it, because the pose has to be
+    // the pose of *that* frame and only the producer knows which telemetry arrived with
+    // the pixels.
+    private const int MetadataSize = 48;
+    private const int PoseOffset = 12;          // float32 x, y, z
+    private const int RotOffset = 24;           // float32 x, y, z, w
+    private const int CaptureTimeOffset = 40;   // float32, seconds since producer start
+    private const int PoseStatusOffset = 44;    // int32 bitfield
+    private const int POSE_VALID = 1 << 0;
 
     // Processed image dimensions and sizes (RGB24). Must match the producer
     // (image_stream_feed.py width/height) — the block layout is offset-based,
@@ -61,7 +76,19 @@ public class ImageSharing : MonoBehaviour
     // the wrong stride or the wrong length — it does not fail to compile, it just reads
     // image bytes as headers.
     private const string stitchMapName = "BlockSharedMemory";
-    private const int StitchSlots = 3;
+
+    [Tooltip("Slots in the stitcher's input map. STABSTITCH always uses exactly 3 " +
+             "(left/centre/right); PLANAR mosaics every drone that can see the surface, so " +
+             "raise this to the fleet size when flying PLANAR. Must equal what " +
+             "PyUniSharingFast.DesiredBlockCount() reports — Python sizes its mapping from " +
+             "that, and a mismatch reads image bytes as headers rather than failing.")]
+    [SerializeField] private int stitchSlots = 3;
+
+    /// <summary>Slot count this component created the stitch map with.</summary>
+    public int StitchSlotCount => Mathf.Max(STITCH_COUNT_LRC, stitchSlots);
+
+    // A left/centre/right panorama is always exactly three views.
+    private const int STITCH_COUNT_LRC = 3;
     private IntPtr stitchFileMap = IntPtr.Zero;
     private IntPtr stitchPtr = IntPtr.Zero;
 
@@ -72,6 +99,15 @@ public class ImageSharing : MonoBehaviour
         public byte[] imageBytes;
         public float yaw;
         public float lastUpdateTime;
+
+        // Carried through from the feed block untouched. poseStatus == 0 means the
+        // producer had no pose to give (no GPS lock, or a tool like image_replay.py that
+        // has no telemetry at all); the planar solve drops such a view and STABSTITCH
+        // never looks at it.
+        public Vector3 pos;
+        public Quaternion rot;
+        public float captureTime;
+        public int poseStatus;
     }
     private readonly Dictionary<int, CachedFrame> frameCache = new Dictionary<int, CachedFrame>();
     private readonly List<int> stitchCandidates = new List<int>();
@@ -354,6 +390,23 @@ public class ImageSharing : MonoBehaviour
                         cached.imageBytes = imageBytes;
                         cached.yaw = yaw;
                         cached.lastUpdateTime = Time.time;
+
+                        // Read the pose out of the same block as the pixels, so the two
+                        // stay paired all the way to the stitcher. Deliberately not the
+                        // yaw-offset-corrected heading above: headingOffsetDegrees exists
+                        // to line the feed SCREENS up with the HMD's yaw frame, while the
+                        // pose defines its own frame (+Z = North) that the derived scene
+                        // plane is expressed in. Applying that offset to one and not the
+                        // other would yaw the whole mosaic off the facade.
+                        cached.pos = new Vector3(ReadFloat(blockPtr, PoseOffset + 0),
+                                                 ReadFloat(blockPtr, PoseOffset + 4),
+                                                 ReadFloat(blockPtr, PoseOffset + 8));
+                        cached.rot = new Quaternion(ReadFloat(blockPtr, RotOffset + 0),
+                                                    ReadFloat(blockPtr, RotOffset + 4),
+                                                    ReadFloat(blockPtr, RotOffset + 8),
+                                                    ReadFloat(blockPtr, RotOffset + 12));
+                        cached.captureTime = ReadFloat(blockPtr, CaptureTimeOffset);
+                        cached.poseStatus = Marshal.ReadInt32(blockPtr, PoseStatusOffset);
                     }
 
                     // If a screen with the matching index exists, update its texture and orientation
@@ -411,12 +464,11 @@ public class ImageSharing : MonoBehaviour
         }
     }
 
-    // Creates (or opens) the stitcher's 3-slot BlockSharedMemory and readies its
-    // flags. Same layout PyUniSharingFast produces in the sim: per slot
-    // int flag | int droneId | float heading | 800x450 BGR top-down image.
+    // Creates (or opens) the stitcher's BlockSharedMemory and readies its flags.
+    // Same layout PyUniSharingFast produces in the sim (wire v2, see MetadataSize).
     private void CreateStitchMap()
     {
-        int totalStitchSize = StitchSlots * BlockSize;
+        int totalStitchSize = StitchSlotCount * BlockSize;
         stitchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
             (uint)totalStitchSize, stitchMapName);
         if (stitchFileMap == IntPtr.Zero)
@@ -432,17 +484,31 @@ public class ImageSharing : MonoBehaviour
             return;
         }
 
-        for (int slot = 0; slot < StitchSlots; slot++)
+        for (int slot = 0; slot < StitchSlotCount; slot++)
         {
-            Marshal.WriteInt32(IntPtr.Add(stitchPtr, slot * BlockSize), 0, 0);
+            IntPtr p = IntPtr.Add(stitchPtr, slot * BlockSize);
+            Marshal.WriteInt32(p, 0, 0);
+            // droneId = -1 at creation, not just when a slot goes unused. A fresh
+            // section is zero-filled and 0 is a legal drone id, so a never-written slot
+            // would otherwise advertise itself as a ready block from drone 0 carrying an
+            // all-zero pose — which is a degenerate quaternion downstream.
+            Marshal.WriteInt32(p, 4, -1);
+            Marshal.WriteInt32(p, PoseStatusOffset, 0);
         }
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Stitch map '{stitchMapName}' ready ({StitchSlots} slots x {BlockSize} bytes).");
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Stitch map '{stitchMapName}' ready ({StitchSlotCount} slots x {BlockSize} bytes).");
     }
 
-    // Selects the three fresh feeds straddling the pilot's body yaw and writes
-    // them to the stitch map, ordered [left, centre, right]. Mirrors
-    // PyUniSharingFast.SelectStitchCameras and Python's get_subsets_from_order
-    // so both sides of the bridge agree on which views form the panorama.
+    // Chooses which feeds form the panorama and writes them to the stitch map.
+    //
+    // Two rules, because the two stitchers want different things:
+    //   STABSTITCH  the three fresh feeds straddling the pilot's body yaw, ordered
+    //               [left, centre, right]. Mirrors PyUniSharingFast.SelectStitchCameras
+    //               and Python's get_subsets_from_order, so both sides of the bridge
+    //               agree on which views form the panorama.
+    //   PLANAR      every fresh feed, up to the slot count. A facade wall has all its
+    //               drones looking at the same surface, so a yaw-ordered pick of three
+    //               would throw away most of the mosaic; and the planar solve does not
+    //               use ring order at all.
     private void PublishStitchBlocks()
     {
         if (!enableStitchWriting || stitchPtr == IntPtr.Zero) return;
@@ -457,53 +523,119 @@ public class ImageSharing : MonoBehaviour
             }
         }
 
-        // Fewer than three live feeds can't form a left/centre/right panorama
-        // (matches MIN_STITCH_IMAGES in StitcherThreading.py); leave the slots
-        // untouched so the stitcher's own gates hide the panorama.
-        if (stitchCandidates.Count < StitchSlots) return;
+        bool planar = PyUniSharingFast.PlanarSelected;
 
-        // Centre = heading closest to the pilot's body yaw (circular distance).
-        float bodyYaw = PyUniSharingFast.BodyYawDegrees;
-        int centreId = stitchCandidates[0];
-        float bestDiff = float.MaxValue;
-        foreach (int id in stitchCandidates)
+        // A planar mosaic is worth showing from two overlapping views (MIN_PLANAR_IMAGES);
+        // a left/centre/right panorama needs three (MIN_STITCH_IMAGES). Below that, leave
+        // the slots untouched so the stitcher's own gates hide the panorama.
+        int minViews = planar ? 2 : STITCH_COUNT_LRC;
+        if (stitchCandidates.Count < minViews) return;
+
+        int published;
+        if (planar)
         {
-            float diff = Mathf.Abs(Mathf.DeltaAngle(frameCache[id].yaw, bodyYaw));
-            if (diff < bestDiff)
+            // Sorted by drone id rather than by yaw: under a shared heading the yaws are
+            // all nearly equal, so ordering by them is a tie broken by noise and the slot
+            // a drone lands in would change every frame. Python keys its debug palette and
+            // its per-drone corrections on the id, not the slot, but a stable order still
+            // makes the logs readable.
+            stitchCandidates.Sort();
+            published = Mathf.Min(stitchCandidates.Count, StitchSlotCount);
+            for (int j = 0; j < published; j++) WriteStitchSlot(j, stitchCandidates[j]);
+        }
+        else
+        {
+            // Centre = heading closest to the pilot's body yaw (circular distance).
+            float bodyYaw = PyUniSharingFast.BodyYawDegrees;
+            int centreId = stitchCandidates[0];
+            float bestDiff = float.MaxValue;
+            foreach (int id in stitchCandidates)
             {
-                bestDiff = diff;
-                centreId = id;
+                float diff = Mathf.Abs(Mathf.DeltaAngle(frameCache[id].yaw, bodyYaw));
+                if (diff < bestDiff)
+                {
+                    bestDiff = diff;
+                    centreId = id;
+                }
             }
+
+            // Order candidates by heading ascending and take the circular neighbours.
+            stitchCandidates.Sort((a, b) => frameCache[a].yaw.CompareTo(frameCache[b].yaw));
+            int n = stitchCandidates.Count;
+            int centrePos = stitchCandidates.IndexOf(centreId);
+            int[] selected =
+            {
+                stitchCandidates[(centrePos - 1 + n) % n],
+                centreId,
+                stitchCandidates[(centrePos + 1) % n],
+            };
+
+            published = Mathf.Min(STITCH_COUNT_LRC, StitchSlotCount);
+            for (int j = 0; j < published; j++) WriteStitchSlot(j, selected[j]);
         }
 
-        // Order candidates by heading ascending and take the circular neighbours.
-        stitchCandidates.Sort((a, b) => frameCache[a].yaw.CompareTo(frameCache[b].yaw));
-        int n = stitchCandidates.Count;
-        int centrePos = stitchCandidates.IndexOf(centreId);
-        int[] selected =
+        // Retire the slots this frame's selection did not reach. Without it a drone that
+        // drops out leaves its last frame in the mosaic forever: the flag handshake alone
+        // cannot distinguish a fresh block from a stale one, which is why droneId == -1 is
+        // the marker on both maps.
+        for (int j = published; j < StitchSlotCount; j++)
         {
-            stitchCandidates[(centrePos - 1 + n) % n],
-            centreId,
-            stitchCandidates[(centrePos + 1) % n],
-        };
-
-        for (int j = 0; j < StitchSlots; j++)
-        {
-            CachedFrame frame = frameCache[selected[j]];
             IntPtr slot = IntPtr.Add(stitchPtr, j * BlockSize);
-
-            // Skip this slot if the stitcher is mid-read (same handshake as the
-            // sim producer in PyUniSharingFast).
             if (Marshal.ReadInt32(slot, 0) != 0) continue;
-            Marshal.WriteInt32(slot, 0, 1);
-
-            Marshal.WriteInt32(slot, 4, selected[j]);
-            byte[] yawBytes = BitConverter.GetBytes(frame.yaw);
-            Marshal.Copy(yawBytes, 0, IntPtr.Add(slot, 8), 4);
-            Marshal.Copy(frame.imageBytes, 0, IntPtr.Add(slot, MetadataSize), ImageSize);
-
-            Marshal.WriteInt32(slot, 0, 0);
+            Marshal.WriteInt32(slot, 4, -1);
+            Marshal.WriteInt32(slot, PoseStatusOffset, 0);
         }
+    }
+
+    // Copies one cached frame, pose included, into stitch slot j.
+    private void WriteStitchSlot(int j, int droneId)
+    {
+        CachedFrame frame = frameCache[droneId];
+        IntPtr slot = IntPtr.Add(stitchPtr, j * BlockSize);
+
+        // Skip this slot if the stitcher is mid-read (same handshake as the sim
+        // producer in PyUniSharingFast).
+        if (Marshal.ReadInt32(slot, 0) != 0) return;
+        Marshal.WriteInt32(slot, 0, 1);
+
+        Marshal.WriteInt32(slot, 4, droneId);
+        WriteFloat(slot, 8, frame.yaw);
+
+        // Passed through unchanged from the feed block. This component never computes a
+        // pose: it has to be the pose of the frame the pixels came from, and only the
+        // producer knows which telemetry sample arrived with them.
+        WriteFloat(slot, PoseOffset + 0, frame.pos.x);
+        WriteFloat(slot, PoseOffset + 4, frame.pos.y);
+        WriteFloat(slot, PoseOffset + 8, frame.pos.z);
+        WriteFloat(slot, RotOffset + 0, frame.rot.x);
+        WriteFloat(slot, RotOffset + 4, frame.rot.y);
+        WriteFloat(slot, RotOffset + 8, frame.rot.z);
+        WriteFloat(slot, RotOffset + 12, frame.rot.w);
+        WriteFloat(slot, CaptureTimeOffset, frame.captureTime);
+        Marshal.WriteInt32(slot, PoseStatusOffset, frame.poseStatus);
+
+        Marshal.Copy(frame.imageBytes, 0, IntPtr.Add(slot, MetadataSize), ImageSize);
+
+        Marshal.WriteInt32(slot, 0, 0);
+    }
+
+    // Marshal has no WriteSingle, so floats go through their bytes. Same approach the
+    // yaw write has always used here; the 4-byte array per call is a few KB/s at the
+    // 20 Hz publish rate and is not worth an unsafe block to avoid.
+    private static void WriteFloat(IntPtr basePtr, int offset, float value)
+    {
+        byte[] bytes = BitConverter.GetBytes(value);
+        Marshal.Copy(bytes, 0, IntPtr.Add(basePtr, offset), 4);
+    }
+
+    private static readonly byte[] readScratch = new byte[4];
+
+    private static float ReadFloat(IntPtr basePtr, int offset)
+    {
+        // Reads run on the main thread only (Update), so one shared scratch buffer is
+        // safe and keeps the per-frame allocation out of the read loop.
+        Marshal.Copy(IntPtr.Add(basePtr, offset), readScratch, 0, 4);
+        return BitConverter.ToSingle(readScratch, 0);
     }
 
     // Efficiently converts RGB24 byte array to Color32 array with vertical flip
