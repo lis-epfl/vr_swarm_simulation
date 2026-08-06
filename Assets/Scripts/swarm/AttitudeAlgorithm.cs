@@ -81,7 +81,7 @@ public class AttitudeAlgorithm : MonoBehaviour
         readInputs();
 
         // Vertical-plane swarming replaces the hull-facing heading rule entirely: the whole wall
-        // points one way, along the anchor drone's heading.
+        // points one way, along the plane's shared target heading.
         SwarmPlaneController plane = SwarmPlaneController.Instance;
         bool planeMode = plane != null && plane.PlaneModeActive;
         if (planeMode != wasPlaneMode)
@@ -147,10 +147,21 @@ public class AttitudeAlgorithm : MonoBehaviour
     }
 
     /// <summary>
-    /// Attitude rule for vertical-plane swarming. The plane is perpendicular to the anchor drone's
-    /// heading, so the anchor keeps the pilot's yaw stick (turning it re-aims the whole wall) while
-    /// every other drone slaves its heading to the anchor's — the wall then faces one way, which is
-    /// what makes it readable from the pilot's seat.
+    /// Attitude rule for vertical-plane swarming: converge on the plane's shared target heading, so
+    /// the whole wall faces one way and is readable from the pilot's seat.
+    ///
+    /// Every drone runs this identical law — the plane's stick feed-forward, plus a P correction on
+    /// its <i>own</i> heading error against the same setpoint. There is deliberately no special case:
+    /// this used to hand the yaw stick straight to an anchor drone and make the rest P-track that
+    /// drone's live compass, which turned the anchor at the full stick rate while the wall trailed it
+    /// through the yaw filter, the inner rate loop and drag. Steering the setpoint instead turns every
+    /// drone at the same rate, and is what the real fleet does
+    /// (DJI_Swarm <c>joystick_controller.heading_hold_rate</c>: one shared target heading, per-drone
+    /// feed-forward + P, clamped).
+    ///
+    /// VelocityControl sums the two channels, low-passes them and clamps to maxYawRate, which supplies
+    /// the rate limit of that helper. The real fleet's yaw deadband has no counterpart here on purpose:
+    /// it exists to stop a jittering compass dithering the nose, and StateFinder's heading is exact.
     /// </summary>
     private void ApplyPlaneModeAttitude(SwarmPlaneController plane)
     {
@@ -158,15 +169,11 @@ public class AttitudeAlgorithm : MonoBehaviour
         // collapses to a line, so recompute it in the plane's own axes.
         UpdatePlaneBoundaryEstimate();
 
-        if (plane.IsAnchor(gameObject))
-        {
-            vc.desiredYawRate = inputYawRate;
-            vc.attitude_control_yaw = 0.0f;
-            return;
-        }
-
-        vc.desiredYawRate = 0.0f;
-        vc.attitude_control_yaw = YawCorrectionFactor * WrapAngle(plane.AnchorYaw - vc.State.Angles.y);
+        // The feed-forward comes from the plane, not from this drone's own inputYawRate: the stick
+        // gain then cannot differ between drones whose flight profiles differ (inputYawRate scales
+        // by the per-drone maxYawRate), and the setpoint and the feed-forward driving it stay one pair.
+        vc.desiredYawRate = plane.TargetYawRate;
+        vc.attitude_control_yaw = YawCorrectionFactor * WrapAngle(plane.TargetYaw - vc.State.Angles.y);
     }
 
     /// <summary>

@@ -62,7 +62,7 @@ public class SwarmAlgorithm : MonoBehaviour
     void FixedUpdate()
     {
         readInputs();
-        bool isAnchor = ApplyPlaneConstraint();
+        ApplyPlaneConstraint();
         Vector3 swarmAccel = Vector3.zero;
 
         switch (currentAlgorithm)
@@ -76,61 +76,49 @@ public class SwarmAlgorithm : MonoBehaviour
                 break;
         }
 
-        // The plane is anchored on one drone, and the pilot expects it to sit still while the rest
-        // of the swarm redistributes around it. Dropping its swarm acceleration pins it without
-        // freezing it: the velocity stick still moves it, so the whole wall can be flown around.
-        if (isAnchor)
-        {
-            swarmAccel = Vector3.zero;
-        }
-
         velocityControl.swarmAcceleration = swarmAccel;
     }
 
     /// <summary>
     /// Pushes the swarming plane onto the active algorithm. This has to happen every tick rather
     /// than through OnSwarmParamsChanged (which only fires on inspector edits) because the plane
-    /// normal tracks the anchor drone's live heading.
+    /// tracks the pilot-steered target heading and the swarm's own centroid.
     /// </summary>
-    /// <returns>True when this drone is the plane's anchor.</returns>
-    private bool ApplyPlaneConstraint()
+    private void ApplyPlaneConstraint()
     {
         SwarmPlaneController plane = SwarmPlaneController.Instance;
         bool planeMode = plane != null && plane.PlaneModeActive;
 
         bool is3D = !planeMode && swarmManager.GetDimensions();
         Vector3 planeNormal = planeMode ? plane.PlaneNormal : Vector3.up;
-        // Pin the plane to the anchor drone rather than to the swarm's own consensus, which would
-        // settle at the mean position along the normal and leave the anchor beside the wall.
-        float planeAnchorOffset = planeMode ? Vector3.Dot(plane.PlaneOrigin, planeNormal) : 0f;
+        // Every drone is pulled toward the same offset along the normal — the swarm centroid's — so
+        // the restoring pull is zero-sum and the wall cannot slide along its own normal. The
+        // neighbour-consensus form the horizontal mode uses would do the same job here up to a gain,
+        // but a shared target makes it explicit that no member defines where the wall sits.
+        float planeOffsetTarget = planeMode ? Vector3.Dot(plane.PlaneOrigin, planeNormal) : 0f;
 
         if (reynoldsAlgorithm != null)
         {
             reynoldsAlgorithm.Is3D = is3D;
             reynoldsAlgorithm.PlaneNormal = planeNormal;
-            reynoldsAlgorithm.HasPlaneAnchor = planeMode;
-            reynoldsAlgorithm.PlaneAnchorOffset = planeAnchorOffset;
+            reynoldsAlgorithm.HasPlaneOffsetTarget = planeMode;
+            reynoldsAlgorithm.PlaneOffsetTarget = planeOffsetTarget;
         }
         if (olfatiSaberAlgorithm != null)
         {
             olfatiSaberAlgorithm.Is3D = is3D;
             olfatiSaberAlgorithm.PlaneNormal = planeNormal;
-            olfatiSaberAlgorithm.HasPlaneAnchor = planeMode;
-            olfatiSaberAlgorithm.PlaneAnchorOffset = planeAnchorOffset;
+            olfatiSaberAlgorithm.HasPlaneOffsetTarget = planeMode;
+            olfatiSaberAlgorithm.PlaneOffsetTarget = planeOffsetTarget;
         }
 
-        bool isAnchor = planeMode && plane.IsAnchor(gameObject);
-
         // A vertical plane puts the formation's spread on the vertical axis, which the altitude-hold
-        // PD would fight, so the swarm takes the vertical channel (see
-        // VelocityControl.verticalSwarmAuthority). The anchor is the exception: its swarm
-        // acceleration is zeroed anyway, and keeping it on altitude hold gives the wall the absolute
-        // vertical reference it otherwise lacks — without one, nothing stops the whole formation
-        // drifting up or down, since a velocity loop only damps motion, it doesn't undo it.
-        velocityControl.verticalSwarmAuthority = planeMode && !isAnchor;
-        velocityControl.verticalReferenceAltitude = planeMode ? plane.AnchorAltitude : 0f;
-
-        return isAnchor;
+        // PD would fight, so the swarm takes the vertical channel from every drone without exception
+        // (see VelocityControl.verticalSwarmAuthority). The absolute vertical reference that channel
+        // needs comes from SwarmPlaneController.ReferenceAltitude — latched from the centroid on entry
+        // and moved by the climb stick — rather than from one drone left behind on altitude hold.
+        velocityControl.verticalSwarmAuthority = planeMode;
+        velocityControl.verticalReferenceAltitude = planeMode ? plane.ReferenceAltitude : 0f;
     }
 
     // Cleanup when the script is destroyed

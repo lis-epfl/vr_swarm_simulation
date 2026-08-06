@@ -1124,8 +1124,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     // The "Drone N" root of the drone at the centre of the stitch selection (camera yaw closest to
     // the body yaw), i.e. the drone the pilot is looking through. Refreshed every frame whether or
-    // not stitching is running, so systems that need "whatever the pilot is facing" can anchor on it
-    // — SwarmPlaneController orients the vertical swarming plane from this drone's heading.
+    // not stitching is running, so systems that need "whatever the pilot is facing" can anchor on it.
     public static Transform CentreStitchDrone { get; private set; }
 
     private GameObject arena;
@@ -1274,9 +1273,9 @@ public class PyUniSharingFast : MonoBehaviour
         UpdateBodyYaw();
         WriteBodyYaw(bodyYaw);
 
-        // Resolve the centre drone. Both branches publish CentreStitchDrone (which
-        // SwarmPlaneController anchors on) and centreStitchCameraIndex (which the scene-plane
-        // raycast and the intrinsics are taken from), and both return the centre camera's yaw,
+        // Resolve the centre drone. Both branches publish CentreStitchDrone and
+        // centreStitchCameraIndex (which the scene-plane raycast and the intrinsics are taken
+        // from), and both return the centre camera's yaw,
         // which drives the curved-screen orientation so the screen snaps to the new view only
         // when the selection changes.
         //
@@ -1852,10 +1851,10 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
-        // Vertical-plane swarming also spins the drones with the yaw stick (the anchor takes
-        // it directly, the rest of the wall slaves to the anchor), so it needs the same
-        // treatment as the non-hull modes below — regardless of which attitude algorithm is
-        // selected, since plane mode replaces the heading rule entirely.
+        // Vertical-plane swarming also spins the drones with the yaw stick (it steers the plane's
+        // shared target heading, which every drone converges on), so it needs the same treatment
+        // as the non-hull modes below — regardless of which attitude algorithm is selected, since
+        // plane mode replaces the heading rule entirely.
         SwarmPlaneController plane = SwarmPlaneController.Instance;
         if (plane != null && plane.PlaneModeActive)
         {
@@ -1894,25 +1893,24 @@ public class PyUniSharingFast : MonoBehaviour
     // Lock the body heading (and the rig) onto the swarming plane's own heading while
     // vertical-plane mode is on.
     //
-    // In that mode the yaw stick has two effects at once: AttitudeAlgorithm.ApplyPlaneModeAttitude
-    // feeds it to the anchor drone as a yaw-rate command (and every other drone slaves its heading
-    // to the anchor), while the hull path below would *also* integrate the same stick into bodyYaw.
-    // Those two integrations don't agree — different gains (bodyYawRate deg/s vs
-    // VelocityControl.maxYawRate rad/s), and the drones additionally lag through the yaw filter,
-    // the inner rate loop, drag, and SwarmPlaneController's own low-pass — so the view drifts off
-    // the wall as soon as the stick moves. In the radially-outward configuration that drift is
-    // invisible (the panorama re-snaps to whichever camera is now closest to bodyYaw), but here
-    // every drone shares one heading: bodyYaw is what aims the VR velocity frame at the wall, and
-    // the wall's own heading is the only value that can't be wrong.
+    // In that mode the yaw stick has two effects at once: SwarmPlaneController integrates it into
+    // the plane's shared target heading (which every drone then converges on), while the hull path
+    // below would *also* integrate the same stick into bodyYaw. Those two integrations don't agree —
+    // different gains (bodyYawRate deg/s vs the plane's targetYawRateDegPerSec), and the drones
+    // additionally lag their setpoint through the yaw filter, the inner rate loop and drag — so the
+    // view drifts off the wall as soon as the stick moves. In the radially-outward configuration
+    // that drift is invisible (the panorama re-snaps to whichever camera is now closest to bodyYaw),
+    // but here every drone shares one heading: bodyYaw is what aims the VR velocity frame at the
+    // wall, and the wall's own heading is the only value that can't be wrong.
     //
     // The lock is absolute rather than incremental, so any offset already present when plane mode
     // was entered is corrected on the first frame instead of being carried forever. Following
-    // AnchorYaw (the low-passed plane heading) and not the anchor drone's instantaneous heading is
-    // deliberate: it is the heading the rest of the wall is being driven to, so it is what the
-    // panorama actually shows.
+    // TargetYaw and not the drones' measured mean heading is deliberate: it is the heading the wall
+    // is being driven to, and it leads the wall by at most the plane's anti-windup clamp, so the
+    // panorama arrives where the imagery is about to be rather than trailing it.
     private void UpdateBodyYawFromPlane(SwarmPlaneController plane)
     {
-        float planeYaw = plane.AnchorYaw * Mathf.Rad2Deg;
+        float planeYaw = plane.TargetYaw * Mathf.Rad2Deg;
         float deltaYaw = Mathf.DeltaAngle(bodyYaw, planeYaw);
         if (deltaYaw == 0f) return;
 
@@ -2111,8 +2109,7 @@ public class PyUniSharingFast : MonoBehaviour
         int centreCam = candidates[ClosestInList(candidates, bodyYaw)];
 
         // Publish the centre drone (the FPV camera's parent is the "Drone N" root, see DroneName)
-        // so other systems can anchor on whatever the pilot is looking at — SwarmPlaneController
-        // uses it to orient the vertical swarming plane.
+        // so other systems can anchor on whatever the pilot is looking at.
         CentreStitchDrone = camerasToCapture[centreCam].transform.parent;
         // Also kept as a camera index, for the scene-plane raycast and intrinsics.
         centreStitchCameraIndex = centreCam;
@@ -2143,7 +2140,7 @@ public class PyUniSharingFast : MonoBehaviour
     ///
     /// Deliberately not <see cref="SelectStitchCameras"/>'s "camera yaw closest to the body
     /// yaw" rule. In vertical-plane mode <c>AttitudeAlgorithm.ApplyPlaneModeAttitude</c> drives
-    /// every drone to the anchor's heading, so yaw proximity becomes a near-tie broken by
+    /// every drone to one shared target heading, so yaw proximity becomes a near-tie broken by
     /// residual jitter and the centre drone changes almost every frame. That is not cosmetic:
     /// the scene-plane raycast is cast from this camera, so each swap steps the published plane
     /// offset, and <c>PlanarStitcher</c> builds the canvas frame and origin from the centre of

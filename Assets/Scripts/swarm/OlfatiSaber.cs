@@ -10,15 +10,15 @@ public class OlfatiSaber : MonoBehaviour
 
     // Unit normal of the plane the swarm is constrained to when !Is3D. Vector3.up gives the
     // horizontal (altitude-holding) formation this started as; SwarmPlaneController swings it onto
-    // the anchor drone's heading for a vertical wall. Pushed every tick by SwarmAlgorithm.
+    // the pilot-steered target heading for a vertical wall. Pushed every tick by SwarmAlgorithm.
     public Vector3 PlaneNormal = Vector3.up;
 
-    // When set, drones are pulled onto the *fixed* plane at PlaneAnchorOffset along the normal
-    // rather than onto the consensus of their neighbours. The consensus form drifts to the swarm's
-    // mean, which is not where the anchor drone is — and the anchor never joins the consensus
-    // because its swarm acceleration is pinned to zero, so the wall would form beside it.
-    public bool HasPlaneAnchor = false;
-    public float PlaneAnchorOffset = 0.0f;
+    // When set, drones are pulled onto the plane at PlaneOffsetTarget along the normal — one value
+    // shared by the whole swarm — rather than each toward the consensus of its own neighbours.
+    // SwarmPlaneController supplies the swarm centroid's offset, so the two agree on where the plane
+    // is; the shared form just states it once instead of leaving it implicit in n local averages.
+    public bool HasPlaneOffsetTarget = false;
+    public float PlaneOffsetTarget = 0.0f;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
     public float delta = 0.1f;
@@ -119,15 +119,15 @@ public class OlfatiSaber : MonoBehaviour
             cohesion += GetCohesionForce(distance, d_ref, r0_coh) * relativePosition.normalized;
         }
 
-        // In constrained mode, correct drift off the plane. The target offset along the normal is
-        // the anchor's when the plane is pinned to one (vertical mode), otherwise the mean of the
+        // In constrained mode, correct drift off the plane. The target offset along the normal is the
+        // swarm-wide one when a plane is being held (vertical mode), otherwise the mean of the
         // neighbours — which with PlaneNormal == Vector3.up is exactly the altitude-hold term this
         // grew out of.
         Vector3 planeCorrection = Vector3.zero;
-        if (!Is3D && (HasPlaneAnchor || aliveNeighbourCount > 0))
+        if (!Is3D && (HasPlaneOffsetTarget || aliveNeighbourCount > 0))
         {
-            float targetOffset = HasPlaneAnchor
-                ? PlaneAnchorOffset
+            float targetOffset = HasPlaneOffsetTarget
+                ? PlaneOffsetTarget
                 : totalNeighbourPlaneOffset / aliveNeighbourCount;
             planeCorrection = c_plane * (targetOffset - Vector3.Dot(position, PlaneNormal)) * PlaneNormal;
         }

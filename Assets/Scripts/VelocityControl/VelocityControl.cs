@@ -51,7 +51,8 @@ public class VelocityControl : MonoBehaviour
     // acceleration drives the drone instead of being fought by the height setpoint. Set every tick
     // by SwarmAlgorithm; true only while swarming in a non-horizontal plane.
     [HideInInspector] public bool verticalSwarmAuthority = false;
-    // Altitude the vertical leash is measured against — the plane's anchor drone. Set by SwarmAlgorithm.
+    // Altitude the vertical leash is measured against — SwarmPlaneController.ReferenceAltitude, the
+    // wall's own reference rather than any drone's. Set by SwarmAlgorithm.
     [HideInInspector] public float verticalReferenceAltitude = 0f;
     // Last-frame horizontal (XZ) acceleration magnitudes — read by FlightHUD
     [HideInInspector] public float lastUserAccelMag  = 0f;
@@ -75,9 +76,9 @@ public class VelocityControl : MonoBehaviour
              "the wall forms faster vertically. The resulting rate is clamped to maxAltitudeRate.")]
     public float swarmVerticalSetpointGain = 0.5f;
 
-    [Tooltip("Metres. Hard limit on how far above or below the anchor drone the height setpoint may " +
-             "be driven while swarming in a tilted plane — i.e. the wall's half-height. This is the " +
-             "absolute bound on vertical drift, so keep it near the formation size you expect.")]
+    [Tooltip("Metres. Hard limit on how far above or below the wall's reference altitude the height " +
+             "setpoint may be driven while swarming in a tilted plane — i.e. the wall's half-height. " +
+             "This is the absolute bound on vertical drift, so keep it near the formation size you expect.")]
     public float swarmVerticalLeash = 30.0f;
 
     private float previousHeightError = 0.0f;
@@ -194,7 +195,7 @@ public class VelocityControl : MonoBehaviour
 
         if (verticalSwarmAuthority)
         {
-            // The wall has a finite vertical extent, so leash the setpoint to the anchor drone's
+            // The wall has a finite vertical extent, so leash the setpoint to the wall's reference
             // altitude. This is the absolute bound on drift, whatever its source.
             desired_height = Mathf.Clamp(desired_height,
                                          verticalReferenceAltitude - swarmVerticalLeash,

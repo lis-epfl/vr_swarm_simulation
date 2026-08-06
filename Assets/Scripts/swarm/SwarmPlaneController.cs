@@ -4,18 +4,30 @@ using UnityEngine;
 /// <summary>
 /// Owns the swarming plane. Normally the swarm is constrained to the horizontal plane
 /// (SwarmManager.is3D == false, plane normal = world up). This controller adds a toggleable
-/// <b>vertical</b> mode: the swarm re-forms into a wall perpendicular to the heading of the drone
-/// at the centre of stitching, so the pilot ends up looking at a billboard of drones rather than
-/// standing inside a ring of them.
+/// <b>vertical</b> mode: the swarm re-forms into a wall perpendicular to a heading the pilot steers
+/// with the yaw stick, so the pilot ends up looking at a billboard of drones rather than standing
+/// inside a ring of them.
 ///
 /// Nothing is teleported. The mode change only swaps the plane the swarm algorithm is constrained
 /// to (OlfatiSaber / Reynolds project relative positions onto it and add a restoring term along its
 /// normal), so the drones fly into the wall under the same algorithm that holds the horizontal
 /// formation together.
 ///
-/// The anchor drone's identity is captured once on entry — once every drone shares a heading, the
-/// "camera yaw closest to the body yaw" rule that picks the stitch centre has no unique answer. Its
-/// <i>heading</i>, however, is tracked live, so yawing the anchor re-aims the whole wall.
+/// <para><b>No drone is privileged.</b> The plane's heading is a setpoint <i>this component</i> owns
+/// — seeded from the swarm's mean heading on entry, then advanced only by the yaw stick — and every
+/// drone converges on it through the same feed-forward + P law
+/// (<see cref="AttitudeAlgorithm.ApplyPlaneModeAttitude"/>). Its position along the normal is the
+/// swarm centroid and its reference altitude is latched from that centroid, so neither is any one
+/// member's. This mirrors the real fleet, where a single PC-owned <c>target_yaw</c> is held by every
+/// aircraft (DJI_Swarm <c>joystick_controller.heading_hold_rate</c>) and the wall is pinned to the
+/// centroid (<c>swarm_plane.py</c>).</para>
+///
+/// <para>The earlier design nominated one <i>anchor</i> drone: it took the yaw stick directly while
+/// the rest P-tracked its compass, its swarm force was zeroed, and it supplied both the plane offset
+/// and the vertical reference. That drone turned at the full stick rate while the wall lagged behind
+/// it through the yaw filter, the inner rate loop and drag — one important drone and n-1 followers.
+/// Steering the setpoint instead costs nothing the anchor gave: the stick still re-aims the whole
+/// wall, and now it re-aims all of it at once.</para>
 /// </summary>
 [DefaultExecutionOrder(-100)] // must publish the plane before any drone's FixedUpdate reads it
 public class SwarmPlaneController : MonoBehaviour
@@ -27,11 +39,18 @@ public class SwarmPlaneController : MonoBehaviour
              "controller switch can drive the same thing.")]
     public KeyCode togglePlaneKey = KeyCode.V;
 
-    [Header("Plane")]
-    [Tooltip("Time constant (s) of the low-pass on the plane heading. The plane follows the anchor " +
-             "drone's live heading; smoothing keeps the whole formation from chasing its jitter. " +
-             "0 = no smoothing.")]
-    public float planeNormalFilterTime = 0.5f;
+    [Header("Heading")]
+    [Tooltip("Yaw-stick gain: deg/s the shared target heading advances at full stick. Matches the " +
+             "real fleet's YAW_RATE_DEG_S. This is a feed-forward on every drone's yaw command, so " +
+             "the rate actually achieved is still bounded by each drone's VelocityControl.maxYawRate " +
+             "— deliberately, see maxTargetLeadDeg.")]
+    public float targetYawRateDegPerSec = 60.0f;
+
+    [Tooltip("Anti-windup: while the stick is deflected the target heading may lead the swarm's mean " +
+             "heading by at most this many degrees. The stick gain exceeds what the drones can turn " +
+             "at, so without the clamp a sustained turn banks up a heading debt they keep paying off " +
+             "after the stick is centred — overshoot, then a wag. 0 = no clamp.")]
+    public float maxTargetLeadDeg = 25.0f;
 
     [Header("Display")]
     [Tooltip("Switch the stitcher and the screen layout with the swarming plane: vertical gets " +
@@ -42,19 +61,37 @@ public class SwarmPlaneController : MonoBehaviour
 
     [Header("Status (read-only)")]
     [SerializeField] private bool planeModeActive = false;
-    [SerializeField] private string anchorDroneName = "";
+    [SerializeField] private float targetHeadingDeg = 0.0f;
+    [SerializeField] private int swarmDroneCount = 0;
 
-    // World-space unit normal of the swarming plane. Vector3.up in horizontal mode, the anchor
-    // drone's (flattened) heading in vertical mode.
+    // World-space unit normal of the swarming plane. Vector3.up in horizontal mode, the target
+    // heading in vertical mode.
     private Vector3 planeNormal = Vector3.up;
 
-    // Heading the plane normal points along, in the same [-pi, pi] yaw space as StateFinder.Angles.y.
-    // Low-passed towards the anchor's live yaw each tick.
+    // The shared target heading, in the same [-pi, pi] yaw space as StateFinder.Angles.y. A
+    // commanded setpoint, not a measurement: nothing reads a compass into it.
     private float planeYaw = 0.0f;
 
-    private Transform anchorParent;          // the anchor's "DroneParent" (carries VelocityControl)
-    private GameObject anchorRoot;           // the anchor's "Drone N" root
-    private VelocityControl anchorControl;
+    // Feed-forward that goes with planeYaw (rad/s) — the yaw stick, published so every drone gets
+    // the identical value.
+    private float targetYawRate = 0.0f;
+
+    // Wall reference altitude (the vertical leash centre) and the climb-stick rate it moves at.
+    private float referenceAltitude = 0.0f;
+    private float referenceAltitudeRate = 3.0f;
+
+    // Per-tick swarm aggregates, recomputed in FixedUpdate ahead of every drone's.
+    private Vector3 swarmCentroid = Vector3.zero;
+    private float swarmMeanYaw = 0.0f;
+
+    // Swarm roster. swarmSpawn owns the live list that every drone's SwarmAlgorithm and
+    // AttitudeAlgorithm already share, so holding that reference tracks joins and losses for free.
+    // Scenes with hand-placed drones fall back to a tag search, rate-limited because
+    // FindGameObjectsWithTag is far too slow for a per-tick call.
+    private List<GameObject> roster;
+    private bool rosterIsShared = false;
+    private float lastRosterScan = float.NegativeInfinity;
+    private const float RosterRescanInterval = 1.0f;
 
     // Display components driven by the mode change; see ApplyDisplayConfiguration.
     private PyUniSharingFast sharing;
@@ -65,17 +102,37 @@ public class SwarmPlaneController : MonoBehaviour
     /// <summary>World-space unit normal of the plane the swarm is constrained to.</summary>
     public Vector3 PlaneNormal => planeNormal;
 
-    /// <summary>Point the plane passes through (the anchor drone's position).</summary>
-    public Vector3 PlaneOrigin => anchorParent != null ? anchorParent.position : Vector3.zero;
+    /// <summary>
+    /// Point the plane passes through: the swarm's centroid. Every drone is pulled onto the plane
+    /// through this one offset along the normal, which makes the pull zero-sum — so the wall cannot
+    /// drift along its own normal under its own restoring term. That is the property a pinned anchor
+    /// drone provided, without making one drone the thing the wall is built around.
+    /// </summary>
+    public Vector3 PlaneOrigin => swarmCentroid;
 
     /// <summary>
-    /// Anchor drone's altitude. The rest of the swarm leashes its height setpoint to this, which is
-    /// what bounds the wall's vertical extent and stops the formation drifting off as a whole.
+    /// Altitude the wall's vertical leash is measured against
+    /// (<see cref="VelocityControl.verticalReferenceAltitude"/>). Latched from the swarm's centroid
+    /// altitude on entry and then moved only by the climb stick — never re-read from the drones.
+    /// A live centroid would leave the formation's mean altitude a free mode: the leash would bound
+    /// each drone's spread about the mean while the mean itself drifted on whatever net vertical bias
+    /// the swarm forces carry (cohesion and the plane pull are zero-sum, ground repulsion is not).
+    /// Same construction, and the same reason, as <c>swarm_plane.py</c>'s <c>alt_ref</c>.
     /// </summary>
-    public float AnchorAltitude => anchorParent != null ? anchorParent.position.y : 0f;
+    public float ReferenceAltitude => referenceAltitude;
 
-    /// <summary>Anchor heading in radians, in StateFinder.Angles.y's [-pi, pi] yaw space.</summary>
-    public float AnchorYaw => planeYaw;
+    /// <summary>
+    /// The shared target heading in radians, in StateFinder.Angles.y's [-pi, pi] yaw space. Every
+    /// drone in the wall converges on this one value; it is not any drone's measured heading.
+    /// </summary>
+    public float TargetYaw => planeYaw;
+
+    /// <summary>
+    /// Feed-forward yaw rate (rad/s) belonging to <see cref="TargetYaw"/> — the yaw stick, handed to
+    /// every drone verbatim so the whole wall starts turning on the same tick rather than waiting for
+    /// each drone's P term to notice the setpoint moved.
+    /// </summary>
+    public float TargetYawRate => targetYawRate;
 
     /// <summary>
     /// In-plane basis: <paramref name="right"/> is the horizontal axis of the plane, <paramref name="up"/>
@@ -93,12 +150,6 @@ public class SwarmPlaneController : MonoBehaviour
         }
         right.Normalize();
         up = Vector3.Cross(planeNormal, right).normalized;
-    }
-
-    /// <summary>True when <paramref name="droneParent"/> is the anchor drone's DroneParent object.</summary>
-    public bool IsAnchor(GameObject droneParent)
-    {
-        return planeModeActive && anchorParent != null && anchorParent.gameObject == droneParent;
     }
 
     void Awake()
@@ -130,35 +181,26 @@ public class SwarmPlaneController : MonoBehaviour
     {
         if (!planeModeActive) return;
 
-        // The anchor can be destroyed or crash mid-mode; try to pick a new one rather than
-        // leaving the plane frozen around a corpse.
-        if (!IsAnchorUsable() && !ResolveAnchor())
+        // Losing the whole swarm is the only way the plane can be lost now: no single drone holds it
+        // up, so no single drone's death can take it down.
+        if (!UpdateSwarmAggregates())
         {
-            Debug.LogWarning("SwarmPlaneController: lost the anchor drone, reverting to horizontal swarming.");
+            Debug.LogWarning("SwarmPlaneController: no alive drones left, reverting to horizontal swarming.");
             SetPlaneMode(false);
             return;
         }
 
-        // Frame-rate-independent circular low-pass, matching AttitudeAlgorithm's target-heading filter.
-        float rawYaw = anchorControl.State.Angles.y;
-        if (planeNormalFilterTime > 0.0f)
-        {
-            float alpha = 1.0f - Mathf.Exp(-Time.fixedDeltaTime / planeNormalFilterTime);
-            planeYaw = WrapAngle(planeYaw + alpha * WrapAngle(rawYaw - planeYaw));
-        }
-        else
-        {
-            planeYaw = rawYaw;
-        }
-
+        IntegrateTargetYaw();
         planeNormal = YawToForward(planeYaw);
+        IntegrateReferenceAltitude();
     }
 
     public void TogglePlaneMode() => SetPlaneMode(!planeModeActive);
 
     /// <summary>
-    /// Enters or leaves vertical-plane swarming. Entering resolves the anchor drone and seeds the
-    /// plane from its current heading (unfiltered, so the plane starts exactly perpendicular to it).
+    /// Enters or leaves vertical-plane swarming. Entering seeds the target heading from where the
+    /// swarm already points and latches the wall's reference altitude, so the flip itself commands
+    /// neither a turn nor a climb.
     /// </summary>
     public void SetPlaneMode(bool active)
     {
@@ -166,29 +208,170 @@ public class SwarmPlaneController : MonoBehaviour
 
         if (active)
         {
-            if (!ResolveAnchor())
+            if (!UpdateSwarmAggregates())
             {
-                Debug.LogWarning("SwarmPlaneController: no anchor drone found, staying in horizontal swarming.");
+                Debug.LogWarning("SwarmPlaneController: no alive drones found, staying in horizontal swarming.");
                 return;
             }
 
             planeModeActive = true;
-            planeYaw = anchorControl.State.Angles.y;
+            // Seed from the swarm's *mean* heading, not from a member's: that is the one heading the
+            // choice of which drone to read cannot bias, and it is already where the formation points,
+            // so entering the mode asks nobody to turn.
+            planeYaw = swarmMeanYaw;
+            targetYawRate = 0.0f;
             planeNormal = YawToForward(planeYaw);
-            Debug.Log($"SwarmPlaneController: vertical-plane swarming ON, anchored on {anchorDroneName}.");
+            referenceAltitude = swarmCentroid.y;
+            referenceAltitudeRate = ResolveAltitudeRate();
+            targetHeadingDeg = planeYaw * Mathf.Rad2Deg;
+            Debug.Log($"SwarmPlaneController: vertical-plane swarming ON, {swarmDroneCount} drones, "
+                    + $"target heading {targetHeadingDeg:F1} deg, reference altitude "
+                    + $"{referenceAltitude:F1} m.");
         }
         else
         {
             planeModeActive = false;
             planeNormal = Vector3.up;
-            anchorParent = null;
-            anchorRoot = null;
-            anchorControl = null;
-            anchorDroneName = "";
+            targetYawRate = 0.0f;
             Debug.Log("SwarmPlaneController: vertical-plane swarming OFF.");
         }
 
         ApplyDisplayConfiguration(planeModeActive);
+    }
+
+    /// <summary>
+    /// Advances the shared target heading by the yaw stick, with anti-windup against the swarm's own
+    /// mean heading.
+    ///
+    /// The stick is a feed-forward, so the target says where the wall is being asked to point, not
+    /// where it is. Clamping the lead is what keeps a sustained turn from banking up a heading debt
+    /// the drones then keep paying off after the stick is centred: the stick gain exceeds what
+    /// VelocityControl.maxYawRate lets them turn at, exactly as on the real fleet, and the clamp
+    /// rather than the gain is what holds the formation's headings together through a turn.
+    ///
+    /// The clamp acts only while the stick is deflected. Windup can only accumulate while
+    /// integrating, and at centre stick the hold keeps its full authority — a disturbance that pushes
+    /// the wall off heading never drags the setpoint along with it.
+    /// </summary>
+    private void IntegrateTargetYaw()
+    {
+        float normYaw = InputManager.Instance != null ? InputManager.Instance.InputStatus["yaw"] : 0.0f;
+        targetYawRate = normYaw * targetYawRateDegPerSec * Mathf.Deg2Rad;
+
+        planeYaw = WrapAngle(planeYaw + targetYawRate * Time.fixedDeltaTime);
+
+        if (targetYawRate != 0.0f && maxTargetLeadDeg > 0.0f)
+        {
+            float maxLead = maxTargetLeadDeg * Mathf.Deg2Rad;
+            float lead = WrapAngle(planeYaw - swarmMeanYaw);
+            if (lead > maxLead)
+            {
+                planeYaw = WrapAngle(swarmMeanYaw + maxLead);
+            }
+            else if (lead < -maxLead)
+            {
+                planeYaw = WrapAngle(swarmMeanYaw - maxLead);
+            }
+        }
+
+        targetHeadingDeg = planeYaw * Mathf.Rad2Deg;
+    }
+
+    /// <summary>
+    /// Moves the wall's reference altitude with the climb stick, at the rate that stick moves each
+    /// drone's own height setpoint (VelocityControl.SetNormalisedAltitudeRate). The rate is read off
+    /// a drone rather than exposed as a second knob: one that disagreed would let the vertical leash
+    /// clip a climb the pilot is actually commanding.
+    /// </summary>
+    private void IntegrateReferenceAltitude()
+    {
+        if (InputManager.Instance == null) return;
+
+        float normAlt = Mathf.Clamp(InputManager.Instance.InputStatus["throttle"], -1.0f, 1.0f);
+        if (normAlt == 0.0f) return;
+
+        referenceAltitude += normAlt * referenceAltitudeRate * Time.fixedDeltaTime;
+    }
+
+    /// <summary>
+    /// Recomputes the swarm-wide quantities the plane is built from — the centroid, and the circular
+    /// mean of the alive drones' headings — once per tick, ahead of every drone's FixedUpdate (hence
+    /// the execution order). Returns false when no alive drone is left to build a wall from.
+    /// </summary>
+    private bool UpdateSwarmAggregates()
+    {
+        EnsureRoster();
+        if (roster == null) return false;
+
+        Vector3 positionSum = Vector3.zero;
+        float sumSin = 0.0f;
+        float sumCos = 0.0f;
+        int count = 0;
+
+        foreach (GameObject drone in roster)
+        {
+            if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
+
+            VelocityControl droneControl = entry.velocityControl;
+            if (droneControl == null || droneControl.State == null || !droneControl.State.IsAlive) continue;
+
+            positionSum += entry.droneParent.position;
+
+            // Circular mean via sin/cos components: averaging the angles directly crosses the +-pi
+            // seam and returns a heading no drone holds (the mean of +179 and -179 is 180, not 0).
+            float yaw = droneControl.State.Angles.y;
+            sumSin += Mathf.Sin(yaw);
+            sumCos += Mathf.Cos(yaw);
+            count++;
+        }
+
+        swarmDroneCount = count;
+        if (count == 0) return false;
+
+        swarmCentroid = positionSum / count;
+        swarmMeanYaw = Mathf.Atan2(sumSin, sumCos);
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the swarm roster. swarmSpawn's list is live — it is the same object every drone's
+    /// SwarmAlgorithm holds — so once found it never needs refreshing. Without a spawner (hand-placed
+    /// drones, or a scene that builds its own swarm) fall back to the tag search, rate-limited.
+    /// </summary>
+    private void EnsureRoster()
+    {
+        if (rosterIsShared) return;
+        if (roster != null && Time.time - lastRosterScan < RosterRescanInterval) return;
+        lastRosterScan = Time.time;
+
+        swarmSpawn spawner = FindObjectOfType<swarmSpawn>();
+        if (spawner != null && spawner.swarm != null && spawner.swarm.Count > 0)
+        {
+            roster = spawner.swarm;
+            rosterIsShared = true;
+            return;
+        }
+
+        GameObject[] tagged = GameObject.FindGameObjectsWithTag("DroneBase");
+        roster = tagged.Length > 0 ? new List<GameObject>(tagged) : null;
+    }
+
+    /// <summary>
+    /// The climb-stick rate the drones themselves use. Every drone runs the same flight profile in
+    /// practice, so the first one that has a VelocityControl answers for the swarm; the fallback is
+    /// VelocityControl's own default.
+    /// </summary>
+    private float ResolveAltitudeRate()
+    {
+        if (roster != null)
+        {
+            foreach (GameObject drone in roster)
+            {
+                if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
+                if (entry.velocityControl != null) return entry.velocityControl.maxAltitudeRate;
+            }
+        }
+        return 3.0f;
     }
 
     /// <summary>
@@ -200,7 +383,7 @@ public class SwarmPlaneController : MonoBehaviour
     /// homographies are exact and need no image content, while the horizontal ring is exactly
     /// the parallax-heavy case StabStitch++'s TPS warps exist for;</item>
     /// <item>OUTER_CIRCLE places each screen at its own drone's yaw, which works only because
-    /// the ring spreads those yaws — in plane mode every drone shares the anchor's heading and
+    /// the ring spreads those yaws — in plane mode every drone shares the target heading and
     /// the screens stack on one arc position, which is what FORMATION_WALL is for.</item>
     /// </list>
     ///
@@ -231,69 +414,6 @@ public class SwarmPlaneController : MonoBehaviour
                 ? ScreenSpawn.ScreenStyle.FORMATION_WALL
                 : ScreenSpawn.ScreenStyle.OUTER_CIRCLE);
         }
-    }
-
-    /// <summary>
-    /// Picks the anchor: the drone at the centre of stitching. PyUniSharingFast publishes that
-    /// selection every frame whether or not stitching is actually running; if the component is
-    /// absent entirely, fall back to the alive drone whose heading is closest to the pilot body yaw
-    /// (which is the same rule PyUniSharingFast applies to the FPV cameras).
-    /// </summary>
-    private bool ResolveAnchor()
-    {
-        Transform centre = PyUniSharingFast.CentreStitchDrone;
-        if (centre == null || !AdoptAnchor(centre.gameObject))
-        {
-            if (!AdoptAnchor(FindDroneClosestToBodyYaw())) return false;
-        }
-        return true;
-    }
-
-    // Accepts a "Drone N" root and caches its DroneParent components.
-    private bool AdoptAnchor(GameObject droneRoot)
-    {
-        if (droneRoot == null) return false;
-        if (!SwarmRegistry.TryGet(droneRoot, out SwarmRegistry.Entry entry)) return false;
-        if (entry.velocityControl == null || entry.velocityControl.State == null) return false;
-        if (!entry.velocityControl.State.IsAlive) return false;
-
-        anchorRoot = droneRoot;
-        anchorParent = entry.droneParent;
-        anchorControl = entry.velocityControl;
-        anchorDroneName = droneRoot.name;
-        return true;
-    }
-
-    private bool IsAnchorUsable()
-    {
-        return anchorParent != null
-            && anchorControl != null
-            && anchorControl.State != null
-            && anchorControl.State.IsAlive;
-    }
-
-    private GameObject FindDroneClosestToBodyYaw()
-    {
-        float bodyYaw = PyUniSharingFast.BodyYawDegrees;
-        GameObject best = null;
-        float bestDiff = float.MaxValue;
-
-        foreach (GameObject drone in GameObject.FindGameObjectsWithTag("DroneBase"))
-        {
-            if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
-            if (entry.velocityControl == null || entry.velocityControl.State == null) continue;
-            if (!entry.velocityControl.State.IsAlive) continue;
-
-            float yawDeg = entry.velocityControl.State.Angles.y * Mathf.Rad2Deg;
-            float diff = Mathf.Abs(Mathf.DeltaAngle(yawDeg, bodyYaw));
-            if (diff < bestDiff)
-            {
-                bestDiff = diff;
-                best = drone;
-            }
-        }
-
-        return best;
     }
 
     // Matches StateFinder's yaw convention: forward == (sin yaw, 0, cos yaw).

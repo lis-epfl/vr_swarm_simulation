@@ -13,6 +13,7 @@ yaw is separate via AttitudeAlgorithm.
 - [SwarmAlgorithm.cs](Assets/Scripts/swarm/SwarmAlgorithm.cs) — per-drone dispatcher; writes a world-frame accel to `VelocityControl.swarmAcceleration` each `FixedUpdate`.
 - [OlfatiSaber.cs](Assets/Scripts/swarm/OlfatiSaber.cs) — main flocking law (consensus + cohesion + obstacle avoidance). `Reynolds` is the simpler alternative.
 - [AttitudeAlgorithm.cs](Assets/Scripts/swarm/AttitudeAlgorithm.cs) — per-drone yaw/heading; sets `BoundaryEstimate` (convex-hull edge flag).
+- [SwarmPlaneController.cs](Assets/Scripts/swarm/SwarmPlaneController.cs) — owns the swarming plane and the `V` toggle into vertical-wall mode; publishes the pilot-steered shared target heading, the centroid plane offset and the wall's reference altitude (no leader drone), and switches the stitcher + screen layout with the plane.
 - [VelocityControl.cs](Assets/Scripts/VelocityControl/VelocityControl.cs) — low-level controller (tilt/yaw/height loops, circular clamps); reads limits from a `FlightProfile`.
 - [SwarmSpawn.cs](Assets/Scripts/swarm/SwarmSpawn.cs) — spawns the drone grid, wires the `swarm` list into each drone, plus reset/reposition/health helpers.
 

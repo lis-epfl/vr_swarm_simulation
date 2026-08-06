@@ -109,16 +109,42 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   `SelectPlanarCentreCamera` takes the alive drone nearest the swarm centroid *measured in the swarming
   plane* (`SwarmPlaneController.GetPlaneAxes`), with metre-valued hysteresis. It is **not**
   `SelectStitchCameras`'s "camera yaw closest to body yaw" rule, which is only meaningful for the
-  radially-outward ring: in vertical-plane mode `AttitudeAlgorithm` drives every drone to the anchor's
-  heading, so yaw proximity is a tie broken by jitter and the centre changes almost every frame. That
-  matters because the scene-plane raycast originates at this camera and `PlanarStitcher` frames the
+  radially-outward ring: in vertical-plane mode `AttitudeAlgorithm` drives every drone to one shared
+  target heading, so yaw proximity is a tie broken by jitter and the centre changes almost every frame.
+  That matters because the scene-plane raycast originates at this camera and `PlanarStitcher` frames the
   canvas on it — a flickering centre both steps the published plane offset and slides the mosaic.
+- **Vertical-plane mode has no leader drone, and adding one back is a regression.** The plane's heading
+  is a setpoint `SwarmPlaneController` owns (`TargetYaw`, seeded from the swarm's circular-mean heading
+  on entry, then advanced only by the yaw stick), its offset along the normal is the swarm centroid
+  (`PlaneOrigin`), and the vertical leash centre is latched from that centroid and moved by the climb
+  stick (`ReferenceAltitude`). Every drone then converges on the heading through the *same* law —
+  `plane.TargetYawRate` as feed-forward plus `YawCorrectionFactor ×` its own error, summed and clamped
+  to `maxYawRate` in `VelocityControl`. This is the real fleet's scheme
+  (`DJI_Swarm joystick_controller.heading_hold_rate` + `swarm_plane.py`), and it is deliberate: the
+  earlier design nominated an *anchor* drone that took the stick directly, had its swarm force zeroed,
+  and supplied both the plane offset and the vertical reference, while the rest P-tracked its live
+  compass. That drone turned at the full stick rate and the wall trailed it through the yaw filter, the
+  inner rate loop and drag — one important drone and n−1 followers. Two consequences worth keeping:
+  - **`maxTargetLeadDeg` (25°), not the stick gain, is what holds the headings together through a
+    turn.** `targetYawRateDegPerSec` (60) deliberately exceeds `maxYawRate` (≈57 °/s), exactly as the
+    fleet's ff 60 exceeds its 40 °/s clamp, so a full-stick turn is rate-saturated. Clamping how far
+    the setpoint may lead the swarm's *measured* mean heading is what stops a sustained turn banking up
+    a heading debt the drones keep paying off after the stick is centred. The clamp acts only while the
+    stick is deflected, so at centre stick the hold keeps full authority and a disturbance never drags
+    the setpoint along with the wall.
+  - **The reference altitude is latched, not the live centroid.** A live centroid leaves the mean
+    altitude a free mode: the leash would bound each drone's spread about the mean while the mean drifted
+    on the net vertical bias the swarm forces carry (cohesion and the plane pull are zero-sum, ground
+    repulsion is not). It tracks the climb stick at the rate read off the drones' own `maxAltitudeRate`,
+    so the leash cannot clip a climb the pilot is commanding.
 - **In vertical-plane mode the body/rig yaw is slaved to the plane, not to the yaw stick**
-  (`PyUniSharingFast.UpdateBodyYawFromPlane`). The stick already spins the anchor drone and the rest
-  of the wall follows it, so also integrating that stick into `bodyYaw` walks the view off the wall —
-  different gain, none of the drone's lag. Invisible in the radially-outward ring (the panorama
+  (`PyUniSharingFast.UpdateBodyYawFromPlane`). The stick already steers the plane's target heading and
+  the whole wall converges on it, so also integrating that stick into `bodyYaw` walks the view off the
+  wall — different gain, none of the drones' lag. Invisible in the radially-outward ring (the panorama
   re-snaps to the nearest camera), but under a shared heading `bodyYaw` is what aims the VR velocity
-  frame at the wall. The lock is absolute, so entering plane mode also clears any pre-existing offset.
+  frame at the wall. It follows `TargetYaw` rather than the drones' measured mean so the rig answers the
+  stick 1:1 instead of lagging it, and `maxTargetLeadDeg` bounds the resulting lead. The lock is
+  absolute, so entering plane mode also clears any pre-existing offset.
 - **Toggling the swarming plane also switches the stitcher and the screen layout**
   (`SwarmPlaneController.ApplyDisplayConfiguration`): vertical ⇒ `PLANAR` + `FORMATION_WALL`,
   horizontal ⇒ `STABSTITCH` + `OUTER_CIRCLE`. Neither pairing is taste — a wall is one dominant plane

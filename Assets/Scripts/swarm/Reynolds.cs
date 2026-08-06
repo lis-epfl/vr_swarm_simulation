@@ -7,14 +7,15 @@ public class Reynolds : MonoBehaviour
     public bool Is3D = true;
 
     // Unit normal of the plane the swarm is constrained to when !Is3D. Vector3.up gives the
-    // horizontal formation; SwarmPlaneController swings it onto the anchor drone's heading for a
-    // vertical wall. Pushed every tick by SwarmAlgorithm.
+    // horizontal formation; SwarmPlaneController swings it onto the pilot-steered target heading for
+    // a vertical wall. Pushed every tick by SwarmAlgorithm.
     public Vector3 PlaneNormal = Vector3.up;
 
-    // When set, drones are pulled onto the *fixed* plane at PlaneAnchorOffset along the normal
-    // rather than onto the consensus of their neighbours. See the matching fields in OlfatiSaber.
-    public bool HasPlaneAnchor = false;
-    public float PlaneAnchorOffset = 0.0f;
+    // When set, drones are pulled onto the plane at PlaneOffsetTarget along the normal — one value
+    // shared by the whole swarm — rather than each toward the consensus of its own neighbours.
+    // See the matching fields in OlfatiSaber.
+    public bool HasPlaneOffsetTarget = false;
+    public float PlaneOffsetTarget = 0.0f;
 
     public float CohesionWeight = 1.0f;
     public float SeparationWeight = 1.0f;
@@ -119,10 +120,10 @@ public class Reynolds : MonoBehaviour
         // normal. Mirrors OlfatiSaber's plane correction; the projections above only remove the
         // out-of-plane forcing, they don't restore drift.
         Vector3 planeCorrection = Vector3.zero;
-        if (!Is3D && (HasPlaneAnchor || aliveNeighbourCount > 0))
+        if (!Is3D && (HasPlaneOffsetTarget || aliveNeighbourCount > 0))
         {
-            float targetOffset = HasPlaneAnchor
-                ? PlaneAnchorOffset
+            float targetOffset = HasPlaneOffsetTarget
+                ? PlaneOffsetTarget
                 : totalNeighbourPlaneOffset / aliveNeighbourCount;
             planeCorrection = PlaneWeight
                             * (targetOffset - Vector3.Dot(currentDroneState.Position, PlaneNormal))
