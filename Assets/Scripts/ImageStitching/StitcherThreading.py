@@ -96,6 +96,14 @@ META_PLANAR_REFINE_RATE_OFFSET = 356     # float32, low-pass rate per warp updat
 META_PLANAR_REFINE_MAX_SHIFT_OFFSET = 360  # float32, metres; 0 = unclamped
 META_PLANAR_STANDOFF_OFFSET = 364        # float32, metres in front of the formation
 
+# Operator viewing transform on the planar canvas. Read inside the seqlock above (hence
+# read_dynamic_state's third seek) because pan is an offset from the canvas origin the
+# centre drone defines, so the two must come from one frame. Physically separated from
+# the rest of the dynamic block only because its padding was already spent.
+META_PLANAR_ZOOM_OFFSET = 368            # float32 zoom, then float32 pan a, b (canvas fractions)
+# Static, like the estimator settings: an inspector choice, not a per-frame measurement.
+META_PLANAR_CANVAS_MODE_OFFSET = 380     # uint8, PlanarStitcher.CANVAS_MODE_*
+
 # ScenePlaneMode.FormationRelative in PyUniSharingFast.cs. In this mode Unity publishes no
 # usable normal/offset -- there is no raycast to produce one, which is the entire reason the
 # mode exists -- so Python derives the plane from the block poses instead. Mirrors the C#
@@ -209,6 +217,13 @@ class StitcherManager:
         self.wire_version = 0
         self._planar_wire_warned = False
 
+        # Operator canvas zoom/pan, latched from the seqlock block. Held here rather than
+        # read straight into planar_config because that dict is rebuilt on every metadata
+        # read and the two reads are separate events -- without a latch the zoom would
+        # blink back to 1x between them.
+        self._planar_zoom = 1.0
+        self._planar_pan = (0.0, 0.0)
+
         self.processedImageWidth = None
         self.processedImageHeight = None
         self.batchImageWidth = None
@@ -246,7 +261,17 @@ class StitcherManager:
             # FormationRelative: how far in front of the formation the surface is. Used
             # only when the plane mode says so; see PlanarStitcher._plane_from_formation.
             "standoff": output.get("planar_standoff", 0.0),
+            # How the canvas is framed. The zoom and pan that modify it are per-frame and
+            # ride the seqlock instead, so they are merged in by set_planar_view rather
+            # than read here -- a metadata read and a dynamic read are separate events and
+            # a stale zoom would fight a live one.
+            "canvas_mode": output.get("planar_canvas_mode", 0),
         }
+        # Carry the last known view transform across this rebuild. Without it every
+        # metadata read (which is every loop iteration) would blank the zoom back to 1x
+        # until the next dynamic read happened to land, i.e. it would flicker.
+        self.planar_config["zoom"] = self._planar_zoom
+        self.planar_config["pan"] = self._planar_pan
 
         # Push the switches straight to the stitcher rather than letting the warp thread
         # pick them out of the frame snapshot. This loop keeps running while the render
@@ -254,6 +279,37 @@ class StitcherManager:
         # so it is the only path on which "off" reliably arrives. Pushed even when PLANAR
         # is not the active stitcher; it costs one attribute write and means the config is
         # already current the moment it is selected.
+        planar = self.stitchers.get("PLANAR")
+        if planar is not None:
+            planar.set_live_config(self.planar_config)
+
+    def set_planar_view(self, dynamic):
+        """
+        Latch the operator's canvas zoom and pan out of a dynamic-block read.
+
+        Separate from :meth:`update_planar_metadata` because the two reads are separate
+        events on the wire -- the canvas *mode* is static metadata, the zoom and pan that
+        modify it are per-frame -- and merging them here is what keeps a stale copy of one
+        from overwriting a live copy of the other.
+
+        A v1 producer, or a Unity that predates these fields, leaves the region zeroed,
+        which reads as ``zoom == 0``. Normalised to 1.0 here rather than deeper in, so
+        everything downstream can treat the config as already sane.
+        """
+        zoom = float(dynamic.get("zoom", 1.0))
+        pan = dynamic.get("pan", (0.0, 0.0))
+        # NaN fails this comparison too, which is the point of writing it this way round.
+        if not (zoom > 0.0) or zoom > 1e6:
+            zoom = 1.0
+        pan_a, pan_b = float(pan[0]), float(pan[1])
+        if not (abs(pan_a) < 1e6) or not (abs(pan_b) < 1e6):
+            pan_a = pan_b = 0.0
+
+        self._planar_zoom = zoom
+        self._planar_pan = (pan_a, pan_b)
+        # One rebind rather than a mutation: the warp thread reads this dict without a
+        # lock, so it must see one whole generation, never a half-updated one.
+        self.planar_config = dict(self.planar_config, zoom=zoom, pan=self._planar_pan)
         planar = self.stitchers.get("PLANAR")
         if planar is not None:
             planar.set_live_config(self.planar_config)
@@ -665,6 +721,7 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
         dynamic = read_dynamic_state(metadataMMF)
         if dynamic is not None:
             manager.scene_plane = dynamic
+            manager.set_planar_view(dynamic)
 
         block_map, changed = _ensure_block_map(
             block_map, imageCount, output["block_header_size"],
@@ -1260,6 +1317,11 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     refine_rate, refine_max_shift = struct.unpack('<ff', metadataMMF.read(8))
     planar_standoff = struct.unpack('<f', metadataMMF.read(4))[0]
 
+    # The canvas mode is static and belongs here; the zoom/pan it modifies are per-frame
+    # and come through read_dynamic_state instead.
+    metadataMMF.seek(META_PLANAR_CANVAS_MODE_OFFSET)
+    canvas_mode = struct.unpack('<B', metadataMMF.read(1))[0]
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -1299,18 +1361,25 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "planar_refine_rate" : refine_rate,
         "planar_refine_max_shift" : refine_max_shift,
         "planar_standoff" : planar_standoff,
+        "planar_canvas_mode" : canvas_mode,
     }
 
 
 def read_dynamic_state(metadataMMF):
     """
-    Read the seqlock-protected dynamic block: the scene plane and gimbal pitch.
+    Read the seqlock-protected dynamic block: the scene plane, gimbal pitch, centre drone
+    and the operator's canvas zoom/pan.
 
     Unity bumps the sequence counter to an odd value before writing the payload and to
     the next even value after, so an odd counter -- or a counter that changed across the
     read -- means the fields were in flux.  Retry a few times, then give up and let the
     caller keep its previous plane; a torn normal is not unit length and not
     perpendicular to anything, and would produce one frame of garbage geometry.
+
+    The zoom/pan triple sits at 368 rather than beside the rest of the block, because the
+    block's padding was already spent -- hence the third seek.  It is inside the seqlock
+    all the same: pan is an offset from the canvas origin the centre drone above defines,
+    so pairing one frame's pan with another's centre is a visible jump.
 
     Returns a dict, or None if no stable read was obtained.
     """
@@ -1323,6 +1392,8 @@ def read_dynamic_state(metadataMMF):
         valid, mode = struct.unpack('<BB', metadataMMF.read(2))
         metadataMMF.seek(META_GIMBAL_PITCH_OFFSET)
         gimbal_pitch, centre_drone_id = struct.unpack('<fi', metadataMMF.read(8))
+        metadataMMF.seek(META_PLANAR_ZOOM_OFFSET)
+        zoom, pan_a, pan_b = struct.unpack('<fff', metadataMMF.read(12))
 
         metadataMMF.seek(META_DYN_SEQ_OFFSET)
         if struct.unpack('<i', metadataMMF.read(4))[0] == seq0:
@@ -1333,6 +1404,8 @@ def read_dynamic_state(metadataMMF):
                 "plane_mode": mode,
                 "gimbal_pitch": gimbal_pitch,
                 "centre_drone_id": centre_drone_id,
+                "zoom": zoom,
+                "pan": (pan_a, pan_b),
             }
     return None
 

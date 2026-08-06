@@ -281,10 +281,40 @@ public class PyUniSharingFast : MonoBehaviour
         public int planarCanvasWidth = 1200;
         public int planarCanvasHeight = 800;
 
-        [Tooltip("Fixed canvas scale. The output resolution never changes per solve (that would " +
-                 "flicker), so this sets how much of the plane fits in it. Fixed rather than " +
-                 "auto-fitted so measurements stay comparable across runs.")]
+        [Tooltip("How the canvas gets its scale and centre. Fixed uses planarMetresPerPixel " +
+                 "centred on the centre drone — the same patch of plane every frame, so " +
+                 "measurements stay comparable across runs, but correctly framed at only one " +
+                 "standoff. AutoFit fits both to where the views actually land, in quantised " +
+                 "steps so the canvas does not breathe. Zoom and pan apply on top of either.")]
+        public PlanarCanvasMode planarCanvasMode = PlanarCanvasMode.Fixed;
+
+        [Tooltip("Canvas scale: how much of the plane fits in the canvas. The output resolution " +
+                 "never changes per solve (that would flicker), so this is the lever. Under " +
+                 "Fixed it IS the scale; under AutoFit it is the rest scale the fit is " +
+                 "quantised about and clamped to (+/- 3 octaves).")]
         public float planarMetresPerPixel = 0.05f;
+
+        [Header("Canvas zoom & pan (operator view)")]
+        [Range(0.25f, 8f)]
+        [Tooltip("Magnification on top of the canvas mode's rest scale. A viewing transform " +
+                 "only — it never reaches the warp-thread estimators, so zooming in to inspect " +
+                 "cannot cost the plane sweep its lock. Real magnification, not pixel " +
+                 "stretching: the source frames are resampled finer. Past roughly 1:1 with the " +
+                 "sharpest view's ground sample distance it stops adding detail, which Python's " +
+                 "periodic [PLANAR] line flags as EMPTY magnification.")]
+        public float planarZoom = 1f;
+
+        [Tooltip("Canvas centre offset, as a fraction of the canvas — so half a screen is half " +
+                 "a screen at every zoom level. Python clamps it to the imagery's footprint, so " +
+                 "panning cannot end up staring at blank plane. Zero is the mode's own centre.")]
+        public Vector2 planarPan = Vector2.zero;
+
+        [Tooltip("Zoom step per keypress or scroll notch, as a ratio. 1.2 means each step is " +
+                 "20% closer.")]
+        public float planarZoomStep = 1.2f;
+
+        [Tooltip("Pan step per keypress, as a fraction of the canvas.")]
+        public float planarPanStep = 0.1f;
 
         [Tooltip("Rays landing beyond this distance are rejected. Without it an oblique view's " +
                  "footprint is unbounded whenever the horizon is in frame.")]
@@ -412,6 +442,26 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("Key that toggles the panorama on/off (for testing without a controller connected).")]
         public KeyCode togglePanoramaKey = KeyCode.T;
 
+        [Header("Planar canvas zoom & pan")]
+        [Tooltip("Zoom the planar canvas in/out. The mouse scroll wheel does the same thing. " +
+                 "These drive ZoomBy/PanBy/ResetView, which are public so a controller axis or " +
+                 "an RC channel can be bound to them without touching this component.")]
+        public KeyCode planarZoomInKey = KeyCode.X;
+        public KeyCode planarZoomOutKey = KeyCode.Z;
+
+        [Tooltip("Pan the planar canvas. Keypad, because the arrow keys are the flight axes.")]
+        public KeyCode planarPanLeftKey = KeyCode.Keypad4;
+        public KeyCode planarPanRightKey = KeyCode.Keypad6;
+        public KeyCode planarPanUpKey = KeyCode.Keypad8;
+        public KeyCode planarPanDownKey = KeyCode.Keypad2;
+
+        [Tooltip("Reset zoom to 1x and pan to zero, i.e. back to the canvas mode's own framing.")]
+        public KeyCode planarResetViewKey = KeyCode.N;
+
+        [Tooltip("Let the mouse scroll wheel zoom the planar canvas. Off in the headset, where " +
+                 "a stray wheel event is invisible to the pilot.")]
+        public bool planarScrollWheelZoom = true;
+
         [Tooltip("ScreenSpawn that shows the individual drone feeds. Auto-found if left empty.")]
         public ScreenSpawn screenSpawn;
     }
@@ -460,7 +510,12 @@ public class PyUniSharingFast : MonoBehaviour
     private float manualVerticalFovDeg { get => planar.manualVerticalFovDeg; set => planar.manualVerticalFovDeg = value; }
     private int planarCanvasWidth { get => planar.planarCanvasWidth; set => planar.planarCanvasWidth = value; }
     private int planarCanvasHeight { get => planar.planarCanvasHeight; set => planar.planarCanvasHeight = value; }
+    private PlanarCanvasMode planarCanvasMode { get => planar.planarCanvasMode; set => planar.planarCanvasMode = value; }
     private float planarMetresPerPixel { get => planar.planarMetresPerPixel; set => planar.planarMetresPerPixel = value; }
+    private float planarZoom { get => planar.planarZoom; set => planar.planarZoom = value; }
+    private Vector2 planarPan { get => planar.planarPan; set => planar.planarPan = value; }
+    private float planarZoomStep { get => planar.planarZoomStep; set => planar.planarZoomStep = value; }
+    private float planarPanStep { get => planar.planarPanStep; set => planar.planarPanStep = value; }
     private float planarMaxRange { get => planar.planarMaxRange; set => planar.planarMaxRange = value; }
     private float maxObliquityDeg { get => planar.maxObliquityDeg; set => planar.maxObliquityDeg = value; }
     private float planarCentreHysteresis { get => planar.planarCentreHysteresis; set => planar.planarCentreHysteresis = value; }
@@ -486,6 +541,14 @@ public class PyUniSharingFast : MonoBehaviour
     private bool driveCameraRigYaw { get => vr.driveCameraRigYaw; set => vr.driveCameraRigYaw = value; }
     private KeyCode calibrateKey { get => vr.calibrateKey; set => vr.calibrateKey = value; }
     private KeyCode togglePanoramaKey { get => vr.togglePanoramaKey; set => vr.togglePanoramaKey = value; }
+    private KeyCode planarZoomInKey { get => vr.planarZoomInKey; set => vr.planarZoomInKey = value; }
+    private KeyCode planarZoomOutKey { get => vr.planarZoomOutKey; set => vr.planarZoomOutKey = value; }
+    private KeyCode planarPanLeftKey { get => vr.planarPanLeftKey; set => vr.planarPanLeftKey = value; }
+    private KeyCode planarPanRightKey { get => vr.planarPanRightKey; set => vr.planarPanRightKey = value; }
+    private KeyCode planarPanUpKey { get => vr.planarPanUpKey; set => vr.planarPanUpKey = value; }
+    private KeyCode planarPanDownKey { get => vr.planarPanDownKey; set => vr.planarPanDownKey = value; }
+    private KeyCode planarResetViewKey { get => vr.planarResetViewKey; set => vr.planarResetViewKey = value; }
+    private bool planarScrollWheelZoom { get => vr.planarScrollWheelZoom; set => vr.planarScrollWheelZoom = value; }
     private ScreenSpawn screenSpawn { get => vr.screenSpawn; set => vr.screenSpawn = value; }
 
     // Read-only access so ScreenSpawn can adopt the same FPV feed resolution
@@ -786,12 +849,41 @@ public class PyUniSharingFast : MonoBehaviour
     // purpose: it is an operator-typed constant, not a per-frame measurement, and in this
     // mode the seqlocked normal/offset go unused because Python derives them from the poses.
     private const int metaPlanarStandoffOffset = 364;
-    private const int metadataTailEnd = 368;
+
+    // Operator viewing transform on the planar canvas. Dynamic (inside the seqlock above,
+    // written by WriteDynamicState) rather than static, for two reasons: they are relative
+    // to the centre drone that defines the canvas origin, so they want to travel with it,
+    // and a stick or scroll wheel moves them continuously -- WriteMetadata allocates
+    // several byte[64] per call and is not something to run per frame. They are physically
+    // separated from the rest of the dynamic block only because the padding there was
+    // already spent; the seqlock covers them all the same, which is why read_dynamic_state
+    // seeks twice.
+    private const int metaPlanarZoomOffset = 368;
+    private const int metaPlanarPanAOffset = 372;
+    private const int metaPlanarPanBOffset = 376;
+    // Static, like the 344..367 block: an inspector choice, not a per-frame measurement.
+    private const int metaPlanarCanvasModeOffset = 380;   // uint8, PlanarCanvasMode
+    // 381-383 padding
+    private const int metadataTailEnd = 384;
 
     // Trailing gap between the tail and the two size fields metadataSize ends with. It
     // shrinks as the tail grows so metadataSize -- and hence the mapped section size --
     // stays fixed at 412; a changed map size would strand any already-running Python.
-    private const int metadataReservedGap = 36;
+    private const int metadataReservedGap = 20;
+
+    // Bounds on the operator's planar viewing transform. Applied on write, so the wire
+    // never carries a value Python would have to second-guess.
+    //
+    // The zoom ceiling is generous rather than principled: where zoom stops buying detail
+    // depends on the standoff, so it is a runtime property of the formation, not a
+    // constant -- Python measures the sharpest view's ground sample distance and flags
+    // empty magnification on its periodic [PLANAR] line. This only stops the canvas
+    // becoming degenerate.
+    private const float planarZoomMin = 0.25f;
+    private const float planarZoomMax = 8f;
+    // Pan, in canvas fractions. Loose on purpose: the tight bound is the imagery's actual
+    // footprint, and only Python knows where that is (PlanarStitcher._view_transform).
+    private const float planarPanLimit = 2f;
 
     // A left/centre/right panorama is always exactly 3 views; a planar mosaic can take
     // as many overlapping views as the formation offers.
@@ -819,6 +911,24 @@ public class PyUniSharingFast : MonoBehaviour
         // Nothing is averaged, so residual pose error shows as a seam rather than a
         // doubled image.
         Nearest,
+    }
+
+    /// <summary>
+    /// How the planar canvas gets its scale and centre. Mirrored by <c>CANVAS_MODE_*</c>
+    /// in PlanarStitcher.py. Both modes are then modified by the operator's zoom and pan,
+    /// which are a viewing transform on top of whichever rest framing the mode produced.
+    /// </summary>
+    public enum PlanarCanvasMode
+    {
+        // planarMetresPerPixel, centred on the centre drone's principal-ray hit. The
+        // canvas covers the same patch of plane every frame, so numbers are comparable
+        // across runs — at the cost of being correctly framed at exactly one standoff.
+        Fixed,
+        // Scale and centre fitted to where the views actually land on the plane, so the
+        // mosaic frames itself as the formation moves or resizes. The scale is quantised
+        // and damped rather than continuous: a canvas that rescaled every frame would
+        // visibly breathe.
+        AutoFit,
     }
 
     /// <summary>
@@ -1251,6 +1361,8 @@ public class PyUniSharingFast : MonoBehaviour
         {
             panoramaUserEnabled = !panoramaUserEnabled;
         }
+
+        UpdatePlanarViewInput();
 
         // Mirror the pilot's panorama toggle from the click switch, but only on an
         // actual change in its reading -- not every frame -- so a disconnected
@@ -2224,8 +2336,13 @@ public class PyUniSharingFast : MonoBehaviour
         right.Normalize();
         Vector3 up = Vector3.Cross(scenePlaneNormal, right).normalized;
 
-        float half = Mathf.Max(5f, planarMetresPerPixel * planarCanvasWidth * 0.5f);
-        float halfV = Mathf.Max(5f, planarMetresPerPixel * planarCanvasHeight * 0.5f);
+        // Zoom is applied because Unity knows it; AutoFit's scale is NOT, because Python
+        // owns that value and there is no path back (the panorama map's header is full).
+        // So under AutoFit this patch shows the rest framing the fit is quantised about,
+        // not the framing on screen — Python's periodic [PLANAR] line prints the real one.
+        float gizmoMpp = planarMetresPerPixel / Mathf.Max(planarZoom, 1e-3f);
+        float half = Mathf.Max(5f, gizmoMpp * planarCanvasWidth * 0.5f);
+        float halfV = Mathf.Max(5f, gizmoMpp * planarCanvasHeight * 0.5f);
         Gizmos.color = scenePlaneValid
             ? new Color(0f, 1f, 1f, 0.8f) : new Color(1f, 0.5f, 0f, 0.8f);
         Vector3 a = origin + right * half + up * halfV;
@@ -2598,6 +2715,73 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     /// <summary>
+    /// Zoom the planar canvas by a ratio. 1.2 zooms in 20%, 1/1.2 back out again.
+    ///
+    /// Public, following SwarmPlaneController.TogglePlaneMode's convention, so an RC
+    /// channel or a controller axis can drive the same thing the keys do without this
+    /// component growing a second input path.
+    /// </summary>
+    public void ZoomBy(float ratio)
+    {
+        if (ratio <= 0f || !float.IsFinite(ratio)) return;
+        planarZoom = Mathf.Clamp(planarZoom * ratio, planarZoomMin, planarZoomMax);
+    }
+
+    /// <summary>
+    /// Pan the planar canvas, in fractions of the canvas. Python clamps the result to the
+    /// imagery's actual footprint, so the loose bound here only stops the value running
+    /// away while the panorama is off.
+    /// </summary>
+    public void PanBy(float da, float db)
+    {
+        if (!float.IsFinite(da) || !float.IsFinite(db)) return;
+        planarPan = new Vector2(
+            Mathf.Clamp(planarPan.x + da, -planarPanLimit, planarPanLimit),
+            Mathf.Clamp(planarPan.y + db, -planarPanLimit, planarPanLimit));
+    }
+
+    /// <summary>
+    /// Back to the canvas mode's own framing: no magnification, no offset. Note this
+    /// resets the <i>view</i> only — the canvas mode itself is the operator's choice and
+    /// is left alone.
+    /// </summary>
+    public void ResetView()
+    {
+        planarZoom = 1f;
+        planarPan = Vector2.zero;
+    }
+
+    // Keyboard/scroll bindings for the three above. Split out of Update so the input
+    // surface is in one place when a controller binding is added beside it.
+    private void UpdatePlanarViewInput()
+    {
+        if (Input.GetKeyDown(planarResetViewKey)) ResetView();
+
+        // Held rather than tapped: zoom and pan are the sort of thing an operator sweeps
+        // to a value, and requiring one keypress per step makes that tedious. Scaled by
+        // deltaTime so the rate does not depend on the frame rate, with the step itself
+        // being the per-second amount.
+        float dt = Time.deltaTime;
+        if (Input.GetKey(planarZoomInKey)) ZoomBy(Mathf.Pow(planarZoomStep, dt));
+        if (Input.GetKey(planarZoomOutKey)) ZoomBy(Mathf.Pow(planarZoomStep, -dt));
+
+        float panX = (Input.GetKey(planarPanRightKey) ? 1f : 0f)
+                   - (Input.GetKey(planarPanLeftKey) ? 1f : 0f);
+        float panY = (Input.GetKey(planarPanUpKey) ? 1f : 0f)
+                   - (Input.GetKey(planarPanDownKey) ? 1f : 0f);
+        if (panX != 0f || panY != 0f)
+            PanBy(panX * planarPanStep * dt, panY * planarPanStep * dt);
+
+        // The wheel reports discrete notches, so it is stepped rather than rate-scaled.
+        if (planarScrollWheelZoom)
+        {
+            float scroll = Input.GetAxis("Mouse ScrollWheel");
+            if (Mathf.Abs(scroll) > 0.001f)
+                ZoomBy(Mathf.Pow(planarZoomStep, Mathf.Sign(scroll)));
+        }
+    }
+
+    /// <summary>
     /// Per-frame write of the scene plane and gimbal pitch, under a seqlock.
     ///
     /// The counter is bumped to an odd value before the payload and to the next even
@@ -2632,6 +2816,17 @@ public class PyUniSharingFast : MonoBehaviour
         // droneId in the block header is the camerasToCapture index, so the centre camera
         // index is already in Python's id space -- no mapping table to keep in sync.
         Marshal.WriteInt32(metadataPtr, metaCentreDroneIdOffset, centreStitchCameraIndex);
+
+        // Operator viewing transform. Inside this seqlock rather than beside the static
+        // planar settings because both are offsets from the canvas origin the centre drone
+        // above defines -- a pan paired with the previous frame's centre is a visible jump.
+        // Clamped on write so the wire never carries a value Python has to distrust.
+        WriteFloat(metadataPtr, metaPlanarZoomOffset,
+                   Mathf.Clamp(planarZoom, planarZoomMin, planarZoomMax));
+        WriteFloat(metadataPtr, metaPlanarPanAOffset,
+                   Mathf.Clamp(planarPan.x, -planarPanLimit, planarPanLimit));
+        WriteFloat(metadataPtr, metaPlanarPanBOffset,
+                   Mathf.Clamp(planarPan.y, -planarPanLimit, planarPanLimit));
 
         System.Threading.Thread.MemoryBarrier();
         Marshal.WriteInt32(metadataPtr, metaDynSeqOffset, (seq | 1) + 1); // stable again
@@ -3173,6 +3368,7 @@ public class PyUniSharingFast : MonoBehaviour
         WriteFloat(metadataPtr, metaPlanarRefineRateOffset, planarRefineRate);
         WriteFloat(metadataPtr, metaPlanarRefineMaxShiftOffset, planarRefineMaxShift);
         WriteFloat(metadataPtr, metaPlanarStandoffOffset, planarStandoffMetres);
+        Marshal.WriteByte(metadataPtr, metaPlanarCanvasModeOffset, (byte)planarCanvasMode);
 
         // Seed the dynamic block so Python never reads an uninitialised plane before
         // the first Update tick.

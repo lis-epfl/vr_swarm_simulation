@@ -59,6 +59,8 @@ PAIRS = [
     ("metaPlanarRefineRateOffset",    "META_PLANAR_REFINE_RATE_OFFSET"),
     ("metaPlanarRefineMaxShiftOffset", "META_PLANAR_REFINE_MAX_SHIFT_OFFSET"),
     ("metaPlanarStandoffOffset",       "META_PLANAR_STANDOFF_OFFSET"),
+    ("metaPlanarZoomOffset",           "META_PLANAR_ZOOM_OFFSET"),
+    ("metaPlanarCanvasModeOffset",     "META_PLANAR_CANVAS_MODE_OFFSET"),
     # Not an offset: Python switches on the plane-mode byte by number, so the enum value
     # itself is part of the contract. C# mirrors it as a const because this parser reads
     # `const int` and cannot evaluate an enum member.
@@ -168,6 +170,13 @@ def main():
         ("refineRate", "metaPlanarRefineRateOffset", 4),
         ("refineMaxShift", "metaPlanarRefineMaxShiftOffset", 4),
         ("standoff", "metaPlanarStandoffOffset", 4),
+        # Operator viewing transform. Dynamic (written under the seqlock above) but
+        # physically out here, because the dynamic block's padding was already spent --
+        # so like the estimator settings it continues the same cursor walk.
+        ("zoom", "metaPlanarZoomOffset", 4),
+        ("panA", "metaPlanarPanAOffset", 4),
+        ("panB", "metaPlanarPanBOffset", 4),
+        ("canvasMode", "metaPlanarCanvasModeOffset", 1),
     ]
     cursor = 253
     for label, const, size in fields:

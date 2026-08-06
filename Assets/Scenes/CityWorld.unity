@@ -567,11 +567,6 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: bridge.maxStitchViews
-      value: 5
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
       propertyPath: scenePlaneMode
       value: 3
       objectReference: {fileID: 0}
@@ -582,13 +577,18 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: bridge.blockImageWidth
-      value: 768
+      propertyPath: printStitchRate
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: printStitchRate
-      value: 1
+      propertyPath: bridge.maxStitchViews
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.blockImageWidth
+      value: 768
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -597,8 +597,8 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: stabStitch.qualityThreshold
-      value: 16
+      propertyPath: hideStitchedDroneScreens
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -612,8 +612,8 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: hideStitchedDroneScreens
-      value: 1
+      propertyPath: stabStitch.qualityThreshold
+      value: 16
       objectReference: {fileID: 0}
     - target: {fileID: 6847994249360662215, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -3850,6 +3850,10 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
+  formationWallPadding: 1.08
+  formationWallColumns: 0
+  formationWallMaxSpanDeg: 120
+  formationWallSmoothTime: 0.15
 --- !u!114 &1839174498
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3907,6 +3911,10 @@ MonoBehaviour:
   doubleView: 0
   rotatingCircleDistance: 1
   numScreens: 2
+  formationWallPadding: 1.08
+  formationWallColumns: 0
+  formationWallMaxSpanDeg: 120
+  formationWallSmoothTime: 0.15
   screenLayerName: UI
 --- !u!114 &1839174500
 MonoBehaviour:

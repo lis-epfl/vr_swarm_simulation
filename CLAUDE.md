@@ -30,12 +30,15 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   (yaw also rewritten every frame at a fixed offset). This is the integrated *body heading*
   (`PyUniSharingFast.bodyYaw`): seeded from the HMD's initial yaw, then advanced only by the controller
   yaw-rate command — **not** live HMD direction, so head-look doesn't move the panorama.
-  It also carries a seqlocked **dynamic block** (scene plane, gimbal pitch, planar centre drone id) —
-  see the PLANAR section. Its total size is pinned at 412 bytes: new tail fields come out of
-  `metadataReservedGap`, because changing the size would strand an already-running Python. The static
-  tail's padding filled up at 311, so the estimator settings (344–363) sit *after* the dynamic block;
-  both sides address every tail field by absolute offset, so the ordering is cosmetic, but it is why
-  `readMetadataMemory` seeks a second time rather than reading straight through.
+  It also carries a seqlocked **dynamic block** (scene plane, gimbal pitch, planar centre drone id,
+  planar canvas zoom/pan) — see the PLANAR section. Its total size is pinned at 412 bytes: new tail
+  fields come out of `metadataReservedGap`, because changing the size would strand an already-running
+  Python. The static tail's padding filled up at 311, so the estimator settings (344–367) sit *after*
+  the dynamic block, and the canvas zoom/pan/mode (368–380) after those — the zoom/pan are **seqlocked
+  despite not being contiguous with the block**, since pan is an offset from the origin the centre
+  drone defines. Both sides address every tail field by absolute offset, so the ordering is cosmetic,
+  but it is why `readMetadataMemory` and `read_dynamic_state` each seek more than once rather than
+  reading straight through.
 - `BlockSharedMemory` — the **stitcher input**, one block per selected drone. `flag` is the handshake
   (0 = ready, 1 = busy). Images are **BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole
   producer: sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep
@@ -221,6 +224,29 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   a centre paired with another frame's plane tears exactly like a torn normal. `_build_geometry` must
   never re-derive it — the median of the id-sorted selection is the median *drone id*, not the geometric
   centre, and it jumps whenever the selection gains or loses a drone.
+- **The canvas extent is a mode, not a constant** (`planarCanvasMode`, default `Fixed`). `Fixed` is the
+  original framing — `planarMetresPerPixel` centred on that centre drone's principal-ray hit, so the
+  canvas covers the same patch of plane every frame and measurements stay comparable across runs, at the
+  cost of being correctly framed at exactly one standoff. `AutoFit` derives scale and centre from where
+  the views actually land (`PlanarStitcher._footprint_bbox` inverts each view's `G` rather than
+  re-casting rays, so it inherits whatever corrections `_build_geometry` already applied). Two things
+  keep `AutoFit` from breathing: the scale is **quantised to 1/3-octave steps** about
+  `planarMetresPerPixel` with hysteresis and a dwell time, and the centre is low-passed **in world
+  coordinates, not in plane `(a, b)`** — same reason `_pose_shift` is, since `e1` rotates with the
+  reference camera. `Fixed` + `zoom 1` + `pan 0` is asserted byte-identical to the pre-mode mosaic in
+  `planar_selftest.py`; that is what makes putting the dropdown back a guarantee rather than a hope.
+- **Zoom and pan are a viewing transform and must never reach the estimators.** `planarZoom` /
+  `planarPan` ride the seqlock (368–379) and are applied only in `planar_pano`;
+  `_estimator_geometry` follows the *fit* scale but never the zoom. The sweep tracks a minimum whose
+  basin is a few source-disparity pixels wide, so resizing or sliding its measurement window mid-
+  convergence is exactly the "sweep loses its lock" failure the ACQUIRE/TRACK split exists to prevent —
+  a pilot zooming in to look at something must not cost them their alignment. The selftest pins this by
+  requiring the refiner's correction to be *identical* at 1x and 4x. Following the auto-fit scale is
+  safe for the reason the split is necessary: corrections are stored in metres and scanned in disparity
+  pixels, so both are canvas-scale-invariant and a step in the fit resets nothing. `_fit_*` is written
+  only by the render thread and read by the warp thread — one writer, as with `_correction` the other way.
+  Past ~1:1 with the sharpest view's ground sample distance, zoom is **empty magnification**; the
+  `[PLANAR]` line prints the GSD and says so, because that limit moves with the standoff.
 - **The default blend is winner-take-all, not a cross-fade** (`planarBlendMode`, default `Nearest`).
   Each canvas pixel goes to the single view seeing that plane point closest to the plane normal —
   `cos = h_v / √((a−a_v)² + (b−b_v)² + h_v²)` from the camera's in-plane footprint `(a_v, b_v)` and

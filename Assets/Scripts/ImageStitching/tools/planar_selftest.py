@@ -194,6 +194,11 @@ def make_bare_stitcher(ps_mod, torch):
     s._sweep_lost = 0
     s._last_acquire = 0.0
     s._plane_source = None
+    s._fit_mpp = None
+    s._fit_step = 0
+    s._fit_centre_world = None
+    s._fit_changed_at = 0.0
+    s._fit_extent = None
     s._plane_invalid_since = None
     s._unposed = 0
     s._stale = 0
@@ -1515,6 +1520,173 @@ def _mosaic(stitcher, views, intr, plane, config):
     return stitcher.planar_pano(views, intr, plane, dict(config))
 
 
+def test_canvas_modes():
+    """
+    Canvas framing: FIXED must not have moved, AUTOFIT must frame and must not breathe,
+    and zoom/pan must be a *viewing* transform that the estimators never see.
+
+    The load-bearing check is the first one.  The whole premise of adding a canvas mode is
+    that the operator can put the dropdown back on Fixed and have exactly what they had
+    before, so that is asserted rather than asserted-to-be-obvious -- against a mosaic
+    rendered through an independently-built centred canvas matrix, so it stays true
+    without a stored golden image to rot.
+    """
+    print("\n12. Canvas modes (fixed / auto-fit) and the zoom-pan viewing transform")
+    if cv2 is None:
+        check("cv2 available", False, "opencv not installed; skipped")
+        return
+    try:
+        import torch  # noqa: F401
+        import PlanarStitcher as ps_mod
+    except ImportError as e:
+        check("torch + PlanarStitcher importable", False, f"{e}")
+        return
+
+    texture = make_unique_texture()
+    views, K, s_tex, plane = _nadir_scene(texture)
+    intr = (K[0, 0], K[1, 1], K[0, 2], K[1, 2])
+    cw, ch = 1000, 700
+    base = {
+        "canvas": (cw, ch), "metres_per_pixel": s_tex, "max_range": 200.0,
+        "feather_px": 40, "aniso_max": 12.0, "min_coverage": 0.2,
+        "pose_source": 0, "psnr_gate": False,
+        "blend_mode": ps_mod.BLEND_NEAREST, "debug_view": ps_mod.DEBUG_OFF,
+        "plane_sweep": False, "pose_refine": False,
+        "sweep_range": 4.0, "sweep_steps": 9,
+        "refine_rate": 1.0, "refine_max_shift": 3.0,
+    }
+
+    def render(cfg):
+        s = make_bare_stitcher(ps_mod, torch)
+        pano, ok, reason = s.planar_pano(views, intr, plane, dict(base, **cfg))
+        return s, pano, ok, reason
+
+    # --- FIXED is exactly the historical framing ---------------------------------------
+    # Two ways round, because they fail differently. A config carrying none of the new
+    # keys is what an older caller (and every other test in this file) passes, so it must
+    # still work; and spelling the defaults out must change nothing.
+    _, pano_default, ok_d, reason_d = render({})
+    _, pano_fixed, ok_f, _ = render({"canvas_mode": ps_mod.CANVAS_MODE_FIXED,
+                                     "zoom": 1.0, "pan": (0.0, 0.0)})
+    if not check("fixed-mode mosaic rendered", ok_d and ok_f, f"reason={reason_d}"):
+        return
+    check("a config with no canvas keys at all still renders the old framing",
+          np.array_equal(pano_default, pano_fixed), "byte-identical")
+
+    # The independent half: the mosaic must still land where a plainly-centred canvas
+    # matrix says it should. This is what would catch a stray centre offset or a
+    # reciprocal applied the wrong way round, which the comparison above cannot see
+    # because both sides would move together.
+    th, tw = texture.shape[:2]
+    M_tex = pg.canvas_to_plane_matrix(s_tex, tw / 2.0, th / 2.0)
+
+    def texture_rmse(pano, M_expected):
+        covered = pano.any(axis=2)
+        ref = cv2.warpPerspective(texture, np.linalg.inv(M_tex) @ M_expected, (cw, ch),
+                                  flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+        er = cv2.erode(covered.astype(np.uint8), np.ones((15, 15), np.uint8)) > 0
+        if er.sum() < 5000:
+            return None
+        a = cv2.GaussianBlur(pano, (0, 0), 1.5).astype(np.float64)
+        b = cv2.GaussianBlur(ref, (0, 0), 1.5).astype(np.float64)
+        return float(np.sqrt(((a[er] - b[er]) ** 2).mean()))
+
+    rmse_fixed = texture_rmse(pano_fixed,
+                              pg.canvas_to_plane_matrix(s_tex, cw * 0.5, ch * 0.5))
+    check("fixed mode still frames on the plain centred canvas",
+          rmse_fixed is not None and rmse_fixed < 6.0,
+          f"RMSE {rmse_fixed:.3f} (0-255) vs an independently-built M")
+
+    # --- zoom is a predictable viewing transform ---------------------------------------
+    # Zoom must divide metres-per-pixel and nothing else: the same plane content, sampled
+    # finer. Checked against the texture warped through the *predicted* matrix, so a zoom
+    # that also translated (an easy sign error in the centre term) fails here.
+    for z in (2.0, 4.0):
+        _, pano_z, ok_z, _ = render({"zoom": z})
+        rmse_z = None if not ok_z else texture_rmse(
+            pano_z, pg.canvas_to_plane_matrix(s_tex / z, cw * 0.5, ch * 0.5))
+        check(f"zoom {z:g}x samples the same plane finer, without translating",
+              ok_z and rmse_z is not None and rmse_z < 6.0,
+              f"RMSE {rmse_z:.3f}" if rmse_z is not None else "no mosaic")
+
+    # --- pan moves the canvas centre by the amount claimed ------------------------------
+    # Pan is a fraction of the canvas, so at zoom 2 a pan of 0.1 is 0.1 * cw * (mpp/2)
+    # metres along e1. Small enough here to stay well inside the footprint, so the clamp
+    # is not what is under test.
+    z, pan_a = 2.0, 0.1
+    mpp_v = s_tex / z
+    ca = pan_a * cw * mpp_v
+    _, pano_p, ok_p, _ = render({"zoom": z, "pan": (pan_a, 0.0)})
+    rmse_p = None if not ok_p else texture_rmse(
+        pano_p, pg.canvas_to_plane_matrix(mpp_v, cw * 0.5 - ca / mpp_v, ch * 0.5))
+    check("pan shifts the canvas centre by exactly the fraction requested",
+          ok_p and rmse_p is not None and rmse_p < 6.0,
+          f"RMSE {rmse_p:.3f} at pan {pan_a} = {ca:.2f} m along e1")
+
+    # --- zoom must NOT reach the estimators ---------------------------------------------
+    # The one that protects the sweep's lock. The refiner is used because it produces a
+    # per-view vector that is easy to compare exactly; the argument is identical for the
+    # sweep, and both take their geometry from the same _estimator_geometry.
+    err = {1: np.array([0.55, 0.0, 0.35]), 3: np.array([-0.4, 0.0, 0.5])}
+    noisy = [dict(v, pos=tuple(np.asarray(v["pos"]) + err.get(v["drone_id"], 0.0)))
+             for v in views]
+    shifts = {}
+    for z in (1.0, 4.0):
+        s = make_bare_stitcher(ps_mod, torch)
+        _run_estimator(s, noisy, intr, plane,
+                       dict(base, pose_refine=True, zoom=z), passes=3)
+        shifts[z] = dict(s._pose_shift)
+    common = set(shifts[1.0]) & set(shifts[4.0])
+    worst = max((float(np.linalg.norm(shifts[1.0][d] - shifts[4.0][d])) for d in common),
+                default=float("inf"))
+    check("the pose refiner measures the same correction at 1x and 4x zoom",
+          len(common) >= 4 and worst < 1e-6,
+          f"{len(common)} views, worst difference {worst:.2e} m")
+
+    # --- auto-fit actually frames -------------------------------------------------------
+    # Start deliberately mis-scaled: at 3x the correct metres-per-pixel the formation
+    # occupies a ninth of the canvas, which is the "wrong standoff" case in miniature.
+    coarse = dict(base, metres_per_pixel=s_tex * 3.0)
+    s_fx = make_bare_stitcher(ps_mod, torch)
+    s_fx.planar_pano(views, intr, plane, dict(coarse, canvas_mode=ps_mod.CANVAS_MODE_FIXED))
+    cov_fixed = s_fx._last_stats.get("coverage", 0.0)
+
+    s_af = make_bare_stitcher(ps_mod, torch)
+    s_af.planar_pano(views, intr, plane, dict(coarse, canvas_mode=ps_mod.CANVAS_MODE_AUTOFIT))
+    cov_auto = s_af._last_stats.get("coverage", 0.0)
+    check("auto-fit fills a canvas the fixed scale leaves mostly empty",
+          cov_auto > cov_fixed * 1.5,
+          f"coverage {cov_fixed:.0%} -> {cov_auto:.0%} "
+          f"({coarse['metres_per_pixel']*100:.1f} -> {s_af._fit_mpp*100:.1f} cm/px)")
+
+    # --- auto-fit does not breathe ------------------------------------------------------
+    # A steadily growing formation must produce a monotone staircase, never a dither. The
+    # dwell is disabled so this exercises the quantiser and hysteresis rather than just
+    # measuring how long the test took to run.
+    s_seq = make_bare_stitcher(ps_mod, torch)
+    s_seq.AUTOFIT_DWELL_S = 0.0
+    cfg_af = dict(base, canvas_mode=ps_mod.CANVAS_MODE_AUTOFIT)
+    scales = []
+    for i in range(40):
+        grow = 1.0 + 0.06 * i
+        spread = [dict(v, pos=(v["pos"][0] * grow, v["pos"][1], v["pos"][2] * grow))
+                  for v in views]
+        s_seq._plane_invalid_since = None
+        s_seq.planar_pano(spread, intr, plane, cfg_af)
+        scales.append(s_seq._fit_mpp)
+    steps = [b for a, b in zip(scales, scales[1:]) if b != a]
+    deltas = np.diff([scales[0]] + steps)
+    check("auto-fit steps monotonically under a growing formation, never dithering",
+          len(steps) >= 1 and bool((deltas > 0).all()),
+          f"{len(steps)} step(s) over 40 frames: "
+          + " -> ".join(f"{v*100:.2f}" for v in [scales[0]] + steps) + " cm/px")
+
+    # A quantiser that never holds is not a quantiser: the formation grows by 2.3x here,
+    # so a continuous fit would produce ~40 distinct scales rather than a handful.
+    check("auto-fit holds a scale rather than tracking continuously",
+          len(steps) <= 6, f"{len(steps)} changes across 40 frames of steady growth")
+
+
 def main():
     print("=" * 74)
     print("planar_geometry self-test")
@@ -1528,6 +1700,7 @@ def main():
     test_planar_stitcher_end_to_end()
     test_estimators()
     test_formation_plane()
+    test_canvas_modes()
 
     print("\n" + "=" * 74)
     if _failures:

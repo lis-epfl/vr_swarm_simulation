@@ -121,6 +121,25 @@ REASON_PLANE_INVALID = 32
 BLEND_FEATHER = 0
 BLEND_NEAREST = 1
 
+# How the canvas gets its scale and centre. Mirrors PlanarCanvasMode in
+# PyUniSharingFast.cs.
+#
+# FIXED is the original behaviour and the default: metres-per-pixel is the operator's
+# constant and the canvas centre is the reference camera's principal-ray hit, so the
+# mosaic covers the same patch of plane every frame and measurements stay comparable
+# across runs. Its cost is that the framing is only right at one standoff -- a tight
+# formation fills a fraction of the canvas, a wide one overflows it.
+#
+# AUTOFIT derives both from where the views actually land on the plane (_fit_canvas), so
+# the mosaic frames itself. The scale is quantised and damped rather than continuous:
+# a canvas that rescaled every frame would breathe, and the estimators would be measuring
+# on a target that never sits still.
+#
+# Both are modified by the operator's zoom and pan, which are a pure viewing transform on
+# top of whichever rest framing the mode produced -- see planar_pano.
+CANVAS_MODE_FIXED = 0
+CANVAS_MODE_AUTOFIT = 1
+
 # Diagnostic overlay: which view a patch came from. Mirrors PlanarDebugView in
 # PyUniSharingFast.cs. TINT keeps the imagery legible under a colour wash (so you can
 # see both the content and its provenance); FLAT discards the imagery and shows the
@@ -272,6 +291,21 @@ class PlanarStitcher(BaseStitcher):
         # and a wall that has collapsed to a single row switches between them silently.
         self._plane_source = None
 
+        # Auto-fit canvas state. Written ONLY by the render path (planar_pano), read by
+        # the estimators -- the same single-writer discipline _correction uses in the
+        # other direction. Running the stabiliser from both threads would have them
+        # fighting over one incumbent and stepping it twice per frame.
+        #
+        # The centre is kept in right-handed WORLD metres rather than as plane (a, b) for
+        # exactly the reason _pose_shift is: the plane frame's e1 comes from the reference
+        # camera's right axis, so it rotates when that drone yaws or is re-elected, and a
+        # low-pass over (a, b) would then be averaging two different bases together.
+        self._fit_mpp = None            # settled metres-per-pixel, or None until first fit
+        self._fit_step = 0              # incumbent quantiser step, relative to the anchor
+        self._fit_centre_world = None   # low-passed canvas centre, world metres
+        self._fit_changed_at = 0.0
+        self._fit_extent = None         # (width, height) of the fitted footprint, metres
+
         self._plane_invalid_since = None
         self._unposed = 0
         self._stale = 0
@@ -328,11 +362,35 @@ class PlanarStitcher(BaseStitcher):
         if len(cams) < 2:
             return None, False, REASON_CANVAS
 
-        # Canvas centred on the reference view's footprint, at a fixed scale.
-        mpp = config["metres_per_pixel"]
+        # Rest framing, then the operator's viewing transform on top of it.
+        #
+        # FIXED keeps the historical canvas exactly: the reference view's footprint at the
+        # centre, at the operator's scale. AUTOFIT replaces both with a fit to where the
+        # views actually land. Either way zoom and pan are applied afterwards and only
+        # here -- the estimators run on the rest framing, see _estimator_geometry.
+        mpp = float(config.get("metres_per_pixel", 0.0))
         if mpp <= 0.0:
             return None, False, REASON_CANVAS
-        M = pg.canvas_to_plane_matrix(mpp, canvas_w * 0.5, canvas_h * 0.5)
+
+        mode = int(config.get("canvas_mode", CANVAS_MODE_FIXED))
+        # Computed in both modes: it is what bounds the pan, and panning is as useful on a
+        # fixed canvas as on a fitted one. Cheap -- one 3x3 solve and four corners a view.
+        bbox = self._footprint_bbox(cams, config)
+        centre_ab = (0.0, 0.0)
+        if mode == CANVAS_MODE_AUTOFIT:
+            fitted = self._fit_canvas(frame, cams, config, bbox)
+            if fitted is not None:
+                mpp, centre_ab = fitted
+            elif self._fit_mpp:
+                # Nothing fittable this frame (too few views on the plane). Hold the last
+                # settled framing rather than snapping back to the operator's constant --
+                # a one-frame jump in scale is far more disruptive than a stale one.
+                mpp, centre_ab = float(self._fit_mpp), self._centre_in_frame(frame)
+
+        mpp_view, centre_ab = self._view_transform(config, mpp, bbox, centre_ab)
+        if mpp_view <= 0.0 or not np.isfinite(mpp_view):
+            return None, False, REASON_CANVAS
+        M = self._canvas_matrix(mpp_view, canvas_w, canvas_h, centre_ab)
 
         # Projective sanity: a homography cannot fold the way a TPS mesh can, so mesh
         # distortion is meaningless. Anisotropic stretch is the pathology that occurs.
@@ -377,6 +435,16 @@ class PlanarStitcher(BaseStitcher):
             "mean_range": float(np.mean([c["range"] for c in kept])),
             "max_aniso": float(max(c["aniso"] for c in kept)),
             "overlap_psnr": overlap_psnr,
+            "canvas_mode": "autofit" if mode == CANVAS_MODE_AUTOFIT else "fixed",
+            "mpp_fit": float(mpp),
+            "mpp_view": float(mpp_view),
+            "canvas_extent": (canvas_w * float(mpp_view), canvas_h * float(mpp_view)),
+            "zoom": float(config.get("zoom", 1.0) or 1.0),
+            # The scale at which the sharpest view's source pixels land on the plane. Zoom
+            # past it and the canvas is resolving detail the cameras never captured, so it
+            # is the honest end of "inspect closer" -- and it moves with the standoff, so
+            # it has to be measured rather than assumed.
+            "best_gsd": float(min(c["range"] for c in kept) / K[1, 1]),
             "blend": ("nearest"
                       if config.get("blend_mode", BLEND_NEAREST) == BLEND_NEAREST
                       else "feather"),
@@ -924,6 +992,211 @@ class PlanarStitcher(BaseStitcher):
             "worst_residual": max(float(np.linalg.norm(v - mean)) for v in raw.values()),
         }
 
+    # ------------------------------------------------------------------ canvas framing
+
+    # Fraction of spare canvas left around the fitted footprint, so the mosaic does not
+    # sit hard against the canvas edge and a drone drifting outward does not immediately
+    # force a rescale.
+    AUTOFIT_MARGIN = 1.12
+
+    # A view whose footprint area exceeds this multiple of the median is left out of the
+    # fit. The pathology is a near-grazing view, whose footprint runs away toward the
+    # horizon and would pull the scale out by an order of magnitude on its own. The
+    # anisotropy gate catches the same views, but it runs on H -- which needs the scale
+    # this function is computing -- so the fit cannot lean on it.
+    AUTOFIT_AREA_OUTLIER = 6.0
+
+    # Scale quantisation, in steps per octave. The fitted scale is snapped to one of these
+    # steps about the operator's planarMetresPerPixel, because a continuously-fitted
+    # canvas visibly breathes: every frame's footprint differs slightly, and rescaling on
+    # each is both distracting to look at and a moving target for the estimators.
+    AUTOFIT_STEPS_PER_OCTAVE = 3.0
+    # Extra dead-band either side of the incumbent step, in steps. Without it the scale
+    # dithers between two steps whenever the formation sits near a boundary.
+    AUTOFIT_HYSTERESIS_STEPS = 0.25
+    # Floor on how often the scale may step, seconds. Hysteresis stops dithering about a
+    # boundary; this stops a genuinely growing formation from ratcheting every frame.
+    AUTOFIT_DWELL_S = 1.5
+    # Hard bound on how far the fit may depart from the operator's value, in octaves.
+    AUTOFIT_MAX_OCTAVES = 3.0
+    # Low-pass rate for the canvas centre. Snapped rather than damped on the first fit --
+    # the same argument as the sweep's ACQUIRE snap, since there is no incumbent to damp
+    # toward and starting at the origin would make every run open with a slow slide.
+    AUTOFIT_CENTRE_RATE = 0.15
+
+    def _view_footprint(self, cam, max_range):
+        """
+        Where a view's four image corners land on the plane, in plane coordinates.
+
+        Recovered by inverting ``G`` rather than by re-casting rays from the pose, which
+        means it automatically reflects whatever corrections ``_build_geometry`` already
+        baked in and needs no second copy of that logic.  ``G`` maps ``(a, b, 1)`` to a
+        homogeneous pixel whose third component is depth in metres, so for a corner
+        ``u``, ``p = G^-1 u`` satisfies ``p = (a, b, 1) / depth`` -- i.e. ``p[2]`` is the
+        reciprocal depth, and every rejection the ray cast would make (parallel to the
+        plane, behind the camera, past ``max_range``) is a test on that one number.
+
+        Returns an ``(n, 2)`` array of corners that hit the plane, or ``None``.
+        """
+        h, w = cam["view"]["image"].shape[:2]
+        corners = np.array([
+            [0.0, 0.0, 1.0], [w - 1.0, 0.0, 1.0],
+            [w - 1.0, h - 1.0, 1.0], [0.0, h - 1.0, 1.0],
+        ], dtype=np.float64).T
+        try:
+            p = np.linalg.solve(np.asarray(cam["G"], dtype=np.float64), corners)
+        except np.linalg.LinAlgError:
+            return None
+
+        min_recip = 1.0 / max_range if np.isfinite(max_range) and max_range > 0.0 else 0.0
+        ok = np.isfinite(p).all(axis=0) & (p[2] > max(min_recip, 1e-9))
+        if not ok.any():
+            return None
+        return (p[:2, ok] / p[2, ok]).T
+
+    def _footprint_bbox(self, cams, config):
+        """
+        Axis-aligned bounds of the views' footprints on the plane, ``(lo, hi)`` in plane
+        coordinates, or ``None`` when too little of the formation is looking at it.
+
+        Views with a wildly outsized footprint are dropped first -- see
+        ``AUTOFIT_AREA_OUTLIER``.
+        """
+        max_range = float(config.get("max_range", 0.0)) or np.inf
+        spans = []
+        for cam in cams:
+            fp = self._view_footprint(cam, max_range)
+            if fp is None or len(fp) < 3:
+                continue
+            lo, hi = fp.min(axis=0), fp.max(axis=0)
+            spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1]))))
+
+        if len(spans) < 2:
+            return None
+
+        areas = np.array([s[2] for s in spans])
+        median = float(np.median(areas))
+        if median > 0.0:
+            keep = [s for s in spans if s[2] <= median * self.AUTOFIT_AREA_OUTLIER]
+            # Never let the outlier rule empty the fit: if it would, the spread is not an
+            # outlier, it is the formation, and the bbox over everything is the honest
+            # answer.
+            if len(keep) >= 2:
+                spans = keep
+
+        lo = np.min(np.stack([s[0] for s in spans]), axis=0)
+        hi = np.max(np.stack([s[1] for s in spans]), axis=0)
+        return lo, hi
+
+    def _fit_canvas(self, frame, cams, config, bbox):
+        """
+        Settle the auto-fit scale and centre from a footprint bounding box.
+
+        Render thread only -- it mutates the ``_fit_*`` incumbents.  Returns
+        ``(mpp, centre_ab)``, or ``None`` when there is nothing to fit and the caller
+        should hold whatever it had.
+        """
+        if bbox is None:
+            return None
+        canvas_w, canvas_h = config["canvas"]
+        anchor = float(config.get("metres_per_pixel", 0.0))
+        if anchor <= 0.0 or canvas_w <= 0 or canvas_h <= 0:
+            return None
+
+        lo, hi = bbox
+        extent = np.maximum(hi - lo, 1e-6)
+        raw = max(extent[0] / canvas_w, extent[1] / canvas_h) * self.AUTOFIT_MARGIN
+        if not np.isfinite(raw) or raw <= 0.0:
+            return None
+
+        # Quantise in log space: one step is a fixed *ratio*, which is what "a scale step"
+        # means perceptually, and it makes the hysteresis band symmetric about the step.
+        limit = self.AUTOFIT_MAX_OCTAVES * self.AUTOFIT_STEPS_PER_OCTAVE
+        q = float(np.clip(np.log2(raw / anchor) * self.AUTOFIT_STEPS_PER_OCTAVE,
+                          -limit, limit))
+        now = time.monotonic()
+        if self._fit_mpp is None:
+            self._fit_step = int(round(q))
+            self._fit_changed_at = now
+        elif (abs(q - self._fit_step) > 0.5 + self.AUTOFIT_HYSTERESIS_STEPS
+                and now - self._fit_changed_at >= self.AUTOFIT_DWELL_S):
+            self._fit_step = int(round(q))
+            self._fit_changed_at = now
+        mpp = anchor * (2.0 ** (self._fit_step / self.AUTOFIT_STEPS_PER_OCTAVE))
+
+        # Centre, low-passed in world coordinates (see __init__ for why not in (a, b)).
+        centre_ab = 0.5 * (lo + hi)
+        measured = frame.O + centre_ab[0] * frame.e1 + centre_ab[1] * frame.e2
+        if self._fit_centre_world is None:
+            self._fit_centre_world = measured
+        else:
+            self._fit_centre_world = (self._fit_centre_world
+                                      + self.AUTOFIT_CENTRE_RATE
+                                      * (measured - self._fit_centre_world))
+
+        self._fit_mpp = mpp
+        self._fit_extent = (float(extent[0]), float(extent[1]))
+        return mpp, self._centre_in_frame(frame)
+
+    def _centre_in_frame(self, frame):
+        """The low-passed canvas centre expressed in ``frame``'s plane coordinates."""
+        if self._fit_centre_world is None:
+            return 0.0, 0.0
+        rel = self._fit_centre_world - frame.O
+        return float(rel @ frame.e1), float(rel @ frame.e2)
+
+    def _canvas_matrix(self, mpp, canvas_w, canvas_h, centre_ab):
+        """
+        ``M`` for a canvas of ``mpp`` centred on plane point ``centre_ab``.
+
+        ``canvas_to_plane_matrix`` takes the plane origin's pixel coordinates, so placing
+        a chosen plane point at the canvas centre is a shift of those: solving
+        ``M (W/2, H/2, 1) == (ca, cb, 1)`` on its two rows gives the pair below.  Passing
+        ``(0, 0)`` reproduces the plain centred canvas exactly.
+        """
+        ca, cb = centre_ab
+        return pg.canvas_to_plane_matrix(mpp,
+                                         canvas_w * 0.5 - ca / mpp,
+                                         canvas_h * 0.5 + cb / mpp)
+
+    def _view_transform(self, config, mpp_fit, bbox, centre_ab):
+        """
+        Apply the operator's zoom and pan to a rest framing.
+
+        Returns ``(mpp_view, centre_ab)``.  Pan arrives as a fraction of the canvas, not
+        as metres, so that dragging half a screen is half a screen at every zoom level;
+        it is converted here, where the canvas extent is known.  A non-zero pan is then
+        clamped to the footprint bounding box, because panning until the canvas holds
+        nothing but blank plane is never what the operator meant -- and this is the side
+        that knows where the imagery actually is.
+
+        The clamp applies to the pan only, never to the rest framing: an unpanned canvas
+        must come out exactly where its mode put it, even on the odd frame where the
+        bounding box does not contain it (the reference view can be dropped by the range
+        check while the others survive).  Otherwise ``pan = 0`` would silently relocate
+        the FIXED canvas, which is the one thing it must never do.
+        """
+        canvas_w, canvas_h = config["canvas"]
+        zoom = float(config.get("zoom", 1.0) or 1.0)
+        if not np.isfinite(zoom) or zoom <= 0.0:
+            zoom = 1.0
+        mpp_view = mpp_fit / zoom
+
+        pan = config.get("pan", (0.0, 0.0)) or (0.0, 0.0)
+        pan_a, pan_b = float(pan[0]), float(pan[1])
+        if not (np.isfinite(pan_a) and np.isfinite(pan_b)):
+            pan_a = pan_b = 0.0
+        if pan_a == 0.0 and pan_b == 0.0:
+            return mpp_view, centre_ab
+
+        ca = centre_ab[0] + pan_a * canvas_w * mpp_view
+        cb = centre_ab[1] + pan_b * canvas_h * mpp_view
+        if bbox is not None:
+            lo, hi = bbox
+            ca = float(np.clip(ca, min(lo[0], centre_ab[0]), max(hi[0], centre_ab[0])))
+            cb = float(np.clip(cb, min(lo[1], centre_ab[1]), max(hi[1], centre_ab[1])))
+        return mpp_view, (ca, cb)
+
     # ------------------------------------------------------------------ estimator internals
 
     def _estimator_geometry(self, views, K, plane, config, plane_offset=None,
@@ -935,11 +1208,29 @@ class PlanarStitcher(BaseStitcher):
         pixels, so metres-per-pixel grows by the inverse of the scale -- shrinking the
         pixel count without shrinking the field of view, which is what keeps the two
         estimators looking at the same overlap the render path does.
+
+        **The operator's zoom and pan are deliberately not applied here.**  They are a
+        viewing transform, and letting them through would resize and slide the canvas the
+        sweep is scanning on: its minimum is a basin a few source-disparity pixels wide,
+        and moving the measurement window mid-convergence is precisely the "sweep loses
+        its lock" failure the ACQUIRE/TRACK split exists to prevent.  Pilots zoom in to
+        look at things, which must not cost them their alignment.
+
+        The auto-fit scale *is* followed, because it changes what plane region the
+        overlap covers -- but it is only read here.  ``_fit_canvas`` runs on the render
+        thread, and the two estimators run on the warp thread; one writer, two readers.
+        Following it at a frame's lag is harmless, and the corrections themselves are
+        stored in metres (``_pose_shift``) and scanned in source-disparity pixels
+        (``SWEEP_*_STEP_PX``), so both are invariant to the canvas scale and a step in the
+        fit needs nothing reset.
         """
         canvas_w, canvas_h = config["canvas"]
         mpp = float(config.get("metres_per_pixel", 0.0))
         if canvas_w <= 0 or canvas_h <= 0 or mpp <= 0.0:
             return None, [], None, 0, 0, 0.0
+        if (int(config.get("canvas_mode", CANVAS_MODE_FIXED)) == CANVAS_MODE_AUTOFIT
+                and self._fit_mpp):
+            mpp = float(self._fit_mpp)
 
         frame, cams = self._build_geometry(views, K, plane, config,
                                            plane_offset=plane_offset,
@@ -950,7 +1241,10 @@ class PlanarStitcher(BaseStitcher):
         cw = max(16, int(canvas_w * self.ESTIMATOR_SCALE))
         ch = max(16, int(canvas_h * self.ESTIMATOR_SCALE))
         mpp_s = mpp * (canvas_w / float(cw))
-        M_s = pg.canvas_to_plane_matrix(mpp_s, cw * 0.5, ch * 0.5)
+        centre_ab = ((0.0, 0.0)
+                     if int(config.get("canvas_mode", CANVAS_MODE_FIXED)) == CANVAS_MODE_FIXED
+                     else self._centre_in_frame(frame))
+        M_s = self._canvas_matrix(mpp_s, cw, ch, centre_ab)
         return frame, cams, M_s, cw, ch, mpp_s
 
     def _warp_grey(self, cams, M, canvas_w, canvas_h):
@@ -1632,6 +1926,25 @@ class PlanarStitcher(BaseStitcher):
               # published. Which rule won matters: "forward" means the formation collapsed
               # to a row and the normal now follows the gimbal.
               + (f" | plane from {self._plane_source}" if self._plane_source else ""))
+
+        # Framing, and where zoom stops buying detail. Printed as the canvas extent in
+        # metres rather than as metres-per-pixel because the extent is the thing an
+        # operator can check against the scene in front of them. "empty" flags a canvas
+        # sampled finer than the sharpest view's ground sample distance: past that point
+        # the mosaic is interpolating source pixels, not resolving new detail, which no
+        # other number on this line would reveal.
+        mpp_view = s.get("mpp_view", 0.0)
+        if mpp_view > 0.0:
+            gsd = s.get("best_gsd", 0.0)
+            zoom = s.get("zoom", 1.0)
+            ext_a, ext_b = s.get("canvas_extent", (0.0, 0.0))
+            print(f"[PLANAR] canvas [{s.get('canvas_mode', '?')}] "
+                  f"{ext_a:.1f} x {ext_b:.1f} m "
+                  f"@ {mpp_view * 100.0:.1f} cm/px"
+                  + (f" | zoom {zoom:.2f}x" if abs(zoom - 1.0) > 1e-3 else "")
+                  + (f" | source GSD {gsd * 100.0:.1f} cm/px"
+                     f"{' (EMPTY magnification)' if mpp_view < gsd else ''}"
+                     if gsd > 0.0 else ""))
 
         # A colour map is useless without the key, and the selection changes as drones
         # join, die or fall out of range -- so reprint it alongside the stats rather
