@@ -26,14 +26,6 @@ DJI_SHARING_PY = os.path.join(
     "DJI_Swarm", "AOS server", "utils", "imageSharingUtil.py")
 
 
-def _parse_py_const(path, name):
-    """One int constant out of a Python file, or None if the file is not there."""
-    if not os.path.exists(path):
-        return None
-    src = open(path, encoding="utf-8").read()
-    m = re.search(r"^%s\s*=\s*(\d+)" % re.escape(name), src, re.M)
-    return int(m.group(1)) if m else None
-
 # C# constant name -> Python constant name
 PAIRS = [
     ("metadataSize",                  "METADATA_SIZE"),
@@ -289,20 +281,37 @@ def main():
             if not ok:
                 failures.append(f"ImageSharing.{sh_name} ({a}) != {cs_name} ({b})")
 
-        # The other repo's feed-block header. Reported when DJI_Swarm is not checked out
-        # beside this one, asserted when it is: nothing else guards this pair, and a
-        # mismatch is silent on both sides -- it reads image bytes as a header.
-        feed_hdr = _parse_py_const(DJI_SHARING_PY, "BLOCK_HEADER_V2_BYTES")
-        if feed_hdr is None:
-            print(f"  feed header    DJI_Swarm not found at {DJI_SHARING_PY}; skipped")
+        # The other repo's copies. Reported when DJI_Swarm is not checked out beside this
+        # one, asserted when it is: nothing else guards these, and a mismatch is silent on
+        # both sides -- it reads image bytes as a header.
+        if not os.path.exists(DJI_SHARING_PY):
+            print(f"  DJI_Swarm not found at {DJI_SHARING_PY}; cross-repo checks skipped")
         else:
-            ok = feed_hdr == sh.get("MetadataSize")
-            print(f"  feed header    imageSharingUtil.BLOCK_HEADER_V2_BYTES = {feed_hdr}, "
-                  f"ImageSharing.MetadataSize = {sh.get('MetadataSize')}  "
-                  f"{'OK' if ok else 'MISMATCH'}")
-            if not ok:
-                failures.append(f"imageSharingUtil.BLOCK_HEADER_V2_BYTES ({feed_hdr}) != "
-                                f"ImageSharing.MetadataSize ({sh.get('MetadataSize')})")
+            dji = parse_py(DJI_SHARING_PY)
+            # The feed header, which is what that repo writes into DroneFeedSharedMemory.
+            # Its own section geometry is independent of the stitcher's and is not checked
+            # here -- MAX_DRONES vs MaxFeedBlocks is reported below instead.
+            #
+            # The STITCH_* trio is a different matter. In the normal architecture nothing
+            # in DJI_Swarm creates BlockSharedMemory at all; but its two legacy debug
+            # tools (image_stream.py, image_replay.py) bypass Unity and write it directly,
+            # and a named Windows section cannot be resized -- so if their geometry drifts
+            # from the sim's, whichever process starts first either denies the other its
+            # mapping or silently hands it a partial view.
+            for label, dji_name, cs_name in [
+                    ("feed header", "BLOCK_HEADER_V2_BYTES", "blockPoseHeaderSize"),
+                    ("stitch capacity", "STITCH_SLOT_CAPACITY", "blockSlotCapacity"),
+                    ("stitch stride", "STITCH_SLOT_STRIDE", "blockSlotStride"),
+                    ("stitch section", "STITCH_SECTION_BYTES", "blockSectionBytes"),
+                    ("stitch env w", "STITCH_MAX_IMAGE_WIDTH", "maxBlockWidth"),
+                    ("stitch env h", "STITCH_MAX_IMAGE_HEIGHT", "maxBlockHeight"),
+            ]:
+                a, b = dji.get(dji_name), cs.get(cs_name)
+                ok = a is not None and a == b
+                print(f"  {label:<15} imageSharingUtil.{dji_name} = {a}, "
+                      f"PyUniSharingFast.{cs_name} = {b}  {'OK' if ok else 'MISMATCH'}")
+                if not ok:
+                    failures.append(f"imageSharingUtil.{dji_name} ({a}) != {cs_name} ({b})")
 
         # image_stream_feed.py writes this map in the DJI_Swarm repo; its MAX_DRONES must
         # equal MaxFeedBlocks. Reported rather than asserted -- that repo is not here.
