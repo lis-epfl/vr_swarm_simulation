@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
 import glob
+import os
+import sys
 import torch
 import time
 import traceback
@@ -104,6 +106,23 @@ META_PLANAR_ZOOM_OFFSET = 368            # float32 zoom, then float32 pan a, b (
 # Static, like the estimator settings: an inspector choice, not a per-frame measurement.
 META_PLANAR_CANVAS_MODE_OFFSET = 380     # uint8, PlanarStitcher.CANVAS_MODE_*
 
+# Producer liveness, bumped every Unity frame. Outside the seqlock: the only question ever
+# asked of it is "did this change?", for which a torn read is as good as a clean one.
+#
+# It exists because a crashed Unity is otherwise invisible from here. Closing the producer's
+# handle does not destroy the section while we still hold ours, so the last frame's bytes
+# stay readable forever and every gate downstream keeps passing on stale pixels.
+META_HEARTBEAT_OFFSET = 384              # uint32, monotonic
+# Section geometry, published so this side can verify rather than assume. Both sides hold
+# them as constants; a mismatch means the two processes were built from different revisions,
+# which would otherwise be silent -- we would address slots at the wrong stride and read
+# image bytes as headers.
+META_BLOCK_SLOT_CAPACITY_OFFSET = 388    # int32
+META_BLOCK_SLOT_STRIDE_OFFSET = 392      # int32
+# The two trailing size fields, after metadataReservedGap.
+META_BLOCK_SECTION_BYTES_OFFSET = 404    # int32
+META_PANORAMA_SECTION_BYTES_OFFSET = 408  # int32
+
 # ScenePlaneMode.FormationRelative in PyUniSharingFast.cs. In this mode Unity publishes no
 # usable normal/offset -- there is no raycast to produce one, which is the entire reason the
 # mode exists -- so Python derives the plane from the block poses instead. Mirrors the C#
@@ -112,8 +131,9 @@ PLANE_MODE_FORMATION_RELATIVE = 4
 
 # Per-drone block header. v1 is flag|droneId|heading; v2 appends the camera pose that
 # was snapshotted with the image. Unity advertises which one it is writing in
-# metadata's block_header_size, so both producers can coexist (ImageSharing.cs in the
-# DJI scene stays on v1 -- real drones publish no position).
+# metadata's block_header_size. Both producers write v2 now; v1 is kept named because
+# check_wire_layout.py asserts the constant, and because a v1 producer's blocks stay
+# readable -- they simply arrive with pose_status == 0 and are dropped by the planar solve.
 BLOCK_HEADER_SIZE_V1 = 12
 BLOCK_HEADER_SIZE_V2 = 48
 BLOCK_CAM_POS_OFFSET = 12            # float32 x, y, z  (Unity world, LEFT-handed)
@@ -123,6 +143,46 @@ BLOCK_POSE_STATUS_OFFSET = 44        # int32 bitfield
 POSE_VALID = 1 << 0
 POSE_GROUND_TRUTH = 1 << 1
 POSE_NOISE_INJECTED = 1 << 2
+
+# ---------------------------------------------------------------------------------
+# Block section envelope. Mirrors PyUniSharingFast.blockSlotCapacity / maxBlockWidth /
+# maxBlockHeight / blockSlotStride / blockSectionBytes, and ImageSharing.cs's copies of
+# the same, all asserted equal by tools/check_wire_layout.py.
+#
+# BlockSharedMemory is a FIXED array of FIXED-stride slots, mapped once and never remapped.
+# That is not a preference -- it is the only shape Windows allows. mmap.mmap(-1, size, tag)
+# is CreateFileMapping under the hood, and CreateFileMapping does not create a second
+# section when the name exists: it opens the existing one, and a request LARGER than that
+# section fails with ERROR_ACCESS_DENIED. A named section can never be resized. Sizing the
+# mapping from the live drone count (as this used to) therefore deadlocked against whichever
+# process got there first, which is what surfaced as "access denied to BlockSharedMemory"
+# after a Unity crash, a stitcher switch, or a change in fleet size.
+#
+# Consequences:
+#  - slot i is ALWAYS at i * BLOCK_SLOT_STRIDE. Nothing on the wire moves a slot: not the
+#    fleet size, not the stitcher, not the image resolution. Only the payload *length*
+#    is live, and that comes from metadata.
+#  - block_image_count in metadata is a SCAN HINT, not a size. It says how many slots are
+#    worth polling; droneId == -1 is what actually marks a slot as carrying no view.
+#  - raise these on BOTH sides together, or check_wire_layout.py fails.
+BLOCK_SLOT_CAPACITY = 24
+BLOCK_MAX_WIDTH = 1280
+BLOCK_MAX_HEIGHT = 720
+BLOCK_SLOT_STRIDE = BLOCK_HEADER_SIZE_V2 + BLOCK_MAX_WIDTH * BLOCK_MAX_HEIGHT * 3
+BLOCK_SECTION_BYTES = BLOCK_SLOT_CAPACITY * BLOCK_SLOT_STRIDE
+
+# Panorama section: int32 flag | int32 quality word | RGB24 panorama. Unity has always
+# created this at the constant maximum; this side used to ask for the *live* panorama size,
+# so whichever process created it first denied the other. Now both request the constant.
+PANORAMA_HEADER_BYTES = 8
+PANORAMA_MAX_WIDTH = 4000
+PANORAMA_MAX_HEIGHT = 4000
+PANORAMA_SECTION_BYTES = PANORAMA_HEADER_BYTES + PANORAMA_MAX_WIDTH * PANORAMA_MAX_HEIGHT * 3
+
+# How long the producer's heartbeat may stand still before we conclude Unity is gone.
+# Generously above a stutter or a domain reload; well under a human's patience for a
+# frozen panorama.
+HEARTBEAT_TIMEOUT_S = 5.0
 
 
 class RateMeter:
@@ -661,6 +721,11 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
     # Read metadata first to get image dimensions
     metadataMMF = mmap.mmap(-1, METADATA_SIZE, "MetadataSharedMemory")
 
+    # Both remaining sections are constant-sized, so they can be mapped right here,
+    # before anything is known about the fleet, and never touched again.
+    blockMMF = open_block_map()
+    panoramaMMF = open_panorama_map()
+
     output = readMetadataMemory(metadataMMF)
     batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
@@ -669,12 +734,10 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
     # there. The neural-net warp runs at a fixed NET_W x NET_H regardless, so only
     # the render + memory-bridge costs grow with resolution.
     #
-    # Wait until Unity has published real (non-zero) sizes before sizing the block
-    # mapping — a pre-Start read yields zeros, which would make the mmap fail. The
-    # block header size has to be published too, since it sets the block stride.
-    # imageCount is waited on too: it is the block-map slot count, and a producer that
-    # publishes 0 (a Unity build that only assigns it when it owns the section) otherwise
-    # sails past here and dies silently inside _ensure_block_map's num_blocks <= 0 guard.
+    # Wait until Unity has published real (non-zero) sizes. These no longer size any
+    # mapping — both are constants now — but they are still the payload geometry, and a
+    # pre-Start read yields zeros, which would reshape an empty buffer. imageCount is
+    # waited on because a scan hint of 0 means no slots are polled at all.
     waited = False
     while (batchImageWidth <= 0 or batchImageHeight <= 0
            or imageCount <= 0 or output["block_header_size"] <= 0):
@@ -689,19 +752,16 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
         output = readMetadataMemory(metadataMMF)
         batchImageWidth, batchImageHeight, imageCount, manager.processedImageWidth, manager.processedImageHeight = output["Sizes"]
 
-    # The block map is sized from Unity's metadata rather than from a fixed count, so
-    # PLANAR can publish more than three views. Unity keeps the section a fixed size
-    # for a given camera count (spare slots are marked droneId = -1), so this normally
-    # opens once; it re-opens only if the count, resolution or header version changes.
-    block_map = None
+    # Per-slot cache of the last frame each slot served, so a busy block can re-serve its
+    # previous frame rather than dropping the view. Keyed by slot index, which is stable
+    # for the life of the process now that the section is.
     block_cache = {}
 
     first_loop = True
     last_debug_write = 0.0
     last_render_signal = 0.0
-    # Panorama output mapping is opened once on the first write (below) and reused,
-    # rather than being re-created every frame as it was previously.
-    panoramaMMF = None
+    # Producer-liveness watchdog state; see check_producer_alive.
+    heartbeat_state = {"value": None, "since": time.time()}
 
     while True:
         # Update metadata
@@ -723,23 +783,25 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
             manager.scene_plane = dynamic
             manager.set_planar_view(dynamic)
 
-        block_map, changed = _ensure_block_map(
-            block_map, imageCount, output["block_header_size"],
-            batchImageWidth, batchImageHeight, enable_debug_logging)
-        if changed:
-            block_cache.clear()
-        if block_map is None:
-            time.sleep(0.05)
-            continue
+        # The section is fixed, so there is nothing to re-open. What is still checked every
+        # pass is that the producer agrees with us about the geometry, and that it is
+        # actually alive -- neither of which the block flags can tell us.
+        verify_section_geometry(output)
+        check_producer_alive(metadataMMF, heartbeat_state)
+
+        # Slots worth polling. Clamped to the section rather than trusted: imageCount is a
+        # hint from another process, and reading past the capacity would walk off the end
+        # of the mapping.
+        scan_slots = max(0, min(imageCount, BLOCK_SLOT_CAPACITY))
 
         # Read images from block-based memory, falling back to cached frames for busy blocks
         try:
             views = read_block_memory(
-                block_map["mmf"],
-                block_map["num_blocks"],
-                block_map["block_size"],
-                block_map["header_size"],
-                block_map["image_size"],
+                blockMMF,
+                scan_slots,
+                BLOCK_SLOT_STRIDE,
+                output["block_header_size"],
+                batchImageWidth * batchImageHeight * 3,
                 batchImageWidth,
                 batchImageHeight,
                 enable_debug_logging,
@@ -751,13 +813,15 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
             time.sleep(0.05)
             continue
 
-        # A planar mosaic tolerates a variable view count (drones die, the selection
-        # shrinks); the left/centre/right stitchers need their exact triple, so they
-        # keep the original all-or-nothing rule and hold the previous frame otherwise.
+        # Both arms are now floors rather than exact counts. The old non-planar rule was
+        # `len(views) == num_blocks`, which worked only while Unity sized the section to
+        # exactly the three slots STABSTITCH fills. With a fixed-capacity section the spare
+        # slots are permanently droneId = -1 and never become views, so that test would be
+        # permanently false and the panorama would never form.
         if manager.active_stitcher_type == "PLANAR":
             have_enough = len(views) >= MIN_PLANAR_IMAGES
         else:
-            have_enough = len(views) == block_map["num_blocks"]
+            have_enough = len(views) >= MIN_STITCH_IMAGES
 
         if have_enough:
             # Sort by drone ID to get a stable known order
@@ -807,14 +871,11 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
             quality_int = 1 if quality_ok else 0
             image_size = manager.processedImageWidth * manager.processedImageHeight * 3
 
-            if panoramaMMF is None:
-                try:
-                    panoramaMMF = mmap.mmap(-1, image_size + 4 + 4, "PanoramaSharedMemory")
-                except Exception as e:
-                    if enable_debug_logging:
-                        print(f"[first_thread] Error opening panorama memory: {e}")
-                    continue
-
+            # The section is a fixed PANORAMA_SECTION_BYTES and was mapped at startup; the
+            # live panorama is written as a prefix of it. Sizing the mapping from
+            # image_size here was the panorama's copy of the block map's resize bug, with
+            # the added twist that this path had no retry — one denial and the curved
+            # screen stayed dark for the session.
             if panorama is None:
                 # Fallback: panorama is bad — only update the quality flag so
                 # Unity switches to the individual feeds. Leave image bytes stale.
@@ -881,6 +942,14 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
 
     ``metadataSize`` is the block *header* size and selects between the two layouts;
     Unity advertises it in the metadata block.
+
+    ``blockSize`` is the slot stride, and is always the BLOCK_SLOT_STRIDE constant --
+    slot i is at i * BLOCK_SLOT_STRIDE regardless of the live resolution, which is why
+    ``imageSize`` (the live payload length) is a separate argument rather than the stride
+    minus the header. The tail of each slot beyond ``metadataSize + imageSize`` is padding.
+
+    ``num_blocks`` is the scan hint from metadata, not a capacity: slots past it are
+    simply not polled, and slots within it may still be empty (droneId == -1).
 
     Parameters:
         - cache: optional dict {block_idx: view} used to substitute the previous frame
@@ -986,53 +1055,143 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
     return views
 
 
-def _ensure_block_map(block_map, num_blocks, header_size, image_w, image_h, debug=False):
+def _fatal(message):
     """
-    Open (or re-open) BlockSharedMemory whenever its geometry changes.
+    Print a diagnostic and exit non-zero.
 
-    Unity's CreateBlockMap destroys and recreates the named section when the block
-    count changes, so a mapping held across that is stale -- it silently keeps reading
-    a dead section. Unity avoids churning it by sizing from the camera count rather
-    than the per-frame selection, but a stitcher-mode switch (3 <-> N views) or a
-    resolution change still resizes it, and this is what notices.
-
-    Returns ``(block_map, changed)``; ``block_map`` is None if the mapping failed.
+    Reserved for violations of the shared-memory contract: a section that cannot be
+    mapped, a producer built from a different revision, or a producer that has died.
+    All three are conditions this process cannot recover from and must not paper over --
+    a stitcher that keeps running on a dead or misaddressed section produces a panorama
+    that looks plausible and means nothing, which is strictly worse than stopping.
     """
-    image_size = image_w * image_h * 3
-    block_size = header_size + image_size
-    key = (num_blocks, header_size, image_size)
+    print("")
+    print("=" * 78)
+    print("[StitcherThreading] FATAL: " + message)
+    print("=" * 78)
+    sys.stdout.flush()
+    os._exit(1)
 
-    if block_map is not None and block_map["key"] == key:
-        return block_map, False
 
-    if num_blocks <= 0 or header_size <= 0 or image_size <= 0:
-        return None, block_map is not None
+def open_block_map():
+    """
+    Map BlockSharedMemory, once, at the constant BLOCK_SECTION_BYTES.
 
+    There is deliberately no re-open path and no geometry key. The section is a fixed
+    array at a fixed stride (see the BLOCK_SLOT_* block above), so nothing Unity does at
+    runtime -- adding drones, switching stitcher, changing resolution -- can invalidate
+    this mapping. The previous version re-requested the section at a new size whenever
+    metadata's block count changed, and because it opened the new mapping *before*
+    closing the old one, its own live handle guaranteed the size conflict that Windows
+    answers with ERROR_ACCESS_DENIED.
+
+    Note this needs nothing from metadata, so it can run before the metadata handshake.
+    """
     try:
-        mmf = mmap.mmap(-1, num_blocks * block_size, "BlockSharedMemory")
+        mmf = mmap.mmap(-1, BLOCK_SECTION_BYTES, "BlockSharedMemory")
     except Exception as e:
-        print(f"[first_thread] Could not map BlockSharedMemory "
-              f"({num_blocks} x {block_size} B): {e}")
-        return None, block_map is not None
+        _fatal(f"could not map BlockSharedMemory at {BLOCK_SECTION_BYTES} B "
+               f"({BLOCK_SLOT_CAPACITY} slots x {BLOCK_SLOT_STRIDE} B): {e}\n"
+               "  If this is an access-denied error, a section of that name already exists\n"
+               "  at a different size — another stitcher, or a Unity built against a\n"
+               "  different BLOCK_SLOT_CAPACITY / image envelope, is still running.")
 
-    if block_map is not None:
-        try:
-            block_map["mmf"].close()
-        except Exception:
-            pass
+    print(f"[first_thread] Block map: {BLOCK_SLOT_CAPACITY} slots x {BLOCK_SLOT_STRIDE} B "
+          f"= {BLOCK_SECTION_BYTES} B (fixed; envelope {BLOCK_MAX_WIDTH}x{BLOCK_MAX_HEIGHT})")
+    return mmf
 
-    wire = "v2 (pose)" if header_size >= BLOCK_HEADER_SIZE_V2 else "v1 (no pose)"
-    print(f"[first_thread] Block map: {num_blocks} blocks x {block_size} B "
-          f"({image_w}x{image_h}, header {header_size} B, {wire})")
 
-    return {
-        "mmf": mmf,
-        "key": key,
-        "num_blocks": num_blocks,
-        "block_size": block_size,
-        "header_size": header_size,
-        "image_size": image_size,
-    }, True
+def open_panorama_map():
+    """
+    Map PanoramaSharedMemory, once, at the constant PANORAMA_SECTION_BYTES.
+
+    Unity has always created this section at its own constant maximum; this side used to
+    ask for the *live* panorama size (w*h*3 + 8), which is smaller for every resolution
+    anyone actually uses. Whichever process created the section first therefore denied the
+    other -- and unlike the block map this one had no retry at all, so the symptom was a
+    curved screen that simply never updated for the whole session.
+    """
+    try:
+        mmf = mmap.mmap(-1, PANORAMA_SECTION_BYTES, "PanoramaSharedMemory")
+    except Exception as e:
+        _fatal(f"could not map PanoramaSharedMemory at {PANORAMA_SECTION_BYTES} B: {e}\n"
+               "  If this is an access-denied error, a section of that name already exists\n"
+               "  at a different size — another stitcher, or a Unity built against a\n"
+               "  different panorama envelope, is still running.")
+
+    print(f"[first_thread] Panorama map: {PANORAMA_SECTION_BYTES} B (fixed; envelope "
+          f"{PANORAMA_MAX_WIDTH}x{PANORAMA_MAX_HEIGHT})")
+    return mmf
+
+
+def check_producer_alive(metadataMMF, state):
+    """
+    Watchdog the producer's heartbeat; exit if it stops advancing.
+
+    Unity bumps META_HEARTBEAT_OFFSET every frame. If it stands still for
+    HEARTBEAT_TIMEOUT_S the producer has crashed or been stopped -- and crucially, nothing
+    else on the wire says so. Closing Unity's handle does not destroy the section while we
+    hold ours, so every block keeps its last contents, every flag stays quiescent, and the
+    stitcher goes on rendering a frozen panorama indefinitely.
+
+    ``state`` is a dict carrying {"value", "since"} across calls.
+    """
+    try:
+        metadataMMF.seek(META_HEARTBEAT_OFFSET)
+        beat = struct.unpack('<I', metadataMMF.read(4))[0]
+    except Exception:
+        return  # a torn or short read is not evidence of anything; try again next pass
+
+    now = time.time()
+    if beat != state["value"]:
+        state["value"] = beat
+        state["since"] = now
+        return
+
+    if now - state["since"] >= HEARTBEAT_TIMEOUT_S:
+        _fatal(f"the Unity producer has not advanced its heartbeat for "
+               f"{now - state['since']:.1f} s (stuck at {beat}).\n"
+               "  Unity has crashed or stopped. The shared sections stay readable while\n"
+               "  this process holds them, so continuing would render the same dead frame\n"
+               "  forever. Restart Unity, then restart this stitcher.")
+
+
+def verify_section_geometry(metadata):
+    """
+    Check the geometry Unity published against our own constants.
+
+    Both sides hold these as compile-time constants, so a disagreement means the two
+    processes were built from different revisions. That is silent corruption if it goes
+    undetected: we would address slots at the producer's stride minus ours and read image
+    bytes as headers, which yields garbage poses rather than an error.
+    """
+    expected = (
+        ("block slot capacity", BLOCK_SLOT_CAPACITY, metadata.get("block_slot_capacity")),
+        ("block slot stride", BLOCK_SLOT_STRIDE, metadata.get("block_slot_stride")),
+        ("block section bytes", BLOCK_SECTION_BYTES, metadata.get("block_section_bytes")),
+        ("panorama section bytes", PANORAMA_SECTION_BYTES, metadata.get("panorama_section_bytes")),
+    )
+    bad = [(name, mine, theirs) for name, mine, theirs in expected if theirs != mine]
+    if bad:
+        lines = [f"    {name}: this stitcher {mine}, Unity {theirs}" for name, mine, theirs in bad]
+        _fatal("shared-memory geometry disagrees with the Unity producer.\n"
+               + "\n".join(lines)
+               + "\n  The two were built from different revisions. Update whichever side is\n"
+                 "  behind (PyUniSharingFast.cs / ImageSharing.cs / StitcherThreading.py hold\n"
+                 "  mirrored constants) and re-run tools/check_wire_layout.py.")
+
+    # The payload has to fit the slot it lives in. Unity clamps its resolution to the same
+    # envelope, so this only fires against a producer that does not -- but the consequence
+    # is reading the head of the *next* slot as the tail of this image, which looks like a
+    # rendering artefact rather than a contract violation. Cheap to rule out here.
+    width, height = metadata["Sizes"][0], metadata["Sizes"][1]
+    needed = metadata.get("block_header_size", 0) + width * height * 3
+    if needed > BLOCK_SLOT_STRIDE:
+        _fatal(f"a {width}x{height} block needs {needed} B but the slot stride is only "
+               f"{BLOCK_SLOT_STRIDE} B.\n"
+               f"  The producer's image exceeds the {BLOCK_MAX_WIDTH}x{BLOCK_MAX_HEIGHT}\n"
+               "  envelope. Lower blockImageWidth/Height in PyUniSharingFast's inspector, or\n"
+               "  raise BLOCK_MAX_WIDTH/HEIGHT here and maxBlockWidth/Height there together.")
 
 
 def views_to_legacy(views):
@@ -1103,10 +1262,21 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
     ``image_data`` is None (quality fallback) only the quality word is updated;
     the stale image bytes are left in place because Unity ignores them while
     showing the feeds.
+
+    ``image_size`` is the live panorama's byte count, which is a *prefix* of the section:
+    the mapping itself is a constant PANORAMA_SECTION_BYTES, so a resolution change moves
+    this length without touching the section. Unity reads the same live length out of its
+    own metadata, so the two agree without either side resizing anything.
     """
     flag_position = 0
     quality_position = 4
     data_position = 8
+
+    if image_data is not None and data_position + image_size > PANORAMA_SECTION_BYTES:
+        raise ValueError(f"panorama {image_size} B exceeds the section envelope "
+                         f"({PANORAMA_SECTION_BYTES - data_position} B); raise "
+                         f"PANORAMA_MAX_WIDTH/HEIGHT here and maxPanoramaWidth/Height "
+                         f"in PyUniSharingFast.cs together")
 
     # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1+).
     quality_word = (quality_int & 1) | ((quality_reason & 0xFF) << 1)
@@ -1322,6 +1492,14 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
     metadataMMF.seek(META_PLANAR_CANVAS_MODE_OFFSET)
     canvas_mode = struct.unpack('<B', metadataMMF.read(1))[0]
 
+    # Section geometry. Not used to size anything -- both sides hold these as constants --
+    # but read every pass so verify_section_geometry can catch a producer built from a
+    # different revision before it is mistaken for a geometry bug.
+    metadataMMF.seek(META_BLOCK_SLOT_CAPACITY_OFFSET)
+    block_slot_capacity, block_slot_stride = struct.unpack('<ii', metadataMMF.read(8))
+    metadataMMF.seek(META_BLOCK_SECTION_BYTES_OFFSET)
+    block_section_bytes, panorama_section_bytes = struct.unpack('<ii', metadataMMF.read(8))
+
     return {
         "Sizes": int_values,
         "typeOfStitcher": metadata_string,
@@ -1362,6 +1540,11 @@ def readMetadataMemory(metadataMMF :mmap )->dict:
         "planar_refine_max_shift" : refine_max_shift,
         "planar_standoff" : planar_standoff,
         "planar_canvas_mode" : canvas_mode,
+        # section geometry, for verify_section_geometry
+        "block_slot_capacity" : block_slot_capacity,
+        "block_slot_stride" : block_slot_stride,
+        "block_section_bytes" : block_section_bytes,
+        "panorama_section_bytes" : panorama_section_bytes,
     }
 
 

@@ -142,14 +142,6 @@ public class PyUniSharingFast : MonoBehaviour
 
         [Tooltip("Seconds between panorama reads.")]
         public float readInterval = 0.05f;
-
-        [Range(3, 12)]
-        [Tooltip("Block slots published to Python in PLANAR mode. A planar mosaic generalises " +
-                 "to any number of overlapping views, unlike the fixed left/centre/right triple " +
-                 "the other stitchers need (they stay pinned to 3 regardless of this). The block " +
-                 "map is sized from this once at startup, so restart the Python stitcher after " +
-                 "changing it.")]
-        public int maxStitchViews = 8;
     }
 
     /// <summary>
@@ -412,11 +404,27 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("Mesh segments across the arc.")]
         public int segments = 20;
 
-        [Tooltip("Curved screen height, metres.")]
+        [Tooltip("Curved screen height, metres. Used by every stitcher except PLANAR, which has " +
+                 "its own height below.")]
         public float height = 3f;
 
         [Tooltip("Re-derive the screen aspect from the panorama dimensions each time they change.")]
         public bool resize_dimension = false;
+
+        [Tooltip("In PLANAR, take the screen height from the planar canvas' aspect instead of " +
+                 "'height', so a canvas pixel is square on the screen. The arc is ~2.6:1 " +
+                 "(radius x angleRange against a 3 m height) while the canvas is ~3:2, and the " +
+                 "panorama fills the screen either way — so the mosaic is otherwise stretched " +
+                 "horizontally, which reads as 'not tall enough'. It is the *canvas* aspect that " +
+                 "matters, not panoramaImageWidth/Height: Python resizes the whole canvas into " +
+                 "that buffer, which then fills the whole screen, so the buffer's own aspect " +
+                 "cancels out. Off falls back to planarHeight.")]
+        public bool planarMatchCanvasAspect = true;
+
+        [Tooltip("Curved screen height in PLANAR when planarMatchCanvasAspect is off, metres. " +
+                 "Kept separate from 'height' so the two stitchers' framings don't disturb each " +
+                 "other as the swarming plane toggles between them.")]
+        public float planarHeight = 5f;
 
         [Tooltip("Vertical offset of the curved screen above the Arena centre.")]
         public float screenHeightOffset = 0f;
@@ -481,7 +489,6 @@ public class PyUniSharingFast : MonoBehaviour
     private int panoramaImageHeight { get => bridge.panoramaImageHeight; set => bridge.panoramaImageHeight = value; }
     private float sendInterval { get => bridge.sendInterval; set => bridge.sendInterval = value; }
     private float readInterval { get => bridge.readInterval; set => bridge.readInterval = value; }
-    private int maxStitchViews { get => bridge.maxStitchViews; set => bridge.maxStitchViews = value; }
 
     private bool cylindrical { get => classic.cylindrical; set => classic.cylindrical = value; }
     private matcherType typeOfMatcher { get => classic.typeOfMatcher; set => classic.typeOfMatcher = value; }
@@ -536,6 +543,8 @@ public class PyUniSharingFast : MonoBehaviour
     private float height { get => vr.height; set => vr.height = value; }
     private float screenHeightOffset { get => vr.screenHeightOffset; set => vr.screenHeightOffset = value; }
     private bool resize_dimension { get => vr.resize_dimension; set => vr.resize_dimension = value; }
+    private bool planarMatchCanvasAspect { get => vr.planarMatchCanvasAspect; set => vr.planarMatchCanvasAspect = value; }
+    private float planarHeight { get => vr.planarHeight; set => vr.planarHeight = value; }
     private Transform headTransform { get => vr.headTransform; set => vr.headTransform = value; }
     private float bodyYawRate { get => vr.bodyYawRate; set => vr.bodyYawRate = value; }
     private bool driveCameraRigYaw { get => vr.driveCameraRigYaw; set => vr.driveCameraRigYaw = value; }
@@ -557,14 +566,12 @@ public class PyUniSharingFast : MonoBehaviour
     public int BlockImageHeight => bridge.blockImageHeight;
 
     private string blockMapName = "BlockSharedMemory";
-    private int blockImageCount = 0;
-    private int blockImageSize = 0;   // bytes per drone image (W*H*3)
-    private int blockSize = 0;        // per-drone block: header + image
-    private int totalBlockSize = 0;   // blockImageCount * blockSize
+    private int blockImageCount = 0;  // slots Python should scan; a hint, sizes nothing
+    private int blockImageSize = 0;   // bytes of live payload per slot (W*H*3)
+    private int blockSize = 0;        // slot stride; always the blockSlotStride constant
 
     private string panoramaMapName = "PanoramaSharedMemory";
     private int panoramaImageSize = 0;
-    private int totalPanoramaSize = 0;
 
     private string metadataMapName = "MetadataSharedMemory";
     // Total bytes WriteMetadata actually writes, including the trailing reserved gap.
@@ -581,6 +588,9 @@ public class PyUniSharingFast : MonoBehaviour
 
     private IntPtr metadataFileMap;
     private IntPtr metadataPtr;
+
+    // Monotonic per-frame counter published at metaHeartbeatOffset; see WriteHeartbeat.
+    private uint heartbeat;
 
     // ---------------- debug readouts ----------------
     // Populated by FindCameras / the stitch selection, not configuration. Kept visible
@@ -677,9 +687,6 @@ public class PyUniSharingFast : MonoBehaviour
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    private static extern IntPtr OpenFileMapping(uint dwDesiredAccess, bool bInheritHandle, string lpName);
-
     public enum stitcherType
     {
         // The values are pinned rather than sequential because Unity serializes the enum
@@ -716,6 +723,11 @@ public class PyUniSharingFast : MonoBehaviour
     // Constant values
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
+    // What CreateFileMapping returns when the named section already exists at a SMALLER
+    // size than the one requested. Windows never resizes a section, so this is the whole
+    // failure mode the fixed envelope below exists to make unreachable -- worth naming, so
+    // the log can say what to do about it rather than printing a bare 5.
+    private const int ERROR_ACCESS_DENIED = 5;
     private const int FlagPosition = 0;             // panorama flag (int32) at region start
     private const int panoramaQualityPosition = 4;  // packed quality word (int32) — see masks below
     private const int panoramaDataPosition = 8;      // RGB24 panorama data
@@ -731,13 +743,18 @@ public class PyUniSharingFast : MonoBehaviour
     private const int REASON_TOO_FEW_IMAGES = 1 << 5; // fewer than 3 selected feeds (pre-stitch gate)
     private const int REASON_PLANE_INVALID = 1 << 6; // planar: no usable scene plane or pose on the wire
     // Per-drone block layout. Two versions exist; Python picks between them from the
-    // blockHeaderSize field in metadata, so both producers can coexist:
+    // blockHeaderSize field in metadata:
     //
-    //   v1 (12 bytes, legacy — also what ImageSharing.cs writes in the DJI scene):
+    //   v1 (12 bytes, legacy — no producer writes it any more):
     //     int32 flag | int32 droneId | float32 heading | RGB24 image
-    //   v2 (48 bytes, pose-carrying — required by the PLANAR stitcher):
+    //   v2 (48 bytes, pose-carrying — required by the PLANAR stitcher, and what BOTH
+    //   producers write: this component in the sim, ImageSharing.cs in the DJI scene):
     //     ... | float32 camPos[3] | float32 camRot[4] (xyzw) | float32 captureTime
     //         | int32 poseStatus  | RGB24 image
+    //
+    // v1 is kept named because tools/check_wire_layout.py asserts the constant, and
+    // because a v1 producer's blocks stay *readable* — they simply arrive with
+    // poseStatus == 0 and are dropped by the planar solve.
     //
     // The pose lives in the block rather than in metadata because it must be the pose
     // of *this* frame: RequestBlockCapture snapshots it 1-2 frames before the readback
@@ -761,16 +778,42 @@ public class PyUniSharingFast : MonoBehaviour
     private const int POSE_GROUND_TRUTH = 1 << 1;
     private const int POSE_NOISE_INJECTED = 1 << 2;
 
-    private const int maxBlockWidth = 2000;
-    private const int maxBlockHeight = 2000;
-    private const int maxBlockImageCount = 30;
-    private const int maxBlockImageSize = maxBlockWidth*maxBlockHeight * 3;
+    // ---- Block section envelope --------------------------------------------------
+    //
+    // BlockSharedMemory is a FIXED array of FIXED-stride slots, created once and never
+    // recreated. That is not an optimisation, it is the only shape Windows allows:
+    // CreateFileMapping (and Python's mmap.mmap(-1, size, tagname), which is the same
+    // call) does not create a second section when the name already exists -- it opens
+    // the existing one, and a request LARGER than that section fails with
+    // ERROR_ACCESS_DENIED. A named section can never be resized. So any design where
+    // the section's extent tracks the drone count, the stitcher, or the resolution
+    // deadlocks against a peer that already holds the old size, which is exactly the
+    // "access denied on BlockSharedMemory" failure this layout replaces.
+    //
+    // Consequences worth keeping:
+    //  - Slot i is ALWAYS at i * blockSlotStride. Nothing on the wire moves a slot:
+    //    not the fleet size, not the stitcher, not blockImageWidth/Height. Only the
+    //    payload *length* (blockImageSize) is live, and it is read from metadata.
+    //  - The unused tail of each slot costs address space and commit charge, never
+    //    resident RAM -- a pagefile-backed section faults pages in on touch.
+    //  - blockSlotCapacity and the image envelope are the only two tunables, and their
+    //    product is the section size. Raise either one on BOTH sides together;
+    //    tools/check_wire_layout.py fails if they diverge.
+    private const int maxBlockWidth = 1280;
+    private const int maxBlockHeight = 720;
+    private const int blockSlotCapacity = 24;
+    private const int maxBlockImageSize = maxBlockWidth * maxBlockHeight * 3;
     // Reserve for the largest header, so switching stitcher mode never needs a bigger section.
-    private const int maxTotalBlockSize = maxBlockImageCount * (blockPoseHeaderSize + maxBlockImageSize);
+    private const int blockSlotStride = blockPoseHeaderSize + maxBlockImageSize;
+    private const int blockSectionBytes = blockSlotCapacity * blockSlotStride;
     private const int maxPanoramaWidth = 4000;
     private const int maxPanoramaHeight = 4000;
     private const int maxPanoramaSize = maxPanoramaWidth * maxPanoramaHeight * 3;
-    private const int maxTotalPanoramaSize = panoramaDataPosition + maxPanoramaSize;
+    // Same rule as the block section: Unity already created this one at the constant
+    // rather than at the live panorama size, but Python used to ask for w*h*3 + 8 --
+    // so whichever side got there first denied the other. Python now requests this
+    // exact constant too.
+    private const int panoramaSectionBytes = panoramaDataPosition + maxPanoramaSize;
 
     // Metadata layout: the pilot heading yaw (float) is appended after
     // qualityThreshold (printStitchRate follows the yaw). This carries the
@@ -863,13 +906,35 @@ public class PyUniSharingFast : MonoBehaviour
     private const int metaPlanarPanBOffset = 376;
     // Static, like the 344..367 block: an inspector choice, not a per-frame measurement.
     private const int metaPlanarCanvasModeOffset = 380;   // uint8, PlanarCanvasMode
-    // 381-383 padding
-    private const int metadataTailEnd = 384;
+
+    // Producer liveness. Bumped every frame by WriteHeartbeat, outside the seqlock (it is
+    // a lone scalar, and a torn count is indistinguishable from a fresh one for the only
+    // question asked of it: "did this change?"). Python watchdogs it and exits.
+    //
+    // Needed because a Unity crash is otherwise invisible from the Python side: the
+    // section object survives as long as Python holds its mapping, so the last frame's
+    // bytes just sit there being re-read forever. Nothing else on the wire distinguishes
+    // "producer is idle" from "producer is gone" -- the block flags are quiescent in both.
+    private const int metaHeartbeatOffset = 384;          // uint32, monotonic
+    // Section geometry, published so Python can *verify* rather than assume. Both sides
+    // hold these as compile-time constants; a mismatch means the two processes were built
+    // from different revisions, which is silent corruption if it goes undetected (Python
+    // would address slots at the wrong stride and read images from the middle of others).
+    private const int metaBlockSlotCapacityOffset = 388;  // int32
+    private const int metaBlockSlotStrideOffset = 392;    // int32
+    private const int metadataTailEnd = 396;
 
     // Trailing gap between the tail and the two size fields metadataSize ends with. It
     // shrinks as the tail grows so metadataSize -- and hence the mapped section size --
     // stays fixed at 412; a changed map size would strand any already-running Python.
-    private const int metadataReservedGap = 20;
+    private const int metadataReservedGap = 8;
+
+    // The two section sizes metadataSize ends with. Written on every WriteMetadata (they
+    // used to be written only on the first call, which was harmless only because nothing
+    // read them); Python compares them against its own constants and refuses to run on a
+    // mismatch.
+    private const int metaBlockSectionBytesOffset = 404;     // int32
+    private const int metaPanoramaSectionBytesOffset = 408;  // int32
 
     // Bounds on the operator's planar viewing transform. Applied on write, so the wire
     // never carries a value Python would have to second-guess.
@@ -1046,31 +1111,31 @@ public class PyUniSharingFast : MonoBehaviour
         gnssNoise.Step(now);
     }
 
-    // Slots in the block map. Deliberately a function of the *camera count* and the
-    // stitcher mode only -- never of the per-frame selection, because CreateBlockMap
-    // destroys and recreates the named section and Python holds a single mapping of it.
-    // Frames where fewer cameras are selected mark the spare slots droneId = -1 instead.
-    private int DesiredBlockCount()
+    // How many of the section's blockSlotCapacity slots Python should bother scanning.
+    // This is a HINT ONLY -- it sizes nothing on either side any more, because the section
+    // is a fixed array at a fixed stride (see the blockSlotCapacity block above). It exists
+    // so Python skips the flags of slots the fleet cannot reach rather than polling all 24.
+    //
+    // Deliberately independent of the stitcher: switching STABSTITCH <-> PLANAR must not
+    // perturb the wire at all. STABSTITCH simply fills three of these slots and leaves the
+    // rest at droneId = -1, which is the sentinel Python already honours.
+    private int PublishedSlotCount()
     {
-        // Not the producer (DJI scene): ImageSharing.cs owns BlockSharedMemory and creates
-        // the section. The count still has to be published, because Python sizes its
-        // mapping from metadata and this component owns the metadata map either way.
-        //
-        // Read from that component rather than assumed, so the two cannot disagree: it is
-        // the one that actually calls CreateFileMapping, and a count larger than its slots
-        // makes Python map past the end of the section. Deliberately NOT clamped by
-        // camerasToCapture -- that scene has no sim FPV cameras, so the clamp would
-        // advertise 0 blocks and Python would map none of what ImageSharing is filling.
-        if (!enableImageWriting)
-        {
-            ImageSharing sharing = imageSharing != null ? imageSharing : FindObjectOfType<ImageSharing>();
-            return sharing != null ? sharing.StitchSlotCount : STITCH_COUNT_LRC;
-        }
+        // Not the producer (DJI scene): ImageSharing.cs owns BlockSharedMemory. It fills
+        // one slot per aircraft it has a fresh feed for, and there are no sim FPV cameras
+        // to count -- so advertise the whole capacity and let the droneId sentinel do the
+        // talking, rather than clamping to camerasToCapture (which is empty there, and a
+        // count of 0 makes Python scan none of what ImageSharing is filling).
+        if (!enableImageWriting) return blockSlotCapacity;
 
-        int wanted = (typeOfStitcher == stitcherType.PLANAR)
-            ? Mathf.Clamp(maxStitchViews, 3, maxBlockImageCount)
-            : STITCH_COUNT_LRC;
-        return Mathf.Min(wanted, camerasToCapture != null ? camerasToCapture.Count : 0);
+        int cameras = camerasToCapture != null ? camerasToCapture.Count : 0;
+        if (cameras > blockSlotCapacity)
+        {
+            Debug.LogError($"PyUniSharingFast: {cameras} FPV cameras exceeds blockSlotCapacity " +
+                           $"({blockSlotCapacity}); the surplus will never reach the stitcher. " +
+                           "Raise blockSlotCapacity here and BLOCK_SLOT_CAPACITY in StitcherThreading.py together.");
+        }
+        return Mathf.Clamp(cameras, 0, blockSlotCapacity);
     }
 
     // Both producers now write the pose-carrying v2 header: this component in the sim,
@@ -1087,6 +1152,10 @@ public class PyUniSharingFast : MonoBehaviour
     private Material curvedScreenMaterial;
     private MeshRenderer panoramaRenderer;
     private Texture2D panoTexture;
+
+    // Height the current mesh was built with, so Update can notice when the stitcher (or the
+    // inspector) asks for a different one. NaN until the first build, which never compares equal.
+    private float curvedScreenHeightApplied = float.NaN;
 
     // Body heading that drives the panorama. Seeded once from the head's initial
     // yaw, then advanced only by the controller yaw-rate command (never by head
@@ -1118,9 +1187,6 @@ public class PyUniSharingFast : MonoBehaviour
     // same cadence the stitcher selection itself can change at.
     public static bool PlanarSelected { get; private set; }
 
-    // The DJI scene's block producer, if present. Cached because DesiredBlockCount reads its
-    // slot count and FindObjectOfType is far too slow to call speculatively.
-    private ImageSharing imageSharing;
 
     // The "Drone N" root of the drone at the centre of the stitch selection (camera yaw closest to
     // the body yaw), i.e. the drone the pilot is looking through. Refreshed every frame whether or
@@ -1158,21 +1224,19 @@ public class PyUniSharingFast : MonoBehaviour
             metadataPtr = MapViewOfFile(metadataFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
         }
 
-        // Discover cameras first so the block mapping can be sized to the
-        // exact drone count (matches image_stream.py / StitcherThreading.py).
         // Discovery is unconditional (it only builds a few lists): the centre-drone
         // selection publishes CentreStitchDrone every frame, and consumers such as
-        // SwarmPlaneController need it whether or not stitching is running.
+        // SwarmPlaneController need it whether or not stitching is running. It no longer
+        // has to precede the mapping -- the section's size is a constant now -- but the
+        // published slot count still comes from it.
         FindCameras();
         blockHeaderSize = ActiveBlockHeaderSize();
         blockImageDataOffset = blockHeaderSize;
-        // Published unconditionally, alongside blockHeaderSize: Python sizes its
-        // BlockSharedMemory mapping from these two, and in the DJI scene the section is
-        // created by ImageSharing.cs rather than here. Leaving the count at 0 there (as it
-        // was when this assignment sat inside the enableImageWriting branch) makes Python
-        // map nothing and the real-drone panorama never appears. CreateBlockMap stays gated
-        // on enableImageWriting, so this does not make us a second producer.
-        blockImageCount = DesiredBlockCount();
+        // Published unconditionally: in the DJI scene the section is created by
+        // ImageSharing.cs rather than here, and this component owns metadata either way.
+        // CreateBlockMap stays gated on enableImageWriting, so this does not make us a
+        // second producer.
+        blockImageCount = PublishedSlotCount();
         if (enableImageWriting)
         {
             // Two producers writing one block map with different header sizes would
@@ -1247,7 +1311,13 @@ public class PyUniSharingFast : MonoBehaviour
             nextCameraUpdateTime = Time.time + cameraUpdateInterval;
         }
 
-        if (enablePanoramaReading && resize_dimension)
+        // Rebuild the mesh when the shape it was built from has moved. `resize_dimension` rebuilds
+        // unconditionally (so inspector tweaks to radius/angleRange show up live); otherwise only a
+        // change in the height the current stitcher wants costs a rebuild, which is what makes
+        // switching to PLANAR -- via SetStitcherType, from SwarmPlaneController -- reshape the
+        // screen without anything having to call in here.
+        if (enablePanoramaReading &&
+            (resize_dimension || !Mathf.Approximately(CurvedScreenHeight(), curvedScreenHeightApplied)))
         {
             GenerateCurvedScreen();
         }
@@ -1272,6 +1342,10 @@ public class PyUniSharingFast : MonoBehaviour
 
         UpdateBodyYaw();
         WriteBodyYaw(bodyYaw);
+        // Unconditional, and deliberately before every early return below: the point of the
+        // heartbeat is that it keeps ticking while the stitch path is failing, so gating it
+        // on any of the same conditions would make it agree with the thing it is watching.
+        WriteHeartbeat();
 
         // Resolve the centre drone. Both branches publish CentreStitchDrone and
         // centreStitchCameraIndex (which the scene-plane raycast and the intrinsics are taken
@@ -1338,11 +1412,14 @@ public class PyUniSharingFast : MonoBehaviour
                 // block write to shared memory happens in the completion callback, 1-2
                 // frames later — no ReadPixels stall on the main thread.
                 //
-                // The map has a fixed slot count (sized from the camera count, not the
-                // selection), so any slots the selection doesn't reach this frame are
-                // explicitly marked empty. Without that they would keep serving a stale
-                // frame from Python's busy-block cache indefinitely.
-                for (int j = 0; j < blockImageCount; j++)
+                // The section has a fixed slot count, so any slot the selection doesn't
+                // reach this frame is explicitly marked empty. Without that they would keep
+                // serving a stale frame from Python's busy-block cache indefinitely.
+                //
+                // Iterates the whole capacity rather than blockImageCount: when the fleet
+                // shrinks, the slots that drop off the end have to be retired too, and
+                // blockImageCount has already moved past them by the time this runs.
+                for (int j = 0; j < blockSlotCapacity; j++)
                 {
                     if (j < selectedStitchIndices.Length)
                         RequestBlockCapture(j, selectedStitchIndices[j]);
@@ -1567,36 +1644,36 @@ public class PyUniSharingFast : MonoBehaviour
     // than lingering in the mosaic forever.
     private void InvalidateBlockSlot(int slot)
     {
-        if (blockPtr == IntPtr.Zero || slot < 0 || slot >= blockImageCount) return;
+        // Bounded by the section, not by blockImageCount: when the fleet shrinks, the slots
+        // that fall off the end of the published count are precisely the ones that must be
+        // retired, and blockImageCount no longer covers them.
+        if (blockPtr == IntPtr.Zero || slot < 0 || slot >= blockSlotCapacity) return;
 
-        IntPtr block = IntPtr.Add(blockPtr, slot * blockSize);
+        IntPtr block = IntPtr.Add(blockPtr, slot * blockSlotStride);
         if (Marshal.ReadInt32(block, blockFlagOffset) != 0) return;  // consumer mid-read
 
         Marshal.WriteInt32(block, blockFlagOffset, 1);
         Marshal.WriteInt32(block, blockDroneIdOffset, -1);
-        if (blockHeaderSize >= blockPoseHeaderSize)
-        {
-            Marshal.WriteInt32(block, blockPoseStatusOffset, 0);
-        }
+        Marshal.WriteInt32(block, blockPoseStatusOffset, 0);
         Marshal.WriteInt32(block, blockFlagOffset, 0);
     }
 
     // Sizes the readback pool for two full in-flight batches, one entry per block slot.
     //
     // It used to be a flat 8, which was "a couple of in-flight 3-slot batches" back when
-    // every stitcher captured exactly 3 views. PLANAR captures up to blockImageCount
-    // (maxStitchViews) per send, and a readback completes 1-2 frames later, so an
-    // undersized pool does not merely drop a frame: AcquirePendingSlot scans from index
-    // 0, so it is always the *same* tail slots that lose the race, and a slot that never
-    // wins never gets written at all. Those blocks then sit at their initial contents
-    // forever, which is what surfaced on the Python side as a degenerate quaternion.
+    // every stitcher captured exactly 3 views. PLANAR captures one per alive drone per
+    // send, and a readback completes 1-2 frames later, so an undersized pool does not
+    // merely drop a frame: AcquirePendingSlot scans from index 0, so it is always the
+    // *same* tail slots that lose the race, and a slot that never wins never gets written
+    // at all. Those blocks then sit at their initial contents forever, which is what
+    // surfaced on the Python side as a degenerate quaternion.
     //
     // Grow-only, and the array is replaced wholesale rather than re-indexed: a pending
     // entry keeps its index, so a readback still in flight across the resize completes
     // into the same entry it reserved.
     private void EnsureReadbackPool()
     {
-        int wanted = Mathf.Clamp(blockImageCount * 2, 8, 2 * maxBlockImageCount);
+        int wanted = Mathf.Clamp(blockImageCount * 2, 8, 2 * blockSlotCapacity);
         int have = pendingReadbacks != null ? pendingReadbacks.Length : 0;
         if (have >= wanted) return;
 
@@ -1670,18 +1747,15 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteInt32(block, blockDroneIdOffset, pending.droneId);
         WriteFloat(block, blockHeadingOffset, pending.heading);
 
-        if (blockHeaderSize >= blockPoseHeaderSize)
-        {
-            WriteFloat(block, blockCamPosOffset + 0, pending.camPos.x);
-            WriteFloat(block, blockCamPosOffset + 4, pending.camPos.y);
-            WriteFloat(block, blockCamPosOffset + 8, pending.camPos.z);
-            WriteFloat(block, blockCamRotOffset + 0, pending.camRot.x);
-            WriteFloat(block, blockCamRotOffset + 4, pending.camRot.y);
-            WriteFloat(block, blockCamRotOffset + 8, pending.camRot.z);
-            WriteFloat(block, blockCamRotOffset + 12, pending.camRot.w);
-            WriteFloat(block, blockCaptureTimeOffset, pending.captureTime);
-            Marshal.WriteInt32(block, blockPoseStatusOffset, pending.poseStatus);
-        }
+        WriteFloat(block, blockCamPosOffset + 0, pending.camPos.x);
+        WriteFloat(block, blockCamPosOffset + 4, pending.camPos.y);
+        WriteFloat(block, blockCamPosOffset + 8, pending.camPos.z);
+        WriteFloat(block, blockCamRotOffset + 0, pending.camRot.x);
+        WriteFloat(block, blockCamRotOffset + 4, pending.camRot.y);
+        WriteFloat(block, blockCamRotOffset + 8, pending.camRot.z);
+        WriteFloat(block, blockCamRotOffset + 12, pending.camRot.w);
+        WriteFloat(block, blockCaptureTimeOffset, pending.captureTime);
+        Marshal.WriteInt32(block, blockPoseStatusOffset, pending.poseStatus);
 
         Marshal.Copy(blockImageBytes, 0, IntPtr.Add(block, blockImageDataOffset), blockImageSize);
 
@@ -1767,6 +1841,30 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Height the curved screen should have for the stitcher that is running. The arc width is
+    /// fixed by <c>radius</c> and <c>angleRange</c>, so this is the only free parameter and the
+    /// screen's aspect follows from it.
+    ///
+    /// The panorama always fills the whole screen, so the screen's aspect is what the mosaic is
+    /// displayed at. A left/centre/right panorama is a wide strip and suits the ~2.6:1 arc;
+    /// PLANAR's canvas is roughly 3:2, and showing it on that arc stretches it horizontally --
+    /// hence a separate height here rather than one shared <c>height</c>.
+    /// </summary>
+    private float CurvedScreenHeight()
+    {
+        if (typeOfStitcher != stitcherType.PLANAR) return height;
+        if (!planarMatchCanvasAspect || planarCanvasWidth <= 0 || planarCanvasHeight <= 0)
+        {
+            return planarHeight;
+        }
+
+        // Arc length the mesh spans at `radius`; dividing by the canvas aspect makes a canvas
+        // pixel square on the screen.
+        float arc = radius * angleRange * Mathf.Deg2Rad;
+        return arc * planarCanvasHeight / planarCanvasWidth;
+    }
+
     private void GenerateCurvedScreen()
     {
         MeshFilter meshFilter = GetComponent<MeshFilter>();
@@ -1777,7 +1875,8 @@ public class PyUniSharingFast : MonoBehaviour
         int[] triangles = new int[segments * 6];
 
         float angleStep = angleRange / segments;
-        float halfHeight = height / 2f;
+        curvedScreenHeightApplied = CurvedScreenHeight();
+        float halfHeight = curvedScreenHeightApplied / 2f;
 
         for (int i = 0; i <= segments; i++)
         {
@@ -2094,7 +2193,7 @@ public class PyUniSharingFast : MonoBehaviour
         {
             if (IsAlive(i) && IsBoundary(i)) candidates.Add(i);
         }
-        if (candidates.Count < 3)
+        if (candidates.Count < STITCH_COUNT_LRC)
         {
             candidates.Clear();
             for (int i = 0; i < camerasToCapture.Count; i++)
@@ -2115,7 +2214,7 @@ public class PyUniSharingFast : MonoBehaviour
         centreStitchCameraIndex = centreCam;
 
         // Fewer than three candidates total: send what we have.
-        if (n < 3)
+        if (n < STITCH_COUNT_LRC)
         {
             selected = candidates.ToArray();
             return camerasToCapture[centreCam].transform.eulerAngles.y;
@@ -2225,8 +2324,12 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     /// <summary>
-    /// Picks the cameras that contribute to a planar mosaic: every alive drone actually
-    /// looking at the scene plane, closest-first, capped at the block count.
+    /// Picks the cameras that contribute to a planar mosaic: <b>every</b> alive drone
+    /// actually looking at the scene plane. There is no view-count knob — a planar mosaic
+    /// generalises to any number of overlapping views, so capping it was only ever a
+    /// consequence of the block section being sized per stitcher. The only remaining cap
+    /// is <see cref="blockSlotCapacity"/>, i.e. the physical section, which a normal
+    /// fleet never reaches.
     ///
     /// Deliberately does <b>not</b> filter on <c>AttitudeAlgorithm.BoundaryEstimate</c>,
     /// which is the key difference from <see cref="SelectStitchCameras"/>. In
@@ -2274,16 +2377,18 @@ public class PyUniSharingFast : MonoBehaviour
 
         if (candidates.Count == 0) return;
 
-        // Over-subscribed: keep the views whose footprints cluster around the centre
-        // one, so the mosaic is contiguous rather than a scattered set with holes.
-        if (candidates.Count > blockImageCount)
+        // Only reachable with a fleet larger than the section: keep the views whose
+        // footprints cluster around the centre one, so the mosaic is contiguous rather
+        // than a scattered set with holes. PublishedSlotCount has already logged an error
+        // by this point, so this is damage limitation rather than a routine path.
+        if (candidates.Count > blockSlotCapacity)
         {
             int[] order = new int[candidates.Count];
             for (int i = 0; i < order.Length; i++) order[i] = i;
             Array.Sort(order, (a, b) => distances[a].CompareTo(distances[b]));
 
-            List<int> trimmed = new List<int>(blockImageCount);
-            for (int i = 0; i < blockImageCount; i++) trimmed.Add(candidates[order[i]]);
+            List<int> trimmed = new List<int>(blockSlotCapacity);
+            for (int i = 0; i < blockSlotCapacity; i++) trimmed.Add(candidates[order[i]]);
             candidates = trimmed;
         }
 
@@ -2917,7 +3022,7 @@ public class PyUniSharingFast : MonoBehaviour
                 StateFinder state = droneParent?.GetComponent<VelocityControl>()?.State;
                 stitchStates.Add(state);
             }
-            if(camerasToCapture.Count >maxBlockImageCount) break;
+            if(camerasToCapture.Count >blockSlotCapacity) break;
         }
     }
 
@@ -2940,29 +3045,32 @@ public class PyUniSharingFast : MonoBehaviour
         // the inspector, and this runs at Start and on every inspector change. Doing it per
         // frame would also race ImageSharing's own Update, whose order is undefined.
         PlanarSelected = typeOfStitcher == stitcherType.PLANAR;
-        if (imageSharing == null) imageSharing = FindObjectOfType<ImageSharing>();
 
-        if(blockImageCount>maxBlockImageCount)
+        if(blockImageCount>blockSlotCapacity)
         {
-            blockImageCount = maxBlockImageCount;
-            Debug.LogError("Decrease number of drones or increase maxBlockImageCount constant. Value upperbounded at maxBlockImageCount.");
+            blockImageCount = blockSlotCapacity;
+            Debug.LogError("Decrease number of drones or increase blockSlotCapacity constant. Value upperbounded at blockSlotCapacity.");
         }
 
+        // These two clamps are load-bearing now, not hygiene: the slot stride is sized from
+        // maxBlockWidth/Height, so a payload past the envelope would run into the next slot.
         if(blockImageWidth>maxBlockWidth)
         {
             blockImageWidth = maxBlockWidth;
-            Debug.LogError("Decrease dimensions of images or increase maxBlockWidth constant.");
+            Debug.LogError("Decrease dimensions of images or increase maxBlockWidth constant (and BLOCK_MAX_WIDTH in StitcherThreading.py with it).");
         }
 
         if(blockImageHeight>maxBlockHeight)
         {
             blockImageHeight = maxBlockHeight;
-            Debug.LogError("Decrease dimensions of images or increase maxBlockHeight constant.");
+            Debug.LogError("Decrease dimensions of images or increase maxBlockHeight constant (and BLOCK_MAX_HEIGHT in StitcherThreading.py with it).");
         }
 
         blockImageSize = blockImageWidth*blockImageHeight*3;
-        blockSize = blockHeaderSize + blockImageSize;
-        totalBlockSize = blockImageCount * blockSize;
+        // A constant, not derived from the live resolution or drone count -- see the
+        // blockSlotCapacity block. Assigned here rather than inlined so the call sites that
+        // address a slot keep reading the same field they always did.
+        blockSize = blockSlotStride;
 
         if(panoramaImageWidth>maxPanoramaWidth)
         {
@@ -2976,8 +3084,11 @@ public class PyUniSharingFast : MonoBehaviour
             Debug.LogError("Decrease dimensions of images or increase maxPanoramaHeight constant.");
         }
 
+        // Live payload length only. The section itself is panoramaSectionBytes, a constant,
+        // for the same reason the block section is -- Python now requests that same
+        // constant instead of the live size, which is what stopped the two sides denying
+        // each other whenever the panorama resolution differed from 4000x4000.
         panoramaImageSize = panoramaImageWidth * panoramaImageHeight * 3;
-        totalPanoramaSize = panoramaDataPosition + panoramaImageSize;
     }
 
     private void CreateMemoryMaps()
@@ -2991,7 +3102,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Only create panorama memory map if panorama reading is enabled
         if (enablePanoramaReading)
         {
-            panoramaFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)maxTotalPanoramaSize, panoramaMapName);
+            panoramaFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)panoramaSectionBytes, panoramaMapName);
             if (panoramaFileMap != IntPtr.Zero)
             {
                 panoramaPtr = MapViewOfFile(panoramaFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
@@ -3003,25 +3114,44 @@ public class PyUniSharingFast : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning("Unable to create panorama memory-mapped file.");
+                int errorCode = Marshal.GetLastWin32Error();
+                Debug.LogError($"Unable to create {panoramaMapName} ({panoramaSectionBytes} bytes). " +
+                               $"Error Code: {errorCode}" +
+                               (errorCode == ERROR_ACCESS_DENIED
+                                   ? " (ACCESS_DENIED: a section of this name already exists at a smaller " +
+                                     "size — a stitcher built against a different panoramaSectionBytes is " +
+                                     "still running. Stop it, then restart Play.)"
+                                   : ""));
             }
         }
     }
 
-    // Creates (or recreates) the per-drone block mapping, sized exactly to
-    // blockImageCount * blockSize so it matches what image_stream.py and
-    // StitcherThreading.py allocate. All per-block flags are initialised to 0.
+    /// <summary>
+    /// Creates the block section, ONCE, at the constant <see cref="blockSectionBytes"/>.
+    /// Called only from <see cref="CreateMemoryMaps"/>.
+    ///
+    /// Do not add a second call site. This used to be re-invoked whenever the drone count,
+    /// the stitcher or the inspector resolution changed, and each of those was a live
+    /// destroy-and-recreate of a named section that a running Python had mapped — which
+    /// Windows answers with ERROR_ACCESS_DENIED, not a resize. The failure was near-silent
+    /// (blockPtr stayed null and Update's guard stopped publishing for the session), which
+    /// is why it read as an intermittent Unity/Python crash rather than a wire bug.
+    /// </summary>
     private void CreateBlockMap()
     {
         DestroyBlockMap();
 
-        if (blockImageCount <= 0 || totalBlockSize <= 0)
-            return;
-
-        blockFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalBlockSize, blockMapName);
+        blockFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)blockSectionBytes, blockMapName);
         if (blockFileMap == IntPtr.Zero)
         {
-            Debug.LogWarning("Unable to create block memory-mapped file.");
+            int errorCode = Marshal.GetLastWin32Error();
+            Debug.LogError($"Unable to create {blockMapName} ({blockSectionBytes} bytes). " +
+                           $"Error Code: {errorCode}" +
+                           (errorCode == ERROR_ACCESS_DENIED
+                               ? " (ACCESS_DENIED: a section of this name already exists at a smaller " +
+                                 "size — a stitcher built against a different blockSlotCapacity or image " +
+                                 "envelope is still running. Stop it, then restart Play.)"
+                               : ""));
             return;
         }
 
@@ -3029,11 +3159,12 @@ public class PyUniSharingFast : MonoBehaviour
         if (blockPtr == IntPtr.Zero)
         {
             int errorCode = Marshal.GetLastWin32Error();
-            Debug.LogWarning($"Failed to map view of block file. Error Code: {errorCode}");
+            Debug.LogError($"Failed to map view of {blockMapName}. Error Code: {errorCode}");
             return;
         }
 
-        // Initialise every block: flag 0 (ready for the consumer) and droneId -1.
+        // Initialise EVERY slot in the section, not just the ones the current fleet reaches:
+        // flag 0 (ready for the consumer) and droneId -1.
         //
         // The droneId matters as much as the flag. A fresh section is zero-filled, and
         // zero is a *legal* drone id -- so until a slot's first readback lands, the
@@ -3041,14 +3172,14 @@ public class PyUniSharingFast : MonoBehaviour
         // which on the PLANAR path is a degenerate quaternion rather than an empty
         // slot. -1 is the sentinel that already means "no view here", so say that from
         // the moment the section exists rather than from the first frame that fills it.
-        for (int i = 0; i < blockImageCount; i++)
+        // With a fixed-capacity section most slots stay at that sentinel for the whole
+        // session, so this loop is now the only thing standing between a small fleet and
+        // twenty phantom drone-0 views.
+        for (int i = 0; i < blockSlotCapacity; i++)
         {
-            Marshal.WriteInt32(blockPtr, i * blockSize + blockFlagOffset, 0);
-            Marshal.WriteInt32(blockPtr, i * blockSize + blockDroneIdOffset, -1);
-            if (blockHeaderSize >= blockPoseHeaderSize)
-            {
-                Marshal.WriteInt32(blockPtr, i * blockSize + blockPoseStatusOffset, 0);
-            }
+            Marshal.WriteInt32(blockPtr, i * blockSlotStride + blockFlagOffset, 0);
+            Marshal.WriteInt32(blockPtr, i * blockSlotStride + blockDroneIdOffset, -1);
+            Marshal.WriteInt32(blockPtr, i * blockSlotStride + blockPoseStatusOffset, 0);
         }
     }
 
@@ -3116,14 +3247,16 @@ public class PyUniSharingFast : MonoBehaviour
                 WriteMetadata();
             }
 
-            // Update reusable resources for image writing
+            // Update reusable resources for image writing. Note there is no CreateBlockMap
+            // here any more: an inspector resolution change moves the payload length, not
+            // the slot geometry, and recreating the section from OnValidate while Python
+            // held it was one of the three ways to hit ERROR_ACCESS_DENIED mid-session.
             if (enableImageWriting)
             {
                 reusableTexture = new RenderTexture(blockImageWidth, blockImageHeight, 24);
                 image = new Texture2D(blockImageWidth, blockImageHeight, TextureFormat.RGB24, false);
                 blockImageBytes = new byte[blockImageSize];
                 EnsureConvertedBlockBuffer();
-                CreateBlockMap();
             }
 
             // Update reusable resources for panorama reading
@@ -3159,33 +3292,34 @@ public class PyUniSharingFast : MonoBehaviour
     private void UpdateCameras()
     {
         // Re-discovery keeps CentreStitchDrone live for non-stitching consumers, so it runs
-        // regardless; only the shared-memory resize below depends on image writing.
+        // regardless; only the metadata republish below depends on image writing.
         FindCameras();
         UpdateCameraToStitch();
 
         if (!enableImageWriting) return;
 
-        ResizeBlockMapIfNeeded();
+        RepublishSlotCountIfChanged();
+        // Kept on this tick now that the block map no longer has a resize path to hang it
+        // off. It is two size comparisons, and it is the only thing that notices a render
+        // target left behind by an inspector resolution change.
+        ValidateTextures();
     }
 
-    // Re-sizes BlockSharedMemory when the slot count the current configuration wants has
-    // changed -- because drones appeared or disappeared, or because the stitcher itself was
-    // switched (PLANAR mosaics up to maxStitchViews, the others take exactly three).
-    // Python re-opens its own mapping when the published count changes, so the only
-    // requirement on this side is that the section and the metadata stay consistent.
-    private void ResizeBlockMapIfNeeded()
+    // Drones appeared or disappeared. This used to destroy and recreate BlockSharedMemory at
+    // the new size, which is the bug the fixed envelope exists to remove -- a named section
+    // cannot be resized, and asking for a bigger one while Python holds the old one fails
+    // with ERROR_ACCESS_DENIED and silently kills publishing for the rest of the session.
+    //
+    // Now the section never changes: only the scan hint in metadata does, and the slots the
+    // shrunken fleet no longer reaches are retired by Update's InvalidateBlockSlot pass.
+    private void RepublishSlotCountIfChanged()
     {
-        int newblockImageCount = DesiredBlockCount();
+        int newblockImageCount = PublishedSlotCount();
         if (newblockImageCount == blockImageCount) return;
 
         blockImageCount = newblockImageCount;
-        CalculateMemorySizes();
-        CreateBlockMap();          // resize the mapping to the new drone count
         WriteMetadata();
-        blockImageBytes = new byte[blockImageSize];
-        EnsureConvertedBlockBuffer();
         EnsureReadbackPool();      // more slots per send needs more in-flight entries
-        ValidateTextures();
     }
 
     /// <summary>
@@ -3195,8 +3329,12 @@ public class PyUniSharingFast : MonoBehaviour
     /// parallax-tolerant warps.
     ///
     /// Python re-reads the stitcher name out of metadata every pass and swaps stitchers live,
-    /// so all that is needed here is to republish it — plus the block map, whose slot count
-    /// depends on the mode.
+    /// so all that is needed here is to republish it. It deliberately does NOT touch the block
+    /// section: that used to be resized here (3 slots for STABSTITCH, more for PLANAR, from a
+    /// since-removed view-count knob) and this call site — fired mid-flight by the V key, with
+    /// Python attached — was the most reliable way to hit the ERROR_ACCESS_DENIED that a
+    /// non-resizable named section guarantees. The slot geometry is now a constant, and PLANAR
+    /// simply fills more of the same slots.
     /// </summary>
     public void SetStitcherType(stitcherType type)
     {
@@ -3208,10 +3346,6 @@ public class PyUniSharingFast : MonoBehaviour
         if (!hasStarted) return;
 
         CalculateMemorySizes();    // republishes PlanarSelected, which ImageSharing.cs reads
-        if (enableImageWriting)
-        {
-            ResizeBlockMapIfNeeded();
-        }
         if (enableImageWriting || enablePanoramaReading)
         {
             WriteMetadata();
@@ -3234,7 +3368,8 @@ public class PyUniSharingFast : MonoBehaviour
         offset += 4;
         Marshal.WriteInt32(metadataPtr, offset, blockImageHeight);
         offset += 4;
-        Debug.LogWarning(blockImageCount);
+        // Slots Python should scan. A hint only: the section is a fixed array at a fixed
+        // stride, so this no longer sizes anything on either side.
         Marshal.WriteInt32(metadataPtr, offset, blockImageCount);
         offset += 4;
         Marshal.WriteInt32(metadataPtr, offset, panoramaImageWidth);
@@ -3367,35 +3502,49 @@ public class PyUniSharingFast : MonoBehaviour
         WriteFloat(metadataPtr, metaPlanarStandoffOffset, planarStandoffMetres);
         Marshal.WriteByte(metadataPtr, metaPlanarCanvasModeOffset, (byte)planarCanvasMode);
 
+        // Section geometry. Constants on both sides; published so Python can verify rather
+        // than assume, and refuse to run against a producer built from another revision.
+        // Written on every call (they used to be written only on the first, which was safe
+        // only because nothing read them).
+        Marshal.WriteInt32(metadataPtr, metaBlockSlotCapacityOffset, blockSlotCapacity);
+        Marshal.WriteInt32(metadataPtr, metaBlockSlotStrideOffset, blockSlotStride);
+        Marshal.WriteInt32(metadataPtr, metaBlockSectionBytesOffset, blockSectionBytes);
+        Marshal.WriteInt32(metadataPtr, metaPanoramaSectionBytesOffset, panoramaSectionBytes);
+
         // Seed the dynamic block so Python never reads an uninitialised plane before
         // the first Update tick.
         WriteDynamicState();
+        // Same for the heartbeat: a zero here is indistinguishable from a producer that
+        // died before its first Update, and Python's watchdog would fire on startup.
+        WriteHeartbeat();
 
-        if(hasStarted) return;
-        offset = metadataTailEnd + metadataReservedGap;
-
-        Marshal.WriteInt32(metadataPtr, offset, maxTotalBlockSize);
-        offset += 4;
-        Marshal.WriteInt32(metadataPtr, offset, maxTotalPanoramaSize);
-        offset += 4;
-        Debug.Assert(offset == metadataSize,
-                     $"metadata write ended at {offset}, but metadataSize is {metadataSize}");
+        // The tail's closure, mirrored by tools/check_wire_layout.py: everything the tail
+        // uses, plus whatever is left spare, plus the two trailing size fields, must come to
+        // exactly metadataSize. metadataReservedGap is what shrinks as the tail grows, so
+        // metadataSize -- and hence the section size -- never moves.
+        Debug.Assert(metadataTailEnd + metadataReservedGap + 8 == metadataSize,
+                     $"metadata tail closure is wrong: {metadataTailEnd} + {metadataReservedGap} + 8 " +
+                     $"!= {metadataSize}");
+        Debug.Assert(metaBlockSectionBytesOffset == metadataTailEnd + metadataReservedGap,
+                     "the two trailing size fields must sit immediately after the reserved gap");
     }
 
-    private void CheckExistingMapping(string mapName)
+    /// <summary>
+    /// Bumps the producer-liveness counter. Called every frame from Update, next to
+    /// <see cref="WriteBodyYaw"/>, and once from WriteMetadata to seed it.
+    ///
+    /// This is the only thing that distinguishes "Unity is idle" from "Unity is gone" on
+    /// the Python side. A crashed producer does not invalidate Python's mapping — the
+    /// section object lives as long as any handle to it does — so without a heartbeat the
+    /// stitcher happily re-reads the dead frame forever.
+    /// </summary>
+    private void WriteHeartbeat()
     {
-        IntPtr existingMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
-        if (existingMap != IntPtr.Zero)
-        {
-            System.Threading.Thread.Sleep(100);
-
-            IntPtr secondCheck = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
-            if (secondCheck != IntPtr.Zero)
-            {
-                Debug.LogError($"Memory map '{mapName}' still exists after closing the handle.");
-                CloseHandle(secondCheck);
-            }
-        }
+        if (metadataPtr == IntPtr.Zero) return;
+        // Unchecked wrap is fine and deliberate: the reader only ever asks "different from
+        // last time?", so the value at the wrap boundary is as good as any other.
+        unchecked { heartbeat++; }
+        Marshal.WriteInt32(metadataPtr, metaHeartbeatOffset, (int)heartbeat);
     }
 
     void OnDestroy()

@@ -26,6 +26,12 @@ Four Windows named memory maps. **If you change a layout/offset, change both
 Every block-flag handshake is strictly **one producer + one consumer** — never add a second
 reader/writer to a map; that's why the feed and stitch maps are separate.
 
+**Every section has exactly one size, forever, and it is a compile-time constant on both sides.**
+A named Windows section cannot be resized: `CreateFileMapping` opens the existing one when the name is
+taken and denies a larger request. So no section size may depend on the drone count, the stitcher, or
+the resolution — only on constants that `tools/check_wire_layout.py` asserts equal across all three
+files. Sizes that varied at runtime are what produced the intermittent access-denied crashes.
+
 - `MetadataSharedMemory` — sizes + stitcher config + blur/border + quality settings + **body/pilot yaw**
   (yaw also rewritten every frame at a fixed offset). This is the integrated *body heading*
   (`PyUniSharingFast.bodyYaw`): seeded from the HMD's initial yaw, then advanced only by the controller
@@ -38,7 +44,9 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   despite not being contiguous with the block**, since pan is an offset from the origin the centre
   drone defines. Both sides address every tail field by absolute offset, so the ordering is cosmetic,
   but it is why `readMetadataMemory` and `read_dynamic_state` each seek more than once rather than
-  reading straight through.
+  reading straight through. The tail ends with a **producer heartbeat** (384, bumped every Unity frame)
+  and the **section geometry** (388–395 capacity/stride, 404–411 the two section sizes) — see the
+  `BlockSharedMemory` entry for why both exist.
 - `BlockSharedMemory` — the **stitcher input**, one block per selected drone. `flag` is the handshake
   (0 = ready, 1 = busy). Images are **BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole
   producer: sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep
@@ -60,37 +68,72 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
     which `time.time()` (~1.75e9) has ~128 s of resolution; it is only ever read as a difference
     (`MAX_CAPTURE_SKEW_S`), so a since-start clock is both sufficient and the only one that works.
 
-  Slot count is `blockImageCount` (metadata): 3 for the left/centre/right stitchers, up to
-  `maxStitchViews` for `PLANAR`. It is sized from the *camera count*, never the per-frame selection —
-  `CreateBlockMap` recreates the named section, and Python holds a single mapping of it. Slots the
-  selection doesn't reach are marked `droneId == -1` — **including at creation**, because a fresh
-  section is zero-filled and `0` is a legal drone id: until its first readback lands, a never-written
-  slot otherwise advertises itself as a ready block from drone 0 carrying an all-zero pose.
-  The readback pool is sized to two full batches (`EnsureReadbackPool`) for the same reason: with a
-  pool smaller than `blockImageCount`, `AcquirePendingSlot` starves the *same* tail slots every send,
-  so they are never written at all rather than merely late.
+  **The section is a fixed array of fixed-stride slots, created once and never recreated.**
+  `blockSlotCapacity` (24) × `blockSlotStride` (48 + 1280×720×3) = `blockSectionBytes`, all
+  compile-time constants mirrored in `PyUniSharingFast.cs`, `ImageSharing.cs` and
+  `StitcherThreading.py`. This is not a tuning choice — a named Windows section **cannot be
+  resized**. `CreateFileMapping` (and Python's `mmap.mmap(-1, size, tagname)`, which is the same
+  call) opens the *existing* section when the name is taken, and a request **larger** than it fails
+  with `ERROR_ACCESS_DENIED`. Sizing the section to the live drone count, as it used to be, therefore
+  deadlocked against whichever process held the old size; that was the "access denied on
+  BlockSharedMemory" failure, and because Unity's failure path left `blockPtr` null it silently
+  stopped publishing for the rest of the session. Three paths used to resize it — `SetStitcherType`
+  (3 slots ⇄ N), the 3 s `UpdateCameras` tick, and `OnValidate` — and all three are gone.
+  Consequences worth keeping:
+  - Slot `i` is **always** at `i * blockSlotStride`. Neither the fleet size, the stitcher, nor the
+    resolution moves a slot. Only the *payload length* (`blockImageWidth × blockImageHeight × 3`) is
+    live, and it is read from metadata; the rest of each slot is padding. The image envelope is
+    therefore load-bearing: `CalculateMemorySizes` clamps to 1280×720 with a `LogError`, and Python
+    refuses to run on a payload that would overrun the stride.
+  - `blockImageCount` (metadata) is now a **scan hint**, not a size — how many slots are worth
+    polling. `droneId == -1` is the only thing that marks a slot as carrying no view, set
+    **including at creation** over the whole capacity, because a fresh section is zero-filled and `0`
+    is a legal drone id: an unwritten slot would otherwise advertise a ready block from drone 0 with
+    an all-zero (degenerate) quaternion. Most slots stay at that sentinel for a whole session.
+  - Python's sufficiency test is a **floor** (`>= MIN_STITCH_IMAGES` / `>= MIN_PLANAR_IMAGES`), not
+    `len(views) == num_blocks`. The old equality only worked while the section was sized to exactly
+    the three slots STABSTITCH fills; against a fixed capacity it is permanently false.
+  - The readback pool is still sized to two full batches (`EnsureReadbackPool`): with a pool smaller
+    than the per-send slot count, `AcquirePendingSlot` starves the *same* tail slots every send, so
+    they are never written at all rather than merely late.
+  - **There is no per-stitcher view knob.** `maxStitchViews` and `ImageSharing.stitchSlots` are gone;
+    `PLANAR` mosaics every alive drone that passes the plane-hit/range/obliquity tests, and
+    STABSTITCH still writes its three. Switching stitcher no longer touches the wire at all.
 
   **`PyUniSharingFast` publishes `blockImageCount` + `blockHeaderSize` even when it is not the
-  producer**, because Python sizes its mapping from them and only this component writes metadata.
-  In the DJI scene the section is created by `ImageSharing.cs`, so `DesiredBlockCount()` **reads that
-  component's `StitchSlotCount`** rather than assuming a number, and skips the `camerasToCapture` clamp
-  — that scene has no sim FPV cameras, and clamping advertises 0 blocks, which makes Python map none of
-  the section and the real-drone panorama silently never appear. `ImageSharing.stitchSlots` is a
-  serialized field, not a constant, because `PLANAR` mosaics every drone that sees the facade while
-  `STABSTITCH` takes exactly 3; raise it to the fleet size before flying `PLANAR`.
+  producer**, because only this component writes metadata. In the DJI scene the section is created by
+  `ImageSharing.cs`, so `PublishedSlotCount()` advertises the whole capacity there rather than
+  clamping to `camerasToCapture` — that scene has no sim FPV cameras, and a hint of 0 makes Python
+  scan no slots at all, so the real-drone panorama silently never appears.
   `create` and `describe` being split across two files that never reference each other is the
-  hazard; `tools/check_wire_layout.py` asserts the header size and the LRC count, and — when the
-  `DJI_Swarm` repo is checked out beside this one — the feed header across both repos too.
+  hazard, and it now cuts twice: both components request the *same named section*, so unequal sizes
+  deny whichever starts second. `tools/check_wire_layout.py` asserts the header size, the LRC count
+  and the full section geometry across both files, and — when the `DJI_Swarm` repo is checked out
+  beside this one — the feed header across both repos too.
+
+  **Python fails loudly rather than limping** (`_fatal`): an unmappable section, a geometry
+  disagreement with the producer, or a **heartbeat** that has not advanced for 5 s all print a
+  diagnostic and exit non-zero. The heartbeat is the only signal that distinguishes "Unity is idle"
+  from "Unity has crashed" — closing the producer's handle does not destroy the section while Python
+  holds it, so every block keeps its last contents and the stitcher would otherwise render a frozen
+  panorama forever.
 - `DroneFeedSharedMemory` — **all real-drone feeds** (DJIScene only), same per-block layout as above but
   a fixed capacity of **10 blocks** indexed by zero-based drone id (must match `MAX_DRONES` in the
-  DJI_Swarm repo's `image_stream_feed.py`, which is the producer). Consumer: `ImageSharing.cs`, which
-  displays the feeds and re-publishes the 3 body-yaw-selected views into `BlockSharedMemory`
-  (`PublishStitchBlocks`). Unity marks unwritten **and already-consumed** blocks with `droneId == -1`
+  DJI_Swarm repo's `image_stream_feed.py`, which is the producer). Its per-block stride is fitted to
+  the 800×450 feed and is **not** `blockSlotStride` — the two maps are sized independently.
+  Consumer: `ImageSharing.cs`, which displays the feeds and re-publishes the selected views into
+  `BlockSharedMemory` (`PublishStitchBlocks`: the 3 body-yaw-selected ones under STABSTITCH, every
+  fresh feed under PLANAR). Unity marks unwritten **and already-consumed** blocks with `droneId == -1`
   (the producer rewrites `droneId` every write) — that marker is the new-frame detection, since the
   flag alone can't distinguish a fresh frame from a re-read.
 - `PanoramaSharedMemory` — `int flag | int quality_ok | RGB24 panorama`. `quality_ok == 0` ⇒ Unity shows
   individual feeds instead of the panorama. Panorama is **vertically flipped and converted BGR→RGB** by
   Python (Unity textures start bottom-left; Unity uploads the bytes straight into an RGB24 texture).
+  Fixed-size for the same reason as the block section: `panoramaSectionBytes` (8 + 4000×4000×3) on
+  both sides, with the live panorama written as a *prefix*. Unity always used the constant; Python
+  used to ask for `w*h*3 + 8`, so whichever process created the section first denied the other — and
+  unlike the block map that path had no retry, so the symptom was a curved screen that simply never
+  updated for the whole session.
 
 ## Conventions & invariants (not enforced by code)
 
@@ -153,11 +196,12 @@ reader/writer to a map; that's why the feed and stitch maps are separate.
   on an actual mode change, so the inspector's choices stand until the first toggle, and
   `driveDisplayConfiguration` turns it off for comparing two stitchers on one formation. Both setters
   go through the owning component (`PyUniSharingFast.SetStitcherType`,
-  `InterfaceManager.SetScreenStyle`) rather than writing the fields: the stitcher switch has to resize
-  `BlockSharedMemory` (`PLANAR` wants `maxStitchViews` slots, the others 3) and republish metadata for
-  Python to pick up, and the layout has to stay owned by `InterfaceManager` per the source-of-truth rule
-  below. The resize is a no-op in the DJI scene, where the slot count comes from
-  `ImageSharing.stitchSlots` instead — raise that by hand before flying `PLANAR` there.
+  `InterfaceManager.SetScreenStyle`) rather than writing the fields: the stitcher switch has to
+  republish metadata for Python to pick up, and the layout has to stay owned by `InterfaceManager` per
+  the source-of-truth rule below. `SetStitcherType` deliberately does **not** touch
+  `BlockSharedMemory` any more — it used to resize it (3 slots for STABSTITCH, more for `PLANAR`), and
+  this call site, fired mid-flight by the `V` key with Python attached, was the most reliable way to
+  hit the `ERROR_ACCESS_DENIED` that a non-resizable named section guarantees.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - **`OUTER_CIRCLE` is only meaningful for the radially-outward ring**, and `ScreenStyle.FORMATION_WALL`
@@ -408,8 +452,12 @@ both are supplied differently there. **Three settings and one flag** are what ma
 |---|---|
 | `PyUniSharingFast` | `useManualIntrinsics = true`, `manualVerticalFovDeg = 46.4` (Mini 3 Pro at 16:9) |
 | `PyUniSharingFast` | `scenePlaneMode = FormationRelative`, `planarStandoffMetres` = distance to the facade |
-| `ImageSharing` | `stitchSlots` ≥ fleet size (it defaults to 3, which is STABSTITCH's number) |
 | DJI_Swarm | `-ImageStreamPose` / `ImageStreamPose = $true` / `--image-stream-pose` |
+
+There used to be a fourth: `ImageSharing.stitchSlots`, which defaulted to STABSTITCH's 3 and had to be
+raised to the fleet size by hand — and only took effect on a Play restart, because the section was
+created in `Start`. It is gone; `PublishStitchBlocks` now writes every aircraft with a fresh posed
+frame into the fixed-capacity section.
 
 - **The pose comes from `dji_camera_pose.CameraPoseSolver`** (DJI_Swarm repo), called inside
   `image_stream_feed.py`'s `frame_sink` — where the image bytes and the telemetry come out of the *same*

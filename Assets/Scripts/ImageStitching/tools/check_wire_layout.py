@@ -61,6 +61,24 @@ PAIRS = [
     ("metaPlanarStandoffOffset",       "META_PLANAR_STANDOFF_OFFSET"),
     ("metaPlanarZoomOffset",           "META_PLANAR_ZOOM_OFFSET"),
     ("metaPlanarCanvasModeOffset",     "META_PLANAR_CANVAS_MODE_OFFSET"),
+    ("metaHeartbeatOffset",            "META_HEARTBEAT_OFFSET"),
+    ("metaBlockSlotCapacityOffset",    "META_BLOCK_SLOT_CAPACITY_OFFSET"),
+    ("metaBlockSlotStrideOffset",      "META_BLOCK_SLOT_STRIDE_OFFSET"),
+    ("metaBlockSectionBytesOffset",    "META_BLOCK_SECTION_BYTES_OFFSET"),
+    ("metaPanoramaSectionBytesOffset", "META_PANORAMA_SECTION_BYTES_OFFSET"),
+    # Section geometry. Not offsets: these are the physical shape of BlockSharedMemory and
+    # PanoramaSharedMemory, held as constants on both sides and never negotiated at
+    # runtime. A named Windows section cannot be resized, so a disagreement here is not a
+    # misread field, it is one process being denied the mapping outright.
+    ("blockSlotCapacity",              "BLOCK_SLOT_CAPACITY"),
+    ("maxBlockWidth",                  "BLOCK_MAX_WIDTH"),
+    ("maxBlockHeight",                 "BLOCK_MAX_HEIGHT"),
+    ("blockSlotStride",                "BLOCK_SLOT_STRIDE"),
+    ("blockSectionBytes",              "BLOCK_SECTION_BYTES"),
+    ("maxPanoramaWidth",               "PANORAMA_MAX_WIDTH"),
+    ("maxPanoramaHeight",              "PANORAMA_MAX_HEIGHT"),
+    ("panoramaDataPosition",           "PANORAMA_HEADER_BYTES"),
+    ("panoramaSectionBytes",           "PANORAMA_SECTION_BYTES"),
     # Not an offset: Python switches on the plane-mode byte by number, so the enum value
     # itself is part of the contract. C# mirrors it as a const because this parser reads
     # `const int` and cannot evaluate an enum member.
@@ -114,22 +132,24 @@ def main():
     cs, py = parse_cs(CS), parse_py(PY)
     failures = []
 
-    print(f"{'C# constant':<34}{'Python constant':<34}{'C#':>7}{'Py':>7}  ok")
-    print("-" * 90)
+    # The section-size constants run to eight digits, so the value columns are wide
+    # enough for them to stay separated rather than running together.
+    print(f"{'C# constant':<34}{'Python constant':<36}{'C#':>10}{'Py':>10}  ok")
+    print("-" * 100)
     for cs_name, py_name in PAIRS:
         a, b = cs.get(cs_name), py.get(py_name)
         ok = a is not None and a == b
-        print(f"{cs_name:<34}{py_name:<34}{str(a):>7}{str(b):>7}  {'OK' if ok else 'MISMATCH'}")
+        print(f"{cs_name:<34}{py_name:<36}{str(a):>10}{str(b):>10}  {'OK' if ok else 'MISMATCH'}")
         if not ok:
             failures.append(f"{cs_name} ({a}) != {py_name} ({b})")
 
     print()
     print("Quality reasons (Python value is pre-shift; C# is the bit after <<1)")
-    print("-" * 90)
+    print("-" * 100)
     for cs_name, py_name in REASON_PAIRS:
         a, b = cs.get(cs_name), py.get(py_name)
         ok = a is not None and b is not None and a == (b << 1)
-        print(f"{cs_name:<34}{py_name:<34}{str(a):>7}{str(b):>7}  {'OK' if ok else 'MISMATCH'}")
+        print(f"{cs_name:<34}{py_name:<36}{str(a):>10}{str(b):>10}  {'OK' if ok else 'MISMATCH'}")
         if not ok:
             failures.append(f"{cs_name} ({a}) != {py_name}<<1 ({b if b is None else b << 1})")
 
@@ -177,6 +197,12 @@ def main():
         ("panA", "metaPlanarPanAOffset", 4),
         ("panB", "metaPlanarPanBOffset", 4),
         ("canvasMode", "metaPlanarCanvasModeOffset", 1),
+        # Producer heartbeat and the published section geometry, taken out of what used to
+        # be metadataReservedGap. metadataSize is unchanged, which is the point: an
+        # already-running Python must not be stranded by a different section size.
+        ("heartbeat", "metaHeartbeatOffset", 4),
+        ("blockSlotCapacity", "metaBlockSlotCapacityOffset", 4),
+        ("blockSlotStride", "metaBlockSlotStrideOffset", 4),
     ]
     cursor = 253
     for label, const, size in fields:
@@ -207,6 +233,18 @@ def main():
           f"(C# metadataSize = {cs.get('metadataSize')})")
     if expected_size != cs.get("metadataSize"):
         failures.append(f"metadataSize {cs.get('metadataSize')} != {expected_size}")
+
+    # The two trailing size fields are what that "+ 8" is. Pin them to the end of the gap,
+    # or a future field taken out of the gap can silently land on top of them.
+    sizes_at = cs.get("metadataTailEnd", 0) + gap
+    print(f"  trailing size fields at {cs.get('metaBlockSectionBytesOffset')}, "
+          f"{cs.get('metaPanoramaSectionBytesOffset')} (expected {sizes_at}, {sizes_at + 4})")
+    if cs.get("metaBlockSectionBytesOffset") != sizes_at:
+        failures.append(f"metaBlockSectionBytesOffset {cs.get('metaBlockSectionBytesOffset')} "
+                        f"!= metadataTailEnd + reserved gap ({sizes_at})")
+    if cs.get("metaPanoramaSectionBytesOffset") != sizes_at + 4:
+        failures.append(f"metaPanoramaSectionBytesOffset "
+                        f"{cs.get('metaPanoramaSectionBytesOffset')} != {sizes_at + 4}")
     if gap < 0:
         failures.append(f"metadataReservedGap is negative ({gap}): the tail has outgrown "
                         "metadataSize, which must be raised on both sides together")
@@ -226,27 +264,30 @@ def main():
     else:
         sh = parse_cs(SHARING_CS)
         # Both producers write the pose-carrying v2 header now, so ImageSharing's block
-        # header must equal blockPoseHeaderSize, not the legacy size. Its slot count is
-        # a serialized field rather than a const (PLANAR wants more than three views), so
-        # only its floor is assertable here — DesiredBlockCount() reads the live value off
-        # the component at runtime, which is what actually keeps the two in step.
+        # header must equal blockPoseHeaderSize, not the legacy size.
+        #
+        # The section geometry below matters twice over. Once because Python addresses
+        # slots by these numbers while only PyUniSharingFast publishes them; and once
+        # because BOTH components request the same named section, and Windows opens an
+        # existing section rather than resizing it — so unequal sizes mean whichever
+        # component starts second is denied outright. There is no runtime negotiation left
+        # that could paper over a mismatch, which is why every one of these is asserted
+        # rather than reported.
         for label, sh_name, cs_name in [
                 ("block header", "MetadataSize", "blockPoseHeaderSize"),
+                ("lrc views", "STITCH_COUNT_LRC", "STITCH_COUNT_LRC"),
+                ("slot capacity", "StitchSlotCapacity", "blockSlotCapacity"),
+                ("slot stride", "StitchSlotStride", "blockSlotStride"),
+                ("section bytes", "StitchSectionBytes", "blockSectionBytes"),
+                ("envelope width", "StitchMaxImageWidth", "maxBlockWidth"),
+                ("envelope height", "StitchMaxImageHeight", "maxBlockHeight"),
         ]:
             a, b = sh.get(sh_name), cs.get(cs_name)
             ok = a is not None and a == b
-            print(f"  {label:<14} ImageSharing.{sh_name} = {a}, "
+            print(f"  {label:<15} ImageSharing.{sh_name} = {a}, "
                   f"PyUniSharingFast.{cs_name} = {b}  {'OK' if ok else 'MISMATCH'}")
             if not ok:
                 failures.append(f"ImageSharing.{sh_name} ({a}) != {cs_name} ({b})")
-
-        lrc_sh, lrc_cs = sh.get("STITCH_COUNT_LRC"), cs.get("STITCH_COUNT_LRC")
-        ok = lrc_sh is not None and lrc_sh == lrc_cs
-        print(f"  {'lrc views':<14} ImageSharing.STITCH_COUNT_LRC = {lrc_sh}, "
-              f"PyUniSharingFast.STITCH_COUNT_LRC = {lrc_cs}  {'OK' if ok else 'MISMATCH'}")
-        if not ok:
-            failures.append(f"ImageSharing.STITCH_COUNT_LRC ({lrc_sh}) != "
-                            f"PyUniSharingFast.STITCH_COUNT_LRC ({lrc_cs})")
 
         # The other repo's feed-block header. Reported when DJI_Swarm is not checked out
         # beside this one, asserted when it is: nothing else guards this pair, and a

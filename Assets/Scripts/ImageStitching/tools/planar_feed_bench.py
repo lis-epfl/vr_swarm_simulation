@@ -402,7 +402,10 @@ def main():
     print("  In Unity set: typeOfStitcher = PLANAR, useManualIntrinsics = true, "
           "manualVerticalFovDeg = %.1f," % args.vfov)
     print("               scenePlaneMode = FormationRelative, planarStandoffMetres "
-          "= %.1f, ImageSharing.stitchSlots >= %d" % (args.standoff, args.drones))
+          "= %.1f" % args.standoff)
+    # There is deliberately no slot-count knob to set any more: BlockSharedMemory is a
+    # fixed-capacity section and PLANAR publishes every drone with a fresh posed frame.
+    print("               (no slot count to set — PLANAR publishes every fresh feed)")
 
     # Render once: the formation is static, so the only per-frame work is the copy.
     frames = []

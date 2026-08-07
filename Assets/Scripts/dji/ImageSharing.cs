@@ -11,6 +11,11 @@ public class ImageSharing : MonoBehaviour
     // Memory mapping constants and parameters
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
+    // What CreateFileMapping returns when the named section already exists at a SMALLER
+    // size than the one requested. Windows never resizes a section, so an unequal size
+    // between the two producers, or between a producer and a stale Python, is fatal —
+    // which is why every section here has a compile-time constant size.
+    private const int ERROR_ACCESS_DENIED = 5;
     
     // Block layout for each image (wire v2), mirroring PyUniSharingFast's
     // blockPoseHeaderSize and utils/imageSharingUtil.py's BLOCK_HEADER_BYTES:
@@ -37,7 +42,10 @@ public class ImageSharing : MonoBehaviour
     private const int ImageWidth = 800;
     private const int ImageHeight = 450;
     private const int ImageSize = ImageWidth * ImageHeight * 3; // 3 bytes per pixel
-    private int BlockSize = MetadataSize + ImageSize; // size per image block
+    // Stride of a DroneFeedSharedMemory block. Fitted exactly to the 800x450 feed, because
+    // that map's producer (image_stream_feed.py) uses the same arithmetic. NOT the stride of
+    // a BlockSharedMemory slot — see StitchSlotStride below, which is larger.
+    private const int BlockSize = MetadataSize + ImageSize;
 
     // Fixed capacity of the feed mapping (must match MAX_DRONES in
     // image_stream_feed.py). The mapping is always this many blocks so its size
@@ -55,7 +63,9 @@ public class ImageSharing : MonoBehaviour
     [SerializeField] private string processedMapName = "DroneFeedSharedMemory";
 
     [Header("Stitcher Feed")]
-    [Tooltip("Re-publish the 3 body-yaw-selected feeds into the stitcher's 3-slot BlockSharedMemory, mirroring PyUniSharingFast.SelectStitchCameras in the sim.")]
+    [Tooltip("Re-publish the selected feeds into the stitcher's BlockSharedMemory: the 3 " +
+             "body-yaw-selected ones under STABSTITCH (mirroring PyUniSharingFast." +
+             "SelectStitchCameras in the sim), every fresh feed under PLANAR.")]
     [SerializeField] private bool enableStitchWriting = true;
 
     [Tooltip("Frames older than this (seconds) are excluded from stitch selection, so a drone that stops streaming drops out of the panorama.")]
@@ -64,28 +74,28 @@ public class ImageSharing : MonoBehaviour
     [Tooltip("Degrees added to every drone's compass heading to align compass north with the Unity/HMD yaw frame. Applied to screens, indicators and stitch selection alike.")]
     [SerializeField] private float headingOffsetDegrees = 0f;
 
-    // The stitcher input map: 3 slots ordered [left, centre, right], consumed by
-    // StitcherThreading.py. Same contract PyUniSharingFast produces in the sim.
+    // The stitcher input map, consumed by StitcherThreading.py. Same contract
+    // PyUniSharingFast produces in the sim: a FIXED array of StitchSlotCapacity slots at a
+    // FIXED StitchSlotStride, created once and never resized.
     //
-    // This component CREATES the section, but PyUniSharingFast DESCRIBES it: Python sizes
-    // its mapping from metadata (blockImageCount x [blockHeaderSize + w*h*3]), and only
-    // PyUniSharingFast writes metadata. So StitchSlots must equal what its
-    // DesiredBlockCount() reports when enableImageWriting is off (STITCH_COUNT_LRC), and
-    // MetadataSize must equal its ActiveBlockHeaderSize() there (blockLegacyHeaderSize).
-    // Changing either number here without changing it there makes Python map a section of
-    // the wrong stride or the wrong length — it does not fail to compile, it just reads
-    // image bytes as headers.
+    // The three constants below are mirrors of PyUniSharingFast's blockSlotCapacity /
+    // maxBlockWidth x maxBlockHeight / blockSlotStride, and tools/check_wire_layout.py
+    // asserts they agree. They must, for two independent reasons: this component CREATES
+    // the section while PyUniSharingFast DESCRIBES it (only that component writes metadata),
+    // and both components request the same named section — Windows opens the existing one
+    // rather than resizing, so unequal sizes mean whichever starts second is denied.
+    //
+    // There is deliberately no slot-count knob here any more. It used to default to 3
+    // (STABSTITCH's number) and had to be raised by hand to the fleet size before flying
+    // PLANAR — and only took effect on a Play restart, because the section was created in
+    // Start. PLANAR now simply fills as many of these slots as there are aircraft with a
+    // fresh, posed frame.
     private const string stitchMapName = "BlockSharedMemory";
-
-    [Tooltip("Slots in the stitcher's input map. STABSTITCH always uses exactly 3 " +
-             "(left/centre/right); PLANAR mosaics every drone that can see the surface, so " +
-             "raise this to the fleet size when flying PLANAR. Must equal what " +
-             "PyUniSharingFast.DesiredBlockCount() reports — Python sizes its mapping from " +
-             "that, and a mismatch reads image bytes as headers rather than failing.")]
-    [SerializeField] private int stitchSlots = 3;
-
-    /// <summary>Slot count this component created the stitch map with.</summary>
-    public int StitchSlotCount => Mathf.Max(STITCH_COUNT_LRC, stitchSlots);
+    private const int StitchSlotCapacity = 24;
+    private const int StitchMaxImageWidth = 1280;
+    private const int StitchMaxImageHeight = 720;
+    private const int StitchSlotStride = MetadataSize + StitchMaxImageWidth * StitchMaxImageHeight * 3;
+    private const int StitchSectionBytes = StitchSlotCapacity * StitchSlotStride;
 
     // A left/centre/right panorama is always exactly three views.
     private const int STITCH_COUNT_LRC = 3;
@@ -164,7 +174,9 @@ public class ImageSharing : MonoBehaviour
         if (enableDebugLogging) Debug.Log("[ImageSharing] Starting ImageSharing component...");
         
         // The feed mapping always has the full fixed capacity (matches
-        // image_stream_feed.py) so its size never depends on the fleet size.
+        // image_stream_feed.py) so its size never depends on the fleet size. Note this is
+        // the FEED stride, fitted to the 800x450 feed — not StitchSlotStride, which is
+        // sized to the block section's larger envelope.
         TotalProcessedSize = MaxFeedBlocks * BlockSize;
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({MaxFeedBlocks} blocks x {BlockSize} bytes per block, {numImages} screens)");
 
@@ -464,38 +476,48 @@ public class ImageSharing : MonoBehaviour
         }
     }
 
-    // Creates (or opens) the stitcher's BlockSharedMemory and readies its flags.
-    // Same layout PyUniSharingFast produces in the sim (wire v2, see MetadataSize).
+    // Creates the stitcher's BlockSharedMemory and readies its flags. Called once, from
+    // Start. Same layout PyUniSharingFast produces in the sim (wire v2, see MetadataSize)
+    // and — crucially — the same size, since both request the same name.
     private void CreateStitchMap()
     {
-        int totalStitchSize = StitchSlotCount * BlockSize;
         stitchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
-            (uint)totalStitchSize, stitchMapName);
+            (uint)StitchSectionBytes, stitchMapName);
         if (stitchFileMap == IntPtr.Zero)
         {
-            Debug.LogError($"[ImageSharing] Unable to create stitch memory map '{stitchMapName}'. Error code: {Marshal.GetLastWin32Error()}");
+            int errorCode = Marshal.GetLastWin32Error();
+            Debug.LogError($"[ImageSharing] Unable to create stitch memory map '{stitchMapName}' " +
+                           $"({StitchSectionBytes} bytes). Error code: {errorCode}" +
+                           (errorCode == ERROR_ACCESS_DENIED
+                               ? " (ACCESS_DENIED: a section of this name already exists at a smaller " +
+                                 "size — a stitcher built against a different StitchSlotCapacity or " +
+                                 "image envelope is still running. Stop it, then restart Play.)"
+                               : ""));
             return;
         }
 
-        stitchPtr = MapViewOfFile(stitchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalStitchSize);
+        stitchPtr = MapViewOfFile(stitchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)StitchSectionBytes);
         if (stitchPtr == IntPtr.Zero)
         {
             Debug.LogError($"[ImageSharing] Unable to map view of stitch memory map. Error code: {Marshal.GetLastWin32Error()}");
             return;
         }
 
-        for (int slot = 0; slot < StitchSlotCount; slot++)
+        for (int slot = 0; slot < StitchSlotCapacity; slot++)
         {
-            IntPtr p = IntPtr.Add(stitchPtr, slot * BlockSize);
+            IntPtr p = IntPtr.Add(stitchPtr, slot * StitchSlotStride);
             Marshal.WriteInt32(p, 0, 0);
             // droneId = -1 at creation, not just when a slot goes unused. A fresh
             // section is zero-filled and 0 is a legal drone id, so a never-written slot
             // would otherwise advertise itself as a ready block from drone 0 carrying an
-            // all-zero pose — which is a degenerate quaternion downstream.
+            // all-zero pose — which is a degenerate quaternion downstream. With a
+            // fixed-capacity section most slots stay at this sentinel for the whole
+            // session, so this loop is the only thing standing between a small fleet and
+            // a section full of phantom drone-0 views.
             Marshal.WriteInt32(p, 4, -1);
             Marshal.WriteInt32(p, PoseStatusOffset, 0);
         }
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Stitch map '{stitchMapName}' ready ({StitchSlotCount} slots x {BlockSize} bytes).");
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Stitch map '{stitchMapName}' ready ({StitchSlotCapacity} slots x {StitchSlotStride} bytes).");
     }
 
     // Chooses which feeds form the panorama and writes them to the stitch map.
@@ -505,10 +527,11 @@ public class ImageSharing : MonoBehaviour
     //               [left, centre, right]. Mirrors PyUniSharingFast.SelectStitchCameras
     //               and Python's get_subsets_from_order, so both sides of the bridge
     //               agree on which views form the panorama.
-    //   PLANAR      every fresh feed, up to the slot count. A facade wall has all its
-    //               drones looking at the same surface, so a yaw-ordered pick of three
-    //               would throw away most of the mosaic; and the planar solve does not
-    //               use ring order at all.
+    //   PLANAR      every fresh feed, full stop (the section's capacity is the only cap,
+    //               and a real fleet never reaches it). A facade wall has all its drones
+    //               looking at the same surface, so a yaw-ordered pick of three would throw
+    //               away most of the mosaic; and the planar solve does not use ring order
+    //               at all.
     private void PublishStitchBlocks()
     {
         if (!enableStitchWriting || stitchPtr == IntPtr.Zero) return;
@@ -540,7 +563,7 @@ public class ImageSharing : MonoBehaviour
             // its per-drone corrections on the id, not the slot, but a stable order still
             // makes the logs readable.
             stitchCandidates.Sort();
-            published = Mathf.Min(stitchCandidates.Count, StitchSlotCount);
+            published = Mathf.Min(stitchCandidates.Count, StitchSlotCapacity);
             for (int j = 0; j < published; j++) WriteStitchSlot(j, stitchCandidates[j]);
         }
         else
@@ -570,17 +593,18 @@ public class ImageSharing : MonoBehaviour
                 stitchCandidates[(centrePos + 1) % n],
             };
 
-            published = Mathf.Min(STITCH_COUNT_LRC, StitchSlotCount);
+            published = STITCH_COUNT_LRC;
             for (int j = 0; j < published; j++) WriteStitchSlot(j, selected[j]);
         }
 
-        // Retire the slots this frame's selection did not reach. Without it a drone that
+        // Retire the slots this frame's selection did not reach — all the way to the
+        // section's capacity, not just to some published count. Without it a drone that
         // drops out leaves its last frame in the mosaic forever: the flag handshake alone
         // cannot distinguish a fresh block from a stale one, which is why droneId == -1 is
         // the marker on both maps.
-        for (int j = published; j < StitchSlotCount; j++)
+        for (int j = published; j < StitchSlotCapacity; j++)
         {
-            IntPtr slot = IntPtr.Add(stitchPtr, j * BlockSize);
+            IntPtr slot = IntPtr.Add(stitchPtr, j * StitchSlotStride);
             if (Marshal.ReadInt32(slot, 0) != 0) continue;
             Marshal.WriteInt32(slot, 4, -1);
             Marshal.WriteInt32(slot, PoseStatusOffset, 0);
@@ -591,7 +615,7 @@ public class ImageSharing : MonoBehaviour
     private void WriteStitchSlot(int j, int droneId)
     {
         CachedFrame frame = frameCache[droneId];
-        IntPtr slot = IntPtr.Add(stitchPtr, j * BlockSize);
+        IntPtr slot = IntPtr.Add(stitchPtr, j * StitchSlotStride);
 
         // Skip this slot if the stitcher is mid-read (same handshake as the sim
         // producer in PyUniSharingFast).
@@ -697,6 +721,15 @@ public class ImageSharing : MonoBehaviour
         }
 
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Final stats - Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
+    }
+
+    // Mirrors PyUniSharingFast, which has had both hooks for a while. OnDestroy alone is
+    // not enough: on a quit that tears the scene down in an unusual order, a section whose
+    // handle is never closed outlives the process only until the OS reclaims it — but the
+    // window in between is exactly when a restarted Play tries to create it again.
+    void OnApplicationQuit()
+    {
+        OnDestroy();
     }
 
     // Validates image data to check if it looks reasonable
