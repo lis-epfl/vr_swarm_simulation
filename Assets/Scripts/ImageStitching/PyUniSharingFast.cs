@@ -447,6 +447,18 @@ public class PyUniSharingFast : MonoBehaviour
                  "panorama centre and the VR velocity frame re-align with wherever the pilot is looking.")]
         public KeyCode calibrateKey = KeyCode.C;
 
+        [Tooltip("Run that same recentre once automatically at the start of the run, so the pilot " +
+                 "does not have to press the calibrate key on every flight.")]
+        public bool calibrateOnStart = true;
+
+        [Tooltip("Seconds after Start before the automatic recentre runs. Long enough for the swarm " +
+                 "to settle, because the recentre snaps the view onto the centre drone and that " +
+                 "selection is still moving while the formation forms. Not free to set to zero for " +
+                 "a second reason: the recentre is measured against the head's current forward, and " +
+                 "the HMD reports no pose on the first frames, so an early one leaves the panorama " +
+                 "centre off by however far the pilot happens to be facing.")]
+        public float calibrateOnStartDelay = 6f;
+
         [Tooltip("Key that toggles the panorama on/off (for testing without a controller connected).")]
         public KeyCode togglePanoramaKey = KeyCode.T;
 
@@ -549,6 +561,8 @@ public class PyUniSharingFast : MonoBehaviour
     private float bodyYawRate { get => vr.bodyYawRate; set => vr.bodyYawRate = value; }
     private bool driveCameraRigYaw { get => vr.driveCameraRigYaw; set => vr.driveCameraRigYaw = value; }
     private KeyCode calibrateKey { get => vr.calibrateKey; set => vr.calibrateKey = value; }
+    private bool calibrateOnStart { get => vr.calibrateOnStart; set => vr.calibrateOnStart = value; }
+    private float calibrateOnStartDelay { get => vr.calibrateOnStartDelay; set => vr.calibrateOnStartDelay = value; }
     private KeyCode togglePanoramaKey { get => vr.togglePanoramaKey; set => vr.togglePanoramaKey = value; }
     private KeyCode planarZoomInKey { get => vr.planarZoomInKey; set => vr.planarZoomInKey = value; }
     private KeyCode planarZoomOutKey { get => vr.planarZoomOutKey; set => vr.planarZoomOutKey = value; }
@@ -1175,6 +1189,11 @@ public class PyUniSharingFast : MonoBehaviour
     // Set when the calibrate key is pressed; consumed the same frame once the centre-drone yaw
     // is known, so the recentre snaps the view onto the (discrete) panorama centre.
     private bool calibrationRequested = false;
+    // Startup auto-calibration (calibrateOnStart): armed in Start and fired from Update once the
+    // preconditions hold, then cleared for the rest of the run. It has to be armed rather than
+    // performed there -- see StartupCalibrationReady for what is not settled yet.
+    private bool startupCalibrationPending = false;
+    private float startupCalibrationTime = 0f;
 
     // Controller-integrated body heading in degrees (0-360). Exposed so the swarm's VR command
     // frame can rotate velocity commands into the pilot's heading. Mirrors the private bodyYaw.
@@ -1295,6 +1314,12 @@ public class PyUniSharingFast : MonoBehaviour
 
         hasStarted = true;
         nextSendTime = Time.time;
+
+        // Arm the automatic recentre instead of performing it here: nothing it needs is ready in
+        // Start (StartupCalibrationReady says what), and the delay is what lets the HMD start
+        // reporting a pose -- and the swarm settle -- before we measure a rotation against them.
+        startupCalibrationPending = calibrateOnStart;
+        startupCalibrationTime = Time.time + Mathf.Max(0f, calibrateOnStartDelay);
     }
 
     void Update()
@@ -1336,6 +1361,16 @@ public class PyUniSharingFast : MonoBehaviour
         // finished below (once centreYaw is known) by rotating the view onto that centre drone.
         if (Input.GetKeyDown(calibrateKey))
         {
+            SeedBodyYawFromHead();
+            calibrationRequested = true;
+        }
+
+        // The same recentre, run once at the start of the flight so a fresh Play already has the
+        // view on the panorama centre instead of needing the key pressed first. Fired here rather
+        // than in Start so it goes through exactly the keypress path, seed included.
+        if (startupCalibrationPending && StartupCalibrationReady())
+        {
+            startupCalibrationPending = false;
             SeedBodyYawFromHead();
             calibrationRequested = true;
         }
@@ -2103,6 +2138,32 @@ public class PyUniSharingFast : MonoBehaviour
         bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
         bodyYawInitialized = true;
         BodyYawDegrees = bodyYaw;
+    }
+
+    // Whether the automatic startup recentre can run yet. Both halves of CalibrateToCentre read
+    // state that is not settled in Start, which is why the recentre is deferred to Update rather
+    // than done there:
+    //  - it rotates the view onto the *centre drone's* yaw, and swarmSpawn instantiates the fleet
+    //    in its own Start, so on an unlucky script order camerasToCapture is still empty and both
+    //    centre rules just return bodyYaw -- a recentre onto nothing, leaving the view where it was;
+    //  - the rotation is the signed angle from the head's current forward, and the HMD reports no
+    //    pose for the first frames, so an early recentre misses by however far the pilot happens to
+    //    be facing -- which is exactly the miss the manual key exists to correct.
+    // The delay covers both, and is sized by a third thing neither test can see: the swarm takes a
+    // few seconds to settle out of its spawn lattice, and until it has, the centre drone this snaps
+    // the view onto is still changing.
+    // The alive test mirrors the candidate set both centre rules draw from, so this does not have to
+    // know which stitcher is selected.
+    private bool StartupCalibrationReady()
+    {
+        if (headTransform == null || Time.time < startupCalibrationTime) return false;
+        if (camerasToCapture == null) return false;
+
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (camerasToCapture[i] != null && IsAlive(i)) return true;
+        }
+        return false;
     }
 
     // Finishes an on-demand calibration. The panorama stays snapped to the centre drone's yaw,
