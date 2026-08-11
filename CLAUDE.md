@@ -188,12 +188,17 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   frame at the wall. It follows `TargetYaw` rather than the drones' measured mean so the rig answers the
   stick 1:1 instead of lagging it, and `maxTargetLeadDeg` bounds the resulting lead. The lock is
   absolute, so entering plane mode also clears any pre-existing offset.
-- **Toggling the swarming plane also switches the stitcher and the screen layout**
-  (`SwarmPlaneController.ApplyDisplayConfiguration`): vertical ⇒ `PLANAR` + `FORMATION_WALL`,
-  horizontal ⇒ `STABSTITCH` + `OUTER_CIRCLE`. Neither pairing is taste — a wall is one dominant plane
-  where the pose-driven homographies are exact and the shared heading collapses `OUTER_CIRCLE` onto a
-  single arc position, and the ring is the parallax-heavy case StabStitch++ exists for. It fires only
-  on an actual mode change, so the inspector's choices stand until the first toggle, and
+- **The stitcher and the screen layout follow the configuration, and there are three of them**
+  (`SwarmPlaneController.RefreshDisplayConfiguration`): vertical plane ⇒ `PLANAR` +
+  `FORMATION_WALL`, horizontal with the gimbal down ⇒ `PLANAR` + `FORMATION_MAP`, horizontal
+  looking out ⇒ `STABSTITCH` + `OUTER_CIRCLE`. No pairing is taste — a wall (or the ground under a
+  nadir view) is one dominant plane where the pose-driven homographies are exact and the shared
+  heading collapses `OUTER_CIRCLE` onto a single arc position, and the ring is the parallax-heavy
+  case StabStitch++ exists for. The configuration is the two bits (plane mode, gimbal ≤
+  `FPVCameraScript.NadirPitch`); the plane wins when both are set. The nadir bit is **polled in
+  `Update`, not taken off `swarmParamsChanged`**, because `SetGimbalPitchNormalized` — the joystick
+  dial, the only one a pilot in a headset can reach — doesn't raise that event. It fires only
+  on an actual change, so the inspector's choices stand until the first one, and
   `driveDisplayConfiguration` turns it off for comparing two stitchers on one formation. Both setters
   go through the owning component (`PyUniSharingFast.SetStitcherType`,
   `InterfaceManager.SetScreenStyle`) rather than writing the fields: the stitcher switch has to
@@ -205,7 +210,7 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - **`OUTER_CIRCLE` is only meaningful for the radially-outward ring**, and `ScreenStyle.FORMATION_WALL`
-  is its shared-heading counterpart (vertical plane, or nadir). Placing each screen at its own drone's
+  is its shared-heading counterpart (vertical plane; nadir gets `FORMATION_MAP`, below). Placing each screen at its own drone's
   yaw works only because the ring *spreads* the yaws; under a shared heading every screen lands on the
   same arc position and they stack. `FORMATION_WALL` keeps yaw as the thing that aims the display — the
   circular mean of the yaws sets one azimuth for the wall, so turning the formation turns the wall — and
@@ -229,6 +234,34 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - The auto grid estimates the **row** count from the formation's aspect and divides to get the columns.
     Rounding the columns directly overshoots: a 5×2 wall reads as aspect 4, and `round(√(10·4))` is 6
     columns, splitting ten drones 6/4 across rows that are really 5 and 5.
+- **`ScreenStyle.FORMATION_MAP` is the nadir counterpart of the wall** — same
+  `BuildFormationGridLayout`, same rank-into-a-grid, same span budget — and it hangs the grid on a
+  **vertical panel in front of the pilot, not on the floor**. A floor layout is geometrically honest
+  and useless: it puts the whole display outside the gaze cone and the pilot flies looking at their
+  feet. It differs from the wall in exactly three places, all following from what the cameras see:
+  - **The frame is the pilot's body yaw** (`PyUniSharingFast.BodyYawDegrees`), not the swarm's mean
+    heading and not `GetPlaneAxes`. In nadir the swarming plane is horizontal, so `GetPlaneAxes`
+    degenerates to the world `(X, Z)` pair and ranks the formation north-up — "ahead" then means
+    nothing to the pilot — while the wall's circular mean of the yaws *collapses* on a
+    radially-outward ring and merely holds its last azimuth. Body yaw has neither failure: it is
+    always defined, and it is what `CalibrateToCentre` aims the head at, so the panel is in front of
+    the pilot by construction. It is **snapped, not low-passed** — easing the pilot's own heading
+    slides the panel out of view during a turn — and the glide a cell swap needs moves to the *cell
+    offsets* instead. Rows are along-track distance, furthest ahead at the top.
+  - **Columns are subtracted, not added.** In this display frame azimuth increases to the pilot's
+    **left** (a screen sits at `r(cos a, 0, sin a)` with `a = −yaw`, and the head faces `a = −bodyYaw`),
+    which `OUTER_CIRCLE` demonstrates: a drone yawed clockwise of the view centre gets the more
+    negative azimuth and appears to the right. A mirrored map is not cosmetic — "the obstacle is on
+    the right" has to mean the pilot's right. **`FORMATION_WALL` still adds**, so its starboard drone
+    lands on the pilot's left; that looks like a latent mirror in the wall, unverified in a headset.
+  - **Each feed is rolled into the map frame** by `droneYaw − frameYaw`. A nadir image is already a
+    plan view drawn in its *own* drone's heading frame (at gimbal −90 the camera's up axis lands on
+    the drone's forward), so without the roll two feeds show the same ground rotated differently the
+    moment the headings disagree, and no grid placement fixes it. The wall has no such problem: its
+    cameras look along the plane normal, where a shared heading already means a shared image frame.
+    The roll makes each quad sweep its rotated bounding box, so the cell size is
+    `w|cos δ| + h|sin δ|` maxed **per screen** — the width term peaks at `atan(h/w)`, so the largest
+    roll is not always the widest cell.
 - **`InterfaceManager.screenStyle` is the single source of truth for the layout, and the panorama
   fallback may not overwrite it.** `PyUniSharingFast.fallbackScreenStyle` is a substitute for a layout
   that shows *nothing* — `ScreenSpawn.ShowFallbackFeeds` only applies it when the configured style is

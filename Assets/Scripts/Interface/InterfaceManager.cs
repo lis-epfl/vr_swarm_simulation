@@ -33,7 +33,7 @@ public class InterfaceManager : MonoBehaviour
     public bool doubleView = false;
     public float rotatingCircleDistance = 2.0f;
 
-    [Header("Formation Wall Settings (FORMATION_WALL)")]
+    [Header("Formation Grid Settings (FORMATION_WALL / FORMATION_MAP)")]
     [Tooltip("Clearance between neighbouring screens, as a multiple of the screen's own size. " +
              "1.0 makes them touch exactly; below 1 is clamped away, since the point of the " +
              "style is that the screens do not overlap.")]
@@ -41,13 +41,18 @@ public class InterfaceManager : MonoBehaviour
     [Tooltip("Columns in the grid. 0 = auto, which shapes the grid like the formation itself " +
              "(a wall five drones wide and two tall lays out 5x2).")]
     public int formationWallColumns = 0;
-    [Tooltip("Widest azimuth the wall may span, in degrees. Feeds that do not fit go into extra " +
+    [Tooltip("Widest azimuth the grid may span, in degrees. Feeds that do not fit go into extra " +
              "rows rather than wrapping around the pilot. Lower the scale to fit more columns " +
              "into the same span. 0 = unbounded.")]
     public float formationWallMaxSpanDeg = 120.0f;
     [Tooltip("Time constant (s) of the low-pass on the wall's heading and on each screen's " +
-             "glide between grid cells. 0 = snap.")]
+             "glide between grid cells. 0 = snap. FORMATION_MAP eases only the glide — its " +
+             "heading is the pilot's own, and lagging that slides the panel out of view.")]
     public float formationWallSmoothTime = 0.15f;
+    [Tooltip("FORMATION_MAP only: roll each feed so its imagery lines up with the map frame. " +
+             "A nadir image is drawn in its own drone's heading frame, so without this two " +
+             "feeds show the same ground rotated differently as soon as the headings disagree.")]
+    public bool formationMapRollScreens = true;
 
     public delegate void OnInterfaceParamsChanged();
     public event OnInterfaceParamsChanged interfaceParamsChanged;
@@ -172,6 +177,7 @@ public class InterfaceManager : MonoBehaviour
             spawnScreens.formationWallColumns = formationWallColumns;
             spawnScreens.formationWallMaxSpanDeg = formationWallMaxSpanDeg;
             spawnScreens.formationWallSmoothTime = formationWallSmoothTime;
+            spawnScreens.formationMapRollScreens = formationMapRollScreens;
         }
     }
 

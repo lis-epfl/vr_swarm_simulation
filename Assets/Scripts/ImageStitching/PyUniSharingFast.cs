@@ -2531,7 +2531,7 @@ public class PyUniSharingFast : MonoBehaviour
         resolvedPlaneMode = scenePlaneMode;
         if (resolvedPlaneMode == ScenePlaneMode.Auto)
         {
-            resolvedPlaneMode = (FPVCameraScript.SharedPitch <= -60f)
+            resolvedPlaneMode = (FPVCameraScript.SharedPitch <= FPVCameraScript.NadirPitch)
                 ? ScenePlaneMode.Nadir : ScenePlaneMode.Facade;
         }
 

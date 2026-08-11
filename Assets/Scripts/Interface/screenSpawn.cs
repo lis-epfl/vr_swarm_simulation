@@ -13,8 +13,9 @@ public class ScreenSpawn : MonoBehaviour
         ROTATING_CIRCLE,
         REAL_DRONE,
 
-        // Curved video wall for the shared-heading configurations (SwarmPlaneController's
-        // vertical plane, or nadir). OUTER_CIRCLE places each screen at its own drone's yaw,
+        // Curved video wall for SwarmPlaneController's vertical plane (the nadir configuration,
+        // the other shared-heading one, has its own style below).
+        // OUTER_CIRCLE places each screen at its own drone's yaw,
         // which collapses to a single stack of screens once every drone points the same way;
         // this style keeps the yaw (the wall as a whole sits in the direction the swarm is
         // looking) and resolves the collision from the drones' relative positions inside the
@@ -23,7 +24,21 @@ public class ScreenSpawn : MonoBehaviour
         // Appended rather than inserted next to OUTER_CIRCLE on purpose: Unity serialises
         // enum fields by integer value, so inserting a member would silently re-point every
         // scene and prefab that already stores a later style.
-        FORMATION_WALL
+        FORMATION_WALL,
+
+        // The nadir counterpart of FORMATION_WALL: a horizontal swarm with the gimbal pitched
+        // straight down, stitched by PLANAR. Same grid machinery, but the frame it ranks in and
+        // the frame it hangs in are both the pilot's own body heading rather than the swarming
+        // plane, and each feed is rolled so the imagery is map-aligned. See
+        // BuildFormationGridLayout / UpdateFormationMapScreen.
+        //
+        // The panel stands in front of the pilot exactly like the wall — the feeds are NOT laid
+        // on the floor. A ground layout would be geometrically honest and useless: it puts the
+        // whole display outside the comfortable gaze cone, and the pilot flies by looking down at
+        // their feet instead of at the panorama. Tilting the map up onto a vertical panel keeps
+        // the map reading (ahead is up, starboard is right) at the cost of a perspective that was
+        // never real anyway.
+        FORMATION_MAP
     }
 
     [Header("Display Settings")]
@@ -45,7 +60,11 @@ public class ScreenSpawn : MonoBehaviour
     [HideInInspector] public float rotatingCircleDistance = 2.0f;
     [HideInInspector] public int numScreens = 2;
 
-    [Header("Formation Wall Settings")]
+    [Header("Formation Wall / Map Settings")]
+    // Shared by FORMATION_WALL and FORMATION_MAP: the two styles differ in which frame they rank
+    // and hang the grid in, not in how the grid itself is built, so a second copy of these four
+    // would only ever be kept equal by hand.
+    //
     // Clearance between neighbouring cells, as a multiple of the screen's own size. 1.0 makes
     // them touch exactly; anything above leaves a gap. Values below 1 are clamped away, since
     // the whole point of the style is that the screens do not overlap.
@@ -58,6 +77,11 @@ public class ScreenSpawn : MonoBehaviour
     // Time constant (s) of the low-pass on the wall's azimuth and on each screen's glide
     // between cells. 0 = snap.
     [HideInInspector] public float formationWallSmoothTime = 0.15f;
+
+    // FORMATION_MAP only: roll each feed so its imagery is map-aligned (see the roll derivation
+    // in BuildFormationGridLayout). Off leaves every screen upright, which is tidier but shows
+    // the same ground rotated differently on adjacent feeds whenever the headings disagree.
+    [HideInInspector] public bool formationMapRollScreens = true;
 
     [Header("Rendering")]
     [Tooltip("Layer the spawned feed screens are placed on, so the headset eye cameras " +
@@ -121,6 +145,15 @@ public class ScreenSpawn : MonoBehaviour
     private float formationWallScale = 0.55f;
     private Vector3 formationWallOffset = new Vector3(0.0f, 0.0f, 0.0f);
     private Vector3 formationWallLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
+
+    // Same grid, same standoff — but a rolled screen sweeps out its own diagonal, so the map's
+    // cells are up to ~1.84x taller than the wall's for a 16:9 feed at 45 deg of roll. Starting
+    // one notch smaller keeps a nadir formation inside the same span budget; the roll expansion
+    // is computed exactly per frame (see BuildFormationGridLayout), this is only the default.
+    private float formationMapRadius = 2.0f;
+    private float formationMapScale = 0.45f;
+    private Vector3 formationMapOffset = new Vector3(0.0f, 0.0f, 0.0f);
+    private Vector3 formationMapLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
 
     private SwarmManager swarmManager;
     private bool pointInwards = false;
@@ -374,12 +407,18 @@ public class ScreenSpawn : MonoBehaviour
                 offset = formationWallOffset;
                 lookAtOffset = formationWallLookAtOffset;
                 break;
+            case ScreenStyle.FORMATION_MAP:
+                radius = formationMapRadius;
+                scale = formationMapScale;
+                offset = formationMapOffset;
+                lookAtOffset = formationMapLookAtOffset;
+                break;
         }
 
         // The wall eases towards its cells, so a style change (or a radius/scale change that
         // moves every cell at once) must not be animated from wherever the screens happened
         // to be sitting under the previous layout.
-        InvalidateFormationWall();
+        InvalidateFormationGrid();
     }
 
     // Get default parameters for a given screen style and send them to InterfaceManager
@@ -440,6 +479,12 @@ public class ScreenSpawn : MonoBehaviour
                 defaultOffset = formationWallOffset;
                 defaultLookAtOffset = formationWallLookAtOffset;
                 break;
+            case ScreenStyle.FORMATION_MAP:
+                defaultRadius = formationMapRadius;
+                defaultScale = formationMapScale;
+                defaultOffset = formationMapOffset;
+                defaultLookAtOffset = formationMapLookAtOffset;
+                break;
         }
 
         // Call InterfaceManager to update its display parameters
@@ -458,12 +503,12 @@ public class ScreenSpawn : MonoBehaviour
         // attitude algorithm.
         bool boundaryGate = IsBoundaryGateActive();
 
-        // FORMATION_WALL is the one style whose placement is not a pure function of its own
+        // The two grid styles are the ones whose placement is not a pure function of their own
         // drone — a cell index only means something relative to the rest of the visible set —
         // so the whole grid is solved once here, before any screen is placed.
-        if (screenStyle == ScreenStyle.FORMATION_WALL)
+        if (IsFormationGrid(screenStyle))
         {
-            BuildFormationWallLayout();
+            BuildFormationGridLayout();
         }
 
         for (int i = 0; i < bindings.Count; i++)
@@ -494,6 +539,9 @@ public class ScreenSpawn : MonoBehaviour
                         break;
                     case ScreenStyle.FORMATION_WALL:
                         UpdateFormationWallScreen(screen, i);
+                        break;
+                    case ScreenStyle.FORMATION_MAP:
+                        UpdateFormationMapScreen(screen, i);
                         break;
                     case ScreenStyle.INNER_CIRCLE:
                         UpdateInnerCircleScreen(screen, binding);
@@ -526,7 +574,7 @@ public class ScreenSpawn : MonoBehaviour
 
     // A feed is suppressed when its drone is gone, or when that drone is currently
     // composited into the stitched panorama. Shared by the placement loop and by
-    // BuildFormationWallLayout: the grid is only non-overlapping if it is solved over
+    // BuildFormationGridLayout: the grid is only non-overlapping if it is solved over
     // exactly the set of screens that is about to be shown.
     private bool IsFeedSuppressed(DroneScreenBinding binding)
     {
@@ -580,20 +628,41 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
-    // --- FORMATION_WALL ------------------------------------------------------
+    // --- FORMATION_WALL / FORMATION_MAP --------------------------------------
     // OUTER_CIRCLE reads one number per drone (its yaw) and needs nothing else, because in
     // the radially-outward ring the yaws are spread around the circle and therefore already
     // separate the screens. Under a shared heading — SwarmPlaneController's vertical wall, or
     // a nadir formation — every yaw is the same number and every screen lands on the same
-    // arc position. This style keeps yaw as the thing that aims the display (the wall sits in
-    // the direction the swarm is looking, and turning the formation turns the wall), and takes
-    // the *separation* from the drones' relative positions inside the swarming plane instead.
+    // arc position. These two styles keep yaw as the thing that aims the display and take the
+    // *separation* from the drones' relative positions in the formation instead.
     //
     // Deliberately naive: the drones are ranked into a grid rather than placed at scaled-down
     // copies of their true in-plane coordinates. A proportional mapping preserves the
     // formation's shape but guarantees nothing about spacing — two drones a metre apart in a
     // 40 m wall would still overlap — whereas ranking gives non-overlap by construction and
     // still preserves the reading that matters ("that feed is the drone up and to the left").
+    //
+    // They share every step of that construction and differ in exactly three places, all of
+    // which follow from what the drones are looking at:
+    //
+    //  - **The frame.** The wall ranks in the swarming plane (SwarmPlaneController.GetPlaneAxes,
+    //    the same basis the planar centre-drone rule uses) and hangs at the circular mean of the
+    //    drones' yaws. The map ranks in the *ground* plane and hangs at the pilot's own body
+    //    heading. In nadir the swarm plane is horizontal, so GetPlaneAxes degenerates to the
+    //    world (X, Z) pair and the wall's circular mean is whatever the attitude algorithm
+    //    leaves behind — on a radially-outward ring the resultant collapses entirely and the
+    //    azimuth is simply held. Body yaw has neither problem: it is always defined, and since
+    //    it is where the pilot is facing (and what CalibrateToCentre aims the head at) the panel
+    //    lands in front of them by construction rather than by luck.
+    //  - **Which way is up.** The wall's rows are altitude, which needs no interpretation. The
+    //    map's rows are distance along the pilot's heading, furthest ahead at the top — the
+    //    formation's ground plan tilted up onto a vertical panel.
+    //  - **Roll.** A nadir feed is already a map, drawn in its own drone's heading frame (with
+    //    the gimbal at -90 the camera's up axis lands on the drone's forward, see
+    //    FPVCameraScript). Adjacent feeds therefore show the same ground rotated differently the
+    //    moment the headings disagree, and no amount of grid placement fixes that. The wall has
+    //    no equivalent problem: its cameras look along the plane normal, where a shared heading
+    //    already means a shared image frame.
 
     // Grid cell each binding occupies this frame, as offsets centred on the wall's own axis,
     // so a short bottom row ends up centred instead of left-aligned. Parallel to `bindings`;
@@ -606,12 +675,22 @@ public class ScreenSpawn : MonoBehaviour
     private Vector3[] wallSmoothedPos = new Vector3[0];
     private bool[] wallSmoothedValid = new bool[0];
 
+    // FORMATION_MAP: per-screen roll in degrees about its own view axis, and the eased *cell*
+    // offsets it glides through. The map eases in cell space rather than in world position
+    // because its azimuth is the pilot's own heading — a world-space low-pass would let the
+    // whole panel swing out of view during a turn and drift back afterwards, which is exactly
+    // the motion the pilot is trying to fly against. Cell-space easing keeps the panel rigidly
+    // in front of them and still makes a cell swap read as a swap rather than a teleport.
+    private float[] wallRollDeg = new float[0];
+    private float[] wallSmoothedCol = new float[0];
+    private float[] wallSmoothedRow = new float[0];
+
     // Azimuth the wall is centred on, in the same negated-yaw convention as every other style
     // here (screen at radius * (cos a, sin a) around the arena centre).
     private float wallAnchorAzimuth = 0.0f;
     private bool wallAnchorInitialised = false;
 
-    // Cell pitch, solved once per frame in BuildFormationWallLayout from the live screen size.
+    // Cell pitch, solved once per frame in BuildFormationGridLayout from the live screen size.
     private float wallAzimuthStep = 0.0f;
     private float wallRowStep = 0.0f;
 
@@ -620,6 +699,7 @@ public class ScreenSpawn : MonoBehaviour
         public int binding;
         public float across;  // in-plane horizontal coordinate relative to the centroid, metres
         public float up;      // in-plane vertical coordinate relative to the centroid, metres
+        public float rollDeg; // FORMATION_MAP: this feed's rotation away from the map frame
     }
     private readonly List<WallEntry> wallEntries = new List<WallEntry>();
 
@@ -638,7 +718,12 @@ public class ScreenSpawn : MonoBehaviour
             return c != 0 ? c : a.binding.CompareTo(b.binding);
         });
 
-    private void BuildFormationWallLayout()
+    private static bool IsFormationGrid(ScreenStyle style)
+    {
+        return style == ScreenStyle.FORMATION_WALL || style == ScreenStyle.FORMATION_MAP;
+    }
+
+    private void BuildFormationGridLayout()
     {
         EnsureWallArrays();
         for (int i = 0; i < wallPlaced.Length; i++)
@@ -646,21 +731,38 @@ public class ScreenSpawn : MonoBehaviour
             wallPlaced[i] = false;
         }
 
-        // In-plane basis of whatever plane the swarm is currently constrained to: the vertical
-        // wall while plane mode is on, (X, Z) otherwise — GetPlaneAxes already returns the
-        // horizontal pair for a horizontal plane, so one code path covers both. In the
-        // horizontal case the grid degenerates to a top-down map of the formation drawn on the
-        // wall (rows = distance along the heading), which is still a usable arrangement.
+        bool mapStyle = screenStyle == ScreenStyle.FORMATION_MAP;
+
+        // The frame the grid is ranked in. FORMATION_MAP builds its own from the pilot's body
+        // heading rather than asking GetPlaneAxes, even though the swarm plane is horizontal in
+        // nadir and GetPlaneAxes would answer: that answer is the fixed world (X, Z) pair, which
+        // ranks the formation north-up and leaves the map's "ahead" meaning nothing to the pilot.
+        //
+        // `planeUp` is the horizontal heading direction in StateFinder's yaw convention
+        // (forward == (sin yaw, 0, cos yaw)) and `planeRight` is 90 deg clockwise of it — the
+        // same pair GetPlaneAxes returns for a vertical plane, so the shared ranking below reads
+        // `up` as "ahead" and `across` as "to starboard" without knowing which style it is in.
         Vector3 planeRight, planeUp;
-        SwarmPlaneController swarmPlane = SwarmPlaneController.Instance;
-        if (swarmPlane != null)
+        float mapFrameYawDeg = 0.0f;
+        if (mapStyle)
         {
-            swarmPlane.GetPlaneAxes(out planeRight, out planeUp);
+            mapFrameYawDeg = PyUniSharingFast.BodyYawDegrees;
+            float yawRad = mapFrameYawDeg * Mathf.Deg2Rad;
+            planeUp = new Vector3(Mathf.Sin(yawRad), 0.0f, Mathf.Cos(yawRad));
+            planeRight = new Vector3(Mathf.Cos(yawRad), 0.0f, -Mathf.Sin(yawRad));
         }
         else
         {
-            planeRight = Vector3.right;
-            planeUp = Vector3.forward;
+            SwarmPlaneController swarmPlane = SwarmPlaneController.Instance;
+            if (swarmPlane != null)
+            {
+                swarmPlane.GetPlaneAxes(out planeRight, out planeUp);
+            }
+            else
+            {
+                planeRight = Vector3.right;
+                planeUp = Vector3.forward;
+            }
         }
 
         wallEntries.Clear();
@@ -687,9 +789,14 @@ public class ScreenSpawn : MonoBehaviour
             wallEntries.Add(new WallEntry { binding = i });
             centroid += WallSamplePosition(binding);
 
-            float azimuth = -state.Angles.y;
-            yawSin += Mathf.Sin(azimuth);
-            yawCos += Mathf.Cos(azimuth);
+            // Only the wall aims itself with the swarm's own heading; the map takes the pilot's,
+            // so skip the trig rather than accumulate a resultant nothing reads.
+            if (!mapStyle)
+            {
+                float azimuth = -state.Angles.y;
+                yawSin += Mathf.Sin(azimuth);
+                yawCos += Mathf.Cos(azimuth);
+            }
         }
 
         int n = wallEntries.Count;
@@ -699,6 +806,13 @@ public class ScreenSpawn : MonoBehaviour
         }
         centroid /= n;
 
+        // A rolled screen sweeps out more than its own width and height, so the cell it needs is
+        // the axis-aligned bounding box of the rotated quad. Taken per entry and maxed rather
+        // than from the largest |roll| in the set: the width term w|cos d| + h|sin d| peaks at
+        // atan(h/w), not at the largest angle, so the biggest roll is not always the widest cell.
+        float rolledWidth = (float)width / height * scale;
+        float rolledHeight = scale;
+
         float minAcross = float.MaxValue, maxAcross = float.MinValue;
         float minUp = float.MaxValue, maxUp = float.MinValue;
         for (int k = 0; k < n; k++)
@@ -707,6 +821,22 @@ public class ScreenSpawn : MonoBehaviour
             Vector3 rel = WallSamplePosition(bindings[entry.binding]) - centroid;
             entry.across = Vector3.Dot(rel, planeRight);
             entry.up = Vector3.Dot(rel, planeUp);
+
+            if (mapStyle && formationMapRollScreens)
+            {
+                // How far this feed's imagery is turned away from the map frame. Read off the FPV
+                // camera rather than StateFinder: the camera is what produced the pixels and it
+                // Slerps toward the drone heading (FPVCameraScript), so during a turn the body has
+                // already moved on from what the frame shows.
+                entry.rollDeg = Mathf.DeltaAngle(mapFrameYawDeg, WallSampleYawDeg(bindings[entry.binding]));
+
+                float c = Mathf.Abs(Mathf.Cos(entry.rollDeg * Mathf.Deg2Rad));
+                float s = Mathf.Abs(Mathf.Sin(entry.rollDeg * Mathf.Deg2Rad));
+                float w = (float)width / height * scale;
+                rolledWidth = Mathf.Max(rolledWidth, w * c + scale * s);
+                rolledHeight = Mathf.Max(rolledHeight, w * s + scale * c);
+            }
+
             wallEntries[k] = entry;
 
             if (entry.across < minAcross) minAcross = entry.across;
@@ -715,24 +845,37 @@ public class ScreenSpawn : MonoBehaviour
             if (entry.up > maxUp) maxUp = entry.up;
         }
 
-        // Circular mean, not a plain average: the latter tears at the +/-pi wrap, which is
-        // exactly where a wall flown on a northerly heading sits. When the yaws cancel out —
-        // a radially-outward ring, where this style has nothing useful to say anyway and
-        // OUTER_CIRCLE is the right choice — the resultant collapses and we hold the previous
-        // azimuth rather than snapping the wall to atan2(0, 0) == 0.
-        float resultant = Mathf.Sqrt(yawSin * yawSin + yawCos * yawCos) / n;
-        if (resultant > 0.05f)
+        if (mapStyle)
         {
-            float target = Mathf.Atan2(yawSin, yawCos);
-            if (!wallAnchorInitialised)
+            // Snapped, not eased. The map's azimuth is the pilot's own heading, so easing it is
+            // easing the panel away from wherever they are looking; the glide that a cell swap
+            // needs is applied to the cell offsets instead (see UpdateFormationMapScreen).
+            // Negated to match the display frame every style here places screens in — a screen at
+            // azimuth -yaw is what CalibrateToCentre aims the head at for that same yaw.
+            wallAnchorAzimuth = WrapPi(-mapFrameYawDeg * Mathf.Deg2Rad);
+            wallAnchorInitialised = true;
+        }
+        else
+        {
+            // Circular mean, not a plain average: the latter tears at the +/-pi wrap, which is
+            // exactly where a wall flown on a northerly heading sits. When the yaws cancel out —
+            // a radially-outward ring, where this style has nothing useful to say anyway and
+            // OUTER_CIRCLE is the right choice — the resultant collapses and we hold the previous
+            // azimuth rather than snapping the wall to atan2(0, 0) == 0.
+            float resultant = Mathf.Sqrt(yawSin * yawSin + yawCos * yawCos) / n;
+            if (resultant > 0.05f)
             {
-                wallAnchorAzimuth = target;
-                wallAnchorInitialised = true;
-            }
-            else
-            {
-                wallAnchorAzimuth = WrapPi(
-                    wallAnchorAzimuth + WallSmoothAlpha() * WrapPi(target - wallAnchorAzimuth));
+                float target = Mathf.Atan2(yawSin, yawCos);
+                if (!wallAnchorInitialised)
+                {
+                    wallAnchorAzimuth = target;
+                    wallAnchorInitialised = true;
+                }
+                else
+                {
+                    wallAnchorAzimuth = WrapPi(
+                        wallAnchorAzimuth + WallSmoothAlpha() * WrapPi(target - wallAnchorAzimuth));
+                }
             }
         }
 
@@ -742,8 +885,8 @@ public class ScreenSpawn : MonoBehaviour
         // operator drags the scale slider. Screens wider than the wall's own diameter can't be
         // separated at all — the clamp caps the pitch at 180 deg rather than producing NaN.
         float padding = Mathf.Max(1.0f, formationWallPadding);
-        float cellWidth = (float)width / height * scale * padding;
-        float cellHeight = scale * padding;
+        float cellWidth = rolledWidth * padding;
+        float cellHeight = rolledHeight * padding;
         float r = Mathf.Max(0.01f, radius);
         wallAzimuthStep = 2.0f * Mathf.Asin(Mathf.Clamp(cellWidth / (2.0f * r), 0.0f, 1.0f));
         wallRowStep = cellHeight;
@@ -787,6 +930,7 @@ public class ScreenSpawn : MonoBehaviour
                 int b = wallEntries[start + c].binding;
                 wallColOffset[b] = c - (count - 1) * 0.5f;
                 wallRowOffset[b] = (rows - 1) * 0.5f - row;
+                wallRollDeg[b] = wallEntries[start + c].rollDeg;
                 wallPlaced[b] = true;
             }
         }
@@ -838,6 +982,76 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
+    // FORMATION_MAP. Same cell geometry as the wall; the differences are that the azimuth is the
+    // pilot's own (so the easing moves to cell space, see wallSmoothedCol) and that the screen is
+    // rolled to put its imagery in the map's frame.
+    private void UpdateFormationMapScreen(GameObject screen, int index)
+    {
+        if (arena == null || index >= wallPlaced.Length || !wallPlaced[index])
+        {
+            screen.SetActive(false);
+            if (index < wallSmoothedValid.Length)
+            {
+                wallSmoothedValid[index] = false;
+            }
+            return;
+        }
+
+        if (!wallSmoothedValid[index])
+        {
+            wallSmoothedCol[index] = wallColOffset[index];
+            wallSmoothedRow[index] = wallRowOffset[index];
+            wallSmoothedValid[index] = true;
+        }
+        else
+        {
+            float alpha = WallSmoothAlpha();
+            wallSmoothedCol[index] += alpha * (wallColOffset[index] - wallSmoothedCol[index]);
+            wallSmoothedRow[index] += alpha * (wallRowOffset[index] - wallSmoothedRow[index]);
+        }
+
+        // Column offsets are *subtracted*, unlike FORMATION_WALL, so that a drone further to
+        // starboard lands further to the pilot's right. In this display frame azimuth increases
+        // to the pilot's LEFT: a screen sits at world offset r(cos a, 0, sin a) with a = -yaw,
+        // and the head faces a == -bodyYaw (CalibrateToCentre aims it there), so the pilot's
+        // right-hand direction is -d/da of that circle. OUTER_CIRCLE is the proof rather than
+        // the theory: a drone yawed clockwise of the view centre gets the more negative azimuth
+        // and does appear to the pilot's right, which is the whole point of the style.
+        //
+        // A mirrored map is not a cosmetic complaint — "the obstacle is on the right of the
+        // mosaic" has to mean the pilot's right or the display is worse than no display.
+        float azimuth = wallAnchorAzimuth - wallSmoothedCol[index] * wallAzimuthStep;
+        float r = Mathf.Max(0.01f, radius);
+        screen.transform.position = new Vector3(
+            arena.transform.position.x + r * Mathf.Cos(azimuth),
+            arena.transform.position.y + offset.y + wallSmoothedRow[index] * wallRowStep,
+            arena.transform.position.z + r * Mathf.Sin(azimuth));
+
+        Vector3 aim = arena.transform.position + lookAtOffset;
+        aim.y += offset.y;
+        screen.transform.LookAt(aim);
+        screen.transform.Rotate(0, 180f, 0); // textured face towards the pilot, as OUTER_CIRCLE
+
+        // Roll the imagery into the map frame, about the screen's own view axis.
+        //
+        // Sign, derived rather than tuned: a nadir feed is a plan view in its drone's heading
+        // frame, so a feature at bearing `b` (clockwise from the map frame's forward) is drawn at
+        // `b - droneYaw` clockwise from image-up. The panel wants it at `b` clockwise from panel-
+        // up, so the image must turn clockwise by `droneYaw - mapYaw` = wallRollDeg. After the
+        // 180 flip the screen's local +Z points away from the pilot, and a positive rotation
+        // about an axis pointing away from the viewer reads counter-clockwise in Unity's
+        // left-handed convention (the same reason +90 of yaw takes forward onto right when seen
+        // from above) — hence the negation. This is the one thing here that cannot be checked
+        // without a headset: if the feeds come out counter-rotated, flip this sign, not the
+        // ranking. Untick formationMapRollScreens to leave every screen upright.
+        if (wallRollDeg[index] != 0.0f)
+        {
+            screen.transform.Rotate(0.0f, 0.0f, -wallRollDeg[index], Space.Self);
+        }
+
+        screen.SetActive(true);
+    }
+
     // Shapes the grid like the formation instead of like a square, so the screens keep the
     // arrangement the pilot would see out of the window: a wall five drones wide and two tall
     // lays out 5x2, not the 4x3 a near-square grid would pick.
@@ -880,6 +1094,19 @@ public class ScreenSpawn : MonoBehaviour
             : binding.drone.transform.position;
     }
 
+    // Heading of the frame this feed's pixels were drawn in, degrees. The FPV camera for the same
+    // reason WallSamplePosition uses it, and because its yaw is what the roll has to undo.
+    private static float WallSampleYawDeg(DroneScreenBinding binding)
+    {
+        if (binding.fpvCamera != null)
+        {
+            return binding.fpvCamera.transform.eulerAngles.y;
+        }
+        return binding.velocityControl != null && binding.velocityControl.State != null
+            ? binding.velocityControl.State.Angles.y * Mathf.Rad2Deg
+            : 0.0f;
+    }
+
     private void EnsureWallArrays()
     {
         if (wallPlaced.Length == bindings.Count)
@@ -892,6 +1119,9 @@ public class ScreenSpawn : MonoBehaviour
         wallPlaced = new bool[bindings.Count];
         wallSmoothedPos = new Vector3[bindings.Count];
         wallSmoothedValid = new bool[bindings.Count];
+        wallRollDeg = new float[bindings.Count];
+        wallSmoothedCol = new float[bindings.Count];
+        wallSmoothedRow = new float[bindings.Count];
     }
 
     // Frame-rate-independent exponential low-pass coefficient, matching the convention used by
@@ -907,7 +1137,7 @@ public class ScreenSpawn : MonoBehaviour
         return 1.0f - Mathf.Exp(-dt / formationWallSmoothTime);
     }
 
-    private void InvalidateFormationWall()
+    private void InvalidateFormationGrid()
     {
         wallAnchorInitialised = false;
         for (int i = 0; i < wallSmoothedValid.Length; i++)

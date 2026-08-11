@@ -53,10 +53,11 @@ public class SwarmPlaneController : MonoBehaviour
     public float maxTargetLeadDeg = 25.0f;
 
     [Header("Display")]
-    [Tooltip("Switch the stitcher and the screen layout with the swarming plane: vertical gets " +
-             "PLANAR + FORMATION_WALL, horizontal gets STABSTITCH + OUTER_CIRCLE. Untick to keep " +
-             "whatever PyUniSharingFast and InterfaceManager are configured with, e.g. to compare " +
-             "two stitchers on the same formation.")]
+    [Tooltip("Switch the stitcher and the screen layout with the configuration: vertical plane " +
+             "gets PLANAR + FORMATION_WALL, horizontal-with-the-gimbal-down gets PLANAR + " +
+             "FORMATION_MAP, and horizontal looking out gets STABSTITCH + OUTER_CIRCLE. Untick " +
+             "to keep whatever PyUniSharingFast and InterfaceManager are configured with, e.g. " +
+             "to compare two stitchers on the same formation.")]
     public bool driveDisplayConfiguration = true;
 
     [Header("Status (read-only)")]
@@ -96,6 +97,15 @@ public class SwarmPlaneController : MonoBehaviour
     // Display components driven by the mode change; see ApplyDisplayConfiguration.
     private PyUniSharingFast sharing;
     private InterfaceManager interfaceManager;
+
+    // Last configuration the display was pointed at, so a change is what drives it and not the
+    // mere fact of being in a configuration. Latched on the first Update rather than in Start:
+    // SwarmManager pushes the inspector's gimbal pitch to FPVCameraScript in *its* Start, and
+    // this component runs at -100, so a value latched in Start would read a stale level gimbal
+    // and then fire a spurious switch on the first frame of a scene that starts in nadir.
+    private bool displayStateLatched = false;
+    private bool lastVerticalPlane = false;
+    private bool lastNadirGimbal = false;
 
     public bool PlaneModeActive => planeModeActive;
 
@@ -171,6 +181,16 @@ public class SwarmPlaneController : MonoBehaviour
 
     void Update()
     {
+        // Polled rather than event-driven. The gimbal has three ways in (the SwarmManager
+        // inspector, SetGimbalPitchNormalized off the joystick dial, and FPVCameraScript's own
+        // fallback field) and only the first raises swarmParamsChanged, so an event subscription
+        // would silently miss the dial — which is the one a pilot in a headset can actually reach.
+        //
+        // Ahead of the toggle so the first Update latches the starting configuration before
+        // anything can change it: a V press on frame one would otherwise be swallowed by the
+        // latch instead of switching the display.
+        RefreshDisplayConfiguration();
+
         if (Input.GetKeyDown(togglePlaneKey))
         {
             TogglePlaneMode();
@@ -236,7 +256,7 @@ public class SwarmPlaneController : MonoBehaviour
             Debug.Log("SwarmPlaneController: vertical-plane swarming OFF.");
         }
 
-        ApplyDisplayConfiguration(planeModeActive);
+        RefreshDisplayConfiguration();
     }
 
     /// <summary>
@@ -375,44 +395,83 @@ public class SwarmPlaneController : MonoBehaviour
     }
 
     /// <summary>
-    /// Points the stitcher and the screen layout at the configuration the new swarming plane
-    /// calls for. Both choices follow from the plane rather than from taste:
+    /// Points the stitcher and the screen layout at the configuration the swarm is currently in,
+    /// but only when that configuration has actually changed — so the operator's inspector choices
+    /// stand until something moves, exactly as when this only watched the plane toggle.
     ///
-    /// <list type="bullet">
-    /// <item>the wall is one dominant plane with no parallax, where PLANAR's pose-driven
-    /// homographies are exact and need no image content, while the horizontal ring is exactly
-    /// the parallax-heavy case StabStitch++'s TPS warps exist for;</item>
-    /// <item>OUTER_CIRCLE places each screen at its own drone's yaw, which works only because
-    /// the ring spreads those yaws — in plane mode every drone shares the target heading and
-    /// the screens stack on one arc position, which is what FORMATION_WALL is for.</item>
-    /// </list>
-    ///
-    /// Only ever called on an actual mode change, so the operator's inspector choices stand
-    /// until the mode is first toggled. Both components refuse a change they cannot honour
-    /// (the DJI scene has no camera pose for PLANAR), so neither call is asserted here.
+    /// The configuration is two bits, because the swarm has three of them: the swarming plane
+    /// (this component's own) and whether the gimbal is pitched down far enough to be imaging the
+    /// ground rather than a facade (<see cref="FPVCameraScript.NadirPitch"/>, the same test
+    /// <c>ScenePlaneMode.Auto</c> uses to aim its raycast — one threshold, so the panorama and
+    /// the feeds can never end up in different configurations).
     /// </summary>
-    private void ApplyDisplayConfiguration(bool vertical)
+    private void RefreshDisplayConfiguration()
     {
         if (!driveDisplayConfiguration) return;
 
-        // Resolved lazily and cached: this runs once per mode change, but FindObjectOfType is
-        // far too slow to reach for casually, and neither component is guaranteed to exist
-        // (the swarm runs headless in some scenes).
+        bool vertical = planeModeActive;
+        bool nadir = FPVCameraScript.SharedPitch <= FPVCameraScript.NadirPitch;
+
+        if (!displayStateLatched)
+        {
+            lastVerticalPlane = vertical;
+            lastNadirGimbal = nadir;
+            displayStateLatched = true;
+            return;
+        }
+
+        if (vertical == lastVerticalPlane && nadir == lastNadirGimbal) return;
+
+        lastVerticalPlane = vertical;
+        lastNadirGimbal = nadir;
+        ApplyDisplayConfiguration(vertical, nadir);
+    }
+
+    /// <summary>
+    /// Applies one of the three configurations. None of the pairings is taste:
+    ///
+    /// <list type="bullet">
+    /// <item><b>Vertical plane</b> — PLANAR + FORMATION_WALL. The wall is one dominant plane with
+    /// no parallax, where PLANAR's pose-driven homographies are exact and need no image content;
+    /// OUTER_CIRCLE would stack every screen on one arc position because the drones share a
+    /// heading.</item>
+    /// <item><b>Horizontal, gimbal down</b> — PLANAR + FORMATION_MAP. Same argument for the
+    /// stitcher (the ground is the dominant plane, and a nadir view of it has no parallax to
+    /// speak of), and the layout is the wall's nadir counterpart: ranked in the ground plane
+    /// about the pilot's heading, with the feeds rolled into that frame.</item>
+    /// <item><b>Horizontal, looking out</b> — STABSTITCH + OUTER_CIRCLE. The radially-outward
+    /// ring is exactly the parallax-heavy case StabStitch++'s TPS warps exist for, and its spread
+    /// yaws are what make OUTER_CIRCLE separate the screens in the first place.</item>
+    /// </list>
+    ///
+    /// The plane wins over the gimbal when both are set: a wall flying with its cameras pointed at
+    /// the ground is not a configuration anything here is built for, and the plane is the one the
+    /// pilot toggled deliberately. Both components refuse a change they cannot honour (the DJI
+    /// scene has no camera pose for PLANAR), so neither call is asserted here.
+    /// </summary>
+    private void ApplyDisplayConfiguration(bool vertical, bool nadir)
+    {
+        // Resolved lazily and cached: this runs once per configuration change, but
+        // FindObjectOfType is far too slow to reach for casually, and neither component is
+        // guaranteed to exist (the swarm runs headless in some scenes).
         if (sharing == null) sharing = FindObjectOfType<PyUniSharingFast>();
         if (interfaceManager == null) interfaceManager = FindObjectOfType<InterfaceManager>();
 
+        bool planar = vertical || nadir;
+
         if (sharing != null)
         {
-            sharing.SetStitcherType(vertical
+            sharing.SetStitcherType(planar
                 ? PyUniSharingFast.stitcherType.PLANAR
                 : PyUniSharingFast.stitcherType.STABSTITCH);
         }
 
         if (interfaceManager != null)
         {
-            interfaceManager.SetScreenStyle(vertical
-                ? ScreenSpawn.ScreenStyle.FORMATION_WALL
-                : ScreenSpawn.ScreenStyle.OUTER_CIRCLE);
+            ScreenSpawn.ScreenStyle style = vertical ? ScreenSpawn.ScreenStyle.FORMATION_WALL
+                                          : nadir    ? ScreenSpawn.ScreenStyle.FORMATION_MAP
+                                                     : ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+            interfaceManager.SetScreenStyle(style);
         }
     }
 

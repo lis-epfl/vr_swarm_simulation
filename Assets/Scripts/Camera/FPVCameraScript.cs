@@ -39,6 +39,16 @@ public class FPVCameraScript : MonoBehaviour {
 	public const float MinPitch = -90f;
 	public const float MaxPitch = 60f;
 
+	/// <summary>
+	/// Gimbal pitch at or below which the swarm counts as looking <b>down</b> rather than out, so
+	/// the scene is a ground plane and not a facade. Shared by everything that has to tell the two
+	/// configurations apart — <c>PyUniSharingFast.ScenePlaneMode.Auto</c> picking its raycast
+	/// direction and <c>SwarmPlaneController</c> picking the stitcher and screen layout — because
+	/// two copies that disagreed would put the panorama and the feeds in different configurations.
+	/// Well clear of a level horizon; the exact value is not critical, only that there is one.
+	/// </summary>
+	public const float NadirPitch = -60f;
+
 	[Header("Gimbal")]
 	[Tooltip("Gimbal pitch in degrees (DJI convention): 0 = level horizon, negative = look " +
 	         "down (to -90 = straight down), positive = look up (to +60). This is shared by " +
