@@ -209,6 +209,40 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   hit the `ERROR_ACCESS_DENIED` that a non-resizable named section guarantees.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
+- **Every screen style works off either feed source, and `ScreenStyle.REAL_DRONE` is gone.** A layout
+  needs four things per drone — display yaw, world position, the image-frame yaw the map's roll undoes,
+  and alive/visible — and `ScreenSpawn` reads all four through accessors (`TryGetDisplayYawRad`,
+  `TryGetSamplePosition`, `SampleYawDeg`, `IsFeedSuppressed`) that dispatch on
+  `DroneScreenBinding.feedIndex`: `-1` is a sim drone (Transforms and components), `>= 0` indexes
+  `realFeeds`, pushed by `ImageSharing.UpdateRealDroneFeed` as it consumes `DroneFeedSharedMemory`.
+  Nothing was added to the wire — the pose was already in the block beside the pixels. Points worth
+  keeping:
+  - **The real path only became reachable by giving it bindings.** `UpdateScreenPositions` returns
+    immediately on an empty `bindings` list, and `SpawnScreens` used to build bindings *only* when
+    handed a sim swarm — so in DJIScene no layout ran at all and the feeds were positioned by
+    `UpdateRealDroneScreen`, a push-driven style of its own. That was `OUTER_CIRCLE` with a zero
+    offset/lookAtOffset (exactly the `outerCircle*` defaults) and no boundary gate — and the gate is
+    inactive anyway wherever there is no `SwarmManager`, which is every real-drone scene. Hence the
+    removal rather than a deprecation: it had nothing left to express. Its enum value **5 is left
+    unused**, because Unity serialises enum fields by integer and reusing it would silently re-point
+    `FORMATION_WALL`/`FORMATION_MAP` in every scene that stores them.
+  - **Aliveness is freshness, not a flag.** A real feed is suppressed once
+    `Time.time - lastUpdateTime` exceeds the timeout `ImageSharing` pushes from `stitchFrameMaxAge`,
+    so the screens and the stitch selection agree on what "still flying" means and a drone that stops
+    streaming leaves the layout instead of freezing in it. The staleness test lives in `TryGetFeed`,
+    so no accessor can hand a layout a dead drone's position either.
+  - **An unposed feed (`poseStatus == 0`) costs its own screen, not the layout.** It has no ranking
+    key, so the grid styles drop it, exactly as the planar solve drops an unposed block; the circle
+    styles still show it, since they need only the heading.
+  - **`headingOffsetDegrees` is applied to the pushed position and nowhere else**
+    (`ImageSharing.LayoutPosition`). That offset rotates the compass heading into the HMD's yaw
+    frame, and it is deliberately *not* applied to the pose on the stitcher path — there the pose
+    defines its own `+Z = North` frame that the scene plane is expressed in, and turning one without
+    the other yaws the mosaic off the facade. The layouts are the one place the two frames meet,
+    because `FORMATION_WALL` takes its basis from the headings and then projects the positions onto it.
+  - The screen material's white base colour is keyed on the **real-feed spawn path**, not on the
+    style: `ImageSharing` assigns the frame to `mainTexture` (albedo) as well as the emission map, and
+    a black base multiplies it away. Keyed on the style it would now never fire.
 - **`OUTER_CIRCLE` is only meaningful for the radially-outward ring**, and `ScreenStyle.FORMATION_WALL`
   is its shared-heading counterpart (vertical plane; nadir gets `FORMATION_MAP`, below). Placing each screen at its own drone's
   yaw works only because the ring *spreads* the yaws; under a shared heading every screen lands on the
@@ -216,6 +250,25 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   circular mean of the yaws sets one azimuth for the wall, so turning the formation turns the wall — and
   takes the *separation* from each drone's rank inside the swarming plane (`SwarmPlaneController.
   GetPlaneAxes`, the same basis the planar centre-drone rule uses). Consequences worth knowing:
+  - **The basis has three tiers, and the second is what makes the style work without a swarm.**
+    `SwarmPlaneController.Instance` is first because it is *exact* — the plane is a setpoint the
+    controller owns, so it is right before the drones have converged on it. Where there is no such
+    component (every real-drone scene: DJIScene contains no swarm at all) the normal is the circular
+    mean of the drones' own headings, which `BuildFormationGridLayout` already accumulates for the
+    wall's azimuth — the style is contracted to a *vertical* plane, and for a vertical plane
+    `GetPlaneAxes` reduces to "up is world up, right is the horizontal perpendicular to the normal",
+    whose horizontal direction is just the shared heading because the drones face the facade. Third
+    is the world `(x, z)` pair, reached only when the yaws cancel — a radially-outward ring, where
+    there is no wall to aim at and `OUTER_CIRCLE` is the right style anyway. That collapse is one
+    threshold (`WallYawResultantMin`) gating both the basis and the azimuth, since they fail together.
+    Two things follow. The basis is resolved **between** the grid's two loops rather than before
+    them, because tier 2 is derived from what the first loop collects. And it is deliberately *not*
+    `PlanarStitcher._plane_from_formation`, which fits the camera positions: that plane has to be
+    metrically right to build homographies, whereas ranking drones into cells needs only the two
+    axes, and re-deriving it here would be a third copy of a rule that must agree with the other two.
+    `SwarmPlaneController.PlaneAxesFromNormal` is shared by tiers 1 and 2 so they cannot drift, and
+    the tier-2 normal is the mean heading *direction* — matching tier 1, where `planeNormal` is
+    `YawToForward(TargetYaw)` and not its opposite, so the two rank columns the same way round.
   - **It ranks into a grid rather than scaling the true in-plane coordinates.** Proportional placement
     preserves the formation's shape but guarantees nothing about spacing — two drones a metre apart in a
     40 m wall still overlap — whereas ranking is non-overlapping by construction, and the reading that

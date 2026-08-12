@@ -234,7 +234,12 @@ public class ImageSharing : MonoBehaviour
 
         ScreenSpawn.numScreens = numImages;
 
-        // Spawn screens
+        // Share the staleness threshold, so the screens and the stitch selection agree on what
+        // counts as still flying: a drone that drops out leaves the panorama and the layout together.
+        ScreenSpawn.SetRealFeedTimeout(stitchFrameMaxAge);
+
+        // Spawn screens. No swarm list means the real-drone path: ScreenSpawn binds one screen per
+        // feed index and every screen style then works off the state pushed by UpdateRealDroneFeed.
         ScreenSpawn.SpawnScreens();
         if (enableDebugLogging) Debug.Log($"[ImageSharing] ScreenSpawn component found and spawned {numImages} screens.");
 
@@ -390,6 +395,28 @@ public class ImageSharing : MonoBehaviour
                         SaveDebugImage(imageBytes, imageIndex, yaw);
                     }
 
+                    // Read the pose out of the same block as the pixels, so the two stay
+                    // paired all the way to the stitcher. Deliberately not the
+                    // yaw-offset-corrected heading above: headingOffsetDegrees exists to
+                    // line the feed SCREENS up with the HMD's yaw frame, while the pose
+                    // defines its own frame (+Z = North) that the derived scene plane is
+                    // expressed in. Applying that offset to one and not the other would
+                    // yaw the whole mosaic off the facade.
+                    //
+                    // Read unconditionally, not under enableStitchWriting: the screen
+                    // layouts need the position too (ScreenSpawn ranks the formation
+                    // grids by it), and making that depend on an unrelated stitcher
+                    // toggle is the kind of coupling nobody finds from the symptom.
+                    Vector3 camPos = new Vector3(ReadFloat(blockPtr, PoseOffset + 0),
+                                                 ReadFloat(blockPtr, PoseOffset + 4),
+                                                 ReadFloat(blockPtr, PoseOffset + 8));
+                    Quaternion camRot = new Quaternion(ReadFloat(blockPtr, RotOffset + 0),
+                                                       ReadFloat(blockPtr, RotOffset + 4),
+                                                       ReadFloat(blockPtr, RotOffset + 8),
+                                                       ReadFloat(blockPtr, RotOffset + 12));
+                    float blockCaptureTime = ReadFloat(blockPtr, CaptureTimeOffset);
+                    int blockPoseStatus = Marshal.ReadInt32(blockPtr, PoseStatusOffset);
+
                     // Cache the frame for the stitch re-publish. imageBytes is a
                     // fresh array each read, so keeping the reference is safe.
                     if (enableStitchWriting)
@@ -402,23 +429,10 @@ public class ImageSharing : MonoBehaviour
                         cached.imageBytes = imageBytes;
                         cached.yaw = yaw;
                         cached.lastUpdateTime = Time.time;
-
-                        // Read the pose out of the same block as the pixels, so the two
-                        // stay paired all the way to the stitcher. Deliberately not the
-                        // yaw-offset-corrected heading above: headingOffsetDegrees exists
-                        // to line the feed SCREENS up with the HMD's yaw frame, while the
-                        // pose defines its own frame (+Z = North) that the derived scene
-                        // plane is expressed in. Applying that offset to one and not the
-                        // other would yaw the whole mosaic off the facade.
-                        cached.pos = new Vector3(ReadFloat(blockPtr, PoseOffset + 0),
-                                                 ReadFloat(blockPtr, PoseOffset + 4),
-                                                 ReadFloat(blockPtr, PoseOffset + 8));
-                        cached.rot = new Quaternion(ReadFloat(blockPtr, RotOffset + 0),
-                                                    ReadFloat(blockPtr, RotOffset + 4),
-                                                    ReadFloat(blockPtr, RotOffset + 8),
-                                                    ReadFloat(blockPtr, RotOffset + 12));
-                        cached.captureTime = ReadFloat(blockPtr, CaptureTimeOffset);
-                        cached.poseStatus = Marshal.ReadInt32(blockPtr, PoseStatusOffset);
+                        cached.pos = camPos;
+                        cached.rot = camRot;
+                        cached.captureTime = blockCaptureTime;
+                        cached.poseStatus = blockPoseStatus;
                     }
 
                     // If a screen with the matching index exists, update its texture and orientation
@@ -435,8 +449,13 @@ public class ImageSharing : MonoBehaviour
                         screenData.texture.Apply();
                         if (enableDebugLogging) Debug.Log($"[ImageSharing] Texture updated for screen {imageIndex}");
 
-                        // Update screen orientation
-                        ScreenSpawn.UpdateRealDroneScreen(imageIndex, yaw);
+                        // Hand the layout this drone's heading and position. ScreenSpawn places
+                        // the screen itself, in whatever style is configured — the feeds go
+                        // through the same styles as simulated ones, which is why this pushes
+                        // state rather than a position.
+                        ScreenSpawn.UpdateRealDroneFeed(
+                            imageIndex, yaw, LayoutPosition(camPos),
+                            (blockPoseStatus & POSE_VALID) != 0);
 
                         // Update drone heading indicator
                         DroneIndicator?.UpdateYaw(imageIndex, yaw);
@@ -474,6 +493,24 @@ public class ImageSharing : MonoBehaviour
 
             nextReceiveTime = Time.time + readInterval;
         }
+    }
+
+    // The pose position expressed in the same yaw frame as the heading pushed alongside it.
+    //
+    // headingOffsetDegrees rotates the compass heading into the HMD's yaw frame and is deliberately
+    // NOT applied to the pose on the stitcher path (see the read loop): there the pose defines its
+    // own +Z = North frame, which the derived scene plane is expressed in, and turning one without
+    // the other would yaw the mosaic off the facade. The screen layouts are the one place the two
+    // meet — FORMATION_WALL takes its basis from the headings and then projects these positions onto
+    // it — so the rotation is applied here, at the push, and nowhere else. A zero offset (the
+    // default) leaves the position untouched.
+    private Vector3 LayoutPosition(Vector3 camPos)
+    {
+        if (Mathf.Approximately(headingOffsetDegrees, 0f))
+        {
+            return camPos;
+        }
+        return Quaternion.Euler(0f, headingOffsetDegrees, 0f) * camPos;
     }
 
     // Creates the stitcher's BlockSharedMemory and readies its flags. Called once, from

@@ -2843,7 +2843,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     // Anchors the curved panorama screen at the Arena centre and rotates it so
     // its arc faces the centre drone's direction (mirrors the per-drone screen
-    // placement in ScreenSpawn.UpdateRealDroneScreen). The screen therefore
+    // placement in ScreenSpawn.UpdateOuterCircleScreen). The screen therefore
     // snaps to a new direction only when the head turns far enough to change
     // the selected centre view.
     private void UpdateCurvedScreenPose(float centreYaw)

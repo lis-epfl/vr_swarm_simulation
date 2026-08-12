@@ -150,16 +150,33 @@ public class SwarmPlaneController : MonoBehaviour
     /// </summary>
     public void GetPlaneAxes(out Vector3 right, out Vector3 up)
     {
-        right = Vector3.Cross(Vector3.up, planeNormal);
+        PlaneAxesFromNormal(planeNormal, out right, out up);
+    }
+
+    /// <summary>
+    /// The in-plane basis belonging to an arbitrary plane normal, in the same convention
+    /// <see cref="GetPlaneAxes"/> returns. Returns false — and the world (x, z) pair — when the
+    /// plane is horizontal and the basis is therefore not determined by the normal alone.
+    ///
+    /// Static and public because ScreenSpawn's FORMATION_WALL needs this same basis in scenes that
+    /// have no SwarmPlaneController at all (the real-drone scenes contain no swarm), where it
+    /// derives the normal from the drones' shared heading instead. Sharing the construction is what
+    /// keeps the display's notion of "along the wall" identical to the one the convex-hull boundary
+    /// estimate is computed in.
+    /// </summary>
+    public static bool PlaneAxesFromNormal(Vector3 normal, out Vector3 right, out Vector3 up)
+    {
+        right = Vector3.Cross(Vector3.up, normal);
         if (right.sqrMagnitude < 1e-6f)
         {
             // Degenerate only if the plane is horizontal, where the caller uses (x, z) anyway.
             right = Vector3.right;
             up = Vector3.forward;
-            return;
+            return false;
         }
         right.Normalize();
-        up = Vector3.Cross(planeNormal, right).normalized;
+        up = Vector3.Cross(normal, right).normalized;
+        return true;
     }
 
     void Awake()

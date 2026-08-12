@@ -4,14 +4,24 @@ using UnityEngine;
 
 public class ScreenSpawn : MonoBehaviour
 {
+    // Values are assigned explicitly. Unity serialises enum fields by integer, so the numbering
+    // is part of every scene and prefab that stores a style — see the note on FORMATION_WALL
+    // below, and the gap left at 5.
     public enum ScreenStyle
     {
-        OFF,
-        OUTER_CIRCLE,
-        INNER_CIRCLE,
-        BOTTOM_CIRCLE,
-        ROTATING_CIRCLE,
-        REAL_DRONE,
+        OFF = 0,
+        OUTER_CIRCLE = 1,
+        INNER_CIRCLE = 2,
+        BOTTOM_CIRCLE = 3,
+        ROTATING_CIRCLE = 4,
+
+        // 5 was REAL_DRONE, and it is gone rather than deprecated: it placed a screen on a circle
+        // at its drone's yaw, which is OUTER_CIRCLE with a zero offset/lookAtOffset (exactly the
+        // outerCircle* defaults) and no boundary gate — and the gate is inactive anyway in a scene
+        // with no SwarmManager, which is every real-drone scene. Every style now works off either
+        // feed source (see DroneScreenBinding.feedIndex), so a real-drone-only style has nothing
+        // left to express. The value itself is left unused so the two styles below keep the ids
+        // already serialised in scenes and prefabs.
 
         // Curved video wall for SwarmPlaneController's vertical plane (the nadir configuration,
         // the other shared-heading one, has its own style below).
@@ -108,8 +118,71 @@ public class ScreenSpawn : MonoBehaviour
         public Camera fpvCamera;
         public VelocityControl velocityControl;
         public AttitudeAlgorithm attitude;
+
+        // Which feed source this binding reads. >= 0 indexes `realFeeds` (a real aircraft, whose
+        // yaw and position arrive over shared memory and whose sim references above are all null);
+        // -1 is a sim drone. Every layout reads its per-drone inputs through the accessors below
+        // rather than off these fields directly, so a style works off either source.
+        public int feedIndex;
+
+        public bool IsRealFeed => feedIndex >= 0;
     }
     private readonly List<DroneScreenBinding> bindings = new List<DroneScreenBinding>();
+
+    // --- Real-drone feed state, pushed in ------------------------------------
+    // A real aircraft has no GameObject in the scene to read a Transform off — the DJI scene
+    // contains no drones at all — so the four things the layouts need arrive here from
+    // ImageSharing as it consumes DroneFeedSharedMemory. Kept in an array parallel to the
+    // real-feed bindings, because ImageSharing only reads the mapping every `readInterval`
+    // (0.05 s) and only for blocks carrying a new frame, while Update() places screens every
+    // frame: the state has to persist between pushes.
+    private struct RealFeedState
+    {
+        public bool hasFrame;
+        public float yawDeg;          // display heading, headingOffsetDegrees already applied
+        public Vector3 position;      // Unity-world left-handed, producer's latched origin
+        public bool hasPose;          // the producer had a fix; false => no ranking key
+        public float lastUpdateTime;  // Time.time of the last frame, for the freshness test
+    }
+    private RealFeedState[] realFeeds = new RealFeedState[0];
+
+    // Frames older than this stop counting as live, so a drone that stops streaming drops out of
+    // the layout instead of freezing in it. Pushed from ImageSharing.stitchFrameMaxAge so the
+    // screens and the stitch selection agree on what "still flying" means.
+    private float realFeedTimeout = 1.0f;
+
+    // One warning per session for an unposed real feed, which cannot be ranked into a grid.
+    private bool warnedUnposedFeed = false;
+
+    /// <summary>
+    /// Latest frame state for one real aircraft, called by ImageSharing as it consumes
+    /// DroneFeedSharedMemory. <paramref name="index"/> is the zero-based drone id, which is also
+    /// the screen index ("screen_i"). <paramref name="position"/> is only read when
+    /// <paramref name="hasPose"/> is set, and both it and <paramref name="yawDeg"/> must be in the
+    /// same yaw frame — see the headingOffsetDegrees note in ImageSharing.
+    /// </summary>
+    public void UpdateRealDroneFeed(int index, float yawDeg, Vector3 position, bool hasPose)
+    {
+        if (index < 0 || index >= realFeeds.Length)
+        {
+            return;
+        }
+
+        realFeeds[index].hasFrame = true;
+        realFeeds[index].yawDeg = yawDeg;
+        realFeeds[index].position = position;
+        realFeeds[index].hasPose = hasPose;
+        realFeeds[index].lastUpdateTime = Time.time;
+    }
+
+    /// <summary>How long a real feed's last frame stays live, in seconds.</summary>
+    public void SetRealFeedTimeout(float seconds)
+    {
+        if (seconds > 0.0f)
+        {
+            realFeedTimeout = seconds;
+        }
+    }
 
     // Default parameters for each display mode
     private float outerCircleRadius = 2.0f;
@@ -131,11 +204,6 @@ public class ScreenSpawn : MonoBehaviour
     private float rotatingCircleScale = 0.1f;
     private Vector3 rotatingCircleOffset = new Vector3(0.0f, -0.3f, 0.0f);
     private Vector3 rotatingCircleLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
-
-    private float realDroneRadius = 2.0f;
-    private float realDroneScale = 1.0f;
-    private Vector3 realDroneOffset = new Vector3(0.0f, 0.0f, 0.0f);
-    private Vector3 realDroneLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
 
     // A grid needs both more standoff and smaller screens than the single ring of
     // OUTER_CIRCLE: at radius 3 / scale 0.55 a padded 16:9 screen subtends ~20 deg, so the
@@ -251,8 +319,11 @@ public class ScreenSpawn : MonoBehaviour
                              "(Project Settings > Tags and Layers) or fix screenLayerName.");
         }
 
-        // Determine how many screens to create
-        int count = (swarm != null) ? swarm.Count : numScreens;
+        // Determine how many screens to create. No swarm list means the real-drone path, where the
+        // feeds arrive over shared memory (ImageSharing) rather than from FPV cameras in this scene
+        // and `numScreens` is the fleet size the operator configured.
+        bool realFeedSpawn = swarm == null;
+        int count = realFeedSpawn ? numScreens : swarm.Count;
 
         for (int i = 0; i < count; i++)
         {
@@ -290,12 +361,15 @@ public class ScreenSpawn : MonoBehaviour
             // Create a new Material object
             Material screenMaterial = new Material(Shader.Find("Standard"));
 
-            // Set the color to black, then white for real drones
-            screenMaterial.color = Color.black;
-            if (screenStyle == ScreenStyle.REAL_DRONE)
-            {
-                screenMaterial.color = Color.white;
-            }
+            // Black for a sim feed, where only the emission map carries the image; white on the
+            // real-drone path, where ImageSharing assigns the frame to `mainTexture` (albedo) as
+            // well and a black base would multiply it away.
+            //
+            // Keyed on which spawn path this is, not on the screen style: it used to test for
+            // ScreenStyle.REAL_DRONE, which made the base colour depend on a layout choice that
+            // has nothing to do with where the pixels come from — and now that a real-drone scene
+            // runs FORMATION_WALL like any other, that test would never fire.
+            screenMaterial.color = realFeedSpawn ? Color.white : Color.black;
 
             // Set the smoothness to 0
             screenMaterial.SetFloat("_Glossiness", 0f);
@@ -352,9 +426,32 @@ public class ScreenSpawn : MonoBehaviour
                     fpvCamera = cam,
                     velocityControl = droneParent != null ? droneParent.GetComponent<VelocityControl>() : null,
                     attitude = droneParent != null ? droneParent.GetComponent<AttitudeAlgorithm>() : null,
+                    feedIndex = -1,
+                });
+            }
+            else if (realFeedSpawn)
+            {
+                // A real aircraft: no drone GameObject, no FPV camera, no VelocityControl. Binding
+                // it anyway is what makes every screen style reachable on this path — with an empty
+                // `bindings` list UpdateScreenPositions returns immediately, which is why the real
+                // feeds used to be positioned by a push-driven style of their own. The per-drone
+                // inputs come from `realFeeds[feedIndex]` instead, via the accessors.
+                bindings.Add(new DroneScreenBinding
+                {
+                    drone = null,
+                    screen = screen,
+                    fpvCamera = null,
+                    velocityControl = null,
+                    attitude = null,
+                    feedIndex = droneNumber,
                 });
             }
         }
+
+        // Parallel to the real-feed bindings, and indexed by the same drone id ImageSharing reads
+        // out of the feed blocks. Sized even on the sim path (to zero length) so a stray push
+        // cannot land in a stale array.
+        realFeeds = new RealFeedState[realFeedSpawn ? count : 0];
 
         // Place the screens based on the orientation of the drones
         UpdateScreenPositions();
@@ -394,12 +491,6 @@ public class ScreenSpawn : MonoBehaviour
                 scale = rotatingCircleScale;
                 offset = rotatingCircleOffset;
                 lookAtOffset = rotatingCircleLookAtOffset;
-                break;
-            case ScreenStyle.REAL_DRONE:
-                radius = realDroneRadius;
-                scale = realDroneScale;
-                offset = realDroneOffset;
-                lookAtOffset = realDroneLookAtOffset;
                 break;
             case ScreenStyle.FORMATION_WALL:
                 radius = formationWallRadius;
@@ -466,12 +557,6 @@ public class ScreenSpawn : MonoBehaviour
                 defaultScale = rotatingCircleScale;
                 defaultOffset = rotatingCircleOffset;
                 defaultLookAtOffset = rotatingCircleLookAtOffset;
-                break;
-            case ScreenStyle.REAL_DRONE:
-                defaultRadius = realDroneRadius;
-                defaultScale = realDroneScale;
-                defaultOffset = realDroneOffset;
-                defaultLookAtOffset = realDroneLookAtOffset;
                 break;
             case ScreenStyle.FORMATION_WALL:
                 defaultRadius = formationWallRadius;
@@ -578,6 +663,15 @@ public class ScreenSpawn : MonoBehaviour
     // exactly the set of screens that is about to be shown.
     private bool IsFeedSuppressed(DroneScreenBinding binding)
     {
+        // A real feed's equivalent of "its drone is gone" is "its frames stopped arriving". Without
+        // this the last frame of a drone that dropped out would sit frozen in the layout for the
+        // rest of the session, indistinguishable from a live one. Nothing composites real feeds into
+        // a panorama yet, so there is no id-keyed counterpart of stitchedDronesToHide.
+        if (binding.IsRealFeed)
+        {
+            return !TryGetFeed(binding, out _);
+        }
+
         return binding.drone == null
             || (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(binding.drone));
     }
@@ -612,9 +706,12 @@ public class ScreenSpawn : MonoBehaviour
             return;
         }
 
-        // Get the drone's yaw
-        StateFinder stateFinder = binding.velocityControl.State;
-        float radians = -stateFinder.Angles.y; // Already in radians
+        // Get the drone's yaw — a sim drone's StateFinder or a real aircraft's feed heading.
+        if (!TryGetDisplayYawRad(binding, out float radians) || arena == null)
+        {
+            screen.SetActive(false);
+            return;
+        }
 
         // Calculate the position on outer circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians);
@@ -694,6 +791,12 @@ public class ScreenSpawn : MonoBehaviour
     private float wallAzimuthStep = 0.0f;
     private float wallRowStep = 0.0f;
 
+    // Shortest circular-mean resultant the wall will read a shared heading out of, in [0, 1]. Below
+    // it the yaws have effectively cancelled and both things derived from that mean — the wall's
+    // azimuth and, where there is no SwarmPlaneController, its in-plane basis — are atan2(0, 0)
+    // noise. That happens on a radially-outward ring, which is what OUTER_CIRCLE is for.
+    private const float WallYawResultantMin = 0.05f;
+
     private struct WallEntry
     {
         public int binding;
@@ -733,37 +836,7 @@ public class ScreenSpawn : MonoBehaviour
 
         bool mapStyle = screenStyle == ScreenStyle.FORMATION_MAP;
 
-        // The frame the grid is ranked in. FORMATION_MAP builds its own from the pilot's body
-        // heading rather than asking GetPlaneAxes, even though the swarm plane is horizontal in
-        // nadir and GetPlaneAxes would answer: that answer is the fixed world (X, Z) pair, which
-        // ranks the formation north-up and leaves the map's "ahead" meaning nothing to the pilot.
-        //
-        // `planeUp` is the horizontal heading direction in StateFinder's yaw convention
-        // (forward == (sin yaw, 0, cos yaw)) and `planeRight` is 90 deg clockwise of it — the
-        // same pair GetPlaneAxes returns for a vertical plane, so the shared ranking below reads
-        // `up` as "ahead" and `across` as "to starboard" without knowing which style it is in.
-        Vector3 planeRight, planeUp;
-        float mapFrameYawDeg = 0.0f;
-        if (mapStyle)
-        {
-            mapFrameYawDeg = PyUniSharingFast.BodyYawDegrees;
-            float yawRad = mapFrameYawDeg * Mathf.Deg2Rad;
-            planeUp = new Vector3(Mathf.Sin(yawRad), 0.0f, Mathf.Cos(yawRad));
-            planeRight = new Vector3(Mathf.Cos(yawRad), 0.0f, -Mathf.Sin(yawRad));
-        }
-        else
-        {
-            SwarmPlaneController swarmPlane = SwarmPlaneController.Instance;
-            if (swarmPlane != null)
-            {
-                swarmPlane.GetPlaneAxes(out planeRight, out planeUp);
-            }
-            else
-            {
-                planeRight = Vector3.right;
-                planeUp = Vector3.forward;
-            }
-        }
+        float mapFrameYawDeg = mapStyle ? PyUniSharingFast.BodyYawDegrees : 0.0f;
 
         wallEntries.Clear();
         Vector3 centroid = Vector3.zero;
@@ -778,22 +851,22 @@ public class ScreenSpawn : MonoBehaviour
                 continue;
             }
 
-            // Guarded, unlike the older styles: a drone with no VelocityControl contributes no
-            // yaw and no ranking key, so it costs its own screen rather than the whole layout.
-            StateFinder state = binding.velocityControl != null ? binding.velocityControl.State : null;
-            if (state == null)
+            // Guarded, unlike the older styles: a drone with no ranking key contributes no cell, so
+            // it costs its own screen rather than the whole layout. That is a sim drone with no
+            // VelocityControl, or a real feed whose producer had no fix.
+            if (!TryGetSamplePosition(binding, out Vector3 samplePosition)
+                || !TryGetDisplayYawRad(binding, out float azimuth))
             {
                 continue;
             }
 
             wallEntries.Add(new WallEntry { binding = i });
-            centroid += WallSamplePosition(binding);
+            centroid += samplePosition;
 
             // Only the wall aims itself with the swarm's own heading; the map takes the pilot's,
             // so skip the trig rather than accumulate a resultant nothing reads.
             if (!mapStyle)
             {
-                float azimuth = -state.Angles.y;
                 yawSin += Mathf.Sin(azimuth);
                 yawCos += Mathf.Cos(azimuth);
             }
@@ -805,6 +878,68 @@ public class ScreenSpawn : MonoBehaviour
             return;
         }
         centroid /= n;
+
+        // Resultant length of the yaw circular mean, in [0, 1]: 1 when every drone points the same
+        // way, 0 when they cancel. Used twice below — for the wall's basis and for its azimuth —
+        // and the same threshold decides both, since they fail together.
+        float yawResultant = mapStyle ? 0.0f : Mathf.Sqrt(yawSin * yawSin + yawCos * yawCos) / n;
+
+        // The frame the grid is ranked in. Resolved HERE, after the accumulation loop rather than
+        // before it, because the wall's fallback basis is derived from the yaws that loop collects.
+        // Nothing above needs it: the loop gathers positions and headings, and only the projection
+        // below turns them into cells.
+        //
+        // `planeUp` is the horizontal heading direction in StateFinder's yaw convention
+        // (forward == (sin yaw, 0, cos yaw)) and `planeRight` is 90 deg clockwise of it — the
+        // same pair GetPlaneAxes returns for a vertical plane, so the shared ranking below reads
+        // `up` as "ahead" and `across` as "to starboard" without knowing which style it is in.
+        Vector3 planeRight, planeUp;
+        if (mapStyle)
+        {
+            // FORMATION_MAP builds its own frame from the pilot's body heading rather than asking
+            // GetPlaneAxes, even though the swarm plane is horizontal in nadir and GetPlaneAxes
+            // would answer: that answer is the fixed world (X, Z) pair, which ranks the formation
+            // north-up and leaves the map's "ahead" meaning nothing to the pilot.
+            float yawRad = mapFrameYawDeg * Mathf.Deg2Rad;
+            planeUp = new Vector3(Mathf.Sin(yawRad), 0.0f, Mathf.Cos(yawRad));
+            planeRight = new Vector3(Mathf.Cos(yawRad), 0.0f, -Mathf.Sin(yawRad));
+        }
+        else if (SwarmPlaneController.Instance != null)
+        {
+            // Tier 1, and first because it is exact: the plane is a setpoint the controller owns, so
+            // it is right even before the drones have converged on it.
+            SwarmPlaneController.Instance.GetPlaneAxes(out planeRight, out planeUp);
+        }
+        else
+        {
+            // Tier 2, for any scene with no SwarmPlaneController — every real-drone scene, since the
+            // DJI scene contains no swarm at all. The style is contracted to a VERTICAL plane
+            // (nadir formations get FORMATION_MAP), and for a vertical plane GetPlaneAxes reduces to
+            // "up is world up, right is the horizontal perpendicular to the normal". The normal's
+            // horizontal direction is just the shared heading — the drones face the facade — which
+            // is the circular mean already accumulated above. So the basis needs no plane, no fit of
+            // the camera positions, and nothing added to the wire.
+            //
+            // Deliberately not the plane PLANAR derives (PlanarStitcher._plane_from_formation): that
+            // one has to be metrically right to build homographies, whereas ranking drones into
+            // cells needs only the two axes, and re-deriving it here would be a third copy of a rule
+            // that must agree with the other two.
+            //
+            // The normal is the mean heading DIRECTION, recovered from the accumulators rather than
+            // re-summed: they hold sin/cos of the negated yaw (the display azimuth), and forward is
+            // (sin yaw, 0, cos yaw), so forward ∝ (-yawSin, 0, yawCos). Its sign matches tier 1's,
+            // where planeNormal is YawToForward(TargetYaw) — the heading itself, not its opposite —
+            // so the two tiers rank columns the same way round rather than mirroring each other.
+            Vector3 meanHeading = new Vector3(-yawSin, 0.0f, yawCos);
+            if (yawResultant <= WallYawResultantMin
+                || !SwarmPlaneController.PlaneAxesFromNormal(meanHeading, out planeRight, out planeUp))
+            {
+                // Tier 3. No plane and no usable heading — a radially-outward ring, where there is
+                // no wall to aim at and OUTER_CIRCLE is the right style anyway.
+                planeRight = Vector3.right;
+                planeUp = Vector3.forward;
+            }
+        }
 
         // A rolled screen sweeps out more than its own width and height, so the cell it needs is
         // the axis-aligned bounding box of the rotated quad. Taken per entry and maxed rather
@@ -818,17 +953,17 @@ public class ScreenSpawn : MonoBehaviour
         for (int k = 0; k < n; k++)
         {
             WallEntry entry = wallEntries[k];
-            Vector3 rel = WallSamplePosition(bindings[entry.binding]) - centroid;
+            // Present by construction: the accumulation loop only admitted entries whose position
+            // resolved, and it summed the same values into the centroid these are measured against.
+            TryGetSamplePosition(bindings[entry.binding], out Vector3 samplePosition);
+            Vector3 rel = samplePosition - centroid;
             entry.across = Vector3.Dot(rel, planeRight);
             entry.up = Vector3.Dot(rel, planeUp);
 
             if (mapStyle && formationMapRollScreens)
             {
-                // How far this feed's imagery is turned away from the map frame. Read off the FPV
-                // camera rather than StateFinder: the camera is what produced the pixels and it
-                // Slerps toward the drone heading (FPVCameraScript), so during a turn the body has
-                // already moved on from what the frame shows.
-                entry.rollDeg = Mathf.DeltaAngle(mapFrameYawDeg, WallSampleYawDeg(bindings[entry.binding]));
+                // How far this feed's imagery is turned away from the map frame.
+                entry.rollDeg = Mathf.DeltaAngle(mapFrameYawDeg, SampleYawDeg(bindings[entry.binding]));
 
                 float c = Mathf.Abs(Mathf.Cos(entry.rollDeg * Mathf.Deg2Rad));
                 float s = Mathf.Abs(Mathf.Sin(entry.rollDeg * Mathf.Deg2Rad));
@@ -861,9 +996,9 @@ public class ScreenSpawn : MonoBehaviour
             // exactly where a wall flown on a northerly heading sits. When the yaws cancel out —
             // a radially-outward ring, where this style has nothing useful to say anyway and
             // OUTER_CIRCLE is the right choice — the resultant collapses and we hold the previous
-            // azimuth rather than snapping the wall to atan2(0, 0) == 0.
-            float resultant = Mathf.Sqrt(yawSin * yawSin + yawCos * yawCos) / n;
-            if (resultant > 0.05f)
+            // azimuth rather than snapping the wall to atan2(0, 0) == 0. The same threshold gates
+            // the basis above, since a collapsed resultant fails both for the same reason.
+            if (yawResultant > WallYawResultantMin)
             {
                 float target = Mathf.Atan2(yawSin, yawCos);
                 if (!wallAnchorInitialised)
@@ -1084,20 +1219,96 @@ public class ScreenSpawn : MonoBehaviour
         return Mathf.Clamp(Mathf.CeilToInt(n / (float)rows), 1, n);
     }
 
-    // The FPV camera, not the "Drone N" root: it is what actually produces the feed, and it is
-    // the same transform PyUniSharingFast measures its planar centre-drone selection from, so
-    // the wall's notion of "centre of the formation" matches the panorama's.
-    private static Vector3 WallSamplePosition(DroneScreenBinding binding)
+    // --- Source-agnostic per-drone accessors ---------------------------------
+    // The layouts need exactly four things per drone, and each has two sources: a sim drone's
+    // Transforms and components, or a real aircraft's shared-memory feed state. Every style reads
+    // through these rather than off the binding fields, which is what makes the styles work
+    // irrespective of where the feeds come from.
+
+    // Azimuth this feed's screen sits at, radians, in the negated-yaw convention every circle
+    // style here uses (screen at radius * (cos a, sin a) about the arena centre). False means the
+    // drone has no heading to place it by, in which case the caller hides the screen — the older
+    // styles used to dereference velocityControl.State unguarded and would throw on a real feed,
+    // which has no VelocityControl at all.
+    private bool TryGetDisplayYawRad(DroneScreenBinding binding, out float radians)
     {
-        return binding.fpvCamera != null
-            ? binding.fpvCamera.transform.position
-            : binding.drone.transform.position;
+        if (binding.IsRealFeed)
+        {
+            if (TryGetFeed(binding, out RealFeedState feed))
+            {
+                radians = -feed.yawDeg * Mathf.Deg2Rad;
+                return true;
+            }
+            radians = 0.0f;
+            return false;
+        }
+
+        StateFinder state = binding.velocityControl != null ? binding.velocityControl.State : null;
+        if (state == null)
+        {
+            radians = 0.0f;
+            return false;
+        }
+        radians = -state.Angles.y;
+        return true;
     }
 
-    // Heading of the frame this feed's pixels were drawn in, degrees. The FPV camera for the same
-    // reason WallSamplePosition uses it, and because its yaw is what the roll has to undo.
-    private static float WallSampleYawDeg(DroneScreenBinding binding)
+    // World position the grid styles rank this feed by. Sim: the FPV camera rather than the
+    // "Drone N" root, because it is what actually produces the feed and it is the transform
+    // PyUniSharingFast measures its planar centre-drone selection from, so the wall's notion of
+    // "centre of the formation" matches the panorama's. Real: the pose that arrived in the block
+    // beside the pixels.
+    //
+    // False for a real feed whose producer had no fix (poseStatus == 0). There is no ranking key
+    // then, so the feed costs its own screen rather than the layout — the same rule the planar
+    // solve applies to an unposed block.
+    private bool TryGetSamplePosition(DroneScreenBinding binding, out Vector3 position)
     {
+        if (binding.IsRealFeed)
+        {
+            if (TryGetFeed(binding, out RealFeedState feed) && feed.hasPose)
+            {
+                position = feed.position;
+                return true;
+            }
+
+            if (!warnedUnposedFeed)
+            {
+                warnedUnposedFeed = true;
+                Debug.LogWarning(
+                    "[ScreenSpawn] A real-drone feed carries no camera pose (poseStatus == 0), so " +
+                    "it cannot be ranked into a formation grid and its screen is hidden. Publish " +
+                    "poses from the producer (DJI_Swarm --image-stream-pose), or use a circle " +
+                    "style, which needs only the heading.");
+            }
+            position = Vector3.zero;
+            return false;
+        }
+
+        if (binding.fpvCamera != null)
+        {
+            position = binding.fpvCamera.transform.position;
+            return true;
+        }
+        if (binding.drone != null)
+        {
+            position = binding.drone.transform.position;
+            return true;
+        }
+        position = Vector3.zero;
+        return false;
+    }
+
+    // Heading of the frame this feed's pixels were drawn in, degrees — what FORMATION_MAP's roll
+    // has to undo. Sim: the FPV camera, for the same reason TryGetSamplePosition uses it, and
+    // because the camera Slerps toward the drone heading (FPVCameraScript), so during a turn the
+    // body has already moved on from what the frame shows.
+    private float SampleYawDeg(DroneScreenBinding binding)
+    {
+        if (binding.IsRealFeed)
+        {
+            return TryGetFeed(binding, out RealFeedState feed) ? feed.yawDeg : 0.0f;
+        }
         if (binding.fpvCamera != null)
         {
             return binding.fpvCamera.transform.eulerAngles.y;
@@ -1105,6 +1316,22 @@ public class ScreenSpawn : MonoBehaviour
         return binding.velocityControl != null && binding.velocityControl.State != null
             ? binding.velocityControl.State.Angles.y * Mathf.Rad2Deg
             : 0.0f;
+    }
+
+    // A real feed's state, if it has ever carried a frame and that frame is still live. Staleness
+    // is checked here rather than only in IsFeedSuppressed so that no accessor can hand a layout
+    // the position or heading of a drone that stopped streaming.
+    private bool TryGetFeed(DroneScreenBinding binding, out RealFeedState feed)
+    {
+        int i = binding.feedIndex;
+        if (i < 0 || i >= realFeeds.Length || !realFeeds[i].hasFrame
+            || Time.time - realFeeds[i].lastUpdateTime > realFeedTimeout)
+        {
+            feed = default;
+            return false;
+        }
+        feed = realFeeds[i];
+        return true;
     }
 
     private void EnsureWallArrays()
@@ -1155,10 +1382,11 @@ public class ScreenSpawn : MonoBehaviour
 
     private void UpdateInnerCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
-
-        // Get the drone's yaw
-        StateFinder stateFinder = binding.velocityControl.State;
-        float radians = -stateFinder.Angles.y; // Already in radians
+        if (!TryGetDisplayYawRad(binding, out float radians) || arena == null)
+        {
+            screen.SetActive(false);
+            return;
+        }
 
         // Calculate the position on inner circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
@@ -1174,10 +1402,11 @@ public class ScreenSpawn : MonoBehaviour
     // Update the bottom circle screen positions
     private void UpdateBottomCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
-
-        // Get the drone's yaw
-        StateFinder stateFinder = binding.velocityControl.State;
-        float radians = -stateFinder.Angles.y; // Already in radians
+        if (!TryGetDisplayYawRad(binding, out float radians) || arena == null)
+        {
+            screen.SetActive(false);
+            return;
+        }
 
         // Calculate the position on bottom circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians) + offset.x;
@@ -1207,15 +1436,12 @@ public class ScreenSpawn : MonoBehaviour
 
     private void UpdateRotatingCircleScreen(GameObject screen, DroneScreenBinding binding)
     {
-        if (cameraRig == null)
+        if (cameraRig == null || arena == null
+            || !TryGetDisplayYawRad(binding, out float radians))
         {
             screen.SetActive(false);
             return;
         }
-
-        // Get the drone's yaw
-        StateFinder stateFinder = binding.velocityControl.State;
-        float radians = -stateFinder.Angles.y; // Already in radians
 
         // Calculate base position on inner circle
         float x = arena.transform.position.x + radius * Mathf.Cos(radians);
@@ -1240,32 +1466,6 @@ public class ScreenSpawn : MonoBehaviour
         // Position and rotate the screen
         screen.transform.position = offsetPosition;
         screen.transform.LookAt(arena.transform.position + playerForward * rotatingCircleDistance + lookAtOffset);
-        screen.SetActive(true);
-    }
-
-    // Update the position of the screens based on real drone orientation, called from ImageSharing.cs
-    public void UpdateRealDroneScreen(int i, float yaw)
-    {
-        // screens[i] is "screen_i" by construction (SpawnScreens creates them in
-        // index order), so no name search is needed.
-        if (i < 0 || i >= screens.Count)
-        {
-            return;
-        }
-        GameObject screen = screens[i];
-
-        // Calculate the screen position based on the yaw of the real drone
-        float radians = -yaw * Mathf.Deg2Rad;
-
-        // Calculate the position on real drone circle
-        float x = arena.transform.position.x + radius * Mathf.Cos(radians);
-        float z = arena.transform.position.z + radius * Mathf.Sin(radians);
-        float y = arena.transform.position.y;
-
-        // Position and rotate the screen
-        screen.transform.position = new Vector3(x, y, z);
-        screen.transform.LookAt(arena.transform.position);
-        screen.transform.Rotate(0, 180f, 0); // Face outward
         screen.SetActive(true);
     }
 
