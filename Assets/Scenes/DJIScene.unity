@@ -234,6 +234,16 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: scenePlaneMode
+      value: 4
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: typeOfStitcher
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: stabStitch.blurSigma
       value: 20
       objectReference: {fileID: 0}
@@ -241,21 +251,6 @@ PrefabInstance:
         type: 3}
       propertyPath: stabStitch.borderSize
       value: 35
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: stabStitch.typeOfFusion
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: stabStitch.blurKernelSize
-      value: 61
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: typeOfStitcher
-      value: 4
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -269,13 +264,23 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: stabStitch.typeOfFusion
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: bridge.enableImageWriting
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: bridge.panoramaImageWidth
       value: 1600
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: stabStitch.blurKernelSize
+      value: 61
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -286,6 +291,11 @@ PrefabInstance:
         type: 3}
       propertyPath: camerasToStitch.Array.size
       value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: planar.useManualIntrinsics
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6847994249360662215, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -395,6 +405,11 @@ MonoBehaviour:
   doubleView: 0
   rotatingCircleDistance: 2
   numScreens: 3
+  formationWallPadding: 1.08
+  formationWallColumns: 0
+  formationWallMaxSpanDeg: 120
+  formationWallSmoothTime: 0.15
+  formationMapRollScreens: 1
   screenLayerName: UI
 --- !u!4 &590275743
 Transform:
@@ -495,7 +510,7 @@ MonoBehaviour:
   readInterval: 0.05
   enableDebugLogging: 1
   enableImageValidation: 0
-  saveDebugImages: 1
+  saveDebugImages: 0
   debugImagePath: Assets/DebugImages/
 --- !u!114 &590275749
 MonoBehaviour:
@@ -538,6 +553,11 @@ MonoBehaviour:
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
+  formationWallPadding: 1.08
+  formationWallColumns: 0
+  formationWallMaxSpanDeg: 120
+  formationWallSmoothTime: 0.15
+  formationMapRollScreens: 1
 --- !u!114 &590275751
 MonoBehaviour:
   m_ObjectHideFlags: 0
