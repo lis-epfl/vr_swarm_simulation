@@ -233,6 +233,12 @@ public class ScreenSpawn : MonoBehaviour
     // by GameObject reference. Pass null/empty to show all feeds again.
     private readonly HashSet<GameObject> stitchedDronesToHide = new HashSet<GameObject>();
 
+    // The real-feed counterpart, keyed by feed index (= drone id) because a real aircraft has
+    // no GameObject in the scene to match on. Pushed by ImageSharing.PublishStitchBlocks, which
+    // is the component that chooses which feeds go into the panorama out there; it applies the
+    // same gate PyUniSharingFast applies to the set above (PyUniSharingFast.HideStitchedFeeds).
+    private readonly HashSet<int> stitchedFeedsToHide = new HashSet<int>();
+
     public bool IsSpawned => screens.Count > 0;
 
     /// <summary>
@@ -256,6 +262,25 @@ public class ScreenSpawn : MonoBehaviour
             foreach (var d in drones)
             {
                 if (d != null) stitchedDronesToHide.Add(d);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The real-feed form of <see cref="SetStitchedDronesHidden"/>: the feed indices (drone ids)
+    /// currently composited into the panorama. Called by ImageSharing, which both selects them and
+    /// applies the hide gate (<c>PyUniSharingFast.HideStitchedFeeds</c>) — so null/empty here means
+    /// "show every feed", whether because the toggle is off, the panorama is down, or nothing is
+    /// being published.
+    /// </summary>
+    public void SetStitchedRealFeedsHidden(IEnumerable<int> droneIds)
+    {
+        stitchedFeedsToHide.Clear();
+        if (droneIds != null)
+        {
+            foreach (int id in droneIds)
+            {
+                stitchedFeedsToHide.Add(id);
             }
         }
     }
@@ -676,11 +701,13 @@ public class ScreenSpawn : MonoBehaviour
     {
         // A real feed's equivalent of "its drone is gone" is "its frames stopped arriving". Without
         // this the last frame of a drone that dropped out would sit frozen in the layout for the
-        // rest of the session, indistinguishable from a live one. Nothing composites real feeds into
-        // a panorama yet, so there is no id-keyed counterpart of stitchedDronesToHide.
+        // rest of the session, indistinguishable from a live one. Then the same panorama test as a
+        // sim drone gets, against the id-keyed set: ImageSharing does composite real feeds into the
+        // panorama (PublishStitchBlocks), so hideStitchedDroneScreens has to reach them too.
         if (binding.IsRealFeed)
         {
-            return !TryGetFeed(binding, out _);
+            return !TryGetFeed(binding, out _)
+                || (stitchedFeedsToHide.Count > 0 && stitchedFeedsToHide.Contains(binding.feedIndex));
         }
 
         return binding.drone == null

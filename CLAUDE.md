@@ -243,6 +243,20 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - **An unposed feed (`poseStatus == 0`) costs its own screen, not the layout.** It has no ranking
     key, so the grid styles drop it, exactly as the planar solve drops an unposed block; the circle
     styles still show it, since they need only the heading.
+  - **`hideStitchedDroneScreens` is split across two components, one per feed source, because the
+    toggle and the selection live in different places.** `PyUniSharingFast` owns the flag and the
+    panorama-displayed state and publishes their conjunction as `HideStitchedFeeds` (static, like
+    `PlanarSelected`, and set before the `ScreenSpawn` guard so it is honest in a scene with no
+    layout). Membership comes from whoever chose the views: the sim half resolves its camera indices
+    to `"Drone N"` GameObjects (`SetStitchedDronesHidden`), while `ImageSharing.PublishStitchBlocks`
+    pushes the ids it actually wrote to the stitcher (`SetStitchedRealFeedsHidden`), keyed by feed
+    index since a real aircraft has no GameObject to match on. `ScreenSpawn` keeps the two sets
+    apart and `IsFeedSuppressed` consults whichever the binding is. Doing it all in the sim half is
+    what used to fail: with no cameras in the DJI scene its set was always empty, so the checkbox
+    did nothing there and every real feed stayed visible on top of the panorama. Hiding a real
+    screen is safe in a way the tag-search deadlock above was not — the texture upload and the
+    `UpdateRealDroneFeed` push both key off `ImageSharing`'s own screen dictionary, not off the
+    GameObject being active, so the feed stays fresh and un-hides the moment the toggle goes off.
   - **`headingOffsetDegrees` is applied to the pushed position and nowhere else**
     (`ImageSharing.LayoutPosition`). That offset rotates the compass heading into the HMD's yaw
     frame, and it is deliberately *not* applied to the pose on the stitcher path — there the pose

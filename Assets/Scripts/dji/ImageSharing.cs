@@ -122,6 +122,13 @@ public class ImageSharing : MonoBehaviour
     private readonly Dictionary<int, CachedFrame> frameCache = new Dictionary<int, CachedFrame>();
     private readonly List<int> stitchCandidates = new List<int>();
 
+    // The drone ids this frame's selection put into the panorama, and change-detection on the
+    // set actually pushed to ScreenSpawn. Feeds the "hide the screens of the drones already in
+    // the panorama" rule, which the sim gets from PyUniSharingFast.UpdateStitchedScreenHiding —
+    // that half resolves the selection to "Drone N" GameObjects, of which this scene has none.
+    private readonly List<int> publishedStitchIds = new List<int>();
+    private string lastHiddenFeedsKey;
+
     // Update interval for reading from the memory mapped file
     [SerializeField] private float readInterval = 0.05f;
     private float nextReceiveTime = 0f;
@@ -595,7 +602,18 @@ public class ImageSharing : MonoBehaviour
     //               looking at the same surface, so a yaw-ordered pick of three would throw
     //               away most of the mosaic; and the planar solve does not use ring order
     //               at all.
+    //
+    // Always followed by the screen-hiding push, including on the early returns below: "nothing
+    // was published" has to reach ScreenSpawn as an empty set, or the last selection stays hidden
+    // after the feeds stop arriving.
     private void PublishStitchBlocks()
+    {
+        publishedStitchIds.Clear();
+        WriteStitchBlocks();
+        PushStitchedScreenHiding();
+    }
+
+    private void WriteStitchBlocks()
     {
         if (!enableStitchWriting || stitchPtr == IntPtr.Zero) return;
 
@@ -627,7 +645,11 @@ public class ImageSharing : MonoBehaviour
             // makes the logs readable.
             stitchCandidates.Sort();
             published = Mathf.Min(stitchCandidates.Count, StitchSlotCapacity);
-            for (int j = 0; j < published; j++) WriteStitchSlot(j, stitchCandidates[j]);
+            for (int j = 0; j < published; j++)
+            {
+                WriteStitchSlot(j, stitchCandidates[j]);
+                publishedStitchIds.Add(stitchCandidates[j]);
+            }
         }
         else
         {
@@ -657,7 +679,11 @@ public class ImageSharing : MonoBehaviour
             };
 
             published = STITCH_COUNT_LRC;
-            for (int j = 0; j < published; j++) WriteStitchSlot(j, selected[j]);
+            for (int j = 0; j < published; j++)
+            {
+                WriteStitchSlot(j, selected[j]);
+                publishedStitchIds.Add(selected[j]);
+            }
         }
 
         // Retire the slots this frame's selection did not reach — all the way to the
@@ -672,6 +698,26 @@ public class ImageSharing : MonoBehaviour
             Marshal.WriteInt32(slot, 4, -1);
             Marshal.WriteInt32(slot, PoseStatusOffset, 0);
         }
+    }
+
+    // Hide the individual screens of the feeds now composited into the panorama — the real-drone
+    // half of PyUniSharingFast's hideStitchedDroneScreens, which reaches those screens only if it
+    // comes from here: that component resolves its selection to "Drone N" GameObjects and this
+    // scene has none, so its set is always empty and every feed stayed visible.
+    //
+    // The gate stays where the toggle and the quality fallback live (PyUniSharingFast.
+    // HideStitchedFeeds) so both paths hide on exactly the same condition; only the membership is
+    // decided here. Change-detected because the set is otherwise identical every read cycle.
+    private void PushStitchedScreenHiding()
+    {
+        if (ScreenSpawn == null) return;
+
+        bool hide = PyUniSharingFast.HideStitchedFeeds && publishedStitchIds.Count > 0;
+        string key = hide ? string.Join(",", publishedStitchIds) : "off";
+        if (key == lastHiddenFeedsKey) return;
+        lastHiddenFeedsKey = key;
+
+        ScreenSpawn.SetStitchedRealFeedsHidden(hide ? publishedStitchIds : null);
     }
 
     // Copies one cached frame, pose included, into stitch slot j.

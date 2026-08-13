@@ -1206,6 +1206,16 @@ public class PyUniSharingFast : MonoBehaviour
     // same cadence the stitcher selection itself can change at.
     public static bool PlanarSelected { get; private set; }
 
+    // Whether the feeds currently composited into the panorama should have their individual
+    // screens hidden -- i.e. hideStitchedDroneScreens AND the panorama actually being displayed.
+    // Static for the same reason PlanarSelected is: on the real-drone path the selection is made
+    // by ImageSharing (this component has no cameras there), so the component that knows WHICH
+    // feeds are in the panorama is not the one that owns the toggle. This is the toggle half;
+    // ImageSharing pushes the id set through ScreenSpawn.SetStitchedRealFeedsHidden. Refreshed
+    // every frame from UpdateStitchedScreenHiding, unconditionally, so a scene with no
+    // ScreenSpawn still reports the honest value.
+    public static bool HideStitchedFeeds { get; private set; }
+
 
     // The "Drone N" root of the drone at the centre of the stitch selection (camera yaw closest to
     // the body yaw), i.e. the drone the pilot is looking through. Refreshed every frame whether or
@@ -3018,12 +3028,19 @@ public class PyUniSharingFast : MonoBehaviour
     // while the flag is on AND the panorama is actually displayed (panoramaDisplayActive);
     // otherwise pushes an empty set so all feeds show. Change-detected to avoid
     // per-frame allocation.
+    //
+    // This is the SIM half: it resolves the selection to "Drone N" GameObjects, which the
+    // real-drone path has none of (the DJI scene contains no drones, only feeds). There the
+    // selection is made by ImageSharing, which reads HideStitchedFeeds -- published below,
+    // before the ScreenSpawn guard, so the toggle reaches it whatever this half can do.
     private void UpdateStitchedScreenHiding(int[] selected)
     {
+        bool hide = hideStitchedDroneScreens && panoramaDisplayActive;
+        HideStitchedFeeds = hide;
+
         if (screenSpawn == null) screenSpawn = FindObjectOfType<ScreenSpawn>();
         if (screenSpawn == null) return;
 
-        bool hide = hideStitchedDroneScreens && panoramaDisplayActive;
         string key = hide ? string.Join(",", selected) : "off";
         if (key == lastHiddenScreensKey) return;
         lastHiddenScreensKey = key;
