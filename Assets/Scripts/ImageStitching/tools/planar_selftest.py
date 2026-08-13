@@ -190,6 +190,7 @@ def make_bare_stitcher(ps_mod, torch):
     s._pose_shift = {}
     s._sweep_stats = {}
     s._refine_stats = {}
+    s._last_geometry = None
     s._sweep_mode = "acquire"
     s._sweep_lost = 0
     s._last_acquire = 0.0

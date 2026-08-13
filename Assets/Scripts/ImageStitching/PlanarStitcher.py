@@ -310,6 +310,7 @@ class PlanarStitcher(BaseStitcher):
         self._unposed = 0
         self._stale = 0
         self._last_stats = {}
+        self._last_geometry = None
         self._last_log = 0.0
         self._last_est_log = 0.0
 
@@ -425,6 +426,13 @@ class PlanarStitcher(BaseStitcher):
         # One rebind of one tuple: the reader takes a whole frame or the previous one.
         self._frame_snapshot = (views, K, plane)
         self._snapshot_time = time.monotonic()
+
+        # The geometry this frame was actually rendered with, for anything that has to
+        # measure the mosaic rather than reproduce it. Rebuilding it from _last_stats is
+        # not equivalent: the canvas centre never appears there, so a caller would have
+        # to re-derive the framing and could silently measure a different canvas than the
+        # one on screen. Read by tools/planar_clip_bench.py and by the plane-support pass.
+        self._last_geometry = (frame, kept, M, canvas_w, canvas_h, float(mpp_view))
 
         self._last_stats = {
             "views": len(kept),
@@ -1543,6 +1551,13 @@ class PlanarStitcher(BaseStitcher):
                 "range": rng,
                 "plane_ab": (float(rel @ frame.e1), float(rel @ frame.e2)),
                 "plane_h": abs(float(rel @ frame.n)),
+                # The pose G was built from, corrections included. Carried rather than
+                # recomputed by consumers: planar_bundle triangulates across view pairs
+                # and needs the ray origins to be the same ones the warp used, and
+                # re-deriving them from view["pos"]/["quat"] silently drops whatever
+                # _apply_correction had already applied.
+                "R": R,
+                "C": C,
             })
 
         return frame, cams
