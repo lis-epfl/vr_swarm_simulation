@@ -256,20 +256,46 @@ public class ImageSharing : MonoBehaviour
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Initialization complete. Read interval: {readInterval}s");
     }
 
-    // Finds all GameObjects with the tag "Screen" and initializes their textures.
-    // Assumes each screen's name is in the format "screen_{i}" where i is an integer.
+    // Binds a texture to each screen ScreenSpawn created, keyed by its spawn index.
+    //
+    // Takes the screens from ScreenSpawn.Screens rather than searching the scene for the "Screen"
+    // tag. GameObject.FindGameObjectsWithTag only returns ACTIVE objects, and the layouts hide any
+    // screen whose feed has not arrived yet — which, when this runs from Start, is every one of
+    // them. The tag search therefore found nothing, and since assigning the texture here is what
+    // the per-frame update needs in order to push a feed's heading and position back into
+    // ScreenSpawn, nothing ever un-hid them. That deadlock presented exactly as "the DJI scene
+    // displays no feeds", and the Update() retry below could never break it either.
+    //
+    // Falls back to the tag search only when ScreenSpawn has nothing to offer, so a scene that
+    // wires the screens up some other way still works.
     private void FindAndSetupScreens()
     {
         if (enableDebugLogging) Debug.Log("[ImageSharing] Finding and setting up screens...");
         screens.Clear();
-        GameObject[] screenObjects = GameObject.FindGameObjectsWithTag("Screen");
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Found {screenObjects.Length} GameObjects with 'Screen' tag");
-        
+
+        IReadOnlyList<GameObject> spawned = ScreenSpawn != null ? ScreenSpawn.Screens : null;
+        List<GameObject> screenObjects = new List<GameObject>();
+        if (spawned != null && spawned.Count > 0)
+        {
+            screenObjects.AddRange(spawned);
+            if (enableDebugLogging) Debug.Log($"[ImageSharing] Taking {screenObjects.Count} screens from ScreenSpawn");
+        }
+        else
+        {
+            screenObjects.AddRange(GameObject.FindGameObjectsWithTag("Screen"));
+            if (enableDebugLogging) Debug.Log($"[ImageSharing] Found {screenObjects.Count} GameObjects with 'Screen' tag");
+        }
+
         foreach (GameObject go in screenObjects)
         {
+            if (go == null)
+            {
+                continue;
+            }
+
             int index = ParseIndexFromName(go.name);
             if (enableDebugLogging) Debug.Log($"[ImageSharing] Processing screen '{go.name}' with index {index}");
-            
+
             if (screens.ContainsKey(index))
             {
                 Debug.LogWarning($"[ImageSharing] Multiple screens found with index {index}. Only one will be updated.");

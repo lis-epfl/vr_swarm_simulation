@@ -235,6 +235,17 @@ public class ScreenSpawn : MonoBehaviour
 
     public bool IsSpawned => screens.Count > 0;
 
+    /// <summary>
+    /// The spawned feed screens in spawn-index order — <c>Screens[i]</c> is <c>"screen_i"</c>.
+    ///
+    /// Exposed so a consumer that drives the textures (ImageSharing, on the real-drone path) can
+    /// take the screens from here rather than searching the scene for the "Screen" tag.
+    /// <see cref="GameObject.FindGameObjectsWithTag"/> only returns ACTIVE objects, and the layouts
+    /// legitimately deactivate a screen whose feed has not arrived — which, at spawn time, is every
+    /// one of them.
+    /// </summary>
+    public IReadOnlyList<GameObject> Screens => screens;
+
     // Set which drones' individual feeds to hide because they already appear in
     // the stitched panorama. Called by PyUniSharingFast; null/empty restores all.
     public void SetStitchedDronesHidden(IEnumerable<GameObject> drones)

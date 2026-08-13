@@ -226,6 +226,15 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     removal rather than a deprecation: it had nothing left to express. Its enum value **5 is left
     unused**, because Unity serialises enum fields by integer and reusing it would silently re-point
     `FORMATION_WALL`/`FORMATION_MAP` in every scene that stores them.
+  - **The texture consumer must take its screens from `ScreenSpawn.Screens`, never from
+    `FindGameObjectsWithTag("Screen")`.** That search returns only *active* objects, and a layout
+    legitimately deactivates a screen whose feed has not arrived — at spawn time, all of them. The
+    two form a cycle: `ImageSharing` needs the screen to bind a texture, and binding the texture is
+    what lets the per-frame update push heading/position back into `ScreenSpawn` and un-hide it. Tag
+    search breaks that cycle permanently and the `screens.Count == 0` retry in `Update` cannot
+    recover it, because the objects it is looking for stay invisible to the search forever. The
+    symptom is a DJI scene that displays nothing at all, with no error — only a debug line reporting
+    0 screens found.
   - **Aliveness is freshness, not a flag.** A real feed is suppressed once
     `Time.time - lastUpdateTime` exceeds the timeout `ImageSharing` pushes from `stitchFrameMaxAge`,
     so the screens and the stitch selection agree on what "still flying" means and a drone that stops
