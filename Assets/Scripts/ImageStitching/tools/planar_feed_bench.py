@@ -54,9 +54,14 @@ except ImportError:
 # Must match ImageSharing.cs (MaxFeedBlocks / ImageWidth / ImageHeight / MetadataSize)
 # and DJI_Swarm/AOS server/utils/imageSharingUtil.py. A mismatch here is silent: it
 # reads image bytes as a header rather than failing.
+#
+# One constant per line, and no tuple assignments: tools/check_wire_layout.py parses
+# this file with a line-oriented regex and silently SKIPS anything it cannot evaluate,
+# so `IMAGE_W, IMAGE_H = 800, 450` would leave both unchecked while appearing to pass.
 MAP_NAME = "DroneFeedSharedMemory"
 MAX_DRONES = 10
-IMAGE_W, IMAGE_H = 800, 450
+IMAGE_W = 800
+IMAGE_H = 450
 HEADER_BYTES = 48
 CAM_POS_OFFSET = 12
 CAM_ROT_OFFSET = 24
@@ -66,6 +71,13 @@ POSE_VALID = 1 << 0
 
 IMAGE_BYTES = IMAGE_W * IMAGE_H * 3
 BLOCK_BYTES = HEADER_BYTES + IMAGE_BYTES
+BLOCKS_BYTES = MAX_DRONES * BLOCK_BYTES
+# This bench writes blocks only; it never writes the scene-plane trailer. It must
+# still map the section at the FULL size, because whichever process creates the
+# named section first fixes it -- a bench that created it at the pre-trailer size
+# would leave Unity mapping a prefix and silently no scene plane for the whole run.
+TRAILER_BYTES = 64
+SECTION_BYTES = BLOCKS_BYTES + TRAILER_BYTES
 
 
 def facade_texture(height_px=1400, width_px=2400, seed=11, metres_per_texel=0.01):
@@ -422,7 +434,16 @@ def main():
         print("\nHeadless self-test (no Unity, no shared memory)")
         return run_selftest(frames_truth, K, args, fy)
 
-    mm = mmap.mmap(-1, MAX_DRONES * BLOCK_BYTES, MAP_NAME)
+    try:
+        mm = mmap.mmap(-1, SECTION_BYTES, MAP_NAME)
+    except OSError as e:
+        # A producer or Unity predating the scene-plane trailer already holds the
+        # section at the smaller size. The blocks are laid out identically, so the
+        # bench works exactly as before; only the trailer (which this tool does not
+        # write anyway) is unavailable.
+        print("[bench] %s exists at the pre-trailer size: %s. Blocks unaffected."
+              % (MAP_NAME, e))
+        mm = mmap.mmap(-1, BLOCKS_BYTES, MAP_NAME)
     # Retire the capacity blocks no drone will write, or Unity reads whatever a
     # previous run left there. droneId = -1 is the "no new frame" marker on this map.
     for slot in range(args.drones, MAX_DRONES):

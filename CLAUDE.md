@@ -33,7 +33,8 @@ the resolution — only on constants that `tools/check_wire_layout.py` asserts e
 files. Sizes that varied at runtime are what produced the intermittent access-denied crashes.
 
 - `MetadataSharedMemory` — sizes + stitcher config + blur/border + quality settings + **body/pilot yaw**
-  (yaw also rewritten every frame at a fixed offset). This is the integrated *body heading*
+  (yaw **and** the PLANAR standoff + its resolved source are also rewritten every frame at fixed
+  offsets — 248, 364 and 396). This is the integrated *body heading*
   (`PyUniSharingFast.bodyYaw`): seeded from the HMD's initial yaw, then advanced only by the controller
   yaw-rate command — **not** live HMD direction, so head-look doesn't move the panorama.
   It also carries a seqlocked **dynamic block** (scene plane, gimbal pitch, planar centre drone id,
@@ -118,14 +119,33 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   holds it, so every block keeps its last contents and the stitcher would otherwise render a frozen
   panorama forever.
 - `DroneFeedSharedMemory` — **all real-drone feeds** (DJIScene only), same per-block layout as above but
-  a fixed capacity of **10 blocks** indexed by zero-based drone id (must match `MAX_DRONES` in the
-  DJI_Swarm repo's `image_stream_feed.py`, which is the producer). Its per-block stride is fitted to
-  the 800×450 feed and is **not** `blockSlotStride` — the two maps are sized independently.
+  a fixed capacity of **10 blocks** indexed by zero-based drone id, followed by a **64-byte
+  scene-plane trailer**. Every constant lives in the DJI_Swarm repo's
+  `utils/imageSharingUtil.py` as `FEED_*` (not in `image_stream_feed.py` — `check_wire_layout.py`
+  parses the former and asserts it against `ImageSharing.cs`, and does not parse the latter).
+  Its per-block stride is fitted to the 800×450 feed and is **not** `blockSlotStride` — the two maps
+  are sized independently.
   Consumer: `ImageSharing.cs`, which displays the feeds and re-publishes the selected views into
   `BlockSharedMemory` (`PublishStitchBlocks`: the 3 body-yaw-selected ones under STABSTITCH, every
   fresh feed under PLANAR). Unity marks unwritten **and already-consumed** blocks with `droneId == -1`
   (the producer rewrites `droneId` every write) — that marker is the new-frame detection, since the
   flag alone can't distinguish a fresh frame from a re-read.
+
+  **The trailer carries `planarStandoffMetres` from the PC**, seqlocked, and is the one place this
+  system grows a section that was already sized — which is normally how you earn
+  `ERROR_ACCESS_DENIED`. It is safe *only* because Windows compares **page-rounded** sizes: the block
+  array is 10,800,480 B, which rounds to 10,801,152 (2637 × 4 KB), leaving **672 already-backed
+  bytes**. Measured on Windows 11: create at the block size and open at +672 succeeds in either
+  order, +673 is denied. So a Unity carrying the trailer and a DJI_Swarm predating it interoperate in
+  both start orders, and the trailer just reads zero. `check_wire_layout.py` asserts
+  `page(FeedSectionBytes) == page(FeedBlocksBytes)` for that reason — **past 672 bytes both cross
+  orders become fatal and the feed dies**, so the bound is machine-checked, not a comment. Both sides
+  also carry a two-step fallback to the pre-trailer size; on the Python side that is not decoration,
+  because `ImageStreamPublisher.__init__` runs before the aircraft arm and an unhandled `OSError`
+  there takes down the flight controller rather than merely the mosaic.
+  Unity **never writes** the trailer (`Start`'s block-init loop stops at `MaxFeedBlocks`), and
+  `PyUniSharingFast` must never map this section — `ImageSharing` is its sole consumer and hands the
+  value over on `ImageSharing.FeedStandoff*` statics, the same shape as `PlanarSelected`/`BodyYawDegrees`.
 - `PanoramaSharedMemory` — `int flag | int quality_ok | RGB24 panorama`. `quality_ok == 0` ⇒ Unity shows
   individual feeds instead of the panorama. Panorama is **vertically flipped and converted BGR→RGB** by
   Python (Unity textures start bottom-left; Unity uploads the bytes straight into an RGB24 texture).
@@ -560,8 +580,53 @@ both are supplied differently there. **Three settings and one flag** are what ma
 | Where | Setting |
 |---|---|
 | `PyUniSharingFast` | `useManualIntrinsics = true`, `manualVerticalFovDeg = 46.4` (Mini 3 Pro at 16:9) |
-| `PyUniSharingFast` | `scenePlaneMode = FormationRelative`, `planarStandoffMetres` = distance to the facade |
+| `PyUniSharingFast` | `scenePlaneMode = FormationRelative`; `planarStandoffMetres` is now only the **fallback** — see below |
 | DJI_Swarm | `-ImageStreamPose` / `ImageStreamPose = $true` / `--image-stream-pose` |
+
+**`planarStandoffMetres` is supplied by the PC and the inspector field is the fallback.**
+It used to be hand-typed, and a wrong value there is the single largest error in the mosaic — the
+2026-08-11 MED clips were replayed against a typed 30 m when the truth was 34.3 m, which at this
+geometry's 4.9 px per metre is ~21 px of seam, more than every other term combined. The PC now
+computes it (`clip_scene_plane.pick_facade` + `standoff_of`) and writes it into the feed map's
+trailer; `ImageSharing.ReadFeedTrailer` validates it and `PyUniSharingFast.ResolvePlanarStandoff`
+prefers it, writing the result to metadata offset 364 every frame via `WritePlanarStandoff` —
+per-frame because the standoff now *tracks the formation* rather than being a constant, and
+`WriteMetadata` only runs on Start/OnValidate/a stitcher switch. Four things must hold before the PC
+value is used (magic, version, status, and a **heartbeat** advanced within 2 s); the heartbeat is the
+load-bearing one, because closing the producer's handle leaves its last bytes readable forever and a
+finished `clip_replay` would otherwise pin its clip's standoff into every later editor session.
+The inspector field is still worth setting correctly: it is the only source in every **sim** scene,
+in the DJI scene before a controller starts, and again the moment one exits.
+
+**Three inspector fields carry a "plane distance" and none of them are the same quantity** —
+`scenePlaneMode` selects one and the other two are dead, which is why `PlanarSettings` groups them
+under per-mode headers. `fallbackPlaneDistance` (Nadir/Facade) is a distance **along the centre
+camera's ray**, used *only when the raycast misses*, and is unreachable on real drones because a
+facade has no collider. `manualPlaneDistance` (Manual) is the world plane offset **d** itself,
+paired with `manualPlaneNormal`. `planarStandoffMetres` (FormationRelative) is the **perpendicular**
+distance from the formation **centroid** to the surface. Different origins, different directions,
+different roles; they merely all read about 30.
+
+**`planarStandoffSource` (`Auto` | `Inspector`) is the operator's takeover**, and
+`planarStandoffInUse` is a read-only read-out of which one is actually in force. `Inspector` is
+absolute — it ignores a live PC value even when one is arriving — because an operator reaching for
+it is overriding an auto-pick they believe is wrong, and silently reverting the moment the PC looked
+healthy again would be the opposite of what they asked for. It is named `Inspector` rather than
+`Manual` so it cannot be read as `scenePlaneMode`'s unrelated `Manual`.
+**`planarStandoffMetres` deliberately does *not* mirror the live value**, which is the obvious thing
+to want and is a trap: that field is the *fallback*, so writing the live value into it means the
+instant the PC stops publishing the fallback becomes the last PC value rather than the operator's
+number — a finished `clip_replay` would leave its clip's standoff sitting in the inspector and every
+later session would inherit it silently. That is precisely the stale-value failure the heartbeat
+exists to prevent, reintroduced through the inspector. Hence a separate read-out.
+The **resolved** source (not the requested one — `Auto` still reads `inspector` whenever nothing is
+arriving) is published at metadata offset **396**, taken out of `metadataReservedGap`, which drops to
+7 with `metadataTailEnd` at 397; `metadataSize` stays 412 so no running Python is stranded. It exists
+because the value at 364 is a float either way: without it `clip_replay.py` goes on announcing that
+it drives the standoff while a `Manual` scene quietly ignores it, which is the same
+two-sources-one-number confusion the toggle was added to remove. `unity_stitch_meta.py` reports it
+(`standoff 34.26 m (from the PC)`) and watches it, so a mid-replay flip to `Manual` prints an
+`[unity]` line.
 
 There used to be a fourth: `ImageSharing.stitchSlots`, which defaulted to STABSTITCH's 3 and had to be
 raised to the fleet size by hand — and only took effect on a Play restart, because the section was
@@ -591,11 +656,18 @@ frame into the fixed-capacity section.
   return early whenever `camerasToCapture` was empty — i.e. always, in the DJI scene.
   - `ScenePlaneMode.Manual` + `manualPlaneNormal` / `manualPlaneDistance` — world coordinates, so it
     needs an origin agreed with the pose frame. Prefer `FormationRelative` unless you have one.
-  - A facade traced on the DJI_Swarm GUI map (`shapes.json`) is the georeferenced route, and is **not
-    implemented**. Two traps waiting there: obstacles are **axis-aligned rectangles**, so a facade on an
-    arbitrary bearing needs the geofence polygon or a new shape type; and trace the **base** of the
+  - A facade traced on the DJI_Swarm GUI map (`shapes.json`) is the georeferenced route, and **is now
+    the default** — it is what supplies the standoff described above. The wall is chosen
+    automatically (`clip_scene_plane.pick_facade`: nearest positive ray-plane hit along the mean
+    camera forward, gated on look-off/range/lateral extent, with 3 m hysteresis and a 2.5 s dwell so
+    it cannot flap), and which wall won is reported on the controller console and the GUI chip. Verify
+    it offline against real footage with
+    `python clip_scene_plane.py --clip <dir> --pick [-v]`, which replays the rule over a clip's own
+    poses and prints every candidate's reject reason. Two traps remain: **trace the base** of the
     building, not the roofline — satellite imagery displaces the roof from the footprint by
-    `height × tan(off-nadir)`, ~7 m for a 20 m building.
+    `height × tan(off-nadir)`, ~7 m for a 20 m building; and the behind-the-wall test is the
+    **look-off angle, not a negative standoff**, because `facade_from_line` orients the normal toward
+    the formation, so a wall traced on the far side comes back with a perfectly positive standoff.
 - **Test it without aircraft**: `python tools/planar_feed_bench.py --drones 6 --rows 2` writes real
   `DroneFeedSharedMemory` blocks from a synthetic facade, so Unity and `StitcherThreading.py` run
   unmodified. `--selftest` does the same headless, with no Unity at all, and `--pose-error` /

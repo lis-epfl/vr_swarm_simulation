@@ -117,6 +117,12 @@ META_HEARTBEAT_OFFSET = 384              # uint32, monotonic
 # them as constants; a mismatch means the two processes were built from different revisions,
 # which would otherwise be silent -- we would address slots at the wrong stride and read
 # image bytes as headers.
+# Which source the standoff at 364 actually came from: 0 = Unity's inspector field,
+# 1 = the PC's DroneFeedSharedMemory trailer. Not used by the stitcher -- the value is
+# the value however it was produced -- but read and reported by unity_stitch_meta.py so
+# a PC-side tool can tell whether the number it supplied is the one in force.
+META_PLANAR_STANDOFF_SOURCE_OFFSET = 396  # uint8
+
 META_BLOCK_SLOT_CAPACITY_OFFSET = 388    # int32
 META_BLOCK_SLOT_STRIDE_OFFSET = 392      # int32
 # The two trailing size fields, after metadataReservedGap.

@@ -47,12 +47,98 @@ public class ImageSharing : MonoBehaviour
     // a BlockSharedMemory slot — see StitchSlotStride below, which is larger.
     private const int BlockSize = MetadataSize + ImageSize;
 
-    // Fixed capacity of the feed mapping (must match MAX_DRONES in
-    // image_stream_feed.py). The mapping is always this many blocks so its size
-    // never depends on the fleet size or on which process creates it first.
-    // droneId == -1 marks a block that holds no new frame (never written, or
-    // already consumed by the read loop); producers rewrite droneId every write.
+    // Fixed capacity of the feed mapping (must match FEED_MAX_DRONES in the
+    // DJI_Swarm repo's utils/imageSharingUtil.py). The mapping is always this many
+    // blocks so its size never depends on the fleet size or on which process creates
+    // it first. droneId == -1 marks a block that holds no new frame (never written,
+    // or already consumed by the read loop); producers rewrite droneId every write.
     private const int MaxFeedBlocks = 10;
+    private const int FeedBlocksBytes = MaxFeedBlocks * BlockSize;
+
+    // ---------------------------------------------------------------------------
+    // Scene-plane trailer, appended after the blocks. Carries the PLANAR standoff
+    // the PC computes (from a facade traced on the GUI map plus the live formation)
+    // so planarStandoffMetres stops being typed into the inspector by hand. Getting
+    // it wrong is the dominant mosaic error: 30 m typed against a true 34.3 m on the
+    // 2026-08-11 MED clips is ~21 px of seam, more than everything else combined.
+    //
+    // WHY GROWING THIS SECTION IS SAFE. A named Windows section cannot be resized,
+    // so asking for a larger one than a peer already created normally fails with
+    // ERROR_ACCESS_DENIED. It works here only because Windows compares PAGE-ROUNDED
+    // sizes, and the block array (10,800,480 B) rounds up to 10,801,152, leaving 672
+    // already-backed bytes. Measured: create at the block size and open at +672
+    // succeed in either order; +673 is denied. So a Unity carrying this trailer and
+    // a DJI_Swarm predating it interoperate in both start orders, with the trailer
+    // simply reading zero. check_wire_layout.py asserts the <= 672 bound, because
+    // past it both cross orders become a hard failure and the feed dies.
+    //
+    // This component is the SOLE consumer; the PC is the sole producer. Unity must
+    // never write these bytes -- in particular Start()'s block-init loop stops at
+    // MaxFeedBlocks, because the PC may legitimately have written already.
+    private const int FeedTrailerOffset = FeedBlocksBytes;
+    private const int FeedTrailerBytes = 64;
+    private const int FeedSectionBytes = FeedTrailerOffset + FeedTrailerBytes;
+
+    // 'PSO1'. A fresh section is zero-filled, so a non-zero magic is what separates
+    // "a PC has written here" from "this value happens to be 0" -- without it an
+    // untouched trailer reads as a legal-looking 0.0 m standoff.
+    private const int FeedTrailerMagic = 0x50534F31;
+    private const int FeedTrailerVersion = 1;
+
+    private const int FeedTrMagicOffset = 0;
+    private const int FeedTrVersionOffset = 4;
+    private const int FeedTrSeqOffset = 8;
+    private const int FeedTrHeartbeatOffset = 12;
+    private const int FeedTrStandoffOffset = 16;
+    private const int FeedTrStatusOffset = 20;
+    private const int FeedTrFacadeIdOffset = 24;
+    private const int FeedTrLookOffOffset = 28;
+    private const int FeedTrSpreadOffset = 32;
+    private const int FeedTrPxPerMOffset = 36;
+    private const int FeedTrTiltOffset = 40;
+    private const int FeedTrViewCountOffset = 44;
+    private const int FeedTrEnd = 48;
+
+    private const int FeedTrStatusLocked = 1;
+    private const int FeedTrStatusDwelling = 2;
+    private const int FeedTrStatusNoFacade = 4;
+    private const int FeedTrStatusNoOrigin = 8;
+
+    // How long the trailer's heartbeat may stand still before the standoff is treated
+    // as dead. This is the load-bearing validity test, not a nicety: closing the
+    // producer's handle does NOT destroy the section, so every byte it last wrote stays
+    // readable forever. Without it, one finished clip_replay would pin its clip's
+    // standoff into every later session of the editor.
+    private const float FeedStandoffMaxAgeSeconds = 2.0f;
+    // Sanity envelope. Nothing plausible is outside it, and a value that is says the
+    // producer is confused rather than that the wall is 900 m away.
+    private const float FeedStandoffMinM = 0.5f;
+    private const float FeedStandoffMaxM = 500.0f;
+
+    // The PC-computed PLANAR scene-plane standoff, for PyUniSharingFast to republish.
+    //
+    // Static for the same reason PyUniSharingFast.PlanarSelected and BodyYawDegrees are,
+    // pointing the other way: the component that owns this map and the component that
+    // owns MetadataSharedMemory are not the same one, and in every sim scene one of them
+    // does not exist. PyUniSharingFast must NOT map DroneFeedSharedMemory itself — one
+    // producer, one consumer, and this component is the consumer.
+    public static bool FeedStandoffValid { get; private set; }
+    public static float FeedStandoffMetres { get; private set; }
+    public static int FeedStandoffFacadeId { get; private set; } = -1;
+    public static int FeedStandoffStatus { get; private set; }
+
+    // False when the section was already held at the pre-trailer size (see Start).
+    private bool feedTrailerAvailable = true;
+    private int lastTrailerHeartbeat = int.MinValue;
+    private float lastTrailerBeatTime = -1f;
+
+    private static void ClearFeedStandoff()
+    {
+        FeedStandoffValid = false;
+        FeedStandoffMetres = 0f;
+        FeedStandoffFacadeId = -1;
+        FeedStandoffStatus = 0;
+    }
 
     // Number of screens/indicators to spawn (the fleet size for this run).
     // All MaxFeedBlocks blocks are polled regardless.
@@ -179,17 +265,44 @@ public class ImageSharing : MonoBehaviour
     void Start()
     {
         if (enableDebugLogging) Debug.Log("[ImageSharing] Starting ImageSharing component...");
-        
+
+        // Statics survive a Play session in the editor (domain reload is configurable),
+        // so a sim scene entered after this one would otherwise inherit a dead
+        // controller's standoff and use it as if it were live. Cleared here and in
+        // OnDestroy, at both ends of this component's life.
+        ClearFeedStandoff();
+
         // The feed mapping always has the full fixed capacity (matches
-        // image_stream_feed.py) so its size never depends on the fleet size. Note this is
-        // the FEED stride, fitted to the 800x450 feed — not StitchSlotStride, which is
+        // imageSharingUtil.FEED_*) so its size never depends on the fleet size. Note this
+        // is the FEED stride, fitted to the 800x450 feed — not StitchSlotStride, which is
         // sized to the block section's larger envelope.
-        TotalProcessedSize = MaxFeedBlocks * BlockSize;
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({MaxFeedBlocks} blocks x {BlockSize} bytes per block, {numImages} screens)");
+        TotalProcessedSize = FeedSectionBytes;
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({MaxFeedBlocks} blocks x {BlockSize} bytes per block + {FeedTrailerBytes} trailer, {numImages} screens)");
 
         // Create (or open) the memory-mapped file for the processed images and metadata
         processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
             (uint)TotalProcessedSize, processedMapName);
+        if (processedFileMap == IntPtr.Zero && Marshal.GetLastWin32Error() == ERROR_ACCESS_DENIED)
+        {
+            // A DJI_Swarm predating the scene-plane trailer already holds this section at
+            // the smaller size. The blocks are laid out identically, so retry without the
+            // trailer: the feeds are worth more than the standoff, and losing them both
+            // over a setting that has a perfectly good fallback would be the wrong trade.
+            //
+            // This should not be reachable — the trailer fits inside the section's 4 KB
+            // page rounding, which is why check_wire_layout.py asserts that bound. It is
+            // here because "unreachable" and "untested" are the same thing in a path that
+            // otherwise kills the feed for the whole session.
+            feedTrailerAvailable = false;
+            TotalProcessedSize = FeedBlocksBytes;
+            processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
+                (uint)TotalProcessedSize, processedMapName);
+            Debug.LogWarning(
+                $"[ImageSharing] {processedMapName} already exists at the pre-trailer size " +
+                $"({FeedBlocksBytes} bytes). Feeds are unaffected; the PLANAR standoff falls " +
+                $"back to PyUniSharingFast.planarStandoffMetres. Restart the DJI_Swarm " +
+                $"producer to get the PC-computed standoff.");
+        }
         if (processedFileMap == IntPtr.Zero)
         {
             int error = Marshal.GetLastWin32Error();
@@ -365,9 +478,15 @@ public class ImageSharing : MonoBehaviour
 
         if (Time.time >= nextReceiveTime && processedPtr != IntPtr.Zero)
         {
+            // Before the block scan and outside its bookkeeping, deliberately: the
+            // standoff must keep being reported honestly even while the feed path is
+            // producing nothing, which is exactly when someone is looking at it. Same
+            // argument WriteHeartbeat uses for sitting ahead of every early return.
+            ReadFeedTrailer();
+
             totalReadsAttempted++;
             bool anyDataRead = false;
-            
+
             // Loop through each capacity block in the memory mapped file
             for (int block = 0; block < MaxFeedBlocks; block++)
             {
@@ -606,6 +725,128 @@ public class ImageSharing : MonoBehaviour
     // Always followed by the screen-hiding push, including on the early returns below: "nothing
     // was published" has to reach ScreenSpawn as an empty set, or the last selection stays hidden
     // after the feeds stop arriving.
+    /// <summary>
+    /// Read the PC-computed scene-plane standoff out of the feed map's trailer and
+    /// publish it on the statics PyUniSharingFast republishes into metadata.
+    ///
+    /// Four independent tests have to pass before the value is used, and each one
+    /// exists because of a distinct way a shared section lies:
+    ///   * magic    — a fresh section is zero-filled, so this separates "a PC wrote
+    ///                here" from "the value written happens to be 0".
+    ///   * version  — a producer from another revision must be refused, not misread.
+    ///   * status   — the producer itself saying it has no facade or no pose origin.
+    ///   * heartbeat— the only test that catches a producer that has EXITED. Closing
+    ///                its handle leaves every byte readable forever, so without this a
+    ///                finished clip_replay pins its clip's standoff into every later
+    ///                session.
+    /// </summary>
+    private void ReadFeedTrailer()
+    {
+        if (!feedTrailerAvailable || processedPtr == IntPtr.Zero) return;
+        IntPtr tr = IntPtr.Add(processedPtr, FeedTrailerOffset);
+
+        if (Marshal.ReadInt32(tr, FeedTrMagicOffset) != FeedTrailerMagic ||
+            Marshal.ReadInt32(tr, FeedTrVersionOffset) != FeedTrailerVersion)
+        {
+            SetFeedStandoff(false, 0f, -1, 0, "no producer has written a scene plane");
+            return;
+        }
+
+        // Seqlock, matching PyUniSharingFast.WriteDynamicState. The standoff is a lone
+        // aligned float32 and cannot tear on its own; the lock is what stops a standoff
+        // being paired with a DIFFERENT facade's id in the log line, and it is what the
+        // 16 reserved trailer bytes will need the day a plane normal goes in them.
+        int standoffBits = 0, status = 0, facadeId = -1, beat = 0;
+        bool clean = false;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            int seq = Marshal.ReadInt32(tr, FeedTrSeqOffset);
+            if ((seq & 1) != 0) continue;                // writer mid-update
+            standoffBits = Marshal.ReadInt32(tr, FeedTrStandoffOffset);
+            status = Marshal.ReadInt32(tr, FeedTrStatusOffset);
+            facadeId = Marshal.ReadInt32(tr, FeedTrFacadeIdOffset);
+            beat = Marshal.ReadInt32(tr, FeedTrHeartbeatOffset);
+            if (Marshal.ReadInt32(tr, FeedTrSeqOffset) == seq) { clean = true; break; }
+        }
+        if (!clean)
+        {
+            // Take the standoff and the heartbeat anyway and let only the DIAGNOSTICS be
+            // stale. A busy writer must never cost the mosaic its plane — dropping the
+            // frame here would make the panorama flicker on a race that is, at worst, a
+            // wrong facade id in a log line.
+            standoffBits = Marshal.ReadInt32(tr, FeedTrStandoffOffset);
+            status = Marshal.ReadInt32(tr, FeedTrStatusOffset);
+            beat = Marshal.ReadInt32(tr, FeedTrHeartbeatOffset);
+        }
+
+        if (beat != lastTrailerHeartbeat)
+        {
+            lastTrailerHeartbeat = beat;
+            lastTrailerBeatTime = Time.time;
+        }
+
+        float standoff = BitConverter.ToSingle(BitConverter.GetBytes(standoffBits), 0);
+        if ((status & (FeedTrStatusNoFacade | FeedTrStatusNoOrigin)) != 0)
+        {
+            SetFeedStandoff(false, 0f, -1, status,
+                            (status & FeedTrStatusNoOrigin) != 0
+                                ? "producer has no pose origin yet"
+                                : "producer has no facade to measure against");
+            return;
+        }
+        if (lastTrailerBeatTime < 0f ||
+            Time.time - lastTrailerBeatTime > FeedStandoffMaxAgeSeconds)
+        {
+            SetFeedStandoff(false, 0f, -1, status,
+                            $"producer heartbeat stalled for " +
+                            $"{Time.time - lastTrailerBeatTime:F1} s");
+            return;
+        }
+        if (float.IsNaN(standoff) || float.IsInfinity(standoff) ||
+            standoff < FeedStandoffMinM || standoff > FeedStandoffMaxM)
+        {
+            SetFeedStandoff(false, 0f, -1, status,
+                            $"standoff {standoff:F2} m outside " +
+                            $"[{FeedStandoffMinM}, {FeedStandoffMaxM}] m");
+            return;
+        }
+        SetFeedStandoff(true, standoff, facadeId, status, null);
+    }
+
+    /// <summary>
+    /// Publish the statics, logging only on a transition — never the value.
+    ///
+    /// The standoff moves by centimetres every frame; a per-frame log would bury the
+    /// two things worth seeing, which are that the SOURCE changed (the operator has
+    /// silently gone back to the inspector value) and that the FACADE changed (a step
+    /// in the published plane, which the plane sweep has to re-acquire from).
+    /// The operator's live read-outs are the controller console and the GUI.
+    /// </summary>
+    private void SetFeedStandoff(bool valid, float metres, int facadeId, int status,
+                                 string why)
+    {
+        if (valid != FeedStandoffValid)
+        {
+            if (valid)
+                Debug.Log($"[ImageSharing] PLANAR standoff now from the PC: " +
+                          $"{metres:F2} m (facade {facadeId}). " +
+                          $"planarStandoffMetres in the inspector is the fallback.");
+            else
+                Debug.Log($"[ImageSharing] PLANAR standoff falling back to " +
+                          $"PyUniSharingFast.planarStandoffMetres — {why}.");
+        }
+        else if (valid && facadeId != FeedStandoffFacadeId)
+        {
+            Debug.Log($"[ImageSharing] PLANAR scene plane switched to facade " +
+                      $"{facadeId}: {metres:F2} m (was facade {FeedStandoffFacadeId}). " +
+                      $"The plane has stepped; the stitcher's sweep will re-acquire.");
+        }
+        FeedStandoffValid = valid;
+        FeedStandoffMetres = metres;
+        FeedStandoffFacadeId = valid ? facadeId : -1;
+        FeedStandoffStatus = status;
+    }
+
     private void PublishStitchBlocks()
     {
         publishedStitchIds.Clear();
@@ -804,7 +1045,12 @@ public class ImageSharing : MonoBehaviour
     void OnDestroy()
     {
         if (enableDebugLogging) Debug.Log("[ImageSharing] Cleaning up resources...");
-        
+
+        // The statics outlive this component (see the declarations). Leaving a standoff
+        // behind would have the next scene — quite possibly a sim scene with no feed map
+        // at all — republish a dead controller's number as if it were live.
+        ClearFeedStandoff();
+
         // Clean up memory mapped file resources
         if (processedPtr != IntPtr.Zero)
         {

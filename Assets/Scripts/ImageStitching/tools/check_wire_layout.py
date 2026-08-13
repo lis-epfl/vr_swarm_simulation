@@ -24,6 +24,9 @@ SHARING_CS = os.path.join(os.path.dirname(ROOT), "dji", "ImageSharing.cs")
 DJI_SHARING_PY = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(ROOT)))),
     "DJI_Swarm", "AOS server", "utils", "imageSharingUtil.py")
+# The bench writes the feed map too, and restates its geometry because it lives in
+# this repo and cannot import the DJI one. Restated constants are exactly what drifts.
+BENCH_PY = os.path.join(HERE, "planar_feed_bench.py")
 
 
 # C# constant name -> Python constant name
@@ -54,6 +57,7 @@ PAIRS = [
     ("metaPlanarZoomOffset",           "META_PLANAR_ZOOM_OFFSET"),
     ("metaPlanarCanvasModeOffset",     "META_PLANAR_CANVAS_MODE_OFFSET"),
     ("metaHeartbeatOffset",            "META_HEARTBEAT_OFFSET"),
+    ("metaPlanarStandoffSourceOffset", "META_PLANAR_STANDOFF_SOURCE_OFFSET"),
     ("metaBlockSlotCapacityOffset",    "META_BLOCK_SLOT_CAPACITY_OFFSET"),
     ("metaBlockSlotStrideOffset",      "META_BLOCK_SLOT_STRIDE_OFFSET"),
     ("metaBlockSectionBytesOffset",    "META_BLOCK_SECTION_BYTES_OFFSET"),
@@ -195,6 +199,7 @@ def main():
         ("heartbeat", "metaHeartbeatOffset", 4),
         ("blockSlotCapacity", "metaBlockSlotCapacityOffset", 4),
         ("blockSlotStride", "metaBlockSlotStrideOffset", 4),
+        ("standoffSource", "metaPlanarStandoffSourceOffset", 1),
     ]
     cursor = 253
     for label, const, size in fields:
@@ -243,6 +248,136 @@ def main():
 
     dyn_end = cs.get("metaCentreDroneIdOffset", 0) + 4
     print(f"  dynamic block spans {cs.get('metaDynSeqOffset')}..{dyn_end}")
+
+    # DroneFeedSharedMemory: the PC produces it, ImageSharing.cs consumes it. Unlike the
+    # stitch section this one is grown by a trailer, so its geometry is now load-bearing
+    # in a way it was not when these were merely reported.
+    def _page(n, page=4096):
+        return -(-n // page) * page
+
+    def check_feed_section(sh, dji_path):
+        """Assert the feed section's geometry, its trailer walk and its page headroom."""
+        out = []
+        print()
+        print("Feed section (DroneFeedSharedMemory: DJI_Swarm produces, "
+              "ImageSharing.cs consumes)")
+        print("-" * 90)
+
+        # 1. The trailer must be laid out contiguously, 4-byte aligned, inside its budget.
+        #    Same shape as the metadata tail walk above, and for the same reason: a field
+        #    that overlaps its neighbour is silent on both sides.
+        cursor = 0
+        for name, size in [
+                ("FeedTrMagicOffset", 4), ("FeedTrVersionOffset", 4),
+                ("FeedTrSeqOffset", 4), ("FeedTrHeartbeatOffset", 4),
+                ("FeedTrStandoffOffset", 4), ("FeedTrStatusOffset", 4),
+                ("FeedTrFacadeIdOffset", 4), ("FeedTrLookOffOffset", 4),
+                ("FeedTrSpreadOffset", 4), ("FeedTrPxPerMOffset", 4),
+                ("FeedTrTiltOffset", 4), ("FeedTrViewCountOffset", 4),
+        ]:
+            got = sh.get(name)
+            if got != cursor:
+                out.append(f"ImageSharing.{name} = {got}, expected {cursor}")
+            if got is not None and got % 4:
+                out.append(f"ImageSharing.{name} ({got}) is not 4-byte aligned")
+            cursor += size
+        if sh.get("FeedTrEnd") != cursor:
+            out.append(f"ImageSharing.FeedTrEnd = {sh.get('FeedTrEnd')}, "
+                       f"expected {cursor}")
+        print(f"  trailer walk   {cursor} bytes used of "
+              f"{sh.get('FeedTrailerBytes')}  "
+              f"{'OK' if not out else 'MISMATCH'}")
+        if sh.get("FeedTrailerBytes") is not None and cursor > sh["FeedTrailerBytes"]:
+            out.append(f"trailer fields use {cursor} B > FeedTrailerBytes "
+                       f"({sh['FeedTrailerBytes']})")
+
+        # 2. THE assertion this whole design rests on. A named Windows section cannot be
+        #    resized, but Windows compares PAGE-ROUNDED sizes -- so appending the trailer
+        #    is invisible to version skew only while it stays inside the rounding of the
+        #    block array. Measured on Windows 11: create at the block size, open at +672
+        #    succeeds in either order; +673 is ERROR_ACCESS_DENIED.
+        blocks, section = sh.get("FeedBlocksBytes"), sh.get("FeedSectionBytes")
+        if blocks is None or section is None:
+            out.append("ImageSharing.FeedBlocksBytes/FeedSectionBytes not found")
+        else:
+            spare = _page(blocks) - blocks
+            fits = _page(section) == _page(blocks)
+            print(f"  page headroom  blocks {blocks} -> page {_page(blocks)} "
+                  f"({spare} B spare), section {section}  "
+                  f"{'OK' if fits else 'OVERFLOW'}")
+            if not fits:
+                out.append(
+                    f"the trailer has outgrown the block array's page rounding "
+                    f"({section} B needs {_page(section)} B of pages, the blocks alone "
+                    f"need {_page(blocks)}). A Unity carrying this trailer and a "
+                    f"DJI_Swarm predating it will now DENY each other "
+                    f"DroneFeedSharedMemory with ERROR_ACCESS_DENIED, in both start "
+                    f"orders, and the feed dies. Shrink the trailer to <= {spare} B.")
+
+        # 3. planar_feed_bench.py writes this map and restates its geometry, because it
+        #    is in this repo and cannot import the DJI one. Restated constants drift.
+        if os.path.exists(BENCH_PY):
+            bench = parse_py(BENCH_PY)
+            for label, b_name, sh_name in [
+                    ("bench capacity", "MAX_DRONES", "MaxFeedBlocks"),
+                    ("bench width", "IMAGE_W", "ImageWidth"),
+                    ("bench height", "IMAGE_H", "ImageHeight"),
+                    ("bench header", "HEADER_BYTES", "MetadataSize"),
+                    ("bench stride", "BLOCK_BYTES", "BlockSize"),
+                    ("bench blocks", "BLOCKS_BYTES", "FeedBlocksBytes"),
+                    ("bench trailer", "TRAILER_BYTES", "FeedTrailerBytes"),
+                    ("bench section", "SECTION_BYTES", "FeedSectionBytes"),
+            ]:
+                a, b = bench.get(b_name), sh.get(sh_name)
+                ok = a is not None and a == b
+                print(f"  {label:<15} planar_feed_bench.{b_name} = {a}, "
+                      f"ImageSharing.{sh_name} = {b}  {'OK' if ok else 'MISMATCH'}")
+                if not ok:
+                    out.append(f"planar_feed_bench.{b_name} ({a}) != "
+                               f"ImageSharing.{sh_name} ({b})")
+
+        # 4. Cross-repo. The feed geometry used to be reported here rather than asserted,
+        #    because it lived in image_stream_feed.py which this tool does not parse. It
+        #    now lives in imageSharingUtil.py, which it does -- so it is checked.
+        if not os.path.exists(dji_path):
+            print(f"  DJI_Swarm not found; feed cross-repo checks skipped")
+            return out
+        dji = parse_py(dji_path)
+        for label, dji_name, sh_name in [
+                ("feed capacity", "FEED_MAX_DRONES", "MaxFeedBlocks"),
+                ("feed width", "FEED_IMAGE_WIDTH", "ImageWidth"),
+                ("feed height", "FEED_IMAGE_HEIGHT", "ImageHeight"),
+                ("feed stride", "FEED_BLOCK_STRIDE", "BlockSize"),
+                ("blocks bytes", "FEED_BLOCKS_BYTES", "FeedBlocksBytes"),
+                ("trailer at", "FEED_TRAILER_OFFSET", "FeedTrailerOffset"),
+                ("trailer bytes", "FEED_TRAILER_BYTES", "FeedTrailerBytes"),
+                ("section bytes", "FEED_SECTION_BYTES", "FeedSectionBytes"),
+                ("trailer magic", "FEED_TRAILER_MAGIC", "FeedTrailerMagic"),
+                ("trailer version", "FEED_TRAILER_VERSION", "FeedTrailerVersion"),
+                ("tr standoff", "FEED_TR_STANDOFF_OFFSET", "FeedTrStandoffOffset"),
+                ("tr seq", "FEED_TR_SEQ_OFFSET", "FeedTrSeqOffset"),
+                ("tr heartbeat", "FEED_TR_HEARTBEAT_OFFSET", "FeedTrHeartbeatOffset"),
+                ("tr status", "FEED_TR_STATUS_OFFSET", "FeedTrStatusOffset"),
+                ("tr facade id", "FEED_TR_FACADE_ID_OFFSET", "FeedTrFacadeIdOffset"),
+                ("tr look off", "FEED_TR_LOOK_OFF_OFFSET", "FeedTrLookOffOffset"),
+                ("tr spread", "FEED_TR_SPREAD_OFFSET", "FeedTrSpreadOffset"),
+                ("tr px/m", "FEED_TR_PX_PER_M_OFFSET", "FeedTrPxPerMOffset"),
+                ("tr tilt", "FEED_TR_TILT_OFFSET", "FeedTrTiltOffset"),
+                ("tr views", "FEED_TR_VIEW_COUNT_OFFSET", "FeedTrViewCountOffset"),
+                ("tr end", "FEED_TR_END", "FeedTrEnd"),
+                ("st locked", "FEED_TR_STATUS_LOCKED", "FeedTrStatusLocked"),
+                ("st dwelling", "FEED_TR_STATUS_DWELLING", "FeedTrStatusDwelling"),
+                ("st no facade", "FEED_TR_STATUS_NO_FACADE", "FeedTrStatusNoFacade"),
+                ("st no origin", "FEED_TR_STATUS_NO_ORIGIN", "FeedTrStatusNoOrigin"),
+        ]:
+            a, b = dji.get(dji_name), sh.get(sh_name)
+            ok = a is not None and a == b
+            print(f"  {label:<15} imageSharingUtil.{dji_name} = {a}, "
+                  f"ImageSharing.{sh_name} = {b}  {'OK' if ok else 'MISMATCH'}")
+            if not ok:
+                out.append(f"imageSharingUtil.{dji_name} ({a}) != "
+                           f"ImageSharing.{sh_name} ({b})")
+        return out
 
     # Real-drone path: ImageSharing.cs CREATES BlockSharedMemory in the DJI scene, but
     # PyUniSharingFast DESCRIBES it in metadata (Python sizes its mapping from that). The
@@ -313,12 +448,7 @@ def main():
                 if not ok:
                     failures.append(f"imageSharingUtil.{dji_name} ({a}) != {cs_name} ({b})")
 
-        # image_stream_feed.py writes this map in the DJI_Swarm repo; its MAX_DRONES must
-        # equal MaxFeedBlocks. Reported rather than asserted -- that repo is not here.
-        print(f"  feed capacity  ImageSharing.MaxFeedBlocks = {sh.get('MaxFeedBlocks')} "
-              f"(must equal MAX_DRONES in DJI_Swarm/AOS server/image_stream_feed.py)")
-        print(f"  feed image     {sh.get('ImageWidth')}x{sh.get('ImageHeight')} "
-              f"(must equal that file's width/height)")
+        failures += check_feed_section(sh, DJI_SHARING_PY)
 
     print()
     if failures:

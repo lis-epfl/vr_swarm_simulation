@@ -214,33 +214,74 @@ public class PyUniSharingFast : MonoBehaviour
     [Serializable]
     public class PlanarSettings
     {
-        [Header("Scene plane")]
+        // scenePlaneMode selects ONE of the three blocks below, and the other two are dead.
+        // They each carry a distance, they all read about 30, and they are NOT the same
+        // quantity -- which is exactly why they are separated and labelled by mode here:
+        //
+        //   Nadir/Facade      fallbackPlaneDistance   along the centre camera's RAY,
+        //                                             and only when the raycast MISSES
+        //   Manual            manualPlaneDistance     the world plane offset d, directly
+        //   FormationRelative planarStandoffMetres    PERPENDICULAR from the formation
+        //                                             CENTROID to the surface
+        //
+        // Different origins, different directions, different roles. Substituting one for
+        // another is not a tuning error, it is a different plane.
+
+        [Header("Scene plane (shared)")]
         [Tooltip("Layers the scene-plane raycast may hit. This matters more than it looks: the " +
                  "ScreenSpawn feed quads and this component's own curved panorama screen float " +
                  "in world space near the pilot, and an unfiltered raycast will happily return " +
                  "one of them, putting the 'scene plane' a few metres away. Obstacle + Default " +
-                 "is the intended setting.")]
+                 "is the intended setting. Nadir/Facade only — the other modes never raycast.")]
         public LayerMask scenePlaneMask = ~0;
 
-        [Tooltip("Plane distance used when the raycast misses. A wrong distance is a uniform " +
-                 "scale error and degrades gracefully, so this is preferable to blanking the " +
-                 "panorama every time the ray clips a window.")]
-        public float fallbackPlaneDistance = 30f;
-
         [Tooltip("Smoothing time constant for the plane normal and distance, so a car driving " +
-                 "through the ray or a one-frame miss doesn't jerk the mosaic.")]
+                 "through the ray or a one-frame miss doesn't jerk the mosaic. Nadir/Facade " +
+                 "only; Manual and FormationRelative resolve without filtering.")]
         public float planeFilterTime = 0.5f;
+
+        [Header("· scenePlaneMode = Nadir / Facade (raycast; sim only)")]
+        [Tooltip("Distance ALONG THE CENTRE CAMERA'S RAY at which to put the plane when the " +
+                 "raycast MISSES — not a standoff, and not used at all when the ray hits. " +
+                 "A wrong value is a uniform scale error and degrades gracefully, so this beats " +
+                 "blanking the panorama every time the ray clips a window.\n\n" +
+                 "NOT planarStandoffMetres, which is a perpendicular distance from the formation " +
+                 "centroid and belongs to FormationRelative. These two modes are mutually " +
+                 "exclusive; whichever one scenePlaneMode is not, its distance is dead.\n\n" +
+                 "Real drones never reach this: a facade has no Unity collider, so the DJI scene " +
+                 "runs FormationRelative and nothing here is ever cast.")]
+        public float fallbackPlaneDistance = 30f;
 
         [Tooltip("Facade mode: snap the plane normal to the swarm formation normal rather than " +
                  "trusting the raycast hit normal. Useful when the facade has ledges or mullions " +
                  "that make the hit normal flicker.")]
         public bool snapNormalToFormation = false;
 
-        [Tooltip("Plane normal used when scenePlaneMode is Manual.")]
+        [Header("· scenePlaneMode = Manual")]
+        [Tooltip("Plane normal used when scenePlaneMode is Manual. World coordinates, so this " +
+                 "mode needs an origin agreed with the pose frame — prefer FormationRelative on " +
+                 "real drones, which needs none.")]
         public Vector3 manualPlaneNormal = Vector3.up;
 
-        [Tooltip("Plane offset used when scenePlaneMode is Manual.")]
+        [Tooltip("The plane offset d itself, in WORLD coordinates, paired with manualPlaneNormal " +
+                 "({x : n·x = d}). Not a distance from anything — that is what makes it different " +
+                 "from both fallbackPlaneDistance and planarStandoffMetres.")]
         public float manualPlaneDistance = 0f;
+
+        [Header("· scenePlaneMode = FormationRelative (real drones)")]
+
+        [Tooltip("Where the FormationRelative standoff comes from.\n\n" +
+                 "Auto: the PC's value whenever it is publishing a live one (it derives it " +
+                 "from a facade traced on the DJI_Swarm GUI map plus the live formation, so " +
+                 "it TRACKS), falling back to planarStandoffMetres below the moment that " +
+                 "stops — no controller, no facade traced, or a stalled producer.\n\n" +
+                 "Inspector: always planarStandoffMetres, ignoring the PC entirely — the " +
+                 "operator takeover. Use it to override a bad auto-pick, or to A/B a " +
+                 "hand-typed value against the measured one. (Named Inspector rather than " +
+                 "Manual so it cannot be read as scenePlaneMode's unrelated Manual above.)\n\n" +
+                 "Which one is actually in force is shown by planarStandoffInUse below, and " +
+                 "is published to the PC so clip_replay.py's checklist can report it.")]
+        public PlanarStandoffSource planarStandoffSource = PlanarStandoffSource.Auto;
 
         [Tooltip("FormationRelative mode: how far in front of the formation the surface is, " +
                  "metres. This is the one number an operator can actually know in the field " +
@@ -249,8 +290,27 @@ public class PyUniSharingFast : MonoBehaviour
                  "georeferenced origin has to be agreed between Unity and the drone telemetry. " +
                  "Python derives the normal and the plane offset from the published poses; only " +
                  "this scalar comes from here. The plane sweep then corrects the residual, so " +
-                 "getting this within a metre or two is enough.")]
+                 "getting this within a metre or two is enough.\n\n" +
+                 "Under Auto this is the FALLBACK, not the operating value — so it is still " +
+                 "worth setting correctly: it is the only source in every sim scene, in the " +
+                 "DJI scene before a controller starts, and again the moment one exits.\n\n" +
+                 "Not fallbackPlaneDistance, which is a distance along the centre camera's RAY " +
+                 "used when a raycast misses (Nadir/Facade), and not manualPlaneDistance, which " +
+                 "is the world plane offset d (Manual). Only one of the three is ever live — " +
+                 "scenePlaneMode picks it.")]
         public float planarStandoffMetres = 30f;
+
+        [Tooltip("READ-ONLY read-out of the standoff actually being published to Python, and " +
+                 "of where it came from. Overwritten every frame while playing; editing it " +
+                 "does nothing.\n\n" +
+                 "This is a separate field rather than planarStandoffMetres being made to " +
+                 "mirror the live value, because that field is the FALLBACK: if the live " +
+                 "value were written back into it, then the instant the PC stopped publishing " +
+                 "the fallback would be the last PC value instead of the operator's number — " +
+                 "a finished clip_replay would leave its clip's standoff sitting there and " +
+                 "every later session would silently inherit it. That is exactly the " +
+                 "stale-value failure the producer heartbeat exists to prevent.")]
+        public string planarStandoffInUse = "(not playing)";
 
         [Header("Intrinsics")]
         [Tooltip("Take the camera intrinsics from the fields below instead of from a Unity " +
@@ -525,6 +585,8 @@ public class PyUniSharingFast : MonoBehaviour
     private Vector3 manualPlaneNormal { get => planar.manualPlaneNormal; set => planar.manualPlaneNormal = value; }
     private float manualPlaneDistance { get => planar.manualPlaneDistance; set => planar.manualPlaneDistance = value; }
     private float planarStandoffMetres { get => planar.planarStandoffMetres; set => planar.planarStandoffMetres = value; }
+    private PlanarStandoffSource planarStandoffSource { get => planar.planarStandoffSource; set => planar.planarStandoffSource = value; }
+    private string planarStandoffInUse { get => planar.planarStandoffInUse; set => planar.planarStandoffInUse = value; }
     private bool useManualIntrinsics { get => planar.useManualIntrinsics; set => planar.useManualIntrinsics = value; }
     private float manualVerticalFovDeg { get => planar.manualVerticalFovDeg; set => planar.manualVerticalFovDeg = value; }
     private int planarCanvasWidth { get => planar.planarCanvasWidth; set => planar.planarCanvasWidth = value; }
@@ -936,12 +998,19 @@ public class PyUniSharingFast : MonoBehaviour
     // would address slots at the wrong stride and read images from the middle of others).
     private const int metaBlockSlotCapacityOffset = 388;  // int32
     private const int metaBlockSlotStrideOffset = 392;    // int32
-    private const int metadataTailEnd = 396;
+
+    // Which source the standoff at 364 actually came from this frame: 0 = this component's
+    // inspector field, 1 = the PC's feed trailer. One byte, and it earns its place because
+    // without it the PC cannot tell the two apart -- the value at 364 is just a float
+    // either way, so clip_replay.py would go on announcing that it drives the standoff
+    // while a Manual takeover quietly ignored it.
+    private const int metaPlanarStandoffSourceOffset = 396;  // uint8
+    private const int metadataTailEnd = 397;
 
     // Trailing gap between the tail and the two size fields metadataSize ends with. It
     // shrinks as the tail grows so metadataSize -- and hence the mapped section size --
     // stays fixed at 412; a changed map size would strand any already-running Python.
-    private const int metadataReservedGap = 8;
+    private const int metadataReservedGap = 7;
 
     // The two section sizes metadataSize ends with. Written on every WriteMetadata (they
     // used to be written only on the first call, which was harmless only because nothing
@@ -1051,6 +1120,25 @@ public class PyUniSharingFast : MonoBehaviour
     // assert it against Python's copy: its C# parser reads `const int` declarations and
     // cannot evaluate an enum member. Keep the two in step.
     private const int planeModeFormationRelative = 4;
+
+    /// <summary>
+    /// Where the FormationRelative standoff comes from. Values are explicit because the
+    /// resolved one is published to Python (metaPlanarStandoffSourceOffset) and mirrored
+    /// by unity_stitch_meta.py.
+    /// </summary>
+    public enum PlanarStandoffSource
+    {
+        Auto = 0,     // the PC's value while it is live, this component's field otherwise
+        Inspector = 1, // always this component's field; ignore the PC
+    }
+
+    // What is ACTUALLY in force, which is not the same as what was asked for: Auto resolves
+    // to the inspector field whenever the PC is not publishing. Published so the PC can stop
+    // guessing -- clip_replay.py otherwise announces that it is driving the standoff while
+    // Unity is quietly using a typed one, which is precisely the two-sources-one-number
+    // confusion this enum exists to remove.
+    private const int standoffSourceInspector = 0;
+    private const int standoffSourceFeed = 1;
 
     // Index into camerasToCapture of the centre stitch camera, set once per frame by
     // SelectStitchCameras or, in PLANAR mode, SelectPlanarCentreCamera. The scene-plane
@@ -1387,6 +1475,12 @@ public class PyUniSharingFast : MonoBehaviour
 
         UpdateBodyYaw();
         WriteBodyYaw(bodyYaw);
+        // Joins bodyYaw and the heartbeat in the per-frame set because the standoff now
+        // MOVES: it tracks the formation's distance to the wall rather than being a
+        // constant an operator typed. WriteMetadata runs only on Start/OnValidate/a
+        // stitcher switch, so leaving it there would publish the value once and then
+        // never again.
+        WritePlanarStandoff();
         // Unconditional, and deliberately before every early return below: the point of the
         // heartbeat is that it keeps ticking while the stitch path is failing, so gating it
         // on any of the same conditions would make it agree with the thing it is watching.
@@ -2878,6 +2972,84 @@ public class PyUniSharingFast : MonoBehaviour
         WriteFloat(metadataPtr, metadataHeadYawOffset, yaw);
     }
 
+    /// <summary>
+    /// Which scene-plane standoff Python should be told about, and where it came from.
+    ///
+    /// The PC wins whenever it is offering a usable one. It computes the number from a
+    /// facade traced on the GUI map plus the live formation, so it TRACKS — where the
+    /// inspector field is a constant someone typed, and a wrong constant is the single
+    /// largest error in the pose-driven mosaic (30 m against a true 34.3 m on the
+    /// 2026-08-11 MED clips is ~21 px of seam, more than every other term combined).
+    ///
+    /// planarStandoffMetres is not vestigial, though, and is still worth setting: it is
+    /// the only source in every sim scene, in the DJI scene before a controller starts,
+    /// and again the moment one exits. ImageSharing owns the validity decision — it is
+    /// the sole consumer of the map the value arrives on — and reports false in all
+    /// three of those cases, including in scenes where it does not exist at all.
+    ///
+    /// One resolver with two call sites, so the per-frame path and WriteMetadata's
+    /// republish can never disagree about which source is authoritative.
+    /// </summary>
+    private float ResolvePlanarStandoff(out bool fromFeed)
+    {
+        // Manual is an absolute takeover, not a preference: an operator reaching for it is
+        // overriding an auto-pick they believe is wrong, so a silent fall-back to the PC
+        // the moment it looks healthy again would be the opposite of what they asked for.
+        fromFeed = planarStandoffSource == PlanarStandoffSource.Auto
+                   && ImageSharing.FeedStandoffValid;
+        return fromFeed ? ImageSharing.FeedStandoffMetres : planarStandoffMetres;
+    }
+
+    /// <summary>
+    /// Per-frame write of just the standoff, the same lone-scalar pattern as
+    /// <see cref="WriteBodyYaw"/>. A single aligned float32 needs no seqlock: Python
+    /// either reads the previous value or this one, and both are whole.
+    /// </summary>
+    private void WritePlanarStandoff()
+    {
+        if (metadataPtr == IntPtr.Zero) return;
+        float standoff = ResolvePlanarStandoff(out bool fromFeed);
+        WriteFloat(metadataPtr, metaPlanarStandoffOffset, standoff);
+        // The source ACTUALLY in force, not the one asked for. Published so the PC can say
+        // which number Unity is using rather than assume: with the Manual takeover,
+        // clip_replay.py would otherwise keep announcing that it drives the standoff while
+        // the scene quietly used a typed one.
+        Marshal.WriteByte(metadataPtr, metaPlanarStandoffSourceOffset,
+                          (byte)(fromFeed ? standoffSourceFeed : standoffSourceInspector));
+        UpdateStandoffReadout(standoff, fromFeed);
+    }
+
+    /// <summary>
+    /// Refresh the inspector's read-only standoff read-out.
+    ///
+    /// A separate field rather than writing the live value back into planarStandoffMetres,
+    /// which is what "make the inspector mimic it" would mean. That field is the FALLBACK:
+    /// overwrite it and the instant the PC stops publishing, the fallback becomes the last
+    /// PC value instead of the operator's own number — a finished clip_replay would leave
+    /// its clip's standoff sitting in the inspector and every later session would inherit
+    /// it silently. That is the same stale-value failure the producer heartbeat exists to
+    /// prevent, reintroduced through the inspector.
+    /// </summary>
+    private void UpdateStandoffReadout(float standoff, bool fromFeed)
+    {
+        string text;
+        if (fromFeed)
+        {
+            text = string.Format("{0:F2} m — from the PC (facade {1})",
+                                 standoff, ImageSharing.FeedStandoffFacadeId);
+        }
+        else if (planarStandoffSource == PlanarStandoffSource.Inspector)
+        {
+            text = string.Format("{0:F2} m — INSPECTOR takeover, ignoring the PC", standoff);
+        }
+        else
+        {
+            text = string.Format("{0:F2} m — inspector fallback (no live value from the PC)",
+                                 standoff);
+        }
+        if (text != planarStandoffInUse) planarStandoffInUse = text;
+    }
+
     // Little-endian float32 into a shared-memory region. Python unpacks these with
     // struct '<f', so the byte order has to be explicit rather than inherited.
     private static void WriteFloat(IntPtr basePtr, int offset, float value)
@@ -3577,7 +3749,16 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteInt32(metadataPtr, metaPlanarSweepStepsOffset, planarSweepSteps);
         WriteFloat(metadataPtr, metaPlanarRefineRateOffset, planarRefineRate);
         WriteFloat(metadataPtr, metaPlanarRefineMaxShiftOffset, planarRefineMaxShift);
-        WriteFloat(metadataPtr, metaPlanarStandoffOffset, planarStandoffMetres);
+        // Through the resolver, not the field: this republish and the per-frame
+        // WritePlanarStandoff must never disagree about which source is authoritative.
+        // The source byte is seeded here too, so a Python that reads metadata between
+        // Start and the first Update is told which source produced the value beside it
+        // rather than reading a zero that happens to mean "inspector".
+        float standoffNow = ResolvePlanarStandoff(out bool standoffFromFeed);
+        WriteFloat(metadataPtr, metaPlanarStandoffOffset, standoffNow);
+        Marshal.WriteByte(metadataPtr, metaPlanarStandoffSourceOffset,
+                          (byte)(standoffFromFeed ? standoffSourceFeed
+                                                  : standoffSourceInspector));
         Marshal.WriteByte(metadataPtr, metaPlanarCanvasModeOffset, (byte)planarCanvasMode);
 
         // Section geometry. Constants on both sides; published so Python can verify rather
@@ -3627,6 +3808,10 @@ public class PyUniSharingFast : MonoBehaviour
 
     void OnDestroy()
     {
+        // Leaving a live-looking read-out behind would claim a standoff is in force when
+        // nothing is publishing one. Unity discards Play-mode edits to serialized fields
+        // anyway; this makes it true under Enter Play Mode setups that skip the reload.
+        planarStandoffInUse = "(not playing)";
         // Flush in-flight readbacks before unmapping so a late completion
         // callback can never touch a dead pointer, then free the job buffer.
         AsyncGPUReadback.WaitAllRequests();
