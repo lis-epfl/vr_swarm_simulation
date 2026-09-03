@@ -34,7 +34,12 @@ public class ScreenSpawn : MonoBehaviour
         // Appended rather than inserted next to OUTER_CIRCLE on purpose: Unity serialises
         // enum fields by integer value, so inserting a member would silently re-point every
         // scene and prefab that already stores a later style.
-        FORMATION_WALL,
+        //
+        // Spelled out rather than left implicit, which is what the gap at 5 costs: dropping
+        // REAL_DRONE without pinning this one closed the gap the comment above claims to
+        // leave, moving FORMATION_WALL to 5 and FORMATION_MAP to 6 — and DJIScene, which
+        // stores 6, silently became a nadir map layout.
+        FORMATION_WALL = 6,
 
         // The nadir counterpart of FORMATION_WALL: a horizontal swarm with the gimbal pitched
         // straight down, stitched by PLANAR. Same grid machinery, but the frame it ranks in and
@@ -48,7 +53,20 @@ public class ScreenSpawn : MonoBehaviour
         // their feet instead of at the panorama. Tilting the map up onto a vertical panel keeps
         // the map reading (ahead is up, starboard is right) at the cost of a perspective that was
         // never real anyway.
-        FORMATION_MAP
+        FORMATION_MAP = 7,
+
+        // Not a layout: "pick whichever of the three configuration-driven layouts the swarm is
+        // currently in" — OUTER_CIRCLE horizontal and looking out, FORMATION_MAP horizontal with
+        // the gimbal down past FPVCameraScript.NadirPitch, FORMATION_WALL in the vertical plane.
+        // The pairing is SwarmPlaneController's (StyleForConfiguration), which is also what
+        // driveDisplayConfiguration pushes, so the automatic layout and the automatic stitcher
+        // cannot end up describing different configurations.
+        //
+        // Resolved by InterfaceManager, which owns the style, and it pushes the CONCRETE result
+        // down here: this value never reaches ScreenSpawn.screenStyle and no switch below has a
+        // case for it. That is deliberate — a layout enum member with no layout would otherwise
+        // have to be answered for in six places that only ever place screens.
+        AUTO = 8
     }
 
     [Header("Display Settings")]
@@ -1606,7 +1624,14 @@ public class ScreenSpawn : MonoBehaviour
             // Only read back in a scene with no InterfaceManager — see ConfiguredScreenStyle.
             styleBeforeFallback = screenStyle;
         }
-        fallbackStyleWhenOff = fallbackStyle;
+        // Coerced at the one point AUTO can enter from outside: it is selectable in
+        // PyUniSharingFast's inspector because the field is a ScreenStyle, but only
+        // InterfaceManager can resolve it, and it holds OFF whenever this substitution is the
+        // thing being asked for. Letting it through would park `screenStyle` on a value no
+        // placement switch answers, freezing the feeds exactly when the fallback is meant to
+        // reveal them.
+        fallbackStyleWhenOff = fallbackStyle == ScreenStyle.AUTO ? ScreenStyle.OUTER_CIRCLE
+                                                                 : fallbackStyle;
         fallbackFeedsActive = on;
 
         ScreenStyle wanted = ResolveScreenStyle(ConfiguredScreenStyle());
@@ -1631,14 +1656,18 @@ public class ScreenSpawn : MonoBehaviour
     // field back: while a fallback substitution is in place `screenStyle` holds the
     // substitute. A snapshot taken when the fallback engaged is no better — it would undo a
     // style change made while it was active — so that snapshot is only the answer in a scene
-    // with no InterfaceManager to ask (DJIScene drives ScreenSpawn from ImageSharing).
+    // with no InterfaceManager to ask.
+    //
+    // ResolvedScreenStyle rather than the raw field, because the configured style may be
+    // AUTO and AUTO is not a layout: every switch here would fall through it and leave the
+    // screens wherever they were, which reads as a fallback that half-engaged.
     private ScreenStyle ConfiguredScreenStyle()
     {
         if (interfaceManager == null)
         {
             interfaceManager = GetComponent<InterfaceManager>();
         }
-        return interfaceManager != null ? interfaceManager.screenStyle : styleBeforeFallback;
+        return interfaceManager != null ? interfaceManager.ResolvedScreenStyle : styleBeforeFallback;
     }
 
     // Configured style + the fallback substitution, which is the only thing that may

@@ -179,6 +179,67 @@ public class SwarmPlaneController : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// The configuration the system is flying, as the two bits everything downstream keys off:
+    /// whether the swarm is in a vertical plane, and whether the gimbal is pitched down far
+    /// enough to be imaging the ground rather than a facade
+    /// (<see cref="FPVCameraScript.NadirPitch"/>). Returns false when neither bit can be
+    /// answered yet, which is not the same as answering "horizontal, looking out" — see below.
+    ///
+    /// Static, and it resolves both feed sources, because the two callers are never in the same
+    /// scene: the instance path below drives the display when a swarm exists, and
+    /// <see cref="InterfaceManager"/>'s <c>ScreenStyle.AUTO</c> needs the same answer in the
+    /// real-drone scene, which contains no <c>SwarmPlaneController</c> and no
+    /// <c>FPVCameraScript</c> at all. Two copies of the rule would be two configurations.
+    ///
+    /// Each bit has an exact source and a derived one, in that order:
+    /// <list type="bullet">
+    /// <item><b>Plane</b> — this component's own mode, because it is a setpoint we own and is
+    /// therefore right before the drones have converged on it. Failing that, whether the live
+    /// real-drone feeds share a heading (<c>ImageSharing.LiveFeedHeadingsShared</c>): out there
+    /// the wall is commanded by the PC's <c>swarm_plane.py</c> and nothing about it reaches
+    /// Unity, but a facade wall points every aircraft at one surface and the radially-outward
+    /// ring OUTER_CIRCLE exists for is exactly the case that spreads them.</item>
+    /// <item><b>Gimbal</b> — the fleet's own mean gimbal pitch when real feeds are posing, since
+    /// <c>FPVCameraScript.SharedPitch</c> is a sim-only static that sits at 0 out there and
+    /// would report a nadir fleet as looking out. Otherwise SharedPitch, which is exact in the
+    /// sim.</item>
+    /// </list>
+    ///
+    /// The false return is only reachable in a real-drone scene before any aircraft has
+    /// streamed. Both readings are "horizontal, looking out" at that point, and acting on them
+    /// would flip a DJI scene to OUTER_CIRCLE for the seconds before the feeds start and then
+    /// flip it back — so the caller is told to hold instead. A sim scene is never indeterminate:
+    /// with no controller in it, vertical-plane swarming is unreachable (nothing else toggles
+    /// the mode), so false is the true answer rather than a missing one.
+    /// </summary>
+    public static bool TryResolveDisplayConfiguration(out bool verticalPlane, out bool nadirGimbal)
+    {
+        bool liveFeeds = ImageSharing.LiveFeedCount > 0;
+
+        verticalPlane = Instance != null ? Instance.planeModeActive
+                      : liveFeeds        ? ImageSharing.LiveFeedHeadingsShared
+                                         : false;
+
+        float pitch = ImageSharing.LiveFeedGimbalValid ? ImageSharing.LiveFeedGimbalPitchDegrees
+                                                       : FPVCameraScript.SharedPitch;
+        nadirGimbal = pitch <= FPVCameraScript.NadirPitch;
+
+        return Instance != null || liveFeeds || !ImageSharing.FeedSourcePresent;
+    }
+
+    /// <summary>
+    /// The screen layout belonging to a configuration. Shared by
+    /// <see cref="ApplyDisplayConfiguration"/> and by <c>ScreenStyle.AUTO</c> so the two cannot
+    /// disagree; the reasoning for each pairing is on ApplyDisplayConfiguration.
+    /// </summary>
+    public static ScreenSpawn.ScreenStyle StyleForConfiguration(bool verticalPlane, bool nadirGimbal)
+    {
+        return verticalPlane ? ScreenSpawn.ScreenStyle.FORMATION_WALL
+             : nadirGimbal   ? ScreenSpawn.ScreenStyle.FORMATION_MAP
+                             : ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+    }
+
     void Awake()
     {
         if (Instance == null)
@@ -426,8 +487,9 @@ public class SwarmPlaneController : MonoBehaviour
     {
         if (!driveDisplayConfiguration) return;
 
-        bool vertical = planeModeActive;
-        bool nadir = FPVCameraScript.SharedPitch <= FPVCameraScript.NadirPitch;
+        // Instance != null here by construction, so this never returns false and the two bits
+        // are this component's plane mode and the shared gimbal pitch, as they always were.
+        TryResolveDisplayConfiguration(out bool vertical, out bool nadir);
 
         if (!displayStateLatched)
         {
@@ -485,10 +547,11 @@ public class SwarmPlaneController : MonoBehaviour
 
         if (interfaceManager != null)
         {
-            ScreenSpawn.ScreenStyle style = vertical ? ScreenSpawn.ScreenStyle.FORMATION_WALL
-                                          : nadir    ? ScreenSpawn.ScreenStyle.FORMATION_MAP
-                                                     : ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
-            interfaceManager.SetScreenStyle(style);
+            // A no-op while the style is AUTO, which resolves the same configuration through
+            // StyleForConfiguration itself — and must keep doing so, since this push only fires
+            // on a change and AUTO also has to answer for the real-drone bits this component
+            // knows nothing about.
+            interfaceManager.SetScreenStyle(StyleForConfiguration(vertical, nadir));
         }
     }
 

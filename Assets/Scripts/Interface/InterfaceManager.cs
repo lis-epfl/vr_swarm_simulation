@@ -16,7 +16,18 @@ public class InterfaceManager : MonoBehaviour
     public DisplayMode displayMode = DisplayMode.SCREENS;
     
     [Header("Screen Display Settings")]
+    [Tooltip("Layout for the per-drone feed screens. AUTO follows the configuration instead of " +
+             "naming a layout: OUTER_CIRCLE for a horizontal swarm looking out, FORMATION_MAP " +
+             "once the gimbal is pitched below -60 deg, FORMATION_WALL in the vertical plane. " +
+             "Works off simulated and real drones alike; the resolved layout is shown below.")]
     public ScreenSpawn.ScreenStyle screenStyle = ScreenSpawn.ScreenStyle.OFF;
+
+    // Read-out, and also what AUTO holds until the configuration can first be read — which in a
+    // real-drone scene is not until an aircraft has streamed. No feed means no visible screen
+    // either, so that opening window is not something a pilot can see; what it protects against
+    // is a mid-session dropout re-choosing the layout and resetting its tuned radius/scale.
+    [Tooltip("Read-only: the layout AUTO has resolved to. Ignored unless the style above is AUTO.")]
+    [SerializeField] private ScreenSpawn.ScreenStyle autoStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
     
     [Header("Screen Parameters")]
     public int width = 640;
@@ -66,6 +77,16 @@ public class InterfaceManager : MonoBehaviour
     private List<GameObject> swarm;
     private bool screensSpawned = false;
     
+    /// <summary>
+    /// The layout actually in force: <see cref="screenStyle"/> itself, or — while it is AUTO —
+    /// the one the configuration resolves to. Everything that consumes the style must read this
+    /// rather than the field, because AUTO is a choice of rule and not a layout: the placement
+    /// switches in <see cref="ScreenSpawn"/> have no case for it and would leave the screens
+    /// wherever they last were.
+    /// </summary>
+    public ScreenSpawn.ScreenStyle ResolvedScreenStyle
+        => screenStyle == ScreenSpawn.ScreenStyle.AUTO ? autoStyle : screenStyle;
+
     // Awake is called before Start
     void Awake()
     {
@@ -104,6 +125,8 @@ public class InterfaceManager : MonoBehaviour
 
     void Update()
     {
+        RefreshAutoScreenStyle();
+
         // If screens are not spawned and display mode is SCREENS, spawn screens
         if (displayMode == DisplayMode.SCREENS && !screensSpawned)
         {
@@ -123,10 +146,51 @@ public class InterfaceManager : MonoBehaviour
     // Called whenever a value is changed in the Inspector
     public void OnValidate()
     {
+        // Resolve first, so switching the style TO Auto in the inspector takes effect on this
+        // edit rather than on the next frame. Playing only: outside play mode there is no swarm
+        // and no feed producer, so every reading is at its default and resolving would do
+        // nothing but overwrite the read-out with a meaningless OUTER_CIRCLE.
+        if (Application.isPlaying)
+        {
+            RefreshAutoScreenStyle();
+        }
+
         // Update ScreenSpawn parameters immediately
         UpdateScreenSpawnParameters();
-        
+
         // Trigger the event to notify all subscribed scripts
+        interfaceParamsChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Points <see cref="autoStyle"/> at the layout belonging to the configuration the swarm is
+    /// currently in, and pushes it down when it changes. Only the change pushes: the resolution
+    /// runs every frame, and re-notifying on an unchanged style would re-run ScreenSpawn's whole
+    /// parameter reset (and restart the wall's easing) once per frame.
+    ///
+    /// The rule and its two readings both live in <see cref="SwarmPlaneController"/>, which is
+    /// also what <c>driveDisplayConfiguration</c> pushes through, so the automatic layout and the
+    /// automatic stitcher always describe the same configuration. Nothing here is sim-specific —
+    /// that resolver answers for the real-drone feeds as well, which is why AUTO works in a scene
+    /// with no swarm in it at all.
+    /// </summary>
+    private void RefreshAutoScreenStyle()
+    {
+        if (screenStyle != ScreenSpawn.ScreenStyle.AUTO) return;
+
+        // Indeterminate: a real-drone scene whose aircraft have not streamed yet. Hold the
+        // layout rather than reading the empty state as "horizontal, looking out" — see
+        // TryResolveDisplayConfiguration.
+        if (!SwarmPlaneController.TryResolveDisplayConfiguration(out bool vertical, out bool nadir))
+        {
+            return;
+        }
+
+        ScreenSpawn.ScreenStyle resolved = SwarmPlaneController.StyleForConfiguration(vertical, nadir);
+        if (resolved == autoStyle) return;
+
+        autoStyle = resolved;
+        UpdateScreenSpawnParameters();
         interfaceParamsChanged?.Invoke();
     }
 
@@ -139,10 +203,15 @@ public class InterfaceManager : MonoBehaviour
     /// This field stays the single source of truth for the layout — pushing the style into
     /// ScreenSpawn directly would be overwritten by the next parameter change, and would skip
     /// the panorama-fallback substitution ScreenSpawn re-applies on top of it.
+    ///
+    /// Refused while the style is AUTO, which is the same request answered continuously rather
+    /// than on a change, and answered over both feed sources. Honouring it would also be
+    /// one-way: it writes a concrete style into the field, so the first configuration change
+    /// would silently end AUTO for the rest of the session.
     /// </summary>
     public void SetScreenStyle(ScreenSpawn.ScreenStyle style)
     {
-        if (screenStyle == style) return;
+        if (screenStyle == style || screenStyle == ScreenSpawn.ScreenStyle.AUTO) return;
 
         screenStyle = style;
         UpdateScreenSpawnParameters();
@@ -163,7 +232,8 @@ public class InterfaceManager : MonoBehaviour
     {
         if (spawnScreens != null)
         {
-            spawnScreens.screenStyle = screenStyle;
+            // Resolved, never the raw field: AUTO is not a layout ScreenSpawn can place.
+            spawnScreens.screenStyle = ResolvedScreenStyle;
             spawnScreens.width = width;
             spawnScreens.height = height;
             spawnScreens.radius = radius;

@@ -368,6 +368,39 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   screens are in the fallback's, and only nudging the style in the inspector pushes it down again.
   For the same reason the restore reads InterfaceManager's field rather than a snapshot taken when the
   fallback engaged, and `OnInterfaceParamsChanged` re-applies the substitution *after* the push.
+- **`ScreenStyle.AUTO` is a choice of rule, not a layout, and only `InterfaceManager` may hold it.**
+  It follows the configuration — `OUTER_CIRCLE` horizontal looking out, `FORMATION_MAP` once the
+  gimbal is at or below `FPVCameraScript.NadirPitch`, `FORMATION_WALL` in the vertical plane — through
+  `SwarmPlaneController.StyleForConfiguration`, the *same* function `driveDisplayConfiguration` pushes
+  through, so the automatic layout and the automatic stitcher cannot describe different
+  configurations. Consequences worth keeping:
+  - **InterfaceManager pushes the resolved style down; `AUTO` never reaches
+    `ScreenSpawn.screenStyle`.** Every consumer reads `InterfaceManager.ResolvedScreenStyle`, and the
+    one path that could smuggle it in (`fallbackScreenStyle`, a `ScreenStyle` field so the dropdown
+    offers it) is coerced to `OUTER_CIRCLE` in `ShowFallbackFeeds`. A style with no `case` in the
+    placement switches does not *fail*, it freezes the screens where they were — which is the
+    fallback appearing to half-engage. `SetScreenStyle` is likewise refused while in `AUTO`: it
+    writes a concrete style into the field, so the first configuration change would end `AUTO` for
+    the session.
+  - **`SwarmPlaneController.TryResolveDisplayConfiguration` answers for *both* feed sources**, because
+    the real-drone scene has neither of the sim's signals: no `SwarmPlaneController` (the wall is
+    commanded by the PC's `swarm_plane.py`) and no `FPVCameraScript`, whose swarm-wide `SharedPitch`
+    would sit at 0 and report a nadir fleet as looking out. Both come off the feed blocks instead
+    (`ImageSharing.LiveFeed*`), so nothing was added to the wire: the gimbal pitch is the elevation of
+    the block rotation's forward axis — that rotation *is* the gimbal's — and "vertical plane" becomes
+    "do the drones share a heading", hysteretic on the circular-mean resultant. That substitution is
+    not an approximation of the display's needs, it *is* them: `OUTER_CIRCLE` is only meaningful while
+    the yaws are spread, and a wall points every aircraft at one surface. Deliberately **not** a plane
+    fitted to the positions — a single-row wall (`_plane_from_formation`'s `forward` case) fits no
+    plane and is still a wall.
+  - **"No aircraft has streamed yet" is a third answer, not `false`.** Both readings are "horizontal,
+    looking out" on an empty fleet, so the resolver returns false and the caller *holds* rather than
+    flipping a DJI scene to `OUTER_CIRCLE` and back. A sim scene is never indeterminate: with no
+    controller in it, vertical-plane swarming is unreachable, so `false` is the answer and not a gap.
+  - **The enum values are spelled out.** Dropping `REAL_DRONE` without pinning them closed the gap at
+    5 that its comment claims to leave, moving `FORMATION_WALL` to 5 and `FORMATION_MAP` to 6 — and
+    DJIScene, which stores 6, silently became a nadir map layout. `FORMATION_WALL = 6`,
+    `FORMATION_MAP = 7`, `AUTO = 8`.
 - Image format across the bridge is **BGR + top-down** for stitch inputs; the returned panorama is
   flipped once and converted to RGB on the Python side.
 - **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata

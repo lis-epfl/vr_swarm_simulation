@@ -140,6 +140,59 @@ public class ImageSharing : MonoBehaviour
         FeedStandoffStatus = 0;
     }
 
+    // --- Fleet configuration, for ScreenStyle.AUTO ------------------------------
+    //
+    // The AUTO screen layout has to answer two questions about the fleet — is it
+    // swarming in a vertical plane, and is the gimbal pitched down past
+    // FPVCameraScript.NadirPitch — and out here BOTH of the sim's answers are
+    // unavailable. There is no SwarmPlaneController (this scene contains no swarm at
+    // all: the wall is commanded by the PC's swarm_plane.py) and no FPVCameraScript,
+    // so its swarm-wide SharedPitch sits at its 0 default forever and would report
+    // "looking out" under a nadir fleet.
+    //
+    // Both are derivable from what the feed blocks already carry, so nothing is added
+    // to the wire — same argument as the screen layouts taking their positions from
+    // the pose beside the pixels:
+    //   * the gimbal pitch is the elevation of the camera's own forward axis, and the
+    //     block's rotation IS the gimbal attitude (dji_camera_pose.CameraPoseSolver
+    //     uses the gimbal's, not the aircraft's);
+    //   * "vertical plane" becomes "do the drones share a heading", which is what the
+    //     configuration means for the display. A facade wall points every aircraft at
+    //     the same surface; the radially-outward ring OUTER_CIRCLE exists for is
+    //     exactly the case that spreads them. Deliberately NOT a plane fitted to the
+    //     positions: a single-row wall (the case PlanarStitcher._plane_from_formation
+    //     reports as `forward`) fits no plane, and it is still a wall.
+    //
+    // Read by SwarmPlaneController.ResolveDisplayConfiguration, which is the one place
+    // the sim's and the fleet's answers are put behind a single question.
+    //
+    // Static for the same reason the standoff above is: the component that owns this
+    // map and the components that consume the answer are never in the same scene.
+    public static bool FeedSourcePresent { get; private set; }
+    public static int LiveFeedCount { get; private set; }
+    public static float LiveFeedYawResultant { get; private set; }
+    public static bool LiveFeedHeadingsShared { get; private set; }
+    public static bool LiveFeedGimbalValid { get; private set; }
+    public static float LiveFeedGimbalPitchDegrees { get; private set; }
+
+    // Hysteresis band on the circular-mean resultant of the headings, in [0, 1]. The two
+    // configurations sit at the ends of that range — a wall holds its aircraft within a
+    // few degrees of each other (resultant > 0.99) and a ring of three or more cancels to
+    // near 0 — so the band is wide on purpose. What it is guarding is not a close call
+    // but a fleet mid-turn, where a straggler can drop the resultant for a second: the
+    // layout must not swap under the pilot and swap back.
+    private const float HeadingsSharedEnter = 0.85f;
+    private const float HeadingsSharedExit = 0.60f;
+
+    private static void ClearFleetConfiguration()
+    {
+        LiveFeedCount = 0;
+        LiveFeedYawResultant = 0f;
+        LiveFeedHeadingsShared = false;
+        LiveFeedGimbalValid = false;
+        LiveFeedGimbalPitchDegrees = 0f;
+    }
+
     // Number of screens/indicators to spawn (the fleet size for this run).
     // All MaxFeedBlocks blocks are polled regardless.
     [SerializeField] private int numImages = 1;
@@ -271,6 +324,13 @@ public class ImageSharing : MonoBehaviour
         // controller's standoff and use it as if it were live. Cleared here and in
         // OnDestroy, at both ends of this component's life.
         ClearFeedStandoff();
+        ClearFleetConfiguration();
+
+        // "A real-drone feed source exists in this scene." What it buys AUTO is the
+        // difference between "the fleet is horizontal and looking out" and "no aircraft
+        // has streamed yet", which are the same reading of the statics above and want
+        // opposite behaviour — resolve, or hold the layout the scene came up in.
+        FeedSourcePresent = true;
 
         // The feed mapping always has the full fixed capacity (matches
         // imageSharingUtil.FEED_*) so its size never depends on the fleet size. Note this
@@ -640,6 +700,11 @@ public class ImageSharing : MonoBehaviour
                 Debug.LogWarning($"[ImageSharing] No data read this cycle. Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
             }
 
+            // What configuration the fleet is flying, for ScreenStyle.AUTO. Ahead of the
+            // stitch publish because it reads the same cache the publish is about to
+            // select from, and both want this cycle's frames.
+            UpdateFleetConfiguration();
+
             // Re-publish the 3 body-yaw-selected feeds to the stitcher.
             PublishStitchBlocks();
 
@@ -847,6 +912,68 @@ public class ImageSharing : MonoBehaviour
         FeedStandoffStatus = status;
     }
 
+    /// <summary>
+    /// Recompute the fleet-configuration statics from the cached frames. See their
+    /// declarations for why these two quantities are derived here rather than read off a
+    /// SwarmPlaneController and an FPVCameraScript that this scene does not contain.
+    ///
+    /// Called every read cycle, not only when a frame arrived: the answer has to decay
+    /// when the aircraft stop streaming, exactly as the screens themselves do, or a fleet
+    /// that lands leaves the layout pinned to the configuration it last flew.
+    /// </summary>
+    private void UpdateFleetConfiguration()
+    {
+        float yawSin = 0f, yawCos = 0f;
+        float pitchSum = 0f;
+        int live = 0, posed = 0;
+
+        foreach (KeyValuePair<int, CachedFrame> kv in frameCache)
+        {
+            CachedFrame frame = kv.Value;
+            // The same freshness test the stitch selection and the screens use, so all
+            // three agree on which aircraft are still flying.
+            if (Time.time - frame.lastUpdateTime > stitchFrameMaxAge) continue;
+
+            live++;
+            float yawRad = frame.yaw * Mathf.Deg2Rad;
+            yawSin += Mathf.Sin(yawRad);
+            yawCos += Mathf.Cos(yawRad);
+
+            // The gimbal pitch needs the rotation and so needs a pose; the heading above
+            // does not, and arrives even from a producer with no telemetry at all
+            // (image_replay.py). Hence the two independent counts.
+            if ((frame.poseStatus & POSE_VALID) == 0) continue;
+            Quaternion rot = frame.rot;
+            if (rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w < 1e-6f) continue;
+
+            // DJI convention, matching FPVCameraScript.SharedPitch: 0 is a level horizon
+            // and -90 is straight down, which is the elevation of the camera's forward
+            // axis. A plain mean is safe where a circular one is not — pitch is bounded
+            // to [-90, 90] and cannot wrap.
+            Vector3 forward = (rot * Vector3.forward).normalized;
+            pitchSum += Mathf.Asin(Mathf.Clamp(forward.y, -1f, 1f)) * Mathf.Rad2Deg;
+            posed++;
+        }
+
+        LiveFeedCount = live;
+        LiveFeedGimbalValid = posed > 0;
+        LiveFeedGimbalPitchDegrees = posed > 0 ? pitchSum / posed : 0f;
+
+        if (live == 0)
+        {
+            LiveFeedYawResultant = 0f;
+            LiveFeedHeadingsShared = false;
+            return;
+        }
+
+        // Resultant length of the circular mean, in [0, 1]: 1 when every aircraft points
+        // the same way, 0 when they cancel. Same construction ScreenSpawn's wall basis and
+        // SwarmPlaneController's mean heading use.
+        LiveFeedYawResultant = Mathf.Sqrt(yawSin * yawSin + yawCos * yawCos) / live;
+        LiveFeedHeadingsShared = LiveFeedYawResultant >=
+            (LiveFeedHeadingsShared ? HeadingsSharedExit : HeadingsSharedEnter);
+    }
+
     private void PublishStitchBlocks()
     {
         publishedStitchIds.Clear();
@@ -1050,6 +1177,8 @@ public class ImageSharing : MonoBehaviour
         // behind would have the next scene — quite possibly a sim scene with no feed map
         // at all — republish a dead controller's number as if it were live.
         ClearFeedStandoff();
+        ClearFleetConfiguration();
+        FeedSourcePresent = false;
 
         // Clean up memory mapped file resources
         if (processedPtr != IntPtr.Zero)

@@ -202,7 +202,9 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is " +
                  "in fallback, and ONLY when the InterfaceManager's own screen style is OFF. Any " +
                  "other configured style is already a visible feed layout, and is kept as-is: the " +
-                 "fallback's job is to make the feeds visible, not to re-choose how they are laid out.")]
+                 "fallback's job is to make the feeds visible, not to re-choose how they are laid out. " +
+                 "AUTO is not a valid choice here (ScreenSpawn cannot place it) and is read as " +
+                 "OUTER_CIRCLE — set the InterfaceManager's style to AUTO instead.")]
         public ScreenSpawn.ScreenStyle fallbackScreenStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
     }
 
