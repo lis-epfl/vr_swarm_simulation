@@ -38,3 +38,4 @@ ACQUIRE/TRACK plane sweep (sampled in disparity, not metres) and the per-view po
 ## Environment / scenery
 
 - [GoalPatchReplacer.cs](Assets/Scripts/Environment/GoalPatchReplacer.cs) — at play-mode Start, randomly swaps `n` of the `MC_Patch_*` tiles under `City_Pack_01` for a `goal_patch` prefab (X/Z from the tile, Y pinned to 0; non-adjacent placement).
+- [StreetWidthTuner.cs](Assets/Scripts/Environment/StreetWidthTuner.cs) — widens the streets between city tiles by shrinking each tile's block content about its own kerb pivot while leaving the full-tile `Road_Structure` asphalt plate and the 90.83 grid pitch alone, so the exposed strip is road rather than a hole. Buildings and props are moved, never resized. Street width is `90.8304 - 76.2 x blockScale`. Edit-mode only, for the same static-batching reason as `BuildingWidthTuner`.
