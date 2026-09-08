@@ -282,8 +282,7 @@ public class ObstacleCylinderGizmos : MonoBehaviour
         Gizmos.color = cylinderColour;
         Gizmos.DrawLine(ringPoint, labelPoint);
 
-        string text = $"{obstacle.name}
-R {radius:F1} m";
+        string text = $"{obstacle.name}\nR {radius:F1} m";
 
         if (_hasReference)
         {
@@ -293,8 +292,7 @@ R {radius:F1} m";
             OlfatiSaber.ObstacleFrame frame =
                 OlfatiSaber.ComputeObstacleFrame(obstacle, _referencePosition, _axis, _scaleFactor);
             if (frame.valid)
-                text += $"
-d {frame.distance:F2}  ({frame.distance * _scaleFactor:F1} m)";
+                text += $"\nd {frame.distance:F2}  ({frame.distance * _scaleFactor:F1} m)";
         }
 
         UnityEditor.Handles.Label(labelPoint, text, LabelStyle());
