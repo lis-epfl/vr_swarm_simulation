@@ -5,33 +5,91 @@ using UnityEngine;
 //
 // It exists because the cylinder is an *approximation* of the collider and the error is invisible
 // from the numbers alone: the radius is the circumradius of the axis-aligned bounds, so a square
-// footprint inflates by root-2 and a long wall becomes an enormous circle. Drawing the cylinder
-// against the bounds against the level geometry is the only quick way to see whether that
-// approximation is acceptable for a given obstacle.
+// footprint inflates by root-2 and a long wall becomes an enormous circle.
+//
+// Everything here defaults off except the two things worth seeing at a glance -- the cylinders near
+// the drone, and the force they produce. A city scene has hundreds of buildings and the obstacle
+// shell is d_obs * ScaleFactor (50 m) across, so drawing every option at once is unreadable. Turn
+// on one extra at a time.
 //
 // [ExecuteAlways] plus the static geometry helpers mean this draws in edit mode too, before any
 // drone exists -- which is when you want to check the level.
 [ExecuteAlways]
 public class ObstacleCylinderGizmos : MonoBehaviour
 {
-    [Header("What to draw")]
-    [Tooltip("The cylinder each obstacle is approximated by.")]
-    public bool drawCylinders = true;
-    [Tooltip("The axis-aligned bounds the radius is derived from. The gap between this and the " +
-             "cylinder is the inflation you are paying for.")]
-    public bool drawBounds = true;
-    [Tooltip("Cylinder at radius + d_obs: the surface where phi_beta switches on.")]
-    public bool drawRepulsionShell = true;
-    [Tooltip("Per-drone frame: outward/tangent axes, nearest surface point, and the forces.")]
-    public bool drawDroneFrames = true;
-    [Tooltip("Sphere of radius r0_obs around each drone -- the OverlapSphere query.")]
-    public bool drawQueryRange = false;
+    public enum ObstacleScope
+    {
+        NearSelectedDrone,  // only what the drone can currently see -- falls back to All with no drone
+        AllInScene,
+    }
 
-    [Header("Drones")]
-    [Tooltip("Draw every drone in the scene rather than the one named below.")]
-    public bool allDrones = false;
+    [Header("Obstacles")]
+    public ObstacleScope obstacleScope = ObstacleScope.NearSelectedDrone;
+    [Tooltip("The axis-aligned bounds the radius is derived from. The gap between this and the " +
+             "cylinder is the inflation you are paying for. Off by default -- it doubles the lines.")]
+    public bool drawBounds = false;
+    [Tooltip("Cylinder at radius + d_obs, where phi_beta switches on. That is 50 m at the stock " +
+             "d_obs and ScaleFactor, so two neighbouring buildings' shells already overlap.")]
+    public bool drawRepulsionShell = false;
+
+    [Header("Drone")]
     [Tooltip("Resolved as SwarmParent/Drone N, matching the other swarm debug scripts.")]
     public int selectedDroneIndex = 0;
+    [Tooltip("Draw every drone rather than the one above. Expensive and busy; for spotting which " +
+             "drone is stuck, not for reading a single interaction.")]
+    public bool allDrones = false;
+    [Tooltip("How many obstacles get the per-obstacle drawing, nearest first. The total force " +
+             "arrow always sums every obstacle in range regardless.")]
+    [Range(0, 8)] public int detailedObstacles = 1;
+    [Tooltip("Outward (coral) and circumferential (pistachio) frame axes. The green one is the " +
+             "direction the cylinder buys you and the bounding box did not have.")]
+    public bool drawFrameAxes = false;
+    [Tooltip("Split the force into its repulsion (orchid) and velocity-match (periwinkle) halves.")]
+    public bool drawForceSplit = false;
+    [Tooltip("Sphere of radius r0_obs around the drone -- the OverlapSphere query.")]
+    public bool drawQueryRange = false;
+
+    [Header("Labels")]
+    [Tooltip("Name each drawn cylinder, with a leader line from the ring it belongs to.")]
+    public bool labelObstacles = false;
+    [Tooltip("Cap on labels per frame. Nearest first when scoped to a drone, arbitrary otherwise, " +
+             "so a city scene stays readable rather than solid text.")]
+    [Range(1, 64)] public int maxLabels = 12;
+    [Tooltip("Length of the leader line rising from the ring to the text, in world units.")]
+    public float labelLeaderLength = 4.0f;
+    [Range(8, 24)] public int labelFontSize = 11;
+
+    [Header("Appearance")]
+    [Range(8, 64)] public int circleSegments = 28;
+    [Tooltip("Lines joining the two end circles. 0 draws the two rings only.")]
+    [Range(0, 8)] public int spokes = 0;
+    [Tooltip("World units drawn per unit of acceleration. Force arrows only.")]
+    public float forceArrowScale = 20.0f;
+
+    // Pastels, grouped by role rather than picked for contrast alone. The five arrows share an
+    // origin, so they take the widest hue spread; the structure lines sit back in teal and a
+    // low-alpha warm grey so the forces read on top of them. Saturation is kept mid rather than
+    // washed out -- the scene view's skybox is bright, and a true pastel disappears against it.
+    //
+    // The repulsion term is collinear with a-hat by construction, so those two need separate hues
+    // (coral / orchid) rather than shades of one: same direction, different length is exactly the
+    // pair that a family resemblance would make unreadable.
+    [Header("Palette")]
+    [Tooltip("The cylinder outline and the line from the drone to its surface.")]
+    public Color cylinderColour = new Color(0.47f, 0.82f, 0.80f, 1.00f);      // soft teal
+    [Tooltip("Bounds and repulsion shell -- context, meant to sit behind everything else.")]
+    public Color guideColour = new Color(0.76f, 0.74f, 0.70f, 0.35f);         // warm grey
+    [Tooltip("a-hat, radially out from the cylinder axis.")]
+    public Color outwardColour = new Color(0.96f, 0.60f, 0.53f, 1.00f);       // coral
+    [Tooltip("t-hat, circumferential -- the way around the obstacle.")]
+    public Color tangentColour = new Color(0.65f, 0.86f, 0.55f, 1.00f);       // pistachio
+    [Tooltip("The c_obs repulsion term on its own.")]
+    public Color repulsionColour = new Color(0.85f, 0.65f, 0.91f, 1.00f);     // orchid
+    [Tooltip("The c_vm velocity-match term on its own.")]
+    public Color velocityMatchColour = new Color(0.58f, 0.70f, 0.93f, 1.00f); // periwinkle
+    [Tooltip("The summed obstacle force -- the brightest thing drawn, since it is the one that " +
+             "is always true no matter how much detail is switched off.")]
+    public Color totalForceColour = new Color(0.99f, 0.91f, 0.72f, 1.00f);    // cream
 
     [Header("Parameters")]
     [Tooltip("Left empty, the first OlfatiSaber in the scene is used. In edit mode there is usually " +
@@ -40,24 +98,6 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     public Vector3 fallbackCylinderAxis = Vector3.up;
     public float fallbackScaleFactor = 10.0f;
     public float fallbackDObs = 5.0f;
-    public float fallbackR0Obs = 6.0f;
-
-    [Header("Appearance")]
-    [Range(8, 96)] public int circleSegments = 48;
-    [Tooltip("Lines joining the two end circles.")]
-    [Range(0, 16)] public int spokes = 4;
-    [Tooltip("World units drawn per unit of acceleration. Force arrows only.")]
-    public float forceArrowScale = 20.0f;
-    public bool showLabels = true;
-
-    public Color cylinderColour = new Color(0.2f, 0.9f, 1.0f, 1.0f);
-    public Color boundsColour = new Color(0.5f, 0.5f, 0.5f, 0.5f);
-    public Color shellColour = new Color(1.0f, 0.8f, 0.2f, 0.35f);
-    public Color outwardColour = new Color(1.0f, 0.3f, 0.3f, 1.0f);
-    public Color tangentColour = new Color(0.3f, 1.0f, 0.4f, 1.0f);
-    public Color repulsionColour = new Color(1.0f, 0.3f, 1.0f, 1.0f);
-    public Color velocityMatchColour = new Color(0.4f, 0.6f, 1.0f, 1.0f);
-    public Color totalForceColour = Color.white;
 
     private const string k_ObstacleLayerName = "Obstacle";
     private const float k_ColliderRefreshInterval = 1.0f;
@@ -70,22 +110,43 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     private float _scaleFactor;
     private float _dObs;
 
+    // The drone the labels quote a distance from, and the per-frame label budget.
+    private bool _hasReference;
+    private Vector3 _referencePosition;
+    private int _labelsDrawn;
+
+#if UNITY_EDITOR
+    // Handles.color does not tint label text, so the colour has to ride on a style. Cached because
+    // OnDrawGizmos runs on every scene-view repaint, and rebuilt only when the colour changes.
+    private GUIStyle _labelStyle;
+    private Color _labelStyleColour;
+#endif
+
     void OnDrawGizmos()
     {
         ResolveParameters();
+        _labelsDrawn = 0;
 
-        if (drawCylinders || drawBounds || drawRepulsionShell)
+        // The scoped pass needs the drone anyway, so resolve it once and hand it to both halves.
+        OlfatiSaber selected = allDrones ? null : ResolveSelectedDrone();
+
+        // Obstacle labels quote the surface distance the algorithm actually sees, which needs a
+        // drone to measure from. Without one they carry the name and radius only.
+        VelocityControl reference = selected != null ? selected.GetComponent<VelocityControl>() : null;
+        _hasReference = reference != null;
+        _referencePosition = _hasReference ? reference.State.Position : Vector3.zero;
+
+        DrawObstacles(selected);
+
+        if (allDrones)
         {
-            RefreshObstacles();
-            foreach (Collider obstacle in _obstacles)
-            {
-                if (obstacle == null) continue;
-                DrawObstacle(obstacle);
-            }
+            foreach (OlfatiSaber olfati in FindObjectsByType<OlfatiSaber>(FindObjectsSortMode.None))
+                DrawDrone(olfati);
         }
-
-        if (drawDroneFrames || drawQueryRange)
-            DrawDrones();
+        else
+        {
+            DrawDrone(selected);
+        }
     }
 
     // The live component is preferred over the fallbacks for the same reason the debug scripts call
@@ -110,6 +171,42 @@ public class ObstacleCylinderGizmos : MonoBehaviour
 
         if (_axis.sqrMagnitude < 1e-8f) _axis = Vector3.up;
         if (_scaleFactor <= 0.0f) _scaleFactor = 1.0f;
+    }
+
+    private OlfatiSaber ResolveSelectedDrone()
+    {
+        // Same resolution as DebugObstacleDistance / TuneOlfatiSaberObstacle.
+        GameObject drone = GameObject.Find($"SwarmParent/Drone {selectedDroneIndex}");
+        if (drone == null) return null;
+
+        Transform droneParent = drone.transform.Find("DroneParent");
+        return droneParent != null ? droneParent.GetComponent<OlfatiSaber>() : null;
+    }
+
+    private void DrawObstacles(OlfatiSaber selected)
+    {
+        // Scoping to the drone is the difference between a handful of cylinders and every building
+        // in the city. With no drone to scope to -- edit mode, the usual case for checking the
+        // level -- fall back to all of them rather than drawing nothing.
+        // selected is non-null whenever _hasReference is, but the query reads r0_obs off it, so
+        // say so here rather than leaving the two coupled through OnDrawGizmos.
+        if (obstacleScope == ObstacleScope.NearSelectedDrone && !allDrones
+            && selected != null && _hasReference)
+        {
+            Collider[] inRange = Physics.OverlapSphere(_referencePosition,
+                                                       selected.r0_obs * selected.ScaleFactor,
+                                                       LayerMask.GetMask(k_ObstacleLayerName));
+            // Nearest first, so the label budget is spent on the obstacles actually acting.
+            SortByDistance(inRange, _referencePosition);
+            foreach (Collider obstacle in inRange) DrawObstacle(obstacle);
+            return;
+        }
+
+        RefreshObstacles();
+        foreach (Collider obstacle in _obstacles)
+        {
+            if (obstacle != null) DrawObstacle(obstacle);
+        }
     }
 
     // FindObjectsByType rather than the algorithm's OverlapSphere, because the point of the global
@@ -141,57 +238,88 @@ public class ObstacleCylinderGizmos : MonoBehaviour
 
         if (drawBounds)
         {
-            Gizmos.color = boundsColour;
+            Gizmos.color = guideColour;
             Gizmos.DrawWireCube(obstacle.bounds.center, obstacle.bounds.size);
         }
 
-        if (drawCylinders)
-        {
-            Gizmos.color = cylinderColour;
-            DrawCylinder(centre, axis, radius, halfHeight);
-        }
+        Gizmos.color = cylinderColour;
+        DrawCylinder(centre, axis, radius, halfHeight);
+
+        if (labelObstacles && _labelsDrawn < maxLabels)
+            LabelObstacle(obstacle, centre, axis, radius, halfHeight);
 
         // d_obs is in swarm units; the world radius it corresponds to is d_obs * ScaleFactor.
         if (drawRepulsionShell)
         {
-            Gizmos.color = shellColour;
+            Gizmos.color = guideColour;
             DrawCylinder(centre, axis, radius + _dObs * _scaleFactor, halfHeight);
         }
+    }
 
+    // The label is anchored ON the top ring and joined to it by a leader line, rather than floating
+    // above the cylinder's centre. With several cylinders overlapping in the view -- the normal case
+    // in a city -- a name hanging in space belongs to whichever ring the eye happens to pick, which
+    // is the ambiguity the labels have to resolve rather than add to. The anchor sits on the side of
+    // the ring facing the viewer, so the leader is never drawn away through the building.
+    private void LabelObstacle(Collider obstacle, Vector3 centre, Vector3 axis, float radius, float halfHeight)
+    {
 #if UNITY_EDITOR
-        if (showLabels)
-        {
-            // Half-width of the bounds perpendicular to the axis, so the inflation the circumradius
-            // costs is readable as a number and not just as a gap in the drawing.
-            Vector3 extents = obstacle.bounds.extents;
-            Vector3 perpExtents = extents - axis * Vector3.Dot(extents, axis);
-            float widest = Mathf.Max(Mathf.Abs(perpExtents.x), Mathf.Max(Mathf.Abs(perpExtents.y), Mathf.Abs(perpExtents.z)));
+        BasisFor(axis, out Vector3 towardViewer, out _);
 
-            UnityEditor.Handles.color = cylinderColour;
-            UnityEditor.Handles.Label(centre + axis * (halfHeight + 1.0f),
-                $"{obstacle.name}\nR = {radius:F2} m (widest half-extent {widest:F2})");
+        // Camera.current is the scene-view camera while gizmos are drawing. The basis direction is
+        // the fallback when there is none, so the anchor is deterministic rather than absent.
+        Camera view = Camera.current;
+        if (view != null)
+        {
+            Vector3 flat = view.transform.position - centre;
+            flat -= axis * Vector3.Dot(flat, axis);
+            if (flat.sqrMagnitude > 1e-6f) towardViewer = flat.normalized;
         }
+
+        Vector3 ringPoint = centre + axis * halfHeight + towardViewer * radius;
+        Vector3 labelPoint = ringPoint + axis * labelLeaderLength;
+
+        Gizmos.color = cylinderColour;
+        Gizmos.DrawLine(ringPoint, labelPoint);
+
+        string text = $"{obstacle.name}
+R {radius:F1} m";
+
+        if (_hasReference)
+        {
+            // The distance the action functions are fed, in swarm units, with the world value it was
+            // divided down from. That ScaleFactor divide is the easiest thing to lose track of when
+            // reading d against d_obs.
+            OlfatiSaber.ObstacleFrame frame =
+                OlfatiSaber.ComputeObstacleFrame(obstacle, _referencePosition, _axis, _scaleFactor);
+            if (frame.valid)
+                text += $"
+d {frame.distance:F2}  ({frame.distance * _scaleFactor:F1} m)";
+        }
+
+        UnityEditor.Handles.Label(labelPoint, text, LabelStyle());
+        _labelsDrawn++;
 #endif
     }
 
-    private void DrawDrones()
+#if UNITY_EDITOR
+    // Built from a bare GUIStyle rather than GUI.skin.label, which is only guaranteed inside an
+    // OnGUI -- gizmo drawing is not one.
+    private GUIStyle LabelStyle()
     {
-        if (allDrones)
+        if (_labelStyle == null || _labelStyleColour != cylinderColour || _labelStyle.fontSize != labelFontSize)
         {
-            foreach (OlfatiSaber olfati in FindObjectsByType<OlfatiSaber>(FindObjectsSortMode.None))
-                DrawDrone(olfati);
-            return;
+            _labelStyleColour = cylinderColour;
+            _labelStyle = new GUIStyle
+            {
+                fontSize = labelFontSize,
+                alignment = TextAnchor.LowerLeft,
+                normal = { textColor = cylinderColour },
+            };
         }
-
-        // Same resolution as DebugObstacleDistance / TuneOlfatiSaberObstacle.
-        GameObject drone = GameObject.Find($"SwarmParent/Drone {selectedDroneIndex}");
-        if (drone == null) return;
-
-        Transform droneParent = drone.transform.Find("DroneParent");
-        if (droneParent == null) return;
-
-        DrawDrone(droneParent.GetComponent<OlfatiSaber>());
+        return _labelStyle;
     }
+#endif
 
     private void DrawDrone(OlfatiSaber olfati)
     {
@@ -208,59 +336,81 @@ public class ObstacleCylinderGizmos : MonoBehaviour
 
         if (drawQueryRange)
         {
-            Gizmos.color = shellColour;
+            Gizmos.color = guideColour;
             Gizmos.DrawWireSphere(position, queryRadius);
         }
 
-        if (!drawDroneFrames) return;
-
-        // The algorithm's own query, so the gizmo shows exactly the obstacle set the force saw.
-        Collider[] inRange = Physics.OverlapSphere(position, queryRadius, LayerMask.GetMask(k_ObstacleLayerName));
-        foreach (Collider obstacle in inRange)
-        {
-            OlfatiSaber.ObstacleFrame frame = olfati.GetObstacleFrame(obstacle, position);
-            if (!frame.valid) continue;
-
-            // Nearest point on the cylinder surface, on the drone's own radial line.
-            Vector3 axisFoot = frame.axisCentre + frame.axis * Vector3.Dot(position - frame.axisCentre, frame.axis);
-            Vector3 surfacePoint = axisFoot + frame.outward * frame.radius;
-
-            Gizmos.color = cylinderColour;
-            Gizmos.DrawLine(position, surfacePoint);
-            Gizmos.DrawLine(axisFoot, surfacePoint);
-
-            // The two frame axes. The tangent is the whole point of the cylinder: it is the
-            // direction a drone gets to keep, and on a bounding box it did not exist.
-            float axisLength = Mathf.Max(2.0f, frame.radius * 0.4f);
-            Gizmos.color = outwardColour;
-            DrawArrow(position, position + frame.outward * axisLength);
-            Gizmos.color = tangentColour;
-            DrawArrow(position, position + frame.tangent * axisLength);
-
-            olfati.GetObstacleContribution(frame, velocity,
-                                           out Vector3 repulsion, out Vector3 velocityMatch);
-
-            Gizmos.color = repulsionColour;
-            DrawArrow(position, position + olfati.c_obs * repulsion * forceArrowScale);
-            Gizmos.color = velocityMatchColour;
-            DrawArrow(position, position + olfati.c_vm * velocityMatch * forceArrowScale);
-
-#if UNITY_EDITOR
-            if (showLabels)
-            {
-                UnityEditor.Handles.color = Color.white;
-                UnityEditor.Handles.Label(surfacePoint,
-                    $"d = {frame.distance:F2}  (d_obs {olfati.d_obs:F1})\n" +
-                    $"mu = {frame.mu:F2}\n" +
-                    $"phi = {olfati.GetObstacleRepulsion(frame.distance):F3}");
-            }
-#endif
-        }
-
-        // The summed force, drawn once rather than per obstacle. GetObstacleForce is public so this
-        // is the real value and not a reimplementation of it.
+        // The summed force over every obstacle in range, drawn whatever the detail budget is. It is
+        // the one arrow that is always the truth: GetObstacleForce is public so this is the value
+        // the drone is actually flying on, not a reimplementation of it.
         Gizmos.color = totalForceColour;
         DrawArrow(position, position + olfati.GetObstacleForce(position, velocity) * forceArrowScale);
+
+        if (detailedObstacles <= 0) return;
+
+        // The algorithm's own query, so the detail shows obstacles from the set the force saw.
+        // Nearest first, because the nearest is the one dominating that arrow.
+        Collider[] inRange = Physics.OverlapSphere(position, queryRadius, LayerMask.GetMask(k_ObstacleLayerName));
+        SortByDistance(inRange, position);
+
+        int drawn = 0;
+        foreach (Collider obstacle in inRange)
+        {
+            if (drawn >= detailedObstacles) break;
+
+            OlfatiSaber.ObstacleFrame frame = olfati.GetObstacleFrame(obstacle, position);
+            if (!frame.valid) continue;
+            drawn++;
+
+            // Nearest point on the cylinder surface, on the drone's own radial line. This one line
+            // says which obstacle is acting and how far away it is, which is most of what the
+            // labels used to say.
+            Vector3 axisFoot = frame.axisCentre + frame.axis * Vector3.Dot(position - frame.axisCentre, frame.axis);
+            Gizmos.color = cylinderColour;
+            Gizmos.DrawLine(position, axisFoot + frame.outward * frame.radius);
+
+            if (drawFrameAxes)
+            {
+                float axisLength = Mathf.Max(2.0f, frame.radius * 0.4f);
+                Gizmos.color = outwardColour;
+                DrawArrow(position, position + frame.outward * axisLength);
+                Gizmos.color = tangentColour;
+                DrawArrow(position, position + frame.tangent * axisLength);
+            }
+
+            if (drawForceSplit)
+            {
+                olfati.GetObstacleContribution(frame, velocity,
+                                               out Vector3 repulsion, out Vector3 velocityMatch);
+                Gizmos.color = repulsionColour;
+                DrawArrow(position, position + olfati.c_obs * repulsion * forceArrowScale);
+                Gizmos.color = velocityMatchColour;
+                DrawArrow(position, position + olfati.c_vm * velocityMatch * forceArrowScale);
+            }
+        }
+    }
+
+    // Sorted on Bounds.SqrDistance (point to box, 0 inside) rather than distance to the centre, so
+    // the order matches the surface distance the frames report -- by centre distance a large near
+    // building ranks behind a small far one.
+    //
+    // Insertion sort: the in-range set is a handful of colliders and this runs per gizmo repaint, so
+    // the allocation a comparer-based sort costs matters more than the order of the algorithm.
+    private static void SortByDistance(Collider[] colliders, Vector3 from)
+    {
+        for (int i = 1; i < colliders.Length; i++)
+        {
+            Collider held = colliders[i];
+            float key = held.bounds.SqrDistance(from);
+
+            int j = i - 1;
+            while (j >= 0 && colliders[j].bounds.SqrDistance(from) > key)
+            {
+                colliders[j + 1] = colliders[j];
+                j--;
+            }
+            colliders[j + 1] = held;
+        }
     }
 
     private void DrawCylinder(Vector3 centre, Vector3 axis, float radius, float halfHeight)
@@ -300,9 +450,10 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     // the cross product never degenerates.
     private static void BasisFor(Vector3 axis, out Vector3 u, out Vector3 v)
     {
-        Vector3 seed = Mathf.Abs(Vector3.Dot(axis.normalized, Vector3.up)) > 0.9f ? Vector3.right : Vector3.up;
-        u = Vector3.Cross(axis, seed).normalized;
-        v = Vector3.Cross(axis.normalized, u);
+        Vector3 normalised = axis.normalized;
+        Vector3 seed = Mathf.Abs(Vector3.Dot(normalised, Vector3.up)) > 0.9f ? Vector3.right : Vector3.up;
+        u = Vector3.Cross(normalised, seed).normalized;
+        v = Vector3.Cross(normalised, u);
     }
 
     private static void DrawArrow(Vector3 from, Vector3 to)
