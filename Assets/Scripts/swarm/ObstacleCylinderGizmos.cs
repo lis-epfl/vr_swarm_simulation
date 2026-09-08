@@ -132,8 +132,13 @@ public class ObstacleCylinderGizmos : MonoBehaviour
 
         // Obstacle labels quote the surface distance the algorithm actually sees, which needs a
         // drone to measure from. Without one they carry the name and radius only.
+        //
+        // Deliberately a weaker test than IsFlying: this only needs a readable position, so a
+        // parked drone still scopes the obstacle pass. With every drone parked that scopes to the
+        // parking altitude and draws nothing, which beats falling through to AllInScene and
+        // dumping the whole city on screen at the end of a run.
         VelocityControl reference = selected != null ? selected.GetComponent<VelocityControl>() : null;
-        _hasReference = reference != null;
+        _hasReference = reference != null && reference.State != null;
         _referencePosition = _hasReference ? reference.State.Position : Vector3.zero;
 
         DrawObstacles(selected);
@@ -173,14 +178,57 @@ public class ObstacleCylinderGizmos : MonoBehaviour
         if (_scaleFactor <= 0.0f) _scaleFactor = 1.0f;
     }
 
+    // Parked drones are skipped: DroneHealthMonitor clears StateFinder.IsAlive and drops the drone
+    // to parkingY with its renderers off, after a collision, getting stuck on an obstacle, or
+    // straying too near the ground. Such a drone is kinematic, at rest, and 100 m under the course
+    // where nothing is in range, so its obstacle force is identically zero -- the gizmo would sit
+    // on a dead drone drawing nothing and look broken rather than finished.
+    //
+    // The scan starts at selectedDroneIndex and wraps. It deliberately does NOT write the index
+    // back: OnDrawGizmos runs on every scene-view repaint, and assigning a serialized field from
+    // there both flags the scene modified and overwrites whatever the operator is typing.
     private OlfatiSaber ResolveSelectedDrone()
     {
-        // Same resolution as DebugObstacleDistance / TuneOlfatiSaberObstacle.
-        GameObject drone = GameObject.Find($"SwarmParent/Drone {selectedDroneIndex}");
+        // Same resolution as DebugObstacleDistance / TuneOlfatiSaberObstacle, but bounded by the
+        // real fleet size so the wrap terminates.
+        GameObject swarmParent = GameObject.Find("SwarmParent");
+        if (swarmParent == null) return null;
+
+        int count = swarmParent.transform.childCount;
+        if (count <= 0) return null;
+
+        int start = Mathf.Max(0, selectedDroneIndex);
+        OlfatiSaber requested = null;
+
+        for (int offset = 0; offset < count; offset++)
+        {
+            OlfatiSaber candidate = DroneAt(swarmParent.transform, (start + offset) % count);
+            if (candidate == null) continue;
+
+            if (offset == 0) requested = candidate;
+            if (IsFlying(candidate.GetComponent<VelocityControl>())) return candidate;
+        }
+
+        // Whole fleet parked. Hand back the requested drone anyway so the obstacle pass still has a
+        // position to scope to; DrawDrone declines to draw it.
+        return requested;
+    }
+
+    private static OlfatiSaber DroneAt(Transform swarmParent, int index)
+    {
+        Transform drone = swarmParent.Find($"Drone {index}");
         if (drone == null) return null;
 
-        Transform droneParent = drone.transform.Find("DroneParent");
+        Transform droneParent = drone.Find("DroneParent");
         return droneParent != null ? droneParent.GetComponent<OlfatiSaber>() : null;
+    }
+
+    // Stricter than PyUniSharingFast.IsAlive, which counts a missing StateFinder as alive so a
+    // wiring gap never blanks the panorama. A gizmo needs an actual position and velocity to draw
+    // anything, so here a missing one is unusable rather than forgiven.
+    private static bool IsFlying(VelocityControl vc)
+    {
+        return vc != null && vc.State != null && vc.State.IsAlive;
     }
 
     private void DrawObstacles(OlfatiSaber selected)
@@ -323,8 +371,11 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     {
         if (olfati == null) return;
 
+        // Also the parked check, which is what makes allDrones skip the casualties rather than
+        // stack a fan of zero-length arrows at the parking altitude. ResolveSelectedDrone has
+        // already moved off a parked drone unless the entire fleet is down.
         VelocityControl vc = olfati.GetComponent<VelocityControl>();
-        if (vc == null) return;
+        if (!IsFlying(vc)) return;
 
         Vector3 position = vc.State.Position;
         // World-frame velocity, exactly as GetSwarmAcceleration builds it.
