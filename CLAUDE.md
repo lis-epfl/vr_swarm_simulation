@@ -745,6 +745,69 @@ Two checkers, both runnable without Unity:
 `python tools/check_wire_layout.py` (asserts the C# and Python layout constants agree — a mismatch there
 is silent, since neither side fails to compile, it just reads a float from the middle of another field).
 
+## City scenes and the ScaledCity assets
+
+Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `FactoryScene`,
+`RingChallenge`, `NBackExperiment`, and `DJIScene` (real drones, no sim swarm). All of them spawn the
+same `Assets/Prefabs/DroneReduced.prefab`, so anything edited there — `maxPitch`, `maxSpeed`,
+`timeConstantAcceleration` — changes every scene at once. Per-scene tuning belongs on the scene's own
+`SwarmManager`, which is the only per-scene owner of those values.
+
+**`ScaledCityWorld` is a fork of `CityWorld` with its own prefab tree**, not a scaled instance of the
+original. `Assets/Prefabs/ScaledCity/` holds `City_Pack_01_Scaled`, `goal_patch_Scaled` and 48
+`Patches/MC_Patch_NN_Scaled` prefabs; nothing outside that scene references them. Across those patches
+sit **169 buildings, each at `localScale (0.25, 0.25, z)`** — a quarter of the pack's footprint, with a
+per-building `z` chosen so **every building is exactly 50 units tall**. Footprints run 3.5–17.9 by
+2.0–10.8 units. The point is a city whose streets are wide relative to its buildings and whose skyline
+is flat, so obstacle behaviour is comparable between runs instead of being dominated by whichever
+tower a drone happened to meet.
+
+Three pack-geometry facts scripts depend on:
+
+- **Buildings are authored local `+Z` up, pivot at the base** — the `0.25/0.25/z` above is
+  width/width/**height**, not width/height/depth. `BoxCollider.m_Size` is the *unscaled* mesh bounds,
+  so world size is `m_Size` times `localScale` componentwise.
+- **The pack marks every building `Batching Static`**, in the ScaledCity forks as well as the
+  originals. Entering Play combines their meshes and the renderer stops reading the transform, so a
+  runtime scale or move shifts the **collider** without moving anything you can see — invisible walls.
+  `BuildingWidthTuner.ApplyWidth` refuses to run once batched and says so. **Tune in edit mode before
+  pressing Play**; the value carries into Play without saving the scene.
+- **`BuildingWidthTuner.widthScale` is relative, not absolute.** 1 always means "leave it alone", so
+  the component is inert until touched. ScaledCityWorld already bakes 0.25 into its prefabs and
+  CityWorld bakes 1, so an absolute scale would need a different baseline per scene and would silently
+  quadruple the wrong city; in ScaledCityWorld, 4 restores the original pack width. `StreetWidthTuner`
+  is the complementary knob — it widens streets by shrinking each tile's block content about its own
+  kerb pivot, leaving the full-tile `Road_Structure` plate and the 90.83 grid pitch alone so the
+  exposed strip is road rather than a hole. Buildings are moved, never resized.
+
+**The `Obstacle` layer is applied per scene, and the three city scenes disagree.** This is the largest
+scene-to-scene difference for swarm behaviour, because `OlfatiSaber` has exactly one membership rule —
+a collider on layer `Obstacle` — so name, tag and source prefab are all irrelevant:
+
+| scene | objects on `Obstacle` | state |
+|---|---|---|
+| `ScaledCityWorld` | 1934, buildings only | **clean** — `ObstacleLayerAuditor` has been run |
+| `CityWorld` | 4268, everything | roads, kerbs, lights, hydrants included |
+| `CrowdWorld` | 552, everything | same |
+
+The layer lives in scene-level `m_Layer` overrides, **not** in the prefabs: the original pack's patch
+prefabs carry no `Obstacle` layer at all, while the ScaledCity forks carry it on their 212 building
+objects. Inspecting a prefab therefore tells you nothing — check the scene.
+
+Why the dirty scenes matter: `OlfatiSaber.GetObstacleCylinder` takes the **circumradius of the
+axis-aligned bounds**, and a flat plate is the worst possible input to that. `Road_Structure_NNN` is
+90.83 × 90.83 × ~0 and becomes a cylinder of radius ~64 units standing over a whole patch — the giant
+circle in the gizmos, and a repulsion field with no gap between patches to fly through.
+`Tools/Swarm/Audit obstacle layer` reports it and `Tools/Swarm/Restrict obstacle layer to buildings`
+repairs it (`Assets/Scripts/Environment/Editor/ObstacleLayerAuditor.cs`). **Run the audit before
+concluding anything about obstacle avoidance in `CityWorld` or `CrowdWorld`** — the obstacle gains in
+all three scenes were tuned against `ScaledCityWorld`'s clean layer.
+
+Even on a clean layer the circumradius is conservative by construction: a 20 × 20 m building presents a
+14.14 m cylinder, i.e. ~4 m of phantom shell outside the facade. Every obstacle distance in the tuning
+(`d_obs`, `d_shield`) is measured to that cylinder, not to the wall. `ObstacleCylinderGizmos` with
+`drawBounds` shows the gap directly.
+
 ## Drone prefab hierarchy (relied on by many scripts)
 
 `Drone N` → child `DroneParent` (has `SwarmAlgorithm`, `AttitudeAlgorithm`, `VelocityControl`, `Rigidbody`)
