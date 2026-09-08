@@ -213,8 +213,9 @@ public class TuneOlfatiSaberObstacle : MonoBehaviour
 
         foreach (Collider obstacleCollider in obstacles)
         {
-            Vector3 closestPoint = obstacleCollider.ClosestPointOnBounds(selectedPos);
-            float distance = (closestPoint - selectedPos).magnitude / olfatiSaber.ScaleFactor;
+            OlfatiSaber.ObstacleFrame frame = olfatiSaber.GetObstacleFrame(obstacleCollider, selectedPos);
+            if (!frame.valid) continue;
+            float distance = frame.distance;
 
             // Skip if outside the plotted distance range
             if (distance < minDistance || distance > maxDistance) continue;
