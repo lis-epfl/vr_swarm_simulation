@@ -28,8 +28,9 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     [Tooltip("The axis-aligned bounds the radius is derived from. The gap between this and the " +
              "cylinder is the inflation you are paying for. Off by default -- it doubles the lines.")]
     public bool drawBounds = false;
-    [Tooltip("Cylinder at radius + d_obs, where phi_beta switches on. That is 50 m at the stock " +
-             "d_obs and ScaleFactor, so two neighbouring buildings' shells already overlap.")]
+    [Tooltip("Cylinder at radius + d_obs, where phi_beta switches on -- 4 m at the city scenes' " +
+             "d_obs of 0.4 and ScaleFactor of 10. Note the pilot-command shield acts much further " +
+             "out than this (d_shield), so a drone reacts well before this shell is reached.")]
     public bool drawRepulsionShell = false;
 
     [Header("Drone")]
@@ -85,7 +86,8 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     public Color tangentColour = new Color(0.65f, 0.86f, 0.55f, 1.00f);       // pistachio
     [Tooltip("The c_obs repulsion term on its own.")]
     public Color repulsionColour = new Color(0.85f, 0.65f, 0.91f, 1.00f);     // orchid
-    [Tooltip("The c_vm velocity-match term on its own.")]
+    [Tooltip("The c2_beta velocity-match term on its own. This is the one that reverses direction " +
+             "as a drone rebounds -- that reversal is the damping doing its job.")]
     public Color velocityMatchColour = new Color(0.58f, 0.70f, 0.93f, 1.00f); // periwinkle
     [Tooltip("The summed obstacle force -- the brightest thing drawn, since it is the one that " +
              "is always true no matter how much detail is switched off.")]
@@ -97,7 +99,9 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     public OlfatiSaber parameterSource;
     public Vector3 fallbackCylinderAxis = Vector3.up;
     public float fallbackScaleFactor = 10.0f;
-    public float fallbackDObs = 5.0f;
+    // Matches the city scenes' SwarmManager, not the OlfatiSaber component default -- the component
+    // default is overwritten at Start and is not what any scene flies.
+    public float fallbackDObs = 0.4f;
 
     private const string k_ObstacleLayerName = "Obstacle";
     private const float k_ColliderRefreshInterval = 1.0f;
@@ -434,7 +438,7 @@ public class ObstacleCylinderGizmos : MonoBehaviour
                 Gizmos.color = repulsionColour;
                 DrawArrow(position, position + olfati.c_obs * repulsion * forceArrowScale);
                 Gizmos.color = velocityMatchColour;
-                DrawArrow(position, position + olfati.c_vm * velocityMatch * forceArrowScale);
+                DrawArrow(position, position + olfati.c2_beta * velocityMatch * forceArrowScale);
             }
         }
     }

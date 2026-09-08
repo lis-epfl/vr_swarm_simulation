@@ -1923,6 +1923,9 @@ MonoBehaviour:
   r0_obs: 5
   lambda_obs: 1
   c_obs: 0.1
+  c2_beta: 0.5
+  maxObstacleAccel: 0
+  d_shield: 0
   scaleFactor: 10
   SelectedAttitudeAlgorithm: 1
   numNeighbours: 5

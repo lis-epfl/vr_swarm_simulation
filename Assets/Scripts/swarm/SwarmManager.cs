@@ -30,11 +30,24 @@ public class SwarmManager : MonoBehaviour
     public float b = 0.5f;
     private float c;
     public float gamma = 1.0f;
+    [Tooltip("Alpha-agent velocity consensus gain only. The obstacle (beta-agent) velocity match " +
+             "has its own gain, c2_beta -- setting this to 0 no longer disables obstacle damping.")]
     public float c_vm = 1.0f;
     public float d_obs = 4.0f;
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
+    [Tooltip("Beta-agent velocity-matching gain (Olfati-Saber c2_beta), s^-1. This is what stops a " +
+             "drone rebounding off an obstacle: without it the obstacle field is conservative and " +
+             "returns all the approach energy. Roughly critical at 2*sqrt(peak accel / field depth).")]
+    public float c2_beta = 1.6f;
+    [Tooltip("Ceiling on the obstacle force in m/s^2 (world units, not scaled by scaleFactor). " +
+             "Further clamped per drone to its own tilt budget, g*tan(min(maxPitch, maxRoll)).")]
+    public float maxObstacleAccel = 4.0f;
+    [Tooltip("Range of the pilot-command shield in swarm units (metres / scaleFactor). Inward stick " +
+             "is faded out over this distance so the pilot cannot fly straight into an obstacle. " +
+             "Size it to the stopping distance, which is much larger than the d_obs standoff. 0 = off.")]
+    public float d_shield = 1.4f;
     public float scaleFactor = 10.0f;
     public enum AttitudeAlgorithm
     {
@@ -141,6 +154,9 @@ public class SwarmManager : MonoBehaviour
     public float GetR0Obs() => r0_obs;
     public float GetLambdaObs() => lambda_obs;
     public float GetCObs() => c_obs;
+    public float GetC2Beta() => c2_beta;
+    public float GetMaxObstacleAccel() => maxObstacleAccel;
+    public float GetDShield() => d_shield;
     public float GetScaleFactor() => scaleFactor;
 
     // Getters for the attitude control

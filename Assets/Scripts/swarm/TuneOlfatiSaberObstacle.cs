@@ -26,12 +26,19 @@ public class TuneOlfatiSaberObstacle : MonoBehaviour
     public enum plotChoice
     {
         OBSTACLEFORCE,     // c_obs * GetObstacleRepulsion(r)  (φ_β, strictly repulsive)
-        NEIGHBOURWEIGHT,   // GetNeighbourWeight(r, r0_obs)
+        NEIGHBOURWEIGHT,   // GetBetaBump(r, d_obs) — the gate the β term actually uses
         SHAPEFUNCTION,     // GetCohesionIntensity(r, d_obs)
+        DAMPINGAUTHORITY,  // c2_beta * GetBetaBump(r, d_obs) * referenceSpeed
     }
 
     [Header("Plot Type")]
     public plotChoice plotType = plotChoice.OBSTACLEFORCE;
+
+    [Tooltip("Closing speed (m/s) the DAMPINGAUTHORITY plot is evaluated at. The β velocity-match " +
+             "term is velocity-dependent, so it cannot be drawn on a distance axis without picking " +
+             "one; maxSpeed is the interesting case. Overlay it on OBSTACLEFORCE to see how the " +
+             "braking authority is split between position and closing speed.")]
+    public float referenceSpeed = 9.31f;
 
     private const string k_ObstacleLayerName = "Obstacle";
 
@@ -183,7 +190,19 @@ public class TuneOlfatiSaberObstacle : MonoBehaviour
         }
         else if (plotType == plotChoice.NEIGHBOURWEIGHT)
         {
-            return olfatiSaber.GetNeighbourWeight(distance, olfatiSaber.r0_obs);
+            // The gate the β term actually applies. This used to plot GetNeighbourWeight against
+            // r0_obs — the wrong function *and* the wrong range: at the city scenes' values that
+            // curve was 12.5x too wide, so a field that never reached the drone in time looked
+            // perfectly healthy here.
+            return olfatiSaber.GetBetaBump(distance, olfatiSaber.d_obs);
+        }
+        else if (plotType == plotChoice.DAMPINGAUTHORITY)
+        {
+            // Deceleration the β velocity-match term can produce against a drone closing at
+            // referenceSpeed. Negative, to plot below the axis alongside the repulsion curve.
+            return -olfatiSaber.c2_beta
+                   * olfatiSaber.GetBetaBump(distance, olfatiSaber.d_obs)
+                   * referenceSpeed;
         }
         else // SHAPEFUNCTION
         {

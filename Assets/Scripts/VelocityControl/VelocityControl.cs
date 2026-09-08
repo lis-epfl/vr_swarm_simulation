@@ -46,6 +46,10 @@ public class VelocityControl : MonoBehaviour
     public float attitude_control_yaw = 0.0f;
     // Swarm acceleration feedforward (world frame, set by SwarmAlgorithm)
     [HideInInspector] public Vector3 swarmAcceleration = Vector3.zero;
+    // Obstacle avoidance for the *pilot's* command: the inward component of the commanded velocity
+    // is faded out near an obstacle (see OlfatiSaber.ProjectCommandVelocity). Wired by
+    // SwarmAlgorithm where an Olfati-Saber swarm exists; null everywhere else, which is a no-op.
+    [HideInInspector] public OlfatiSaber obstacleShield = null;
     // When true, the vertical channel is handed to the swarm: the altitude-hold PD is replaced by a
     // vertical *velocity* loop (symmetric with the horizontal one), so the swarm's vertical
     // acceleration drives the drone instead of being fought by the height setpoint. Set every tick
@@ -218,20 +222,27 @@ public class VelocityControl : MonoBehaviour
         Vector3 bodyVelocity = State.VelocityVector;
         Vector3 userVelCommand = new Vector3(userVelX, 0f, userVelZ);
 
-        Vector3 worldUserVelError;
-        if (userCommandInWorldFrame)
-        {
+        // Resolve the command into world frame first, so the obstacle shield below sees it in the
+        // same frame as the obstacle normals. The body-frame branch used to take its error in body
+        // frame and rotate afterwards; that is algebraically the same thing, and the y component is
+        // zeroed below either way.
+        Vector3 worldCommand = userCommandInWorldFrame
             // Command is in world frame, expressed relative to commandReferenceYaw (0 = fixed
-            // world axes); rotate it into world space, then compare against the world velocity.
-            Vector3 worldCommand = Quaternion.Euler(0f, commandReferenceYaw, 0f) * userVelCommand;
-            Vector3 worldVelocity = transform.TransformDirection(bodyVelocity);
-            worldUserVelError = worldVelocity - worldCommand;
-        }
-        else
-        {
-            // Command is in body frame; take the error in body frame, then rotate to world.
-            worldUserVelError = transform.TransformDirection(bodyVelocity - userVelCommand);
-        }
+            // world axes); rotate it into world space.
+            ? Quaternion.Euler(0f, commandReferenceYaw, 0f) * userVelCommand
+            // Command is in body frame (relative to this drone's heading).
+            : transform.TransformDirection(userVelCommand);
+
+        // Fade out whatever part of the command heads into a nearby obstacle. This has to happen to
+        // the *command* rather than being fought with force: the tilt clamp below applies to the
+        // pilot + swarm sum while this P-loop ahead of it is unbounded, so full stick at a wall
+        // demands several times the actuator limit inward and simply outvotes any repulsion the
+        // drone could produce. Tangential and outward components pass through untouched, so flying
+        // around or away is never denied.
+        if (obstacleShield != null)
+            worldCommand = obstacleShield.ProjectCommandVelocity(worldCommand);
+
+        Vector3 worldUserVelError = transform.TransformDirection(bodyVelocity) - worldCommand;
 
         Vector3 worldUserAccel = worldUserVelError * -1.0f / timeConstantAcceleration;
         // Force any "ghost" y component coming from the drone's tilt to zero (altitude handled separately).
@@ -239,6 +250,12 @@ public class VelocityControl : MonoBehaviour
 
         // worldFilteredSwarmAccel was filtered above, ahead of the height loop that consumes it.
         Vector3 desiredAcceleration = worldUserAccel + worldFilteredSwarmAccel;
+
+        // Horizontal magnitudes for the HUD: how much of the shared tilt budget each source is
+        // asking for. Both are pre-clamp, so a user figure well above g*tan(maxPitch) is the
+        // signature of the pilot loop saturating and crowding the swarm out of the sum.
+        lastUserAccelMag = new Vector2(worldUserAccel.x, worldUserAccel.z).magnitude;
+        lastSwarmAccelMag = new Vector2(worldFilteredSwarmAccel.x, worldFilteredSwarmAccel.z).magnitude;
 
         if (verticalSwarmAuthority)
         {

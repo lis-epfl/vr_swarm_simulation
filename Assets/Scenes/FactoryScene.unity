@@ -14043,6 +14043,9 @@ MonoBehaviour:
   r0_obs: 6
   lambda_obs: 1
   c_obs: 4.3
+  c2_beta: 1
+  maxObstacleAccel: 0
+  d_shield: 0
   scaleFactor: 10
   SelectedAttitudeAlgorithm: 1
   numNeighbours: 9

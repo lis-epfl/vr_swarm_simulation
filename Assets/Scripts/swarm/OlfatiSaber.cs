@@ -26,11 +26,39 @@ public class OlfatiSaber : MonoBehaviour
     public float b = 1.5f;
     public float c;
     public float gamma = 1.0f;
+    // alpha-agent velocity consensus only. The beta-agent's velocity match has its own gain
+    // (c2_beta) -- see there for why sharing one was a bug rather than a simplification.
     public float c_vm = 1.0f;
     public float d_obs = 5.0f;
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
+
+    // beta-agent velocity-matching gain, Olfati-Saber Eq. 58's c2_beta. Deliberately NOT c_vm:
+    // that is the alpha-agent velocity consensus (see GetSwarmAcceleration) and the two have no
+    // reason to share a value. With c_vm = 0 -- the city scenes' deliberate choice, so that drones
+    // do not match each other's velocities -- sharing it left the beta agent a purely *conservative*
+    // field: a drone's approach energy came straight back out as rebound energy, which is the
+    // "pushed a long way back, then takes a long time to stop" behaviour.
+    // Units are s^-1: it multiplies a dimensionless bump by a world-frame velocity, so unlike
+    // c_obs / d_obs it does not scale with ScaleFactor.
+    public float c2_beta = 1.6f;
+
+    // Ceiling on the obstacle force, in world m/s^2 -- the one obstacle quantity ScaleFactor does
+    // *not* apply to. Applied as a smooth sigma_1 saturation rather than a hard clamp, so the field
+    // never gains a kink for the attitude loop to chew on. SwarmAlgorithm further clamps this to
+    // the drone's own tilt budget, since demanding more than the actuator can produce only steals
+    // authority from the pilot's command without moving the drone any faster.
+    public float MaxObstacleAccel = 4.0f;
+
+    // Range of the pilot-command shield (ProjectCommandVelocity), in swarm units. Sized to the
+    // tilt-limited *stopping distance*, not to d_obs: d_obs is a standoff and is deliberately much
+    // tighter than the distance a drone at maxSpeed needs in order to shed that speed. At 9.31 m/s
+    // and g*tan(0.436332) = 4.57 m/s^2 that distance is 9.5 m; 1.4 (14 m) leaves a drone about
+    // 3 m clear of the cylinder at full stick.
+    // Zero disables the shield.
+    public float d_shield = 1.4f;
+
     // Axis of the cylinder each obstacle is approximated by (see GetObstacleFrame). World up
     // is the useful default for buildings: it makes the swarm go around them, never over.
     public Vector3 cylinderAxis = Vector3.up;
@@ -48,6 +76,13 @@ public class OlfatiSaber : MonoBehaviour
     // allocating OverlapSphere would churn the GC. FixedUpdate is single-threaded,
     // so one shared buffer serves every drone.
     private static readonly Collider[] overlapBuffer = new Collider[64];
+
+    // Frames within d_shield, kept from the last GetObstacleForce so ProjectCommandVelocity can
+    // reuse them instead of running a second OverlapSphere per drone per tick. Per-instance, unlike
+    // overlapBuffer, because it outlives the call. Script execution order between SwarmAlgorithm
+    // and VelocityControl is undefined, so these may be one tick (20 ms, ~0.19 m at cruise) stale.
+    private readonly List<ObstacleFrame> shieldFrames = new List<ObstacleFrame>();
+    private bool hasWarnedBufferFull = false;
 
     private const string k_ObstacleLayerName = "Obstacle";
 
@@ -230,17 +265,21 @@ public class OlfatiSaber : MonoBehaviour
         return ComputeObstacleFrame(obstacleCollider, dronePosition, cylinderAxis, ScaleFactor);
     }
 
-    // One obstacle's two contributions, before the c_obs / c_vm gains. Split out so the gizmos can
-    // draw the repulsion and the velocity-match terms separately without restating the formula.
+    // One obstacle's two contributions, before the c_obs / c2_beta gains. Split out so the gizmos
+    // can draw the repulsion and the velocity-match terms separately without restating the formula.
     public void GetObstacleContribution(ObstacleFrame frame, Vector3 droneVelocity,
                                         out Vector3 repulsion, out Vector3 velocityMatch)
     {
         // Beta-agent velocity p-hat: the radial component is removed outright, the circumferential
-        // one survives scaled by mu, and motion along the axis passes through. c_vm * (p-hat - p)
+        // one survives scaled by mu, and motion along the axis passes through. c2_beta * (p-hat - p)
         // therefore cancels exactly the approach speed. It still opposes a fraction (1 - mu) of the
         // sideways speed, but mu -> 1 at the surface, so that fades to nothing precisely where going
         // around matters -- the inverse of the old scalar form, which damped the whole velocity
         // vector hardest at the far edge of the range.
+        //
+        // Note the radial removal is *symmetric*: it brakes outward motion exactly as hard as
+        // inward. That is deliberate and is the half that stops the rebound -- a closing-only
+        // damper would leave the drone free to be flung back out of the field.
         Vector3 vel_obs = frame.axis * Vector3.Dot(droneVelocity, frame.axis)
                         + frame.mu * frame.tangent * Vector3.Dot(droneVelocity, frame.tangent);
 
@@ -249,8 +288,8 @@ public class OlfatiSaber : MonoBehaviour
 
         // Gated by the same rho_h bump as the repulsion. Ungated, this term arrived at full strength
         // the instant a drone crossed the r0_obs query radius -- a discontinuous brake of nearly
-        // -c_vm * v applied at the point of *least* danger.
-        velocityMatch = GetNeighbourWeight(frame.distance, d_obs) * (vel_obs - droneVelocity);
+        // -c2_beta * v applied at the point of *least* danger.
+        velocityMatch = GetBetaBump(frame.distance, d_obs) * (vel_obs - droneVelocity);
     }
 
     // Public so the debug gizmos can draw the true resulting force rather than recomputing it.
@@ -259,19 +298,78 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 ObsCoh = Vector3.zero;
         Vector3 ObsVel = Vector3.zero;
 
+        shieldFrames.Clear();
+
         int obstacleCount = Physics.OverlapSphereNonAlloc(dronePosition, r0_obs * ScaleFactor, overlapBuffer, obstacleLayerMask);
+        if (obstacleCount == overlapBuffer.Length && !hasWarnedBufferFull)
+        {
+            // Silent truncation would drop obstacles in unspecified order -- possibly the nearest.
+            // Once per drone: this is a 50 Hz path and the condition, once true, tends to stay true.
+            hasWarnedBufferFull = true;
+            Debug.LogWarning($"[OlfatiSaber] {droneName}: obstacle buffer full ({obstacleCount}); " +
+                             "some obstacles are being ignored. Lower r0_obs or grow overlapBuffer.");
+        }
+
         for (int i = 0; i < obstacleCount; i++)
         {
             ObstacleFrame frame = GetObstacleFrame(overlapBuffer[i], dronePosition);
             if (!frame.valid)
                 continue;
 
+            if (d_shield > 0.0f && frame.distance < d_shield)
+                shieldFrames.Add(frame);
+
             GetObstacleContribution(frame, droneVelocity, out Vector3 repulsion, out Vector3 velocityMatch);
             ObsCoh += repulsion;
             ObsVel += velocityMatch;
         }
 
-        return c_obs * ObsCoh + c_vm * ObsVel;
+        Vector3 force = c_obs * ObsCoh + c2_beta * ObsVel;
+
+        // Smooth saturation at MaxObstacleAccel, the vector form of the sigma_1 the paper already
+        // uses inside phi_beta: unit gain near zero, 0.707 * A at |force| = A, asymptotic to A.
+        // A hard clamp would work too, but this is C-infinity and its taper *below* the ceiling is
+        // itself part of keeping the reaction minimal. Without it the peak repulsion exceeded the
+        // tilt budget, so the excess merely crowded out the pilot's command.
+        if (MaxObstacleAccel > 0.0f)
+            force /= Mathf.Sqrt(1.0f + force.sqrMagnitude / (MaxObstacleAccel * MaxObstacleAccel));
+
+        return force;
+    }
+
+    /// <summary>
+    /// Removes the component of a world-frame *commanded* velocity that heads into a nearby
+    /// obstacle, leaving the tangential and outward components untouched.
+    /// </summary>
+    /// <remarks>
+    /// This is the beta-agent's own projection applied to the stick rather than to the drone.
+    /// It exists because the repulsion force alone cannot win the argument: VelocityControl clamps
+    /// the *sum* of the pilot and swarm accelerations to the tilt budget, while the pilot's
+    /// velocity P-loop ahead of that clamp is unbounded -- full stick at a wall demands several
+    /// times the actuator limit inward, so any survivable repulsion is simply outvoted.
+    ///
+    /// Removing only the inward component means the pilot can always fly *around* an obstacle and
+    /// always fly *away* from one; only flying straight in is denied, and that fades in smoothly
+    /// with the same rho_h bump the force uses. Its range is d_shield, not d_obs, because the
+    /// command has to be neutralised over the stopping distance while the standoff stays tight.
+    ///
+    /// Note this shields the pilot's command only. Cohesion is not projected, so a drone squeezed
+    /// between the formation and a facade still relies on the beta force alone.
+    /// </remarks>
+    public Vector3 ProjectCommandVelocity(Vector3 worldCommand)
+    {
+        if (d_shield <= 0.0f)
+            return worldCommand;
+
+        for (int i = 0; i < shieldFrames.Count; i++)
+        {
+            ObstacleFrame frame = shieldFrames[i];
+            float inward = -Vector3.Dot(worldCommand, frame.outward);
+            if (inward > 0.0f)
+                worldCommand += GetBetaBump(frame.distance, d_shield) * inward * frame.outward;
+        }
+
+        return worldCommand;
     }
 
     public float GetCohesionForce(float r, float ref_d = -1, float r0 = -1)
@@ -291,12 +389,36 @@ public class OlfatiSaber : MonoBehaviour
     // σ_1 saturation used by the paper's action functions: σ_1(z) = z / √(1 + z²)
     private float Sigma1(float z) => z / Mathf.Sqrt(1.0f + z * z);
 
+    // ρ_h, Olfati-Saber Eq. 54, in the paper's own form. GetNeighbourWeight *squares* this, which
+    // flattens the shoulder badly: at r = 0.9·d_obs the squared form is 26x smaller, so the outer
+    // fifth of the obstacle field is effectively dead and the force appears to spring out of
+    // nowhere near the surface. Kept as a separate function rather than fixing GetNeighbourWeight
+    // because cohesion pairs that with GetNeighbourWeightDerivative, the analytic derivative of the
+    // squared form -- changing one without the other would break the cohesion gradient, and
+    // changing both would re-tune the formation, which is a different question.
+    public float GetBetaBump(float r, float d)
+    {
+        // A zero range is "switched off", not a division by zero: r/0 is NaN at r = 0, and NaN
+        // fails every comparison below, so the cos branch would return NaN into the force sum.
+        if (d <= 0.0f)
+            return 0.0f;
+
+        float ratio = r / d;
+
+        if (ratio < delta)
+            return 1.0f;
+        if (ratio >= 1.0f)
+            return 0.0f;
+
+        return 0.5f * (1.0f + Mathf.Cos(Mathf.PI * (ratio - delta) / (1.0f - delta)));
+    }
+
     // Strictly-repulsive β-agent action function φ_β (Olfati-Saber Eq. 56):
     //   φ_β(r) = ρ_h(r / d_obs) · (σ_1(r − d_obs) − 1)
     // Always ≤ 0 (pushes the drone away from the obstacle) and exactly 0 for r ≥ d_obs.
     public float GetObstacleRepulsion(float r)
     {
-        return GetNeighbourWeight(r, d_obs) * (Sigma1(r - d_obs) - 1.0f);
+        return GetBetaBump(r, d_obs) * (Sigma1(r - d_obs) - 1.0f);
     }
 
     // Cohesion intensity function

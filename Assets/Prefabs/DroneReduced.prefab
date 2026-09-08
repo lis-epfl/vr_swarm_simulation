@@ -83,14 +83,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9fd9cf0a203549e98e27622302c103a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  activeProfile: {fileID: 11400000, guid: 310f9718f7e9e0a4b8239d5a8e8ddbf2, type: 2}
+  activeProfile: {fileID: 0}
   State: {fileID: 114271859555978516}
   PropFL: {fileID: 7174551621440694880}
   PropFR: {fileID: 1083002426289961596}
   PropRR: {fileID: 2250903314296931625}
   PropRL: {fileID: 8732180454090052648}
-  maxPitch: 0.33
-  maxRoll: 0.33
+  maxPitch: 0.436332
+  maxRoll: 0.436332
   maxYawRate: 1.07
   maxAlpha: 8.68
   maxSpeed: 9.31

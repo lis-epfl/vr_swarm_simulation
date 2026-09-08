@@ -138,6 +138,19 @@ public class SwarmAlgorithm : MonoBehaviour
         // Get swarm algorithm selection
         currentAlgorithm = swarmManager.swarmAlgorithm;
 
+        // Let the velocity controller fade the pilot's inward command near obstacles. Wired from
+        // here rather than found inside VelocityControl so it is tied to the algorithm actually
+        // running: the shield reuses obstacle frames cached by OlfatiSaber.GetObstacleForce, which
+        // only runs under OLFATI_SABER. Under Reynolds or NONE those frames would go stale and
+        // never be refreshed, so the shield is unwired instead. Null is a clean no-op, which is
+        // also what every scene with no swarm (the DJI real-drone ones) gets.
+        if (velocityControl != null)
+        {
+            velocityControl.obstacleShield =
+                currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER
+                    ? olfatiSaberAlgorithm
+                    : null;
+        }
 
         // Check the current algorithm and enable/disable the corresponding algorithm
         switch (currentAlgorithm)
@@ -267,7 +280,24 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.r0_obs = swarmManager.GetR0Obs();
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
             olfatiSaberAlgorithm.c_obs = swarmManager.GetCObs();
+            olfatiSaberAlgorithm.c2_beta = swarmManager.GetC2Beta();
+            olfatiSaberAlgorithm.d_shield = swarmManager.GetDShield();
             olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();
+
+            // Bound the obstacle force by what this drone can actually produce. Beyond the tilt
+            // budget the extra demand does not move the drone any faster -- VelocityControl clamps
+            // the pilot + swarm *sum* -- it only crowds the pilot's command out of that sum. Tying
+            // it to maxPitch/maxRoll here rather than trusting an inspector number means raising
+            // the tilt limit automatically raises the ceiling, and lowering it cannot leave the
+            // obstacle term demanding the impossible.
+            float tiltBudget = float.PositiveInfinity;
+            if (velocityControl != null)
+            {
+                tiltBudget = 9.81f * Mathf.Tan(Mathf.Min(velocityControl.maxPitch,
+                                                         velocityControl.maxRoll));
+            }
+            olfatiSaberAlgorithm.MaxObstacleAccel =
+                Mathf.Min(swarmManager.GetMaxObstacleAccel(), tiltBudget);
         }
     }
 
