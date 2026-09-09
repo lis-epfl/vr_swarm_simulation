@@ -45,13 +45,60 @@ public class AttitudeAlgorithm : MonoBehaviour
     private static float sharedGlobalHullTime = float.NegativeInfinity;
     private static List<GameObject> sharedGlobalHullSwarm;
 
+    // Scratch for the outward headings of the hull vertices, reused so the per-tick metrics pass
+    // allocates nothing.
+    private static readonly List<float> sharedHullHeadings = new List<float>();
+
+    // ---- Swarm-shape metrics -------------------------------------------------------------------
+    // Read-only derivations off the hull block that is already built once per physics tick. They
+    // drive no force and gate no display; they exist so the shape of the swarm is measurable, which
+    // is the only way to tell whether the hollow-core feature is doing anything. Computed whether or
+    // not that feature is enabled, precisely so the disabled state is what the enabled one is
+    // compared against.
+    /// <summary>Alive drones the shape was measured over.</summary>
+    public static int SharedAliveCount;
+    /// <summary>Vertices of the whole-swarm convex hull — the drones whose feeds the pilot sees.</summary>
+    public static int SharedHullVertexCount;
+    /// <summary>Alive drones that are not hull vertices, i.e. the ones hidden inside the swarm.</summary>
+    public static int SharedInteriorCount;
+    /// <summary>
+    /// Largest angular gap, in degrees, between the outward headings the hull vertices are being
+    /// driven to. This is the blind sector: 360 when there is no usable hull.
+    /// </summary>
+    public static float SharedMaxGapDeg;
+    /// <summary>Mean nearest-neighbour separation in metres. Compare against d_ref * ScaleFactor.</summary>
+    public static float SharedMeanNearestNeighbourM;
+    /// <summary>Mean distance from the centroid in metres.</summary>
+    public static float SharedRingRadiusM;
+    /// <summary>Centroid in the same 2D space the hull is built in (see ProjectForHull).</summary>
+    public static Vector2 SharedCentroid;
+    /// <summary>Time.fixedTime the metrics above were last recomputed at.</summary>
+    public static float SharedShapeTime = float.NegativeInfinity;
+
+    /// <summary>
+    /// The shared hull, in the 2D space <see cref="ProjectForHull"/> builds it in — world (x, z)
+    /// normally, the plane's own axes in vertical-plane mode. Exposed for gizmos and diagnostics;
+    /// treat it as read-only, it is rebuilt every tick.
+    /// </summary>
+    public static IList<Vector2> SharedHull => sharedGlobalHull;
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetSharedHullOnLoad()
     {
         sharedHullPositions.Clear();
+        sharedHullHeadings.Clear();
         sharedGlobalHull = null;
         sharedGlobalHullTime = float.NegativeInfinity;
         sharedGlobalHullSwarm = null;
+
+        SharedAliveCount = 0;
+        SharedHullVertexCount = 0;
+        SharedInteriorCount = 0;
+        SharedMaxGapDeg = 360.0f;
+        SharedMeanNearestNeighbourM = 0.0f;
+        SharedRingRadiusM = 0.0f;
+        SharedCentroid = Vector2.zero;
+        SharedShapeTime = float.NegativeInfinity;
     }
     
     // Awake is called before Start
@@ -191,7 +238,7 @@ public class AttitudeAlgorithm : MonoBehaviour
             return;
         }
 
-        EnsureSharedGlobalHull();
+        EnsureSharedGlobalHull(swarm);
         if (sharedGlobalHull == null)
         {
             UpdateBoundaryEstimate(false);
@@ -357,7 +404,7 @@ public class AttitudeAlgorithm : MonoBehaviour
 
         // The full-swarm hull is identical for every drone within a physics tick,
         // so it is built once per tick and shared (see EnsureSharedGlobalHull).
-        EnsureSharedGlobalHull();
+        EnsureSharedGlobalHull(swarm);
 
         // Everyone crashed (or filtered out): no hull to build.
         if (sharedGlobalHull == null)
@@ -376,8 +423,12 @@ public class AttitudeAlgorithm : MonoBehaviour
     /// the current drone's own position is included and matches currentDronePosition exactly,
     /// since both read the same DroneParent transform and transforms don't move mid-tick.
     /// </summary>
-    private void EnsureSharedGlobalHull()
+    public static void EnsureSharedGlobalHull(List<GameObject> swarm)
     {
+        if (swarm == null)
+        {
+            return;
+        }
         if (sharedGlobalHullSwarm == swarm && sharedGlobalHullTime == Time.fixedTime)
         {
             return;
@@ -404,9 +455,108 @@ public class AttitudeAlgorithm : MonoBehaviour
 
         // ComputeConvexHull cannot handle an empty point set. sortInPlace avoids its
         // defensive copy — the positions list is rebuilt from scratch next tick anyway.
+        // Note it reorders sharedHullPositions but keeps every point, which is all the metrics need.
         sharedGlobalHull = sharedHullPositions.Count > 0
             ? ConvexHull.ComputeConvexHull(sharedHullPositions, sortInPlace: true)
             : null;
+
+        UpdateSharedShapeMetrics();
+    }
+
+    /// <summary>
+    /// Recomputes the swarm-shape read-outs from the hull block just built. Pure measurement: it
+    /// writes only the Shared* statics, and nothing in the control or display path reads them.
+    /// </summary>
+    private static void UpdateSharedShapeMetrics()
+    {
+        SharedShapeTime = sharedGlobalHullTime;
+        SharedAliveCount = sharedHullPositions.Count;
+        SharedHullVertexCount = sharedGlobalHull != null ? sharedGlobalHull.Count : 0;
+        SharedInteriorCount = Mathf.Max(0, SharedAliveCount - SharedHullVertexCount);
+
+        if (SharedAliveCount == 0)
+        {
+            SharedCentroid = Vector2.zero;
+            SharedRingRadiusM = 0.0f;
+            SharedMeanNearestNeighbourM = 0.0f;
+            SharedMaxGapDeg = 360.0f;
+            return;
+        }
+
+        Vector2 sum = Vector2.zero;
+        for (int i = 0; i < sharedHullPositions.Count; i++)
+        {
+            sum += sharedHullPositions[i];
+        }
+        SharedCentroid = sum / SharedAliveCount;
+
+        float radiusSum = 0.0f;
+        float nearestSum = 0.0f;
+        for (int i = 0; i < sharedHullPositions.Count; i++)
+        {
+            radiusSum += (sharedHullPositions[i] - SharedCentroid).magnitude;
+
+            float nearest = float.PositiveInfinity;
+            for (int j = 0; j < sharedHullPositions.Count; j++)
+            {
+                if (i == j) continue;
+                nearest = Mathf.Min(nearest, (sharedHullPositions[i] - sharedHullPositions[j]).magnitude);
+            }
+            if (!float.IsPositiveInfinity(nearest))
+            {
+                nearestSum += nearest;
+            }
+        }
+        SharedRingRadiusM = radiusSum / SharedAliveCount;
+        SharedMeanNearestNeighbourM = SharedAliveCount > 1 ? nearestSum / SharedAliveCount : 0.0f;
+
+        SharedMaxGapDeg = ComputeMaxHeadingGapDeg();
+    }
+
+    /// <summary>
+    /// Largest angular gap between the outward headings of the hull vertices — the pilot's widest
+    /// unobserved sector. Measured off the hull's own bisectors rather than off the drones' live
+    /// yaws, so it reports the coverage the formation's *shape* affords and is not confounded by
+    /// drones still turning onto their targets.
+    /// </summary>
+    private static float ComputeMaxHeadingGapDeg()
+    {
+        // Fewer than three vertices is a degenerate hull (a point or a line): there is no enclosed
+        // direction set to speak of, so the honest answer is that everything is a gap.
+        if (sharedGlobalHull == null || sharedGlobalHull.Count < 3)
+        {
+            return 360.0f;
+        }
+
+        sharedHullHeadings.Clear();
+        for (int i = 0; i < sharedGlobalHull.Count; i++)
+        {
+            // -bisector is the outward direction, matching getYawRateFromHull's rawTargetHeading.
+            Vector2 outward = -ConvexHull.ComputeBisector(sharedGlobalHull, sharedGlobalHull[i], false);
+            if (outward.sqrMagnitude < 1e-12f)
+            {
+                continue;
+            }
+            sharedHullHeadings.Add(Mathf.Atan2(outward.x, outward.y) * Mathf.Rad2Deg);
+        }
+
+        if (sharedHullHeadings.Count < 2)
+        {
+            return 360.0f;
+        }
+
+        sharedHullHeadings.Sort();
+
+        float maxGap = 0.0f;
+        for (int i = 0; i < sharedHullHeadings.Count; i++)
+        {
+            int next = (i + 1) % sharedHullHeadings.Count;
+            float gap = sharedHullHeadings[next] - sharedHullHeadings[i];
+            // The wrap-around pair closes the circle; every other gap is already positive.
+            if (gap < 0.0f) gap += 360.0f;
+            maxGap = Mathf.Max(maxGap, gap);
+        }
+        return maxGap;
     }
 
     /// <summary>

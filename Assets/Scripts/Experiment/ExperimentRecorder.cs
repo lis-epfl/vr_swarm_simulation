@@ -64,7 +64,7 @@ public class ExperimentRecorder : MonoBehaviour
     private bool referencesResolved = false;
 
     // ---- output ----
-    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter;
+    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter, shapeWriter;
     private string dirPath, fileStem;
 
     // ---- timing / state ----
@@ -110,6 +110,7 @@ public class ExperimentRecorder : MonoBehaviour
             WriteDroneSample(t, ms);
             WriteHeadSample(t, ms);
             WriteWalkerSample(t, ms);
+            WriteShapeSample(t, ms);
 
             float interval = sampleHz > 0f ? 1f / sampleHz : 0.1f;
             // Advance from the scheduled time; if we fell behind, resync to now to avoid a burst.
@@ -147,6 +148,8 @@ public class ExperimentRecorder : MonoBehaviour
             "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread");
         walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
+        shapeWriter = NewWriter("shape",
+            "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore");
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
@@ -244,6 +247,37 @@ public class ExperimentRecorder : MonoBehaviour
             dronesWriter.WriteLine(
                 $"{F(t)};{ms};{i};{F(pos.x)};{F(pos.y)};{F(pos.z)};{F(yaw)};{(alive ? 1 : 0)}");
         }
+    }
+
+    /// <summary>
+    /// Swarm-shape read-outs: how many drones are on the hull (and therefore on screen), how wide the
+    /// pilot's largest unobserved sector is, and how far the formation is from the spacing that was
+    /// actually commanded. This is what the hollow-core feature is judged on, so it is logged whether
+    /// or not the feature is enabled — the disabled runs are the baseline the enabled ones are
+    /// compared against.
+    /// </summary>
+    private void WriteShapeSample(float t, long ms)
+    {
+        List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+        if (swarm == null) return;
+
+        // Recomputed at most once per physics tick and shared with the drones' own hull pass, so
+        // asking for it here costs nothing beyond the first caller in the tick.
+        AttitudeAlgorithm.EnsureSharedGlobalHull(swarm);
+
+        SwarmManager manager = SwarmManager.Instance;
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+
+        float dRef = manager != null ? manager.GetDRef() : 0f;
+        bool hollow = manager != null && manager.GetHollowSwarmCore();
+        float r0Eff = manager != null ? manager.GetEffectiveR0Coh() : 0f;
+        float coreR = plane != null ? plane.CoreRadiusMetres : 0f;
+
+        shapeWriter.WriteLine(
+            $"{F(t)};{ms};{AttitudeAlgorithm.SharedAliveCount};{AttitudeAlgorithm.SharedHullVertexCount};" +
+            $"{AttitudeAlgorithm.SharedInteriorCount};{F(AttitudeAlgorithm.SharedMaxGapDeg)};" +
+            $"{F(AttitudeAlgorithm.SharedMeanNearestNeighbourM)};{F(AttitudeAlgorithm.SharedRingRadiusM)};" +
+            $"{F(coreR)};{F(dRef)};{F(r0Eff)};{(hollow ? 1 : 0)}");
     }
 
     private void WriteHeadSample(float t, long ms)
@@ -432,6 +466,7 @@ public class ExperimentRecorder : MonoBehaviour
         SafeClose(ref headWriter);
         SafeClose(ref walkersWriter);
         SafeClose(ref eventsWriter);
+        SafeClose(ref shapeWriter);
     }
 
     private static void SafeClose(ref StreamWriter w)
