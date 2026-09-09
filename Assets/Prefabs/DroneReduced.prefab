@@ -102,6 +102,8 @@ MonoBehaviour:
   desiredYawRate: 0
   attitude_control_yaw: 0
   swarmAcceleration: {x: 0, y: 0, z: 0}
+  verticalSwarmAuthority: 0
+  verticalReferenceAltitude: 0
   lastUserAccelMag: 0
   lastSwarmAccelMag: 0
   lastThrustClamped: 0
@@ -111,6 +113,8 @@ MonoBehaviour:
   yawFilterCoefficient: 1
   SwarmAccelFilterCoefficient: 1
   timeConstantAcceleration: 0.75
+  swarmVerticalSetpointGain: 0.5
+  swarmVerticalLeash: 30
   currentAlgorithm: 0
   initial_height: 14
   logToCSV: 0
@@ -189,9 +193,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Is3D: 1
+  PlaneNormal: {x: 0, y: 1, z: 0}
+  HasPlaneOffsetTarget: 0
+  PlaneOffsetTarget: 0
   CohesionWeight: 1
   SeparationWeight: 1
   AlignmentWeight: 1
+  PlaneWeight: 1
 --- !u!114 &259003137113264617
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -205,6 +213,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Is3D: 1
+  PlaneNormal: {x: 0, y: 1, z: 0}
+  HasPlaneOffsetTarget: 0
+  PlaneOffsetTarget: 0
   d_ref: 1
   r0_coh: 20
   delta: 0.1
@@ -217,8 +228,9 @@ MonoBehaviour:
   r0_obs: 6
   lambda_obs: 1
   c_obs: 4.3
+  cylinderAxis: {x: 0, y: 1, z: 0}
   ScaleFactor: 10
-  c_altitude_2d: 1
+  c_plane: 1
   MaxMigrationDistance: 10
 --- !u!114 &3810217873681142886
 MonoBehaviour:
@@ -343,7 +355,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &4302397597385874
 Transform:
   m_ObjectHideFlags: 0
