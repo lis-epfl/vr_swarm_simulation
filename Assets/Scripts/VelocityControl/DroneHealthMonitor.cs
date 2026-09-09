@@ -200,7 +200,10 @@ public class DroneHealthMonitor : MonoBehaviour
         if (swarmManager == null)
             return false;
 
-        float maxNeighbourDistance = swarmManager.GetR0Coh() * swarmManager.GetScaleFactor() * cohesionDistanceMultiplier;
+        // GetEffectiveR0Coh, not GetR0Coh: the hollow-core feature shortens the interaction range,
+        // and a threshold left on the raw r0_coh would go on calling a drone connected long after
+        // the cohesion holding it there had actually reached zero.
+        float maxNeighbourDistance = swarmManager.GetEffectiveR0Coh() * swarmManager.GetScaleFactor() * cohesionDistanceMultiplier;
 
         Vector3 currentPos = State.GroundTruthPosition;
         float nearestDistance = float.PositiveInfinity;

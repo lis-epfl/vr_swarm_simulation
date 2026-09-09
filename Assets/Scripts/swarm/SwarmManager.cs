@@ -49,6 +49,62 @@ public class SwarmManager : MonoBehaviour
              "Size it to the stopping distance, which is much larger than the d_obs standoff. 0 = off.")]
     public float d_shield = 1.4f;
     public float scaleFactor = 10.0f;
+
+    [Header("Hollow Swarm Core")]
+    [Tooltip("Hollow the middle of the swarm so more drones sit on the convex hull and therefore " +
+             "have their camera feed shown to the pilot. Works by standing a virtual Olfati-Saber " +
+             "beta-agent (a cylinder) at the swarm centroid, so being in the middle costs energy " +
+             "and the equilibrium becomes a ring. No formation, no assigned slots: the drones stay " +
+             "interchangeable and the swarm still deforms freely around obstacles.\n\n" +
+             "This is the single switch for the whole feature. Unticked, every field below is inert " +
+             "and the swarm behaves exactly as it did before the feature existed.")]
+    public bool hollowSwarmCore = false;
+
+    [Tooltip("Core radius as a fraction of how big the formation measurably is (its mean distance " +
+             "from the centroid). 0.5 is the recommended value; 0.4-0.6 all put every drone on the " +
+             "hull.\n\n" +
+             "It MUST stay well under 1: a beta-agent only has a gradient outside its cylinder, so " +
+             "a core sized to the ring the drones should end up on swallows the whole swarm in its " +
+             "flat interior, where the result is either no effect at all or the swarm escaping " +
+             "outright. Measured rather than predicted from d_ref because the swarm's equilibrium " +
+             "spacing is about half of d_ref, so a radius derived from the commanded spacing lands " +
+             "roughly twice as far out as the drones ever go.")]
+    public float coreRadiusFraction = 0.5f;
+
+    [Tooltip("Time constant (s) of the low-pass on the core radius. It exists for drone losses and " +
+             "for the mild feedback in measuring the core off the swarm it is shaping. Seeded on " +
+             "the first tick, so there is no ramp at scene start or on leaving plane mode.")]
+    public float coreRadiusFilterTime = 2.0f;
+
+    [Tooltip("Core repulsion gain. 1.5 is verified to put every drone on the hull at 6 and 10 " +
+             "drones, from any starting spread, and is insensitive to the cohesion range.")]
+    public float c_core = 1.5f;
+
+    [Tooltip("OPTIONAL, off by default. Cohesion interaction range as a multiple of the live d_ref " +
+             "(which the spread stick rewrites every tick, so a fixed r0_coh changes the shape of " +
+             "the well under the pilot's hand). 0 = off, use r0_coh verbatim.\n\n" +
+             "Kept as a knob, but relaxing the coded force law says it does NOT help the hull " +
+             "count: from the current 18.5 down to 5 the equilibrium is unchanged (9 of 10 on the " +
+             "hull, spacing 0.50 d_ref), at 4 it gets worse, and at 3 the swarm disperses. The core " +
+             "above does the whole job on its own and is unaffected by this. Clamped to a floor of " +
+             "3 in OnValidate. NOTE this is not the paper's ~1.2 -- see OlfatiSaber.r0CohRatio.")]
+    public float r0CohRatio = 0.0f;
+
+    [Tooltip("Core beta-agent velocity-match gain (s^-1). Damps radial overshoot without touching " +
+             "travel around the ring. Set to 0 and the core becomes conservative: drones pushed out " +
+             "spring back in and the ring breathes.")]
+    public float c2_core = 1.6f;
+
+    [Tooltip("Core standoff as a multiple of the live d_ref, in swarm units. Sized to the lattice " +
+             "spacing so the annulus comes out about one cell thick -- deliberately not d_obs, " +
+             "which is sized to the surface of a building.")]
+    public float coreStandoffRatio = 0.5f;
+
+    [Tooltip("Ceiling on the core force in m/s^2. Keep it well under maxObstacleAccel: that gap is " +
+             "what guarantees a building wins where the two disagree, and the swarm can still " +
+             "deform freely around obstacles.")]
+    public float maxCoreAccel = 2.0f;
+
     public enum AttitudeAlgorithm
     {
         NONE,
@@ -106,6 +162,11 @@ public class SwarmManager : MonoBehaviour
     // Called whenever a value is changed in the Inspector
     private void OnValidate()
     {
+        // Below ~3 the cohesion well is too shallow to hold the swarm together (see the tooltip),
+        // and with c_vm = 0 there is no velocity consensus to catch a drone that falls out of range.
+        // Clamped here rather than trusted to the inspector because the failure is irrecoverable.
+        if (r0CohRatio > 0.0f) r0CohRatio = Mathf.Max(r0CohRatio, 3.0f);
+
         // Trigger the event to notify all subscribed drones
         swarmParamsChanged?.Invoke();
 
@@ -144,6 +205,15 @@ public class SwarmManager : MonoBehaviour
     // Setter so the keyboard/joystick spread command is reflected in the inspector.
     public void SetDRef(float value) => d_ref = value;
     public float GetR0Coh() => r0_coh;
+
+    /// <summary>
+    /// The cohesion interaction range actually in force, in swarm units: a multiple of the live
+    /// d_ref while the hollow-core feature is on, the raw r0_coh otherwise. Mirrors
+    /// <see cref="OlfatiSaber.EffectiveR0Coh"/>, and exists so that consumers reasoning about how
+    /// far away is "still attached to the swarm" — DroneHealthMonitor — cannot go on using a range
+    /// the swarm itself has stopped using.
+    /// </summary>
+    public float GetEffectiveR0Coh() => (hollowSwarmCore && r0CohRatio > 0.0f) ? r0CohRatio * d_ref : r0_coh;
     public float GetDelta() => delta;
     public float GetA() => a;
     public float GetB() => b;
@@ -158,6 +228,16 @@ public class SwarmManager : MonoBehaviour
     public float GetMaxObstacleAccel() => maxObstacleAccel;
     public float GetDShield() => d_shield;
     public float GetScaleFactor() => scaleFactor;
+
+    // Getters for the hollow swarm core
+    public bool GetHollowSwarmCore() => hollowSwarmCore;
+    public float GetR0CohRatio() => r0CohRatio;
+    public float GetCoreRadiusFraction() => coreRadiusFraction;
+    public float GetCoreRadiusFilterTime() => coreRadiusFilterTime;
+    public float GetCCore() => c_core;
+    public float GetC2Core() => c2_core;
+    public float GetCoreStandoffRatio() => coreStandoffRatio;
+    public float GetMaxCoreAccel() => maxCoreAccel;
 
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;

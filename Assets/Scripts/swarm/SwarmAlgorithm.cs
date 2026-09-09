@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Mathematics;
-using UnityEditor.Rendering.LookDev;
 
 public class SwarmAlgorithm : MonoBehaviour
 {
@@ -110,6 +109,22 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.PlaneNormal = planeNormal;
             olfatiSaberAlgorithm.HasPlaneOffsetTarget = planeMode;
             olfatiSaberAlgorithm.PlaneOffsetTarget = planeOffsetTarget;
+
+            // The virtual core, from the one centroid definition, so every drone repels from the
+            // same virtual agent rather than from n slightly different ones.
+            //
+            // Never in plane mode: a wall wants filling, not hollowing, and a cylinder about the
+            // plane normal would blow the billboard open into an annulus. It is also unnecessary
+            // there -- every drone in a wall already sees the facade, which is why the planar
+            // stitcher and FORMATION_WALL both ignore the boundary flag outright.
+            bool coreOn = swarmManager.GetHollowSwarmCore()
+                       && !planeMode
+                       && plane != null && plane.HasSwarmAggregates
+                       && plane.CoreRadiusMetres > 0.0f;
+
+            olfatiSaberAlgorithm.CoreActive = coreOn;
+            olfatiSaberAlgorithm.CoreCentre = coreOn ? plane.SwarmCentroid : Vector3.zero;
+            olfatiSaberAlgorithm.CoreRadius = coreOn ? plane.CoreRadiusMetres : 0.0f;
         }
 
         // A vertical plane puts the formation's spread on the vertical axis, which the altitude-hold
@@ -284,6 +299,17 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.d_shield = swarmManager.GetDShield();
             olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();
 
+            // Hollow swarm core. HollowCore is the one switch: it gates both the shortened cohesion
+            // range (through OlfatiSaber.EffectiveR0Coh) and, with ApplyPlaneConstraint's per-tick
+            // CoreActive, the core force itself. The gains ride the swarmParamsChanged path because
+            // they are configuration; the centroid and radius ride the per-tick path because they
+            // are state.
+            olfatiSaberAlgorithm.HollowCore = swarmManager.GetHollowSwarmCore();
+            olfatiSaberAlgorithm.r0CohRatio = swarmManager.GetR0CohRatio();
+            olfatiSaberAlgorithm.c_core = swarmManager.GetCCore();
+            olfatiSaberAlgorithm.c2_core = swarmManager.GetC2Core();
+            olfatiSaberAlgorithm.coreStandoffRatio = swarmManager.GetCoreStandoffRatio();
+
             // Bound the obstacle force by what this drone can actually produce. Beyond the tilt
             // budget the extra demand does not move the drone any faster -- VelocityControl clamps
             // the pilot + swarm *sum* -- it only crowds the pilot's command out of that sum. Tying
@@ -298,18 +324,17 @@ public class SwarmAlgorithm : MonoBehaviour
             }
             olfatiSaberAlgorithm.MaxObstacleAccel =
                 Mathf.Min(swarmManager.GetMaxObstacleAccel(), tiltBudget);
+
+            // The core gets the same clamp for the same reason. It normally sits well under the
+            // budget -- that gap is what makes a building outrank it -- but a drone configured with
+            // a low tilt limit must not have the core demanding more than it can produce.
+            olfatiSaberAlgorithm.MaxCoreAccel =
+                Mathf.Min(swarmManager.GetMaxCoreAccel(), tiltBudget);
         }
     }
 
 
-    public Vector3 GetSwarmCenter()
-    {
-        Vector3 center = Vector3.zero;
-        foreach (GameObject drone in swarm)
-        {
-            center += drone.transform.position;
-        }
-        center /= swarm.Count;
-        return center;
-    }
+    // GetSwarmCenter() used to live here. It averaged the drone *root* transforms, which never move
+    // (swarmSpawn only ever moves the DroneParent child), so it returned a constant. Nothing called
+    // it. The swarm centroid now has exactly one definition, SwarmPlaneController.SwarmCentroid.
 }

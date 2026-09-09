@@ -21,6 +21,34 @@ public class OlfatiSaber : MonoBehaviour
     public float PlaneOffsetTarget = 0.0f;
     public float d_ref = 7.0f;
     public float r0_coh = 150.0f;
+
+    // ---- Hollow swarm core ---------------------------------------------------------------------
+    // One flag turns the whole feature on. Off, every member below is inert and this component
+    // behaves exactly as it did before it existed. Pushed from SwarmManager.hollowSwarmCore.
+    [HideInInspector] public bool HollowCore = false;
+
+    // OPTIONAL, 0 = off. r0_coh expressed as a multiple of the *live* d_ref rather than as an
+    // absolute, so the spread stick cannot change the shape of the cohesion well -- only its scale.
+    // (d_ref is rewritten every tick by that stick while r0_coh is only pushed on OnValidate, and
+    // the keyboard spread range alone sweeps the ratio from 20 down to 1, where cohesion vanishes.)
+    //
+    // It does NOT help the hull count, which is why it is off by default. Relaxing this force law
+    // over the range 18.5 -> 5 leaves the equilibrium unchanged at 9 of 10 drones on the hull with
+    // spacing 0.50 * d_ref; 4 makes it worse and 3 disperses the swarm. The virtual core does the
+    // whole job on its own, and does it just as well at 18.5 as at 6.
+    //
+    // Note this is NOT the paper's r/d ~ 1.2. GetCohesionForce returns the gradient of the
+    // collective potential, (1/r0)*rho'*psi + rho^2*phi, where the paper's protocol is rho_h*phi and
+    // never differentiates the bump; GetNeighbourWeight squares rho_h on top of that. At a ratio of
+    // 1.2 the peak attraction those three differences leave is 1.6e-4 against a short-range
+    // repulsion of -1.11, i.e. no cohesion, and with c_vm = 0 nothing else holds the swarm together.
+    public float r0CohRatio = 0.0f;
+
+    /// <summary>
+    /// The cohesion interaction range actually in force this tick, in swarm units.
+    /// </summary>
+    public float EffectiveR0Coh => (HollowCore && r0CohRatio > 0.0f) ? r0CohRatio * d_ref : r0_coh;
+
     public float delta = 0.1f;
     public float a = 0.9f;
     public float b = 1.5f;
@@ -69,6 +97,49 @@ public class OlfatiSaber : MonoBehaviour
 
     public float MaxMigrationDistance = 10.0f;
 
+    // ---- Virtual swarm core (beta-agent) -------------------------------------------------------
+    // A virtual cylinder standing at the swarm centroid, run through the *existing* beta-agent
+    // machinery rather than through a new force law: it is Olfati-Saber's own obstacle construct
+    // applied to a virtual obstacle. The alpha-lattice holds the drones together, this keeps them
+    // off the middle, and the equilibrium is an annulus about one lattice spacing thick -- so
+    // nearly every drone is a convex-hull vertex and therefore has its feed shown to the pilot.
+    //
+    // The swarm still deforms freely around buildings: this loses to a real obstacle twice over,
+    // by a lower ceiling and by the explicit fade in GetCoreForce.
+    //
+    // The core sits *inside* the formation, not around it: a beta-agent only has a gradient outside
+    // its cylinder (MakeCylinderFrame clamps the surface distance at zero), so a core big enough to
+    // enclose the swarm puts every drone in a flat dead zone where nothing tells them which way is
+    // out. SwarmPlaneController.UpdateCoreRadius sizes it from the swarm's measured radius for that
+    // reason -- see the long note there.
+    //
+    // CoreActive/CoreCentre/CoreRadius are pushed every tick by SwarmAlgorithm.ApplyPlaneConstraint
+    // from the one centroid definition (SwarmPlaneController), so every drone repels from the same
+    // virtual agent. Hidden because they are state, not settings.
+    [HideInInspector] public bool CoreActive = false;
+    [HideInInspector] public Vector3 CoreCentre = Vector3.zero;   // world metres
+    [HideInInspector] public float CoreRadius = 0.0f;             // world metres
+
+    // Core standoff as a multiple of the live d_ref, in swarm units. Deliberately not d_obs: that
+    // is sized to the surface of a building (0.4 = 4 m), whereas the core wants a standoff on the
+    // order of the lattice spacing so the annulus comes out one cell thick and the gradient is felt
+    // across a whole ring cell. Tying it to d_ref also makes it follow the spread stick.
+    public float coreStandoffRatio = 0.5f;
+
+    // Core repulsion gain. Inert while CoreActive is false.
+    public float c_core = 1.5f;
+
+    // Core beta velocity-match gain, s^-1. Worth keeping: vel_obs removes only the *radial*
+    // component and mu -> 1 near the surface, so travel along the ring is untouched while radial
+    // overshoot is damped. Without it the core is conservative and a drone pushed out springs back
+    // in -- the same rebound documented on c2_beta above -- and the ring breathes.
+    public float c2_core = 1.6f;
+
+    // The core's OWN ceiling, m/s^2, deliberately not MaxObstacleAccel's. Keeping it well under the
+    // obstacle ceiling is what guarantees a building wins the argument where the two oppose; sharing
+    // one saturation would let a strong core suppress a building's repulsion, which is a crash.
+    public float MaxCoreAccel = 2.0f;
+
     private string droneName;
     private VelocityControl selfVelocityControl;
     private int obstacleLayerMask;
@@ -83,6 +154,12 @@ public class OlfatiSaber : MonoBehaviour
     // and VelocityControl is undefined, so these may be one tick (20 ms, ~0.19 m at cruise) stale.
     private readonly List<ObstacleFrame> shieldFrames = new List<ObstacleFrame>();
     private bool hasWarnedBufferFull = false;
+
+    // How deep inside the obstacle field this drone was on the last GetObstacleForce: the largest
+    // rho_h bump over the obstacles in range, 0 clear of them and 1 at a surface. Kept separately
+    // from shieldFrames because that list is only filled when the pilot shield is enabled, and the
+    // core's deference to buildings must not quietly depend on an unrelated setting being on.
+    private float lastObstacleProximity = 0.0f;
 
     private const string k_ObstacleLayerName = "Obstacle";
 
@@ -154,7 +231,7 @@ public class OlfatiSaber : MonoBehaviour
             float distance = relativePosition.magnitude / ScaleFactor;
 
             // Cohesion
-            cohesion += GetCohesionForce(distance, d_ref, r0_coh) * relativePosition.normalized;
+            cohesion += GetCohesionForce(distance, d_ref, EffectiveR0Coh) * relativePosition.normalized;
         }
 
         // In constrained mode, correct drift off the plane. The target offset along the normal is the
@@ -170,9 +247,58 @@ public class OlfatiSaber : MonoBehaviour
             planeCorrection = c_plane * (targetOffset - Vector3.Dot(position, PlaneNormal)) * PlaneNormal;
         }
 
+        // Must run before GetCoreForce: it is what measures lastObstacleProximity, which the core
+        // reads to fade itself out near a building rather than running a second overlap query.
         obstacle = GetObstacleForce(position, velocity);
+        Vector3 core = GetCoreForce(position, velocity);
 
-        return velocityConsensus + cohesion + obstacle + planeCorrection;
+        return velocityConsensus + cohesion + obstacle + core + planeCorrection;
+    }
+
+    /// <summary>
+    /// Repulsion from the virtual cylinder at the swarm centroid — the term that hollows the middle
+    /// of the swarm so that nearly every drone ends up on the convex hull, and therefore on screen.
+    /// Returns exactly zero unless the feature is switched on, so the sum above is bit-identical to
+    /// what it was before the core existed.
+    /// </summary>
+    private Vector3 GetCoreForce(Vector3 dronePosition, Vector3 droneVelocity)
+    {
+        if (!CoreActive || CoreRadius <= 0.0f || c_core <= 0.0f)
+            return Vector3.zero;
+
+        float standoff = Mathf.Max(coreStandoffRatio * d_ref, 1e-3f);
+
+        // Axis along the plane normal — world up in horizontal mode, so `outward` is horizontal and
+        // the core contributes exactly nothing vertically and cannot fight altitude hold. The
+        // cylinder is infinite along its axis (axisHalfHeight is never read by the contribution),
+        // which is what we want: a drone above the swarm is still in the middle of it.
+        //
+        // transform.forward as the on-axis fallback: a drone at the centroid must be pushed *out*,
+        // not skipped, and giving each drone its own direction stops two of them stacking.
+        ObstacleFrame frame = MakeCylinderFrame(CoreCentre, PlaneNormal, CoreRadius,
+                                                float.PositiveInfinity, dronePosition,
+                                                ScaleFactor, transform.forward);
+        if (!frame.valid)
+            return Vector3.zero;
+
+        GetObstacleContribution(frame, droneVelocity, standoff,
+                                out Vector3 repulsion, out Vector3 velocityMatch);
+
+        Vector3 force = c_core * repulsion + c2_core * velocityMatch;
+
+        // A building always wins: fade the core out over the same rho_h bump the obstacle field uses,
+        // so a drone being pushed off a facade is not simultaneously being pushed back onto it. The
+        // proximity was measured by GetObstacleForce in this same call, so it costs no extra query.
+        //
+        // This is the second of the two guarantees; the first is that MaxCoreAccel sits below
+        // MaxObstacleAccel. Either alone would do, and having both means neither has to be trusted.
+        force *= (1.0f - lastObstacleProximity);
+
+        // Same smooth sigma_1 saturation as the obstacle field, against its own lower ceiling.
+        if (MaxCoreAccel > 0.0f)
+            force /= Mathf.Sqrt(1.0f + force.sqrMagnitude / (MaxCoreAccel * MaxCoreAccel));
+
+        return force;
     }
 
     // Geometry of one obstacle as seen from a drone, in the cylindrical form of Olfati-Saber's
@@ -240,17 +366,67 @@ public class OlfatiSaber : MonoBehaviour
     public static ObstacleFrame ComputeObstacleFrame(Collider obstacleCollider, Vector3 dronePosition,
                                                      Vector3 cylinderAxis, float scaleFactor)
     {
-        ObstacleFrame frame = new ObstacleFrame();
-
         GetObstacleCylinder(obstacleCollider, cylinderAxis,
-                            out frame.axisCentre, out frame.axis, out frame.radius, out frame.axisHalfHeight);
+                            out Vector3 centre, out Vector3 axis, out float radius, out float halfHeight);
+
+        // Vector3.zero for the fallback keeps the on-axis case invalid, which is this path's
+        // long-standing behaviour: a building's axis is inside the building, so a drone that reaches
+        // it has already crashed and there is nothing useful to push it along.
+        return MakeCylinderFrame(centre, axis, radius, halfHeight, dronePosition, scaleFactor,
+                                 Vector3.zero);
+    }
+
+    /// <summary>
+    /// The beta-agent frame for an arbitrary cylinder, with no Collider to fit it to. Shared by the
+    /// obstacle path (through <see cref="ComputeObstacleFrame"/>) and by the virtual swarm core, so
+    /// the two go through one piece of geometry rather than two that have to be kept agreeing.
+    /// </summary>
+    /// <param name="fallbackOutward">
+    /// Which way to push a drone sitting on the axis, where the geometry defines no radial direction.
+    /// <c>Vector3.zero</c> asks for the invalid frame instead, which is what the collider path wants.
+    /// The virtual core passes the drone's own forward: there a real direction is required, because
+    /// the swarm centroid is a place a drone can legitimately be and must be pushed out of, and a
+    /// per-drone distinct one, so two drones both at the centroid do not leave along the same ray.
+    /// </param>
+    public static ObstacleFrame MakeCylinderFrame(Vector3 centre, Vector3 axis, float radius,
+                                                  float halfHeight, Vector3 dronePosition,
+                                                  float scaleFactor, Vector3 fallbackOutward)
+    {
+        ObstacleFrame frame = new ObstacleFrame();
+        frame.axisCentre = centre;
+        // Normalised only when it needs to be: GetObstacleCylinder already returns a unit axis, and
+        // re-normalising it would perturb the low bits of every obstacle frame in the scene.
+        frame.axis = Mathf.Abs(axis.sqrMagnitude - 1.0f) < 1e-6f
+            ? axis
+            : (axis.sqrMagnitude > 1e-8f ? axis.normalized : Vector3.up);
+        frame.radius = radius;
+        frame.axisHalfHeight = halfHeight;
 
         // Foot of the drone on the axis, and the radial direction out from it.
         Vector3 fromCentre = dronePosition - frame.axisCentre;
         Vector3 radial = fromCentre - frame.axis * Vector3.Dot(fromCentre, frame.axis);
         float rho = radial.magnitude;
         if (rho < 1e-4f)
-            return frame;   // sitting on the axis: no radial direction is defined
+        {
+            // Sitting on the axis: no radial direction is defined.
+            if (fallbackOutward.sqrMagnitude < 1e-8f)
+                return frame;
+
+            Vector3 outward = fallbackOutward - frame.axis * Vector3.Dot(fallbackOutward, frame.axis);
+            if (outward.sqrMagnitude < 1e-8f)
+            {
+                // The fallback was parallel to the axis and left nothing behind; any perpendicular
+                // will do, and this is the one the rest of the codebase would have picked.
+                SwarmPlaneController.PlaneAxesFromNormal(frame.axis, out outward, out _);
+            }
+
+            frame.valid = true;
+            frame.outward = outward.normalized;
+            frame.tangent = Vector3.Cross(frame.axis, frame.outward);
+            frame.mu = 1.0f;              // at the axis the drone is as deep inside as it can get
+            frame.distance = 0.0f;
+            return frame;
+        }
 
         frame.valid = true;
         frame.outward = radial / rho;
@@ -270,6 +446,17 @@ public class OlfatiSaber : MonoBehaviour
     public void GetObstacleContribution(ObstacleFrame frame, Vector3 droneVelocity,
                                         out Vector3 repulsion, out Vector3 velocityMatch)
     {
+        GetObstacleContribution(frame, droneVelocity, d_obs, out repulsion, out velocityMatch);
+    }
+
+    /// <summary>
+    /// As above, against an explicit standoff rather than <see cref="d_obs"/>. The virtual swarm core
+    /// needs its own: d_obs is sized to the surface of a building, while the core wants a standoff
+    /// comparable to the lattice spacing so the annulus comes out one cell thick.
+    /// </summary>
+    public void GetObstacleContribution(ObstacleFrame frame, Vector3 droneVelocity, float standoff,
+                                        out Vector3 repulsion, out Vector3 velocityMatch)
+    {
         // Beta-agent velocity p-hat: the radial component is removed outright, the circumferential
         // one survives scaled by mu, and motion along the axis passes through. c2_beta * (p-hat - p)
         // therefore cancels exactly the approach speed. It still opposes a fraction (1 - mu) of the
@@ -284,12 +471,12 @@ public class OlfatiSaber : MonoBehaviour
                         + frame.mu * frame.tangent * Vector3.Dot(droneVelocity, frame.tangent);
 
         // phi_beta is <= 0 and -outward points at the obstacle, so the product pushes away.
-        repulsion = GetObstacleRepulsion(frame.distance) * (-frame.outward);
+        repulsion = GetObstacleRepulsion(frame.distance, standoff) * (-frame.outward);
 
         // Gated by the same rho_h bump as the repulsion. Ungated, this term arrived at full strength
         // the instant a drone crossed the r0_obs query radius -- a discontinuous brake of nearly
         // -c2_beta * v applied at the point of *least* danger.
-        velocityMatch = GetBetaBump(frame.distance, d_obs) * (vel_obs - droneVelocity);
+        velocityMatch = GetBetaBump(frame.distance, standoff) * (vel_obs - droneVelocity);
     }
 
     // Public so the debug gizmos can draw the true resulting force rather than recomputing it.
@@ -299,6 +486,7 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 ObsVel = Vector3.zero;
 
         shieldFrames.Clear();
+        lastObstacleProximity = 0.0f;
 
         int obstacleCount = Physics.OverlapSphereNonAlloc(dronePosition, r0_obs * ScaleFactor, overlapBuffer, obstacleLayerMask);
         if (obstacleCount == overlapBuffer.Length && !hasWarnedBufferFull)
@@ -318,6 +506,9 @@ public class OlfatiSaber : MonoBehaviour
 
             if (d_shield > 0.0f && frame.distance < d_shield)
                 shieldFrames.Add(frame);
+
+            lastObstacleProximity = Mathf.Max(lastObstacleProximity,
+                                              GetBetaBump(frame.distance, d_obs));
 
             GetObstacleContribution(frame, droneVelocity, out Vector3 repulsion, out Vector3 velocityMatch);
             ObsCoh += repulsion;
@@ -376,7 +567,7 @@ public class OlfatiSaber : MonoBehaviour
     {
         // Use default values if parameters are not provided
         if (ref_d == -1) ref_d = d_ref;
-        if (r0 == -1) r0 = r0_coh;
+        if (r0 == -1) r0 = EffectiveR0Coh;
 
         float neighbourWeightDerivative = GetNeighbourWeightDerivative(r, r0);
         float cohesionIntensity = GetCohesionIntensity(r, ref_d);
@@ -418,7 +609,13 @@ public class OlfatiSaber : MonoBehaviour
     // Always ≤ 0 (pushes the drone away from the obstacle) and exactly 0 for r ≥ d_obs.
     public float GetObstacleRepulsion(float r)
     {
-        return GetBetaBump(r, d_obs) * (Sigma1(r - d_obs) - 1.0f);
+        return GetObstacleRepulsion(r, d_obs);
+    }
+
+    /// <summary>As above, against an explicit standoff (see the virtual swarm core).</summary>
+    public float GetObstacleRepulsion(float r, float standoff)
+    {
+        return GetBetaBump(r, standoff) * (Sigma1(r - standoff) - 1.0f);
     }
 
     // Cohesion intensity function
@@ -447,7 +644,7 @@ public class OlfatiSaber : MonoBehaviour
     {
 
         // Use default value if r0 is not provided
-        if (r0 == -1) r0 = r0_coh;
+        if (r0 == -1) r0 = EffectiveR0Coh;
 
         float r_ratio = r / r0;
 
@@ -470,7 +667,7 @@ public class OlfatiSaber : MonoBehaviour
     float GetNeighbourWeightDerivative(float r, float r0=-1)
     {
         // Use default value if r0 is not provided
-        if (r0 == -1) r0 = r0_coh;
+        if (r0 == -1) r0 = EffectiveR0Coh;
 
         float r_ratio = r / r0;
 

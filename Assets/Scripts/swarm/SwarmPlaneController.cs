@@ -84,6 +84,13 @@ public class SwarmPlaneController : MonoBehaviour
     // Per-tick swarm aggregates, recomputed in FixedUpdate ahead of every drone's.
     private Vector3 swarmCentroid = Vector3.zero;
     private float swarmMeanYaw = 0.0f;
+    private float swarmMeanRadius = 0.0f;
+    private bool hasSwarmAggregates = false;
+
+    // Virtual core radius, in swarm units and then in world metres. Filtered; see UpdateCoreRadius.
+    private float coreRadiusFiltered = 0.0f;
+    private float coreRadiusMetres = 0.0f;
+    private bool coreRadiusSeeded = false;
 
     // Swarm roster. swarmSpawn owns the live list that every drone's SwarmAlgorithm and
     // AttitudeAlgorithm already share, so holding that reference tracks joins and losses for free.
@@ -119,6 +126,29 @@ public class SwarmPlaneController : MonoBehaviour
     /// drone provided, without making one drone the thing the wall is built around.
     /// </summary>
     public Vector3 PlaneOrigin => swarmCentroid;
+
+    /// <summary>
+    /// Whether the aggregates below were successfully recomputed this tick. False in a scene with no
+    /// swarm, and false whenever nothing is alive — callers must not read a stale centroid.
+    /// </summary>
+    public bool HasSwarmAggregates => hasSwarmAggregates;
+
+    /// <summary>
+    /// The swarm's centroid, in world space. The same quantity <see cref="PlaneOrigin"/> exposes for
+    /// the wall, named for the other use: it is where the virtual core stands. There is deliberately
+    /// only one definition of this in the codebase.
+    /// </summary>
+    public Vector3 SwarmCentroid => swarmCentroid;
+
+    /// <summary>Alive drones counted in the aggregates this tick.</summary>
+    public int AliveDroneCount => swarmDroneCount;
+
+    /// <summary>
+    /// Radius of the virtual core in world metres, or 0 when the hollow-core feature is off. Every
+    /// drone reads this one number, so the core stays a single shared virtual agent rather than n
+    /// slightly different ones — the same argument as <see cref="PlaneOrigin"/>.
+    /// </summary>
+    public float CoreRadiusMetres => coreRadiusMetres;
 
     /// <summary>
     /// Altitude the wall's vertical leash is measured against
@@ -277,11 +307,28 @@ public class SwarmPlaneController : MonoBehaviour
 
     void FixedUpdate()
     {
+        // With the hollow core off this is the old `if (!planeModeActive) return;` exactly: no
+        // aggregates, no EnsureRoster, and therefore no new per-tick cost in horizontal mode or in
+        // a real-drone scene, where this component exists but there is no swarm to measure.
+        bool wantCore = SwarmManager.Instance != null && SwarmManager.Instance.GetHollowSwarmCore();
+        if (!wantCore)
+        {
+            // Cleared here rather than only inside UpdateCoreRadius, which the return below skips:
+            // otherwise unticking the flag would leave CoreRadiusMetres reporting the last radius
+            // it had forever, and a stale radius is exactly the kind of thing a gizmo draws and a
+            // later reader believes.
+            ClearCoreRadius();
+        }
+        if (!wantCore && !planeModeActive) return;
+
+        hasSwarmAggregates = UpdateSwarmAggregates();
+        UpdateCoreRadius(wantCore);
+
         if (!planeModeActive) return;
 
         // Losing the whole swarm is the only way the plane can be lost now: no single drone holds it
         // up, so no single drone's death can take it down.
-        if (!UpdateSwarmAggregates())
+        if (!hasSwarmAggregates)
         {
             Debug.LogWarning("SwarmPlaneController: no alive drones left, reverting to horizontal swarming.");
             SetPlaneMode(false);
@@ -291,6 +338,70 @@ public class SwarmPlaneController : MonoBehaviour
         IntegrateTargetYaw();
         planeNormal = YawToForward(planeYaw);
         IntegrateReferenceAltitude();
+    }
+
+    /// <summary>
+    /// Radius of the virtual core the swarm is hollowed around, in world metres: a fraction of how
+    /// big the formation measurably is right now.
+    ///
+    /// <para><b>The core must sit inside the swarm, not around it.</b> A beta-agent only has a
+    /// gradient <i>outside</i> its cylinder — <see cref="OlfatiSaber.MakeCylinderFrame"/> clamps the
+    /// surface distance at zero, so every drone within the radius feels the same flat outward push
+    /// with nothing telling it which way is further out. Sizing the core to the ring the drones are
+    /// meant to end up on puts the whole swarm in exactly that dead zone, and the result is
+    /// bistable: below a gain threshold nothing happens at all, above it the swarm escapes the core
+    /// entirely and then keeps going. Relaxing the coded force law confirms both halves — at
+    /// N * d_ref / 2pi the swarm stays compact at 8 of 10 on the hull, which is *worse* than leaving
+    /// the feature off, while at a radius comfortably inside the formation every drone lands on the
+    /// hull with no radial spread at all.</para>
+    ///
+    /// <para>Taken from the measured radius rather than predicted from d_ref because the prediction
+    /// was what got this wrong: the swarm's equilibrium spacing under this force law is about half
+    /// of d_ref, so a radius derived from the commanded spacing lands roughly twice as far out as
+    /// the drones ever go. The measurement needs no such assumption, and it follows fleet size, the
+    /// spread stick and obstacle deformation for free. The feedback is heavily damped — moving the
+    /// core over its whole useful range shifts the ring by about a fifth as much, so at a fraction
+    /// of 0.5 the loop gain is near 0.12 — and the filter below damps it further.</para>
+    /// </summary>
+    private void UpdateCoreRadius(bool wantCore)
+    {
+        if (!wantCore || !hasSwarmAggregates || swarmDroneCount <= 0 || SwarmManager.Instance == null)
+        {
+            ClearCoreRadius();
+            return;
+        }
+
+        SwarmManager manager = SwarmManager.Instance;
+        float target = manager.GetCoreRadiusFraction() * swarmMeanRadius;
+
+        float filterTime = manager.GetCoreRadiusFilterTime();
+        if (!coreRadiusSeeded || filterTime <= 0.0f)
+        {
+            // Seeded, not ramped: entering the mode (or re-entering it after plane mode) must not
+            // spend the filter's time constant with the core at the wrong size.
+            coreRadiusFiltered = target;
+            coreRadiusSeeded = true;
+        }
+        else
+        {
+            float alpha = 1.0f - Mathf.Exp(-Time.fixedDeltaTime / filterTime);
+            coreRadiusFiltered += alpha * (target - coreRadiusFiltered);
+        }
+
+        // Already metres: swarmMeanRadius is a world-space distance.
+        coreRadiusMetres = coreRadiusFiltered;
+    }
+
+    /// <summary>
+    /// Retires the core radius so no reader can see a value left over from when it was on. Clearing
+    /// the seed with it is what makes the next enable snap to the right size instead of easing up
+    /// to it from zero.
+    /// </summary>
+    private void ClearCoreRadius()
+    {
+        coreRadiusFiltered = 0.0f;
+        coreRadiusMetres = 0.0f;
+        coreRadiusSeeded = false;
     }
 
     public void TogglePlaneMode() => SetPlaneMode(!planeModeActive);
@@ -306,7 +417,8 @@ public class SwarmPlaneController : MonoBehaviour
 
         if (active)
         {
-            if (!UpdateSwarmAggregates())
+            hasSwarmAggregates = UpdateSwarmAggregates();
+            if (!hasSwarmAggregates)
             {
                 Debug.LogWarning("SwarmPlaneController: no alive drones found, staying in horizontal swarming.");
                 return;
@@ -428,6 +540,18 @@ public class SwarmPlaneController : MonoBehaviour
 
         swarmCentroid = positionSum / count;
         swarmMeanYaw = Mathf.Atan2(sumSin, sumCos);
+
+        // Mean distance from the centroid — how big the formation actually is right now. Needed as
+        // a second pass because it is measured against the centroid the first pass produces.
+        float radiusSum = 0.0f;
+        foreach (GameObject drone in roster)
+        {
+            if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
+            VelocityControl droneControl = entry.velocityControl;
+            if (droneControl == null || droneControl.State == null || !droneControl.State.IsAlive) continue;
+            radiusSum += Vector3.Distance(entry.droneParent.position, swarmCentroid);
+        }
+        swarmMeanRadius = radiusSum / count;
         return true;
     }
 
@@ -439,6 +563,13 @@ public class SwarmPlaneController : MonoBehaviour
     private void EnsureRoster()
     {
         if (rosterIsShared) return;
+
+        // No swarm algorithm means no swarm to find. Without this the rate-limited FindObjectOfType
+        // below retries forever in the real-drone scenes, which have no swarmSpawn at all and which
+        // this component now reaches, since SwarmManager is DontDestroyOnLoad.
+        if (SwarmManager.Instance == null
+            || SwarmManager.Instance.swarmAlgorithm == SwarmManager.SwarmAlgorithm.NONE) return;
+
         if (roster != null && Time.time - lastRosterScan < RosterRescanInterval) return;
         lastRosterScan = Time.time;
 
