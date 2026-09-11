@@ -23,6 +23,24 @@ public class AttitudeAlgorithm : MonoBehaviour
              "setpoint steady while the hull deforms during manoeuvres; 0 = no smoothing.")]
     public float TargetHeadingFilterTime = 0.3f;
 
+    [Header("Fast ejection when the swarm closes over a drone")]
+    [Tooltip("Predicted depth inside the hull at which ejection runs at the full speedup below, as " +
+             "a multiple of the live Olfati-Saber d_ref, in swarm units. 0.25 d_ref is half the " +
+             "swarm's equilibrium spacing (which settles at about 0.5 d_ref), i.e. the point where " +
+             "a neighbour has clearly got outside this drone. Smaller = quicker to give up.")]
+    public float BoundaryDepthRatio = 0.25f;
+    [Tooltip("Seconds of look-ahead applied to how fast the drone is being swallowed. This is what " +
+             "catches a drone blocked by an obstacle while its neighbours stream past it: the drone " +
+             "itself is stationary, so its depth is still small and only the rate the hull sweeps " +
+             "over it is large. 0 = react to depth alone.")]
+    public float BoundaryDepthLeadTime = 0.8f;
+    [Tooltip("Time constant (s) of the low-pass on the swallow rate. The hull's vertex set changes " +
+             "discretely, so the raw derivative steps whenever a neighbour joins or leaves it.")]
+    public float BoundaryDepthRateFilterTime = 0.1f;
+    [Tooltip("Ceiling on that accrual rate, i.e. the most the hysteresis may be shortened by. " +
+             "5 turns a 0.5 s debounce into a 0.1 s floor. 1 restores the plain fixed hysteresis.")]
+    public float BoundaryMaxEjectSpeedup = 5.0f;
+
     private string droneName;
     private SwarmManager swarmManager;
     private SwarmManager.AttitudeAlgorithm selectedAttitudeAlgorithm;
@@ -34,6 +52,17 @@ public class AttitudeAlgorithm : MonoBehaviour
     private float targetHeading = 0.0f;
     private bool hasTargetHeading = false;
     private bool wasPlaneMode = false;
+
+    // How deep inside the hull this drone currently sits, and how fast that depth is growing.
+    // Both are measured in the hull's own frame, which is the whole point: the drone this feature
+    // exists for is the one blocked by an obstacle while its neighbours fly past, and that drone is
+    // barely moving. Its own velocity says "not going inward"; the hull edge sweeping over it says
+    // otherwise. hasBoundaryDepth distinguishes "measured zero" from "no hull to measure against",
+    // so the first sample after a gap seeds the filter instead of being differenced against stale
+    // state from before it.
+    private float boundaryDepth = 0.0f;
+    private float boundaryDepthRate = 0.0f;
+    private bool hasBoundaryDepth = false;
 
     // Shared global hull: every drone would otherwise rebuild the identical
     // full-swarm hull every tick (O(n² log n) total). The first drone whose
@@ -81,6 +110,19 @@ public class AttitudeAlgorithm : MonoBehaviour
     /// treat it as read-only, it is rebuilt every tick.
     /// </summary>
     public static IList<Vector2> SharedHull => sharedGlobalHull;
+
+    /// <summary>
+    /// How far inside the swarm hull this drone currently sits, in metres. 0 while it is on the
+    /// boundary. Read-only; exposed for gizmos and diagnostics.
+    /// </summary>
+    public float BoundaryDepthM => boundaryDepth;
+
+    /// <summary>
+    /// How fast <see cref="BoundaryDepthM"/> is growing, in metres per second — the rate the swarm
+    /// is closing over this drone. Positive means being swallowed, negative means climbing back out
+    /// toward the rim. Read-only; exposed for gizmos and diagnostics.
+    /// </summary>
+    public float BoundarySwallowRate => boundaryDepthRate;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetSharedHullOnLoad()
@@ -182,6 +224,7 @@ public class AttitudeAlgorithm : MonoBehaviour
         boundaryTimer = 0.0f;
         BoundaryEstimate = false;
         hasTargetHeading = false;
+        ClearBoundaryDepth();
     }
 
     /// <summary>
@@ -234,6 +277,7 @@ public class AttitudeAlgorithm : MonoBehaviour
                      || selectedAttitudeAlgorithm == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
         if (!hullMode || swarm == null || swarm.Count == 0)
         {
+            ClearBoundaryDepth();
             UpdateBoundaryEstimate(false);
             return;
         }
@@ -241,11 +285,14 @@ public class AttitudeAlgorithm : MonoBehaviour
         EnsureSharedGlobalHull(swarm);
         if (sharedGlobalHull == null)
         {
+            ClearBoundaryDepth();
             UpdateBoundaryEstimate(false);
             return;
         }
 
-        UpdateBoundaryEstimate(sharedGlobalHull.Contains(ProjectForHull(transform.position)));
+        Vector2 planePosition = ProjectForHull(transform.position);
+        UpdateBoundaryDepth(sharedGlobalHull, planePosition);
+        UpdateBoundaryEstimate(sharedGlobalHull.Contains(planePosition));
     }
 
     /// <summary>
@@ -379,7 +426,9 @@ public class AttitudeAlgorithm : MonoBehaviour
         IList<Vector2> convexHull = ConvexHull.ComputeConvexHull(positions2D);
 
         Vector2 currentDronePosition = ProjectForHull(transform.position);
-        return getYawRateFromHull(convexHull, currentDronePosition);
+        // hullIsGlobal: false. Depth inside a four-point neighbour hull says little about how far
+        // into the *swarm* a drone has been pushed, so this mode keeps the plain fixed hysteresis.
+        return getYawRateFromHull(convexHull, currentDronePosition, false);
     }
 
     /// <summary>
@@ -409,12 +458,13 @@ public class AttitudeAlgorithm : MonoBehaviour
         // Everyone crashed (or filtered out): no hull to build.
         if (sharedGlobalHull == null)
         {
+            ClearBoundaryDepth();
             UpdateBoundaryEstimate(false);
             return 0.0f;
         }
 
         Vector2 currentDronePosition = ProjectForHull(transform.position);
-        return getYawRateFromHull(sharedGlobalHull, currentDronePosition);
+        return getYawRateFromHull(sharedGlobalHull, currentDronePosition, true);
     }
 
     /// <summary>
@@ -567,10 +617,23 @@ public class AttitudeAlgorithm : MonoBehaviour
     /// BoundaryEstimate says the drone is still a boundary drone — so a momentary hull dropout
     /// during a manoeuvre no longer zeroes the yaw command and lets the heading drift.
     /// </summary>
-    private float getYawRateFromHull(IList<Vector2> convexHull, Vector2 currentDronePosition)
+    private float getYawRateFromHull(IList<Vector2> convexHull, Vector2 currentDronePosition, bool hullIsGlobal)
     {
         // Check if the current drone is a vertex of the convex hull
         bool onHullNow = convexHull.Contains(currentDronePosition);
+
+        // Measure how far inside the swarm the drone is before debouncing: that is what lets a
+        // drone the formation has closed over be given up on faster than one grazing the rim. Only
+        // meaningful against the whole-swarm hull, so the local variant opts out rather than
+        // measuring depth inside a handful of neighbours.
+        if (hullIsGlobal)
+        {
+            UpdateBoundaryDepth(convexHull, currentDronePosition);
+        }
+        else
+        {
+            ClearBoundaryDepth();
+        }
 
         // Publish the (debounced) boundary flag used for display gating (panorama / OUTER_CIRCLE).
         UpdateBoundaryEstimate(onHullNow);
@@ -619,10 +682,163 @@ public class AttitudeAlgorithm : MonoBehaviour
     }
 
     /// <summary>
+    /// Tracks how deep inside <paramref name="convexHull"/> this drone sits and how fast that depth
+    /// is growing. Called every tick a hull exists — not only while the membership reading disagrees
+    /// — so the derivative stays continuous across the on-hull to off-hull transition, which is the
+    /// exact moment it has to be right.
+    /// </summary>
+    private void UpdateBoundaryDepth(IList<Vector2> convexHull, Vector2 currentDronePosition)
+    {
+        float depth = ConvexHull.DistanceInsideHull(convexHull, currentDronePosition);
+
+        if (!hasBoundaryDepth || Time.fixedDeltaTime <= 0.0f)
+        {
+            // First sample since a gap in the hull: seed the level and claim no rate rather than
+            // differencing against state from before the gap.
+            boundaryDepth = depth;
+            boundaryDepthRate = 0.0f;
+            hasBoundaryDepth = true;
+            return;
+        }
+
+        float rawRate = (depth - boundaryDepth) / Time.fixedDeltaTime;
+        boundaryDepth = depth;
+
+        if (BoundaryDepthRateFilterTime <= 0.0f)
+        {
+            boundaryDepthRate = rawRate;
+            return;
+        }
+
+        // Same frame-rate-independent low-pass the target heading uses. Needed here because the
+        // hull's vertex set changes discretely: a neighbour joining or leaving it steps the depth,
+        // and the raw derivative of a step is a spike that would eject a drone spuriously.
+        float alpha = 1.0f - Mathf.Exp(-Time.fixedDeltaTime / BoundaryDepthRateFilterTime);
+        boundaryDepthRate += alpha * (rawRate - boundaryDepthRate);
+    }
+
+    /// <summary>
+    /// Forgets the depth measurement. "No hull to measure against" is not the same reading as
+    /// "measured zero depth", and conflating them would hand the next real sample a bogus rate.
+    /// </summary>
+    private void ClearBoundaryDepth()
+    {
+        boundaryDepth = 0.0f;
+        boundaryDepthRate = 0.0f;
+        hasBoundaryDepth = false;
+    }
+
+    /// <summary>
+    /// How much faster than real time the boundary debounce should accrue evidence, given how badly
+    /// the current reading disagrees with the published flag.
+    ///
+    /// The plain fixed hysteresis is blind to the *size* of the disagreement: a drone shoved into
+    /// the middle of the formation by an obstacle and a drone that wobbled 5 cm off the rim both
+    /// take the full <see cref="BoundaryHysteresisTime"/>. This scales the accrual by a predicted
+    /// depth — where the drone will be a short lead time from now if the swarm keeps closing over
+    /// it — so the first case is given up on quickly and the second still isn't.
+    ///
+    /// The ramp is <b>quadratic</b> in that predicted depth and saturates at
+    /// <see cref="BoundaryDepthRatio"/>. Squaring keeps the toe flat so a shallow excursion is
+    /// nearly unaffected, and saturating means the knob names the depth at which the speedup is
+    /// *fully* applied rather than merely the depth that doubles it — under an unbounded linear ramp
+    /// the clamp sat four spacings out, where nothing ever reached it, and the rule did almost
+    /// nothing.
+    ///
+    /// <b>What the numbers actually are, measured against ScaledCityWorld's geometry</b> (169
+    /// buildings, obstacle cylinder radius 2.3–9.7 m; 10 drones at the 5.4 m equilibrium spacing;
+    /// scale 2.70 m). A swarm flying past a building is *not* the clean picture of one drone dipping
+    /// a few centimetres off an otherwise steady rim:
+    /// <list type="bullet">
+    /// <item>Ordinary cruise churn already takes drones 1.6–4.7 m inside the hull for 0.5–7.6 s at a
+    /// time. Off-hull episodes shorter than 0.5 s essentially do not occur, so the plain hysteresis
+    /// was already ejecting every one of them — the speedup changes when, not whether.</item>
+    /// <item>A building encounter looks much the same: peak depth 1.7–3.9 m. Depth alone therefore
+    /// does <i>not</i> separate "squeezing past a building" from "ordinary formation churn", and it
+    /// was never going to — both are a drone one lattice cell inside a ten-drone blob.</item>
+    /// <item>On a genuine swallow this lands at 0.24 s against the old fixed 0.50 s.</item>
+    /// </list>
+    ///
+    /// 0.25 is the most aggressive setting that still protects the marginal case. Dropping the
+    /// saturation to 0.20 d_ref reaches 0.21 s but stops protecting a slow 0.2 m creep off the rim,
+    /// and 0.15 also ejects a 0.2 m bob that returns within 0.4 s. That is a poor trade: the
+    /// encounters being shortened last 2.4–12.8 s, so the 30 ms on offer is about 1% of the episode,
+    /// bought by giving up the flicker margin this debounce exists for.
+    ///
+    /// <b>Known weak spot.</b> The rule helps least at the widest buildings, which is the opposite of
+    /// what intuition suggests. At a 19.4 m cylinder a ten-drone swarm (~16 m across) cannot split
+    /// around it: instead of flowing past and swallowing the blocked drone, the whole formation
+    /// stalls and piles up, and the encounter depths come out *shallower* (median peak 1.67 m) than
+    /// at a 13.5 m building (3.35 m), where it does split cleanly. Nothing here detects "the swarm
+    /// has stopped"; a pilot who wants the feeds culled in that case has to widen the formation.
+    ///
+    /// Three properties, all of which fall out rather than being special-cased:
+    /// <list type="bullet">
+    /// <item>Depth is 0 by construction whenever the drone <i>is</i> a hull vertex, so this returns
+    /// 1 on the rejoin direction. Rejoining the boundary still costs the full hysteresis and cannot
+    /// flicker — there is no branch on direction here and none should be added.</item>
+    /// <item>Clamping the predicted <i>depth</i> at zero (rather than clamping the rate) is what
+    /// makes retreat work: a drone climbing back out has a negative swallow rate, so its prediction
+    /// collapses to 0 and it gets the full unaccelerated hysteresis instead of being ejected on its
+    /// way back to the rim.</item>
+    /// <item>Scaling by the lattice spacing keeps the knob dimensionless, so it survives a change of
+    /// scene scale or swarm size without retuning.</item>
+    /// </list>
+    ///
+    /// That scale is the <b>commanded</b> spacing (Olfati-Saber's live <c>d_ref</c>), deliberately
+    /// not the measured mean nearest-neighbour separation. The measured figure co-varies with the
+    /// very thing being measured: a swarm squeezing past an obstacle compresses, which shrinks the
+    /// yardstick, which inflates <c>depth / scale</c> and ejects drones faster for reasons having
+    /// nothing to do with their own situation — and it does so in exactly the manoeuvre this rule
+    /// exists for. Measured on this scene's numbers (d_ref 1.08, scaleFactor 10), a formation
+    /// compressed to 60% of its equilibrium spacing drove the peak speedup from 2.2x to 4.4x and
+    /// halved the ejection time for a drone sitting at a constant depth. <c>d_ref</c> is a setpoint
+    /// and has no such feedback; it is also always available, where
+    /// <see cref="SharedMeanNearestNeighbourM"/> is only fresh on ticks a hull was built, and it
+    /// tracks the pilot's spread stick the moment it moves rather than after the swarm converges.
+    ///
+    /// The 0.25 default is that argument's one wrinkle: the swarm's equilibrium spacing settles at
+    /// about <i>half</i> d_ref (measured, and noted twice in <see cref="SwarmManager"/>), so a
+    /// distance meant to read as "half a neighbour spacing" is a quarter of d_ref, not a half. This
+    /// is the same reason <c>coreRadiusFraction</c> is measured rather than predicted from d_ref —
+    /// there the factor of two could not be folded into a constant because the core has to track
+    /// where the drones actually are, whereas a lattice cell is precisely what d_ref defines. Cf.
+    /// <c>coreStandoffRatio</c>, which is a multiple of the live d_ref for this same reason.
+    /// </summary>
+    private float BoundaryEjectSpeedup()
+    {
+        if (!hasBoundaryDepth || BoundaryMaxEjectSpeedup <= 1.0f)
+        {
+            return 1.0f;
+        }
+
+        if (swarmManager == null)
+        {
+            return 1.0f;
+        }
+
+        // d_ref is in swarm units; depth is in world metres, hence the scaleFactor.
+        float scale = BoundaryDepthRatio * swarmManager.GetDRef() * swarmManager.GetScaleFactor();
+        if (scale <= 0.0f)
+        {
+            return 1.0f;
+        }
+
+        float predictedDepth = Mathf.Max(0.0f, boundaryDepth + BoundaryDepthLeadTime * boundaryDepthRate);
+        float frac = Mathf.Clamp01(predictedDepth / scale);
+        return 1.0f + (BoundaryMaxEjectSpeedup - 1.0f) * frac * frac;
+    }
+
+    /// <summary>
     /// Symmetric debounce for <see cref="BoundaryEstimate"/>: a hull-membership reading that
     /// disagrees with the published flag must persist for <see cref="BoundaryHysteresisTime"/>
     /// before we commit the flip. Display gating (panorama / OUTER_CIRCLE) therefore stays stable
     /// even as a drone jitters across the hull edge.
+    ///
+    /// The wait is shortened — never lengthened — in proportion to how deep inside the swarm the
+    /// drone has been pushed; see <see cref="BoundaryEjectSpeedup"/>. That is a continuous scaling
+    /// of the existing timer rather than a second threshold, deliberately: a threshold would give
+    /// drones a new edge to dither across, which is the failure this debounce exists to prevent.
     /// </summary>
     private void UpdateBoundaryEstimate(bool onHullNow)
     {
@@ -632,7 +848,7 @@ public class AttitudeAlgorithm : MonoBehaviour
             return;
         }
 
-        boundaryTimer += Time.fixedDeltaTime;
+        boundaryTimer += Time.fixedDeltaTime * BoundaryEjectSpeedup();
         if (boundaryTimer >= BoundaryHysteresisTime)
         {
             BoundaryEstimate = onHullNow;
@@ -648,8 +864,11 @@ public class AttitudeAlgorithm : MonoBehaviour
         PointInwards = swarmManager.GetPointInwards();
 
         // Parameter/algorithm changes invalidate the held hull heading (e.g. PointInwards flips
-        // the goal 180 degrees); drop it so the next hull pass rebuilds it from scratch.
+        // the goal 180 degrees); drop it so the next hull pass rebuilds it from scratch. The depth
+        // measurement goes with it: switching attitude algorithm changes which hull it was taken
+        // against, so differencing across the switch would invent a swallow rate.
         hasTargetHeading = false;
+        ClearBoundaryDepth();
     }
 
     void OnDestroy()

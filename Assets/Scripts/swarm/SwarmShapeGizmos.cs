@@ -60,10 +60,36 @@ public class SwarmShapeGizmos : MonoBehaviour
         return null;
     }
 
+    /// <summary>
+    /// The drone currently being swallowed hardest by the formation, as (depth m, rate m/s). This
+    /// is the read-out for the fast-ejection rule: a drone blocked by an obstacle while the swarm
+    /// flows past it shows a small depth but a large rate, seconds before the depth itself is
+    /// notable, which is exactly the lead the rule is trading on.
+    /// </summary>
+    private static void DeepestSwallow(List<GameObject> swarm, out float depth, out float rate)
+    {
+        depth = 0f;
+        rate = 0f;
+        if (swarm == null) return;
+
+        foreach (GameObject drone in swarm)
+        {
+            if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
+            if (entry.attitude == null) continue;
+
+            VelocityControl vc = entry.velocityControl;
+            if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
+
+            depth = Mathf.Max(depth, entry.attitude.BoundaryDepthM);
+            rate = Mathf.Max(rate, entry.attitude.BoundarySwallowRate);
+        }
+    }
+
     void OnGUI()
     {
         if (!showReadout || !Application.isPlaying) return;
-        if (RefreshShape() == null) return;
+        List<GameObject> readoutSwarm = RefreshShape();
+        if (readoutSwarm == null) return;
 
         if (readoutStyle == null)
         {
@@ -88,6 +114,8 @@ public class SwarmShapeGizmos : MonoBehaviour
         // rather than against a number in swarm units.
         float commandedSpacingM = dRef * scale;
 
+        DeepestSwallow(readoutSwarm, out float swallowDepth, out float swallowRate);
+
         string text =
             $"Swarm shape{(hollow ? "   [hollow core ON]" : "")}\n" +
             $"alive        {AttitudeAlgorithm.SharedAliveCount}\n" +
@@ -98,9 +126,10 @@ public class SwarmShapeGizmos : MonoBehaviour
             $"(commanded {commandedSpacingM:F1})\n" +
             $"ring radius  {AttitudeAlgorithm.SharedRingRadiusM:F1} m\n" +
             $"core radius  {(plane != null ? plane.CoreRadiusMetres : 0f):F1} m\n" +
-            $"d_ref        {dRef:F2}   r0 {r0Eff:F2}   k {k:F1}";
+            $"d_ref        {dRef:F2}   r0 {r0Eff:F2}   k {k:F1}\n" +
+            $"swallowed    {swallowDepth:F1} m   at {swallowRate:+0.0;-0.0;0.0} m/s   (worst)";
 
-        GUI.Label(new Rect(readoutOrigin.x, readoutOrigin.y, 260f, 152f), text, readoutStyle);
+        GUI.Label(new Rect(readoutOrigin.x, readoutOrigin.y, 280f, 168f), text, readoutStyle);
     }
 
     void OnDrawGizmos()
@@ -164,9 +193,19 @@ public class SwarmShapeGizmos : MonoBehaviour
             if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
 
             bool boundary = entry.attitude != null && entry.attitude.BoundaryEstimate;
-            Gizmos.color = boundary
-                ? new Color(0.2f, 1.0f, 0.4f, 1.0f)
-                : new Color(0.55f, 0.55f, 0.55f, 1.0f);
+
+            // Amber marks a drone still counted as boundary but already being closed over — the
+            // window the fast-ejection rule shortens. Watching it is how you tell the rule fired
+            // early from the flag merely having timed out.
+            bool swallowing = boundary
+                           && entry.attitude != null
+                           && entry.attitude.BoundarySwallowRate > 0.05f;
+
+            Gizmos.color = swallowing
+                ? new Color(1.0f, 0.75f, 0.1f, 1.0f)
+                : boundary
+                    ? new Color(0.2f, 1.0f, 0.4f, 1.0f)
+                    : new Color(0.55f, 0.55f, 0.55f, 1.0f);
 
             Vector3 p = entry.droneParent.position;
             Gizmos.DrawLine(p, p + entry.droneParent.forward * headingRayLength);

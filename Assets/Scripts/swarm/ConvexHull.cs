@@ -86,6 +86,58 @@ public static class ConvexHull
         return pointInwards ? -bisector : bisector;
     }
 
+    /// <summary>
+    /// Distance from a point to the nearest hull edge — for a point inside the polygon, its depth
+    /// inside the hull. A hull vertex lies on two of the edges and so returns (near) zero, which is
+    /// what makes this usable as a measure of how badly a drone has left the boundary: exactly 0
+    /// while it is still on the rim, growing in metres as the swarm closes over it.
+    ///
+    /// Unsigned, deliberately. The only caller measures points that belong to the set the hull was
+    /// built from, so they cannot be outside it, and an unsigned minimum over the edge segments
+    /// needs no winding-order assumption about <paramref name="convexHull"/>.
+    ///
+    /// Fewer than three vertices is a degenerate hull — a point or a line, with no interior to be
+    /// deep inside — so the honest answer there is zero, matching how
+    /// <c>AttitudeAlgorithm.ComputeMaxHeadingGapDeg</c> treats the same case.
+    /// </summary>
+    public static float DistanceInsideHull(IList<Vector2> convexHull, Vector2 point)
+    {
+        if (convexHull == null || convexHull.Count < 3)
+        {
+            return 0.0f;
+        }
+
+        float nearest = float.PositiveInfinity;
+        for (int i = 0; i < convexHull.Count; i++)
+        {
+            Vector2 a = convexHull[i];
+            Vector2 b = convexHull[(i + 1) % convexHull.Count];
+            nearest = Mathf.Min(nearest, DistanceToSegment(point, a, b));
+        }
+
+        return float.IsPositiveInfinity(nearest) ? 0.0f : nearest;
+    }
+
+    /// <summary>
+    /// Shortest distance from a point to the segment ab. The projection is clamped to the segment,
+    /// so a point beyond either end measures to that endpoint rather than to the infinite line.
+    /// </summary>
+    private static float DistanceToSegment(Vector2 point, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a;
+        float lengthSq = ab.sqrMagnitude;
+
+        // Coincident endpoints: the "segment" is a point, so measure straight to it rather than
+        // dividing by zero.
+        if (lengthSq < 1e-12f)
+        {
+            return (point - a).magnitude;
+        }
+
+        float t = Mathf.Clamp01(Vector2.Dot(point - a, ab) / lengthSq);
+        return (point - (a + t * ab)).magnitude;
+    }
+
     private static Vector2 Sub(this Vector2 a, Vector2 b)
     {
         return a - b;
