@@ -15,7 +15,15 @@ public class AttitudeAlgorithm : MonoBehaviour
     public int NumDimensions = 2;
     public bool BoundaryEstimate = false;
     public bool PointInwards = false;
-    public float YawCorrectionFactor = 1.0f;
+    [Tooltip("Outer heading-hold gain (1/s) — this component is the analogue of the real fleet's " +
+             "PC-side heading_hold_rate, not of the aircraft's flight controller, which lives in " +
+             "VelocityControl.headingHoldKp. Matches the fleet's KP_YAW. Two caveats worth " +
+             "knowing: the fleet chose 0.8 (down from 1.5) because of a 0.15-0.5 s transport delay " +
+             "each way that the sim does not model, so this is a fidelity match for a reason that " +
+             "does not apply here — the principled move would be to model the delay. And it also " +
+             "preserves the plane-convergence feel: VelocityControl's heading hold removed the " +
+             "rate loop's DC droop, which would otherwise have made this loop faster than it was.")]
+    public float YawCorrectionFactor = 0.8f;
     public float NeighborYawSmoothingFactor = 0.1f;
     [Tooltip("Seconds the hull-membership reading must persist before BoundaryEstimate flips. Prevents feed flicker.")]
     public float BoundaryHysteresisTime = 0.5f;

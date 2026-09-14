@@ -105,6 +105,9 @@ public class ScreenSpawn : MonoBehaviour
     // Time constant (s) of the low-pass on the wall's azimuth and on each screen's glide
     // between cells. 0 = snap.
     [HideInInspector] public float formationWallSmoothTime = 0.15f;
+    // Time constant (s) of the low-pass on each screen's display heading, for the styles that place
+    // a screen at its own drone's yaw. Pushed from InterfaceManager. 0 = no filter.
+    [HideInInspector] public float displayYawSmoothTime = 0.1f;
 
     // FORMATION_MAP only: roll each feed so its imagery is map-aligned (see the roll derivation
     // in BuildFormationGridLayout). Off leaves every screen upright, which is tidier but shows
@@ -642,6 +645,9 @@ public class ScreenSpawn : MonoBehaviour
         // attitude algorithm.
         bool boundaryGate = IsBoundaryGateActive();
 
+        // Advance every display-yaw filter once, before anything reads one.
+        StepDisplayYawFilters();
+
         // The two grid styles are the ones whose placement is not a pure function of their own
         // drone — a cell index only means something relative to the rest of the visible set —
         // so the whole grid is solved once here, before any screen is placed.
@@ -674,7 +680,7 @@ public class ScreenSpawn : MonoBehaviour
                         HideScreen(screen);
                         break;
                     case ScreenStyle.OUTER_CIRCLE:
-                        UpdateOuterCircleScreen(screen, binding, boundaryGate);
+                        UpdateOuterCircleScreen(screen, binding, i, boundaryGate);
                         break;
                     case ScreenStyle.FORMATION_WALL:
                         UpdateFormationWallScreen(screen, i);
@@ -683,13 +689,13 @@ public class ScreenSpawn : MonoBehaviour
                         UpdateFormationMapScreen(screen, i);
                         break;
                     case ScreenStyle.INNER_CIRCLE:
-                        UpdateInnerCircleScreen(screen, binding);
+                        UpdateInnerCircleScreen(screen, i);
                         break;
                     case ScreenStyle.BOTTOM_CIRCLE:
-                        UpdateBottomCircleScreen(screen, binding);
+                        UpdateBottomCircleScreen(screen, i);
                         break;
                     case ScreenStyle.ROTATING_CIRCLE:
-                        UpdateRotatingCircleScreen(screen, binding);
+                        UpdateRotatingCircleScreen(screen, i);
                         break;
                 }
             }
@@ -749,7 +755,7 @@ public class ScreenSpawn : MonoBehaviour
             || algo == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
     }
 
-    private void UpdateOuterCircleScreen(GameObject screen, DroneScreenBinding binding, bool boundaryGate)
+    private void UpdateOuterCircleScreen(GameObject screen, DroneScreenBinding binding, int index, bool boundaryGate)
     {
         // Hide interior (non-boundary) drones — but only when an attitude hull
         // algorithm is actually computing BoundaryEstimate. Under attitude modes
@@ -762,8 +768,9 @@ public class ScreenSpawn : MonoBehaviour
             return;
         }
 
-        // Get the drone's yaw — a sim drone's StateFinder or a real aircraft's feed heading.
-        if (!TryGetDisplayYawRad(binding, out float radians) || arena == null)
+        // Get the drone's yaw — a sim drone's StateFinder or a real aircraft's feed heading, filtered
+        // so this screen's arc position stays in phase with the imagery it carries.
+        if (!TryGetDisplayYawRad(index, out float radians) || arena == null)
         {
             screen.SetActive(false);
             return;
@@ -827,6 +834,23 @@ public class ScreenSpawn : MonoBehaviour
     // Eased screen positions, so a cell swap glides instead of teleporting.
     private Vector3[] wallSmoothedPos = new Vector3[0];
     private bool[] wallSmoothedValid = new bool[0];
+
+    // --- Display-yaw filter ---------------------------------------------------------------------
+    // Parallel to `bindings`, for the same reason the wall's cell arrays are: DroneScreenBinding is
+    // a value type every accessor takes by copy, so per-binding state cannot live in it.
+    //
+    // What it fixes is a phase error, not just jitter. The circle styles place a screen at its own
+    // drone's yaw, read raw off a 50 Hz physics value that the Rigidbody does not interpolate, while
+    // the pixels inside that screen come from the FPV camera, which Slerps onto the same heading at
+    // FPVCameraScript.smoothSpeed. The screen therefore led its own picture by about that time
+    // constant, which is what makes a heading transient read as the screen sliding out from under
+    // its view rather than the two moving together.
+    private float[] displayYawFiltered = new float[0];
+    private bool[] displayYawValid = new bool[0];
+    // Frame the filters were last advanced on. UpdateScreenPositions is NOT called once per frame —
+    // Update() calls it, and so do SpawnScreens, SetScreenStyle and the stitch-hide setters — so an
+    // unguarded step would run two or three times in a frame and silently shorten the time constant.
+    private int displayYawFrame = -1;
 
     // FORMATION_MAP: per-screen roll in degrees about its own view axis, and the eased *cell*
     // offsets it glides through. The map eases in cell space rather than in world position
@@ -910,8 +934,18 @@ public class ScreenSpawn : MonoBehaviour
             // Guarded, unlike the older styles: a drone with no ranking key contributes no cell, so
             // it costs its own screen rather than the whole layout. That is a sim drone with no
             // VelocityControl, or a real feed whose producer had no fix.
+            //
+            // Deliberately the RAW heading, where the circle styles take the filtered one. Two
+            // independent reasons, both worth keeping: the grid styles never place a screen at a
+            // per-drone yaw at all — they place at wallAnchorAzimuth plus a cell offset — so the
+            // per-drone yaw only feeds the aggregate circular mean below and the tier-2 in-plane
+            // basis, where filtering changes no screen's position and can only perturb the
+            // aggregate. And that aggregate already has its own low-pass at formationWallSmoothTime,
+            // a tuned number; stacking the display filter upstream of it would lengthen the wall's
+            // swing by stealth. The tier-2 basis also has to agree with tier 1
+            // (SwarmPlaneController.GetPlaneAxes), which is an unfiltered setpoint.
             if (!TryGetSamplePosition(binding, out Vector3 samplePosition)
-                || !TryGetDisplayYawRad(binding, out float azimuth))
+                || !TryGetRawDisplayYawRad(binding, out float azimuth))
             {
                 continue;
             }
@@ -1286,7 +1320,7 @@ public class ScreenSpawn : MonoBehaviour
     // drone has no heading to place it by, in which case the caller hides the screen — the older
     // styles used to dereference velocityControl.State unguarded and would throw on a real feed,
     // which has no VelocityControl at all.
-    private bool TryGetDisplayYawRad(DroneScreenBinding binding, out float radians)
+    private bool TryGetRawDisplayYawRad(DroneScreenBinding binding, out float radians)
     {
         if (binding.IsRealFeed)
         {
@@ -1306,6 +1340,21 @@ public class ScreenSpawn : MonoBehaviour
             return false;
         }
         radians = -state.Angles.y;
+        return true;
+    }
+
+    // Filtered display yaw — what every style that places a screen AT its own drone's heading must
+    // use, so the screen and the imagery inside it move together (see the displayYawFiltered
+    // declaration). Takes an index rather than a binding because the filter state is parallel to
+    // `bindings`, and is a pure read: StepDisplayYawFilters advances it once per frame.
+    private bool TryGetDisplayYawRad(int index, out float radians)
+    {
+        if (index < 0 || index >= displayYawValid.Length || !displayYawValid[index])
+        {
+            radians = 0.0f;
+            return false;
+        }
+        radians = displayYawFiltered[index];
         return true;
     }
 
@@ -1429,6 +1478,75 @@ public class ScreenSpawn : MonoBehaviour
         }
     }
 
+    private void EnsureDisplayYawArrays()
+    {
+        if (displayYawValid.Length == bindings.Count)
+        {
+            return;
+        }
+
+        displayYawFiltered = new float[bindings.Count];
+        displayYawValid = new bool[bindings.Count];
+    }
+
+    /// <summary>
+    /// Advances every binding's display-yaw filter, once per frame, before anything is placed.
+    /// A dedicated pass rather than filtering inside the accessor, for two reasons: it matches the
+    /// "solve the whole layout, then place" shape the grid styles already use, and the accessors are
+    /// called a varying number of times per frame from a varying number of call sites, which would
+    /// make an accessor-side step advance at a rate nobody controls.
+    /// </summary>
+    private void StepDisplayYawFilters()
+    {
+        EnsureDisplayYawArrays();
+        if (displayYawFrame == Time.frameCount)
+        {
+            return;
+        }
+        displayYawFrame = Time.frameCount;
+
+        float alpha = DisplayYawSmoothAlpha();
+        for (int i = 0; i < bindings.Count; i++)
+        {
+            if (!TryGetRawDisplayYawRad(bindings[i], out float raw))
+            {
+                // Forget the level rather than holding it. "No heading to read" is not the same
+                // reading as "the heading has not changed" — a feed that drops out and comes back
+                // must re-seed, not sweep back from wherever it was when it went quiet.
+                displayYawValid[i] = false;
+                continue;
+            }
+
+            if (!displayYawValid[i] || alpha >= 1.0f)
+            {
+                // Seeded, not ramped: a screen must not fly in from azimuth 0 on the frame it first
+                // appears. Same rule as wallAnchorInitialised.
+                displayYawFiltered[i] = raw;
+                displayYawValid[i] = true;
+            }
+            else
+            {
+                // Circular, via the wrapped error: a plain lerp tears at the +/-pi seam, which is
+                // exactly where a drone on a northerly heading sits. Same construction as the wall's
+                // anchor azimuth and AttitudeAlgorithm's target-heading filter.
+                displayYawFiltered[i] = WrapPi(
+                    displayYawFiltered[i] + alpha * WrapPi(raw - displayYawFiltered[i]));
+            }
+        }
+    }
+
+    // Same convention and the same reasons as WallSmoothAlpha: frame-rate-independent, and snapping
+    // outside play mode, where deltaTime is not a meaningful step.
+    private float DisplayYawSmoothAlpha()
+    {
+        float dt = Time.deltaTime;
+        if (!Application.isPlaying || displayYawSmoothTime <= 0.0f || dt <= 0.0f)
+        {
+            return 1.0f;
+        }
+        return 1.0f - Mathf.Exp(-dt / displayYawSmoothTime);
+    }
+
     private static float WrapPi(float angle)
     {
         while (angle > Mathf.PI) angle -= 2f * Mathf.PI;
@@ -1436,9 +1554,9 @@ public class ScreenSpawn : MonoBehaviour
         return angle;
     }
 
-    private void UpdateInnerCircleScreen(GameObject screen, DroneScreenBinding binding)
+    private void UpdateInnerCircleScreen(GameObject screen, int index)
     {
-        if (!TryGetDisplayYawRad(binding, out float radians) || arena == null)
+        if (!TryGetDisplayYawRad(index, out float radians) || arena == null)
         {
             screen.SetActive(false);
             return;
@@ -1456,9 +1574,9 @@ public class ScreenSpawn : MonoBehaviour
     }
 
     // Update the bottom circle screen positions
-    private void UpdateBottomCircleScreen(GameObject screen, DroneScreenBinding binding)
+    private void UpdateBottomCircleScreen(GameObject screen, int index)
     {
-        if (!TryGetDisplayYawRad(binding, out float radians) || arena == null)
+        if (!TryGetDisplayYawRad(index, out float radians) || arena == null)
         {
             screen.SetActive(false);
             return;
@@ -1490,10 +1608,10 @@ public class ScreenSpawn : MonoBehaviour
         screen.SetActive(true);
     }
 
-    private void UpdateRotatingCircleScreen(GameObject screen, DroneScreenBinding binding)
+    private void UpdateRotatingCircleScreen(GameObject screen, int index)
     {
         if (cameraRig == null || arena == null
-            || !TryGetDisplayYawRad(binding, out float radians))
+            || !TryGetDisplayYawRad(index, out float radians))
         {
             screen.SetActive(false);
             return;

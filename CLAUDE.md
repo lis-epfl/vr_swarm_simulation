@@ -176,6 +176,9 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   target heading, so yaw proximity is a tie broken by jitter and the centre changes almost every frame.
   That matters because the scene-plane raycast originates at this camera and `PlanarStitcher` frames the
   canvas on it — a flickering centre both steps the published plane offset and slides the mosaic.
+  **A steadier heading is not grounds for reverting this to the yaw-proximity rule.** The argument is
+  structural, not about jitter: under a shared heading yaw proximity has no unique answer at all, and
+  it still has none however well `VelocityControl`'s heading hold holds the drones on it.
 - **Vertical-plane mode has no leader drone, and adding one back is a regression.** The plane's heading
   is a setpoint `SwarmPlaneController` owns (`TargetYaw`, seeded from the swarm's circular-mean heading
   on entry, then advanced only by the yaw stick), its offset along the normal is the swarm centroid
@@ -189,17 +192,78 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   compass. That drone turned at the full stick rate and the wall trailed it through the yaw filter, the
   inner rate loop and drag — one important drone and n−1 followers. Two consequences worth keeping:
   - **`maxTargetLeadDeg` (25°), not the stick gain, is what holds the headings together through a
-    turn.** `targetYawRateDegPerSec` (60) deliberately exceeds `maxYawRate` (≈57 °/s), exactly as the
-    fleet's ff 60 exceeds its 40 °/s clamp, so a full-stick turn is rate-saturated. Clamping how far
+    turn.** On the fleet, `YAW_RATE_DEG_S` (60) deliberately exceeds the PC's 40 °/s clamp, so a
+    full-stick turn is rate-saturated and the debt is guaranteed. **The sim does not reproduce that
+    clamp:** `maxYawRate` is the Mini 3 Pro airframe's 75 °/s (1.309 rad/s), *above*
+    `targetYawRateDegPerSec` (60), so here the debt comes only from the drones lagging the setpoint —
+    through every turn's entry, and indefinitely for a drone something is holding back. Clamping how far
     the setpoint may lead the swarm's *measured* mean heading is what stops a sustained turn banking up
     a heading debt the drones keep paying off after the stick is centred. The clamp acts only while the
     stick is deflected, so at centre stick the hold keeps full authority and a disturbance never drags
-    the setpoint along with the wall.
+    the setpoint along with the wall. There is now a **second** lead clamp one level down
+    (`VelocityControl.maxHeadingHoldErrorDeg`); the two do not fight, because this one bounds the
+    shared setpoint against the swarm *mean* and that one bounds each drone's own setpoint against its
+    own heading, and they meet only through the measured heading this clamp already tracks.
   - **The reference altitude is latched, not the live centroid.** A live centroid leaves the mean
     altitude a free mode: the leash would bound each drone's spread about the mean while the mean drifted
     on the net vertical bias the swarm forces carry (cohesion and the plane pull are zero-sum, ground
     repulsion is not). It tracks the climb stick at the rate read off the drones' own `maxAltitudeRate`,
     so the leash cannot clip a climb the pilot is commanding.
+- **The heading loop is a cascade, and `AttitudeAlgorithm` is the PC, not the flight controller.**
+  On the real fleet the PC sends a yaw *rate* (`YawControlMode.ANGULAR_VELOCITY`) and the DJI FC holds
+  heading off its own IMU whenever that rate is zero. `AttitudeAlgorithm` is the analogue of the PC's
+  `heading_hold_rate`; the FC's half lives in `VelocityControl` (`headingSetpoint`, `headingHoldKp`),
+  and until it was added there was **no heading loop at all** below the outer one — only a rate loop.
+  Anything that knocked the nose off heading came back at well over a second, which is what made every
+  screen on the ring slide whenever the pilot changed the velocity command. Worth keeping:
+  - **The order in `VelocityControl` is load-bearing.** `yawFilterCoefficient` is a command prefilter
+    on the *outer* rate and nothing downstream of it — the heading-hold P term is disturbance rejection
+    and is added after, unlagged. The setpoint integrates the **post**-filter rate, or it runs
+    permanently ahead by `τ_EMA × rate` and owes all of it back at stick release. And `maxYawRate`
+    clamps the **sum**, as `heading_hold_rate` does, not the feed-forward alone.
+  - **The lead clamp is unconditional here and gated on the fleet.** The fleet gates on `ff_rate != 0`
+    because `KP_YAW × 25° = 20 °/s` is *below* its 40 °/s clamp, so a pinned setpoint would cap its
+    correction below the actuator limit. Here `headingHoldKp × maxHeadingHoldErrorDeg` (3.5 rad/s) is
+    well above `maxYawRate` (1.309), so the rate clamp binds first and the clamp costs nothing. The invariant is
+    `headingHoldKp * maxHeadingHoldErrorDeg * Deg2Rad >= maxYawRate`; below it, restore the gate.
+  - **`yawFilterCoefficient = 1` (off) is the faithful setting, not an oversight.**
+    `joystick_controller` smooths pitch, roll and gimbal pitch (`STICK_SMOOTHING_ALPHA`) and feeds the
+    yaw stick in **raw**, because the heading hold is what makes smoothing unnecessary.
+  - **The disturbance it rejects is common-mode**, so no aggregate ever suppressed it: every drone
+    takes the same world-frame velocity command, tilts the same way at the same instant and gets the
+    same heading kick, and a circular mean of *n* identical excursions is the excursion. That is why
+    the screens slid *as a group*, and it is the cleanest confirmation of the diagnosis — if a
+    per-drone excursion and `swarmMeanYaw`'s ever differ materially, something else is going on.
+  - Seed the setpoint, never ramp it (`Start`, the dead branch, `ResetToPos`). `ResetToPos` must read
+    the **transform**, not `State.Angles.y`: `StateFinder.ResetToPos` has just written euler *degrees*
+    into a field everything else reads as radians, and it is only corrected by the next `GetState()`.
+- **`VelocityControl`'s angular gains used to be anisotropic by accident, and every yaw-vs-tilt
+  asymmetry traced to it.** `desiredTorque = Scale(desiredAlphaClamped, State.Inertia)` was applied
+  with `ForceMode.Acceleration`, which *ignores* the inertia tensor — so the pre-multiply was never
+  cancelled and the achieved angular acceleration was `α × I`: pitch/roll ×0.3893, yaw ×0.7688. It is
+  now `ForceMode.Force`, with `timeConstantAlphaRate` (one constant for all three axes, not two) and
+  `maxAlpha` rescaled by 0.3893 so the pitch/roll response is **unchanged**. Two things follow:
+  - **That anisotropy is what broke the `tiltHeadingLeak` cancellation.** The cancellation makes
+    `Dot(desiredOmega, upBody) == effectiveYawRate` exactly, but only in *commanded*-rate space; an
+    anisotropically scaled achieved rate is rotated off `upBody`, so a tilt change leaked heading
+    however carefully that line was written. `tiltHeadingLeak` is nonzero only while the tilt is
+    *changing*, which is exactly why the symptom appeared on velocity-command changes and never in
+    steady flight. **The three axes must keep one time constant** or it comes back.
+  - **The α clamp is split about `upBody`, not about the body axes.** The old clamp scaled the `(x, z)`
+    pair circularly while clamping `y` independently, which rescales the tilt and yaw parts of
+    `desiredOmega` by different factors and destroys the cancellation exactly when tilt demand is
+    highest — and that is the common case, not an edge case: a full-stick step commands far more body
+    rate than `maxAlpha` can deliver, so pitch/roll sits at its clamp for most of a second on every
+    stick movement. The circular form is kept for the tilt part for its original rotation-invariance
+    reason. Fixing the cancellation analytically instead was considered and rejected: it would hard-code
+    the inertia tensor, `angularDrag` and the timestep into the yaw channel, would do nothing under
+    saturation, and would break silently the day this `ForceMode` was corrected. The heading-hold
+    integrator is the model-free version — which is why the real FC needs none of those numbers either.
+  - **The linear twin is still there and is deliberately untouched:** `desiredForce = thrust * Mass` is
+    also applied as an acceleration, so achieved vertical acceleration is 3× the computed thrust. The
+    height PD absorbs it by sitting at an offset setpoint (~1.3 m above `desired_height`) and the 2.7 g
+    clamp really bites at ~8 g. Fixing it means retuning `HeightKp`/`HeightKd` and re-reading the clamp
+    — its own change, with its own altitude-hold comparison.
 - **In vertical-plane mode the body/rig yaw is slaved to the plane, not to the yaw stick**
   (`PyUniSharingFast.UpdateBodyYawFromPlane`). The stick already steers the plane's target heading and
   the whole wall converges on it, so also integrating that stick into `bodyYaw` walks the view off the
@@ -255,6 +319,30 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     recover it, because the objects it is looking for stay invisible to the search forever. The
     symptom is a DJI scene that displays nothing at all, with no error — only a debug line reporting
     0 screens found.
+  - **The display yaw is low-passed so a screen's position stays in phase with its own picture.**
+    `TryGetDisplayYawRad` is filtered at `InterfaceManager.displayYawSmoothTime` (0.1 s, = `1 /
+    FPVCameraScript.smoothSpeed`) and `TryGetRawDisplayYawRad` is the unfiltered read. This is a phase
+    fix, not cosmetic smoothing: the circle styles place a screen at its drone's yaw, read raw off a
+    50 Hz physics value the Rigidbody does not interpolate, while the *pixels* in that screen come
+    from the FPV camera, which Slerps onto the same heading — so the screen led its own imagery.
+    Points worth keeping:
+    - **The two formation grids deliberately take the raw value.** They never place a screen at a
+      per-drone yaw at all (`wallAnchorAzimuth` plus a cell offset), so the per-drone yaw only feeds
+      the aggregate circular mean and the tier-2 in-plane basis — where filtering moves no screen and
+      only perturbs the aggregate, which already has its own low-pass at `formationWallSmoothTime`.
+      Stacking the two would lengthen the wall's swing by stealth, and the tier-2 basis has to agree
+      with tier 1 (`GetPlaneAxes`), an unfiltered setpoint.
+    - **The filters are advanced in one pass per frame** (`StepDisplayYawFilters`), guarded on
+      `Time.frameCount`, because `UpdateScreenPositions` is *not* called once per frame — `Update`
+      calls it and so do `SpawnScreens`, `SetScreenStyle` and the stitch-hide setters. Filtering
+      inside the accessor would advance at a rate nobody controls.
+    - Circular (wrapped error, or it tears at ±π), seeded rather than ramped so a screen does not fly
+      in from azimuth 0, and **invalidated rather than held** when the raw read fails — a feed that
+      drops out and returns must re-seed, not sweep back from where it went quiet.
+    - Real feeds use the same filter and the same constant, with no `IsRealFeed` branch. Their yaw
+      arrives as a coarse staircase (pushed only on a new frame), and the gimbal has its own lag of
+      broadly this order — but that lag is **not measured**, so the number is a reuse, not a
+      derivation. Branching would also break the one-accessor-per-quantity rule above.
   - **Aliveness is freshness, not a flag.** A real feed is suppressed once
     `Time.time - lastUpdateTime` exceeds the timeout `ImageSharing` pushes from `stitchFrameMaxAge`,
     so the screens and the stitch selection agree on what "still flying" means and a drone that stops

@@ -9,8 +9,11 @@ public class DroneHealthMonitor : MonoBehaviour
     private List<GameObject> swarm;
 
     // Health check thresholds
-    public float maxPitchAngle = 0.5f; // ~30 degrees in radians, drone crashed if exceeded
-    public float maxRollAngle = 0.5f;  // ~30 degrees in radians, drone crashed if exceeded
+    // Crash thresholds, compared against StateFinder's small-angle pitch/roll (the sine of the true
+    // angle, so 0.75 is about 49 degrees). Must stay above VelocityControl.maxPitch/maxRoll, or a
+    // commanded full tilt reads as a crash. Defaults match DroneReduced.prefab's serialized values.
+    public float maxPitchAngle = 0.75f;
+    public float maxRollAngle = 0.75f;
     public float groundCollisionThreshold = 0.3f; // How close to ground before marked dead
 
     // Cohesion distance threshold multiplier

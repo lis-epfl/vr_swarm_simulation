@@ -17,21 +17,38 @@ public class VelocityControl : MonoBehaviour
 
     private float gravity = 9.81f;
     private float timeConstantOmegaXYRate = 0.1f; // Normal-person coordinates (roll/pitch)
-    private float timeConstantAlphaXYRate = 0.05f; // Normal-person coordinates (roll/pitch)
-    private float timeConstantAlphaZRate = 0.05f; // Normal-person coordinates (yaw)
+    // One rate-loop constant for all three body axes, not the two this used to have. The
+    // world-vertical yaw command is projected into the body frame via upBody below, so it lands on
+    // all three axes at once; that projection is exact only while the three share a gain. Unequal
+    // time constants rotate the commanded vector away from upBody and leak heading on every tilt
+    // change — which is what made the drones wander in yaw whenever the velocity command changed.
+    // The value preserves today's pitch/roll response through the ForceMode fix on the torque
+    // below: 0.05 / 0.3893, the inertia factor that used to be applied twice.
+    private float timeConstantAlphaRate = 0.1284f;
 
     [Header("Rates & Limits")]
-    public float maxPitch = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies
-    public float maxRoll = 0.175f; // 10 Degrees in radians, otherwise small-angle approximation dies
-    public float maxYawRate = 1.0f;
-    public float maxAlpha = 10.0f;
-    public float maxSpeed = 10.0f;
-    public float maxAltitudeRate = 3.0f; // Maximum altitude rate in m/s
+    // Defaults below match DroneReduced.prefab's serialized values, so the two cannot disagree.
+    // 25 degrees in radians. The tilt map is small-angle (it commands a/g as an angle), so at this
+    // limit the delivered horizontal acceleration runs roughly 11% above the command.
+    public float maxPitch = 0.436332f;
+    public float maxRoll = 0.436332f;
+    // 75 deg/s in rad/s — the DJI Mini 3 Pro's maximum yaw rate. This is the airframe's limit; the
+    // real fleet's PC additionally clamps its own commands at 40 deg/s (MAX_YAW_RATE_DEG_S), which
+    // the sim does not reproduce.
+    public float maxYawRate = 1.309f;
+    // Angular-acceleration budget, rad/s^2. Scaled by 0.3893 from the 8.68 this used to hold: the
+    // torque below is applied with ForceMode.Force now, so this is the limit that is actually
+    // achieved, where before the inertia pre-multiply silently turned it into 3.38 on pitch/roll
+    // and 6.67 on yaw. Same delivered authority, honestly stated, and isotropic for the first time.
+    public float maxAlpha = 3.38f;
+    public float maxSpeed = 9.31f;
+    public float maxAltitudeRate = 3.34f; // Maximum altitude rate in m/s
     public float MinHeight = 0.5f;
-    
+
     //must set this
     [Header("Setpoints")]
-    public float desired_height = 4.0f;
+    // Overwritten in Start with the spawn altitude, so this value never flies.
+    public float desired_height = 25.3f;
     // User velocity commands (x = sideways/roll axis, z = forward/pitch axis).
     // Interpreted in body or world frame depending on userCommandInWorldFrame.
     private float userVelX = 0.0f;
@@ -65,15 +82,42 @@ public class VelocityControl : MonoBehaviour
 
     // PD coefficients for height control
     [Header("Filters & Coefficients")]
-    public float HeightKp = 2.0f;
-    public float HeightKd = 1.0f;
-    public float heightDerivFilterCoeff = 0.2f;
-    public float yawFilterCoefficient = 0.15f;
+    public float HeightKp = 5.0f;
+    public float HeightKd = 2.0f;
+    public float heightDerivFilterCoeff = 0.5f;
+
+    [Tooltip("Low-pass on the OUTER yaw rate command only — the heading-hold P term is added after " +
+             "it, because that term is disturbance rejection and must not be lagged. 1 = off, " +
+             "which is the setting the real fleet runs: joystick_controller smooths pitch, roll " +
+             "and gimbal pitch (STICK_SMOOTHING_ALPHA) but feeds the yaw stick in raw, because " +
+             "heading_hold_rate is what makes smoothing unnecessary. Lower it only for a source of " +
+             "stepping yaw commands the heading hold cannot absorb.")]
+    public float yawFilterCoefficient = 1.0f;
+
+    [Tooltip("Heading-hold gain (1/s): heading error (rad) -> yaw rate (rad/s). This is the DJI " +
+             "flight controller's own loop, which the sim had no counterpart for at all — " +
+             "VelocityControl had only a yaw RATE loop, so nothing held an absolute heading and a " +
+             "disturbance was pulled back only by AttitudeAlgorithm's outer P, at well over a " +
+             "second. Closed-loop time constant is 1/(headingHoldKp * 0.62), the 0.62 being the " +
+             "rate loop's DC gain against the Rigidbody's angularDrag. 8 gives about 0.2 s with " +
+             "~67 deg of phase margin against the rate loop and the 50 Hz step; useful range 6-12, " +
+             "and past ~20 the rate pole and the sample delay eat the margin.")]
+    public float headingHoldKp = 8.0f;
+
+    [Tooltip("Anti-windup, degrees: how far the integrated heading setpoint may lead the MEASURED " +
+             "heading. The analogue of the fleet's MAX_TARGET_LEAD_DEG and of " +
+             "SwarmPlaneController.maxTargetLeadDeg, one level down — those bound the swarm's " +
+             "shared setpoint against the swarm mean, this bounds each drone's own setpoint " +
+             "against its own heading, so a rate-saturated turn cannot bank up heading debt it " +
+             "keeps paying off after the stick is centred. Must stay well above the legitimate " +
+             "steady lag during a full-stick turn, ff*(1-0.62)/(0.62*headingHoldKp).")]
+    public float maxHeadingHoldErrorDeg = 25.0f;
+
     public float SwarmAccelFilterCoefficient = 0.3f;
     [Tooltip("Time constant (s) of the velocity → acceleration P-controller. " +
              "Larger = softer velocity response = more angle budget left for swarm corrections. " +
              "Saturation threshold ≈ g × maxPitch × tau.")]
-    public float timeConstantAcceleration = 0.5f;
+    public float timeConstantAcceleration = 0.75f;
 
     [Tooltip("Seconds. Converts the swarm's vertical acceleration into a climb rate for the height " +
              "setpoint while the swarm owns the vertical channel (verticalSwarmAuthority). Larger = " +
@@ -91,6 +135,18 @@ public class VelocityControl : MonoBehaviour
 
     private float targetYawRate = 0.0f;
     private float filteredYawRate = 0.0f;
+
+    // Absolute heading setpoint (radians, in StateFinder.Angles.y's [-pi, pi] space) — the integral
+    // of the commanded yaw rate. This is the piece the sim was missing: on the real aircraft the PC
+    // sends a yaw RATE and the DJI flight controller holds heading off its own IMU whenever that
+    // rate is zero (YawControlMode.ANGULAR_VELOCITY). AttitudeAlgorithm is the analogue of the PC's
+    // heading_hold_rate, NOT of the flight controller, so without this there was no heading loop
+    // below it at all and anything that knocked the nose off heading came back only at the outer
+    // loop's pace — a slow, visible swing of every screen on the ring.
+    private float headingSetpoint = 0.0f;
+    // Last tick's heading-hold diagnostics, for the CSV log.
+    private float lastEffectiveYawRate = 0.0f;
+    private float lastHeadingError = 0.0f;
 
     [Header("Other")]
     public SwarmManager.SwarmAlgorithm currentAlgorithm;
@@ -116,6 +172,11 @@ public class VelocityControl : MonoBehaviour
         ApplyControlStyle();
 
         State.GetState ();
+
+        // Seed, don't ramp: a heading setpoint starting at 0 would command a turn on the first tick
+        // of every scene whose drones do not happen to spawn facing world north.
+        headingSetpoint = State.Angles.y;
+
         Vector3 desiredForce = new Vector3 (0.0f, gravity * State.Mass, 0.0f);
         rb.AddForce (desiredForce, ForceMode.Acceleration);
 
@@ -129,7 +190,7 @@ public class VelocityControl : MonoBehaviour
         {
             string path = Path.Combine(Application.persistentDataPath, "control_log_" + gameObject.name + ".csv");
             csvStreamWriter = new StreamWriter(path, false, System.Text.Encoding.UTF8); // Overwrite existing file
-            csvStreamWriter.WriteLine("Time;UserAccelX;UserAccelY;UserAccelZ;SwarmAccelX;SwarmAccelY;SwarmAccelZ;DesiredThetaX;DesiredThetaY;DesiredThetaZ;DesiredOmegaX;DesiredOmegaY;DesiredOmegaZ;DesiredAlphaX;DesiredAlphaY;DesiredAlphaZ;DesiredThrust;DesiredTorqueX;DesiredTorqueY;DesiredTorqueZ;DesiredForceX;DesiredForceY;DesiredForceZ");
+            csvStreamWriter.WriteLine("Time;UserAccelX;UserAccelY;UserAccelZ;SwarmAccelX;SwarmAccelY;SwarmAccelZ;DesiredThetaX;DesiredThetaY;DesiredThetaZ;DesiredOmegaX;DesiredOmegaY;DesiredOmegaZ;DesiredAlphaX;DesiredAlphaY;DesiredAlphaZ;DesiredThrust;DesiredTorqueX;DesiredTorqueY;DesiredTorqueZ;DesiredForceX;DesiredForceY;DesiredForceZ;Yaw;HeadingSetpoint;HeadingError;FilteredYawRate;EffectiveYawRate;TiltHeadingLeak;WorldVerticalRate");
         }
     }
 
@@ -161,6 +222,10 @@ public class VelocityControl : MonoBehaviour
         if (!State.IsAlive)
         {
             userAltitudeRate = 0f;
+            // DroneHealthMonitor parks a dead drone, so whatever setpoint it held before means
+            // nothing now. Track the measured heading while dead so the tick it is revived on
+            // commands no turn. State.GetState() has already run, so Angles.y is fresh.
+            headingSetpoint = State.Angles.y;
             return;
         }
 
@@ -291,16 +356,62 @@ public class VelocityControl : MonoBehaviour
 
         desiredOmega = thetaError * -1.0f / timeConstantOmegaXYRate;
 
-        // Add the yaw rate contributions from user input and the autonomous control
+        // Add the yaw rate contributions from user input and the autonomous control. This pair is
+        // the OUTER loop, and it is the exact counterpart of the real fleet's PC-side command:
+        // desiredYawRate is the stick feed-forward (ff_rate) and attitude_control_yaw is the outer
+        // heading P (KP_YAW * err) that AttitudeAlgorithm computes.
         targetYawRate = desiredYawRate + attitude_control_yaw;
 
-        // Apply the low-pass filter to reduce oscillations in yaw control
+        // Command prefilter on the outer rate, and nothing downstream of it. It exists to keep a
+        // stepping yaw command from stepping the torque; it must NOT lag the heading-hold P term
+        // below, which is disturbance rejection and wants full bandwidth.
         filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
 
-        // Clamp the filtered yaw rate to the maximum allowed value
-        filteredYawRate = Mathf.Clamp(filteredYawRate, -maxYawRate, maxYawRate);
+        // --- Heading hold: the flight controller's own loop --------------------------------------
+        // Integrate the rate we are actually asking the aircraft to fly — the FILTERED one, not the
+        // raw sum. Integrating the raw rate while feeding the filtered one forward would leave the
+        // setpoint permanently ahead by tau_EMA * rate, and every bit of that lead is still owed
+        // when the stick centres: the same windup the lead clamp below exists to stop, sneaked in
+        // through the prefilter.
+        headingSetpoint = WrapAngle(headingSetpoint + filteredYawRate * Time.fixedDeltaTime);
 
-        // filteredYawRate is a heading rate about the WORLD vertical, but desiredOmega is a
+        // Anti-windup. Unconditional, unlike the real fleet's version (integrate_target_heading
+        // gates on ff_rate != 0), and that difference is deliberate rather than an oversight: the
+        // fleet gates because KP_YAW * 25 deg = 20 deg/s sits BELOW its 40 deg/s rate clamp, so a
+        // pinned setpoint would cap its correction below the actuator limit. Here
+        // headingHoldKp * maxHeadingHoldErrorDeg is well above maxYawRate, so the rate clamp
+        // binds first and the lead clamp costs no authority in any regime — while closing the
+        // windup hole the gate leaves open for a drone pinned by an obstacle. The invariant that
+        // makes it free is headingHoldKp * maxHeadingHoldErrorDeg * Deg2Rad >= maxYawRate; if
+        // either number is lowered past that, put the fleet's ff != 0 gate back.
+        float maxLead = maxHeadingHoldErrorDeg * Mathf.Deg2Rad;
+        float headingError = WrapAngle(headingSetpoint - State.Angles.y);
+        if (headingError > maxLead)
+        {
+            headingSetpoint = WrapAngle(State.Angles.y + maxLead);
+            headingError = maxLead;
+        }
+        else if (headingError < -maxLead)
+        {
+            headingSetpoint = WrapAngle(State.Angles.y - maxLead);
+            headingError = -maxLead;
+        }
+
+        // Feed-forward plus P, exactly as heading_hold_rate. No deadband: the fleet's
+        // YAW_ERR_DEADBAND_DEG exists because a magnetic compass jitters a degree or two, and
+        // StateFinder's heading is exact (the attitude noise it injects is on x and z only) — the
+        // same argument AttitudeAlgorithm.ApplyPlaneModeAttitude already records.
+        float effectiveYawRate = filteredYawRate + headingHoldKp * headingError;
+
+        // The actuator limit applies to the SUM, not to the feed-forward alone — as it does on the
+        // fleet, where heading_hold_rate clamps ff + P. Clamping the feed-forward on its own (which
+        // is where this line used to sit) let the total command exceed the limit whenever the hold
+        // was correcting.
+        effectiveYawRate = Mathf.Clamp(effectiveYawRate, -maxYawRate, maxYawRate);
+        lastEffectiveYawRate = effectiveYawRate;
+        lastHeadingError = headingError;
+
+        // effectiveYawRate is a heading rate about the WORLD vertical, but desiredOmega is a
         // body-frame angular-velocity command (differenced against the body-frame
         // State.AngularVelocityVector below). When the drone tilts to translate, body-Y is no
         // longer world-up, so writing the yaw rate straight into desiredOmega.y under-rotates the
@@ -313,31 +424,48 @@ public class VelocityControl : MonoBehaviour
         // drone is tilted, so aggressive tilt reversals rotate the heading even with a zero yaw
         // command — far faster than the outer heading loop can correct. Subtract that component in
         // the yaw channel so the commanded body rate's world-vertical projection equals
-        // filteredYawRate exactly (Dot(desiredOmega, upBody) == filteredYawRate), instead of
-        // filteredYawRate plus the tilt-correction leak.
+        // effectiveYawRate exactly (Dot(desiredOmega, upBody) == effectiveYawRate), instead of
+        // effectiveYawRate plus the tilt-correction leak.
+        //
+        // That identity holds in COMMANDED-rate space. It used not to survive into achieved-rate
+        // space, because the torque below was pre-multiplied by the inertia tensor and then applied
+        // with ForceMode.Acceleration, which ignores it: pitch/roll came out at 0.3893 of the
+        // command and yaw at 0.7688, so the commanded vector was rotated off upBody by the physics
+        // and a tilt change leaked heading however carefully this line was written. The single
+        // timeConstantAlphaRate, the ForceMode.Force below and the upBody-aligned clamp together
+        // make the achieved rate an isotropic copy of the commanded one, so the cancellation now
+        // survives. What remains is the rate loop's tracking LAG, which no algebraic cancellation
+        // can remove — that is what the heading hold above absorbs, model-free, exactly as the real
+        // flight controller does without knowing anything about the aircraft's inertia.
         float tiltHeadingLeak = desiredOmega.x * upBody.x + desiredOmega.z * upBody.z;
-        desiredOmega += (filteredYawRate - tiltHeadingLeak) * upBody;
+        desiredOmega += (effectiveYawRate - tiltHeadingLeak) * upBody;
 
         Vector3 omegaError = State.AngularVelocityVector - desiredOmega;
 
-        Vector3 desiredAlpha = Vector3.Scale(omegaError, new Vector3(-1.0f / timeConstantAlphaXYRate, -1.0f / timeConstantAlphaZRate, -1.0f / timeConstantAlphaXYRate));
+        Vector3 desiredAlpha = omegaError * -1.0f / timeConstantAlphaRate;
 
-        // Circular angular-acceleration limit, for the same reason as the tilt limit above.
-        // A per-axis clamp is a square envelope (~41% larger on the diagonal), so a drone whose
-        // body axes align with the required tilt-change direction saturates at maxAlpha while one
-        // at 45 degrees to it gets up to maxAlpha*sqrt(2). For a world-frame command the body-frame
-        // direction of the tilt change depends on yaw, so a square clamp makes the angular response
-        // heading-dependent. Clamp the (pitch, roll) magnitude instead so the rate of tilting is the
-        // same in every direction; clamp yaw independently since it is a separate axis/time constant.
-        Vector3 desiredAlphaClamped = desiredAlpha;
-        Vector2 horizAlpha = new Vector2(desiredAlpha.x, desiredAlpha.z);
-        if (horizAlpha.magnitude > maxAlpha)
-        {
-            horizAlpha = horizAlpha.normalized * maxAlpha;
-            desiredAlphaClamped.x = horizAlpha.x;
-            desiredAlphaClamped.z = horizAlpha.y;
-        }
-        desiredAlphaClamped.y = Mathf.Clamp(desiredAlphaClamped.y, -maxAlpha, maxAlpha);
+        // Clamp in the frame the command was built in, not in body axes. desiredOmega is
+        // (tilt correction) + (yaw rate about upBody), and the clamp this replaces scaled the
+        // (x, z) pair circularly while clamping y independently — which rescales those two parts by
+        // different factors and destroys the cancellation above exactly when tilt demand is highest.
+        // That is not an edge case: a full-stick step commands maxTilt/timeConstantOmegaXYRate of
+        // body rate, far past what maxAlpha can deliver, so the pitch/roll channel sits at its clamp
+        // for the best part of a second on every stick movement.
+        //
+        // Splitting about upBody keeps the world-vertical component intact through tilt saturation,
+        // and reduces to the old circular (x, z) clamp when the drone is level. The circular form is
+        // kept for the tilt part for its original reason: a per-axis clamp is a square envelope
+        // (~41% larger on the diagonal), so a drone whose body axes align with the required
+        // tilt-change direction would saturate at maxAlpha while one at 45 degrees to it got
+        // maxAlpha*sqrt(2), making the angular response heading-dependent under a world-frame
+        // command. Both parts saturating can put the total magnitude at sqrt(2)*maxAlpha — the same
+        // latitude the old clamp allowed, and bounded, so it is left alone.
+        float alphaYaw = Vector3.Dot(desiredAlpha, upBody);
+        Vector3 alphaTilt = desiredAlpha - alphaYaw * upBody;
+        if (alphaTilt.magnitude > maxAlpha)
+            alphaTilt = alphaTilt.normalized * maxAlpha;
+        alphaYaw = Mathf.Clamp(alphaYaw, -maxAlpha, maxAlpha);
+        Vector3 desiredAlphaClamped = alphaTilt + alphaYaw * upBody;
 
         // float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));
         float desiredThrust = (gravity + altitudeCommand + desiredAcceleration.y) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));
@@ -348,7 +476,21 @@ public class VelocityControl : MonoBehaviour
         Vector3 desiredTorque = Vector3.Scale(desiredAlphaClamped, State.Inertia);
         Vector3 desiredForce = new Vector3(0.0f, desiredThrustClamped * State.Mass, 0.0f);
 
-        rb.AddRelativeTorque(desiredTorque, ForceMode.Acceleration);
+        // ForceMode.Force, not Acceleration. desiredTorque is already I*alpha, and Acceleration
+        // *ignores* the inertia tensor — so the pre-multiply was never cancelled and the achieved
+        // angular acceleration was alpha*I: pitch/roll at 0.3893 of the command, yaw at 0.7688.
+        // That anisotropy is what broke the tiltHeadingLeak cancellation above (exact in commanded
+        // space, impossible once the achieved rate is an anisotropically scaled copy) and it also
+        // made the "rotation-invariant" alpha envelope 1.97x larger on yaw than on tilt.
+        // timeConstantAlphaRate and maxAlpha are scaled to reproduce the old pitch/roll response
+        // exactly, so this is a fidelity fix rather than a retune.
+        //
+        // The linear line below is the same bug and is deliberately NOT changed here: desiredForce
+        // is thrust*Mass applied as an acceleration, so the achieved vertical acceleration is three
+        // times the computed thrust. The height PD absorbs it by sitting at an offset setpoint, so
+        // fixing it means retuning HeightKp/HeightKd and re-reading the 2.7g clamp — its own change,
+        // with its own altitude-hold comparison.
+        rb.AddRelativeTorque(desiredTorque, ForceMode.Force);
         rb.AddRelativeForce(desiredForce, ForceMode.Acceleration);
 
         //prop transforms
@@ -361,7 +503,8 @@ public class VelocityControl : MonoBehaviour
         previousHeightError = currentHeightError;
 
         if (logToCSV)
-            dumpToCSVFile(worldUserAccel, worldFilteredSwarmAccel, desiredTheta, desiredOmega, desiredAlpha, desiredAlphaClamped, desiredThrust, desiredThrustClamped, desiredTorque, desiredForce);
+            dumpToCSVFile(worldUserAccel, worldFilteredSwarmAccel, desiredTheta, desiredOmega, desiredAlpha, desiredAlphaClamped, desiredThrust, desiredThrustClamped, desiredTorque, desiredForce,
+                          tiltHeadingLeak, Vector3.Dot(State.AngularVelocityVector, upBody));
     }
 
     private void dumpToCSVFile(
@@ -374,7 +517,9 @@ public class VelocityControl : MonoBehaviour
         float desiredThrust, 
         float desiredThrustClamped,
         Vector3 desiredTorque,
-        Vector3 desiredForce)
+        Vector3 desiredForce,
+        float tiltHeadingLeak,
+        float worldVerticalRate)
     {
         if (csvStreamWriter != null)
         {
@@ -388,7 +533,14 @@ public class VelocityControl : MonoBehaviour
                           $"{desiredThrust};" +
                           $"{desiredThrustClamped};" +
                           $"{desiredTorque.x};{desiredTorque.y};{desiredTorque.z};" +
-                          $"{desiredForce.x};{desiredForce.y};{desiredForce.z}";
+                          $"{desiredForce.x};{desiredForce.y};{desiredForce.z};" +
+                          // Appended, never inserted, so existing parsers keep working. These six
+                          // are what the yaw-stability verification reads: WorldVerticalRate is the
+                          // disturbance itself, and HeadingSetpoint must not move at all through a
+                          // pure-translation manoeuvre.
+                          $"{State.Angles.y};{headingSetpoint};{lastHeadingError};" +
+                          $"{filteredYawRate};{lastEffectiveYawRate};" +
+                          $"{tiltHeadingLeak};{worldVerticalRate}";
             csvStreamWriter.WriteLine(line);
             csvStreamWriter.Flush();
         }
@@ -420,7 +572,42 @@ public class VelocityControl : MonoBehaviour
         transform.position = newPos;
         transform.rotation = newRot ?? initialRotation;
 
+        // From the transform, NOT from State.Angles.y: StateFinder.ResetToPos has just written
+        // newRot.eulerAngles into Angles, which is DEGREES in [0, 360) where the rest of the
+        // codebase reads Angles as radians in [-pi, pi]. That only survives until the next
+        // GetState(), but this runs before it.
+        headingSetpoint = HeadingFromTransform();
+
         enabled = true;
+    }
+
+    /// <summary>
+    /// This drone's heading in StateFinder's convention — radians, [-pi, pi]. Read straight off the
+    /// transform rather than taken from State.Angles.y because the reset path needs it before the
+    /// next GetState(), and at that instant State.Angles holds euler degrees (see
+    /// StateFinder.ResetToPos). Projects forward onto the horizontal plane for the same reason
+    /// StateFinder and FPVCameraScript do: reading eulerAngles.y directly drifts with tilt.
+    /// </summary>
+    private float HeadingFromTransform()
+    {
+        Vector3 fwd = transform.forward;
+        fwd.y = 0f;
+        float rawYaw = fwd.sqrMagnitude > 1e-6f
+            ? Quaternion.LookRotation(fwd, Vector3.up).eulerAngles.y
+            : transform.eulerAngles.y;
+        return ((rawYaw > 180f) ? rawYaw - 360f : rawYaw) * Mathf.Deg2Rad;
+    }
+
+    /// <summary>
+    /// Wraps an angle to [-pi, pi]. Same construction as AttitudeAlgorithm's and
+    /// SwarmPlaneController's — the heading setpoint lives in StateFinder.Angles.y's space and has
+    /// to cross the seam the same way they do.
+    /// </summary>
+    private static float WrapAngle(float angle)
+    {
+        while (angle > Mathf.PI)  angle -= 2f * Mathf.PI;
+        while (angle < -Mathf.PI) angle += 2f * Mathf.PI;
+        return angle;
     }
 
     // Return max speed

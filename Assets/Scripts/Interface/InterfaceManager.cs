@@ -65,6 +65,17 @@ public class InterfaceManager : MonoBehaviour
              "feeds show the same ground rotated differently as soon as the headings disagree.")]
     public bool formationMapRollScreens = true;
 
+    [Tooltip("Time constant (s) of the low-pass on each screen's display heading, for the styles " +
+             "that place a screen at its own drone's yaw (the circle styles; the two formation " +
+             "grids deliberately bypass it — see BuildFormationGridLayout). It puts a screen's " +
+             "POSITION in phase with the IMAGE inside it: a sim FPV camera Slerps onto its drone's " +
+             "heading at FPVCameraScript.smoothSpeed while the screen used to be placed from the " +
+             "raw 50 Hz body heading, so the screen led its own picture. Keep this at " +
+             "1 / smoothSpeed. Real feeds reuse the same number as the best available estimate of " +
+             "the DJI gimbal's own lag, which is not measured — it also smooths the staircase " +
+             "their telemetry pushes arrive as. 0 = no filter.")]
+    public float displayYawSmoothTime = 0.1f;
+
     public delegate void OnInterfaceParamsChanged();
     public event OnInterfaceParamsChanged interfaceParamsChanged;
     
@@ -247,6 +258,7 @@ public class InterfaceManager : MonoBehaviour
             spawnScreens.formationWallColumns = formationWallColumns;
             spawnScreens.formationWallMaxSpanDeg = formationWallMaxSpanDeg;
             spawnScreens.formationWallSmoothTime = formationWallSmoothTime;
+            spawnScreens.displayYawSmoothTime = displayYawSmoothTime;
             spawnScreens.formationMapRollScreens = formationMapRollScreens;
         }
     }

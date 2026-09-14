@@ -91,8 +91,8 @@ MonoBehaviour:
   PropRL: {fileID: 8732180454090052648}
   maxPitch: 0.436332
   maxRoll: 0.436332
-  maxYawRate: 1.07
-  maxAlpha: 8.68
+  maxYawRate: 1.309
+  maxAlpha: 3.38
   maxSpeed: 9.31
   maxAltitudeRate: 3.34
   MinHeight: 0.5
@@ -111,7 +111,9 @@ MonoBehaviour:
   HeightKd: 2
   heightDerivFilterCoeff: 0.5
   yawFilterCoefficient: 1
-  SwarmAccelFilterCoefficient: 1
+  headingHoldKp: 8
+  maxHeadingHoldErrorDeg: 25
+  SwarmAccelFilterCoefficient: 0.3
   timeConstantAcceleration: 0.75
   swarmVerticalSetpointGain: 0.5
   swarmVerticalLeash: 30
@@ -251,7 +253,7 @@ MonoBehaviour:
   NumDimensions: 2
   BoundaryEstimate: 0
   PointInwards: 0
-  YawCorrectionFactor: 1
+  YawCorrectionFactor: 0.8
   NeighborYawSmoothingFactor: 0.5
   BoundaryHysteresisTime: 0.5
   TargetHeadingFilterTime: 0.3

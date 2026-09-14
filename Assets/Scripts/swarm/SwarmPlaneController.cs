@@ -42,14 +42,16 @@ public class SwarmPlaneController : MonoBehaviour
     [Header("Heading")]
     [Tooltip("Yaw-stick gain: deg/s the shared target heading advances at full stick. Matches the " +
              "real fleet's YAW_RATE_DEG_S. This is a feed-forward on every drone's yaw command, so " +
-             "the rate actually achieved is still bounded by each drone's VelocityControl.maxYawRate " +
-             "— deliberately, see maxTargetLeadDeg.")]
+             "the rate actually achieved is still bounded by each drone's VelocityControl.maxYawRate. " +
+             "That limit is now the airframe's 75 deg/s, above this gain, so a full-stick turn is no " +
+             "longer rate-saturated here the way it is on the fleet, whose PC clamps at 40 deg/s.")]
     public float targetYawRateDegPerSec = 60.0f;
 
     [Tooltip("Anti-windup: while the stick is deflected the target heading may lead the swarm's mean " +
-             "heading by at most this many degrees. The stick gain exceeds what the drones can turn " +
-             "at, so without the clamp a sustained turn banks up a heading debt they keep paying off " +
-             "after the stick is centred — overshoot, then a wag. 0 = no clamp.")]
+             "heading by at most this many degrees. Whenever the drones lag the setpoint — their " +
+             "rate and heading loops, a drone slowed by an obstacle, or any maxYawRate below this " +
+             "stick gain — a sustained turn would otherwise bank up a heading debt they keep paying " +
+             "off after the stick is centred: overshoot, then a wag. 0 = no clamp.")]
     public float maxTargetLeadDeg = 25.0f;
 
     [Header("Display")]
@@ -455,9 +457,11 @@ public class SwarmPlaneController : MonoBehaviour
     ///
     /// The stick is a feed-forward, so the target says where the wall is being asked to point, not
     /// where it is. Clamping the lead is what keeps a sustained turn from banking up a heading debt
-    /// the drones then keep paying off after the stick is centred: the stick gain exceeds what
-    /// VelocityControl.maxYawRate lets them turn at, exactly as on the real fleet, and the clamp
-    /// rather than the gain is what holds the formation's headings together through a turn.
+    /// the drones then keep paying off after the stick is centred. On the real fleet that debt is
+    /// guaranteed, because the stick gain exceeds the PC's 40 deg/s rate clamp. Here
+    /// VelocityControl.maxYawRate is the airframe's 75 deg/s, above the stick gain, so the debt comes
+    /// only from the drones lagging the setpoint — which they always do through a turn's entry, and
+    /// indefinitely for a drone something is holding back — and the clamp is what bounds it.
     ///
     /// The clamp acts only while the stick is deflected. Windup can only accumulate while
     /// integrating, and at centre stick the hold keeps its full authority — a disturbance that pushes
