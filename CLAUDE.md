@@ -495,14 +495,50 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   (`blockImageWidth/Height` + `panoramaImageWidth/Height` in `PyUniSharingFast`'s inspector); set those to
   scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, so only the render + bridge
   costs grow with resolution — not the warp pipeline.
-- **STABSTITCH render/warp are decoupled:** a ~21 Hz render loop uses cached warp params only (no neural
-  net); a separate ~6.6 Hz thread runs the nets and updates the cache. The render warp is a single
-  `grid_sample` over a **precomputed TPS sampling field** (`_compute_tps_flow`, cached per warp update) —
-  the float64 TPS solve + per-pixel RBF live in the warp thread, not the render loop.
+- **STABSTITCH render/warp are decoupled:** the render loop (`stab_pano`, paced by Unity's
+  `sendInterval`, 30 Hz) uses cached warp params only (no neural net); a separate warp thread
+  (`compute_warps`) runs the nets and updates the cache. The render warp is a single `grid_sample`
+  over a **precomputed TPS sampling field** (`_compute_tps_flow`, cached per warp update) — the
+  float64 TPS solve + per-pixel RBF live in the warp thread, not the render loop. The render costs
+  ~2 ms of CPU and <1 ms of GPU per frame; **its rate is Unity's publish rate**, so the lever is
+  `sendInterval` (+ `readInterval`), and the cost of raising it is the hidden stitched FPV cameras
+  being rendered on demand per send — the headset frame rate is the constraint.
+- **The nets run incrementally, and the temporal window has its own cadence.** SpatialNet's output
+  depends only on its frame and TemporalNet's only on a frame and its predecessor, so both are
+  computed once when a frame is *admitted* to the 7-frame buffer and cached beside it
+  (`_ingest`); each warp update runs the nets only on frames admitted since the last one and
+  re-runs the cheap SmoothNet over the window (`_window_params`). That is the paper's online
+  protocol without the 7× repetition (150 ms → ~40 ms per update, so the warp thread keeps pace
+  with admissions). Frames are admitted at `NET_FRAME_PERIOD` (0.05 s, the cadence the sim always
+  fed the nets at), **not** at the render rate — a faster render must not shorten the ~350 ms
+  smoothing window. `STABSTITCH_LEGACY_WARP=1` restores the full-window recompute for comparison;
+  `tools/stabstitch_selftest.py` asserts the two agree (fp32/deterministic: ≤0.01 px; under
+  default TF32/autotuned cuDNN they drift by a few tenths of a pixel run to run, which is float
+  noise, not logic).
+- **`StabStitch2_main` is gitignored, and the perf edits to it live in
+  `tools/stabstitch2_perf.patch`.** The vendored forwards used to build small constant tensors on
+  the host and `.cuda()` them every call, and `torch.inverse`'s singularity check is a host sync;
+  ~45 of the 99 device syncs per warp update were there. The patch caches the constants and uses
+  `inv_ex` — no maths, weights or layers change, and the self-test rebuilds the pristine copy by
+  reverse-applying the patch and checks the outputs match. After re-downloading StabStitch2,
+  re-apply it from `Codes/` with `git apply <repo>/Assets/Scripts/ImageStitching/tools/stabstitch2_perf.patch`.
+- **Never pass a 0-d CUDA tensor where a Python number will do** in the mesh maths: `float(t)` is
+  a device→host sync, and `_get_norm_mesh`/`_recover_mesh` were called 16× per update with the
+  canvas size still on the GPU. The canvas bounds come back in two `.tolist()` calls and the
+  quality metrics in one `.cpu()`; a warp update now performs 4 syncs (budgeted in the self-test).
+- **The render produces the wire layout directly** (`WireReadyPanorama`): per warp update the
+  canvas-res field and blend weights are resampled to the panorama size with the rows reversed,
+  so the render's `grid_sample` lands RGB, bottom-up, at `panoramaImageWidth × Height`, and
+  `first_thread` writes it without the `cv2.resize`/`flip`/`cvtColor`/`tobytes` pass it still
+  applies to the other stitchers' BGR canvases. Inputs go up as uint8 through pinned staging and
+  are converted on the GPU; the low-res net input is `F.interpolate` on the GPU, which matches
+  `cv2.resize(INTER_LINEAR)` to within one uint8 step (asserted).
 - **The two threads share one GPU and one GIL**, so wasted render work directly slows the warp update.
-  The render signal is rate-limited to `RENDER_MIN_PERIOD` in `StitcherThreading.py`: the shared memory
-  is polled much faster than Unity refills it, and re-rendering an unchanged frame measurably halved the
-  warp rate. Keep that pacing just above Unity's `sendInterval` (20 Hz) rather than removing it.
+  `first_thread` wakes the render only for a **fresh** block — a slot whose header `captureTime`
+  advanced (peeked without the flag handshake, so an unchanged block costs no copy and never holds
+  the flag against Unity's readback callback) — floored at `RENDER_MIN_PERIOD` (0.025 s) in
+  `StitcherThreading.py`. Keep that floor just under Unity's `sendInterval` (0.0333 s); it bounds
+  the duplicate wake-ups when Unity's three readbacks complete on different frames.
 - **Never use `torchvision.transforms.GaussianBlur` on canvas-sized tensors here** — it convolves with a
   dense k×k kernel. At 1690×653 the 41×41 blur cost 125 ms and the 21×21 blur 38 ms, which was the single
   largest cost in the warp update. Use `SeparableGaussianBlur` in `StabStitcher.py` (two 1-D passes,
@@ -907,3 +943,8 @@ use `transform.Find("DroneParent")` / `Find("FPV")`.
 `cd Assets/Scripts/ImageStitching && python StitcherThreading.py`. **Use the `stitching` miniconda env** —
 the default `python` has no torch. StabStitch++ models load from
 `StabStitch2_main/Full_model_inference/full_model_ssd/*.pth`.
+
+Checkers: `python tools/stabstitch_selftest.py` (STABSTITCH equivalence + timings, needs the GPU
+and the `debug_input_drone_*.jpg` frames), `python tools/planar_selftest.py`,
+`python tools/check_wire_layout.py`. `STABSTITCH_TIMING=1` prints the per-stage warp/render
+breakdown; the per-thread rate lines print once a second.

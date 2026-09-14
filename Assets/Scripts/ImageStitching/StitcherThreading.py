@@ -41,12 +41,18 @@ REASON_PLANE_INVALID = 32              # planar: no usable scene plane / pose on
 # throttled rather than run on every frame.
 DEBUG_PANO_WRITE_PERIOD = 1.0
 
-# Minimum period between render-thread wake-ups, in seconds. Unity publishes new
-# feeds at 20 Hz (sendInterval = 0.05 in PyUniSharingFast), so signalling faster
-# than that only re-renders identical pixels -- and because the render and warp
-# threads share one GPU and one GIL, that wasted work directly slows the warp
-# update. Set just above the publish rate so the render never aliases below 20 Hz.
-RENDER_MIN_PERIOD = 0.045
+# Floor on the period between render-thread wake-ups, in seconds. The render is woken
+# only when a block's captureTime has advanced (a genuinely new frame from Unity), so
+# this no longer paces the render by itself -- Unity's sendInterval does. It bounds the
+# duplicate wake-ups that occur when Unity's three readbacks for one send complete on
+# different frames, and it is a safety net against a runaway producer: the render and
+# warp threads share one GPU and one GIL, so re-rendering identical pixels directly
+# slows the warp update. Keep it just under sendInterval (0.0333 s = 30 Hz).
+RENDER_MIN_PERIOD = 0.025
+
+# Rate at which the per-thread rate lines are printed, in seconds. The threads run at
+# 20-30 Hz each; one summary a second says the same thing as sixty lines.
+RATE_PRINT_PERIOD = 1.0
 
 # A proper left/centre/right panorama needs at least this many distinct feeds.
 # With fewer, get_subsets_from_order wraps around and would stitch an image with
@@ -223,11 +229,14 @@ class RateMeter:
 # --- STABSTITCH ---
 HAS_STABSTITCH = False
 try:
-    from StabStitcher import StabStitcher
+    from StabStitcher import StabStitcher, WireReadyPanorama
     HAS_STABSTITCH = True
 except ImportError as e:
     print("StabStitch modules could not be imported. STABSTITCH stitcher will not be available.")
     print(e)
+
+    class WireReadyPanorama:  # never instantiated; keeps the isinstance test below valid
+        pass
 
 # --- PLANAR ---
 HAS_PLANAR = False
@@ -522,7 +531,7 @@ class StitcherManager:
             with self.switching_lock1:
                 self.active_stitcher.quality_threshold = quality_threshold
 
-    def process_stitching(self, images, num_pano_img=3, views=None):
+    def process_stitching(self, images, num_pano_img=3, views=None, out_size=None):
         """
         Simplified stitching process using known order from drone IDs.
         No need for homography computation - just stitch based on known order.
@@ -532,6 +541,9 @@ class StitcherManager:
         neural networks — so it can run without ``switching_lock2``.  The
         slow warp computation is handled by ``warp_computation_thread``
         which does acquire ``switching_lock2``.
+
+        ``out_size`` is the (height, width) the panorama section expects; STABSTITCH
+        renders straight into that layout when it can (see WireReadyPanorama).
         """
         if self.known_order is None or len(self.known_order) != len(images):
             print(f"[WARNING] Known order not set or length mismatch. Expected {len(images)} images.")
@@ -585,7 +597,8 @@ class StitcherManager:
                     self.panoram_queue.put((None, False, REASON_NO_OVERLAP))
                 return
 
-            pano, quality_ok, quality_reason = self.active_stitcher.stab_pano(images, subset1, subset2)
+            pano, quality_ok, quality_reason = self.active_stitcher.stab_pano(
+                images, subset1, subset2, out_size=out_size)
 
             # Always queue (pano, quality_ok, quality_reason): when quality_ok is
             # False the pano is None and only the quality flag + failing-gate
@@ -766,6 +779,9 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
     first_loop = True
     last_debug_write = 0.0
     last_render_signal = 0.0
+    # A fresh frame arrived but the RENDER_MIN_PERIOD floor held the wake-up back; it
+    # is delivered on a later pass rather than lost.
+    render_signal_pending = False
     # Producer-liveness watchdog state; see check_producer_alive.
     heartbeat_state = {"value": None, "since": time.time()}
 
@@ -859,13 +875,18 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
                 # headAngle comes from the live headset yaw (set above from metadata),
                 # not from the drone headings.
 
-            # Wake the stitching thread — new images are available. Rate-limited
-            # to RENDER_MIN_PERIOD: the shared memory is polled far faster than
-            # Unity refills it, and re-rendering an unchanged frame just steals
-            # GPU time from the warp thread.
+            # Wake the stitching thread only when something actually changed: the
+            # shared memory is polled far faster than Unity refills it, and
+            # re-rendering an unchanged frame just steals GPU time from the warp
+            # thread. "Changed" is a slot whose captureTime advanced (a v1 producer
+            # has none, and every read of it counts as fresh). RENDER_MIN_PERIOD is
+            # only a floor; a wake-up it holds back is delivered on a later pass.
+            if any(v.get('fresh', True) for v in views):
+                render_signal_pending = True
             now = time.perf_counter()
-            if now - last_render_signal >= RENDER_MIN_PERIOD:
+            if render_signal_pending and now - last_render_signal >= RENDER_MIN_PERIOD:
                 last_render_signal = now
+                render_signal_pending = False
                 manager.new_images_event.set()
 
             if enable_debug_logging:
@@ -893,6 +914,7 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
                     continue
             else:
                 H, W, _ = panorama.shape
+                wire_ready = isinstance(panorama, WireReadyPanorama)
                 if H != manager.processedImageHeight or W != manager.processedImageWidth:
                     try:
                         panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
@@ -906,14 +928,20 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
                 now = time.perf_counter()
                 if now - last_debug_write >= DEBUG_PANO_WRITE_PERIOD:
                     last_debug_write = now
-                    cv2.imwrite("debug_panorama.jpg", panorama)
+                    if wire_ready:
+                        # Already RGB and bottom-up; undo both for the file only.
+                        cv2.imwrite("debug_panorama.jpg",
+                                    cv2.cvtColor(cv2.flip(np.asarray(panorama), 0), cv2.COLOR_RGB2BGR))
+                    else:
+                        cv2.imwrite("debug_panorama.jpg", panorama)
 
                 try:
-                    # Flip the panorama because unity texture starts bottom left,
-                    # and convert cv2's BGR to RGB so Unity can upload the bytes
-                    # straight into its RGB24 texture (LoadRawTextureData) with no
-                    # per-pixel channel swap on the render thread.
-                    panorama = cv2.cvtColor(cv2.flip(panorama, 0), cv2.COLOR_BGR2RGB)
+                    # Unity's texture starts bottom-left and is RGB24, so the wire
+                    # layout is the panorama flipped and BGR->RGB. STABSTITCH renders
+                    # straight into that layout (WireReadyPanorama); every other
+                    # stitcher hands over a BGR canvas that is converted here.
+                    if not wire_ready:
+                        panorama = cv2.cvtColor(cv2.flip(panorama, 0), cv2.COLOR_BGR2RGB)
                     write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, panorama)
                     del panorama
                 except Exception as e:
@@ -959,15 +987,25 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
 
     Parameters:
         - cache: optional dict {block_idx: view} used to substitute the previous frame
-                 when a block is busy being written. Updated in-place. The pose travels
-                 inside the view, so a re-served frame keeps *its* pose rather than
-                 silently borrowing the current one.
+                 when a block is busy being written, and to recognise a block the
+                 producer has not rewritten since the last read. Updated in-place. The
+                 pose travels inside the view, so a re-served frame keeps *its* pose
+                 rather than silently borrowing the current one.
 
     Returns:
         - views: list of dicts, one per populated slot:
               {'slot', 'drone_id', 'heading', 'image', 'pos', 'quat',
-               'capture_time', 'pose_status', 'cached'}
-          'pos'/'quat' are None on wire v1.
+               'capture_time', 'pose_status', 'cached', 'fresh'}
+          'pos'/'quat' are None on wire v1. 'fresh' is True when the payload was read
+          from the section on this call, False when it is the frame already held for
+          the slot (unchanged since the last read, or busy and re-served).
+
+    New-frame detection: this loop runs every few milliseconds, Unity rewrites a slot
+    every sendInterval. On wire v2 the header's captureTime is unique per send, so a
+    slot whose captureTime (and droneId) match the cached view is the same frame and is
+    reused without the flag handshake or the payload copy. Besides the wasted copies,
+    every needless handshake holds the flag for the duration of a 1 MB read, during
+    which Unity's readback callback finds the block busy and drops that send.
     """
     views = []
     has_pose = metadataSize >= BLOCK_HEADER_SIZE_V2
@@ -989,6 +1027,25 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
             print(f"[read_block_memory] Block {block_idx}: flag={flag}, offset={blockOffset}")
 
         if flag == 0:
+            # Unchanged since the last read? Peek at the header without taking the
+            # block. A torn peek (Unity mid-write) can only make the frame look
+            # different, which costs one ordinary read, never a missed frame. A
+            # producer that leaves captureTime at 0 gets the old read-every-pass
+            # behaviour rather than being mistaken for one that never moves.
+            if has_pose and cache is not None and block_idx in cache:
+                prev = cache[block_idx]
+                processedMMF.seek(blockOffset + 4)
+                peek_id = struct.unpack('i', processedMMF.read(4))[0]
+                processedMMF.seek(blockOffset + BLOCK_CAPTURE_TIME_OFFSET)
+                peek_time = struct.unpack('<f', processedMMF.read(4))[0]
+                if (peek_time != 0.0 and peek_id == prev['drone_id']
+                        and peek_time == prev['capture_time']):
+                    same = dict(prev)
+                    same['cached'] = False
+                    same['fresh'] = False
+                    views.append(same)
+                    continue
+
             # Block is ready — set flag to 1 (busy reading)
             processedMMF.seek(blockOffset)
             processedMMF.write(struct.pack('i', 1))
@@ -1039,6 +1096,7 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
                     'capture_time': capture_time,
                     'pose_status': pose_status,
                     'cached': False,
+                    'fresh': True,
                 }
                 views.append(view)
 
@@ -1053,6 +1111,7 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
             # pose included, since the two belong together.
             cached = dict(cache[block_idx])
             cached['cached'] = True
+            cached['fresh'] = False
             views.append(cached)
 
             if enable_debug:
@@ -1302,7 +1361,9 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
             panoramaMMF.write(struct.pack('i', quality_word))
 
             if image_data is not None:
-                image_bytes = image_data.tobytes()
+                # A view of the array's bytes, not a copy: at 1600x600 the old
+                # tobytes() was a 2.9 MB memcpy per panorama on this thread.
+                image_bytes = memoryview(np.ascontiguousarray(image_data)).cast('B')
                 if len(image_bytes) != image_size:
                     # Reset flag before raising so Unity isn't left blocked
                     panoramaMMF.seek(flag_position)
@@ -1331,6 +1392,7 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
     if the event is never explicitly signalled.
     """
     rate = RateMeter(window=5.0)
+    last_print = 0.0
     while True:
         # Block until first_thread signals new images (or timeout)
         manager.new_images_event.wait(timeout=0.1)
@@ -1345,18 +1407,25 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
             images = manager.shared_images
             views = manager.shared_views
 
-        t = time.time()
+        # The panorama section's live size, so STABSTITCH can render straight into it.
+        out_size = None
+        if manager.processedImageHeight and manager.processedImageWidth:
+            out_size = (manager.processedImageHeight, manager.processedImageWidth)
+
+        t = time.perf_counter()
 
         try:
-            manager.process_stitching(images, num_pano_img=num_pano_img, views=views)
+            manager.process_stitching(images, num_pano_img=num_pano_img, views=views,
+                                      out_size=out_size)
         except Exception:
             print("[stitching_thread] Error during stitching:")
             traceback.print_exc()
 
         rate.tick()
 
-        if verbose and manager.print_rate:
-            print(f"[stitching_thread] Loop time: {time.time()-t:.3f}s | {rate.hz:.1f} Hz (5s avg)")
+        if verbose and manager.print_rate and t - last_print >= RATE_PRINT_PERIOD:
+            last_print = t
+            print(f"[stitching_thread] {rate.hz:.1f} Hz (5s avg) | last loop {time.perf_counter()-t:.3f}s")
 
         if debug:
             break
@@ -1375,6 +1444,7 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
     switching from moving models off-GPU mid-computation.
     """
     rate = RateMeter(window=5.0)
+    last_print = 0.0
     while True:
         if manager.shared_images is None or manager.known_order is None:
             time.sleep(0.4)
@@ -1391,16 +1461,21 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
         t = time.perf_counter()
         try:
             with manager.switching_lock2:
-                manager.active_stitcher.compute_warps()
+                # Blocks (with a short timeout) until the render thread has admitted a
+                # new frame, so an update is only counted when one actually ran.
+                updated = manager.active_stitcher.compute_warps()
         except Exception:
             print("[warp_thread] Error during warp computation:")
             traceback.print_exc()
+            continue
 
+        if updated is False:
+            continue
         rate.tick()
 
-        if verbose and manager.print_rate:
-            elapsed = time.perf_counter() - t
-            print(f"[warp_thread] Warp update: {elapsed:.3f}s | {rate.hz:.1f} Hz (5s avg)")
+        if verbose and manager.print_rate and t - last_print >= RATE_PRINT_PERIOD:
+            last_print = t
+            print(f"[warp_thread] {rate.hz:.1f} Hz (5s avg) | last update {time.perf_counter()-t:.3f}s")
 
         if debug:
             break

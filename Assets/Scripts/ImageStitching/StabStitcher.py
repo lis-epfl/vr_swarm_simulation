@@ -6,8 +6,10 @@ import os
 import sys
 import glob
 import time
+import math
 import threading
-from collections import deque
+import contextlib
+from collections import deque, OrderedDict
 
 from BaseStitcher import BaseStitcher
 
@@ -59,6 +61,32 @@ from torchvision.transforms import GaussianBlur
 grid_h = _ss2_grid_res.GRID_H  # 6
 grid_w = _ss2_grid_res.GRID_W  # 8
 
+# Cadence at which frames are admitted to the nets' 7-frame temporal buffer, in seconds.
+# Deliberately NOT the render rate: the paper's SmoothNet is trained on a window of
+# consecutive video frames, and the sim has always fed it at ~20 Hz (Unity's old 0.05 s
+# send interval). Keeping this fixed means raising the render/publish rate does not
+# shorten the ~350 ms window the smoothing sees. Averaged, not exact: an admission that
+# falls between renders is taken on the next one and the phase carries over, so the mean
+# cadence is 1 / NET_FRAME_PERIOD whatever the render rate.
+NET_FRAME_PERIOD = float(os.environ.get("STABSTITCH_NET_FRAME_PERIOD", "0.05"))
+
+
+def _env_flag(name, default="0"):
+    return os.environ.get(name, default).lower() not in ("0", "", "false", "no")
+
+
+class WireReadyPanorama(np.ndarray):
+    """
+    A panorama already in the PanoramaSharedMemory layout: RGB, bottom-up rows, at the
+    panorama size Unity asked for. ``stab_pano`` returns one of these when it rendered
+    straight to the wire; ``first_thread`` then writes it without the resize / flip /
+    BGR->RGB pass it applies to a plain BGR canvas.
+
+    An ndarray subclass rather than a wrapper so every existing ``.shape`` / ``imwrite``
+    use keeps working; the backing memory is a pinned buffer owned by the stitcher and is
+    reused a few renders later, so consumers must not hold on to it.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Mesh helpers (mirrors those in test_online_tra_threeview.py)
@@ -82,7 +110,13 @@ def _get_rigid_mesh(batch_size, height, width):
 
 
 def _get_norm_mesh(mesh, height, width):
-    """Normalise mesh coordinates to [-1, 1], flatten grid dims."""
+    """
+    Normalise mesh coordinates to [-1, 1], flatten grid dims.
+
+    ``height`` / ``width`` must be Python numbers, not 0-d CUDA tensors: ``float()`` on a
+    device tensor is a device->host sync, and this used to be called ~16 times per warp
+    update with the canvas size still on the GPU.
+    """
     mesh_w = mesh[..., 0] * 2.0 / float(width) - 1.0
     mesh_h = mesh[..., 1] * 2.0 / float(height) - 1.0
     norm_mesh = torch.stack([mesh_w, mesh_h], -1)
@@ -96,6 +130,38 @@ def _recover_mesh(norm_mesh, height, width):
     mesh_h = (norm_mesh[..., 1] + 1) * float(height) / 2.0
     mesh = torch.stack([mesh_w, mesh_h], 2)
     return mesh.reshape([batch_size, grid_h + 1, grid_w + 1, 2])
+
+
+# Constant tensors _compute_tps_flow needs per (batch, points, canvas, device). Built on the
+# device once rather than per call: every fresh host tensor .cuda()'d is a stream sync.
+# Bounded LRU: the canvas size moves a few pixels between warp updates, so an unbounded
+# dict keyed on it would grow by a few MB per distinct size for the whole session.
+_TPS_CONST_CACHE = OrderedDict()
+_TPS_CONST_CACHE_MAX = 8
+
+
+def _tps_consts(B, P, out_h, out_w, dev):
+    key = (B, P, out_h, out_w, str(dev))
+    c = _TPS_CONST_CACHE.get(key)
+    if c is not None:
+        _TPS_CONST_CACHE.move_to_end(key)
+    else:
+        x_t = torch.matmul(torch.ones(out_h, 1, device=dev),
+                           torch.linspace(-1.0, 1.0, out_w, device=dev).unsqueeze(0))
+        y_t = torch.matmul(torch.linspace(-1.0, 1.0, out_h, device=dev).unsqueeze(1),
+                           torch.ones(1, out_w, device=dev))
+        c = {
+            'ones_P': torch.ones(B, P, 1, device=dev),
+            'zeros33': torch.zeros(B, 3, 3, device=dev),
+            'zeros32': torch.zeros(B, 3, 2, device=dev),
+            'x_tf': x_t.reshape(1, 1, -1),
+            'y_tf': y_t.reshape(1, 1, -1),
+            'ones_hw': torch.ones(B, 1, out_h * out_w, device=dev),
+        }
+        _TPS_CONST_CACHE[key] = c
+        while len(_TPS_CONST_CACHE) > _TPS_CONST_CACHE_MAX:
+            _TPS_CONST_CACHE.popitem(last=False)
+    return c
 
 
 def _compute_tps_flow(source, target, out_h, out_w, downscale=1):
@@ -133,30 +199,27 @@ def _compute_tps_flow(source, target, out_h, out_w, downscale=1):
         out_h = max(2, int(round(out_h / downscale)))
         out_w = max(2, int(round(out_w / downscale)))
 
+    c = _tps_consts(B, P, out_h, out_w, dev)
+
     # --- solve the TPS system (matches torch_tps_transform._solve_system) ---
-    ones = torch.ones(B, P, 1, device=dev)
-    p = torch.cat([ones, source], 2)                              # [B, P, 3]
+    p = torch.cat([c['ones_P'], source], 2)                       # [B, P, 3]
     d2 = torch.sum((p.reshape(B, -1, 1, 3) - p.reshape(B, 1, -1, 3)) ** 2, 3)
     r = d2 * torch.log(d2 + 1e-6)                                 # [B, P, P]
-    zeros = torch.zeros(B, 3, 3, device=dev)
     W = torch.cat([torch.cat([p, r], 2),
-                   torch.cat([zeros, p.permute(0, 2, 1)], 2)], 1)  # [B, P+3, P+3]
-    W_inv = torch.inverse(W.double())
-    tp = torch.cat([target, torch.zeros(B, 3, 2, device=dev)], 1)  # [B, P+3, 2]
+                   torch.cat([c['zeros33'], p.permute(0, 2, 1)], 2)], 1)  # [B, P+3, P+3]
+    # inv_ex: torch.inverse without the singularity check, which is a host sync per call.
+    W_inv = torch.linalg.inv_ex(W.double()).inverse
+    tp = torch.cat([target, c['zeros32']], 1)                     # [B, P+3, 2]
     T = torch.matmul(W_inv, tp.double()).permute(0, 2, 1).float()  # [B, 2, P+3]
 
     # --- radial-basis meshgrid over the output canvas (matches _meshgrid) ---
-    x_t = torch.matmul(torch.ones(out_h, 1, device=dev),
-                       torch.linspace(-1.0, 1.0, out_w, device=dev).unsqueeze(0))
-    y_t = torch.matmul(torch.linspace(-1.0, 1.0, out_h, device=dev).unsqueeze(1),
-                       torch.ones(1, out_w, device=dev))
-    x_tf = x_t.reshape(1, 1, -1)                                  # [1, 1, h*w]
-    y_tf = y_t.reshape(1, 1, -1)
+    x_tf = c['x_tf']                                              # [1, 1, h*w]
+    y_tf = c['y_tf']
     px = source[:, :, 0:1]                                        # [B, P, 1]
     py = source[:, :, 1:2]
     d2g = (x_tf - px) ** 2 + (y_tf - py) ** 2                     # [B, P, h*w]
     rg = d2g * torch.log(d2g + 1e-6)
-    grid = torch.cat([torch.ones(B, 1, out_h * out_w, device=dev),
+    grid = torch.cat([c['ones_hw'],
                       x_tf.expand(B, -1, -1), y_tf.expand(B, -1, -1), rg], 1)  # [B, P+3, h*w]
 
     Tg = torch.matmul(T, grid)                                   # [B, 2, h*w]
@@ -314,16 +377,29 @@ class StabStitcher(BaseStitcher):
     """
     Video-aware stitcher using StabStitch++ (Spatial + Temporal + Smooth warp).
 
-    Maintains a rolling buffer of the last BUFFER_LEN frames for temporal
-    stability.  On each call to stab_pano() the pipeline:
+    Two threads share it. The **render** thread (``stab_pano``, Unity-paced) uploads
+    the three current frames, admits one to the temporal buffer every
+    ``NET_FRAME_PERIOD`` and warps the frames with the cached TPS field. The **warp**
+    thread (``compute_warps``) runs the nets and refreshes that cache.
 
-      1. Preprocesses the three input images and adds them to per-camera buffers.
-      2. Runs SpatialNet on every frame-pair in the buffer (14 calls).
-      3. Runs TemporalNet independently on each of the three camera streams (3 calls).
-      4. Derives temporal-spatial motion (tsmotion) for each pair.
-      5. Runs SmoothNet on the full buffer for both pairs.
-      6. Performs mesh alignment and TPS warping / blending for the **latest**
-         frame only (the one that was just added to the buffer).
+    The nets run **incrementally**: SpatialNet's output for a frame depends only on
+    that frame, TemporalNet's on that frame and its predecessor, so both are computed
+    once when a frame is admitted and kept in per-frame deques alongside the frame.
+    Each warp update then only runs the nets on the frames admitted since the last one
+    and re-runs the (cheap) SmoothNet over the 7-frame window. This is the same
+    computation the paper's online protocol performs — SpatialNet per frame, TemporalNet
+    per transition, SmoothNet per window — just not repeated 7x per update. The previous
+    "snapshot the window, run everything" path is kept as ``legacy_warp``
+    (``STABSTITCH_LEGACY_WARP=1``) so the two can be compared.
+
+    Pipeline per admitted frame:
+      1. SpatialNet on the (left, centre) and (centre, right) pairs (one batch-2 call).
+      2. TemporalNet on the transition from the previous frame, all three streams (batch 3).
+      3. Temporal-spatial motion (tsmotion) for the transition.
+    Per warp update:
+      4. SmoothNet over the 7-frame window (both pairs, batch 2).
+      5. Mesh alignment, canvas, TPS sampling field, blend weights, quality gate — all for
+         the latest frame only.
 
     While the buffer is filling (fewer than BUFFER_LEN frames) a simple
     horizontal concatenation is returned as a fallback.
@@ -351,8 +427,7 @@ class StabStitcher(BaseStitcher):
         self.fusion_mode = fusion_mode
         # Env-gated so the per-stage warp/render breakdown can be turned on for
         # profiling without touching Unity or the shared-memory metadata.
-        self.timing = timing or os.environ.get(
-            "STABSTITCH_TIMING", "0").lower() not in ("0", "", "false", "no")
+        self.timing = timing or _env_flag("STABSTITCH_TIMING")
         self.save_masks = save_masks
         self.mask_save_dir = mask_save_dir or os.path.join(_THIS_DIR, "mask_debug")
         self.blur_kernel_size = blur_kernel_size
@@ -374,8 +449,14 @@ class StabStitcher(BaseStitcher):
 
         # Downscale factor for the per-pixel TPS RBF evaluation (see
         # _compute_tps_flow). 1 = exact; 2 evaluates on a half-size canvas and
-        # bilinearly upsamples the field.
-        self.flow_downscale = int(os.environ.get("STABSTITCH_FLOW_DOWNSCALE", "1"))
+        # bilinearly upsamples the field. Default 2: the RBF over a ~1400x550 canvas
+        # is 15 ms at full resolution and 4 ms at half, for a max field error of
+        # ~0.085 px -- well under the resampling that follows anyway.
+        self.flow_downscale = int(os.environ.get("STABSTITCH_FLOW_DOWNSCALE", "2"))
+
+        # Full-window recompute every update, as before the incremental cache. Kept for
+        # the self-test's equivalence check and for bisecting; see the class docstring.
+        self.legacy_warp = _env_flag("STABSTITCH_LEGACY_WARP")
 
         # --- Panorama quality estimate / auto-fallback ---
         # When the stitched panorama is judged bad (poor overlap alignment,
@@ -393,8 +474,7 @@ class StabStitcher(BaseStitcher):
         # --- Quality diagnostics (for tuning which gate flags a bad stitch) ---
         # Enabled by `timing` or env STABSTITCH_QUALITY_DEBUG=1 so it can be
         # toggled without touching Unity / the shared-memory metadata contract.
-        self.quality_debug = bool(timing) or os.environ.get(
-            "STABSTITCH_QUALITY_DEBUG", "0").lower() not in ("0", "", "false", "no")
+        self.quality_debug = bool(timing) or _env_flag("STABSTITCH_QUALITY_DEBUG")
         self.quality_summary_every = int(os.environ.get(
             "STABSTITCH_QUALITY_SUMMARY_EVERY", "50"))
         self._quality_eval_count = 0
@@ -403,9 +483,14 @@ class StabStitcher(BaseStitcher):
         self._quality_fail_counts = {'canvas': 0, 'distortion': 0, 'photometric': 0}
         # Failing-gate bitmask of the most recent eval (canvas=1, distortion=2,
         # photometric=4; 0 = good). Written by _record_quality and read back by
-        # _compute_warp_params — both in the warp thread — so Unity can be told
+        # the warp update — both in the warp thread — so Unity can be told
         # *why* the panorama dropped to fallback. See REASON_* in PyUniSharingFast.
         self.last_quality_reason = 0
+        # The per-eval quality line is printed on a verdict change and otherwise at most
+        # once a second: the warp thread now runs at ~15-20 Hz, and that many lines/s is
+        # console load, not information.
+        self._quality_last_print = 0.0
+        self._quality_last_verdict = None
 
         # --- Networks ---
         self.spatial_net = SpatialNet()
@@ -418,26 +503,56 @@ class StabStitcher(BaseStitcher):
 
         self._load_models()
 
-        # --- Rolling frame buffers ---
-        # Low-res tensors (NET_H × NET_W) for motion estimation networks
+        self._cuda = torch.cuda.is_available()
+        self._dev = torch.device('cuda') if self._cuda else torch.device('cpu')
+
+        # --- Rolling frame buffers (GPU tensors at NET_H x NET_W) ---
         self._buf_img1 = deque(maxlen=self.BUFFER_LEN)   # left camera
         self._buf_img2 = deque(maxlen=self.BUFFER_LEN)   # centre camera
         self._buf_img3 = deque(maxlen=self.BUFFER_LEN)   # right camera
+        # Per-frame net outputs, index-aligned with the frame deques (incremental path).
+        # smesh = rigid mesh + SpatialNet motion, one per (pair, side); tsm = the
+        # temporal-spatial motion of the transition INTO that frame (zero for a frame
+        # that had no predecessor when it was admitted).
+        self._smesh12_1 = deque(maxlen=self.BUFFER_LEN)
+        self._smesh12_2 = deque(maxlen=self.BUFFER_LEN)
+        self._smesh23_1 = deque(maxlen=self.BUFFER_LEN)
+        self._smesh23_2 = deque(maxlen=self.BUFFER_LEN)
+        self._tsm12_1 = deque(maxlen=self.BUFFER_LEN)
+        self._tsm12_2 = deque(maxlen=self.BUFFER_LEN)
+        self._tsm23_1 = deque(maxlen=self.BUFFER_LEN)
+        self._tsm23_2 = deque(maxlen=self.BUFFER_LEN)
+        # Frames admitted by the render thread and not yet run through the nets:
+        # (lr1, lr2, lr3, cuda_event) tuples, oldest first.
+        self._pending = []
+        self._next_admit = -1.0
         # Only the latest HR frame is ever warped (stab_pano supplies it directly),
-        # so the warp pipeline only needs the most-recent input's (H, W) — not a
-        # buffer of HR tensors. Stored by stab_pano each frame.
+        # so the warp pipeline only needs the most-recent input's (H, W).
         self._hr_shape = None
+        # Panorama size the wire wants, (h, w); the warp update resamples its field to
+        # it so the render can produce the wire layout directly. None = canvas output.
+        self._wire_size = None
 
         # --- Warp caching for decoupled render/warp pipeline ---
-        self._cached_warp = None   # dict with precomputed normalized meshes + output size
+        self._cached_warp = None   # dict with precomputed sampling field, weights, size
         self._warp_lock = threading.Lock()   # protects _cached_warp reads/writes
-        self._buf_lock = threading.Lock()    # protects buffer deque access
-        self._compute_lock = threading.Lock()  # serializes neural-net inference
+        self._buf_lock = threading.Lock()    # protects buffer deque / pending access
+        self._compute_lock = threading.RLock()  # serializes neural-net inference
+        self._frame_event = threading.Event()   # set by stab_pano on admission
 
         # Separate CUDA streams so warp and render GPU kernels can
         # interleave instead of serializing on the default stream.
-        self._warp_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
-        self._render_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+        self._warp_stream = torch.cuda.Stream() if self._cuda else None
+        self._render_stream = torch.cuda.Stream() if self._cuda else None
+
+        # Pinned host staging for the input frames (two, alternated: the previous
+        # upload may still be in flight when the next render arrives) and a small ring of
+        # pinned output buffers the wire-ready panorama lands in.
+        self._stage_in = [None, None]
+        self._stage_ev = [None, None]
+        self._stage_idx = 0
+        self._out_ring = []
+        self._out_idx = 0
 
         # Pre-built blur kernels – reused every frame to avoid per-call
         # kernel allocation and recompilation overhead.
@@ -450,6 +565,27 @@ class StabStitcher(BaseStitcher):
         self._rigid_mesh_hr = None         # at high-res (lazily initialised)
         self._norm_rigid_mesh_hr = None
         self._hr_cache_key = None          # (hr_h, hr_w) to detect resolution changes
+
+    # ------------------------------------------------------------------
+    # Buffer management
+    # ------------------------------------------------------------------
+
+    def reset(self):
+        """Drop every buffered frame, cached net output and cached warp (for tests)."""
+        with self._buf_lock:
+            for d in (self._buf_img1, self._buf_img2, self._buf_img3,
+                      self._smesh12_1, self._smesh12_2, self._smesh23_1, self._smesh23_2,
+                      self._tsm12_1, self._tsm12_2, self._tsm23_1, self._tsm23_2):
+                d.clear()
+            self._pending = []
+            self._next_admit = -1.0
+            self._hr_shape = None
+        with self._warp_lock:
+            self._cached_warp = None
+        self._frame_event.clear()
+        self._fallback_active = False
+        self._bad_count = 0
+        self._good_count = 0
 
     # ------------------------------------------------------------------
     # Cached mesh initialisation
@@ -501,7 +637,12 @@ class StabStitcher(BaseStitcher):
     # ------------------------------------------------------------------
 
     def _preprocess(self, img: np.ndarray) -> torch.Tensor:
-        """BGR uint8 numpy → normalised float tensor at NET resolution (CPU)."""
+        """
+        BGR uint8 numpy → normalised float tensor at NET resolution (CPU).
+
+        The reference (paper) preprocessing. The live path does the same on the GPU in
+        ``_make_lr``; the self-test checks the two agree to within uint8 quantisation.
+        """
         resized = cv2.resize(img, (self.NET_W, self.NET_H))
         arr = resized.astype(np.float32)
         arr = (arr / 127.5) - 1.0
@@ -514,6 +655,55 @@ class StabStitcher(BaseStitcher):
         arr = np.transpose(arr, [2, 0, 1])
         return torch.tensor(arr).unsqueeze(0)   # [1, 3, H, W]
 
+    def _stream(self, stream):
+        return torch.cuda.stream(stream) if stream is not None else contextlib.nullcontext()
+
+    def _upload_frames(self, imgs):
+        """
+        Three BGR uint8 HWC frames → one [3, H, W, 3] uint8 device tensor.
+
+        Goes through a pinned staging buffer so the copy is a DMA rather than a
+        pageable memcpy, and stays uint8: 3 MB per frame-triple instead of the 12 MB
+        the old float32 path pushed across PCIe, with the float conversion done on
+        the GPU where it is free.
+        """
+        h, w = imgs[0].shape[:2]
+        i = self._stage_idx
+        self._stage_idx ^= 1
+        buf = self._stage_in[i]
+        if buf is None or tuple(buf.shape[1:3]) != (h, w):
+            buf = torch.empty((3, h, w, 3), dtype=torch.uint8)
+            if self._cuda:
+                buf = buf.pin_memory()
+            self._stage_in[i] = buf
+            self._stage_ev[i] = None
+        # The previous upload out of this staging buffer may still be in flight.
+        if self._stage_ev[i] is not None:
+            self._stage_ev[i].synchronize()
+        host = buf.numpy()
+        for k in range(3):
+            np.copyto(host[k], imgs[k])
+        if not self._cuda:
+            return buf.clone()
+        g = buf.to(self._dev, non_blocking=True)
+        ev = torch.cuda.Event()
+        ev.record()
+        self._stage_ev[i] = ev
+        return g
+
+    def _make_lr(self, frames_u8):
+        """
+        [3, H, W, 3] uint8 device frames → [3, 3, NET_H, NET_W] normalised float.
+
+        Bilinear without antialiasing at half-pixel centres is what
+        ``cv2.resize(..., INTER_LINEAR)`` computes for these ratios; the two agree to
+        within one uint8 quantisation step (cv2 rounds to uint8 before the /127.5).
+        """
+        x = frames_u8.permute(0, 3, 1, 2).float()
+        x = F.interpolate(x, size=(self.NET_H, self.NET_W), mode='bilinear',
+                          align_corners=False, antialias=False)
+        return x / 127.5 - 1.0
+
     # ------------------------------------------------------------------
     # Network wrappers
     # ------------------------------------------------------------------
@@ -522,8 +712,9 @@ class StabStitcher(BaseStitcher):
         """
         Run SpatialNet on two sets of frame pairs in a single batched call.
 
-        Instead of 14 individual forward passes (7 per pair), this stacks
-        all frame pairs along the batch dimension and runs one forward pass.
+        Stacks all frame pairs along the batch dimension and runs one forward
+        pass; with the incremental cache the lists hold only the newly admitted
+        frames (usually one), so this is a batch of 2.
 
         Returns
         -------
@@ -532,13 +723,13 @@ class StabStitcher(BaseStitcher):
         smesh_list,   smesh_list2   : lists of [1, H, W, 2] tensors (CUDA)
         """
         rigid = self._rigid_mesh_net  # cached [1, grid_h+1, grid_w+1, 2]
-        n = len(img1_list_a)  # BUFFER_LEN (7)
+        n = len(img1_list_a)
 
         # Stack all pairs: [n, C, H, W] for pair-a + [n, C, H, W] for pair-b → [2n, C, H, W]
-        all_t1 = torch.cat([torch.cat(img1_list_a, 0), torch.cat(img1_list_b, 0)], 0).cuda()
-        all_t2 = torch.cat([torch.cat(img2_list_a, 0), torch.cat(img2_list_b, 0)], 0).cuda()
+        all_t1 = torch.cat([torch.cat(img1_list_a, 0), torch.cat(img1_list_b, 0)], 0).to(self._dev)
+        all_t2 = torch.cat([torch.cat(img2_list_a, 0), torch.cat(img2_list_b, 0)], 0).to(self._dev)
 
-        with torch.cuda.amp.autocast(enabled=self.net_fp16):
+        with torch.autocast('cuda', enabled=self.net_fp16):
             out = build_SpatialNet(self.spatial_net, all_t1, all_t2)
         # motion shapes: [2n, grid_h+1, grid_w+1, 2] — back to fp32 for mesh math
         all_s1 = out["motion1"].float()
@@ -567,20 +758,24 @@ class StabStitcher(BaseStitcher):
 
         Stacks the three streams along the batch dimension (batch=3) so
         the network processes all streams in one forward pass instead of three.
+        Each transition's motion depends only on its own two frames, so a list of
+        length 2 (previous frame + new frame) yields exactly the motion the full
+        window would for that transition.
 
         Returns
         -------
-        tmotion1, tmotion2, tmotion3 : lists of BUFFER_LEN tensors [1, H, W, 2]
+        tmotion1, tmotion2, tmotion3 : lists of len(img_list) tensors [1, H, W, 2];
+        entry 0 is zero motion (no predecessor in the list).
         """
-        # Each img_list is a list of BUFFER_LEN tensors of shape [1, C, H, W]
+        # Each img_list is a list of tensors of shape [1, C, H, W]
         # Stack to [3, C, H, W] per frame
         batched_list = [
-            torch.cat([img_list1[i], img_list2[i], img_list3[i]], 0).cuda()
+            torch.cat([img_list1[i], img_list2[i], img_list3[i]], 0).to(self._dev)
             for i in range(len(img_list1))
         ]
-        with torch.cuda.amp.autocast(enabled=self.net_fp16):
+        with torch.autocast('cuda', enabled=self.net_fp16):
             out = build_TemporalNet(self.temporal_net, batched_list)
-        # list of BUFFER_LEN tensors [3, grid_h+1, grid_w+1, 2] — fp32 for mesh math
+        # list of tensors [3, grid_h+1, grid_w+1, 2] — fp32 for mesh math
         motion_list = [m.float() for m in out["motion_list"]]
 
         # Unbatch: split each [3, ...] tensor into three [1, ...] tensors
@@ -599,11 +794,13 @@ class StabStitcher(BaseStitcher):
         (stream, frame) is an independent TPS point transform.  Done one at a time
         that is 4 streams x 6 frames = 24 tiny GPU launches, each carrying its own
         float64 (P+3)x(P+3) inverse, and the launch overhead dominates.  Stacking
-        them into a single batch-24 call gives identical results for ~1/10 the time.
+        them into a single batch call gives identical results for ~1/10 the time.
 
         Parameters
         ----------
-        specs : list of (smotion_list, smesh_list, tmotion_list) triples.
+        specs : list of (smotion_list, smesh_list, tmotion_list) triples. Only
+                ``smotion_list[0]`` is read (for the zero entry's shape), so the
+                smesh list may be passed in its place.
 
         Returns
         -------
@@ -620,9 +817,7 @@ class StabStitcher(BaseStitcher):
                 smesh_prev_all.append(smesh_list[k - 1])
 
         if not tmesh_all:
-            # Only reachable with a single-frame buffer, where every entry is the
-            # zero-motion frame-0 case. SmoothNet requires BUFFER_LEN == 7, so this
-            # is a guard rather than a path the pipeline takes.
+            # A single-entry list: every entry is the zero-motion frame-0 case.
             return [[spec[0][0] * 0] for spec in specs]
 
         tmesh_cat = torch.cat(tmesh_all, 0)
@@ -671,7 +866,7 @@ class StabStitcher(BaseStitcher):
         combined_tsm1   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a1, tsmotion_b1)]
         combined_tsm2   = [torch.cat([a, b], 0) for a, b in zip(tsmotion_a2, tsmotion_b2)]
 
-        with torch.cuda.amp.autocast(enabled=self.net_fp16):
+        with torch.autocast('cuda', enabled=self.net_fp16):
             out = build_SmoothNet(
                 self.smooth_net,
                 combined_tsm1, combined_tsm2,
@@ -787,16 +982,21 @@ class StabStitcher(BaseStitcher):
     # Panorama quality estimate (runs in warp thread)
     # ------------------------------------------------------------------
 
-    def _overlap_psnr(self, norm_m1, norm_m2, norm_m3, out_size,
-                      img1_lr, img2_lr, img3_lr):
+    def _overlap_psnr_terms(self, norm_m1, norm_m2, norm_m3, out_size,
+                            img1_lr, img2_lr, img3_lr):
         """
         Photometric consistency of the warped feeds in their overlap regions.
 
         Warps the latest *low-res* frames with the same normalised meshes used
         for the final panorama (the normalised rigid mesh is resolution
-        independent) onto a small canvas, then measures PSNR between the
-        overlapping pixels of (left, centre) and (centre, right).  Low PSNR ⇒
-        ghosting/misalignment.  Cheap enough for the ~3 Hz warp thread.
+        independent) onto a small canvas and accumulates the squared error and
+        pixel count over the overlapping pixels of (left, centre) and
+        (centre, right).  Returns the two as device tensors so the caller can
+        fetch every quality number in a single device->host copy.
+
+        The warp is ``_compute_tps_flow`` + ``grid_sample``, which is exactly the
+        FAST mode of ``torch_tps_transform.transformer`` without its per-call
+        host-built constants.
         """
         self._ensure_net_meshes()
         norm_rig = self._norm_rigid_mesh_net
@@ -805,18 +1005,15 @@ class StabStitcher(BaseStitcher):
         # Downscaled canvas — quality is judged at low res to stay cheap.
         sh = int(max(8, min(512, out_size[0] // 4)))
         sw = int(max(8, min(512, out_size[1] // 4)))
-        dev = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         def _prep(t):
-            rgb = (t.to(dev) + 1.0) * 127.5            # [-1,1] → [0,255]
+            rgb = (t.to(self._dev) + 1.0) * 127.5      # [-1,1] → [0,255]
             alpha = torch.ones_like(rgb[:, :1])
             return torch.cat([rgb, alpha], 1)          # [1, 4, H, W]
 
         stack = torch.cat([_prep(img1_lr), _prep(img2_lr), _prep(img3_lr)], 0)
-        warp = torch_tps_transform.transformer(
-            stack, torch.cat([norm_m1, norm_m2, norm_m3], 0),
-            norm_rig3, (sh, sw), mode=self.warp_mode,
-        )
+        flow = _compute_tps_flow(torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3, sh, sw)
+        warp = F.grid_sample(stack, flow, align_corners=True)
         rgb = warp[:, :3]
         m = (warp[:, 3:4] > 0.5).float()               # [3, 1, H, W]
 
@@ -828,14 +1025,7 @@ class StabStitcher(BaseStitcher):
 
         se12, n12 = _pair(0, 1)
         se23, n23 = _pair(1, 2)
-        n_total = n12 + n23
-        if n_total.item() < 1:
-            return 99.0                                # no overlap to judge
-        mse = (se12 + se23) / (n_total * 3 + 1e-6)
-        if mse.item() <= 1e-6:
-            return 99.0
-        psnr = 10.0 * torch.log10((255.0 ** 2) / mse)
-        return float(psnr.item())
+        return se12 + se23, n12 + n23
 
     def _estimate_quality(self, norm_m1, norm_m2, norm_m3,
                           m1_final, m2_final, m3_final,
@@ -851,6 +1041,9 @@ class StabStitcher(BaseStitcher):
 
         Returns ``(quality_ok: bool, score: float)`` where ``score`` is the
         overlap PSNR (primary, user-tunable signal) for logging.
+
+        Every device-side number is gathered with one ``.cpu()``; the previous
+        per-metric ``.item()`` calls were six separate syncs per update.
         """
         with torch.no_grad():
             out_h2, out_w2 = out_size
@@ -870,17 +1063,25 @@ class StabStitcher(BaseStitcher):
                 return False, 0.0
 
             # --- mesh shape distortion (scale-invariant) ---
-            distortion = max(
-                _inter_grid_loss(m1_final.unsqueeze(1)).item(),
-                _inter_grid_loss(m2_final.unsqueeze(1)).item(),
-                _inter_grid_loss(m3_final.unsqueeze(1)).item(),
-            )
-            distortion_ok = distortion <= self.distortion_threshold
+            distortion_t = torch.stack([
+                _inter_grid_loss(m1_final.unsqueeze(1)),
+                _inter_grid_loss(m2_final.unsqueeze(1)),
+                _inter_grid_loss(m3_final.unsqueeze(1)),
+            ]).max()
 
             # --- overlap photometric consistency ---
-            psnr = self._overlap_psnr(
+            se, n = self._overlap_psnr_terms(
                 norm_m1, norm_m2, norm_m3, out_size, img1_lr, img2_lr, img3_lr
             )
+            distortion, se, n = torch.stack([distortion_t, se, n]).cpu().tolist()
+
+            if n < 1:
+                psnr = 99.0                                # no overlap to judge
+            else:
+                mse = se / (n * 3 + 1e-6)
+                psnr = 99.0 if mse <= 1e-6 else 10.0 * math.log10((255.0 ** 2) / mse)
+
+            distortion_ok = distortion <= self.distortion_threshold
             photometric_ok = psnr >= self.quality_threshold
 
             quality_ok = canvas_ok and distortion_ok and photometric_ok
@@ -921,13 +1122,16 @@ class StabStitcher(BaseStitcher):
                 self._quality_fail_counts['photometric'] += 1
         self.last_quality_reason = reason_mask
 
-        # Per-eval metric print so the photometric signal can be watched live
-        # while tuning `quality_threshold`. Always on (the metric is computed at
-        # the ~3 Hz warp rate, so this is a few lines/sec, not a spam stream).
-        psnr_str = "n/a(canvas)" if psnr is None else f"{psnr:.2f}dB"
-        print(f"[StabStitch quality] psnr={psnr_str} "
-              f"(threshold>={self.quality_threshold:.1f}) "
-              f"{'OK' if quality_ok else 'BAD'}")
+        # Per-eval metric print so the photometric signal can be watched live while
+        # tuning `quality_threshold`: on every verdict change, otherwise at most 1 Hz.
+        now = time.perf_counter()
+        if quality_ok != self._quality_last_verdict or now - self._quality_last_print >= 1.0:
+            self._quality_last_print = now
+            self._quality_last_verdict = quality_ok
+            psnr_str = "n/a(canvas)" if psnr is None else f"{psnr:.2f}dB"
+            print(f"[StabStitch quality] psnr={psnr_str} "
+                  f"(threshold>={self.quality_threshold:.1f}) "
+                  f"{'OK' if quality_ok else 'BAD'}")
 
         if not self.quality_debug:
             return
@@ -984,21 +1188,26 @@ class StabStitcher(BaseStitcher):
     # Public API
     # ------------------------------------------------------------------
 
-    def stab_pano(self, images, subset1, subset2):
+    def stab_pano(self, images, subset1, subset2, out_size=None):
         """
         Produce a stabilised panorama from three images.
 
-        Uses cached warp parameters when available (fast path, ~30ms).
-        On the very first call with a full buffer, computes warps
-        synchronously so a real panorama is returned immediately.
-        Subsequent warp updates are handled by ``compute_warps()``
-        running on a dedicated thread.
+        Uses cached warp parameters when available (fast path, well under a
+        millisecond of GPU work).  On the very first call with a full buffer,
+        computes warps synchronously so a real panorama is returned immediately.
+        Subsequent warp updates are handled by ``compute_warps()`` running on a
+        dedicated thread.
 
         Parameters
         ----------
         images  : list of numpy BGR uint8 arrays
         subset1 : [left_idx, centre_idx]
         subset2 : [centre_idx, right_idx]
+        out_size : optional (height, width) the panorama is wanted at.  When
+            given and a matching sampling field is cached, the panorama is
+            rendered straight into that size, vertically flipped and RGB — the
+            PanoramaSharedMemory layout — and returned as a
+            :class:`WireReadyPanorama`.  Otherwise a BGR canvas is returned.
 
         Returns
         -------
@@ -1012,175 +1221,316 @@ class StabStitcher(BaseStitcher):
         img1 = images[subset1[0]]   # left
         img2 = images[subset1[1]]   # centre
         img3 = images[subset2[1]]   # right
+        hr_h, hr_w = img1.shape[0], img1.shape[1]
+        out_size = tuple(int(v) for v in out_size) if out_size is not None else None
+        self._wire_size = out_size
 
-        # Add current frame to buffers (thread-safe)
-        with self._buf_lock:
-            self._buf_img1.append(self._preprocess(img1))
-            self._buf_img2.append(self._preprocess(img2))
-            self._buf_img3.append(self._preprocess(img3))
-            # Record only the latest HR size instead of buffering 7 unused
-            # HR tensors per camera (the warp pipeline reads just the dims).
-            self._hr_shape = (img1.shape[0], img1.shape[1])
-            buf_ready = len(self._buf_img1) >= self.BUFFER_LEN
+        with torch.no_grad(), self._stream(self._render_stream):
+            frames_u8 = self._upload_frames((img1, img2, img3))
 
-        if not buf_ready:
-            # Buffer still filling: show the crude concat, but don't trip the
-            # quality fallback (no real warp has been computed yet).
-            return self._fallback_concat(img1, img2, img3), True, 0
+            # Admit this frame to the temporal buffer on the fixed cadence (see
+            # NET_FRAME_PERIOD). The phase is carried over so a late admission does
+            # not shorten the mean period, and a stall does not cause a burst.
+            now = time.perf_counter()
+            if self._next_admit < 0.0:
+                self._next_admit = now
+            admit = now >= self._next_admit
+            if admit:
+                self._next_admit = max(self._next_admit + NET_FRAME_PERIOD,
+                                       now - NET_FRAME_PERIOD)
+                lr = self._make_lr(frames_u8)
+                ev = None
+                if self._cuda:
+                    ev = torch.cuda.Event()
+                    ev.record()
+                with self._buf_lock:
+                    self._hr_shape = (hr_h, hr_w)
+                    if self.legacy_warp:
+                        # The legacy path reads these on the warp stream with no
+                        # event; make them complete first (it is a test path).
+                        if ev is not None:
+                            ev.synchronize()
+                        self._buf_img1.append(lr[0:1])
+                        self._buf_img2.append(lr[1:2])
+                        self._buf_img3.append(lr[2:3])
+                    else:
+                        self._pending.append((lr[0:1], lr[1:2], lr[2:3], ev))
+                    buf_ready = len(self._buf_img1) + len(self._pending) >= self.BUFFER_LEN
+                self._frame_event.set()
+            else:
+                with self._buf_lock:
+                    buf_ready = len(self._buf_img1) + len(self._pending) >= self.BUFFER_LEN
 
-        # First computation: synchronous so the caller gets a real panorama.
-        # Double-checked locking: the fast outer check avoids the lock on
-        # every subsequent frame; the inner check prevents a duplicate
-        # computation if the warp thread got there first.
-        if self._cached_warp is None:
-            warp_params = self._compute_warp_params_from_buffer()
-            with self._warp_lock:
+            if not buf_ready:
+                # Buffer still filling: show the crude concat, but don't trip the
+                # quality fallback (no real warp has been computed yet).
+                return self._fallback_concat(img1, img2, img3), True, 0
+
+            # First computation: synchronous so the caller gets a real panorama.
+            # _update_warps takes the compute lock, so it cannot race the warp thread.
+            if self._cached_warp is None:
+                self._update_warps()
                 if self._cached_warp is None:
-                    self._cached_warp = warp_params
+                    return self._fallback_concat(img1, img2, img3), True, 0
 
-        with self._warp_lock:
-            warp_params = self._cached_warp
+            with self._warp_lock:
+                warp_params = self._cached_warp
 
-        # Quality gate: ``quality_ok`` is the debounced verdict computed in the
-        # warp thread.  When bad, skip the (expensive) render entirely and let
-        # the caller switch to the individual feeds.
-        quality_ok = warp_params.get('quality_ok', True)
-        if not quality_ok:
-            return None, False, warp_params.get('quality_reason', 0)
+            # Quality gate: ``quality_ok`` is the debounced verdict computed in the
+            # warp thread.  When bad, skip the (expensive) render entirely and let
+            # the caller switch to the individual feeds.
+            quality_ok = warp_params.get('quality_ok', True)
+            if not quality_ok:
+                return None, False, warp_params.get('quality_reason', 0)
 
-        # Fast render path using cached warps + current high-res images
-        img1_hr_t = self._to_hr_tensor(img1).cuda()
-        img2_hr_t = self._to_hr_tensor(img2).cuda()
-        img3_hr_t = self._to_hr_tensor(img3).cuda()
-        pano = self._render_with_params(img1_hr_t, img2_hr_t, img3_hr_t, warp_params)
-        return pano, True, 0
+            pano = self._render_with_params(frames_u8, warp_params, out_size)
+            return pano, True, 0
 
     def compute_warps(self):
         """
-        Snapshot the rolling buffer, run the full neural-net warp pipeline,
-        and update the cached warp parameters.
+        Run one warp update on the dedicated warp thread.
 
-        Intended to be called from a dedicated warp-computation thread at
-        ~3 Hz.  The render path (``stab_pano``) continues to use the
-        previous cached warps until this method stores a new set.
+        Blocks until ``stab_pano`` has admitted a new frame (with a timeout so the
+        caller's loop stays responsive to a stitcher switch), then ingests every
+        frame admitted since the last update and refreshes the cached warp
+        parameters.  The render path keeps using the previous cache meanwhile.
+
+        Returns True when the cache was refreshed, False otherwise (timed out, or
+        the window is still filling), so the caller can count real updates.
         """
-        with self._buf_lock:
-            if len(self._buf_img1) < self.BUFFER_LEN or self._hr_shape is None:
-                # Buffer still filling — sleep instead of returning straight into
-                # the caller's tight loop, which otherwise spins a core at ~100 kHz
-                # and starves the render thread of GIL time while it warms up.
-                time.sleep(0.05)
-                return
-            img1_list = list(self._buf_img1)
-            img2_list = list(self._buf_img2)
-            img3_list = list(self._buf_img3)
-            hr_h, hr_w = self._hr_shape
+        if not self._frame_event.wait(timeout=0.1):
+            return False
+        self._frame_event.clear()
+        return self._update_warps()
 
-        warp_params = self._compute_warp_params(
-            img1_list, img2_list, img3_list, hr_h, hr_w
-        )
+    def _update_warps(self):
+        """
+        Ingest pending frames, then (if the window is full) refresh the cache.
 
-        with self._warp_lock:
-            self._cached_warp = warp_params
+        Returns True when new warp parameters were stored.
+        """
+        with self._compute_lock:
+            with self._buf_lock:
+                pending = self._pending
+                self._pending = []
+                hr_shape = self._hr_shape
+                if self.legacy_warp:
+                    img1_list = list(self._buf_img1)
+                    img2_list = list(self._buf_img2)
+                    img3_list = list(self._buf_img3)
+
+            if hr_shape is None:
+                return False
+            hr_h, hr_w = hr_shape
+
+            if self.legacy_warp:
+                if len(img1_list) < self.BUFFER_LEN:
+                    return False
+                warp_params = self._compute_warp_params(img1_list, img2_list, img3_list, hr_h, hr_w)
+            else:
+                with torch.no_grad(), self._stream(self._warp_stream):
+                    t0 = time.perf_counter() if self.timing else None
+                    if pending:
+                        self._ingest(pending)
+                    if len(self._buf_img1) < self.BUFFER_LEN:
+                        return False
+                    if self.timing:
+                        torch.cuda.synchronize()
+                        t_nets = time.perf_counter()
+                    warp_params = self._window_params(hr_h, hr_w)
+                    if self.timing:
+                        print(f"[StabStitch warp] nets(new={len(pending)})={t_nets-t0:.3f}  "
+                              f"window={time.perf_counter()-t_nets:.3f}s")
+                if self._warp_stream is not None:
+                    self._warp_stream.synchronize()
+
+            with self._warp_lock:
+                self._cached_warp = warp_params
+            return True
 
     # ------------------------------------------------------------------
-    # Internal: fallback and full pipeline
+    # Internal: incremental net cache
+    # ------------------------------------------------------------------
+
+    def _ingest(self, pending):
+        """
+        Run the per-frame nets on newly admitted frames and append them to the window.
+
+        ``pending`` is a list of ``(lr1, lr2, lr3, event)`` oldest first.  SpatialNet
+        runs once on all of them (batch 2n); TemporalNet and the tsmotion transform
+        run on the transitions from the last buffered frame through each new one
+        (a list of n+1 frames, or n when the buffer is empty).  Caller holds
+        ``_compute_lock`` and runs on the warp stream.
+        """
+        self._ensure_net_meshes()
+        n = len(pending)
+
+        new1, new2, new3 = [], [], []
+        for lr1, lr2, lr3, ev in pending:
+            if self._cuda:
+                if ev is not None:
+                    self._warp_stream.wait_event(ev)
+                for t in (lr1, lr2, lr3):
+                    # Allocated on the render stream, read on this one: keep the
+                    # allocator from recycling the block until this stream is done.
+                    t.record_stream(self._warp_stream)
+            new1.append(lr1)
+            new2.append(lr2)
+            new3.append(lr3)
+
+        # ---------- Spatial: both pairs for every new frame (batch 2n) ----------
+        (_sm12_1, _sm12_2, me12_1, me12_2,
+         _sm23_1, _sm23_2, me23_1, me23_2) = \
+            self._run_spatial_batched(new1, new2, new2, new3)
+
+        # ---------- Temporal + tsmotion: transitions prev -> new_0 -> ... -> new_n-1 ----------
+        with self._buf_lock:
+            have_prev = len(self._buf_img1) > 0
+            if have_prev:
+                base = ([self._buf_img1[-1]], [self._buf_img2[-1]], [self._buf_img3[-1]])
+                base_me = ([self._smesh12_1[-1]], [self._smesh12_2[-1]],
+                           [self._smesh23_1[-1]], [self._smesh23_2[-1]])
+            else:
+                base = ([], [], [])
+                base_me = ([], [], [], [])
+
+        tm1, tm2, tm3 = self._run_temporal_batched(
+            base[0] + new1, base[1] + new2, base[2] + new3)
+
+        l12_1 = base_me[0] + me12_1
+        l12_2 = base_me[1] + me12_2
+        l23_1 = base_me[2] + me23_1
+        l23_2 = base_me[3] + me23_2
+        # smesh doubles as the smotion argument: only its [0] is read, for shape.
+        ts12_1, ts12_2, ts23_1, ts23_2 = self._compute_tsmotion_batched([
+            (l12_1, l12_1, tm1),
+            (l12_2, l12_2, tm2),
+            (l23_1, l23_1, tm2),
+            (l23_2, l23_2, tm3),
+        ])
+
+        with self._buf_lock:
+            for i in range(n):
+                self._buf_img1.append(new1[i])
+                self._buf_img2.append(new2[i])
+                self._buf_img3.append(new3[i])
+                self._smesh12_1.append(me12_1[i])
+                self._smesh12_2.append(me12_2[i])
+                self._smesh23_1.append(me23_1[i])
+                self._smesh23_2.append(me23_2[i])
+                # The last n entries belong to the new frames; the leading entry (if
+                # any) is the previous frame's zero placeholder.
+                self._tsm12_1.append(ts12_1[len(ts12_1) - n + i])
+                self._tsm12_2.append(ts12_2[len(ts12_2) - n + i])
+                self._tsm23_1.append(ts23_1[len(ts23_1) - n + i])
+                self._tsm23_2.append(ts23_2[len(ts23_2) - n + i])
+
+    def _window_params(self, hr_h, hr_w):
+        """SmoothNet over the cached 7-frame window, then the latest-frame geometry."""
+        with self._buf_lock:
+            smesh12_1 = list(self._smesh12_1)
+            smesh12_2 = list(self._smesh12_2)
+            smesh23_1 = list(self._smesh23_1)
+            smesh23_2 = list(self._smesh23_2)
+            tsm12_1 = list(self._tsm12_1)
+            tsm12_2 = list(self._tsm12_2)
+            tsm23_1 = list(self._tsm23_1)
+            tsm23_2 = list(self._tsm23_2)
+            lr_latest = (self._buf_img1[-1], self._buf_img2[-1], self._buf_img3[-1])
+
+        smooth12_1, smooth23_1, smooth12_2, smooth23_2 = self._run_smooth_batched(
+            tsm12_1, tsm12_2, smesh12_1, smesh12_2,
+            tsm23_1, tsm23_2, smesh23_1, smesh23_2,
+        )
+        return self._meshes_to_params(smooth12_1, smooth12_2, smooth23_1, smooth23_2,
+                                      hr_h, hr_w, lr_latest)
+
+    # ------------------------------------------------------------------
+    # Internal: fallback and legacy full pipeline
     # ------------------------------------------------------------------
 
     def _fallback_concat(self, img1, img2, img3) -> np.ndarray:
         """Naive horizontal concatenation used while the buffer is filling."""
         return np.hstack([img1, img2, img3]).astype(np.uint8)
 
-    def _compute_warp_params_from_buffer(self):
-        """Snapshot the rolling buffer and compute warp parameters."""
-        with self._buf_lock:
-            img1_list = list(self._buf_img1)
-            img2_list = list(self._buf_img2)
-            img3_list = list(self._buf_img3)
-            hr_h, hr_w = self._hr_shape
-        return self._compute_warp_params(
-            img1_list, img2_list, img3_list, hr_h, hr_w
-        )
-
     def _compute_warp_params(self, img1_list, img2_list, img3_list, hr_h, hr_w):
         """
-        Run the neural-net warp pipeline (Spatial → Temporal → Smooth) and
-        derive the normalised TPS meshes + canvas size needed by the render
-        step.
+        Legacy path: run the full neural-net warp pipeline (Spatial → Temporal →
+        Smooth) on a whole 7-frame window and derive the cached warp parameters.
 
-        Acquires ``_compute_lock`` to prevent concurrent neural-net
-        inference (e.g. the first synchronous call in ``stab_pano`` vs.
-        the background ``compute_warps`` thread).
-
-        When a dedicated warp CUDA stream is available the computation runs
-        on that stream so its GPU kernels can interleave with the render
-        stream instead of serializing on the default stream.
-
-        Returns
-        -------
-        dict with keys: norm_m1, norm_m2, norm_m3, out_h2, out_w2, out_size
+        Caller holds ``_compute_lock`` (it is re-entrant).  Runs on the warp stream
+        so its GPU kernels can interleave with the render stream.
         """
         with self._compute_lock:
+            with torch.no_grad(), self._stream(self._warp_stream):
+                result = self._compute_warp_params_unlocked(
+                    img1_list, img2_list, img3_list, hr_h, hr_w
+                )
             if self._warp_stream is not None:
-                with torch.cuda.stream(self._warp_stream):
-                    result = self._compute_warp_params_unlocked(
-                        img1_list, img2_list, img3_list, hr_h, hr_w
-                    )
                 self._warp_stream.synchronize()
-                return result
-            return self._compute_warp_params_unlocked(
-                img1_list, img2_list, img3_list, hr_h, hr_w
-            )
+            return result
 
     def _compute_warp_params_unlocked(self, img1_list, img2_list, img3_list, hr_h, hr_w):
-        """Inner implementation — caller must hold ``_compute_lock``.
-
-        Optimised with:
-        - Batched SpatialNet (14 individual calls → 1 batched call)
-        - Batched TemporalNet (3 calls → 1 batched call with batch=3)
-        - Batched SmoothNet (2 calls → 1 batched call with batch=2)
-        - FP16 autocast for all neural-net inference
-        - Cached rigid meshes
-        """
+        """Inner legacy implementation — caller must hold ``_compute_lock``."""
         self._ensure_net_meshes()
-        self._ensure_hr_meshes(hr_h, hr_w)
 
         t0 = time.perf_counter() if self.timing else None
 
-        with torch.no_grad():
-            # ---------- Spatial: both pairs batched (14 frames → 1 call) ----------
-            (smotion12_1, smotion12_2, smesh12_1, smesh12_2,
-             smotion23_1, smotion23_2, smesh23_1, smesh23_2) = \
-                self._run_spatial_batched(img1_list, img2_list, img2_list, img3_list)
-            t1 = time.perf_counter() if self.timing else None
+        # ---------- Spatial: both pairs batched (14 frames → 1 call) ----------
+        (smotion12_1, smotion12_2, smesh12_1, smesh12_2,
+         smotion23_1, smotion23_2, smesh23_1, smesh23_2) = \
+            self._run_spatial_batched(img1_list, img2_list, img2_list, img3_list)
+        t1 = time.perf_counter() if self.timing else None
 
-            # ---------- Temporal: all 3 streams batched (3 calls → 1) ----------
-            tmotion_stream1, tmotion_stream2, tmotion_stream3 = \
-                self._run_temporal_batched(img1_list, img2_list, img3_list)
-            t2 = time.perf_counter() if self.timing else None
+        # ---------- Temporal: all 3 streams batched (3 calls → 1) ----------
+        tmotion_stream1, tmotion_stream2, tmotion_stream3 = \
+            self._run_temporal_batched(img1_list, img2_list, img3_list)
+        t2 = time.perf_counter() if self.timing else None
 
-            # ---------- TSMotion (all four streams in one batched TPS solve) ----------
-            tsmotion12_1, tsmotion12_2, tsmotion23_1, tsmotion23_2 = \
-                self._compute_tsmotion_batched([
-                    (smotion12_1, smesh12_1, tmotion_stream1),
-                    (smotion12_2, smesh12_2, tmotion_stream2),
-                    (smotion23_1, smesh23_1, tmotion_stream2),
-                    (smotion23_2, smesh23_2, tmotion_stream3),
-                ])
+        # ---------- TSMotion (all four streams in one batched TPS solve) ----------
+        tsmotion12_1, tsmotion12_2, tsmotion23_1, tsmotion23_2 = \
+            self._compute_tsmotion_batched([
+                (smotion12_1, smesh12_1, tmotion_stream1),
+                (smotion12_2, smesh12_2, tmotion_stream2),
+                (smotion23_1, smesh23_1, tmotion_stream2),
+                (smotion23_2, smesh23_2, tmotion_stream3),
+            ])
 
-            # ---------- Smooth: both pairs batched (2 calls → 1) ----------
-            smooth12_1, smooth23_1, smooth12_2, smooth23_2 = \
-                self._run_smooth_batched(
-                    tsmotion12_1, tsmotion12_2, smesh12_1, smesh12_2,
-                    tsmotion23_1, tsmotion23_2, smesh23_1, smesh23_2,
-                )
-            t3 = time.perf_counter() if self.timing else None
+        # ---------- Smooth: both pairs batched (2 calls → 1) ----------
+        smooth12_1, smooth23_1, smooth12_2, smooth23_2 = \
+            self._run_smooth_batched(
+                tsmotion12_1, tsmotion12_2, smesh12_1, smesh12_2,
+                tsmotion23_1, tsmotion23_2, smesh23_1, smesh23_2,
+            )
+        if self.timing:
+            torch.cuda.synchronize()
+            t3 = time.perf_counter()
+            print(f"[StabStitch warp/legacy] spatial={t1-t0:.3f}  temporal={t2-t1:.3f}  "
+                  f"smooth+tsm={t3-t2:.3f}s")
 
-        # smooth*_* shape: [1, BUFFER_LEN, grid_h+1, grid_w+1, 2]
-        warp12_mesh1 = smooth12_1
-        warp12_mesh2 = smooth12_2
-        warp23_mesh1 = smooth23_1
-        warp23_mesh2 = smooth23_2
+        return self._meshes_to_params(smooth12_1, smooth12_2, smooth23_1, smooth23_2,
+                                      hr_h, hr_w,
+                                      (img1_list[-1], img2_list[-1], img3_list[-1]))
+
+    # ------------------------------------------------------------------
+    # Internal: latest-frame geometry from the smoothed meshes
+    # ------------------------------------------------------------------
+
+    def _meshes_to_params(self, smooth12_1, smooth12_2, smooth23_1, smooth23_2,
+                          hr_h, hr_w, lr_latest):
+        """
+        From the smoothed meshes of the 7-frame window ([1, T, gh+1, gw+1, 2] each)
+        derive everything the render needs for the *latest* frame: the normalised
+        meshes, the canvas size, the TPS sampling field (at canvas size and, when a
+        wire size is known, resampled to it, flipped), the blend weights and the
+        quality verdict.
+
+        The canvas bounds are the only values that have to come back to the host
+        (``out_size`` is a Python tuple), and they come back in two ``.tolist()``
+        calls; every other quantity stays on the device.
+        """
+        self._ensure_hr_meshes(hr_h, hr_w)
+        t3 = time.perf_counter() if self.timing else None
 
         # ---------- scale meshes to HR resolution ----------
         sx = hr_w / self.NET_W
@@ -1189,10 +1539,10 @@ class StabStitcher(BaseStitcher):
         def _scale(m):
             return torch.stack([m[..., 0] * sx, m[..., 1] * sy], -1)
 
-        warp12_mesh1 = _scale(warp12_mesh1)
-        warp12_mesh2 = _scale(warp12_mesh2)
-        warp23_mesh1 = _scale(warp23_mesh1)
-        warp23_mesh2 = _scale(warp23_mesh2)
+        warp12_mesh1 = _scale(smooth12_1)
+        warp12_mesh2 = _scale(smooth12_2)
+        warp23_mesh1 = _scale(smooth23_1)
+        warp23_mesh2 = _scale(smooth23_2)
 
         # ---------- work only on the latest frame ----------
         fi = self.BUFFER_LEN - 1
@@ -1217,12 +1567,12 @@ class StabStitcher(BaseStitcher):
             m12_1_fi[..., 1], m12_2_fi_aligned[..., 1],
             m23_1_fi_aligned[..., 1], m23_2_fi_aligned[..., 1]
         ])
-        width_min  = all_x.min()
-        width_max  = all_x.max()
-        height_min = all_y.min()
-        height_max = all_y.max()
-        out_w = width_max  - width_min
-        out_h = height_max - height_min
+        # One host round-trip for all four bounds. The subtraction is done in float32
+        # so the canvas size is bit-for-bit what the on-device subtraction gave.
+        width_min, width_max, height_min, height_max = torch.stack([
+            all_x.min(), all_x.max(), all_y.min(), all_y.max()]).tolist()
+        out_w = float(np.float32(width_max) - np.float32(width_min))
+        out_h = float(np.float32(height_max) - np.float32(height_min))
 
         def _shift(m, wx, hy):
             return torch.stack([m[..., 0] - wx, m[..., 1] - hy], -1)
@@ -1257,14 +1607,12 @@ class StabStitcher(BaseStitcher):
         all_y2 = torch.stack([
             m12_1_tps[..., 1], mid_s[..., 1], m23_2_tps[..., 1]
         ])
-        w2_min = all_x2.min()
-        w2_max = all_x2.max()
-        h2_min = all_y2.min()
-        h2_max = all_y2.max()
-        out_w2 = w2_max - w2_min
-        out_h2 = h2_max - h2_min
+        w2_min, w2_max, h2_min, h2_max = torch.stack([
+            all_x2.min(), all_x2.max(), all_y2.min(), all_y2.max()]).tolist()
+        out_w2 = float(np.float32(w2_max) - np.float32(w2_min))
+        out_h2 = float(np.float32(h2_max) - np.float32(h2_min))
 
-        out_size = (int(out_h2.item()), int(out_w2.item()))
+        out_size = (int(out_h2), int(out_w2))
 
         m1_final  = _shift(m12_1_tps, w2_min, h2_min)
         m2_final  = _shift(mid_s,     w2_min, h2_min)
@@ -1304,6 +1652,23 @@ class StabStitcher(BaseStitcher):
         mask3_pre = masks_warped[2].unsqueeze(0)
         blend_weights = self._precompute_blend_weights(mask1_pre, mask2_pre, mask3_pre)
 
+        # ---------- wire-size field: the same geometry sampled at the panorama size ----------
+        # first_thread used to cv2.resize the finished canvas to the panorama size and
+        # flip it; sampling the field at that size (rows reversed) lets the render
+        # produce the wire layout directly, with one resampling of the sources
+        # instead of two. Half-pixel-centre resampling, as cv2.resize does.
+        wire_size = self._wire_size
+        flow_out = weights_out = None
+        if wire_size is not None and blend_weights is not None:
+            H, W = wire_size
+            flow_out = F.interpolate(flow.permute(0, 3, 1, 2), size=(H, W), mode='bilinear',
+                                     align_corners=False).flip(2).permute(0, 2, 3, 1).contiguous()
+            weights_out = {
+                k: F.interpolate(v.unsqueeze(0), size=(H, W), mode='bilinear',
+                                 align_corners=False)[0].flip(1).contiguous()
+                for k, v in blend_weights.items()
+            }
+
         if self.timing:
             torch.cuda.synchronize()
             t_blend = time.perf_counter()
@@ -1314,7 +1679,7 @@ class StabStitcher(BaseStitcher):
                 norm_m1, norm_m2, norm_m3,
                 m1_final, m2_final, m3_final,
                 out_size, hr_h, hr_w,
-                img1_list[-1], img2_list[-1], img3_list[-1],
+                lr_latest[0], lr_latest[1], lr_latest[2],
             )
             quality_ok = self._apply_hysteresis(raw_ok)
             # _estimate_quality just set self.last_quality_reason (same thread).
@@ -1330,153 +1695,163 @@ class StabStitcher(BaseStitcher):
             t_end = time.perf_counter()
             print(
                 f"[StabStitch warp] canvas={out_size[1]}x{out_size[0]} "
-                f"spatial={t1-t0:.3f}  "
-                f"temporal={t2-t1:.3f}  "
-                f"smooth+tsm={t3-t2:.3f}  "
                 f"mesh={t_mesh-t3:.3f}  "
                 f"tpsflow={t_flow-t_mesh:.3f}  "
                 f"blend={t_blend-t_flow:.3f}  "
                 f"quality={t_end-t_blend:.3f}  "
-                f"total={t_end-t0:.3f}s"
+                f"geometry_total={t_end-t3:.3f}s"
             )
 
         return {
             'norm_m1': norm_m1, 'norm_m2': norm_m2, 'norm_m3': norm_m3,
+            'm1_final': m1_final, 'm2_final': m2_final, 'm3_final': m3_final,
             'out_h2': out_h2, 'out_w2': out_w2, 'out_size': out_size,
             'flow': flow,
             'blend_weights': blend_weights,
+            'wire_size': wire_size,
+            'flow_out': flow_out,
+            'weights_out': weights_out,
             'quality_ok': quality_ok, 'quality_score': quality_score,
             'quality_reason': quality_reason,
         }
 
-    def _render_with_params(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):
+    # ------------------------------------------------------------------
+    # Render
+    # ------------------------------------------------------------------
+
+    def _out_buffer(self, shape):
+        """Next pinned output buffer of the given shape from a small ring."""
+        if not self._out_ring or tuple(self._out_ring[0].shape) != tuple(shape):
+            self._out_ring = []
+            for _ in range(3):
+                t = torch.empty(shape, dtype=torch.uint8)
+                if self._cuda:
+                    t = t.pin_memory()
+                self._out_ring.append(t)
+            self._out_idx = 0
+        buf = self._out_ring[self._out_idx]
+        self._out_idx = (self._out_idx + 1) % len(self._out_ring)
+        return buf
+
+    def _render_with_params(self, frames_u8, warp_params, out_size=None):
         """
-        Fast render path: warp three high-res images using precomputed
-        normalised meshes and apply the selected fusion mode.
+        Fast render path: warp the three high-res frames with the precomputed
+        sampling field and apply the cached blend weights.
 
-        When a dedicated render CUDA stream is available the work runs on
-        that stream so its GPU kernels can interleave with the warp stream.
-        The ``.cpu()`` call at the end implicitly synchronizes.
-
-        Parameters
-        ----------
-        img1_hr_t, img2_hr_t, img3_hr_t : [1, 3, H, W] CUDA float tensors
-        warp_params : dict from ``_compute_warp_params``
+        ``frames_u8`` is the [3, H, W, 3] uint8 device tensor from ``_upload_frames``.
+        With ``out_size`` and a matching cached wire-size field the result is a
+        :class:`WireReadyPanorama` (RGB, bottom-up, at ``out_size``); otherwise a BGR
+        canvas ndarray.  Runs on the render CUDA stream; the final host copy is the
+        one synchronisation point.
         """
-        if self._render_stream is not None:
-            with torch.cuda.stream(self._render_stream):
-                return self._render_with_params_on_stream(
-                    img1_hr_t, img2_hr_t, img3_hr_t, warp_params
-                )
-        return self._render_with_params_on_stream(
-            img1_hr_t, img2_hr_t, img3_hr_t, warp_params
-        )
-
-    def _render_with_params_on_stream(self, img1_hr_t, img2_hr_t, img3_hr_t, warp_params):
-        """Inner render implementation — may run on a non-default CUDA stream."""
         t0 = time.perf_counter() if self.timing else None
 
-        norm_m1  = warp_params['norm_m1']
-        norm_m2  = warp_params['norm_m2']
-        norm_m3  = warp_params['norm_m3']
-        out_h2   = warp_params['out_h2']
-        out_w2   = warp_params['out_w2']
-        out_size = warp_params['out_size']
+        with torch.no_grad(), self._stream(self._render_stream):
+            stack = frames_u8.permute(0, 3, 1, 2)
+            stack = stack.half() if self.render_fp16 else stack.float()
 
-        _, _, hr_h, hr_w = img1_hr_t.shape
-        self._ensure_hr_meshes(hr_h, hr_w)
-        norm_rigid_hr = self._norm_rigid_mesh_hr
-        norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
+            flow_out      = warp_params.get('flow_out')
+            weights_out   = warp_params.get('weights_out')
+            flow          = warp_params['flow']
+            blend_weights = warp_params.get('blend_weights')
+            out_h2, out_w2 = warp_params['out_size']
 
-        flow          = warp_params.get('flow')
-        blend_weights = warp_params.get('blend_weights')
-
-        def _warp(inp):
-            # Cached-field fast path: one grid_sample with the precomputed TPS
-            # sampling field (no float64 solve / per-pixel RBF). Falls back to the
-            # full TPS transformer only if a field wasn't cached (legacy params).
-            if flow is not None:
-                if self.render_fp16:
-                    return F.grid_sample(inp.half(), flow.half(),
-                                         align_corners=True).float()
-                return F.grid_sample(inp, flow, align_corners=True)
-            return torch_tps_transform.transformer(
-                inp, torch.cat([norm_m1, norm_m2, norm_m3], 0),
-                norm_rig3, out_size, mode=self.warp_mode,
-            )
-
-        if blend_weights is not None:
-            # ---------- fast path: RGB-only warp + precomputed weighted sum ----------
-            img_warp = _warp(torch.cat([img1_hr_t, img2_hr_t, img3_hr_t], 0))
-            # w* shape [1, H, W] broadcasts over [3, H, W]
-            fusion = (
-                img_warp[0, :3] * blend_weights['w1']
-                + img_warp[1, :3] * blend_weights['w2']
-                + img_warp[2, :3] * blend_weights['w3']
-            )
-
-            if self.save_masks:
-                # Regenerate masks from warped alpha for visualisation only
-                alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
-                _warp4 = _warp(
-                    torch.cat([torch.cat([img1_hr_t, alpha], 1),
-                               torch.cat([img2_hr_t, alpha], 1),
-                               torch.cat([img3_hr_t, alpha], 1)], 0)
-                )
-                self._save_mask_viz(
-                    _warp4[0, 3].unsqueeze(0).unsqueeze(0),
-                    _warp4[1, 3].unsqueeze(0).unsqueeze(0),
-                    _warp4[2, 3].unsqueeze(0).unsqueeze(0),
-                    out_size,
-                )
-
-        else:
-            # ---------- fallback path: warp RGB+alpha, compute masks per-frame ----------
-            alpha  = torch.ones_like(img1_hr_t[:, 0].unsqueeze(1))
-            img1_t = torch.cat([img1_hr_t, alpha], 1)
-            img2_t = torch.cat([img2_hr_t, alpha], 1)
-            img3_t = torch.cat([img3_hr_t, alpha], 1)
-
-            img_warp = _warp(torch.cat([img1_t, img2_t, img3_t], 0))
-
-            mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
-            mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
-            mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
-
-            if self.save_masks:
-                self._save_mask_viz(mask1, mask2, mask3, out_size)
-
-            if self.fusion_mode == "AVERAGE":
-                w1, w2, w3 = img_warp[0, :3], img_warp[1, :3], img_warp[2, :3]
-                img12 = (
-                    w1 * (w1 / (w1 + w2 + 1e-6))
-                    + w2 * (w2 / (w1 + w2 + 1e-6))
-                )
+            if (out_size is not None and flow_out is not None and weights_out is not None
+                    and warp_params.get('wire_size') == out_size and not self.save_masks):
+                # ---------- wire path: sample straight into the panorama layout ----------
+                if self._cuda:
+                    for t in (flow_out, weights_out['w1'], weights_out['w2'], weights_out['w3']):
+                        t.record_stream(self._render_stream)
+                img_warp = F.grid_sample(stack, flow_out.to(stack.dtype), align_corners=True)
                 fusion = (
-                    img12 * (img12 / (img12 + w3 + 1e-6))
-                    + w3   * (w3   / (img12 + w3 + 1e-6))
+                    img_warp[0] * weights_out['w1']
+                    + img_warp[1] * weights_out['w2']
+                    + img_warp[2] * weights_out['w3']
+                )
+                # BGR -> RGB, CHW -> HWC; rows are already bottom-up via the flipped field.
+                rgb = fusion.clamp(0, 255).to(torch.uint8)[[2, 1, 0]].permute(1, 2, 0).contiguous()
+                out = self._out_buffer(rgb.shape)
+                out.copy_(rgb, non_blocking=True)
+                if self._cuda:
+                    torch.cuda.current_stream().synchronize()
+                pano = out.numpy().view(WireReadyPanorama)
+                if self.timing:
+                    print(f"[StabStitch render] wire {out_size[1]}x{out_size[0]}: "
+                          f"{time.perf_counter()-t0:.4f}s")
+                return pano
+
+            if self._cuda:
+                flow.record_stream(self._render_stream)
+
+            def _warp(inp):
+                return F.grid_sample(inp, flow.to(inp.dtype), align_corners=True)
+
+            if blend_weights is not None:
+                # ---------- canvas path: RGB-only warp + precomputed weighted sum ----------
+                if self._cuda:
+                    for t in blend_weights.values():
+                        t.record_stream(self._render_stream)
+                img_warp = _warp(stack)
+                # w* shape [1, H, W] broadcasts over [3, H, W]
+                fusion = (
+                    img_warp[0, :3] * blend_weights['w1']
+                    + img_warp[1, :3] * blend_weights['w2']
+                    + img_warp[2, :3] * blend_weights['w3']
                 )
 
-            elif self.fusion_mode == "EDGE_BLEND":
-                mask1_b = (mask1 > 0.5).float()
-                mask2_b = (mask2 > 0.5).float()
-                mask3_b = (mask3 > 0.5).float()
-                blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
-                mask2_soft = blur_ref(mask2_b).clamp(0, 1)
-                canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
-                canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
-                canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
-                fusion = canvas[0]
+                if self.save_masks:
+                    # Regenerate masks from warped alpha for visualisation only
+                    alpha  = torch.ones_like(stack[:, :1])
+                    _warp4 = _warp(torch.cat([stack, alpha], 1))
+                    self._save_mask_viz(
+                        _warp4[0, 3].unsqueeze(0).unsqueeze(0),
+                        _warp4[1, 3].unsqueeze(0).unsqueeze(0),
+                        _warp4[2, 3].unsqueeze(0).unsqueeze(0),
+                        (out_h2, out_w2),
+                    )
 
             else:
-                fusion = img_warp[0, :3]  # should not reach here
+                # ---------- fallback path: warp RGB+alpha, compute masks per-frame ----------
+                alpha  = torch.ones_like(stack[:, :1])
+                img_warp = _warp(torch.cat([stack, alpha], 1)).float()
 
-        # Clamp + uint8 on the GPU so only 3 bytes/pixel cross PCIe (vs 12 as
-        # float32), then a single host copy. Output is HWC BGR uint8.
-        pano = fusion.clamp(0, 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
+                mask1 = img_warp[0, 3].unsqueeze(0).unsqueeze(0)
+                mask2 = img_warp[1, 3].unsqueeze(0).unsqueeze(0)
+                mask3 = img_warp[2, 3].unsqueeze(0).unsqueeze(0)
+
+                if self.save_masks:
+                    self._save_mask_viz(mask1, mask2, mask3, (out_h2, out_w2))
+
+                if self.fusion_mode == "AVERAGE":
+                    w1, w2, w3 = img_warp[0, :3], img_warp[1, :3], img_warp[2, :3]
+                    img12 = (
+                        w1 * (w1 / (w1 + w2 + 1e-6))
+                        + w2 * (w2 / (w1 + w2 + 1e-6))
+                    )
+                    fusion = (
+                        img12 * (img12 / (img12 + w3 + 1e-6))
+                        + w3   * (w3   / (img12 + w3 + 1e-6))
+                    )
+
+                elif self.fusion_mode == "EDGE_BLEND":
+                    mask1_b = (mask1 > 0.5).float()
+                    mask2_b = (mask2 > 0.5).float()
+                    mask3_b = (mask3 > 0.5).float()
+                    blur_ref = GaussianBlur(kernel_size=(51, 51), sigma=20)
+                    mask2_soft = blur_ref(mask2_b).clamp(0, 1)
+                    canvas = img_warp[0, :3].unsqueeze(0) * mask1_b
+                    canvas = img_warp[2, :3].unsqueeze(0) * mask3_b + canvas * (1 - mask3_b)
+                    canvas = img_warp[1, :3].unsqueeze(0) * mask2_soft + canvas * (1 - mask2_soft)
+                    fusion = canvas[0]
+
+                else:
+                    fusion = img_warp[0, :3]  # should not reach here
+
+            # Clamp + uint8 on the GPU so only 3 bytes/pixel cross PCIe (vs 12 as
+            # float32), then a single host copy. Output is HWC BGR uint8.
+            pano = fusion.clamp(0, 255).to(torch.uint8).permute(1, 2, 0).contiguous().cpu().numpy()
 
         if self.timing:
-            t1 = time.perf_counter()
-            print(f"[StabStitch render] warp+blend={t1-t0:.3f}s")
+            print(f"[StabStitch render] warp+blend={time.perf_counter()-t0:.4f}s")
 
         return pano

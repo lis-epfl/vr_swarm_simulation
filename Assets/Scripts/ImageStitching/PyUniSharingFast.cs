@@ -136,12 +136,18 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("Panorama height Python renders and Unity uploads to the curved screen.")]
         public int panoramaImageHeight = 400;
 
-        [Tooltip("Seconds between block publishes. StitcherThreading.py's RENDER_MIN_PERIOD is " +
-                 "paced just above this; lowering it here without matching that starves the warp thread.")]
-        public float sendInterval = 0.05f;
+        [Tooltip("Seconds between block publishes (0.0333 = 30 Hz). This is what paces the stitched " +
+                 "panorama: the Python render thread only wakes for a fresh block (it keys on the " +
+                 "header's captureTime) and is floored at RENDER_MIN_PERIOD = 0.025 s in " +
+                 "StitcherThreading.py, so lowering this below ~0.03 needs that constant lowered too. " +
+                 "Every send renders the hidden stitched FPV cameras on demand, so the headset frame " +
+                 "rate is the constraint on going faster; the nets keep their own ~20 Hz cadence " +
+                 "(StabStitcher.NET_FRAME_PERIOD) regardless of this value.")]
+        public float sendInterval = 0.0333f;
 
-        [Tooltip("Seconds between panorama reads.")]
-        public float readInterval = 0.05f;
+        [Tooltip("Seconds between panorama reads. Keep at or below sendInterval, or panoramas are " +
+                 "produced faster than they are shown.")]
+        public float readInterval = 0.0333f;
     }
 
     /// <summary>
