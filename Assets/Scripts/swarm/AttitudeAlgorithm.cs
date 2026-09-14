@@ -60,6 +60,10 @@ public class AttitudeAlgorithm : MonoBehaviour
     private float targetHeading = 0.0f;
     private bool hasTargetHeading = false;
     private bool wasPlaneMode = false;
+    // Latched per boundary episode: set the first tick the heading is within tolerance of the
+    // target, cleared only when BoundaryEstimate drops. See BoundaryFeedReady.
+    private bool boundaryFeedReady = false;
+    private float feedHeadingToleranceRad = 5.0f * Mathf.Deg2Rad;
 
     // How deep inside the hull this drone currently sits, and how fast that depth is growing.
     // Both are measured in the hull's own frame, which is the whole point: the drone this feature
@@ -131,6 +135,19 @@ public class AttitudeAlgorithm : MonoBehaviour
     /// toward the rim. Read-only; exposed for gizmos and diagnostics.
     /// </summary>
     public float BoundarySwallowRate => boundaryDepthRate;
+
+    /// <summary>
+    /// True once this boundary drone has turned onto its target heading, i.e. its FPV view is worth
+    /// showing. A drone promoted from the interior is still pointing wherever it drifted to and
+    /// swings round to face outward; without this its feed screen appears at the start of that swing.
+    ///
+    /// Latched for the boundary episode rather than re-tested every tick: once shown, the screen
+    /// stays up until <see cref="BoundaryEstimate"/> drops. A continuous test would blank feeds in
+    /// ordinary flight — the hull-derived target moves as the formation deforms, and in plane mode a
+    /// yaw-stick turn leads the setpoint by up to <c>maxTargetLeadDeg</c> — which is flicker, not the
+    /// arrival swing this exists to hide.
+    /// </summary>
+    public bool BoundaryFeedReady => BoundaryEstimate && boundaryFeedReady;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetSharedHullOnLoad()
@@ -231,6 +248,7 @@ public class AttitudeAlgorithm : MonoBehaviour
         vc.attitude_control_yaw = 0.0f;
         boundaryTimer = 0.0f;
         BoundaryEstimate = false;
+        boundaryFeedReady = false;
         hasTargetHeading = false;
         ClearBoundaryDepth();
     }
@@ -272,6 +290,8 @@ public class AttitudeAlgorithm : MonoBehaviour
         // by the per-drone maxYawRate), and the setpoint and the feed-forward driving it stay one pair.
         vc.desiredYawRate = plane.TargetYawRate;
         vc.attitude_control_yaw = YawCorrectionFactor * WrapAngle(plane.TargetYaw - vc.State.Angles.y);
+
+        UpdateBoundaryFeedReady(true, plane.TargetYaw);
     }
 
     /// <summary>
@@ -680,6 +700,8 @@ public class AttitudeAlgorithm : MonoBehaviour
         // else: momentarily off the hull but still a boundary drone per the debounced flag —
         // keep correcting toward the last hull-derived heading instead of free-drifting.
 
+        UpdateBoundaryFeedReady(hasTargetHeading, targetHeading);
+
         if (!hasTargetHeading)
         {
             return 0.0f;
@@ -862,6 +884,31 @@ public class AttitudeAlgorithm : MonoBehaviour
             BoundaryEstimate = onHullNow;
             boundaryTimer = 0.0f;
         }
+
+        // Every path that drops the flag goes through here, including the early returns that have
+        // no hull or no target to test against, so the latch is released in one place.
+        if (!BoundaryEstimate)
+        {
+            boundaryFeedReady = false;
+        }
+    }
+
+    /// <summary>
+    /// Advances the <see cref="BoundaryFeedReady"/> latch against the heading this drone is being
+    /// driven to. Called after the boundary flag has been updated for the tick, so a drone promoted
+    /// this tick is tested against the target computed in the same tick.
+    /// </summary>
+    private void UpdateBoundaryFeedReady(bool haveTarget, float targetYaw)
+    {
+        if (!BoundaryEstimate || boundaryFeedReady || !haveTarget)
+        {
+            return;
+        }
+
+        if (Mathf.Abs(WrapAngle(targetYaw - vc.State.Angles.y)) <= feedHeadingToleranceRad)
+        {
+            boundaryFeedReady = true;
+        }
     }
 
     void OnSwarmParamsChanged()
@@ -870,6 +917,10 @@ public class AttitudeAlgorithm : MonoBehaviour
         NumNeighbours = swarmManager.GetNumNeighbours();
         NumDimensions = swarmManager.GetNumDimensions();
         PointInwards = swarmManager.GetPointInwards();
+        // 180 must always pass, and pi in degrees-to-radians need not compare >= WrapAngle's pi, so
+        // the disabled setting is made unconditional rather than left to a float comparison.
+        float toleranceDeg = swarmManager.GetFeedHeadingToleranceDeg();
+        feedHeadingToleranceRad = toleranceDeg >= 180.0f ? float.PositiveInfinity : Mathf.Max(0.0f, toleranceDeg) * Mathf.Deg2Rad;
 
         // Parameter/algorithm changes invalidate the held hull heading (e.g. PointInwards flips
         // the goal 180 degrees); drop it so the next hull pass rebuilds it from scratch. The depth

@@ -762,7 +762,9 @@ public class ScreenSpawn : MonoBehaviour
         // NONE/SIMPLE the flag is never set (stays false for every drone), so
         // gating on it would blank all feeds — e.g. a lone drone that fell back to
         // OUTER_CIRCLE because its single feed couldn't stitch would show nothing.
-        if (boundaryGate && binding.attitude != null && !binding.attitude.BoundaryEstimate)
+        // BoundaryFeedReady additionally holds a newly promoted drone's screen back
+        // until it has turned onto its outward heading.
+        if (boundaryGate && binding.attitude != null && !binding.attitude.BoundaryFeedReady)
         {
             screen.SetActive(false);
             return;

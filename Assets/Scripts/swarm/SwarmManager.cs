@@ -121,6 +121,12 @@ public class SwarmManager : MonoBehaviour
     public int numNeighbours = 5;
     public int numDimensions = 2;
     public bool pointInwards = true;
+    [Tooltip("A drone that has just joined the swarm boundary keeps its feed screen hidden until its " +
+             "heading is first within this many degrees of its target heading, so the pilot never " +
+             "watches it swing round. Latched: once shown, the screen stays up until the drone leaves " +
+             "the boundary. 180 disables the wait.")]
+    [Range(0.0f, 180.0f)]
+    public float feedHeadingToleranceDeg = 5.0f;
 
     [Header("Camera Gimbal")]
     [Tooltip("Swarm-wide FPV camera gimbal pitch in degrees (DJI convention): 0 = level " +
@@ -242,7 +248,8 @@ public class SwarmManager : MonoBehaviour
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;
     public int GetNumDimensions() => numDimensions;
-    public bool GetPointInwards() => pointInwards;  
+    public bool GetPointInwards() => pointInwards;
+    public float GetFeedHeadingToleranceDeg() => feedHeadingToleranceDeg;
     public AttitudeAlgorithm GetSelectedAttitudeAlgorithm() => SelectedAttitudeAlgorithm;
 
     // Getter for the swarm-wide FPV camera gimbal pitch
