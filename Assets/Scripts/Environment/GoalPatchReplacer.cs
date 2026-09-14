@@ -16,6 +16,10 @@ using UnityEngine;
 /// by <c>ExperimentRecorder</c>) and replaces the tiles nearest those positions, in the same order — so
 /// <c>goalIndex</c> lines up with the original. Since past runs did not use a fixed seed, this is the
 /// only way to recover a specific historical layout.
+///
+/// A goal is laid over the <i>block</i> it replaces, not copied from the tile's transform (see
+/// <see cref="GoalPositions"/>), and takes over any scenery tied to that tile (see
+/// <see cref="CarryTiedScenery"/>).
 /// </summary>
 public class GoalPatchReplacer : MonoBehaviour
 {
@@ -97,10 +101,14 @@ public class GoalPatchReplacer : MonoBehaviour
             return;
         }
 
+        // Where a goal for each tile would stand. Selection compares these for every pair of tiles and replay
+        // for every recorded goal, so they are worked out once, up front.
+        Dictionary<Transform, Vector3> goalPositions = GoalPositions(tiles);
+
         // Choose which tiles to replace, then run the shared placement loop below.
         List<Transform> selected = mode == PlacementMode.Replay
-            ? SelectReplayTiles(tiles)
-            : SelectRandomTiles(tiles);
+            ? SelectReplayTiles(tiles, goalPositions)
+            : SelectRandomTiles(tiles, goalPositions);
 
         if (selected == null || selected.Count == 0)
         {
@@ -113,13 +121,11 @@ public class GoalPatchReplacer : MonoBehaviour
             GameObject goal = Instantiate(goalPrefab, cityPack);
             goal.name = $"goal_patch ({tile.name})";
 
-            // Copy X/Z (and rotation/scale) from the replaced tile, but pin Y to ground level so
-            // goals sit at y=0 even if the replaced patch had a non-zero height.
-            Vector3 pos = tile.localPosition;
-            pos.y = 0f;
-            goal.transform.localPosition = pos;
+            goal.transform.localPosition = goalPositions[tile];
             goal.transform.localRotation = tile.localRotation;
             goal.transform.localScale = tile.localScale;
+
+            CarryTiedScenery(tile, goal.transform);
 
             placedGoals.Add(goal);
 
@@ -136,10 +142,69 @@ public class GoalPatchReplacer : MonoBehaviour
         Debug.Log($"GoalPatchReplacer: replaced {selected.Count} of {tiles.Count} '{tilePrefix}' tiles with goals ({mode}).", this);
     }
 
+    // ------------------------------------------------------------------ placement
+
+    /// <summary>
+    /// Where the goal replacing each tile goes, in cityPack-local space: the goal's block laid over the
+    /// tile's block, with Y pinned to ground level so goals sit at y=0 even if the replaced patch had a
+    /// non-zero height.
+    ///
+    /// <para>Aligned on the blocks rather than copied from the tile's transform, because the two are not the
+    /// same point in every tile. <c>MC_Patch_32</c> has its whole block baked ~318 units off its own pivot —
+    /// an authoring quirk of the pack, inherited by the ScaledCity fork — so its transform sits at the city
+    /// centre while its buildings stand at the edge. Copying the transform dropped that goal across the four
+    /// middle tiles, and because selection takes the grid pitch from the closest pair of tiles, it also
+    /// shrank the pitch to ~64 units, so diagonal neighbours stopped being blocked. For every other tile the
+    /// two rules agree to within a fifth of a unit, so replaying an earlier run still matches.</para>
+    ///
+    /// <para>A block is located by its kerb, the point <see cref="StreetWidthTuner"/> scales the block about.
+    /// If the goal prefab or a tile has no kerb, that tile falls back to copying its transform.</para>
+    /// </summary>
+    private Dictionary<Transform, Vector3> GoalPositions(List<Transform> tiles)
+    {
+        // The goal's block relative to its own root, measured on the asset so no instance is needed.
+        Transform goalKerb = CityTiles.FindKerb(goalPrefab.transform);
+        Vector3 goalBlockOffset = goalKerb != null
+            ? goalPrefab.transform.InverseTransformPoint(goalKerb.position)
+            : Vector3.zero;
+
+        Dictionary<Transform, Vector3> positions = new Dictionary<Transform, Vector3>(tiles.Count);
+        foreach (Transform tile in tiles)
+        {
+            Transform kerb = goalKerb != null ? CityTiles.FindKerb(tile) : null;
+            Vector3 pos = kerb != null
+                ? cityPack.InverseTransformPoint(kerb.position)
+                  - tile.localRotation * Vector3.Scale(tile.localScale, goalBlockOffset)
+                : tile.localPosition;
+            pos.y = 0f;
+            positions[tile] = pos;
+        }
+        return positions;
+    }
+
+    /// <summary>
+    /// Hand the scenery tied to <paramref name="tile"/> (every <see cref="CityTiles.TiedContainers"/> child)
+    /// over to the goal replacing it, keeping its world placement. Untied, the street trees and plates hang off
+    /// the city root and survive the replacement; tied, they would be destroyed with the tile, leaving a gap in
+    /// the medians and verges exactly where each goal is — a cue visible from the air. A tile that was never
+    /// tied has nothing to carry.
+    /// </summary>
+    private static void CarryTiedScenery(Transform tile, Transform goal)
+    {
+        foreach (string containerName in CityTiles.TiedContainers)
+        {
+            Transform container = tile.Find(containerName);
+            if (container != null)
+            {
+                container.SetParent(goal, true);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ random selection
 
     /// <summary>Randomly pick up to <see cref="replaceCount"/> non-adjacent tiles.</summary>
-    private List<Transform> SelectRandomTiles(List<Transform> tiles)
+    private List<Transform> SelectRandomTiles(List<Transform> tiles, Dictionary<Transform, Vector3> goalPositions)
     {
         if (useFixedSeed)
         {
@@ -156,6 +221,7 @@ public class GoalPatchReplacer : MonoBehaviour
         // Derive the "adjacent" distance from the actual layout: the closest pair of tiles is one
         // grid pitch apart. Tile numbering is scrambled relative to position, so adjacency must come
         // from world XZ, not tile index. Edge neighbours sit ~1 pitch away, diagonals ~1.41 pitch.
+        // Measured between goal positions, i.e. between blocks, for the reason GoalPositions gives.
         float thresholdSq = 0f;
         if (preventAdjacent && tiles.Count > 1)
         {
@@ -164,7 +230,7 @@ public class GoalPatchReplacer : MonoBehaviour
             {
                 for (int b = a + 1; b < tiles.Count; b++)
                 {
-                    float d = SqrDistanceXZ(tiles[a].localPosition, tiles[b].localPosition);
+                    float d = SqrDistanceXZ(goalPositions[tiles[a]], goalPositions[tiles[b]]);
                     if (d < minSq)
                     {
                         minSq = d;
@@ -196,7 +262,7 @@ public class GoalPatchReplacer : MonoBehaviour
                 bool adjacent = false;
                 foreach (Transform chosen in selected)
                 {
-                    if (SqrDistanceXZ(candidate.localPosition, chosen.localPosition) <= thresholdSq)
+                    if (SqrDistanceXZ(goalPositions[candidate], goalPositions[chosen]) <= thresholdSq)
                     {
                         adjacent = true;
                         break;
@@ -223,10 +289,11 @@ public class GoalPatchReplacer : MonoBehaviour
 
     /// <summary>
     /// Reproduce a previous run: for each goal position recorded in <see cref="replaySessionFile"/>,
-    /// pick the tile nearest that position (in cityPack-local XZ). Preserves the recorded order so the
-    /// resulting <see cref="PlacedGoals"/> — and thus each goalIndex — matches the original run.
+    /// pick the tile whose goal would stand nearest that position (in cityPack-local XZ). Preserves the
+    /// recorded order so the resulting <see cref="PlacedGoals"/> — and thus each goalIndex — matches the
+    /// original run.
     /// </summary>
-    private List<Transform> SelectReplayTiles(List<Transform> tiles)
+    private List<Transform> SelectReplayTiles(List<Transform> tiles, Dictionary<Transform, Vector3> goalPositions)
     {
         ReplaySession session = LoadReplaySession(out string resolvedPath);
         if (session == null)
@@ -256,7 +323,7 @@ public class GoalPatchReplacer : MonoBehaviour
                 {
                     continue; // a tile already claimed by an earlier goal
                 }
-                float d = SqrDistanceXZ(local, t.localPosition);
+                float d = SqrDistanceXZ(local, goalPositions[t]);
                 if (d < bestSq)
                 {
                     bestSq = d;
@@ -273,8 +340,10 @@ public class GoalPatchReplacer : MonoBehaviour
             used.Add(best);
             selected.Add(best);
 
-            // ~1 unit tolerance: an exact replay lands on the tile centre. A large gap means the scene
-            // layout differs from the recorded run (different city/tile set) — replay is only approximate.
+            // ~1 unit tolerance: an exact replay lands on the tile's goal position. A large gap means the
+            // scene layout differs from the recorded run (different city/tile set) — replay is only
+            // approximate. A run from before goals were block-aligned that placed one via MC_Patch_32
+            // recorded it at the city centre, where no tile's goal stands any more, so it warns here too.
             if (bestSq > 1f)
             {
                 Debug.LogWarning(

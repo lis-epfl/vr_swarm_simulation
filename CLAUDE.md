@@ -886,7 +886,7 @@ per-building `z` chosen so **every building is exactly 50 units tall**. Footprin
 is flat, so obstacle behaviour is comparable between runs instead of being dominated by whichever
 tower a drone happened to meet.
 
-Three pack-geometry facts scripts depend on:
+Pack-geometry facts scripts depend on:
 
 - **Buildings are authored local `+Z` up, pivot at the base** — the `0.25/0.25/z` above is
   width/width/**height**, not width/height/depth. `BoxCollider.m_Size` is the *unscaled* mesh bounds,
@@ -901,8 +901,51 @@ Three pack-geometry facts scripts depend on:
   CityWorld bakes 1, so an absolute scale would need a different baseline per scene and would silently
   quadruple the wrong city; in ScaledCityWorld, 4 restores the original pack width. `StreetWidthTuner`
   is the complementary knob — it widens streets by shrinking each tile's block content about its own
-  kerb pivot, leaving the full-tile `Road_Structure` plate and the 90.83 grid pitch alone so the
-  exposed strip is road rather than a hole. Buildings are moved, never resized.
+  kerb pivot, leaving the `Road_Structure` plate and the 90.83 grid pitch alone. Buildings are moved,
+  never resized. **The widened strip is neither road nor plate**: `Road_Structure` is a *ring* from the
+  tile edge in to 38.1 u (`CityTiles.BlockHalfSpan`; its area is 0.297 of its bounds, which is exactly
+  the ring around a 76.2 block), empty inside where the footpath slab sits. Shrinking a block therefore
+  opens a band onto whatever is under the city — in ScaledCityWorld, four grass Terrains at y −0.017 —
+  so each block gains a grass verge (7.6 u wide at 0.8) and the carriageway does not widen at all.
+- **A tile's transform is not always where its block is — locate a tile by its kerb (`Carbs_NN`).**
+  `MC_Patch_32`, in the pack and in the fork, has its whole block baked ~318 u off its own pivot, so its
+  transform sits at the city centre while its buildings stand at the edge (seven other tiles carry a
+  baked vertical offset instead). `StreetWidthTuner` and `GoalPatchReplacer` both read the kerb. The
+  replacer used to copy the transform, which put a goal patch across the four middle tiles — it happened
+  in `AAAA_t1_SingleDrone_20260706_214605` and `ERIC_t7_Swarm_20260706_232027` (goal 2 in both) — and
+  shrank the pitch its adjacency test measures to ~64 u, so diagonal goals were allowed.
+- **Only the blocks live inside the tiles.** Straight under the city root sit 12 `Green_Belt_Tile`
+  groups, a `Garden`, six stray trees, and 48 `Road_Structure` plates that duplicate, to within 0.6 u, the
+  plate every tile already contains — and are pivoted on a tile *corner*, so assign them by mesh centre,
+  never by pivot. The green belts' 96 grass strips and 672 trees are the **street medians**: authored
+  44.9–45.8 u from a tile centre, i.e. on the line between two tiles, down the middle of every street;
+  nothing else is further out than 34.8 u. Moving a tile leaves all of it behind.
+- **Tied scenery hangs under one of three tile children, and the name is the behaviour**
+  (`CityTiles.BlockShare`, which `StreetWidthTuner` applies as a per-item scale `1 + share·(s − 1)` about
+  the tile centre): `Scenery` (on the block, share 1, moves with it), `Street` (the medians, share 0,
+  never moves, so it stays mid-street at every block scale) and `Verge` (share ½, stays mid-verge, since
+  the verge's inner edge moves with the block and its outer edge does not). Untied, the tuner scaled the
+  medians with the block about the nearer tile centre, which walked each one ~9 u onto a verge at 0.8.
+  `Tools/Swarm/Tie city scenery to tiles` (`CitySceneryParenter`) divides the tuning back out to get each
+  object's authored position (exact to 1e-4 u against the prefab), sorts it by the kerb-line test
+  (beyond `BlockHalfSpan` is street), **restores medians to their authored position**, and splits
+  straddling groups per tile. A median goes to the tile west of its line (south, for an east–west line),
+  never to the footprint test, which is a coin toss on the line — so a strip and its trees always share a
+  tile. It re-sorts already-tied scenery too, so it is safe to run again. It has to **unpack the city
+  prefab instance in the scene** first, because Unity will not reparent inside an instance (the tiles stay
+  linked to their patch prefabs); doing it inside the prefab would re-read the scene's thousands of
+  scenery position overrides relative to the wrong parent. `GoalPatchReplacer` hands all three containers
+  to the goal that replaces a tile, or every goal would sit in a gap in the medians, visible from the air.
+- **`VergeTreePlanter`** plants trees down the middle of that verge on a seeded subset of tiles (or a
+  list, or all), skipping spots within `clearance` of anything on the tile and keeping interior street
+  mouths clear across the verge. Deterministic per seed and tile *name*, scriptable (`Plant()`,
+  `Plant(tiles)`, `Clear()`), and it refuses at block scale ≥ 1, where there is no verge. Plant in edit
+  mode: it marks trees Batching Static, which a Play-mode plant cannot.
+- **`CityRowOffsetter`** staggers alternate rows (kerb-derived, numbered from the south or west edge) by
+  a fraction of a tile, live in edit mode like the tuners, recording what it applied. It moves tile roots
+  only, so it **refuses while the city root still holds untied scenery** — tie first. A half-tile stagger
+  makes T-junctions whose mouths the other row's median strip runs across, leaves a half-tile notch at one
+  end of each shifted row (`centred` splits it), and stops earlier runs from replaying.
 
 **The `Obstacle` layer is applied per scene, and the three city scenes disagree.** This is the largest
 scene-to-scene difference for swarm behaviour, because `OlfatiSaber` has exactly one membership rule —

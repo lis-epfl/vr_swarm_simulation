@@ -10,13 +10,15 @@ using UnityEditor.SceneManagement;
 /// tiles — ScaledCityWorld, CityWorld, CrowdWorld, or a fork of them. Drop it on <c>gameManager</c> and
 /// move <see cref="blockScale"/> down.
 ///
-/// <para><b>What makes this possible.</b> <c>Road_Structure_NNN</c> is a full-tile asphalt plate,
-/// 90.83 x 90.83, and the footpath is a separate raised slab sitting <i>on top of it</i> — so there is
-/// already road underneath the pavement. Shrinking a tile's block content about its own centre, while
-/// leaving the plate and the grid pitch alone, therefore exposes more asphalt at the tile rim rather
-/// than a hole in the ground. Two tiles meet at each boundary, so the street between them widens by
-/// twice what each block gives up, and the plate's baked centre line stays in the middle of it. No new
-/// geometry, no filler, no seams.</para>
+/// <para><b>What makes this possible.</b> <c>Road_Structure_NNN</c> is only the road: a square ring from the
+/// tile edge in to the kerb line (<see cref="CityTiles.BlockHalfSpan"/>), 90.83 across its bounds but empty
+/// inside, where the footpath slab sits. Shrinking a tile's block content about its own centre, while leaving
+/// the ring and the grid pitch alone, opens a band between the footpath and the ring through which whatever
+/// lies under the city shows. In the city scenes that is a grass Terrain, so each shrunk block gains a grass
+/// verge (<see cref="VergeTreePlanter"/> plants it) while the carriageway keeps its width, and the ring's
+/// baked centre line stays in the middle of it. Two tiles meet at each boundary, so kerb to kerb widens by
+/// twice what each block gives up. No new geometry and no filler — but a scene with nothing under the city
+/// would show a hole there.</para>
 ///
 /// <para><b>The arithmetic.</b> The footpath/kerb content spans 76.2 of the 90.8304 tile (the pack is
 /// modelled in inches: 3000 in of 3576), leaving a 7.315 asphalt margin at each edge and so a
@@ -55,16 +57,24 @@ using UnityEditor.SceneManagement;
 /// <para><b>Interaction with <see cref="BuildingWidthTuner"/>:</b> that component writes building
 /// <c>localScale</c> and this one writes building <c>localPosition</c>, so the two compose without
 /// fighting and either may be used alone.</para>
+///
+/// <para><b>Scenery tied to a tile follows as much of the shrink as where it stands calls for</b>, which the
+/// container it hangs under records (<see cref="CityTiles.BlockShare"/>): scenery on the block moves with it,
+/// the median trees and verge strips in the street stay on the line between the two tiles — the middle of
+/// the street at every scale — and trees on the exposed verge keep to the verge's middle. Loose scenery that
+/// is not tied follows the block about whichever tile centre is nearest. That is how the medians were
+/// handled before they were tied, and it walked each one ~9 units onto one side's verge at 0.8; tying puts
+/// them back.</para>
 /// </summary>
 [ExecuteAlways]
 [DisallowMultipleComponent]
 public class StreetWidthTuner : MonoBehaviour
 {
-    /// <summary>Tile pitch, and the size of the <c>Road_Structure</c> plate. 3576 in at 0.0254 m/in.</summary>
-    private const float k_TilePitch = 90.8304f;
+    /// <summary>Tile pitch, and the size of the <c>Road_Structure</c> plate.</summary>
+    private const float k_TilePitch = CityTiles.Pitch;
 
     /// <summary>How much of that tile the authored footpath/kerb content spans. 3000 in.</summary>
-    private const float k_AuthoredBlockSpan = 76.2f;
+    private const float k_AuthoredBlockSpan = 2f * CityTiles.BlockHalfSpan;
 
     [Tooltip("Scales each tile's block content about its own centre; 1 = unchanged. Lower means wider " +
              "streets. The resulting street width is 90.8304 - 76.2 x this, i.e. 14.6 at 1, 22.3 at " +
@@ -94,8 +104,10 @@ public class StreetWidthTuner : MonoBehaviour
         "Road_Structure_",
     };
 
-    [Tooltip("Also move the trees, green belts and garden furniture that hang off the city root rather " +
-             "than off a tile, each about the tile it is nearest. Off leaves them overhanging the road.")]
+    [Tooltip("Also move the trees, green belts and garden furniture the pack hangs off the city root rather " +
+             "than off a tile. Tied scenery (Tools/Swarm/Tie city scenery to tiles) follows as much of the " +
+             "shrink as where it stands calls for, so street medians stay in the middle of the street; untied " +
+             "scenery follows the block about the nearest tile. Off leaves all of it where it is.")]
     [SerializeField] private bool moveLooseScenery = true;
 
     [Tooltip("Log a line each time the scale is re-applied. Off by default: dragging the slider applies " +
@@ -113,9 +125,11 @@ public class StreetWidthTuner : MonoBehaviour
     /// One object the tuning moves, and the frame it is measured in.
     ///
     /// <para>Tile content is mapped in its own tile's local space, which is the node the FBX Z-up import
-    /// rotated: there the ground plane is local X/Y and height is local Z. Loose scenery has no tile to
-    /// belong to and is mapped in world space instead, about the nearest tile centre. Both are the same
-    /// scale-about-a-point; only the frame differs, and <see cref="frame"/> being null is what says which.</para>
+    /// rotated: there the ground plane is local X/Y and height is local Z. Scenery tied to a tile is mapped
+    /// in that tile's root frame, about the same centre. Untied scenery has no tile to belong to and is
+    /// mapped in world space instead, about the nearest tile centre. All three are the same
+    /// scale-about-a-point; only the frame differs, and <see cref="frame"/> being null is what says it is
+    /// world space. How far along that scale an item goes is <see cref="share"/>.</para>
     /// </summary>
     private struct Item
     {
@@ -124,6 +138,7 @@ public class StreetWidthTuner : MonoBehaviour
         public Vector3 authoredPos;    // position in that frame, with any applied scale divided back out
         public Vector3 centre;         // the point it is scaled about, in the same frame
         public int frameHeightAxis;    // component of a position in that frame that is height; never scaled
+        public float share;            // how much of the block's shrink it follows; see CityTiles.BlockShare
         public bool isShell;           // shell meshes are resized as well as moved
         public Vector3 authoredScale;  // shell only
         public int ownHeightAxis;      // shell only: which of its own local axes points at the sky
@@ -249,6 +264,21 @@ public class StreetWidthTuner : MonoBehaviour
     public static float StreetWidthFor(float scale)
     {
         return k_TilePitch - k_AuthoredBlockSpan * scale;
+    }
+
+    /// <summary>
+    /// The block scale the city currently stands at — what a tool dividing the tuning back out needs, which
+    /// is not <see cref="BlockScale"/> while an edit is still being applied.
+    /// </summary>
+    public float AppliedBlockScale => appliedBlockScale;
+
+    /// <summary>Whether loose and tied scenery is moved at all (<c>moveLooseScenery</c>).</summary>
+    public bool MovesLooseScenery => moveLooseScenery;
+
+    /// <summary>Whether an object of this name is left alone entirely, like the road plates.</summary>
+    public bool IgnoresObject(string objectName)
+    {
+        return IsIgnored(objectName);
     }
 
     /// <summary>Put the city back to the layout it was authored with.</summary>
@@ -396,6 +426,7 @@ public class StreetWidthTuner : MonoBehaviour
                     authoredPos = authored,
                     centre = centre,
                     frameHeightAxis = frameHeightAxis,
+                    share = 1f,
                     isShell = isShell,
                     authoredScale = authoredScale,
                     ownHeightAxis = ownHeightAxis,
@@ -404,33 +435,60 @@ public class StreetWidthTuner : MonoBehaviour
         }
 
         int scenery = 0;
+        int tiedScenery = 0;
         Transform sceneryRoot = cityRoot != null ? cityRoot : CommonAncestor(tiles);
         if (moveLooseScenery && tiles.Count > 0 && sceneryRoot != null)
         {
-            // Trees, green belts and garden furniture hang off the city root rather than off a tile, and
-            // a good number of them stand at the kerb. Mapped per leaf rather than per group because a
-            // Green_Belt_Tile group can straddle more than one tile.
+            Dictionary<Transform, int> tileOfNode = TileOfEachAncestor(tiles);
+
+            // Trees, green belts and garden furniture the pack hangs off the city root rather than off a
+            // tile, and a good number of them stand at the kerb. Mapped per leaf rather than per group
+            // because a Green_Belt_Tile group can straddle more than one tile.
             foreach (Renderer renderer in LooseSceneryRenderers(sceneryRoot, tileContent))
             {
                 Transform t = renderer.transform;
-                Vector3 centre = NearestTileCentre(t.position, tileCentresWorld);
-
-                Vector3 live = t.position;
-                Vector3 authored = centre + (live - centre) * undo;
-                authored.y = live.y; // world frame here, so height is world Y
-
                 if (renderer.isPartOfStaticBatch)
                 {
                     batchedCount++;
                 }
 
+                Transform owner = OwningTileNode(t, tileOfNode, out int tileIndex, out Transform container);
+                Vector3 centre;
+                Vector3 live;
+                int heightAxis;
+                float share = 1f;
+                if (owner != null)
+                {
+                    // Tied to a tile: scaled about that tile's centre in the tile's own frame, like its
+                    // content, so a tile moved after this scan takes its scenery's tuning with it. The
+                    // nearest-centre rule cannot stand in for that: once alternate rows are offset by half a
+                    // tile, it hands the corner of one tile to the offset tile beside it. How much of the
+                    // shrink it follows is recorded by the container it hangs under.
+                    centre = owner.InverseTransformPoint(tileCentresWorld[tileIndex]);
+                    live = owner.InverseTransformPoint(t.position);
+                    heightAxis = FindHeightAxis(owner, out _);
+                    share = container != null ? CityTiles.BlockShare(container.name) : 1f;
+                    tiedScenery++;
+                }
+                else
+                {
+                    centre = NearestTileCentre(t.position, tileCentresWorld);
+                    live = t.position;
+                    heightAxis = 1; // world frame here, so height is world Y
+                }
+
+                float appliedFactor = CityTiles.ScaleFor(appliedBlockScale, share);
+                Vector3 authored = centre + (live - centre) * (appliedFactor > 0f ? 1f / appliedFactor : 1f);
+                authored[heightAxis] = live[heightAxis];
+
                 items.Add(new Item
                 {
                     transform = t,
-                    frame = null,
+                    frame = owner,
                     authoredPos = authored,
                     centre = centre,
-                    frameHeightAxis = 1,
+                    frameHeightAxis = heightAxis,
+                    share = share,
                     isShell = false,
                     authoredScale = t.localScale,
                     ownHeightAxis = 0,
@@ -457,7 +515,7 @@ public class StreetWidthTuner : MonoBehaviour
         else
         {
             Debug.Log($"StreetWidthTuner: tracking {tiles.Count} tiles in {where} — {shells} shell meshes, " +
-                      $"{moved} buildings and props, {scenery} loose scenery" +
+                      $"{moved} buildings and props, {scenery} loose scenery ({tiedScenery} tied to a tile)" +
                       (batchedCount > 0 ? $", {batchedCount} of them in a static batch" : "") + ".", this);
         }
     }
@@ -496,7 +554,7 @@ public class StreetWidthTuner : MonoBehaviour
                 continue;
             }
 
-            Vector3 target = item.centre + (item.authoredPos - item.centre) * scale;
+            Vector3 target = item.centre + (item.authoredPos - item.centre) * CityTiles.ScaleFor(scale, item.share);
             target[item.frameHeightAxis] = item.authoredPos[item.frameHeightAxis];
 
             if (item.frame == null)
@@ -509,8 +567,8 @@ public class StreetWidthTuner : MonoBehaviour
             }
             else
             {
-                // A prop under Props_Patch_NN. The container itself carries no renderer, so it is never
-                // moved and this only has to place the leaf.
+                // A prop under Props_Patch_NN, or tied scenery under one of its tile's containers. No
+                // container carries a renderer, so none is ever moved and this only has to place the leaf.
                 item.transform.position = item.frame.TransformPoint(target);
             }
 
@@ -624,7 +682,7 @@ public class StreetWidthTuner : MonoBehaviour
         List<Transform> found = new List<Transform>();
         foreach (Transform t in candidates)
         {
-            if (HasPrefix(t.name, "Carbs_"))
+            if (HasPrefix(t.name, CityTiles.KerbPrefix))
             {
                 found.Add(t);
             }
@@ -682,6 +740,52 @@ public class StreetWidthTuner : MonoBehaviour
             }
         }
         return common;
+    }
+
+    /// <summary>
+    /// For every ancestor of a tile's content node, the index of the one tile below it — or -1 once two
+    /// tiles share it, which is the city root and everything above.
+    /// </summary>
+    private static Dictionary<Transform, int> TileOfEachAncestor(List<Transform> tiles)
+    {
+        Dictionary<Transform, int> tileOf = new Dictionary<Transform, int>();
+        for (int i = 0; i < tiles.Count; i++)
+        {
+            for (Transform a = tiles[i]; a != null; a = a.parent)
+            {
+                tileOf[a] = tileOf.TryGetValue(a, out int j) && j != i ? -1 : i;
+            }
+        }
+        return tileOf;
+    }
+
+    /// <summary>
+    /// The highest node above <paramref name="t"/> that belongs to exactly one tile — the tile's root, for
+    /// scenery tied under it — or null for scenery that hangs off the city itself.
+    /// <paramref name="container"/> is the owner's child that holds <paramref name="t"/>, or null when
+    /// <paramref name="t"/> hangs straight off the owner.
+    /// </summary>
+    private static Transform OwningTileNode(Transform t, Dictionary<Transform, int> tileOf, out int tileIndex,
+                                            out Transform container)
+    {
+        Transform owner = null;
+        tileIndex = -1;
+        container = null;
+        for (Transform below = t, a = t.parent; a != null; below = a, a = a.parent)
+        {
+            if (!tileOf.TryGetValue(a, out int i))
+            {
+                continue; // not above any tile's content, e.g. the Scenery container itself
+            }
+            if (i < 0)
+            {
+                break; // shared by several tiles: the city root, so nothing higher is one tile's either
+            }
+            owner = a;
+            tileIndex = i;
+            container = below != t ? below : null;
+        }
+        return owner;
     }
 
     /// <summary>The tile centre nearest <paramref name="worldPos"/>, measured horizontally.</summary>
