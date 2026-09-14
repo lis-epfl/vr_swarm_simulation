@@ -573,12 +573,22 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: typeOfStitcher
-      value: 5
+      value: 4
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: printStitchRate
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.readInterval
+      value: 0.033
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.sendInterval
+      value: 0.033
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -5200,8 +5210,6 @@ GameObject:
   - component: {fileID: 1839174502}
   - component: {fileID: 1839174503}
   - component: {fileID: 1839174506}
-  - component: {fileID: 1839174505}
-  - component: {fileID: 1839174504}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -5269,6 +5277,7 @@ MonoBehaviour:
   formationWallMaxSpanDeg: 120
   formationWallSmoothTime: 0.15
   formationMapRollScreens: 1
+  displayYawSmoothTime: 0.1
 --- !u!114 &1839174498
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5301,6 +5310,14 @@ MonoBehaviour:
   maxObstacleAccel: 4
   d_shield: 1.4
   scaleFactor: 10
+  hollowSwarmCore: 1
+  coreRadiusFraction: 0.5
+  coreRadiusFilterTime: 2
+  c_core: 1.5
+  r0CohRatio: 0
+  c2_core: 1.6
+  coreStandoffRatio: 0.5
+  maxCoreAccel: 2
   SelectedAttitudeAlgorithm: 3
   numNeighbours: 9
   numDimensions: 2
@@ -5333,6 +5350,7 @@ MonoBehaviour:
   formationWallColumns: 0
   formationWallMaxSpanDeg: 120
   formationWallSmoothTime: 0.15
+  displayYawSmoothTime: 0.1
   formationMapRollScreens: 1
   screenLayerName: UI
 --- !u!114 &1839174500
@@ -5424,67 +5442,6 @@ MonoBehaviour:
   incorrectKey: 50
   skipKey: 51
   endSessionKey: 8
---- !u!114 &1839174504
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1839174494}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 656be34a415de4b90aa6ce56b39f625d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  olfatiSaber: {fileID: 0}
-  selectedDroneIndex: 0
-  textureWidth: 900
-  textureHeight: 400
-  maxDistance: 30
-  minDistance: 0
-  xTickCount: 5
-  yTickCount: 5
-  plotType: 0
-  forceRange: 10
---- !u!114 &1839174505
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1839174494}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a27de15acb6f1a44eac186c58396d325, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  obstacleScope: 0
-  drawBounds: 0
-  drawRepulsionShell: 0
-  selectedDroneIndex: 0
-  allDrones: 0
-  detailedObstacles: 1
-  drawFrameAxes: 0
-  drawForceSplit: 0
-  drawQueryRange: 0
-  labelObstacles: 0
-  maxLabels: 12
-  labelLeaderLength: 4
-  labelFontSize: 11
-  circleSegments: 28
-  spokes: 0
-  forceArrowScale: 20
-  cylinderColour: {r: 0.47, g: 0.82, b: 0.8, a: 1}
-  guideColour: {r: 0.76, g: 0.74, b: 0.7, a: 0.35}
-  outwardColour: {r: 0.96, g: 0.6, b: 0.53, a: 1}
-  tangentColour: {r: 0.65, g: 0.86, b: 0.55, a: 1}
-  repulsionColour: {r: 0.85, g: 0.65, b: 0.91, a: 1}
-  velocityMatchColour: {r: 0.58, g: 0.7, b: 0.93, a: 1}
-  totalForceColour: {r: 0.99, g: 0.91, b: 0.72, a: 1}
-  parameterSource: {fileID: 0}
-  fallbackCylinderAxis: {x: 0, y: 1, z: 0}
-  fallbackScaleFactor: 10
-  fallbackDObs: 0.4
 --- !u!114 &1839174506
 MonoBehaviour:
   m_ObjectHideFlags: 0
