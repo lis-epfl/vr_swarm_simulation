@@ -16034,8 +16034,18 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: stabStitch.blurSigma
+      value: 20
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: bridge.maxStitchViews
       value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: stabStitch.borderSize
+      value: 80
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -16059,6 +16069,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: stabStitch.blurKernelSize
+      value: 55
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: bridge.panoramaImageHeight
       value: 720
       objectReference: {fileID: 0}
@@ -16066,21 +16081,6 @@ PrefabInstance:
         type: 3}
       propertyPath: stabStitch.qualityThreshold
       value: 16
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: stabStitch.blurKernelSize
-      value: 55
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: stabStitch.blurSigma
-      value: 20
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: stabStitch.borderSize
-      value: 80
       objectReference: {fileID: 0}
     - target: {fileID: 6847994249360662215, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -69884,6 +69884,7 @@ GameObject:
   - component: {fileID: 1839174506}
   - component: {fileID: 1839174507}
   - component: {fileID: 1839174508}
+  - component: {fileID: 1839174509}
   m_Layer: 0
   m_Name: gameManager
   m_TagString: Untagged
@@ -69996,6 +69997,10 @@ MonoBehaviour:
   numNeighbours: 9
   numDimensions: 2
   pointInwards: 0
+  feedHeadingToleranceDeg: 5
+  fillLookDirectionGap: 0
+  lookGapCoverageDeg: 20
+  lookGapMaxShiftDeg: 15
   gimbalPitch: 0
 --- !u!114 &1839174499
 MonoBehaviour:
@@ -70027,6 +70032,7 @@ MonoBehaviour:
   displayYawSmoothTime: 0.1
   formationMapRollScreens: 1
   screenLayerName: UI
+  feedRenderHz: 30
 --- !u!114 &1839174500
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -70195,6 +70201,29 @@ MonoBehaviour:
   appliedRows: 1
   appliedShiftOddRows: 1
   appliedCentred: 0
+--- !u!114 &1839174509
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1839174494}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aeb77693590d438d94f8dd12c12bcd47, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  widthScale: 1
+  cityRoot: {fileID: 0}
+  buildingNamePrefixes:
+  - BnP_Small_Building_
+  - BnP_Large_Building_
+  - BnP_Apartment_
+  - Skyscraper_
+  independentGoalPatchWidth: 1
+  goalPatchWidthScale: 2
+  logChanges: 0
+  appliedWidthScale: 1
 --- !u!4 &1842341392 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 6866566311456329674, guid: 3f72f089e0ed4bf08ef142d211c4c238,
