@@ -122,7 +122,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -778,7 +778,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -1378,7 +1378,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -2667,7 +2667,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -2902,7 +2902,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -5103,7 +5103,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -5443,7 +5443,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -5677,7 +5677,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3

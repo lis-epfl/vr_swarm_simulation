@@ -6,7 +6,7 @@ using UnityEditor;
 
 /// <summary>
 /// Ensures each goal patch contains exactly one visually-distinct "special"
-/// pedestrian (the <c>ModifedWalker</c> prefab) among its many ordinary walkers.
+/// pedestrian (the <c>ModifiedWalker</c> prefab) among its many ordinary walkers.
 ///
 /// A goal patch holds several <see cref="WalkerPatrol"/> components (each spawning
 /// its own batch of walkers), so "one per goal" cannot be decided inside a single
@@ -19,7 +19,7 @@ using UnityEditor;
 public class GoalSpecialWalker : MonoBehaviour
 {
     [Tooltip("The visually-distinct pedestrian prefab. Auto-discovered by name " +
-             "(ModifedWalker) in the editor; assign manually to override.")]
+             "(ModifiedWalker) in the editor; assign manually to override.")]
     [SerializeField] private GameObject specialWalkerPrefab;
 
     // Awake runs before every component's Start, so the chosen patrol sees the
@@ -44,7 +44,7 @@ public class GoalSpecialWalker : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    // Auto-assign the ModifedWalker prefab so it doesn't have to be dragged onto
+    // Auto-assign the ModifiedWalker prefab so it doesn't have to be dragged onto
     // the goal patch by hand; the resolved reference is serialized for builds.
     // Mirrors WalkerPatrol's SimpleWalker auto-assignment.
     private void Reset() { AssignDefaultSpecialPrefab(); }
@@ -53,11 +53,11 @@ public class GoalSpecialWalker : MonoBehaviour
     private void AssignDefaultSpecialPrefab()
     {
         if (specialWalkerPrefab != null) return;
-        string[] guids = AssetDatabase.FindAssets("ModifedWalker t:Prefab");
+        string[] guids = AssetDatabase.FindAssets("ModifiedWalker t:Prefab");
         foreach (string guid in guids)
         {
             string path = AssetDatabase.GUIDToAssetPath(guid);
-            if (System.IO.Path.GetFileNameWithoutExtension(path) == "ModifedWalker")
+            if (System.IO.Path.GetFileNameWithoutExtension(path) == "ModifiedWalker")
             {
                 specialWalkerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                 break;
