@@ -391,6 +391,10 @@ public class StreetWidthTuner : MonoBehaviour
                 {
                     continue; // the asphalt plate: the one thing that must not move
                 }
+                if (SpawnedContentRoot.Covers(t))
+                {
+                    continue; // walkers and anything else spawned during play; see SpawnedContentRoot
+                }
 
                 tileContent.Add(t);
                 if (renderer.isPartOfStaticBatch)
@@ -630,7 +634,7 @@ public class StreetWidthTuner : MonoBehaviour
             foreach (Renderer renderer in tile.GetComponentsInChildren<Renderer>(true))
             {
                 Transform t = renderer.transform;
-                if (IsIgnored(t.name) || renderer.isPartOfStaticBatch)
+                if (IsIgnored(t.name) || renderer.isPartOfStaticBatch || SpawnedContentRoot.Covers(t))
                 {
                     continue;
                 }
@@ -706,7 +710,7 @@ public class StreetWidthTuner : MonoBehaviour
         List<Renderer> found = new List<Renderer>();
         foreach (Renderer r in sceneryRoot.GetComponentsInChildren<Renderer>(true))
         {
-            if (tileContent.Contains(r.transform) || IsIgnored(r.gameObject.name))
+            if (tileContent.Contains(r.transform) || IsIgnored(r.gameObject.name) || SpawnedContentRoot.Covers(r.transform))
             {
                 continue;
             }

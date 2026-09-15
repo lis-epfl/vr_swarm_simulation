@@ -128,6 +128,12 @@ public class WalkerPatrol : MonoBehaviour
         walkersContainer.transform.SetParent(transform.parent, false);
         walkersContainer.transform.position = transform.position;
 
+        // The container hangs inside a city tile, and the tuners treat every Renderer under a tile as
+        // block content to be scaled about the kerb. A walker's renderers are children of the object the
+        // patrol drives, so that pulls the walker apart rather than moving it: invisibly for the skinned
+        // body, which renders from its bones, and by metres for a hat.
+        walkersContainer.AddComponent<SpawnedContentRoot>();
+
         Vector3 center = GetCenter();
 
         for (int i = 0; i < numWalkers; i++)

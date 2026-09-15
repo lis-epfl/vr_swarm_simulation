@@ -1097,6 +1097,17 @@ Pack-geometry facts scripts depend on:
   only, so it **refuses while the city root still holds untied scenery** — tie first. A half-tile stagger
   makes T-junctions whose mouths the other row's median strip runs across, leaves a half-tile notch at one
   end of each shifted row (`centred` splits it), and stops earlier runs from replaying.
+- **A tile's block content is "every Renderer under the tile", and that rule only holds for authored
+  props.** An authored prop is one object carrying one renderer, so scaling the renderer's transform
+  about the kerb moves the prop. A *runtime-spawned composite* is not: a walker's renderers
+  (`HumanM_BodyMesh`, the hat's mesh node) are **children** of the object `WalkerPatrol` drives, so the
+  same operation pulls the walker apart rather than moving it. It is invisible on the body — a skinned
+  mesh renders from its bone matrices and ignores its own transform — and fully visible on the hat,
+  which is how it surfaced: hats ~6 m off their walkers, being `(1 − blockScale) ×` the walker's ~30 m
+  from the kerb. `StreetWidthTuner` is otherwise edit-mode only, but `MatchNewPatches` runs on the first
+  `Update` of a tuned play session — deliberately after every `Start`, i.e. exactly once the walkers
+  exist. Hence `SpawnedContentRoot`, which `WalkerPatrol` puts on its container and the tuner skips.
+  Anything else spawned under a tile during play needs the same marker.
 
 **The `Obstacle` layer is applied per scene, and the three city scenes disagree.** This is the largest
 scene-to-scene difference for swarm behaviour, because `OlfatiSaber` has exactly one membership rule —
