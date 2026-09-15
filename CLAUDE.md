@@ -223,9 +223,29 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     clamps the **sum**, as `heading_hold_rate` does, not the feed-forward alone.
   - **The lead clamp is unconditional here and gated on the fleet.** The fleet gates on `ff_rate != 0`
     because `KP_YAW × 25° = 20 °/s` is *below* its 40 °/s clamp, so a pinned setpoint would cap its
-    correction below the actuator limit. Here `headingHoldKp × maxHeadingHoldErrorDeg` (3.5 rad/s) is
-    well above `maxYawRate` (1.309), so the rate clamp binds first and the clamp costs nothing. The invariant is
+    correction below the actuator limit. Here `headingHoldKp × maxHeadingHoldErrorDeg` (2.2 rad/s) is
+    above `maxYawRate` (1.309), so the rate clamp binds first and the clamp costs nothing. The invariant is
     `headingHoldKp * maxHeadingHoldErrorDeg * Deg2Rad >= maxYawRate`; below it, restore the gate.
+  - **The setpoint is back-calculated: it advances only by the part of the rate the `maxYawRate` clamp
+    let through, and that correction may slow the advance but never reverse it.** Without it the
+    setpoint integrates a rate the airframe cannot fly — through every spin-up, and whenever the outer
+    command exceeds the limit — and the aircraft overshoots the target by the whole lead on arrival
+    (12–19° in a replica of the loop at outer gains of 2–3). This is what lets `YawCorrectionFactor`
+    be 3 rather than the fleet's `KP_YAW` 0.8. The one-sided limit is what keeps disturbance
+    rejection intact: an unlimited back-calculation drags the setpoint toward wherever a large enough
+    knock left the nose, and in a mode with no outer loop (`NONE`) that heading is then simply lost.
+  - **The yaw axis flies its real 75 °/s only because `angularDrag` is compensated on it.** PhysX
+    adds the torque's velocity change *before* damping by `(1 − drag·dt)` (measured in batchmode), so
+    at the prefab's drag of 5 holding 75 °/s needs 7.3 rad/s² against `maxAlpha` 3.38: until this was
+    added the airframe topped out at **34.9 °/s**, and below saturation delivered 0.58 of its command.
+    The yaw part of α is now `clamp((effectiveYawRate − ω_v)(1/τ + drag), ±maxAlpha)`, plus
+    `drag·ω_v`, divided by `(1 − drag·dt)` — exact to five decimals on a tilted body under
+    simultaneous tilt torque. `maxAlpha` is therefore the *net* yaw acceleration, `1/τ + drag` keeps
+    the closed-loop pole the droopy loop already had, and `headingHoldKp` went 8 → 5 because the loop
+    gain rose by 1/0.58 (5 reproduces the old hold's small-step response: 0.38 s rise, 0.5% overshoot).
+    Two consequences: a full-stick 60 °/s plane-mode turn is now actually flown (it used to be pinned
+    at the lead clamp, turning ~130° of a 4 s stick's 240°), and with the drag gone a stopped turn or
+    a knock is arrested by `maxAlpha` alone — stopping from 60 °/s passes the target by ~9°.
   - **`yawFilterCoefficient = 1` (off) is the faithful setting, not an oversight.**
     `joystick_controller` smooths pitch, roll and gimbal pitch (`STICK_SMOOTHING_ALPHA`) and feeds the
     yaw stick in **raw**, because the heading hold is what makes smoothing unnecessary.
@@ -248,7 +268,10 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     anisotropically scaled achieved rate is rotated off `upBody`, so a tilt change leaked heading
     however carefully that line was written. `tiltHeadingLeak` is nonzero only while the tilt is
     *changing*, which is exactly why the symptom appeared on velocity-command changes and never in
-    steady flight. **The three axes must keep one time constant** or it comes back.
+    steady flight. **The three body axes must keep one time constant** or it comes back. The yaw
+    part's own law (drag compensation, above) does not break this: it acts on the world-vertical
+    component, which isotropic damping and an `alphaTilt` perpendicular to `upBody` leave decoupled
+    from the tilt part outright, whereas the rule is about the body axes the yaw command is spread over.
   - **The α clamp is split about `upBody`, not about the body axes.** The old clamp scaled the `(x, z)`
     pair circularly while clamping `y` independently, which rescales the tilt and yaw parts of
     `desiredOmega` by different factors and destroys the cancellation exactly when tilt demand is
@@ -259,6 +282,8 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     the inertia tensor, `angularDrag` and the timestep into the yaw channel, would do nothing under
     saturation, and would break silently the day this `ForceMode` was corrected. The heading-hold
     integrator is the model-free version — which is why the real FC needs none of those numbers either.
+    The yaw drag compensation is not that fix coming back: it buys *authority* the α clamp refuses,
+    which no model-free loop can, and it reads `angularDrag` and the step live rather than baking them in.
   - **The linear twin is still there and is deliberately untouched:** `desiredForce = thrust * Mass` is
     also applied as an acceleration, so achieved vertical acceleration is 3× the computed thrust. The
     height PD absorbs it by sitting at an offset setpoint (~1.3 m above `desired_height`) and the 2.7 g
