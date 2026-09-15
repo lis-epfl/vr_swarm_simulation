@@ -111,7 +111,7 @@ MonoBehaviour:
   HeightKd: 2
   heightDerivFilterCoeff: 0.5
   yawFilterCoefficient: 1
-  headingHoldKp: 8
+  headingHoldKp: 5
   maxHeadingHoldErrorDeg: 25
   SwarmAccelFilterCoefficient: 0.3
   timeConstantAcceleration: 0.75
@@ -253,7 +253,7 @@ MonoBehaviour:
   NumDimensions: 2
   BoundaryEstimate: 0
   PointInwards: 0
-  YawCorrectionFactor: 0.8
+  YawCorrectionFactor: 3
   NeighborYawSmoothingFactor: 0.5
   BoundaryHysteresisTime: 0.5
   TargetHeadingFilterTime: 0.3

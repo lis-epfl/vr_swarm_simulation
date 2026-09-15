@@ -40,6 +40,8 @@ public class VelocityControl : MonoBehaviour
     // torque below is applied with ForceMode.Force now, so this is the limit that is actually
     // achieved, where before the inertia pre-multiply silently turned it into 3.38 on pitch/roll
     // and 6.67 on yaw. Same delivered authority, honestly stated, and isotropic for the first time.
+    // On the yaw axis it is the NET acceleration: the Rigidbody's angularDrag is compensated on top
+    // of it (see the rate loop), because spent fighting that drag it capped yaw at 35 deg/s.
     public float maxAlpha = 3.38f;
     public float maxSpeed = 9.31f;
     public float maxAltitudeRate = 3.34f; // Maximum altitude rate in m/s
@@ -98,19 +100,20 @@ public class VelocityControl : MonoBehaviour
              "flight controller's own loop, which the sim had no counterpart for at all — " +
              "VelocityControl had only a yaw RATE loop, so nothing held an absolute heading and a " +
              "disturbance was pulled back only by AttitudeAlgorithm's outer P, at well over a " +
-             "second. Closed-loop time constant is 1/(headingHoldKp * 0.62), the 0.62 being the " +
-             "rate loop's DC gain against the Rigidbody's angularDrag. 8 gives about 0.2 s with " +
-             "~67 deg of phase margin against the rate loop and the 50 Hz step; useful range 6-12, " +
-             "and past ~20 the rate pole and the sample delay eat the margin.")]
-    public float headingHoldKp = 8.0f;
+             "second. The yaw rate loop has unity DC gain (its angularDrag is compensated), so the " +
+             "closed-loop time constant is about 1/headingHoldKp. 5 reproduces the response 8 gave " +
+             "before that compensation, when the loop only delivered 0.58 of its command: 0.38 s " +
+             "rise for a small step with 0.5% overshoot. Useful range 4-6; 8 overshoots 5%, 10 9%.")]
+    public float headingHoldKp = 5.0f;
 
     [Tooltip("Anti-windup, degrees: how far the integrated heading setpoint may lead the MEASURED " +
              "heading. The analogue of the fleet's MAX_TARGET_LEAD_DEG and of " +
              "SwarmPlaneController.maxTargetLeadDeg, one level down — those bound the swarm's " +
              "shared setpoint against the swarm mean, this bounds each drone's own setpoint " +
              "against its own heading, so a rate-saturated turn cannot bank up heading debt it " +
-             "keeps paying off after the stick is centred. Must stay well above the legitimate " +
-             "steady lag during a full-stick turn, ff*(1-0.62)/(0.62*headingHoldKp).")]
+             "keeps paying off after the stick is centred. The back-calculation in FixedUpdate " +
+             "already holds a saturated turn's lead near maxYawRate/headingHoldKp (15 deg), so this " +
+             "is the hard bound behind it; keep headingHoldKp * this * Deg2Rad >= maxYawRate.")]
     public float maxHeadingHoldErrorDeg = 25.0f;
 
     public float SwarmAccelFilterCoefficient = 0.3f;
@@ -359,7 +362,7 @@ public class VelocityControl : MonoBehaviour
         // Add the yaw rate contributions from user input and the autonomous control. This pair is
         // the OUTER loop, and it is the exact counterpart of the real fleet's PC-side command:
         // desiredYawRate is the stick feed-forward (ff_rate) and attitude_control_yaw is the outer
-        // heading P (KP_YAW * err) that AttitudeAlgorithm computes.
+        // heading P (the fleet's KP_YAW * err, at the sim's own gain) that AttitudeAlgorithm computes.
         targetYawRate = desiredYawRate + attitude_control_yaw;
 
         // Command prefilter on the outer rate, and nothing downstream of it. It exists to keep a
@@ -368,14 +371,8 @@ public class VelocityControl : MonoBehaviour
         filteredYawRate = filteredYawRate * (1.0f - yawFilterCoefficient) + targetYawRate * yawFilterCoefficient;
 
         // --- Heading hold: the flight controller's own loop --------------------------------------
-        // Integrate the rate we are actually asking the aircraft to fly — the FILTERED one, not the
-        // raw sum. Integrating the raw rate while feeding the filtered one forward would leave the
-        // setpoint permanently ahead by tau_EMA * rate, and every bit of that lead is still owed
-        // when the stick centres: the same windup the lead clamp below exists to stop, sneaked in
-        // through the prefilter.
-        headingSetpoint = WrapAngle(headingSetpoint + filteredYawRate * Time.fixedDeltaTime);
-
-        // Anti-windup. Unconditional, unlike the real fleet's version (integrate_target_heading
+        // Anti-windup, hard bound; the back-calculation below does the routine work. Unconditional,
+        // unlike the real fleet's version (integrate_target_heading
         // gates on ff_rate != 0), and that difference is deliberate rather than an oversight: the
         // fleet gates because KP_YAW * 25 deg = 20 deg/s sits BELOW its 40 deg/s rate clamp, so a
         // pinned setpoint would cap its correction below the actuator limit. Here
@@ -401,15 +398,36 @@ public class VelocityControl : MonoBehaviour
         // YAW_ERR_DEADBAND_DEG exists because a magnetic compass jitters a degree or two, and
         // StateFinder's heading is exact (the attitude noise it injects is on x and z only) — the
         // same argument AttitudeAlgorithm.ApplyPlaneModeAttitude already records.
-        float effectiveYawRate = filteredYawRate + headingHoldKp * headingError;
+        float unclampedYawRate = filteredYawRate + headingHoldKp * headingError;
 
         // The actuator limit applies to the SUM, not to the feed-forward alone — as it does on the
         // fleet, where heading_hold_rate clamps ff + P. Clamping the feed-forward on its own (which
         // is where this line used to sit) let the total command exceed the limit whenever the hold
         // was correcting.
-        effectiveYawRate = Mathf.Clamp(effectiveYawRate, -maxYawRate, maxYawRate);
+        float effectiveYawRate = Mathf.Clamp(unclampedYawRate, -maxYawRate, maxYawRate);
         lastEffectiveYawRate = effectiveYawRate;
         lastHeadingError = headingError;
+
+        // Advance the setpoint by the rate we are actually asking the aircraft to fly — the
+        // FILTERED one, not the raw sum (integrating the raw rate while feeding the filtered one
+        // forward leaves the setpoint permanently ahead by tau_EMA * rate, all of it owed when the
+        // stick centres) — and only by as much of it as survived the clamp above.
+        //
+        // That second part is back-calculation, and it is what lets AttitudeAlgorithm command a turn
+        // briskly. Integrating the full rate while the clamp holds the aircraft at maxYawRate walks
+        // the setpoint ahead of the nose — through the spin-up, and for as long as the outer command
+        // exceeds the limit — and every degree of that lead is flown past the target on arrival:
+        // 12-19 deg of overshoot, in a replica of this loop, at outer gains of 2-3. Subtracting what
+        // the clamp removed holds the lead near (maxYawRate - rate) / headingHoldKp instead, so it
+        // closes as the aircraft reaches speed and there is nothing left to overshoot with.
+        //
+        // The correction may only slow the advance, never reverse or speed it up. A disturbance
+        // large enough to saturate the P term would otherwise drag the setpoint toward wherever it
+        // knocked the nose — the setpoint would forget the heading it is meant to hold — whereas
+        // this way a centred stick still returns the aircraft all the way.
+        float advanceRate = Mathf.Clamp(filteredYawRate - (unclampedYawRate - effectiveYawRate),
+                                        Mathf.Min(0.0f, filteredYawRate), Mathf.Max(0.0f, filteredYawRate));
+        headingSetpoint = WrapAngle(headingSetpoint + advanceRate * Time.fixedDeltaTime);
 
         // effectiveYawRate is a heading rate about the WORLD vertical, but desiredOmega is a
         // body-frame angular-velocity command (differenced against the body-frame
@@ -464,7 +482,32 @@ public class VelocityControl : MonoBehaviour
         Vector3 alphaTilt = desiredAlpha - alphaYaw * upBody;
         if (alphaTilt.magnitude > maxAlpha)
             alphaTilt = alphaTilt.normalized * maxAlpha;
-        alphaYaw = Mathf.Clamp(alphaYaw, -maxAlpha, maxAlpha);
+
+        // The yaw part gets its own law, because the shared one could not fly maxYawRate at all.
+        // PhysX damps angular velocity by (1 - angularDrag * dt) every step, AFTER adding the
+        // torque's velocity change (measured in batchmode), and at the prefab's drag of 5 holding
+        // 75 deg/s takes 7.3 rad/s^2 of torque against a maxAlpha of 3.38: the airframe topped out at
+        // 34.9 deg/s, and below saturation delivered only 0.58 of its command. That drag models
+        // nothing a DJI flight controller's yaw rate loop fails to overcome, so it is cancelled here
+        // and maxAlpha bounds the NET acceleration — the aircraft's real yaw authority. The gain
+        // 1/tau + drag is the closed-loop pole the droopy loop already had, so the bandwidth is
+        // unchanged and only the droop goes (headingHoldKp was rescaled to match).
+        //
+        // This does not reopen the tilt leak "one time constant for all three axes" closed. That
+        // rule is about BODY axes, whose yaw command is a projection spread over all three. The
+        // world-vertical component of angular velocity is decoupled from the tilt part outright:
+        // damping is isotropic, alphaTilt is perpendicular to upBody, so its rate evolves only
+        // through alphaYaw and its own damping — confirmed to five decimals on a tilted body under
+        // simultaneous tilt torque. Unlike the analytic leak fix CLAUDE.md records as rejected,
+        // nothing is hard-coded: drag and step are read live, and it stays exact under saturation.
+        // No model-free loop could have done this job: the heading hold removes droop, but it
+        // cannot buy torque the clamp refuses.
+        float worldVerticalRate = Vector3.Dot(State.AngularVelocityVector, upBody);
+        float drag = rb.angularDrag;
+        float dampingRetention = Mathf.Max(1.0f - drag * Time.fixedDeltaTime, 0.1f);
+        float alphaYawNet = Mathf.Clamp((effectiveYawRate - worldVerticalRate) * (1.0f / timeConstantAlphaRate + drag),
+                                        -maxAlpha, maxAlpha);
+        alphaYaw = (alphaYawNet + drag * worldVerticalRate) / dampingRetention;
         Vector3 desiredAlphaClamped = alphaTilt + alphaYaw * upBody;
 
         // float desiredThrust = (gravity + desiredAcceleration.y) / (Mathf.Cos(State.Angles.z) * Mathf.Cos(State.Angles.x));

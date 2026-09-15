@@ -17,13 +17,17 @@ public class AttitudeAlgorithm : MonoBehaviour
     public bool PointInwards = false;
     [Tooltip("Outer heading-hold gain (1/s) — this component is the analogue of the real fleet's " +
              "PC-side heading_hold_rate, not of the aircraft's flight controller, which lives in " +
-             "VelocityControl.headingHoldKp. Matches the fleet's KP_YAW. Two caveats worth " +
-             "knowing: the fleet chose 0.8 (down from 1.5) because of a 0.15-0.5 s transport delay " +
-             "each way that the sim does not model, so this is a fidelity match for a reason that " +
-             "does not apply here — the principled move would be to model the delay. And it also " +
-             "preserves the plane-convergence feel: VelocityControl's heading hold removed the " +
-             "rate loop's DC droop, which would otherwise have made this loop faster than it was.")]
-    public float YawCorrectionFactor = 0.8f;
+             "VelocityControl.headingHoldKp. Deliberately NOT the fleet's KP_YAW (0.8): the fleet " +
+             "chose that for a 0.15-0.5 s transport delay each way that the sim does not model, and " +
+             "at 0.8 the approach is exponential with a 1.25 s time constant that asks for the full " +
+             "rate only beyond 94 deg of error. At 3 a large error flies at " +
+             "VelocityControl.maxYawRate (75 deg/s) until about 25 deg out, then brakes within " +
+             "maxAlpha: a 90 deg step settles within 1 deg in 2.2 s with no overshoot, relying on " +
+             "VelocityControl's back-calculation. In ScaledCityWorld a drone promoted to the hull " +
+             "now reaches 5 deg of its outward heading in a median 1.2-2.0 s, from 3.0-3.3 s at 0.8 " +
+             "with the rate loop's old 35 deg/s ceiling. 4 is ~0.15 s faster; 5 starts to overshoot " +
+             "and to ring with one tick of delay.")]
+    public float YawCorrectionFactor = 3.0f;
     public float NeighborYawSmoothingFactor = 0.1f;
     [Tooltip("Seconds the hull-membership reading must persist before BoundaryEstimate flips. Prevents feed flicker.")]
     public float BoundaryHysteresisTime = 0.5f;
