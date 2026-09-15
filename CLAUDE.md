@@ -365,6 +365,41 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     street level and very little at altitude.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
+- **The look-direction gap fill (`SwarmManager.fillLookDirectionGap`, off by default) is the one
+  place the hull heading rule knows where the pilot is looking.** The outward bisector rule leaves a
+  blind spot straight ahead when the swarm splits around a building: the front drone is swallowed,
+  its two neighbours pass either side ahead of the lagging swarm, and the sharp corners they form
+  point them 40–50° off the flight direction (the FPV camera is ~98° wide, so ±50° leaves no overlap
+  at all). `AttitudeAlgorithm.UpdateLookGapShift` takes the two hull vertices whose headings bracket
+  the body yaw ψ and turns each towards it by `clamp(d_near − lookGapCoverageDeg, 0,
+  lookGapMaxShiftDeg)`; every other drone gets exactly zero. Points worth keeping:
+  - **Body yaw (`PyUniSharingFast.BodyYawDegrees`), not the head.** Body yaw aims the panorama and
+    the VR velocity frame, so it is where the pilot is flying; the head moves on every glance at a
+    side screen. `BodyYawValid` exists for this consumer — 0° is north, and the bench disables
+    `PyUniSharingFast`, so an unseeded body yaw would swing the swarm's front round to face north.
+  - **Only the bracketing pair moves, and the one expression is its own gate.** s is 0 while a drone
+    already faces within the coverage angle; s ≤ d_near, so nothing crosses ψ or reorders; and the
+    pair only changes where ψ crosses a heading, i.e. where s is 0 — no new edge to dither across.
+    The shift is added to `rawTargetHeading` *before* the target low-pass, which smooths a change of
+    pair like any hull deformation.
+  - **Computed once per tick in the shared hull pass, not per drone**, so the drones, the
+    `SharedLookGap*`/`SharedMaxGapDeg` read-outs and the shape CSV columns cannot disagree.
+    `SharedMaxGapDeg` measures the *shifted* headings, so with the fill on it shows the price: the
+    gaps beside the pair widen by s.
+  - Acts only in `GLOBAL_CONVEXHULL` (a local hull makes nearly every drone a vertex), outside
+    vertical-plane mode (its own shared heading) and above `FPVCameraScript.NadirPitch` (a downward
+    camera has no direction to fill). The defaults (20°, 15°) take a ±50° front pair to ±35°.
+  - **It is not idle in cruise, and that is measured, not assumed.** An evenly spread ring of 9–10
+    hull drones keeps ψ within 18–20° of a heading, but a flying swarm averages ~7.7 of 10 on the
+    hull, so on ScaledCityWorld's 120 held-out flights (headless, pilot facing each waypoint) the
+    fill turned a pair ~27% of the time, by ~7° on average. What it bought: ψ more than 30° from
+    every shown drone's live heading 8.8% → 1.1% of the time, outside every shown image 0.4% → 0,
+    and 35° → 23° during the large gaps. Drones lost 18 → 16 and building contacts 1 → 1, with
+    every loss a single drone-drone collision in a different flight in each arm — heading does not
+    feed translation, so the flights merely diverge. Raise `lookGapCoverageDeg` to keep it for the
+    large gaps only.
+  - Off, the shift list is all exact zeros and the hull rule is skipped past untouched. Sim-only:
+    DJIScene has no `AttitudeAlgorithm`.
 - **Every screen style works off either feed source, and `ScreenStyle.REAL_DRONE` is gone.** A layout
   needs four things per drone — display yaw, world position, the image-frame yaw the map's roll undoes,
   and alive/visible — and `ScreenSpawn` reads all four through accessors (`TryGetDisplayYawRad`,

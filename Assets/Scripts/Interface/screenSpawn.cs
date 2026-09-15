@@ -120,6 +120,15 @@ public class ScreenSpawn : MonoBehaviour
              "the full world geometry. Must be an existing layer name (default 'UI').")]
     public string screenLayerName = "UI";
 
+    [Tooltip("How often each visible feed screen re-renders its drone's FPV camera, in Hz. " +
+             "This is the main frame-rate dial: the eye cameras are culled to the screens, so " +
+             "every FPV render is a full pass over the world and they are the whole GPU cost. " +
+             "The feeds are video, so 30 (matching PyUniSharingFast.sendInterval) reads as " +
+             "normal footage while costing a third of what rendering them every headset frame " +
+             "does. Cameras are staggered across frames, so the per-frame cost is flat rather " +
+             "than N-at-once. 0 = render every frame (the pre-throttle behaviour).")]
+    public float feedRenderHz = 30f;
+
     // GameObject references
     private OVRCameraRig cameraRig;
     private List<GameObject> swarm = new List<GameObject>();
@@ -137,6 +146,10 @@ public class ScreenSpawn : MonoBehaviour
         public GameObject drone;
         public GameObject screen;
         public Camera fpvCamera;
+        // The gimbal driver on the same GameObject as fpvCamera. Owns the once-per-frame render
+        // gate (EnsureRenderedThisFrame), which is how the feed refresh below and the stitch
+        // capture in PyUniSharingFast share one render on a drone that is both shown and stitched.
+        public FPVCameraScript fpvRenderer;
         public VelocityControl velocityControl;
         public AttitudeAlgorithm attitude;
 
@@ -483,12 +496,27 @@ public class ScreenSpawn : MonoBehaviour
                 // PyUniSharingFast, so it's needed regardless of screen style.
                 cam.targetTexture = rt;
 
+                // Pinned here rather than only on the prefab, because a scene that overrides the
+                // Camera component would otherwise reintroduce them silently, and this is already
+                // the one place that owns the FPV camera's render configuration.
+                //
+                // HDR: there is no post-processing on these cameras and the stitcher consumes
+                // 8-bit BGR, so an FP16 intermediate buffer and its resolve per camera per render
+                // buy nothing at all.
+                //
+                // stereoTargetEye: the prefab leaves this at Both, which is meaningless for a
+                // camera that renders into a RenderTexture and risks the built-in XR path
+                // treating the pass as stereo. None states the intent.
+                cam.allowHDR = false;
+                cam.stereoTargetEye = StereoTargetEyeMask.None;
+
                 Transform droneParent = drone.transform.Find("DroneParent");
                 bindings.Add(new DroneScreenBinding
                 {
                     drone = drone,
                     screen = screen,
                     fpvCamera = cam,
+                    fpvRenderer = cam.GetComponent<FPVCameraScript>(),
                     velocityControl = droneParent != null ? droneParent.GetComponent<VelocityControl>() : null,
                     attitude = droneParent != null ? droneParent.GetComponent<AttitudeAlgorithm>() : null,
                     feedIndex = -1,
@@ -506,6 +534,7 @@ public class ScreenSpawn : MonoBehaviour
                     drone = null,
                     screen = screen,
                     fpvCamera = null,
+                    fpvRenderer = null,
                     velocityControl = null,
                     attitude = null,
                     feedIndex = droneNumber,
@@ -664,6 +693,10 @@ public class ScreenSpawn : MonoBehaviour
             BuildFormationGridLayout();
         }
 
+        // Sized before the loop below writes feedScreenVisible[i], not inside StepFeedRenders:
+        // the placement loop runs first (and more often), so the arrays have to exist by now.
+        EnsureFeedRenderArrays();
+
         for (int i = 0; i < bindings.Count; i++)
         {
             DroneScreenBinding binding = bindings[i];
@@ -676,6 +709,9 @@ public class ScreenSpawn : MonoBehaviour
             // Hide the feed for any drone currently composited into the stitched
             // panorama (mirrors the BoundaryEstimate gate below). Applies to every
             // screen style. A destroyed drone also just hides its screen.
+            //
+            // NOTE for the feed throttle below: this runs before the visibility is recorded,
+            // so a screen hidden here leaves the render schedule this frame.
             if (IsFeedSuppressed(binding))
             {
                 screen.SetActive(false);
@@ -712,12 +748,117 @@ public class ScreenSpawn : MonoBehaviour
             // visible; otherwise it would draw the full world every frame for
             // nothing. The stitch capture path (PyUniSharingFast) renders
             // disabled cameras on demand at its own send rate.
+            //
+            // Under the throttle the camera stays disabled either way and StepFeedRenders drives
+            // it instead, so all this records is whether it is worth refreshing -- a screen
+            // hidden above costs no render at all. The transition test re-phases a screen that
+            // has just become visible into the stagger; see SeedFeedRenderTime for why it is
+            // re-phased rather than simply made due.
             Camera cam = binding.fpvCamera;
-            if (cam != null && cam.enabled != screen.activeSelf)
+            if (cam != null)
             {
-                cam.enabled = screen.activeSelf;
+                bool visible = screen.activeSelf;
+
+                // The throttle needs the render gate to drive the camera manually. Without the
+                // component there is nothing to drive it with, so disabling the camera would
+                // leave that feed frozen forever rather than merely slow -- fall back to
+                // Unity's own per-frame render instead. Only reachable on a drone prefab whose
+                // FPV camera has no FPVCameraScript; DroneReduced has one.
+                bool throttled = FeedRenderInterval() > 0f && binding.fpvRenderer != null;
+                if (throttled)
+                {
+                    if (cam.enabled) cam.enabled = false;
+                    if (visible && !feedScreenVisible[i]) SeedFeedRenderTime(i);
+                    feedScreenVisible[i] = visible;
+                }
+                else if (cam.enabled != visible)
+                {
+                    cam.enabled = visible;
+                }
             }
         }
+    }
+
+    // The feed refresh period in seconds, or 0 when the throttle is off (feedRenderHz <= 0),
+    // in which case the FPV cameras are left `enabled` and Unity renders them every frame.
+    private float FeedRenderInterval()
+    {
+        return feedRenderHz > 0f ? 1f / feedRenderHz : 0f;
+    }
+
+    /// <summary>
+    /// Renders the visible feed screens' FPV cameras on a staggered fixed-rate schedule.
+    /// </summary>
+    /// <remarks>
+    /// This is the project's main frame-rate lever. The pilot's eye cameras are culling-masked to
+    /// the feed screens, so the FPV cameras are the only thing drawing the world at all and each
+    /// one is a full pass over the city. Left `enabled` they redraw it at the headset's rate,
+    /// which for a video feed is many times more often than anything can be seen.
+    ///
+    /// The stagger matters as much as the rate: refreshing every camera on the same frame costs
+    /// the same average but arrives as a periodic spike, and a spike is what drops a frame in VR.
+    /// Each camera gets a phase offset so the renders spread evenly across frames instead.
+    ///
+    /// Deliberately not applied to the stitch captures, which stay synchronised at `sendInterval`
+    /// in PyUniSharingFast — spreading a triplet across frames would introduce exactly the
+    /// capture skew MAX_CAPTURE_SKEW_S exists to reject. A drone that is both shown and stitched
+    /// still renders once, via FPVCameraScript's frame stamp.
+    ///
+    /// Called from LateUpdate, and guarded on the frame like StepDisplayYawFilters, because
+    /// UpdateScreenPositions runs more than once in some frames.
+    /// </remarks>
+    private void StepFeedRenders()
+    {
+        float interval = FeedRenderInterval();
+        if (interval <= 0f || bindings.Count == 0) return;
+        if (feedRenderFrame == Time.frameCount) return;
+        feedRenderFrame = Time.frameCount;
+
+        EnsureFeedRenderArrays();
+
+        for (int i = 0; i < bindings.Count; i++)
+        {
+            if (!feedScreenVisible[i]) continue;
+            FPVCameraScript renderer = bindings[i].fpvRenderer;
+            if (renderer == null) continue;   // real feed, or a drone with no gimbal driver
+
+            if (Time.time < nextFeedRenderTime[i]) continue;
+            renderer.EnsureRenderedThisFrame();
+
+            // Advance by whole intervals but never fall more than one behind, so a stall does
+            // not cash out as a burst of catch-up renders. Same rule as PyUniSharingFast's
+            // nextSendTime, for the same reason.
+            nextFeedRenderTime[i] = Mathf.Max(nextFeedRenderTime[i] + interval, Time.time - interval);
+        }
+    }
+
+    // Sized like the wall and display-yaw arrays: only when the binding count changes.
+    private void EnsureFeedRenderArrays()
+    {
+        int n = bindings.Count;
+        if (nextFeedRenderTime != null && nextFeedRenderTime.Length == n) return;
+
+        nextFeedRenderTime = new float[n];
+        feedScreenVisible = new bool[n];
+        for (int i = 0; i < n; i++) SeedFeedRenderTime(i);
+    }
+
+    // Schedules binding i's next render one fraction of an interval from now, the fraction
+    // being its share of the fleet. That offset IS the stagger, and it is why this is used for
+    // a screen that has just become visible as well as at spawn: seeding such a screen to
+    // "due now" instead would fire it in the same frame as every other screen doing the same
+    // -- on the first frame, all of them -- and from then on they would advance in lockstep,
+    // which is the every-camera-on-one-frame spike the stagger exists to remove.
+    //
+    // The cost is that a re-shown screen waits up to one interval (33 ms at the default) before
+    // its first render. Its RenderTexture still holds its last frame meanwhile, which for the
+    // usual case -- a drone leaving the stitched set as the panorama drops it -- was rendered
+    // milliseconds ago by the capture path.
+    private void SeedFeedRenderTime(int i)
+    {
+        int n = bindings.Count;
+        float interval = FeedRenderInterval();
+        nextFeedRenderTime[i] = n > 0 ? Time.time + interval * i / n : Time.time;
     }
 
     private void HideScreen(GameObject screen)
@@ -861,6 +1002,15 @@ public class ScreenSpawn : MonoBehaviour
     // Update() calls it, and so do SpawnScreens, SetScreenStyle and the stitch-hide setters — so an
     // unguarded step would run two or three times in a frame and silently shorten the time constant.
     private int displayYawFrame = -1;
+
+    // Feed-render schedule, parallel to `bindings`. nextFeedRenderTime carries each camera's
+    // stagger phase (see EnsureFeedRenderArrays); feedScreenVisible is written by the placement
+    // loop and read by StepFeedRenders, so a hidden screen costs no render. feedRenderFrame
+    // guards the pass for the same reason displayYawFrame does — StepFeedRenders runs from
+    // LateUpdate, but the visibility it reads is refreshed by every UpdateScreenPositions call.
+    private float[] nextFeedRenderTime = new float[0];
+    private bool[] feedScreenVisible = new bool[0];
+    private int feedRenderFrame = -1;
 
     // FORMATION_MAP: per-screen roll in degrees about its own view axis, and the eased *cell*
     // offsets it glides through. The map eases in cell space rather than in world position
@@ -1657,6 +1807,16 @@ public class ScreenSpawn : MonoBehaviour
     void Update()
     {
         UpdateScreenPositions();
+    }
+
+    // The feed refresh runs in LateUpdate, after every Update has moved its drone and
+    // FPVCameraScript has aimed its gimbal, so a camera is rendered from this frame's pose
+    // rather than last frame's. It is also where Unity would have rendered these cameras
+    // itself were they still `enabled`, so the throttle changes when they draw as little as
+    // possible beyond how often.
+    void LateUpdate()
+    {
+        StepFeedRenders();
     }
 
     void OnValidate()

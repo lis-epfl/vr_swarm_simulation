@@ -717,6 +717,10 @@ public class PyUniSharingFast : MonoBehaviour
     private List<string> stitchedDrones = new List<string>();
     private List<AttitudeAlgorithm> stitchAttitudes;  // per-camera boundary estimator, index-aligned with camerasToCapture
     private List<StateFinder> stitchStates;            // per-camera state (IsAlive), index-aligned with camerasToCapture
+    // Per-camera gimbal driver, index-aligned with camerasToCapture. Owns the once-per-frame
+    // render gate, which is what stops a drone that is also being displayed by ScreenSpawn's
+    // feed refresh from being drawn twice in the same frame for the same RenderTexture.
+    private List<FPVCameraScript> stitchRenderers;
 
     private RenderTexture reusableTexture;
     private Texture2D image;
@@ -1370,7 +1374,10 @@ public class PyUniSharingFast : MonoBehaviour
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 
     // Change-detection so the stitchedDrones readout only rebuilds when the selection changes.
-    private string lastStitchedDronesKey;
+    // Held as the previous selection itself rather than a joined string: this runs every frame,
+    // and string.Join allocated a fresh string per frame purely to be compared and thrown away.
+    // SelectionChanged does the same comparison against the array with no garbage at all.
+    private int[] lastStitchedDronesKey;
 
     // Panorama display state. The pilot toggle itself (panoramaUserEnabled) is at the top of
     // the inspector; this is the resolved state after the quality fallback has had its say.
@@ -1382,7 +1389,47 @@ public class PyUniSharingFast : MonoBehaviour
     private float lastControllerUserSwitch;
     private bool controllerUserSwitchInitialized = false;
 
-    private string lastHiddenScreensKey;
+    // As lastStitchedDronesKey. `lastHiddenScreensHiding` carries the "off" state the joined
+    // key used to encode as a sentinel string, so a selection change while hidden and a change
+    // of the hide flag itself are still distinguished.
+    private int[] lastHiddenScreensKey;
+    private bool lastHiddenScreensHiding;
+    private bool lastHiddenScreensValid;
+
+    // Scratch for the per-frame stitch selection, so picking three cameras out of ten costs no
+    // garbage. `stitchCandidates` is cleared and refilled rather than reallocated;
+    // `stitchSelectionBuffer` is handed out as the `selected` array and is safe to reuse
+    // because every consumer either reads it within the frame (RequestBlockCapture) or takes
+    // its own copy (CopySelection).
+    private readonly List<int> stitchCandidates = new List<int>();
+    // The PLANAR equivalents. Only one of the two selection paths runs in a given frame (Update
+    // branches on typeOfStitcher), so they share stitchSelectionBuffer for the output.
+    private readonly List<int> planarCandidates = new List<int>();
+    private readonly List<float> planarDistances = new List<float>();
+    private int[] stitchSelectionBuffer = new int[0];
+    private static readonly int[] emptySelection = new int[0];
+
+    // Camera yaws for the sort below, indexed by camera index and refilled each call. The sort
+    // used to read transform.eulerAngles inside its comparator -- a quaternion-to-euler
+    // conversion twice per comparison, O(n log n) of them per frame -- and the comparator was a
+    // lambda, so it also allocated a delegate every frame. Reading each yaw once into here is
+    // both fewer conversions and none of the garbage, and the ordering is identical because
+    // eulerAngles does not change during the call.
+    private float[] stitchYaw = new float[0];
+    private sealed class StitchYawComparer : IComparer<int>
+    {
+        public float[] yaw;
+        public int Compare(int a, int b) { return yaw[a].CompareTo(yaw[b]); }
+    }
+    private readonly StitchYawComparer stitchYawComparer = new StitchYawComparer();
+
+    // Change-detection for the planarStandoffInUse readout, keyed on the value as DISPLAYED
+    // (hundredths of a metre) rather than the raw float, which now moves every frame.
+    private int lastStandoffReadoutCm;
+    private bool lastStandoffReadoutFromFeed;
+    private PlanarStandoffSource lastStandoffReadoutSource;
+    private int lastStandoffReadoutFacadeId;
+    private bool standoffReadoutValid;
 
     // Other timing values to check the number of camera in the block
     private float cameraUpdateInterval = 3f;
@@ -1789,7 +1836,21 @@ public class PyUniSharingFast : MonoBehaviour
         RenderTexture rt = camera.targetTexture;
         if (rt != null && rt.width == blockImageWidth && rt.height == blockImageHeight)
         {
-            if (!camera.enabled)
+            // Route through the camera's own frame gate rather than testing `enabled`. Under
+            // ScreenSpawn's feed throttle every FPV camera is disabled and driven manually by
+            // two independent schedules — that refresh and this capture — so `!enabled` no
+            // longer means "nobody else will draw it this frame". The gate makes the two
+            // schedules share one render on a drone that is both displayed and stitched, and
+            // still renders on demand for a drone whose screen is hidden (the common case here,
+            // since hideStitchedDroneScreens hides exactly the stitched ones).
+            FPVCameraScript renderer = stitchRenderers != null && camIdx < stitchRenderers.Count
+                                     ? stitchRenderers[camIdx]
+                                     : null;
+            if (renderer != null)
+            {
+                renderer.EnsureRenderedThisFrame();
+            }
+            else if (!camera.enabled)
             {
                 camera.Render();
             }
@@ -1941,6 +2002,21 @@ public class PyUniSharingFast : MonoBehaviour
             CalibrateReadbackFlip(data, pending.verifyReference);
         }
 
+        IntPtr block = IntPtr.Add(blockPtr, pending.slot * blockSize);
+
+        // Peek the handshake BEFORE converting. The conversion is a parallel job the main
+        // thread immediately joins, plus a full-image copy out of the NativeArray -- at
+        // 1024x576 that is ~1.8 MB of work per block -- and when the consumer is mid-read
+        // every byte of it was being thrown away at the check below. This costs one read of
+        // a word Python is already writing, and it runs on the frame the readbacks land,
+        // which is the frame that was already the most expensive.
+        //
+        // It does not replace the check below: this is a hint, and the flag can still be
+        // taken between here and there. The authoritative check-and-set is left exactly
+        // where it was, so the window in which the flag is held is unchanged.
+        if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
+            return;
+
         var job = new ConvertRgbaToBgrJob
         {
             src = data,
@@ -1952,9 +2028,7 @@ public class PyUniSharingFast : MonoBehaviour
         job.Schedule(blockImageHeight, 32).Complete();
         convertedBlock.CopyTo(blockImageBytes);
 
-        IntPtr block = IntPtr.Add(blockPtr, pending.slot * blockSize);
-
-        // Skip this slot if the consumer is mid-read on its block.
+        // Skip this slot if the consumer took the block while we were converting.
         if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
             return;
 
@@ -2405,6 +2479,15 @@ public class PyUniSharingFast : MonoBehaviour
         WriteBodyYaw(bodyYaw);
     }
 
+    // The reusable `selected` array, grown only when the selection length changes (which it
+    // does when the fleet crosses three alive candidates, not every frame).
+    private int[] TakeSelectionBuffer(int length)
+    {
+        if (length == 0) return emptySelection;
+        if (stitchSelectionBuffer.Length != length) stitchSelectionBuffer = new int[length];
+        return stitchSelectionBuffer;
+    }
+
     // Lazily locate the Arena (same tag ScreenSpawn uses) for screen placement.
     private void FindArena()
     {
@@ -2425,7 +2508,7 @@ public class PyUniSharingFast : MonoBehaviour
     {
         if (camerasToCapture == null || camerasToCapture.Count == 0)
         {
-            selected = new int[0];
+            selected = emptySelection;
             CentreStitchDrone = null;
             centreStitchCameraIndex = -1;
             return bodyYaw;
@@ -2433,7 +2516,8 @@ public class PyUniSharingFast : MonoBehaviour
 
         // Candidate set: alive boundary drones only (convex hull). If fewer than three
         // are on the boundary, fall back to all alive drones so the panorama still forms.
-        List<int> candidates = new List<int>(camerasToCapture.Count);
+        List<int> candidates = stitchCandidates;
+        candidates.Clear();
         for (int i = 0; i < camerasToCapture.Count; i++)
         {
             if (IsAlive(i) && IsBoundary(i)) candidates.Add(i);
@@ -2461,20 +2545,29 @@ public class PyUniSharingFast : MonoBehaviour
         // Fewer than three candidates total: send what we have.
         if (n < STITCH_COUNT_LRC)
         {
-            selected = candidates.ToArray();
+            selected = TakeSelectionBuffer(n);
+            candidates.CopyTo(0, selected, 0, n);
             return camerasToCapture[centreCam].transform.eulerAngles.y;
         }
 
         // Order candidates by yaw ascending (0..360); take centre + circular neighbours.
-        candidates.Sort((a, b) =>
-            camerasToCapture[a].transform.eulerAngles.y.CompareTo(
-            camerasToCapture[b].transform.eulerAngles.y));
+        if (stitchYaw.Length != camerasToCapture.Count) stitchYaw = new float[camerasToCapture.Count];
+        for (int k = 0; k < n; k++)
+        {
+            int cam = candidates[k];
+            stitchYaw[cam] = camerasToCapture[cam].transform.eulerAngles.y;
+        }
+        stitchYawComparer.yaw = stitchYaw;
+        candidates.Sort(stitchYawComparer);
 
         int centrePos = candidates.IndexOf(centreCam);
         int leftPos = (centrePos - 1 + n) % n;
         int rightPos = (centrePos + 1) % n;
 
-        selected = new int[] { candidates[leftPos], candidates[centrePos], candidates[rightPos] };
+        selected = TakeSelectionBuffer(STITCH_COUNT_LRC);
+        selected[0] = candidates[leftPos];
+        selected[1] = candidates[centrePos];
+        selected[2] = candidates[rightPos];
         return camerasToCapture[centreCam].transform.eulerAngles.y;
     }
 
@@ -2587,12 +2680,15 @@ public class PyUniSharingFast : MonoBehaviour
     /// </summary>
     private void SelectPlanarStitchCameras(out int[] selected)
     {
-        selected = new int[0];
+        selected = emptySelection;
         if (camerasToCapture == null || camerasToCapture.Count == 0) return;
 
         float cosObliquity = Mathf.Cos(maxObliquityDeg * Mathf.Deg2Rad);
-        List<int> candidates = new List<int>(camerasToCapture.Count);
-        List<float> distances = new List<float>(camerasToCapture.Count);
+        // Cleared and refilled rather than reallocated: this runs every frame under PLANAR.
+        List<int> candidates = planarCandidates;
+        List<float> distances = planarDistances;
+        candidates.Clear();
+        distances.Clear();
 
         Vector3 centreHit = Vector3.zero;
         bool haveCentreHit = false;
@@ -2632,16 +2728,20 @@ public class PyUniSharingFast : MonoBehaviour
             for (int i = 0; i < order.Length; i++) order[i] = i;
             Array.Sort(order, (a, b) => distances[a].CompareTo(distances[b]));
 
-            List<int> trimmed = new List<int>(blockSlotCapacity);
-            for (int i = 0; i < blockSlotCapacity; i++) trimmed.Add(candidates[order[i]]);
-            candidates = trimmed;
+            // Rewritten in place so `candidates` stays the reusable list. Allocating here is
+            // acceptable anyway -- PublishedSlotCount has already logged an error by now.
+            int[] keep = new int[blockSlotCapacity];
+            for (int i = 0; i < blockSlotCapacity; i++) keep[i] = candidates[order[i]];
+            candidates.Clear();
+            for (int i = 0; i < keep.Length; i++) candidates.Add(keep[i]);
         }
 
         // Sort by camera index, NOT by yaw. The slot a drone occupies must be stable
         // frame to frame, or Python's busy-block cache serves one drone's frame in
         // another's slot. Python sorts by drone_id, so index order makes both agree.
         candidates.Sort();
-        selected = candidates.ToArray();
+        selected = TakeSelectionBuffer(candidates.Count);
+        candidates.CopyTo(0, selected, 0, candidates.Count);
     }
 
     /// <summary>
@@ -3112,11 +3212,32 @@ public class PyUniSharingFast : MonoBehaviour
     /// </summary>
     private void UpdateStandoffReadout(float standoff, bool fromFeed)
     {
+        // Runs every frame, and the standoff now tracks the formation, so the raw float changes
+        // every frame -- but the readout only shows two decimals, so most of those frames would
+        // format a string identical to the one already on display and then drop it. Gate on what
+        // is actually rendered (centimetres, plus the two things that pick the wording) and the
+        // formatting becomes rare instead of per-frame.
+        int centimetres = Mathf.RoundToInt(standoff * 100f);
+        int facadeId = ImageSharing.FeedStandoffFacadeId;
+        if (standoffReadoutValid
+            && centimetres == lastStandoffReadoutCm
+            && fromFeed == lastStandoffReadoutFromFeed
+            && planarStandoffSource == lastStandoffReadoutSource
+            && facadeId == lastStandoffReadoutFacadeId)
+        {
+            return;
+        }
+        standoffReadoutValid = true;
+        lastStandoffReadoutCm = centimetres;
+        lastStandoffReadoutFromFeed = fromFeed;
+        lastStandoffReadoutSource = planarStandoffSource;
+        lastStandoffReadoutFacadeId = facadeId;
+
         string text;
         if (fromFeed)
         {
             text = string.Format("{0:F2} m — from the PC (facade {1})",
-                                 standoff, ImageSharing.FeedStandoffFacadeId);
+                                 standoff, facadeId);
         }
         else if (planarStandoffSource == PlanarStandoffSource.Inspector)
         {
@@ -3132,11 +3253,19 @@ public class PyUniSharingFast : MonoBehaviour
 
     // Little-endian float32 into a shared-memory region. Python unpacks these with
     // struct '<f', so the byte order has to be explicit rather than inherited.
+    //
+    // Written as the float's raw bits through Marshal.WriteInt32 rather than through
+    // BitConverter.GetBytes, which allocated a 4-byte array on EVERY call -- and this is the
+    // most-called allocator in the file: a dozen times per frame from WriteBodyYaw /
+    // WritePlanarStandoff / WriteDynamicState, plus eight per block readback. Steady garbage on
+    // the per-frame path is a dropped headset frame whenever a collection lands. The bytes are
+    // identical: SingleToInt32Bits is a pure reinterpret, and Marshal.WriteInt32 stores in the
+    // platform's own order, so the little-endian branch below is the same test as before.
     private static void WriteFloat(IntPtr basePtr, int offset, float value)
     {
-        byte[] bytes = BitConverter.GetBytes(value);
-        if (!BitConverter.IsLittleEndian) Array.Reverse(bytes);
-        Marshal.Copy(bytes, 0, IntPtr.Add(basePtr, offset), 4);
+        int bits = BitConverter.SingleToInt32Bits(value);
+        if (!BitConverter.IsLittleEndian) bits = System.Buffers.Binary.BinaryPrimitives.ReverseEndianness(bits);
+        Marshal.WriteInt32(basePtr, offset, bits);
     }
 
     /// <summary>
@@ -3257,14 +3386,37 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteInt32(metadataPtr, metaDynSeqOffset, (seq | 1) + 1); // stable again
     }
 
+    // True when `selection` differs from the previously recorded one. Replaces comparing
+    // string.Join keys, which allocated on the per-frame path to answer a question about a
+    // handful of ints. A null `previous` counts as changed, which is what seeds the first pass.
+    private static bool SelectionChanged(int[] previous, int[] selection)
+    {
+        if (previous == null || selection == null) return true;
+        if (previous.Length != selection.Length) return true;
+        for (int i = 0; i < selection.Length; i++)
+        {
+            if (previous[i] != selection[i]) return true;
+        }
+        return false;
+    }
+
+    // Stores `selection` into `buffer`, reusing it when the length already matches. Only ever
+    // runs on an actual selection change, so the occasional allocation here is not per-frame.
+    private static int[] CopySelection(int[] selection, int[] buffer)
+    {
+        if (selection == null) return null;
+        if (buffer == null || buffer.Length != selection.Length) buffer = new int[selection.Length];
+        Array.Copy(selection, buffer, selection.Length);
+        return buffer;
+    }
+
     // Reflects the current stitch selection in the Inspector (read-only). Only
     // rebuilds the list when the selection changes so it doesn't allocate every
     // frame. Entries are ordered [left, centre, right].
     private void UpdateStitchedDronesDisplay(int[] selected)
     {
-        string key = string.Join(",", selected);
-        if (key == lastStitchedDronesKey) return;
-        lastStitchedDronesKey = key;
+        if (!SelectionChanged(lastStitchedDronesKey, selected)) return;
+        lastStitchedDronesKey = CopySelection(selected, lastStitchedDronesKey);
 
         stitchedDrones.Clear();
         for (int j = 0; j < selected.Length; j++)
@@ -3293,9 +3445,15 @@ public class PyUniSharingFast : MonoBehaviour
         if (screenSpawn == null) screenSpawn = FindObjectOfType<ScreenSpawn>();
         if (screenSpawn == null) return;
 
-        string key = hide ? string.Join(",", selected) : "off";
-        if (key == lastHiddenScreensKey) return;
-        lastHiddenScreensKey = key;
+        // While hidden the selection is the key; while showing, every selection is equivalent,
+        // which is what the old "off" sentinel string expressed.
+        bool changed = !lastHiddenScreensValid
+                       || hide != lastHiddenScreensHiding
+                       || (hide && SelectionChanged(lastHiddenScreensKey, selected));
+        if (!changed) return;
+        lastHiddenScreensValid = true;
+        lastHiddenScreensHiding = hide;
+        if (hide) lastHiddenScreensKey = CopySelection(selected, lastHiddenScreensKey);
 
         if (!hide)
         {
@@ -3333,6 +3491,7 @@ public class PyUniSharingFast : MonoBehaviour
         camerasToCapture = new List<Camera>();
         stitchAttitudes = new List<AttitudeAlgorithm>();
         stitchStates = new List<StateFinder>();
+        stitchRenderers = new List<FPVCameraScript>();
 
         GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase");
 
@@ -3343,6 +3502,8 @@ public class PyUniSharingFast : MonoBehaviour
             if (camera != null)
             {
                 camerasToCapture.Add(camera);
+                // The gimbal driver on the same object, for the shared render gate below.
+                stitchRenderers.Add(camera.GetComponent<FPVCameraScript>());
                 // Cache this drone's boundary estimator (aligned with camerasToCapture)
                 // so only convex-hull boundary drones are selected for stitching.
                 Transform droneParent = drone.transform.Find("DroneParent");

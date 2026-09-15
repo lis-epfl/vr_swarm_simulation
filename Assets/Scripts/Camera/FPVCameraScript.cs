@@ -35,6 +35,10 @@ public class FPVCameraScript : MonoBehaviour {
 	// doesn't see its own body. Cached in Start (the body hierarchy is fixed per prefab).
 	private Renderer[] ownBodyRenderers;
 
+	// This camera, and the frame its last render was issued on. See EnsureRenderedThisFrame.
+	private Camera cam;
+	private int lastRenderedFrame = -1;
+
 	/// <summary>DJI-style gimbal tilt limits (degrees): straight down to slightly up.</summary>
 	public const float MinPitch = -90f;
 	public const float MaxPitch = 60f;
@@ -70,6 +74,36 @@ public class FPVCameraScript : MonoBehaviour {
 	/// </summary>
 	public static void SetPitch(float degrees) {
 		sharedPitch = Mathf.Clamp(degrees, MinPitch, MaxPitch);
+	}
+
+	void Awake () {
+		cam = GetComponent<Camera>();
+	}
+
+	/// <summary>
+	/// Renders this FPV camera, at most once per frame. Returns true if a render was issued.
+	/// </summary>
+	/// <remarks>
+	/// The FPV cameras are the whole rendering cost of this project: the pilot's eye cameras are
+	/// culling-masked to the feed screens, so every full pass over the city is one of these. They
+	/// are therefore driven manually rather than left <c>enabled</c>, by two independent schedules
+	/// — <c>ScreenSpawn</c>'s feed refresh and <c>PyUniSharingFast</c>'s stitch capture — and a
+	/// drone that is both displayed and stitched would otherwise be drawn twice in the same frame
+	/// for two consumers of the same RenderTexture. The frame stamp is what makes the two
+	/// schedules coincide on such a drone instead of doubling it.
+	///
+	/// One render per frame is also all that is *meaningful*: the camera pose is written once per
+	/// frame in <see cref="Update"/>, so a second pass would re-draw an identical view.
+	/// </remarks>
+	public bool EnsureRenderedThisFrame () {
+		if (lastRenderedFrame == Time.frameCount) return false;
+		if (cam == null) {
+			cam = GetComponent<Camera>();
+			if (cam == null) return false;
+		}
+		lastRenderedFrame = Time.frameCount;
+		cam.Render();
+		return true;
 	}
 
 	// Use this for initialization
