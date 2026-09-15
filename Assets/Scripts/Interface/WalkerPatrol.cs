@@ -162,9 +162,14 @@ public class WalkerPatrol : MonoBehaviour
             GameObject prefab = isSpecial ? specialWalkerPrefab : walkerPrefab;
             info.walker = Instantiate(prefab, position, Quaternion.identity, walkersContainer.transform);
             info.walker.name = isSpecial ? "Walker_" + i + "_Special" : "Walker_" + i;
-            if (isSpecial && info.walker.GetComponent<SpecialWalker>() == null)
+            if (isSpecial)
             {
-                info.walker.AddComponent<SpecialWalker>();
+                SpecialWalker marker = info.walker.GetComponent<SpecialWalker>();
+                if (marker == null) marker = info.walker.AddComponent<SpecialWalker>();
+
+                // The instance is renamed above, so the prefab is the only place left
+                // to read a hat name from once this walker is in the scene.
+                marker.EnsureHatId(prefab.name);
             }
             info.previousPosition = position;
 

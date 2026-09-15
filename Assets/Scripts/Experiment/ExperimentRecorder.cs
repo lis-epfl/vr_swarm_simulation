@@ -53,6 +53,7 @@ public class ExperimentRecorder : MonoBehaviour
         public Transform goal;
         public Transform special;          // the SpecialWalker's transform (may be null)
         public Vector3 specialSpawnPos;    // captured at resolve time
+        public string hat = "";            // which hat this goal's special walker wears
         public bool answered;
         // Filled in when the goal is answered:
         public string outcome = "";        // correct / incorrect / skip
@@ -146,7 +147,7 @@ public class ExperimentRecorder : MonoBehaviour
         dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive");
         headWriter = NewWriter("head",
             "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread");
-        walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ");
+        walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ;hat");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
         shapeWriter = NewWriter("shape",
             "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
@@ -202,11 +203,13 @@ public class ExperimentRecorder : MonoBehaviour
         {
             GoalSpecialWalker gsw = g.GetComponent<GoalSpecialWalker>();
             Transform special = null;
+            string hat = "";
             foreach (SpecialWalker sw in specials)
             {
                 if (gsw != null && sw.GetComponentInParent<GoalSpecialWalker>() == gsw)
                 {
                     special = sw.transform;
+                    hat = sw.HatId;
                     break;
                 }
             }
@@ -215,6 +218,7 @@ public class ExperimentRecorder : MonoBehaviour
                 goal = g.transform,
                 special = special,
                 specialSpawnPos = special != null ? special.position : Vector3.zero,
+                hat = hat,
             });
         }
 
@@ -322,7 +326,7 @@ public class ExperimentRecorder : MonoBehaviour
             Transform sp = goals[i].special;
             if (sp == null) continue;
             Vector3 p = sp.position;
-            walkersWriter.WriteLine($"{F(t)};{ms};{i};{F(p.x)};{F(p.y)};{F(p.z)}");
+            walkersWriter.WriteLine($"{F(t)};{ms};{i};{F(p.x)};{F(p.y)};{F(p.z)};{goals[i].hat}");
         }
     }
 
@@ -440,6 +444,7 @@ public class ExperimentRecorder : MonoBehaviour
                 goalIndex = i,
                 goalX = goalPos.x, goalY = goalPos.y, goalZ = goalPos.z,
                 specialSpawnX = g.specialSpawnPos.x, specialSpawnY = g.specialSpawnPos.y, specialSpawnZ = g.specialSpawnPos.z,
+                hat = g.hat,
                 answered = g.answered,
                 outcome = g.outcome,
                 decisionTimeSec = g.decisionTimeSec,
@@ -511,6 +516,7 @@ public class ExperimentRecorder : MonoBehaviour
         public int goalIndex;
         public float goalX, goalY, goalZ;
         public float specialSpawnX, specialSpawnY, specialSpawnZ;
+        public string hat;
         public bool answered;
         public string outcome;
         public float decisionTimeSec;
