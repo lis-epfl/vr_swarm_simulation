@@ -149,7 +149,8 @@ public class ExperimentRecorder : MonoBehaviour
         walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
         shapeWriter = NewWriter("shape",
-            "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore");
+            "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
+            "lookGapDeg;lookGapRawDeg;lookGapFill");
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
@@ -255,6 +256,11 @@ public class ExperimentRecorder : MonoBehaviour
     /// actually commanded. This is what the hollow-core feature is judged on, so it is logged whether
     /// or not the feature is enabled — the disabled runs are the baseline the enabled ones are
     /// compared against.
+    ///
+    /// The look-gap columns do the same for the look-direction gap fill: how far the pilot's body yaw
+    /// is from the nearest heading a hull drone is driven to, before (<c>lookGapRawDeg</c>) and after
+    /// (<c>lookGapDeg</c>) the fill, and whether it was acting (<c>lookGapFill</c>). Appended at the end so readers that
+    /// index columns by name are unaffected; NaN while there is no body yaw or no usable hull.
     /// </summary>
     private void WriteShapeSample(float t, long ms)
     {
@@ -277,7 +283,9 @@ public class ExperimentRecorder : MonoBehaviour
             $"{F(t)};{ms};{AttitudeAlgorithm.SharedAliveCount};{AttitudeAlgorithm.SharedHullVertexCount};" +
             $"{AttitudeAlgorithm.SharedInteriorCount};{F(AttitudeAlgorithm.SharedMaxGapDeg)};" +
             $"{F(AttitudeAlgorithm.SharedMeanNearestNeighbourM)};{F(AttitudeAlgorithm.SharedRingRadiusM)};" +
-            $"{F(coreR)};{F(dRef)};{F(r0Eff)};{(hollow ? 1 : 0)}");
+            $"{F(coreR)};{F(dRef)};{F(r0Eff)};{(hollow ? 1 : 0)};" +
+            $"{F(AttitudeAlgorithm.SharedLookGapDeg)};{F(AttitudeAlgorithm.SharedLookGapRawDeg)};" +
+            $"{(AttitudeAlgorithm.SharedLookGapFillActive ? 1 : 0)}");
     }
 
     private void WriteHeadSample(float t, long ms)

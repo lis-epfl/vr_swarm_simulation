@@ -1336,6 +1336,13 @@ public class PyUniSharingFast : MonoBehaviour
     // frame can rotate velocity commands into the pilot's heading. Mirrors the private bodyYaw.
     public static float BodyYawDegrees { get; private set; }
 
+    // Whether BodyYawDegrees has been seeded yet. 0 deg is a real heading (north), so the value alone
+    // cannot say "no pilot heading": before this component's first Update, or in a scene where it is
+    // disabled (the headless bench disables it), a consumer that steers drones towards the body yaw --
+    // AttitudeAlgorithm's look-direction gap fill -- would otherwise pull the swarm's front round to
+    // face north. Mirrors the private bodyYawInitialized.
+    public static bool BodyYawValid { get; private set; }
+
     // Whether the PLANAR stitcher is the selected one. Static because ImageSharing.cs (the
     // DJI scene's block producer) has to know: PLANAR mosaics every drone that can see the
     // surface, while the other stitchers take exactly three ordered by body yaw. Refreshed
@@ -2313,6 +2320,7 @@ public class PyUniSharingFast : MonoBehaviour
         bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
         bodyYawInitialized = true;
         BodyYawDegrees = bodyYaw;
+        BodyYawValid = true;
     }
 
     // Whether the automatic startup recentre can run yet. Both halves of CalibrateToCentre read
@@ -2393,6 +2401,7 @@ public class PyUniSharingFast : MonoBehaviour
         bodyYaw = Mathf.Repeat(centreYaw, 360f);
         BodyYawDegrees = bodyYaw;
         bodyYawInitialized = true;
+        BodyYawValid = true;
         WriteBodyYaw(bodyYaw);
     }
 

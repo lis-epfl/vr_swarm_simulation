@@ -90,16 +90,29 @@ public class AttitudeAlgorithm : MonoBehaviour
     private static float sharedGlobalHullTime = float.NegativeInfinity;
     private static List<GameObject> sharedGlobalHullSwarm;
 
-    // Scratch for the outward headings of the hull vertices, reused so the per-tick metrics pass
-    // allocates nothing.
+    // Outward heading of each hull vertex in degrees, index-aligned with sharedGlobalHull (NaN for a
+    // vertex with no usable bisector). Kept in hull order rather than sorted in place, because the
+    // look-direction gap fill has to hand each shift back to the vertex it belongs to. Reused, like the
+    // lists below, so the per-tick pass allocates nothing.
     private static readonly List<float> sharedHullHeadings = new List<float>();
+    // The same headings, shifted and sorted, for the max-gap read-out.
+    private static readonly List<float> sharedSortedHeadings = new List<float>();
+
+    // ---- Look-direction gap fill ---------------------------------------------------------------
+    // The one control quantity the shared pass produces; see UpdateLookGapShift. Per hull vertex,
+    // index-aligned with sharedGlobalHull: the turn in radians added to that vertex's hull-derived
+    // target heading. Exact zeros for every vertex but the pair bracketing the pilot's body yaw, and
+    // for all of them while the rule is off or gated, which is what leaves the plain hull rule untouched.
+    private static readonly List<float> sharedLookShiftRad = new List<float>();
+    private static bool lookGapFillActive = false;
 
     // ---- Swarm-shape metrics -------------------------------------------------------------------
     // Read-only derivations off the hull block that is already built once per physics tick. They
     // drive no force and gate no display; they exist so the shape of the swarm is measurable, which
     // is the only way to tell whether the hollow-core feature is doing anything. Computed whether or
     // not that feature is enabled, precisely so the disabled state is what the enabled one is
-    // compared against.
+    // compared against. The look-gap read-outs hold the gap fill to the same rule: the shift itself
+    // is private control state above, and they only describe it.
     /// <summary>Alive drones the shape was measured over.</summary>
     public static int SharedAliveCount;
     /// <summary>Vertices of the whole-swarm convex hull — the drones whose feeds the pilot sees.</summary>
@@ -107,10 +120,29 @@ public class AttitudeAlgorithm : MonoBehaviour
     /// <summary>Alive drones that are not hull vertices, i.e. the ones hidden inside the swarm.</summary>
     public static int SharedInteriorCount;
     /// <summary>
-    /// Largest angular gap, in degrees, between the outward headings the hull vertices are being
-    /// driven to. This is the blind sector: 360 when there is no usable hull.
+    /// Largest angular gap, in degrees, between the headings the hull vertices are being driven to:
+    /// their outward bisectors, plus the look-direction gap fill's shift while it is acting. This is
+    /// the blind sector: 360 when there is no usable hull.
     /// </summary>
     public static float SharedMaxGapDeg;
+    /// <summary>
+    /// How far, in degrees, the pilot's body yaw is from the nearest heading a hull vertex is driven to
+    /// before the gap fill's shift (outward, or inward under PointInwards) — the look-direction blind
+    /// spot the fill closes, as it stands with no fill applied. NaN while there is no body yaw or no
+    /// usable hull to measure it against. Measured whether or not the rule is enabled, so a run with it
+    /// off is the baseline.
+    /// </summary>
+    public static float SharedLookGapRawDeg = float.NaN;
+    /// <summary>
+    /// <see cref="SharedLookGapRawDeg"/> after the gap fill's shift, i.e. against the headings the
+    /// drones are actually driven to. Equal to it whenever the rule is not turning anything.
+    /// </summary>
+    public static float SharedLookGapDeg = float.NaN;
+    /// <summary>
+    /// True on ticks the look-direction gap fill is enabled and none of its gates hold. The shift can
+    /// still be zero: a drone may already be covering the look direction.
+    /// </summary>
+    public static bool SharedLookGapFillActive => lookGapFillActive;
     /// <summary>Mean nearest-neighbour separation in metres. Compare against d_ref * ScaleFactor.</summary>
     public static float SharedMeanNearestNeighbourM;
     /// <summary>Mean distance from the centroid in metres.</summary>
@@ -158,6 +190,9 @@ public class AttitudeAlgorithm : MonoBehaviour
     {
         sharedHullPositions.Clear();
         sharedHullHeadings.Clear();
+        sharedSortedHeadings.Clear();
+        sharedLookShiftRad.Clear();
+        lookGapFillActive = false;
         sharedGlobalHull = null;
         sharedGlobalHullTime = float.NegativeInfinity;
         sharedGlobalHullSwarm = null;
@@ -166,6 +201,8 @@ public class AttitudeAlgorithm : MonoBehaviour
         SharedHullVertexCount = 0;
         SharedInteriorCount = 0;
         SharedMaxGapDeg = 360.0f;
+        SharedLookGapRawDeg = float.NaN;
+        SharedLookGapDeg = float.NaN;
         SharedMeanNearestNeighbourM = 0.0f;
         SharedRingRadiusM = 0.0f;
         SharedCentroid = Vector2.zero;
@@ -542,6 +579,10 @@ public class AttitudeAlgorithm : MonoBehaviour
             ? ConvexHull.ComputeConvexHull(sharedHullPositions, sortInPlace: true)
             : null;
 
+        // Headings first: the look-direction gap fill and the max-gap read-out both work off them, and
+        // the read-out has to describe the headings after the fill has shifted them.
+        ComputeHullHeadings();
+        UpdateLookGapShift();
         UpdateSharedShapeMetrics();
     }
 
@@ -596,10 +637,177 @@ public class AttitudeAlgorithm : MonoBehaviour
     }
 
     /// <summary>
-    /// Largest angular gap between the outward headings of the hull vertices — the pilot's widest
-    /// unobserved sector. Measured off the hull's own bisectors rather than off the drones' live
-    /// yaws, so it reports the coverage the formation's *shape* affords and is not confounded by
-    /// drones still turning onto their targets.
+    /// Fills <see cref="sharedHullHeadings"/> with the outward heading of every hull vertex, in hull
+    /// order. Outward even under <see cref="PointInwards"/>: the gaps between the headings are the
+    /// same either way, so <see cref="UpdateLookGapShift"/> turns the look direction round instead.
+    /// </summary>
+    private static void ComputeHullHeadings()
+    {
+        sharedHullHeadings.Clear();
+
+        // Fewer than three vertices is a degenerate hull (a point or a line), which neither consumer
+        // measures, so there is nothing worth computing.
+        if (sharedGlobalHull == null || sharedGlobalHull.Count < 3)
+        {
+            return;
+        }
+
+        for (int i = 0; i < sharedGlobalHull.Count; i++)
+        {
+            // -bisector is the outward direction, matching getYawRateFromHull's rawTargetHeading.
+            Vector2 outward = -ConvexHull.ComputeBisector(sharedGlobalHull, sharedGlobalHull[i], false);
+            sharedHullHeadings.Add(outward.sqrMagnitude < 1e-12f
+                ? float.NaN
+                : Mathf.Atan2(outward.x, outward.y) * Mathf.Rad2Deg);
+        }
+    }
+
+    /// <summary>
+    /// Look-direction gap fill. The hull rule points each boundary drone along its outward vertex
+    /// bisector, and nothing in that rule knows where the pilot is looking. When the swarm splits
+    /// around a building — the front drone stopped and swallowed, its two neighbours passing either
+    /// side ahead of the lagging swarm — those two become sharp hull corners, their bisectors point
+    /// 40-50 deg off the flight direction, and nothing faces the way the pilot is flying.
+    ///
+    /// The two hull vertices whose headings are the circular neighbours of the pilot's body yaw ψ —
+    /// the ends of the hull edge facing it, the nearer of which is normally the drone
+    /// SelectStitchCameras centres the panorama on — are each turned towards ψ by
+    /// <c>s = clamp(d_near − lookGapCoverageDeg, 0, lookGapMaxShiftDeg)</c>, where d_near is ψ's
+    /// distance from the nearer of the two. Every other vertex gets exactly zero. Three properties
+    /// fall out of that one expression rather than being special-cased:
+    /// <list type="bullet">
+    /// <item>It is its own gate: while a drone already faces within the coverage angle of ψ, s is 0.</item>
+    /// <item>It cannot overshoot: s never exceeds d_near, so neither drone crosses ψ and the headings
+    /// keep their order around the circle.</item>
+    /// <item>It adds no edge to dither across: the bracketing pair only changes as ψ crosses a heading,
+    /// which is exactly where d_near, and so s, is zero. A vertex joining or leaving the hull still
+    /// steps the target, as it always did, and the target-heading low-pass smooths it.</item>
+    /// </list>
+    ///
+    /// Body yaw rather than the live head direction: body yaw already aims the panorama and the VR
+    /// velocity frame, so it is where the pilot is flying, whereas the head moves every time the pilot
+    /// glances at a side screen, and following it would turn the drones under their gaze.
+    ///
+    /// Computed once per tick beside the read-outs, so the drones and the numbers that describe them
+    /// cannot disagree. <see cref="SharedLookGapRawDeg"/> and <see cref="SharedLookGapDeg"/> are
+    /// written whenever there is a look direction to measure, whether or not the rule is enabled.
+    /// </summary>
+    private static void UpdateLookGapShift()
+    {
+        int count = sharedGlobalHull != null ? sharedGlobalHull.Count : 0;
+
+        sharedLookShiftRad.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            sharedLookShiftRad.Add(0.0f);
+        }
+        lookGapFillActive = false;
+        SharedLookGapRawDeg = float.NaN;
+        SharedLookGapDeg = float.NaN;
+
+        // Measurable at all: a pilot heading, a real hull, and headings that are yaws. In vertical-plane
+        // mode the hull is built in the plane's own axes, where a bisector's angle is not a heading.
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+        if (!PyUniSharingFast.BodyYawValid
+            || count < 3
+            || sharedHullHeadings.Count != count
+            || (plane != null && plane.PlaneModeActive))
+        {
+            return;
+        }
+
+        SwarmManager manager = SwarmManager.Instance;
+        bool pointInwards = manager != null && manager.GetPointInwards();
+
+        // The headings are stored outward. Drones driven inward face the other way, so bracket the
+        // opposite of the look direction instead; the shift is the same signed turn in either frame.
+        float lookDeg = PyUniSharingFast.BodyYawDegrees + (pointInwards ? 180.0f : 0.0f);
+
+        // The circular neighbours of the look direction: the nearest heading below it and the nearest
+        // above it. A scan rather than a sort, and indifferent to where the ±180 seam falls.
+        int below = -1;
+        int above = -1;
+        float toBelow = float.PositiveInfinity;
+        float toAbove = float.PositiveInfinity;
+        for (int i = 0; i < count; i++)
+        {
+            float heading = sharedHullHeadings[i];
+            if (float.IsNaN(heading))
+            {
+                // A vertex with no usable bisector leaves a hole in the circle the pair is taken from.
+                return;
+            }
+
+            float fromBelow = Mathf.Repeat(lookDeg - heading, 360.0f);
+            if (fromBelow < toBelow)
+            {
+                toBelow = fromBelow;
+                below = i;
+            }
+
+            float fromAbove = Mathf.Repeat(heading - lookDeg, 360.0f);
+            if (fromAbove < toAbove)
+            {
+                toAbove = fromAbove;
+                above = i;
+            }
+        }
+
+        float nearDeg = Mathf.Min(toBelow, toAbove);
+        SharedLookGapRawDeg = nearDeg;
+        SharedLookGapDeg = nearDeg;
+
+        bool enabled = manager != null
+            && manager.GetFillLookDirectionGap()
+            // A local neighbour hull makes almost every drone a vertex, so there is no swarm-wide pair.
+            && manager.GetSelectedAttitudeAlgorithm() == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL
+            // A camera looking down sees the ground under its drone whichever way the drone faces.
+            && FPVCameraScript.SharedPitch > FPVCameraScript.NadirPitch;
+        if (!enabled)
+        {
+            return;
+        }
+        lookGapFillActive = true;
+
+        float shiftDeg = Mathf.Clamp(nearDeg - manager.GetLookGapCoverageDeg(),
+                                     0.0f, Mathf.Max(0.0f, manager.GetLookGapMaxShiftDeg()));
+        // below == above only when the look direction sits on a heading, where there is nothing to fill.
+        if (shiftDeg <= 0.0f || below == above)
+        {
+            return;
+        }
+
+        SharedLookGapDeg = nearDeg - shiftDeg;
+
+        // Headings increase from 'below' through the look direction to 'above', so the one below turns
+        // up towards it and the one above turns down.
+        float shiftRad = shiftDeg * Mathf.Deg2Rad;
+        sharedLookShiftRad[below] = shiftRad;
+        sharedLookShiftRad[above] = -shiftRad;
+    }
+
+    /// <summary>
+    /// The look-direction gap fill's turn, in radians, for the hull vertex at
+    /// <paramref name="position"/>. Zero unless <paramref name="convexHull"/> is this tick's shared
+    /// hull: the shifts are indexed by its vertices, and a local neighbour hull has no swarm-wide pair.
+    /// </summary>
+    private static float LookGapShiftFor(IList<Vector2> convexHull, Vector2 position)
+    {
+        if (!lookGapFillActive || convexHull == null || convexHull != sharedGlobalHull)
+        {
+            return 0.0f;
+        }
+
+        // Exact equality, the same test getYawRateFromHull's hull-membership check relies on.
+        int index = convexHull.IndexOf(position);
+        return index >= 0 && index < sharedLookShiftRad.Count ? sharedLookShiftRad[index] : 0.0f;
+    }
+
+    /// <summary>
+    /// Largest angular gap between the headings the hull vertices are driven to — the pilot's widest
+    /// unobserved sector. Measured off the hull's own bisectors (plus the look-direction gap fill's
+    /// shift while it is acting) rather than off the drones' live yaws, so it reports the coverage the
+    /// formation's *shape* affords and is not confounded by drones still turning onto their targets.
     /// </summary>
     private static float ComputeMaxHeadingGapDeg()
     {
@@ -610,30 +818,37 @@ public class AttitudeAlgorithm : MonoBehaviour
             return 360.0f;
         }
 
-        sharedHullHeadings.Clear();
-        for (int i = 0; i < sharedGlobalHull.Count; i++)
+        sharedSortedHeadings.Clear();
+        for (int i = 0; i < sharedHullHeadings.Count; i++)
         {
-            // -bisector is the outward direction, matching getYawRateFromHull's rawTargetHeading.
-            Vector2 outward = -ConvexHull.ComputeBisector(sharedGlobalHull, sharedGlobalHull[i], false);
-            if (outward.sqrMagnitude < 1e-12f)
+            float heading = sharedHullHeadings[i];
+            if (float.IsNaN(heading))
             {
                 continue;
             }
-            sharedHullHeadings.Add(Mathf.Atan2(outward.x, outward.y) * Mathf.Rad2Deg);
+
+            // Measure what the drones are driven to. A shifted heading can land past ±180, and the
+            // wrap-around pair below needs every heading inside one 360 window.
+            float shiftRad = lookGapFillActive ? sharedLookShiftRad[i] : 0.0f;
+            if (shiftRad != 0.0f)
+            {
+                heading = Mathf.Repeat(heading + shiftRad * Mathf.Rad2Deg + 180.0f, 360.0f) - 180.0f;
+            }
+            sharedSortedHeadings.Add(heading);
         }
 
-        if (sharedHullHeadings.Count < 2)
+        if (sharedSortedHeadings.Count < 2)
         {
             return 360.0f;
         }
 
-        sharedHullHeadings.Sort();
+        sharedSortedHeadings.Sort();
 
         float maxGap = 0.0f;
-        for (int i = 0; i < sharedHullHeadings.Count; i++)
+        for (int i = 0; i < sharedSortedHeadings.Count; i++)
         {
-            int next = (i + 1) % sharedHullHeadings.Count;
-            float gap = sharedHullHeadings[next] - sharedHullHeadings[i];
+            int next = (i + 1) % sharedSortedHeadings.Count;
+            float gap = sharedSortedHeadings[next] - sharedSortedHeadings[i];
             // The wrap-around pair closes the circle; every other gap is already positive.
             if (gap < 0.0f) gap += 360.0f;
             maxGap = Mathf.Max(maxGap, gap);
@@ -682,6 +897,16 @@ public class AttitudeAlgorithm : MonoBehaviour
             // Express the target direction in that same yaw space so the sign convention matches
             // VelocityControl.
             float rawTargetHeading = Mathf.Atan2(targetDir.x, targetDir.y);
+
+            // Look-direction gap fill (see UpdateLookGapShift): turns the two drones either side of the
+            // pilot's body yaw towards it when neither faces it. Zero for every other drone, and for all
+            // of them while the rule is off. Applied before the low-pass so that a change of bracketing
+            // pair is smoothed like any other hull deformation.
+            float lookGapShift = LookGapShiftFor(convexHull, currentDronePosition);
+            if (lookGapShift != 0.0f)
+            {
+                rawTargetHeading = WrapAngle(rawTargetHeading + lookGapShift);
+            }
 
             if (!hasTargetHeading || TargetHeadingFilterTime <= 0.0f)
             {

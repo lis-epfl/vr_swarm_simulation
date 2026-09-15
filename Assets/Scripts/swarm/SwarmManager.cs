@@ -156,6 +156,41 @@ public class SwarmManager : MonoBehaviour
     [Range(0.0f, 180.0f)]
     public float feedHeadingToleranceDeg = 5.0f;
 
+    [Header("Look-Direction Gap Fill")]
+    [Tooltip("Turn the two hull drones either side of the pilot's body yaw slightly towards it when " +
+             "neither is facing that way. The hull rule points every boundary drone along its outward " +
+             "vertex bisector, which leaves a blind spot exactly where the pilot is flying when the " +
+             "swarm splits around a building: the front drone is stopped and swallowed, its two " +
+             "neighbours pass either side ahead of the lagging swarm, and the sharp hull corners they " +
+             "form point them 40-50 deg off the flight direction.\n\n" +
+             "Only that bracketing pair moves, by at most lookGapMaxShiftDeg, and never past the look " +
+             "direction. Acts in GLOBAL_CONVEXHULL only, and not in vertical-plane mode (which has its " +
+             "own shared heading) or with the gimbal at or below FPVCameraScript.NadirPitch (a camera " +
+             "looking down has no direction to fill). Unticked, every field below is inert and the hull " +
+             "rule is exactly what it was.\n\n" +
+             "On ScaledCityWorld's 120 held-out flights (headless, pilot facing the way they fly) it cut " +
+             "the time the look direction sat more than 30 deg from every shown drone's heading from 8.8% " +
+             "to 1.1%, and the time it sat outside every shown image from 0.4% to zero, with drones lost " +
+             "and building contacts unchanged.")]
+    public bool fillLookDirectionGap = false;
+
+    [Tooltip("The look direction counts as covered, and nothing moves, while a hull drone's target " +
+             "heading is within this many degrees of the pilot's body yaw. Beyond it the pair turns one " +
+             "degree per degree, up to lookGapMaxShiftDeg.\n\n" +
+             "An evenly spread ring of 9-10 hull drones puts the outward headings 36-40 deg apart, so at 20 " +
+             "the rule is idle there. A flying swarm is not that ring: in ScaledCityWorld's held-out " +
+             "flights about 7.7 of 10 drones are on the hull, and the fill turns a pair about a quarter of " +
+             "the time, by 7 deg on average. Raise this to keep it for the large gaps only.")]
+    [Range(0.0f, 90.0f)]
+    public float lookGapCoverageDeg = 20.0f;
+
+    [Tooltip("The most either drone of the bracketing pair may be turned off its hull heading. The " +
+             "FPV camera sees about 98 deg horizontally, so a front pair at +/-50 deg leaves no overlap " +
+             "at all straight ahead; 15 takes it to +/-35 deg, about 28 deg of overlap. The price is " +
+             "paid beside the pair: the gaps to their outer neighbours widen by the same amount.")]
+    [Range(0.0f, 45.0f)]
+    public float lookGapMaxShiftDeg = 15.0f;
+
     [Header("Camera Gimbal")]
     [Tooltip("Swarm-wide FPV camera gimbal pitch in degrees (DJI convention): 0 = level " +
              "horizon, negative = look down (to -90 = straight down), positive = look up " +
@@ -279,6 +314,11 @@ public class SwarmManager : MonoBehaviour
     public bool GetPointInwards() => pointInwards;
     public float GetFeedHeadingToleranceDeg() => feedHeadingToleranceDeg;
     public AttitudeAlgorithm GetSelectedAttitudeAlgorithm() => SelectedAttitudeAlgorithm;
+
+    // Getters for the look-direction gap fill
+    public bool GetFillLookDirectionGap() => fillLookDirectionGap;
+    public float GetLookGapCoverageDeg() => lookGapCoverageDeg;
+    public float GetLookGapMaxShiftDeg() => lookGapMaxShiftDeg;
 
     // Getter for the swarm-wide FPV camera gimbal pitch
     public float GetGimbalPitch() => gimbalPitch;

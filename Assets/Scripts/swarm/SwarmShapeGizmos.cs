@@ -3,8 +3,9 @@ using UnityEngine;
 
 /// <summary>
 /// Read-out and gizmos for the shape of the swarm: how many drones are on the convex hull (and so
-/// have their feed shown to the pilot), how wide the widest unobserved sector is, and where the
-/// virtual core stands when the hollow-core feature is on.
+/// have their feed shown to the pilot), how wide the widest unobserved sector is, how far the pilot's
+/// look direction is from the nearest heading a hull drone is driven to, and where the virtual core
+/// stands when the hollow-core feature is on.
 ///
 /// Drop it on any GameObject in a swarm scene. It measures and draws only — nothing here feeds back
 /// into the control or display path, so leaving it in a scene cannot change how that scene flies.
@@ -30,6 +31,11 @@ public class SwarmShapeGizmos : MonoBehaviour
 
     [Tooltip("Draw the widest unobserved sector as a wedge from the swarm centroid.")]
     public bool showLargestGap = true;
+
+    [Tooltip("Draw the pilot's body yaw as a ray from the swarm centroid: the direction the " +
+             "look-direction gap fill (SwarmManager.fillLookDirectionGap) turns the front pair towards. " +
+             "Drawn with the fill on or off, so the blind spot can be judged either way.")]
+    public bool showLookDirection = true;
 
     private swarmSpawn spawner;
     private GUIStyle readoutStyle;
@@ -122,6 +128,7 @@ public class SwarmShapeGizmos : MonoBehaviour
             $"on hull      {AttitudeAlgorithm.SharedHullVertexCount}   (shown to pilot)\n" +
             $"interior     {AttitudeAlgorithm.SharedInteriorCount}   (hidden)\n" +
             $"max gap      {AttitudeAlgorithm.SharedMaxGapDeg:F0} deg\n" +
+            $"look gap     {LookGapText(manager)}\n" +
             $"mean NN      {AttitudeAlgorithm.SharedMeanNearestNeighbourM:F1} m   " +
             $"(commanded {commandedSpacingM:F1})\n" +
             $"ring radius  {AttitudeAlgorithm.SharedRingRadiusM:F1} m\n" +
@@ -129,7 +136,24 @@ public class SwarmShapeGizmos : MonoBehaviour
             $"d_ref        {dRef:F2}   r0 {r0Eff:F2}   k {k:F1}\n" +
             $"swallowed    {swallowDepth:F1} m   at {swallowRate:+0.0;-0.0;0.0} m/s   (worst)";
 
-        GUI.Label(new Rect(readoutOrigin.x, readoutOrigin.y, 280f, 168f), text, readoutStyle);
+        GUI.Label(new Rect(readoutOrigin.x, readoutOrigin.y, 280f, 186f), text, readoutStyle);
+    }
+
+    /// <summary>
+    /// The look-direction gap as "raw -> after the fill", and the fill's state. "inactive" means
+    /// enabled but gated off this tick — another attitude rule, plane mode, a nadir gimbal, no usable
+    /// hull or no body yaw — which is worth telling apart from "off" when the fill seems to do nothing.
+    /// </summary>
+    private static string LookGapText(SwarmManager manager)
+    {
+        string state = manager == null || !manager.GetFillLookDirectionGap()
+            ? "off"
+            : AttitudeAlgorithm.SharedLookGapFillActive ? "ON" : "inactive";
+
+        float raw = AttitudeAlgorithm.SharedLookGapRawDeg;
+        return float.IsNaN(raw)
+            ? $"n/a   [fill {state}]"
+            : $"{raw:F0} -> {AttitudeAlgorithm.SharedLookGapDeg:F0} deg   [fill {state}]";
     }
 
     void OnDrawGizmos()
@@ -222,6 +246,15 @@ public class SwarmShapeGizmos : MonoBehaviour
             // Only the width is known here, not where it sits, so draw it as a caption-free arc of
             // the right size centred on the swarm — enough to judge "is that gap big".
             DrawArc(centroid, radius, 0f, AttitudeAlgorithm.SharedMaxGapDeg, 24);
+        }
+
+        // The pilot's look direction. Unlike the widest gap it has a place on the circle: the drones the
+        // gap fill turns are the two whose heading rays sit either side of it in angle.
+        if (showLookDirection && PyUniSharingFast.BodyYawValid)
+        {
+            float length = Mathf.Max(AttitudeAlgorithm.SharedRingRadiusM * 1.6f, 5f);
+            Gizmos.color = new Color(0.3f, 0.8f, 1.0f, 0.9f);
+            Gizmos.DrawLine(centroid, centroid + AngleToOffset(PyUniSharingFast.BodyYawDegrees) * length);
         }
     }
 

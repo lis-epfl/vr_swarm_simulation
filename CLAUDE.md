@@ -324,6 +324,45 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   `BlockSharedMemory` any more — it used to resize it (3 slots for STABSTITCH, more for `PLANAR`), and
   this call site, fired mid-flight by the `V` key with Python attached, was the most reliable way to
   hit the `ERROR_ACCESS_DENIED` that a non-resizable named section guarantees.
+- **The FPV cameras are the entire rendering cost, and they are driven manually.** The pilot's eye
+  cameras are culling-masked to the feed-screen layer (`ScreenSpawn.screenLayerName`, "UI"), so the
+  stereo pass draws the screens and the curved panorama and *not* the world — every full pass over
+  the city is one drone's FPV camera rendering into its feed RenderTexture. Left `enabled`, the
+  visible ones redraw the city at the headset's rate: at 10 drones, 90 Hz and `STABSTITCH` (which
+  hides 3), that is 7x90 + 3x30 = **720 full-city renders per second**, and the eye pass is a
+  rounding error beside it. Consequences worth keeping:
+  - **`ScreenSpawn.feedRenderHz` (default 30) is the dial**, not the resolution. A feed screen is
+    video, so it is refreshed at `sendInterval`'s rate rather than the headset's — 720 to ~300
+    renders/s, measured against a replica of the schedule. `0` restores the pre-throttle behaviour
+    (cameras left `enabled`) and is the A/B control for any measurement.
+  - **The stagger is not a refinement.** Each camera carries a phase offset of its share of one
+    interval (`SeedFeedRenderTime`), so ~3 render per frame instead of all 10 landing together. The
+    average is identical; the peak is what drops a headset frame. That is also why a screen which
+    becomes visible is *re-phased* rather than made due now — seeding it to "due" would fire it
+    alongside every other screen doing the same (on the first frame, all of them) and they would
+    then advance in lockstep forever, which is precisely the spike the stagger removes.
+  - **Two independent schedules drive the same cameras**, so the render gate lives on the camera:
+    `FPVCameraScript.EnsureRenderedThisFrame` stamps `Time.frameCount` and both
+    `ScreenSpawn.StepFeedRenders` and `PyUniSharingFast.RequestBlockCapture` go through it. A
+    drone that is both displayed and stitched therefore costs one render, not two, and
+    `RequestBlockCapture` can no longer test `!camera.enabled` to mean "nobody else will draw it"
+    — under the throttle every FPV camera is disabled. A camera whose GameObject has no
+    `FPVCameraScript` falls back to being left `enabled`: with nothing to drive it manually,
+    disabling it would freeze that feed rather than merely slow it.
+  - **Stitch captures are deliberately NOT staggered.** They stay synchronised at `sendInterval`,
+    because spreading a triplet across frames introduces exactly the capture skew
+    `MAX_CAPTURE_SKEW_S` exists to reject.
+  - `allowHDR` is off and `stereoTargetEye` is `None` on every FPV camera, set both on
+    `DroneReduced.prefab` and again in `ScreenSpawn` beside `aspect`/`fieldOfView`/`targetTexture`
+    so a scene override cannot reintroduce them. There is no post-processing on these cameras and
+    the stitcher consumes 8-bit BGR, so the FP16 intermediate bought nothing; `Both` on a camera
+    that renders into a RenderTexture risks the built-in XR path treating the pass as stereo.
+  - **Occlusion culling is worth baking and is not code.** The flight scenes ship with
+    `m_OcclusionCullingData: {fileID: 0}` and a zeroed `m_SceneGUID`, so each FPV camera submits
+    the whole city with nothing hidden behind anything. The static flags are already right (1,765
+    objects in `ScaledCityWorld` at `m_StaticEditorFlags: 4294967295`, Occluder and Occludee
+    included), so `Window > Rendering > Occlusion Culling > Bake` is the whole job. It pays at
+    street level and very little at altitude.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - **Every screen style works off either feed source, and `ScreenStyle.REAL_DRONE` is gone.** A layout
