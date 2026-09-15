@@ -70,6 +70,18 @@ grid_w = _ss2_grid_res.GRID_W  # 8
 # cadence is 1 / NET_FRAME_PERIOD whatever the render rate.
 NET_FRAME_PERIOD = float(os.environ.get("STABSTITCH_NET_FRAME_PERIOD", "0.05"))
 
+# A gap this long between admissions ends the video: the buffered frames are too old for
+# TemporalNet's frame-to-frame motion to mean anything, so the window starts over (see
+# StabStitcher._restart_video). Gaps happen when process_stitching skips the stitcher (too
+# few feeds, no overlap) or Unity stalls.
+VIDEO_GAP_S = 4 * NET_FRAME_PERIOD
+
+# How long a raw quality verdict must persist before the panorama is hidden or shown again,
+# in seconds. It used to be a count of 2 warp updates, which was ~0.35 s at the old 5-6 Hz
+# warp rate and became 0.1 s at 20 Hz -- short enough for a PSNR hovering at the threshold to
+# flash the panorama on and off.
+QUALITY_HYSTERESIS_S = 0.35
+
 
 def _env_flag(name, default="0"):
     return os.environ.get(name, default).lower() not in ("0", "", "false", "no")
@@ -164,40 +176,34 @@ def _tps_consts(B, P, out_h, out_w, dev):
     return c
 
 
-def _compute_tps_flow(source, target, out_h, out_w, downscale=1):
+def _tps_field(source, target, out_h, out_w):
     """
-    Precompute the normalised TPS sampling field for ``F.grid_sample``.
+    Evaluate the normalised TPS sampling field on an ``out_h`` x ``out_w`` lattice.
 
     Mirrors the FAST path of ``torch_tps_transform.transformer`` (solve the TPS
-    system, evaluate the radial-basis meshgrid over every output pixel, apply the
-    coefficient matrix) but returns the resulting flow field instead of a warped
-    image.  Because the field depends only on the meshes — not the pixels — it
-    can be computed once per warp update and reused by every render frame, which
-    removes the float64 solve + per-pixel RBF from the hot render loop.
+    system, evaluate the radial-basis meshgrid over every lattice point, apply the
+    coefficient matrix) but returns the field instead of a warped image. Because the
+    field depends only on the meshes — not the pixels — it is computed once per warp
+    update and reused by every render frame, which keeps the float64 solve and the
+    per-point RBF out of the render loop.
+
+    The lattice is ``linspace(-1, 1, n)`` on both axes, i.e. the
+    ``align_corners=True`` convention: its corner samples sit exactly on the
+    canvas' corner pixel centres at *any* lattice size. That is what lets a coarse
+    lattice be resampled onto the canvas, the panorama or the quality canvas
+    without a half-pixel shift.
 
     Parameters
     ----------
     source, target : [B, P, 2] normalised control-point meshes (in [-1, 1]).
-    out_h, out_w   : output canvas size.
-    downscale      : when > 1, evaluate the per-pixel RBF on a canvas reduced by
-                     this factor and bilinearly upsample the resulting field.
-                     The RBF term is the memory-bound part (a [B, P+3, h*w]
-                     tensor), so this cuts its cost quadratically. A TPS field is
-                     smooth between control points, so the upsampled field is
-                     visually indistinguishable at small factors.
+    out_h, out_w   : lattice size.
 
     Returns
     -------
-    flow : [B, out_h, out_w, 2] tensor for
-           ``F.grid_sample(img, flow, align_corners=True)``.
+    field : [B, 2, out_h, out_w] normalised source coordinates (x, y).
     """
     dev = source.device
     B, P, _ = source.shape
-
-    full_h, full_w = out_h, out_w
-    if downscale > 1:
-        out_h = max(2, int(round(out_h / downscale)))
-        out_w = max(2, int(round(out_w / downscale)))
 
     c = _tps_consts(B, P, out_h, out_w, dev)
 
@@ -223,18 +229,78 @@ def _compute_tps_flow(source, target, out_h, out_w, downscale=1):
                       x_tf.expand(B, -1, -1), y_tf.expand(B, -1, -1), rg], 1)  # [B, P+3, h*w]
 
     Tg = torch.matmul(T, grid)                                   # [B, 2, h*w]
-    xs = Tg[:, 0, :].reshape(B, 1, out_h, out_w)
-    ys = Tg[:, 1, :].reshape(B, 1, out_h, out_w)
-    flow = torch.cat([xs, ys], 1)                                # [B, 2, out_h, out_w]
+    return Tg.reshape(B, 2, out_h, out_w)
 
+
+def _field_lattice_size(out_h, out_w, max_samples):
+    """
+    Lattice to evaluate a canvas' TPS field on: the canvas itself, shrunk (aspect kept)
+    so its longer side has at most ``max_samples`` points. ``max_samples <= 0`` means
+    exact, i.e. one lattice point per canvas pixel.
+
+    Bounded rather than a fixed fraction of the canvas, so the cost stays put when the
+    block resolution goes up. A TPS field over a 7x9 control grid is smooth enough that
+    this is not an approximation anyone can see: at 512 samples the worst sampling
+    error measured on sim warps was 0.05 source px for canvases from 1400 to 2330 px
+    wide, where a half-size lattice cost 4 ms growing to 10 ms over the same range.
+    """
+    longest = max(out_h, out_w)
+    if max_samples <= 0 or longest <= max_samples:
+        return out_h, out_w
+    scale = max_samples / float(longest)
+    return max(2, int(round(out_h * scale))), max(2, int(round(out_w * scale)))
+
+
+def _field_to_grid(field, out_h, out_w):
+    """
+    A lattice field resampled onto an ``out_h`` x ``out_w`` lattice spanning the same
+    canvas, as a ``grid_sample`` grid ([B, out_h, out_w, 2]). Both lattices are
+    ``align_corners=True``, so bilinear interpolation with ``align_corners=True`` lands
+    every coarse sample exactly on its counterpart.
+    """
+    if tuple(field.shape[-2:]) != (out_h, out_w):
+        field = F.interpolate(field, size=(out_h, out_w), mode='bilinear', align_corners=True)
+    return field.permute(0, 2, 3, 1)
+
+
+def _field_to_image_grid(field, canvas_h, canvas_w, out_h, out_w):
+    """
+    A canvas field sampled at the pixel centres of an ``out_h`` x ``out_w`` *image* of
+    that canvas, as a ``grid_sample`` grid ([B, out_h, out_w, 2]).
+
+    This is the geometry of ``cv2.resize`` (half-pixel centres) applied to the field
+    instead of to a rendered canvas: output pixel ``j`` covers canvas pixel coordinate
+    ``(j + 0.5) * canvas / out - 0.5``. The panorama used to be rendered at canvas size
+    and then resized to the wire size; sampling the field this way renders the same
+    image in one resampling instead of two.
+    """
+    dev = field.device
+    xs = (torch.arange(out_w, device=dev, dtype=torch.float32) + 0.5) * (canvas_w / out_w) - 0.5
+    ys = (torch.arange(out_h, device=dev, dtype=torch.float32) + 0.5) * (canvas_h / out_h) - 0.5
+    u = xs * (2.0 / max(1, canvas_w - 1)) - 1.0      # canvas px -> align_corners=True coords
+    v = ys * (2.0 / max(1, canvas_h - 1)) - 1.0
+    vv, uu = torch.meshgrid(v, u, indexing='ij')
+    lookup = torch.stack([uu, vv], -1).unsqueeze(0).expand(field.shape[0], -1, -1, -1)
+    # 'border' clamps the half-pixel overhang at the canvas edge, as cv2.resize does.
+    out = F.grid_sample(field, lookup, mode='bilinear', padding_mode='border',
+                        align_corners=True)
+    return out.permute(0, 2, 3, 1)
+
+
+def _compute_tps_flow(source, target, out_h, out_w, downscale=1):
+    """
+    The TPS sampling field for an ``out_h`` x ``out_w`` canvas, as a ``grid_sample``
+    grid ([B, out_h, out_w, 2] for ``F.grid_sample(img, flow, align_corners=True)``).
+
+    ``downscale > 1`` evaluates the RBF on a lattice reduced by that factor and
+    upsamples it; see :func:`_field_lattice_size` for the bounded form the warp update
+    uses instead.
+    """
+    lat_h, lat_w = out_h, out_w
     if downscale > 1:
-        # linspace(-1, 1, n) is align_corners=True sampling of the same normalised
-        # span at both resolutions, so bilinear upsampling with align_corners=True
-        # lands the coarse samples exactly on their full-res counterparts.
-        flow = F.interpolate(flow, size=(full_h, full_w),
-                             mode='bilinear', align_corners=True)
-
-    return flow.permute(0, 2, 3, 1)                              # [B, full_h, full_w, 2]
+        lat_h = max(2, int(round(out_h / downscale)))
+        lat_w = max(2, int(round(out_w / downscale)))
+    return _field_to_grid(_tps_field(source, target, lat_h, lat_w), out_h, out_w)
 
 
 class SeparableGaussianBlur:
@@ -447,16 +513,28 @@ class StabStitcher(BaseStitcher):
         # to force the solve back to fp32.
         self.net_fp16 = False
 
-        # Downscale factor for the per-pixel TPS RBF evaluation (see
-        # _compute_tps_flow). 1 = exact; 2 evaluates on a half-size canvas and
-        # bilinearly upsamples the field. Default 2: the RBF over a ~1400x550 canvas
-        # is 15 ms at full resolution and 4 ms at half, for a max field error of
-        # ~0.085 px -- well under the resampling that follows anyway.
-        self.flow_downscale = int(os.environ.get("STABSTITCH_FLOW_DOWNSCALE", "2"))
+        # Most TPS lattice points along the canvas' longer side (see
+        # _field_lattice_size); 0 = one per canvas pixel, i.e. exact. A bound rather
+        # than a downscale factor so the warp update's cost does not grow with the block
+        # resolution: 512 is 2.5 ms and <= 0.05 source px of sampling error whether the
+        # canvas is 1400 or 2330 px wide.
+        self.flow_grid = int(os.environ.get("STABSTITCH_FLOW_GRID", "512"))
 
         # Full-window recompute every update, as before the incremental cache. Kept for
         # the self-test's equivalence check and for bisecting; see the class docstring.
         self.legacy_warp = _env_flag("STABSTITCH_LEGACY_WARP")
+
+        # Antialias the downsample to the nets' 480x360 input. The paper's pipeline uses
+        # cv2.resize INTER_LINEAR, which skips source pixels once the ratio passes 2x: harmless on
+        # camera footage (the lens already low-passed it), not on rendered frames with pixel-sharp
+        # edges. At 1024x576 blocks (2.1x) that aliasing shimmers from frame to frame, the nets
+        # track the shimmer, and the displayed warp jittered ~30% more than at 768x432; with the
+        # antialiased filter it jitters less than 768 did. 0 restores the cv2-identical input.
+        self.lr_antialias = _env_flag("STABSTITCH_LR_ANTIALIAS", "1")
+
+        # Start a new video's window from its first frame repeated, instead of waiting
+        # BUFFER_LEN admissions with the crude concat on screen (see _ingest).
+        self.pad_new_video = _env_flag("STABSTITCH_PAD_NEW_VIDEO", "1")
 
         # --- Panorama quality estimate / auto-fallback ---
         # When the stitched panorama is judged bad (poor overlap alignment,
@@ -467,9 +545,11 @@ class StabStitcher(BaseStitcher):
         self.distortion_threshold = distortion_threshold  # max inter-grid (shape) loss
         self.canvas_ratio_max = canvas_ratio_max          # max canvas / input dim ratio
         self.quality_hysteresis = quality_hysteresis      # consecutive updates before switching
+        self.quality_hysteresis_s = QUALITY_HYSTERESIS_S  # ... and for at least this long
         self._fallback_active = False
         self._bad_count = 0
         self._good_count = 0
+        self._verdict_since = 0.0
 
         # --- Quality diagnostics (for tuning which gate flags a bad stitch) ---
         # Enabled by `timing` or env STABSTITCH_QUALITY_DEBUG=1 so it can be
@@ -526,6 +606,9 @@ class StabStitcher(BaseStitcher):
         # (lr1, lr2, lr3, cuda_event) tuples, oldest first.
         self._pending = []
         self._next_admit = -1.0
+        self._last_admit = None
+        # The (left, centre, right) drone ids the buffered frames came from (see stab_pano).
+        self._view_ids = None
         # Only the latest HR frame is ever warped (stab_pano supplies it directly),
         # so the warp pipeline only needs the most-recent input's (H, W).
         self._hr_shape = None
@@ -570,6 +653,32 @@ class StabStitcher(BaseStitcher):
     # Buffer management
     # ------------------------------------------------------------------
 
+    def _restart_video(self):
+        """
+        Start the temporal model over, keeping the quality debounce state.
+
+        A different drone triplet is a different video. Left alone, the window would hold the
+        previous triplet's frames for BUFFER_LEN admissions: TemporalNet reads a jump between
+        unrelated images as motion, and SmoothNet pulls the new warp towards the old triplet's
+        meshes, so every new panorama warped visibly for its first ~0.35 s (on a replay of real
+        sim frames, 9-22 px RMS off its settled geometry, against 0.4 px of normal jitter).
+
+        Takes the compute lock, so an in-flight update finishes first and cannot append the old
+        triplet's frames into the new window or store a warp for it afterwards.
+        """
+        with self._compute_lock:
+            with self._buf_lock:
+                for d in (self._buf_img1, self._buf_img2, self._buf_img3,
+                          self._smesh12_1, self._smesh12_2, self._smesh23_1, self._smesh23_2,
+                          self._tsm12_1, self._tsm12_2, self._tsm23_1, self._tsm23_2):
+                    d.clear()
+                self._pending = []
+                self._next_admit = -1.0
+                self._last_admit = None
+            with self._warp_lock:
+                self._cached_warp = None
+            self._frame_event.clear()
+
     def reset(self):
         """Drop every buffered frame, cached net output and cached warp (for tests)."""
         with self._buf_lock:
@@ -579,6 +688,8 @@ class StabStitcher(BaseStitcher):
                 d.clear()
             self._pending = []
             self._next_admit = -1.0
+            self._last_admit = None
+            self._view_ids = None
             self._hr_shape = None
         with self._warp_lock:
             self._cached_warp = None
@@ -695,13 +806,13 @@ class StabStitcher(BaseStitcher):
         """
         [3, H, W, 3] uint8 device frames → [3, 3, NET_H, NET_W] normalised float.
 
-        Bilinear without antialiasing at half-pixel centres is what
-        ``cv2.resize(..., INTER_LINEAR)`` computes for these ratios; the two agree to
-        within one uint8 quantisation step (cv2 rounds to uint8 before the /127.5).
+        With ``lr_antialias`` off this is what ``cv2.resize(..., INTER_LINEAR)`` computes
+        (bilinear at half-pixel centres), to within one uint8 quantisation step; on, the
+        bilinear kernel is widened to the downscale ratio so no source pixel is skipped.
         """
         x = frames_u8.permute(0, 3, 1, 2).float()
         x = F.interpolate(x, size=(self.NET_H, self.NET_W), mode='bilinear',
-                          align_corners=False, antialias=False)
+                          align_corners=False, antialias=self.lr_antialias)
         return x / 127.5 - 1.0
 
     # ------------------------------------------------------------------
@@ -983,7 +1094,7 @@ class StabStitcher(BaseStitcher):
     # ------------------------------------------------------------------
 
     def _overlap_psnr_terms(self, norm_m1, norm_m2, norm_m3, out_size,
-                            img1_lr, img2_lr, img3_lr):
+                            img1_lr, img2_lr, img3_lr, field=None):
         """
         Photometric consistency of the warped feeds in their overlap regions.
 
@@ -996,7 +1107,10 @@ class StabStitcher(BaseStitcher):
 
         The warp is ``_compute_tps_flow`` + ``grid_sample``, which is exactly the
         FAST mode of ``torch_tps_transform.transformer`` without its per-call
-        host-built constants.
+        host-built constants. ``field`` is the warp update's lattice field for the
+        same meshes; when given it is resampled onto the quality canvas instead of
+        solving the RBF a second time. It is the same field: the normalised rigid
+        mesh does not depend on resolution, so the HR and net-res targets agree.
         """
         self._ensure_net_meshes()
         norm_rig = self._norm_rigid_mesh_net
@@ -1012,7 +1126,10 @@ class StabStitcher(BaseStitcher):
             return torch.cat([rgb, alpha], 1)          # [1, 4, H, W]
 
         stack = torch.cat([_prep(img1_lr), _prep(img2_lr), _prep(img3_lr)], 0)
-        flow = _compute_tps_flow(torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3, sh, sw)
+        if field is not None:
+            flow = _field_to_grid(field, sh, sw)
+        else:
+            flow = _compute_tps_flow(torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3, sh, sw)
         warp = F.grid_sample(stack, flow, align_corners=True)
         rgb = warp[:, :3]
         m = (warp[:, 3:4] > 0.5).float()               # [3, 1, H, W]
@@ -1030,7 +1147,7 @@ class StabStitcher(BaseStitcher):
     def _estimate_quality(self, norm_m1, norm_m2, norm_m3,
                           m1_final, m2_final, m3_final,
                           out_size, hr_h, hr_w,
-                          img1_lr, img2_lr, img3_lr):
+                          img1_lr, img2_lr, img3_lr, field=None):
         """
         Judge whether the current panorama is good enough to display.
 
@@ -1071,7 +1188,7 @@ class StabStitcher(BaseStitcher):
 
             # --- overlap photometric consistency ---
             se, n = self._overlap_psnr_terms(
-                norm_m1, norm_m2, norm_m3, out_size, img1_lr, img2_lr, img3_lr
+                norm_m1, norm_m2, norm_m3, out_size, img1_lr, img2_lr, img3_lr, field=field
             )
             distortion, se, n = torch.stack([distortion_t, se, n]).cpu().tolist()
 
@@ -1168,19 +1285,28 @@ class StabStitcher(BaseStitcher):
         """
         Debounce the raw per-update quality decision so the display does not
         flicker between panorama and fallback.  Requires ``quality_hysteresis``
-        consecutive updates of the opposite verdict before switching state.
+        consecutive updates of the opposite verdict, spanning at least
+        ``quality_hysteresis_s``, before switching state: a count alone shrinks as
+        the warp rate rises (see QUALITY_HYSTERESIS_S).
 
         Returns the (debounced) panorama-ok flag: True ⇒ show panorama.
         """
+        now = time.perf_counter()
         if raw_ok:
+            if self._good_count == 0:
+                self._verdict_since = now
             self._good_count += 1
             self._bad_count = 0
-            if self._fallback_active and self._good_count >= self.quality_hysteresis:
+            if (self._fallback_active and self._good_count >= self.quality_hysteresis
+                    and now - self._verdict_since >= self.quality_hysteresis_s):
                 self._fallback_active = False
         else:
+            if self._bad_count == 0:
+                self._verdict_since = now
             self._bad_count += 1
             self._good_count = 0
-            if not self._fallback_active and self._bad_count >= self.quality_hysteresis:
+            if (not self._fallback_active and self._bad_count >= self.quality_hysteresis
+                    and now - self._verdict_since >= self.quality_hysteresis_s):
                 self._fallback_active = True
         return not self._fallback_active
 
@@ -1188,7 +1314,7 @@ class StabStitcher(BaseStitcher):
     # Public API
     # ------------------------------------------------------------------
 
-    def stab_pano(self, images, subset1, subset2, out_size=None):
+    def stab_pano(self, images, subset1, subset2, out_size=None, view_ids=None):
         """
         Produce a stabilised panorama from three images.
 
@@ -1208,6 +1334,9 @@ class StabStitcher(BaseStitcher):
             rendered straight into that size, vertically flipped and RGB — the
             PanoramaSharedMemory layout — and returned as a
             :class:`WireReadyPanorama`.  Otherwise a BGR canvas is returned.
+        view_ids : optional (left, centre, right) drone ids of the three images.
+            A change starts the temporal window over (see ``_restart_video``);
+            without it a new triplet inherits the previous one's history.
 
         Returns
         -------
@@ -1225,19 +1354,29 @@ class StabStitcher(BaseStitcher):
         out_size = tuple(int(v) for v in out_size) if out_size is not None else None
         self._wire_size = out_size
 
+        # A new video: a different triplet, or the same one after a gap long enough that
+        # its buffered frames are stale.
+        now = time.perf_counter()
+        if not self.legacy_warp:
+            new_ids = tuple(int(v) for v in view_ids) if view_ids is not None else self._view_ids
+            gap = self._last_admit is not None and now - self._last_admit > VIDEO_GAP_S
+            if (new_ids != self._view_ids and self._view_ids is not None) or gap:
+                self._restart_video()
+            self._view_ids = new_ids
+
         with torch.no_grad(), self._stream(self._render_stream):
             frames_u8 = self._upload_frames((img1, img2, img3))
 
             # Admit this frame to the temporal buffer on the fixed cadence (see
             # NET_FRAME_PERIOD). The phase is carried over so a late admission does
             # not shorten the mean period, and a stall does not cause a burst.
-            now = time.perf_counter()
             if self._next_admit < 0.0:
                 self._next_admit = now
             admit = now >= self._next_admit
             if admit:
                 self._next_admit = max(self._next_admit + NET_FRAME_PERIOD,
                                        now - NET_FRAME_PERIOD)
+                self._last_admit = now
                 lr = self._make_lr(frames_u8)
                 ev = None
                 if self._cuda:
@@ -1255,11 +1394,11 @@ class StabStitcher(BaseStitcher):
                         self._buf_img3.append(lr[2:3])
                     else:
                         self._pending.append((lr[0:1], lr[1:2], lr[2:3], ev))
-                    buf_ready = len(self._buf_img1) + len(self._pending) >= self.BUFFER_LEN
+                    buf_ready = len(self._buf_img1) + len(self._pending) >= self._frames_needed()
                 self._frame_event.set()
             else:
                 with self._buf_lock:
-                    buf_ready = len(self._buf_img1) + len(self._pending) >= self.BUFFER_LEN
+                    buf_ready = len(self._buf_img1) + len(self._pending) >= self._frames_needed()
 
             if not buf_ready:
                 # Buffer still filling: show the crude concat, but don't trip the
@@ -1285,6 +1424,10 @@ class StabStitcher(BaseStitcher):
 
             pano = self._render_with_params(frames_u8, warp_params, out_size)
             return pano, True, 0
+
+    def _frames_needed(self):
+        """Admitted frames before a warp can be computed: one when new videos are padded."""
+        return 1 if (self.pad_new_video and not self.legacy_warp) else self.BUFFER_LEN
 
     def compute_warps(self):
         """
@@ -1410,6 +1553,25 @@ class StabStitcher(BaseStitcher):
         ])
 
         with self._buf_lock:
+            if not have_prev and self.pad_new_video:
+                # A new video has one frame where SmoothNet wants BUFFER_LEN. Give it a still
+                # history -- the first frame repeated -- rather than waiting BUFFER_LEN
+                # admissions: a repeated frame has an identical spatial mesh and zero
+                # temporal-spatial motion, which is exactly what the nets compute for a camera
+                # that was not moving. The copies leave the window as real frames arrive.
+                # ts*[0] is already the zero motion of a frame with no predecessor.
+                for _ in range(self.BUFFER_LEN - n):
+                    self._buf_img1.append(new1[0])
+                    self._buf_img2.append(new2[0])
+                    self._buf_img3.append(new3[0])
+                    self._smesh12_1.append(me12_1[0])
+                    self._smesh12_2.append(me12_2[0])
+                    self._smesh23_1.append(me23_1[0])
+                    self._smesh23_2.append(me23_2[0])
+                    self._tsm12_1.append(ts12_1[0])
+                    self._tsm12_2.append(ts12_2[0])
+                    self._tsm23_1.append(ts23_1[0])
+                    self._tsm23_2.append(ts23_2[0])
             for i in range(n):
                 self._buf_img1.append(new1[i])
                 self._buf_img2.append(new2[i])
@@ -1631,12 +1793,13 @@ class StabStitcher(BaseStitcher):
         # until the next warp update. Computing it here (once per warp update)
         # turns each render into a single grid_sample — removing the float64 solve
         # and per-pixel RBF from the hot path, which is the dominant high-res cost.
+        # Evaluated once on a bounded lattice and resampled for each consumer: the
+        # canvas (blend masks), the panorama (render) and the quality canvas.
         norm_rigid_hr = self._norm_rigid_mesh_hr
         norm_rig3     = torch.cat([norm_rigid_hr, norm_rigid_hr, norm_rigid_hr], 0)
-        flow = _compute_tps_flow(
-            torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3,
-            out_size[0], out_size[1], downscale=self.flow_downscale,
-        )
+        lat_h, lat_w = _field_lattice_size(out_size[0], out_size[1], self.flow_grid)
+        field = _tps_field(torch.cat([norm_m1, norm_m2, norm_m3], 0), norm_rig3, lat_h, lat_w)
+        flow = _field_to_grid(field, out_size[0], out_size[1])
 
         if self.timing:
             torch.cuda.synchronize()
@@ -1661,8 +1824,8 @@ class StabStitcher(BaseStitcher):
         flow_out = weights_out = None
         if wire_size is not None and blend_weights is not None:
             H, W = wire_size
-            flow_out = F.interpolate(flow.permute(0, 3, 1, 2), size=(H, W), mode='bilinear',
-                                     align_corners=False).flip(2).permute(0, 2, 3, 1).contiguous()
+            flow_out = _field_to_image_grid(field, out_size[0], out_size[1], H, W) \
+                .flip(1).contiguous()
             weights_out = {
                 k: F.interpolate(v.unsqueeze(0), size=(H, W), mode='bilinear',
                                  align_corners=False)[0].flip(1).contiguous()
@@ -1679,7 +1842,7 @@ class StabStitcher(BaseStitcher):
                 norm_m1, norm_m2, norm_m3,
                 m1_final, m2_final, m3_final,
                 out_size, hr_h, hr_w,
-                lr_latest[0], lr_latest[1], lr_latest[2],
+                lr_latest[0], lr_latest[1], lr_latest[2], field=field,
             )
             quality_ok = self._apply_hysteresis(raw_ok)
             # _estimate_quality just set self.last_quality_reason (same thread).

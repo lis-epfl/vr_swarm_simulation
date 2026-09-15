@@ -411,6 +411,14 @@ public class ScreenSpawn : MonoBehaviour
 
             // Create a render texture
             RenderTexture rt = new RenderTexture(width, height, 24);
+            // Mipmapped because the feed resolution is sized for the largest layout
+            // (OUTER_CIRCLE, ~1:1 with a Quest Pro's ~22 px/deg at 1024 px) and the grid
+            // layouts show the same texture on screens half that size: without mips that is
+            // 1.7x minification, which shimmers as the drones move. The stitch capture reads
+            // mip 0 (AsyncGPUReadback), so the stitcher's input is unchanged.
+            rt.useMipMap = true;
+            rt.autoGenerateMips = true;
+            rt.filterMode = FilterMode.Trilinear;
 
             // Name the render texture 'rt_' followed by the drone number
             rt.name = "rt_" + droneNumber;

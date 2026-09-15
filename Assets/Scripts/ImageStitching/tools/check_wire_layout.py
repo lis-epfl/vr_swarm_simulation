@@ -75,6 +75,11 @@ PAIRS = [
     ("maxPanoramaHeight",              "PANORAMA_MAX_HEIGHT"),
     ("panoramaDataPosition",           "PANORAMA_HEADER_BYTES"),
     ("panoramaSectionBytes",           "PANORAMA_SECTION_BYTES"),
+    # The panorama sequence number packed into the quality word's upper bits. Unity skips
+    # the texture upload while it is unchanged, so a disagreement reads as a panorama that
+    # never updates (or one that uploads every read, which is merely the old cost).
+    ("panoramaSeqShift",               "PANORAMA_SEQ_SHIFT"),
+    ("panoramaSeqMask",                "PANORAMA_SEQ_MASK"),
     # Not an offset: Python switches on the plane-mode byte by number, so the enum value
     # itself is part of the contract. C# mirrors it as a const because this parser reads
     # `const int` and cannot evaluate an enum member.

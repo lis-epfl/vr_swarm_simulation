@@ -5,6 +5,11 @@ No Unity, no shared memory. Needs the ``stitching`` conda env (torch + CUDA) and
 ``debug_input_drone_{0,1,2}.jpg`` frames beside ``StitcherThreading.py``::
 
     cd Assets/Scripts/ImageStitching && python tools/stabstitch_selftest.py
+    python tools/stabstitch_selftest.py --frame 1024x576 --wire 1920x720
+
+``--frame`` is the block (feed) resolution Unity publishes and ``--wire`` the panorama
+resolution, both as in PyUniSharingFast's bridge settings; they default to the values the
+sim scenes use, so the timings answer "does this resolution still hold the rates".
 
 Why this exists
 ---------------
@@ -28,6 +33,9 @@ those is meant to be a pure speed-up. This file is where that claim is checked:
      by a few tenths of a pixel run to run, which is float noise, not a logic difference.
   4. Wire-ready render == legacy canvas render + cv2 resize/flip/BGR->RGB.
   5. A warp update performs at most a handful of device syncs.
+  6. A new drone triplet starts a new video: its warp equals a fresh stitcher's, so nothing
+     of the previous drones survives, and it shows a panorama from its first frame.
+  7. The quality debounce is timed, not a count of warp updates.
 
 It also prints the timings that motivated the change, so a regression is visible here
 before it is felt in the headset.
@@ -57,8 +65,8 @@ import torch.nn.functional as F  # noqa: E402
 import StabStitcher as ss_mod  # noqa: E402
 from StabStitcher import StabStitcher, WireReadyPanorama  # noqa: E402
 
-FRAME_W, FRAME_H = 768, 432        # the sim scenes' block resolution
-WIRE_SIZE = (600, 1600)            # (h, w): the sim scenes' panorama resolution
+FRAME_W, FRAME_H = 1024, 576       # the sim scenes' block resolution (--frame)
+WIRE_SIZE = (720, 1920)            # (h, w): the sim scenes' panorama resolution (--wire)
 SEQ_LEN = 12                       # frames fed; the window is the last 7
 SYNC_BUDGET = 12                   # device syncs per incremental warp update
 
@@ -184,17 +192,23 @@ def load_pristine_vendored():
 
 def test_preprocess(st, frames):
     print("\n[1] GPU preprocessing vs cv2.resize reference")
-    with torch.no_grad(), torch.cuda.stream(st._render_stream):
-        u8 = st._upload_frames(frames)
-        lr = st._make_lr(u8)
-        sync()
+    check(st.lr_antialias, "the nets' input is antialiased by default")
+    # The cv2-identical path is still there (STABSTITCH_LR_ANTIALIAS=0) and must stay identical.
+    st.lr_antialias = False
+    try:
+        with torch.no_grad(), torch.cuda.stream(st._render_stream):
+            u8 = st._upload_frames(frames)
+            lr = st._make_lr(u8)
+            sync()
+    finally:
+        st.lr_antialias = True
     worst = 0.0
     for j in range(3):
         ref = st._preprocess(frames[j])
         worst = max(worst, (lr[j:j + 1].cpu() - ref).abs().max().item())
     lsb = 1.0 / 127.5
-    print(f"  max |gpu - cv2| = {worst:.5f}  (one uint8 LSB = {lsb:.5f})")
-    check(worst <= lsb + 1e-6, "GPU preprocess matches cv2.resize to within one uint8 step")
+    print(f"  antialias off: max |gpu - cv2| = {worst:.5f}  (one uint8 LSB = {lsb:.5f})")
+    check(worst <= lsb + 1e-6, "non-antialiased GPU preprocess matches cv2.resize to within one uint8 step")
 
 
 def test_vendored(st, frames):
@@ -356,6 +370,98 @@ def test_render(st, seq, params):
                 cv2.cvtColor(cv2.flip(np.asarray(wire), 0), cv2.COLOR_RGB2BGR))
 
 
+def test_field_lattice(st, params):
+    print("\n[4b] Bounded TPS lattice vs the field evaluated at every canvas pixel")
+    H, W = params['out_size']
+    src = torch.cat([params['norm_m1'], params['norm_m2'], params['norm_m3']], 0)
+    rig = torch.cat([st._norm_rigid_mesh_hr] * 3, 0)
+    with torch.no_grad():
+        exact = ss_mod._compute_tps_flow(src, rig, H, W)
+        lat = ss_mod._field_lattice_size(H, W, st.flow_grid)
+        # Only a sample that lands inside the source image can show an error.
+        inside = (exact.abs() <= 1).all(-1)
+        px = torch.tensor([(FRAME_W - 1) / 2.0, (FRAME_H - 1) / 2.0], device=exact.device)
+        err = ((params['flow'] - exact).abs() * px)[inside].max().item()
+    print(f"  canvas {W}x{H}, lattice {lat[1]}x{lat[0]}: worst sampling error {err:.3f} source px")
+    check(err <= 0.1, "bounded lattice samples within 0.1 source px of the exact field")
+
+
+def mirrored(seq):
+    """A different but still stitchable triplet: every view mirrored, order reversed."""
+    return [[np.ascontiguousarray(f[:, ::-1]) for f in frames[::-1]] for frames in seq]
+
+
+def feed(st, seq, ids):
+    first = None
+    for frames in seq:
+        pano, _, _ = st.stab_pano(frames, [0, 1], [1, 2], out_size=WIRE_SIZE, view_ids=ids)
+        if first is None:
+            first = pano
+        st._update_warps()
+    return first
+
+
+def test_new_video(st, seq):
+    print("\n[6] A new drone triplet starts a new video")
+    ss_mod.NET_FRAME_PERIOD = 0.0
+    other = mirrored(seq)
+    saved = (torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32,
+             torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark)
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Geometry only: the synthetic scene stitches below the default PSNR gate, and a hidden
+    # panorama would read here as "no panorama on the first frame".
+    quality = st.quality_enabled
+    st.quality_enabled = False
+    try:
+        st.reset()
+        first_cold = feed(st, seq, (0, 1, 2))
+        first_switch = feed(st, other, (12, 11, 10))
+        switched = dict(st._cached_warp)
+        st.reset()
+        feed(st, other, (12, 11, 10))
+        fresh = dict(st._cached_warp)
+    finally:
+        st.quality_enabled = quality
+        (torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32,
+         torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark) = saved
+    check(isinstance(first_cold, WireReadyPanorama),
+          "a cold start shows a panorama on its first frame, not the concat")
+    check(isinstance(first_switch, WireReadyPanorama),
+          "a triplet change shows a panorama on its first frame, not the concat")
+    d = mesh_diff(switched, fresh)
+    print(f"  after a switch vs a fresh stitcher on the same frames: max mesh difference {d:.4f} px")
+    check(d <= 0.01 and switched['out_size'] == fresh['out_size'],
+          "nothing of the previous triplet survives a switch")
+
+
+def test_timed_debounce(st):
+    print("\n[7] Quality debounce is timed")
+    clock = {"t": 0.0}
+    real_time = ss_mod.time
+    ss_mod.time = types.SimpleNamespace(perf_counter=lambda: clock["t"], sleep=time.sleep,
+                                        time=time.time)
+    try:
+        st._fallback_active = False
+        st._bad_count = st._good_count = 0
+        hidden_at = None
+        for k in range(40):                     # a bad verdict every 50 ms
+            clock["t"] = 0.05 * k
+            if not st._apply_hysteresis(False) and hidden_at is None:
+                hidden_at = 0.05 * k
+    finally:
+        ss_mod.time = real_time
+        st._fallback_active = False
+        st._bad_count = st._good_count = 0
+    print(f"  bad verdicts every 50 ms hide the panorama after {hidden_at:.2f} s "
+          f"(QUALITY_HYSTERESIS_S = {ss_mod.QUALITY_HYSTERESIS_S})")
+    check(hidden_at is not None and ss_mod.QUALITY_HYSTERESIS_S <= hidden_at
+          <= ss_mod.QUALITY_HYSTERESIS_S + 0.05 + 1e-6,
+          "the panorama is hidden once the bad verdict has lasted the hysteresis time")
+
+
 def test_syncs(st, seq):
     print("\n[5] Device syncs per incremental warp update")
     ss_mod.NET_FRAME_PERIOD = 0.0
@@ -407,9 +513,28 @@ def timings(st, seq):
     print(f"  render only (wire-ready {WIRE_SIZE[1]}x{WIRE_SIZE[0]}): {t_render*1000:.2f} ms")
 
 
+def _parse_size(text):
+    w, h = (int(v) for v in text.lower().split("x"))
+    return w, h
+
+
 def main():
+    global FRAME_W, FRAME_H, WIRE_SIZE
+    import argparse
+    ap = argparse.ArgumentParser(description="StabStitch++ pipeline self-test and timings")
+    ap.add_argument("--frame", default=f"{FRAME_W}x{FRAME_H}",
+                    help="block (feed) resolution WxH, as PyUniSharingFast publishes it")
+    ap.add_argument("--wire", default=f"{WIRE_SIZE[1]}x{WIRE_SIZE[0]}",
+                    help="panorama resolution WxH, as PyUniSharingFast publishes it")
+    args = ap.parse_args()
+    FRAME_W, FRAME_H = _parse_size(args.frame)
+    ww, wh = _parse_size(args.wire)
+    WIRE_SIZE = (wh, ww)
+    print(f"blocks {FRAME_W}x{FRAME_H}, panorama {ww}x{wh}")
+
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is required (the stitcher runs on the GPU)")
+    ss_mod.VIDEO_GAP_S = float("inf")
     seq = load_sequence()
     st = StabStitcher(timing=False)
     for net in (st.spatial_net, st.temporal_net, st.smooth_net):
@@ -420,6 +545,9 @@ def main():
     test_vendored(st, seq[0])
     leg, inc = test_incremental(st, seq)
     test_render(st, seq, inc)
+    test_field_lattice(st, inc)
+    test_new_video(st, seq)
+    test_timed_debounce(st)
     test_syncs(st, seq)
     timings(st, seq)
 

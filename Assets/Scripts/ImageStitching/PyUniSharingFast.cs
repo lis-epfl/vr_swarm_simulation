@@ -5,6 +5,7 @@ using System.Text;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -124,16 +125,30 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("Enable reading panorama from PanoramaSharedMemory")]
         public bool enablePanoramaReading = true;
 
-        [Tooltip("Must be 800 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
+        [Tooltip("Stitch input width AND the feed screens' render-texture width: ScreenSpawn adopts " +
+                 "this for every FPV camera. Size it to what the headset can show, not above: a Quest " +
+                 "Pro resolves ~22 px/deg and an OUTER_CIRCLE feed screen (radius 2 m, scale 1) spans " +
+                 "~48 deg, so ~1024 is the useful maximum; more cannot be seen and only costs FPV " +
+                 "render time. Envelope max 1280x720. Must be 800 in the DJI scene to match " +
+                 "the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py " +
+                 "sizes itself from this via the metadata map.")]
         public int blockImageWidth = 800;
 
-        [Tooltip("Must be 450 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
+        [Tooltip("Stitch input / feed render-texture height; keep 16:9 with blockImageWidth (576 for " +
+                 "1024). Must be 450 in the DJI scene to match the 800x450 drone feed " +
+                 "(image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this " +
+                 "via the metadata map.")]
         public int blockImageHeight = 450;
 
-        [Tooltip("Panorama width Python renders and Unity uploads to the curved screen.")]
+        [Tooltip("Panorama width Python renders and Unity uploads to the curved screen. The stitch " +
+                 "canvas holds ~1.8x blockImageWidth of detail and the curved screen shows angleRange " +
+                 "(90 deg) at ~22 px/deg on a Quest Pro, so 1920 pairs with 1024-wide blocks; larger " +
+                 "only adds upload time (PyUniSharingFast.PanoramaApply in the Profiler).")]
         public int panoramaImageWidth = 600;
 
-        [Tooltip("Panorama height Python renders and Unity uploads to the curved screen.")]
+        [Tooltip("Panorama height Python renders and Unity uploads to the curved screen. Keep " +
+                 "width/height near the curved screen's arc length / height (2.6 at radius 5 m, " +
+                 "90 deg, 3 m) so its texels stay square: 720 pairs with 1920.")]
         public int panoramaImageHeight = 400;
 
         [Tooltip("Seconds between block publishes (0.0333 = 30 Hz). This is what paces the stitched " +
@@ -145,8 +160,10 @@ public class PyUniSharingFast : MonoBehaviour
                  "(StabStitcher.NET_FRAME_PERIOD) regardless of this value.")]
         public float sendInterval = 0.0333f;
 
-        [Tooltip("Seconds between panorama reads. Keep at or below sendInterval, or panoramas are " +
-                 "produced faster than they are shown.")]
+        [Tooltip("Minimum seconds between panorama uploads. Keep at or below sendInterval, or " +
+                 "panoramas are produced faster than they are shown. Only a panorama Python has not " +
+                 "already delivered is uploaded (sequence number in the quality word); until one " +
+                 "arrives the section is re-checked every frame, which costs two int reads.")]
         public float readInterval = 0.0333f;
     }
 
@@ -190,13 +207,19 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("How warped views are fused into the panorama.")]
         public FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
 
-        [Tooltip("Gaussian blur kernel size for the reference-image soft mask (must be an odd integer)")]
+        [Tooltip("Gaussian blur kernel size for the reference-image soft mask (must be an odd integer). " +
+                 "In stitch-canvas pixels, which scale with blockImageWidth: the defaults (41 / 15 / 60) " +
+                 "suit 768-wide blocks; scale all three with the block width to keep the same seam " +
+                 "(55 / 20 / 80 at 1024).")]
         public int blurKernelSize = 41;
 
-        [Tooltip("Gaussian blur sigma for the reference-image soft mask feathering width (pixels)")]
+        [Tooltip("Gaussian blur sigma for the reference-image soft mask feathering width (stitch-canvas " +
+                 "pixels; scale with blockImageWidth, see blurKernelSize)")]
         public float blurSigma = 15f;
 
-        [Tooltip("Width in pixels of the edge strip where LINEAR blending is applied to hide seams (REFERENCE_BLEND mode only). Interior of the reference image is left pixel-perfect.")]
+        [Tooltip("Width in stitch-canvas pixels of the edge strip where LINEAR blending is applied to hide " +
+                 "seams (REFERENCE_BLEND mode only); scale with blockImageWidth, see blurKernelSize. " +
+                 "Interior of the reference image is left pixel-perfect.")]
         public int borderSize = 60;
 
         [Tooltip("When the panorama is judged bad (poor alignment / distorted warp), hide it and show the individual drone feeds (via ScreenSpawn) instead.")]
@@ -699,6 +722,15 @@ public class PyUniSharingFast : MonoBehaviour
     private Texture2D image;
     private byte[] blockImageBytes;   // reusable scratch for one converted drone image
     private float nextSendTime, nextReceiveTime = 0f;
+    private int lastPanoramaSeq = 0;  // sequence number of the panorama last uploaded (see panoramaSeqShift)
+
+    // The bridge's main-thread work, by name in the Unity Profiler (CPU Usage > Hierarchy), so
+    // its cost can be read against the frame time with the headset connected. Capture includes
+    // the on-demand Camera.Render of a stitched drone whose feed screen is hidden.
+    private static readonly ProfilerMarker blockCaptureMarker = new ProfilerMarker("PyUniSharingFast.RequestBlockCapture");
+    private static readonly ProfilerMarker blockReadbackMarker = new ProfilerMarker("PyUniSharingFast.OnBlockReadback");
+    private static readonly ProfilerMarker panoramaLoadMarker = new ProfilerMarker("PyUniSharingFast.PanoramaLoad");
+    private static readonly ProfilerMarker panoramaApplyMarker = new ProfilerMarker("PyUniSharingFast.PanoramaApply");
 
     // Async capture: block images are read back from the GPU with
     // AsyncGPUReadback (no ReadPixels stall) and converted RGBA->BGR by a Burst
@@ -826,6 +858,15 @@ public class PyUniSharingFast : MonoBehaviour
     private const int REASON_NO_OVERLAP = 1 << 4;    // selected cameras' yaw gap exceeds FOV (pre-stitch gate)
     private const int REASON_TOO_FEW_IMAGES = 1 << 5; // fewer than 3 selected feeds (pre-stitch gate)
     private const int REASON_PLANE_INVALID = 1 << 6; // planar: no usable scene plane or pose on the wire
+    // Bits 16-31 of the same word: a panorama sequence number Python bumps on every image write
+    // and never sets to 0. The texture is uploaded only when it changes. A read that finds the
+    // panorama already on screen would otherwise upload it again, and every RGB24 Apply converts
+    // the whole panorama to RGBA32 on the main thread (D3D11 has no 24-bit format), a cost that
+    // grows with panoramaImageWidth x Height. 0 is a producer that predates the counter and gets
+    // the old upload-every-read behaviour, so either side can be updated first. Mirrors
+    // StitcherThreading.py's PANORAMA_SEQ_SHIFT / PANORAMA_SEQ_MASK (tools/check_wire_layout.py).
+    private const int panoramaSeqShift = 16;
+    private const int panoramaSeqMask = 0xFFFF;
     // Per-drone block layout. Two versions exist; Python picks between them from the
     // blockHeaderSize field in metadata:
     //
@@ -1624,23 +1665,43 @@ public class PyUniSharingFast : MonoBehaviour
                 // The pilot's click-switch toggle overrides quality: if they turned
                 // the panorama off, hide it and show the feeds regardless of quality.
                 bool panoramaGood = (!qualityFallbackEnabled || qualityOk) && panoramaUserEnabled;
-                if (panoramaGood)
+
+                // Only a panorama that is not already on screen is worth uploading (see
+                // panoramaSeqShift). Sequence 0 is a producer without the counter: upload.
+                int panoramaSeq = (qualityWord >> panoramaSeqShift) & panoramaSeqMask;
+                bool upload = panoramaGood && (panoramaSeq == 0 || panoramaSeq != lastPanoramaSeq);
+                if (upload)
                 {
                     // Upload straight from the mapped view while the flag is held.
                     // Python writes RGB24 bottom-up (flipped + BGR->RGB on its
                     // side), exactly the layout the texture expects — no managed
                     // copy, no per-pixel conversion.
-                    panoTexture.LoadRawTextureData(IntPtr.Add(panoramaPtr, panoramaDataPosition), panoramaImageSize);
+                    using (panoramaLoadMarker.Auto())
+                    {
+                        panoTexture.LoadRawTextureData(IntPtr.Add(panoramaPtr, panoramaDataPosition), panoramaImageSize);
+                    }
+                    lastPanoramaSeq = panoramaSeq;
                 }
                 Marshal.WriteInt32(panoramaPtr, FlagPosition, 0);
 
                 ApplyQualityFallback(panoramaGood, qualityWord);
-                if (panoramaGood)
+                if (upload)
                 {
-                    panoTexture.Apply(false);
+                    using (panoramaApplyMarker.Auto())
+                    {
+                        panoTexture.Apply(false);
+                    }
                 }
 
-                nextReceiveTime += readInterval;
+                // readInterval paces uploads, not looks. While the panorama is showing and
+                // Python has not delivered a new one yet, look again next frame, so a new
+                // panorama reaches the screen one Unity frame after it lands rather than
+                // whenever a timer beating against Python's own cadence next comes round.
+                // Advanced like nextSendTime: whole intervals, never a catch-up burst.
+                if (upload || !panoramaGood)
+                {
+                    nextReceiveTime = Mathf.Max(nextReceiveTime + readInterval, Time.time - readInterval);
+                }
             }
         }
     }
@@ -1712,6 +1773,7 @@ public class PyUniSharingFast : MonoBehaviour
     // here, at the send rate only.
     private void RequestBlockCapture(int slot, int camIdx)
     {
+        using var profilerScope = blockCaptureMarker.Auto();
         if (pendingReadbacks == null) return;  // image writing was off at Start
         if (camIdx < 0 || camIdx >= camerasToCapture.Count) return;
         Camera camera = camerasToCapture[camIdx];
@@ -1853,6 +1915,7 @@ public class PyUniSharingFast : MonoBehaviour
     // path (a busy consumer just drops this frame).
     private void OnBlockReadback(int p, AsyncGPUReadbackRequest request)
     {
+        using var profilerScope = blockReadbackMarker.Auto();
         PendingReadback pending = pendingReadbacks[p];
         pendingReadbacks[p].inUse = false;
         pendingReadbacks[p].verifyReference = null;

@@ -154,6 +154,14 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   used to ask for `w*h*3 + 8`, so whichever process created the section first denied the other — and
   unlike the block map that path had no retry, so the symptom was a curved screen that simply never
   updated for the whole session.
+  **The quality word's upper 16 bits are a panorama sequence number** (`PANORAMA_SEQ_SHIFT` /
+  `panoramaSeqShift`, asserted by `check_wire_layout.py`), bumped on every image write and never 0.
+  Unity uploads the texture only when it changes, and after `readInterval` re-checks every frame
+  until it does. The old timer read beat against Python's own ~30 Hz cadence: on the bridge bench it
+  re-uploaded ~10% of panoramas already on screen and never showed another ~10%, and each upload is
+  a main-thread `LoadRawTextureData` + `Apply` whose RGB24→RGBA32 conversion (D3D11 has no 24-bit
+  format) grows with the panorama size. `0` is a producer without the counter and gets the old
+  upload-every-read behaviour, so either side can be updated first.
 
 ## Conventions & invariants (not enforced by code)
 
@@ -518,8 +526,28 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   flipped once and converted to RGB on the Python side.
 - **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata
   (`blockImageWidth/Height` + `panoramaImageWidth/Height` in `PyUniSharingFast`'s inspector); set those to
-  scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, so only the render + bridge
-  costs grow with resolution — not the warp pipeline.
+  scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, and the TPS field is
+  evaluated on a bounded lattice (below), so the warp update is ~21 ms whether blocks are 768 or
+  1280 px wide; only the uploads and copies grow with resolution.
+- **Size the resolution to the headset, and move the feeds and the panorama together.**
+  `blockImageWidth/Height` is also every feed screen's render-texture size (ScreenSpawn adopts it), so
+  the stitch input can never exceed what the feed screens show. The Quest Pro resolves ~22 px/deg: an
+  `OUTER_CIRCLE` feed (radius 2 m, scale 1) spans ~48°, so ~1024 px is its useful maximum, and the
+  curved screen (radius 5 m, 90°, 3 m) wants ~1980×735. The stitch canvas carries ~1.8× the block
+  width of detail, so **1024×576 blocks pair with a 1920×720 panorama** at ~21 texels/deg on both
+  screens; the sim scenes used 768×432 / 1600×600, ~16 texels/deg on both. 1280×720 (the envelope
+  max) would exceed the headset and only cost FPV render time. Feed render textures are mipmapped,
+  because the grid layouts show the same texture on screens half `OUTER_CIRCLE`'s size. The
+  `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`) are canvas pixels, so they
+  scale with the block width: 41/15/60 suit 768, the 1024 scenes use 55/20/80. DJIScene stays
+  800×450, the real feed's size.
+- **The TPS field is evaluated once per warp update on a lattice of at most 512 samples** along the
+  canvas' longer side (`_field_lattice_size`, `STABSTITCH_FLOW_GRID`, 0 = exact) and resampled
+  for each consumer: the canvas (blend masks), the panorama (`_field_to_image_grid`, with
+  cv2.resize's half-pixel geometry), and the quality canvas. The field over a 7×9 control grid is
+  smooth enough that the worst sampling error is 0.05 source px at every resolution (asserted), where
+  a half-size lattice cost 4 ms at 768-wide blocks and 10 ms at 1280. Resample through the
+  `align_corners=True` lattice helpers, never by hand, or the panorama shifts half a pixel.
 - **STABSTITCH render/warp are decoupled:** the render loop (`stab_pano`, paced by Unity's
   `sendInterval`, 30 Hz) uses cached warp params only (no neural net); a separate warp thread
   (`compute_warps`) runs the nets and updates the cache. The render warp is a single `grid_sample`
@@ -540,6 +568,30 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   `tools/stabstitch_selftest.py` asserts the two agree (fp32/deterministic: ≤0.01 px; under
   default TF32/autotuned cuDNN they drift by a few tenths of a pixel run to run, which is float
   noise, not logic).
+- **A different drone triplet is a different video, and the window starts over** (`_restart_video`,
+  triggered by the `view_ids` `process_stitching` passes, or by `VIDEO_GAP_S` without admissions).
+  Left alone, the window kept the previous triplet's frames: TemporalNet read the jump between
+  unrelated images as motion and SmoothNet pulled the new warp towards the old drones' meshes, so
+  every new panorama warped for its first ~0.35 s (16–33 px off in panorama pixels, against 0.4 px
+  of normal jitter). A new video's window is **padded with its first frame repeated**
+  (`pad_new_video`), which is exactly what the nets compute for a still camera, so the panorama
+  appears on the first frame instead of after 7 admissions of side-by-side concat. Keep
+  `BUFFER_LEN` at 7: on replayed sim frames 5, 9 and 11 all jittered more than the trained value,
+  and `NET_FRAME_PERIOD` 0.033 did too.
+- **The nets' input is antialiased** (`lr_antialias`, `STABSTITCH_LR_ANTIALIAS=0` restores the
+  cv2-identical input). The paper downsamples with `cv2.resize` INTER_LINEAR, which skips source
+  pixels past 2×: harmless on lens-blurred camera footage, not on pixel-sharp renders. At 1024-wide
+  blocks (2.1×) the aliasing shimmers frame to frame, the nets track it, and the displayed warp
+  jittered ~30% more than at 768; antialiased, it jitters less than 768 did. No weights, layers or
+  maths change — only the filter that produces the 480×360 input.
+- **The quality debounce is timed** (`QUALITY_HYSTERESIS_S`, 0.35 s), not a count of warp updates:
+  two updates was ~0.35 s at the old 5–6 Hz warp rate and only 0.1 s at 20 Hz, enough for a PSNR
+  near the threshold to flash the panorama on and off.
+- **Measure flicker on real frames, not by eye:** `tools/stabstitch_flicker_replay.py record`
+  captures the three stitch slots from a playing Unity without taking a block flag, and `replay`
+  runs them through the stitcher on a simulated clock and scores the displayed control points'
+  motion in panorama pixels (jitter, warp shape, the paper's roughness score, the start of each
+  segment; `--switch` simulates a triplet change).
 - **`StabStitch2_main` is gitignored, and the perf edits to it live in
   `tools/stabstitch2_perf.patch`.** The vendored forwards used to build small constant tensors on
   the host and `.cuda()` them every call, and `torch.inverse`'s singularity check is a host sync;
@@ -552,7 +604,7 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   canvas size still on the GPU. The canvas bounds come back in two `.tolist()` calls and the
   quality metrics in one `.cpu()`; a warp update now performs 4 syncs (budgeted in the self-test).
 - **The render produces the wire layout directly** (`WireReadyPanorama`): per warp update the
-  canvas-res field and blend weights are resampled to the panorama size with the rows reversed,
+  TPS field and the blend weights are resampled to the panorama size with the rows reversed,
   so the render's `grid_sample` lands RGB, bottom-up, at `panoramaImageWidth × Height`, and
   `first_thread` writes it without the `cv2.resize`/`flip`/`cvtColor`/`tobytes` pass it still
   applies to the other stitchers' BGR canvases. Inputs go up as uint8 through pinned staging and
@@ -1012,7 +1064,16 @@ use `transform.Find("DroneParent")` / `Find("FPV")`.
 the default `python` has no torch. StabStitch++ models load from
 `StabStitch2_main/Full_model_inference/full_model_ssd/*.pth`.
 
-Checkers: `python tools/stabstitch_selftest.py` (STABSTITCH equivalence + timings, needs the GPU
-and the `debug_input_drone_*.jpg` frames), `python tools/planar_selftest.py`,
-`python tools/check_wire_layout.py`. `STABSTITCH_TIMING=1` prints the per-stage warp/render
-breakdown; the per-thread rate lines print once a second.
+Checkers: `python tools/stabstitch_selftest.py [--frame 1024x576 --wire 1920x720]` (STABSTITCH
+equivalence + timings, needs the GPU and the `debug_input_drone_*.jpg` frames),
+`python tools/planar_selftest.py`, `python tools/check_wire_layout.py`. `STABSTITCH_TIMING=1` prints the
+per-stage warp/render breakdown; the per-thread rate lines print once a second, and the stitch line
+carries **Unity's frame rate**, measured from the per-frame heartbeat — the number every bridge
+setting trades against, visible with the headset on.
+
+`python tools/stabstitch_bridge_bench.py --frame 1024x576 --wire 1920x720` times the whole Python side
+end to end with a stand-in for Unity (metadata, posed blocks at 30 Hz, heartbeat, panorama reads) and
+the real `StitcherThreading.py` as a subprocess. It uses sections of its own via
+`STITCH_SHM_SUFFIX` — named sections are machine-global, so on the real names it would be a second
+producer inside a live editor's session — and so it can run beside Unity in Play mode. It does not
+model Unity's frame cost; for that, read the `PyUniSharingFast.*` markers in the Unity Profiler.

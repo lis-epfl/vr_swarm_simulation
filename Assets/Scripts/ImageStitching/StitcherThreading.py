@@ -54,6 +54,9 @@ RENDER_MIN_PERIOD = 0.025
 # 20-30 Hz each; one summary a second says the same thing as sixty lines.
 RATE_PRINT_PERIOD = 1.0
 
+# Window over which Unity's frame rate is estimated from its heartbeat, in seconds.
+UNITY_FPS_WINDOW = 1.0
+
 # A proper left/centre/right panorama needs at least this many distinct feeds.
 # With fewer, get_subsets_from_order wraps around and would stitch an image with
 # itself, so we skip the warp entirely and fall back to the individual feeds.
@@ -191,6 +194,27 @@ PANORAMA_MAX_WIDTH = 4000
 PANORAMA_MAX_HEIGHT = 4000
 PANORAMA_SECTION_BYTES = PANORAMA_HEADER_BYTES + PANORAMA_MAX_WIDTH * PANORAMA_MAX_HEIGHT * 3
 
+# The quality word's upper 16 bits carry a panorama sequence number, bumped on every image
+# write and never 0 (it wraps 65535 -> 1). Unity uploads the texture only when the number
+# has changed, so a read that finds the previous panorama costs two int reads instead of a
+# full LoadRawTextureData + Apply -- which on D3D11 includes an RGB24->RGBA32 conversion on
+# the CPU, the main-thread cost that grows with the panorama resolution. 0 means "producer
+# predates the counter" and makes Unity upload every read, as it always did, so either side
+# can be updated first. Mirrors PyUniSharingFast.panoramaSeqShift / panoramaSeqMask.
+PANORAMA_SEQ_SHIFT = 16
+PANORAMA_SEQ_MASK = 0xFFFF
+
+# Appended to every shared-memory section name. Empty in normal use. Named sections are
+# machine-global, so anything that stands in for Unity on this machine -- the bridge bench,
+# tools/stabstitch_bridge_bench.py -- sets STITCH_SHM_SUFFIX to get sections of its own;
+# on the real names it would be a second producer inside a live editor's session.
+SHM_NAME_SUFFIX = os.environ.get("STITCH_SHM_SUFFIX", "")
+
+
+def shm_name(base):
+    """Section name as this process should open it (see SHM_NAME_SUFFIX)."""
+    return base + SHM_NAME_SUFFIX
+
 # How long the producer's heartbeat may stand still before we conclude Unity is gone.
 # Generously above a stutter or a domain reload; well under a human's patience for a
 # frozen panorama.
@@ -276,6 +300,10 @@ class StitcherManager:
         self.isRANSAC = False
         self.headAngle = 0
         self.print_rate = True  # gates the per-loop stitch/warp Hz prints (driven by Unity metadata)
+        # Unity's frame rate, from its per-frame heartbeat (None until measured). Printed
+        # beside the stitch rate: the headset frame rate is the constraint every bridge
+        # setting trades against, and this is the one place both numbers can be seen at once.
+        self.unity_fps = None
         self.shared_images = None
         self.shared_drone_ids = None
         self.shared_headings = None
@@ -597,8 +625,18 @@ class StitcherManager:
                     self.panoram_queue.put((None, False, REASON_NO_OVERLAP))
                 return
 
+            # Which drones these are, left / centre / right. A different triplet is a
+            # different video, and the stitcher restarts its temporal window on it rather
+            # than smoothing the new warp towards the previous drones' (see
+            # StabStitcher._restart_video). `views` is the snapshot `images` was built from,
+            # in the same drone-id order.
+            view_ids = None
+            if views is not None and len(views) == len(images):
+                view_ids = (views[subset1[0]]['drone_id'], views[subset1[1]]['drone_id'],
+                            views[subset2[1]]['drone_id'])
+
             pano, quality_ok, quality_reason = self.active_stitcher.stab_pano(
-                images, subset1, subset2, out_size=out_size)
+                images, subset1, subset2, out_size=out_size, view_ids=view_ids)
 
             # Always queue (pano, quality_ok, quality_reason): when quality_ok is
             # False the pano is None and only the quality flag + failing-gate
@@ -738,7 +776,7 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
     """
     
     # Read metadata first to get image dimensions
-    metadataMMF = mmap.mmap(-1, METADATA_SIZE, "MetadataSharedMemory")
+    metadataMMF = mmap.mmap(-1, METADATA_SIZE, shm_name("MetadataSharedMemory"))
 
     # Both remaining sections are constant-sized, so they can be mapped right here,
     # before anything is known about the fleet, and never touched again.
@@ -810,6 +848,7 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
         # actually alive -- neither of which the block flags can tell us.
         verify_section_geometry(output)
         check_producer_alive(metadataMMF, heartbeat_state)
+        manager.unity_fps = heartbeat_state.get("fps")
 
         # Slots worth polling. Clamped to the section rather than trusted: imageCount is a
         # hint from another process, and reading past the capacity would walk off the end
@@ -1068,9 +1107,16 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
                 capture_time = struct.unpack('<f', processedMMF.read(4))[0]
                 pose_status = struct.unpack('<i', processedMMF.read(4))[0]
 
-            # Read image data
-            processedMMF.seek(blockOffset + metadataSize)
-            image_data = processedMMF.read(imageSize)
+            # Copy the image straight out of the mapping while the flag is held: one copy.
+            # mmap.read() would first copy the payload into a bytes object, and the array
+            # built from that was then copied again -- 2 x 1.8 MB per fresh block at
+            # 1024x576, under the GIL the render and warp threads also need.
+            image = None
+            payload_offset = blockOffset + metadataSize
+            if payload_offset + imageSize <= len(processedMMF):
+                image = np.frombuffer(processedMMF, dtype=np.uint8, count=imageSize,
+                                      offset=payload_offset).reshape(
+                                          (imageHeight, imageWidth, 3)).copy()
 
             # Reset flag to 0 (ready for next write)
             processedMMF.seek(blockOffset)
@@ -1084,8 +1130,7 @@ def read_block_memory(processedMMF, num_blocks, blockSize, metadataSize, imageSi
                     cache.pop(block_idx, None)
                 continue
 
-            if len(image_data) == imageSize:
-                image = np.frombuffer(image_data, dtype=np.uint8).reshape((imageHeight, imageWidth, 3)).copy()
+            if image is not None:
                 view = {
                     'slot': block_idx,
                     'drone_id': droneId,
@@ -1153,7 +1198,7 @@ def open_block_map():
     Note this needs nothing from metadata, so it can run before the metadata handshake.
     """
     try:
-        mmf = mmap.mmap(-1, BLOCK_SECTION_BYTES, "BlockSharedMemory")
+        mmf = mmap.mmap(-1, BLOCK_SECTION_BYTES, shm_name("BlockSharedMemory"))
     except Exception as e:
         _fatal(f"could not map BlockSharedMemory at {BLOCK_SECTION_BYTES} B "
                f"({BLOCK_SLOT_CAPACITY} slots x {BLOCK_SLOT_STRIDE} B): {e}\n"
@@ -1177,7 +1222,7 @@ def open_panorama_map():
     curved screen that simply never updated for the whole session.
     """
     try:
-        mmf = mmap.mmap(-1, PANORAMA_SECTION_BYTES, "PanoramaSharedMemory")
+        mmf = mmap.mmap(-1, PANORAMA_SECTION_BYTES, shm_name("PanoramaSharedMemory"))
     except Exception as e:
         _fatal(f"could not map PanoramaSharedMemory at {PANORAMA_SECTION_BYTES} B: {e}\n"
                "  If this is an access-denied error, a section of that name already exists\n"
@@ -1199,7 +1244,9 @@ def check_producer_alive(metadataMMF, state):
     hold ours, so every block keeps its last contents, every flag stays quiescent, and the
     stitcher goes on rendering a frozen panorama indefinitely.
 
-    ``state`` is a dict carrying {"value", "since"} across calls.
+    ``state`` is a dict carrying {"value", "since"} across calls. It also gains "fps": the
+    heartbeat is bumped once per Unity frame, so its rate over UNITY_FPS_WINDOW *is* Unity's
+    frame rate -- measured from outside, with nothing added to the producer.
     """
     try:
         metadataMMF.seek(META_HEARTBEAT_OFFSET)
@@ -1208,6 +1255,12 @@ def check_producer_alive(metadataMMF, state):
         return  # a torn or short read is not evidence of anything; try again next pass
 
     now = time.time()
+    if state.get("fps_since") is None:
+        state["fps_since"], state["fps_beat"] = now, beat
+    elif now - state["fps_since"] >= UNITY_FPS_WINDOW:
+        # uint32 counter: mask the difference so a wrap reads as a small positive step.
+        state["fps"] = ((beat - state["fps_beat"]) & 0xFFFFFFFF) / (now - state["fps_since"])
+        state["fps_since"], state["fps_beat"] = now, beat
     if beat != state["value"]:
         state["value"] = beat
         state["since"] = now
@@ -1303,6 +1356,11 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
             processedMMF.write(struct.pack('i', 0))
             break
 
+# Last panorama sequence number written (see PANORAMA_SEQ_SHIFT). A one-element list so the
+# writer can bump it without a global statement; first_thread is its only caller.
+_PANORAMA_SEQ = [0]
+
+
 def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, image_data=None):
     """
     Write the panorama (and its quality word) to shared memory with Unity.
@@ -1317,6 +1375,8 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
                    bit 4 : no overlap (camera yaw gap exceeds FOV)
                    bit 5 : too few feeds
                (bits 1+ = the failing-gate reason; only set when bit 0 == 0)
+                   bits 16-31 : panorama sequence number (PANORAMA_SEQ_SHIFT/MASK),
+                                bumped on every image write, never 0
         [8:  ] RGB24 image data
 
     ``quality_reason`` is the failing-gate mask (canvas=1, distortion=2,
@@ -1343,8 +1403,13 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
                          f"PANORAMA_MAX_WIDTH/HEIGHT here and maxPanoramaWidth/Height "
                          f"in PyUniSharingFast.cs together")
 
-    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1+).
-    quality_word = (quality_int & 1) | ((quality_reason & 0xFF) << 1)
+    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1+) and the
+    # sequence number (bits 16-31). A quality-only write repeats the current number: no new
+    # image was written, so there is nothing for Unity to upload.
+    if image_data is not None:
+        _PANORAMA_SEQ[0] = _PANORAMA_SEQ[0] % PANORAMA_SEQ_MASK + 1
+    quality_word = ((quality_int & 1) | ((quality_reason & 0xFF) << 1)
+                    | ((_PANORAMA_SEQ[0] & PANORAMA_SEQ_MASK) << PANORAMA_SEQ_SHIFT))
 
     while True:
         # Read the flag to check if Unity is ready for new data
@@ -1356,9 +1421,10 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
             panoramaMMF.seek(flag_position)
             panoramaMMF.write(struct.pack('i', 1))
 
-            # Write the packed quality word (good/bad flag + failing-gate reason)
+            # Write the packed quality word (good/bad flag + failing-gate reason + sequence).
+            # Unsigned: a sequence number above 32767 sets bit 31.
             panoramaMMF.seek(quality_position)
-            panoramaMMF.write(struct.pack('i', quality_word))
+            panoramaMMF.write(struct.pack('<I', quality_word & 0xFFFFFFFF))
 
             if image_data is not None:
                 # A view of the array's bytes, not a copy: at 1600x600 the old
@@ -1425,7 +1491,8 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
 
         if verbose and manager.print_rate and t - last_print >= RATE_PRINT_PERIOD:
             last_print = t
-            print(f"[stitching_thread] {rate.hz:.1f} Hz (5s avg) | last loop {time.perf_counter()-t:.3f}s")
+            unity = f" | unity {manager.unity_fps:.0f} fps" if manager.unity_fps else ""
+            print(f"[stitching_thread] {rate.hz:.1f} Hz (5s avg){unity} | last loop {time.perf_counter()-t:.3f}s")
 
         if debug:
             break
