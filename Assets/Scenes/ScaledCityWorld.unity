@@ -69971,25 +69971,25 @@ MonoBehaviour:
   alignmentWeight: 0.5
   d_ref: 1.08
   r0_coh: 20
-  delta: 0.2
-  a: 1.4
+  delta: 0.08
+  a: 0.8
   b: 2.6
   gamma: 1
   c_vm: 0
   d_obs: 0.4
   r0_obs: 5
   lambda_obs: 1
-  c_obs: 2.2
+  c_obs: 14
   c2_beta: 1.6
-  maxObstacleAccel: 4
-  d_shield: 1.4
+  maxObstacleAccel: 4.57
+  d_shield: 2.5
   scaleFactor: 10
   hollowSwarmCore: 1
   coreRadiusFraction: 0.5
-  coreRadiusFilterTime: 2
+  coreRadiusFilterTime: 0.5
   c_core: 1.5
   r0CohRatio: 0
-  c2_core: 1.6
+  c2_core: 0.6
   coreStandoffRatio: 0.5
   maxCoreAccel: 2
   SelectedAttitudeAlgorithm: 3

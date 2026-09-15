@@ -1044,13 +1044,58 @@ axis-aligned bounds**, and a flat plate is the worst possible input to that. `Ro
 circle in the gizmos, and a repulsion field with no gap between patches to fly through.
 `Tools/Swarm/Audit obstacle layer` reports it and `Tools/Swarm/Restrict obstacle layer to buildings`
 repairs it (`Assets/Scripts/Environment/Editor/ObstacleLayerAuditor.cs`). **Run the audit before
-concluding anything about obstacle avoidance in `CityWorld` or `CrowdWorld`** — the obstacle gains in
-all three scenes were tuned against `ScaledCityWorld`'s clean layer.
+concluding anything about obstacle avoidance in `CityWorld` or `CrowdWorld`** — their obstacle gains
+are the ones first tuned against `ScaledCityWorld`'s clean layer, which has since been retuned (below).
 
 Even on a clean layer the circumradius is conservative by construction: a 20 × 20 m building presents a
 14.14 m cylinder, i.e. ~4 m of phantom shell outside the facade. Every obstacle distance in the tuning
 (`d_obs`, `d_shield`) is measured to that cylinder, not to the wall. `ObstacleCylinderGizmos` with
 `drawBounds` shows the gap directly.
+
+**`ScaledCityWorld`'s Olfati-Saber gains are tuned for flying the swarm straight *through* the city while
+still following the spread stick quickly, and no longer match `CityWorld`/`CrowdWorld`.** Seven
+`SwarmManager` values moved together (was → now): `a` 1.4 → 0.8, `delta` 0.2 → 0.08, `c_obs` 2.2 → 14,
+`maxObstacleAccel` 4 → 4.57 (the tilt budget), `d_shield` 1.4 → 2.5, `c2_core` 1.6 → 0.6,
+`coreRadiusFilterTime` 2 → 0.5. `b` and `c_vm` are deliberately unchanged, and no code changed. On 120
+held-out flights in headless Unity (full-stick transits, waypoint tours, straight at a building, bang-bang
+reversals) drones lost went 88 → 16, building contacts 160 → 0, clean flights 22% → 95%, for 1% of
+progress speed. After a spread-stick step the formation settles in 4.5 s instead of 4.8 s with 7% overshoot
+instead of 25%, though a contraction takes ~1.3 s longer to reach 90%. The causes, found by attributing
+forces at every crash:
+- **Building contacts were cohesion, not the pilot.** `r0_coh` = 20 makes the α-lattice all-to-all, so a
+  drone the formation leaves behind a building is dragged through it by every other drone — a median
+  6.6 m/s² in the contact events, against an obstacle force that saturates at 4. Lowering `a` is the fix;
+  a lower `delta` also fades the pull beyond 16 m, and `c_obs` and the ceiling raise the other side.
+- **`a` is also the formation's stiffness, and it is the one dial between crash safety and the spread
+  response.** The σ₁ shape ties the slope of φ near `d_ref` to the attraction asymptote (`b` moves the ratio
+  by ~5% at most), and contraction is driven by attraction alone. A first pass at 0.7 (with `b` 3.6 and
+  `c_vm` 0.02) lost only 4 drones in the same Unity flights but took 7 s to reach 90% of a spread change,
+  twice the old time. With every other value above held, the replica measures (drones lost / contacts per
+  km, contraction t90, expansion overshoot): old tuning 1.65 / 2.25, 3.4 s, 27% — `a` 0.8: 0.36 / 0.008,
+  4.4 s, 8% — 0.9: 0.39 / 0.08, 4.0 s, 17% — 1.0: 0.46 / 0.27, 3.7 s, 24% — 1.2: 0.58 / 0.64, 3.1 s, 35%.
+- **The hollow core resists contraction.** Its radius is low-passed from the measured ring, so when the
+  pilot pulls the spread in, the core is still sized to the wider ring and pushes out. A 0.5 s filter cuts
+  settling by about a third with no change to crashes or the ring. A smaller `coreRadiusFraction` or a
+  lower `maxCoreAccel` does not help: both make the ring flip configuration slowly after an expansion,
+  and the lower ceiling also drops the hover hull fraction from 1.0 to 0.9.
+- **Drone-drone kills are momentum.** At the kill tick nothing pushes the pair together; the closing speed
+  (median 2 m/s, p90 5) was built up beside a building a second earlier, by the shield stopping one drone
+  while its neighbour flies on. The wider `d_shield` and the lower `delta` make that braking gradual. What
+  remains is mostly abrupt full-stick reversals (12 of the 16 Unity losses). `c_vm` would damp it but hands
+  a braking drone back the command the shield removed (0.1 cut drone-drone kills 4× and nearly tripled
+  contacts) and slows the spread response, so it stays 0. `d_shield` 3.0 saves a few more drones for 5% of
+  progress speed.
+- **The hollow core's velocity match brakes the swarm in translation** (`vel_obs` is built from absolute
+  velocity, but the core travels with the swarm): about 0.7 m/s² at 1.6, switched off beside buildings
+  only. `c2_core` 0.6 buys back the speed the wider shield costs; the hover ring still forms.
+- **In Unity a contact is worse than a bump.** PhysX friction (default material, μ 0.6) pins a drone that
+  cohesion is pressing into a facade; the swarm leaves it and it dies as `TooFarFromSwarm`, or flips as
+  `Crashed`. Baseline flights with no contact never split; flights with one were split 39% of the time.
+  `DroneHealthMonitor` has no contact check, so count contacts as well as deaths when tuning.
+- **Two limits no tuning here removes.** Full stick at the joystick's tightest spread (`d_ref` 0.4, ~1.8 m
+  spacing) loses drones to each other even in open sky, under the old values as much as the new; 0.7 is
+  safe. And the values are sized for 10 drones: cohesion sums over neighbours, so at 15 contacts come back
+  (0.8/km) until `a` is scaled by about 9/(N−1), and drone-drone losses still rise with N.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

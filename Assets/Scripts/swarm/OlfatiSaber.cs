@@ -84,6 +84,10 @@ public class OlfatiSaber : MonoBehaviour
     // tighter than the distance a drone at maxSpeed needs in order to shed that speed. At 9.31 m/s
     // and g*tan(0.436332) = 4.57 m/s^2 that distance is 9.5 m; 1.4 (14 m) leaves a drone about
     // 3 m clear of the cylinder at full stick.
+    // That is a single drone's floor. A swarm wants more (ScaledCityWorld flies 2.5): the fade is also
+    // how differently neighbours brake beside a building -- one stopped while the next flies on --
+    // and that closing speed, not anything pushing at the moment of contact, is what kills drones
+    // there.
     // Zero disables the shield.
     public float d_shield = 1.4f;
 
@@ -133,6 +137,10 @@ public class OlfatiSaber : MonoBehaviour
     // component and mu -> 1 near the surface, so travel along the ring is untouched while radial
     // overshoot is damped. Without it the core is conservative and a drone pushed out springs back
     // in -- the same rebound documented on c2_beta above -- and the ring breathes.
+    // The catch: vel_obs is built from the drone's absolute velocity, as for a static obstacle, but
+    // this one travels with the swarm. At cruise the term therefore also brakes the translation of
+    // every ring drone (about 0.7 m/s^2 at 1.6, measured as the cruise speed it costs), and the
+    // proximity fade below switches that brake off beside buildings only.
     public float c2_core = 1.6f;
 
     // The core's OWN ceiling, m/s^2, deliberately not MaxObstacleAccel's. Keeping it well under the

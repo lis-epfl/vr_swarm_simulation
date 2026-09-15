@@ -25,13 +25,30 @@ public class SwarmManager : MonoBehaviour
     [Header("Olfati-Saber Parameters")]
     public float d_ref = 7.0f;
     public float r0_coh = 20.0f;
+    [Tooltip("Flat-top fraction of the rho_h bump, and one value for every bump there is: the alpha " +
+             "neighbour weight (over r0_coh), the obstacle field (over d_obs), the pilot shield's fade " +
+             "(over d_shield) and the hollow core. Lowering it fades attraction beyond delta*r0_coh, and " +
+             "weakens the obstacle field and the shield through the middle of their ranges, so both " +
+             "build up more gradually as a drone closes in.")]
     public float delta = 0.1f;
+    [Tooltip("Attraction per neighbour at long range, m/s^2. With r0_coh far larger than the swarm every " +
+             "neighbour pulls, so a drone the formation leaves behind a building is dragged through it by " +
+             "the whole swarm while the obstacle force saturates at maxObstacleAccel -- that was nearly " +
+             "every building contact in ScaledCityWorld.\n\n" +
+             "It is also the formation's stiffness, and the two cannot be separated: the sigma_1 shape " +
+             "ties the slope of phi near d_ref to this asymptote (b moves the ratio by ~5% at most). So " +
+             "lowering it slows how fast the swarm follows the spread stick -- mostly contraction, which " +
+             "only attraction drives. It is the one dial between crash safety and spread response.")]
     public float a = 0.3f;
     public float b = 0.5f;
     private float c;
     public float gamma = 1.0f;
     [Tooltip("Alpha-agent velocity consensus gain only. The obstacle (beta-agent) velocity match " +
-             "has its own gain, c2_beta -- setting this to 0 no longer disables obstacle damping.")]
+             "has its own gain, c2_beta -- setting this to 0 no longer disables obstacle damping.\n\n" +
+             "Summed over every alive neighbour with no distance weighting, so a drone feels (N-1) times " +
+             "this, and it hands a drone the pilot shield is braking back the command the shield just " +
+             "removed. Near buildings even a few hundredths trades building contacts for fewer " +
+             "drone-drone collisions, and it damps the formation's response to the spread stick.")]
     public float c_vm = 1.0f;
     public float d_obs = 4.0f;
     public float r0_obs = 6.0f;
@@ -46,7 +63,10 @@ public class SwarmManager : MonoBehaviour
     public float maxObstacleAccel = 4.0f;
     [Tooltip("Range of the pilot-command shield in swarm units (metres / scaleFactor). Inward stick " +
              "is faded out over this distance so the pilot cannot fly straight into an obstacle. " +
-             "Size it to the stopping distance, which is much larger than the d_obs standoff. 0 = off.")]
+             "Size it to the stopping distance, which is much larger than the d_obs standoff. 0 = off.\n\n" +
+             "That is one drone's floor; a swarm wants more. The fade also decides how differently " +
+             "neighbours brake beside a building, and an abrupt one builds the closing speed behind most " +
+             "drone-drone collisions there.")]
     public float d_shield = 1.4f;
     public float scaleFactor = 10.0f;
 
@@ -73,7 +93,12 @@ public class SwarmManager : MonoBehaviour
 
     [Tooltip("Time constant (s) of the low-pass on the core radius. It exists for drone losses and " +
              "for the mild feedback in measuring the core off the swarm it is shaping. Seeded on " +
-             "the first tick, so there is no ramp at scene start or on leaving plane mode.")]
+             "the first tick, so there is no ramp at scene start or on leaving plane mode.\n\n" +
+             "Its lag is felt when the pilot pulls the spread in: the core is still sized to the old, " +
+             "wider ring and pushes outward against the contraction. 0.5 s cut the settling time after " +
+             "a spread change by about a third with no change to the ring or to crashes; " +
+             "the loop gain is low enough (see SwarmPlaneController.UpdateCoreRadius) that a fast " +
+             "filter does not oscillate.")]
     public float coreRadiusFilterTime = 2.0f;
 
     [Tooltip("Core repulsion gain. 1.5 is verified to put every drone on the hull at 6 and 10 " +
@@ -92,7 +117,10 @@ public class SwarmManager : MonoBehaviour
 
     [Tooltip("Core beta-agent velocity-match gain (s^-1). Damps radial overshoot without touching " +
              "travel around the ring. Set to 0 and the core becomes conservative: drones pushed out " +
-             "spring back in and the ring breathes.")]
+             "spring back in and the ring breathes.\n\n" +
+             "It is measured against each drone's absolute velocity while the core travels with the " +
+             "swarm, so at cruise it is also a drag on the whole formation (about 0.7 m/s^2 at 1.6) -- " +
+             "one that fades out beside buildings, i.e. differs between neighbours exactly there.")]
     public float c2_core = 1.6f;
 
     [Tooltip("Core standoff as a multiple of the live d_ref, in swarm units. Sized to the lattice " +
