@@ -52,6 +52,7 @@ public class WalkerPatrol : MonoBehaviour
         public float speed;          // linear speed (m/s)
 
         // Rectangle path
+        public float expand;         // this walker's gap from the collider edge (metres)
         public float distance;       // arc length travelled along the path
         public float halfW;          // half side length along local X
         public float halfD;          // half side length along local Z
@@ -120,10 +121,12 @@ public class WalkerPatrol : MonoBehaviour
         // Base half-extents come from the collider's world-axis-aligned bounds.
         Vector3 baseExtents = footprint != null ? footprint.bounds.extents : Vector3.zero;
 
-        // Create a container for all walkers
-        walkersContainer = new GameObject("Walkers");
-        walkersContainer.transform.parent = transform;
-        walkersContainer.transform.localPosition = Vector3.zero;
+        // Create a container for all walkers. It hangs beside the building rather than under it, so
+        // resizing the building (BuildingWidthTuner) moves only the path, never the walkers' own scale:
+        // under the building, the scale compensation taken here would go stale and stretch them.
+        walkersContainer = new GameObject("Walkers (" + name + ")");
+        walkersContainer.transform.SetParent(transform.parent, false);
+        walkersContainer.transform.position = transform.position;
 
         Vector3 center = GetCenter();
 
@@ -140,13 +143,8 @@ public class WalkerPatrol : MonoBehaviour
                 // Start a fixed baseOffset out from the collider edge, then
                 // expand outward by a random amount so each side sits in
                 // [collider + baseOffset, collider + baseOffset + margin].
-                float expand = baseOffset + Random.Range(0f, margin) * 0.5f;
-                info.halfW = baseExtents.x + expand;
-                info.halfD = baseExtents.z + expand;
-
-                // Corner radius can't exceed half of the shorter side.
-                info.cornerRadius = Mathf.Min(cornerRadius, info.halfW, info.halfD);
-                info.cornerRadius = Mathf.Max(info.cornerRadius, 0.001f);
+                info.expand = baseOffset + Random.Range(0f, margin) * 0.5f;
+                SizeRectangle(info, baseExtents);
 
                 // Random start position along the perimeter.
                 info.distance = Random.Range(0f, Perimeter(info));
@@ -174,9 +172,19 @@ public class WalkerPatrol : MonoBehaviour
         }
     }
 
+    // The container is no longer a child, so it has to be cleaned up with the building explicitly.
+    void OnDestroy()
+    {
+        if (walkersContainer != null) Destroy(walkersContainer);
+    }
+
     void Update()
     {
         Vector3 center = GetCenter();
+
+        // Re-read every frame so the path follows a building resized after Start — BuildingWidthTuner
+        // sizes goal patches on their first frame, and its goal width can be dragged during Play.
+        Vector3 extents = footprint != null ? footprint.bounds.extents : Vector3.zero;
 
         foreach (WalkerInfo info in walkers)
         {
@@ -186,6 +194,8 @@ public class WalkerPatrol : MonoBehaviour
 
             if (shape == PathShape.Rectangle)
             {
+                SizeRectangle(info, extents);
+
                 // Advance along the path (negative direction for clockwise).
                 float step = info.speed * Time.deltaTime;
                 info.distance += info.clockwise ? -step : step;
@@ -224,6 +234,17 @@ public class WalkerPatrol : MonoBehaviour
         }
         Vector3 t = transform.position;
         return new Vector3(t.x, t.y + verticalOffset, t.z);
+    }
+
+    // Sides from the collider's world-axis-aligned half-extents plus this walker's gap.
+    private void SizeRectangle(WalkerInfo info, Vector3 extents)
+    {
+        info.halfW = extents.x + info.expand;
+        info.halfD = extents.z + info.expand;
+
+        // Corner radius can't exceed half of the shorter side.
+        info.cornerRadius = Mathf.Min(cornerRadius, info.halfW, info.halfD);
+        info.cornerRadius = Mathf.Max(info.cornerRadius, 0.001f);
     }
 
     private static Vector3 GetCircleXZ(WalkerInfo info, float angleDeg)

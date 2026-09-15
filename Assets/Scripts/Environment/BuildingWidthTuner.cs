@@ -39,9 +39,18 @@ using UnityEditor.SceneManagement;
 /// without this they stand in a tuned city at the wrong size — the one thing that visibly disagreed
 /// while tuning was edit-mode only.</para>
 ///
-/// <para><b>Cost.</b> Nothing runs unless the value changes: <see cref="Update"/> is one float compare
-/// (two while the runtime-spawn check is still pending). The scene is not scanned until the first
-/// change, or twice at the start of a play session that has a tuning to propagate. A change writes one
+/// <para><b>Goal patches can take a width of their own</b> (<see cref="independentGoalPatchWidth"/>,
+/// <see cref="goalPatchWidthScale"/>), relative to the goal prefab's authored width just as
+/// <see cref="widthScale"/> is relative to the city's. Off, they follow the city as above. Because
+/// <see cref="GoalPatchReplacer"/> instantiates them at runtime they are never batched, so this knob, unlike
+/// the city's, drags live during Play. It has no effect in edit mode, where no goal exists yet. The same UV
+/// caveat applies as for <see cref="widthScale"/>: <c>BuildingUvBaker</c>'s bake assumed the
+/// prefab's width, so any value but 1 stretches the facades by that factor.</para>
+///
+/// <para><b>Cost.</b> Nothing runs unless a value changes: <see cref="Update"/> is two float compares
+/// (the city's width and the goals'). The scene is not scanned until the first change, or twice at the
+/// start of a play session that has a tuning to propagate; goal patches are found once, at the start of
+/// every play session, through <see cref="GoalPatchReplacer"/> rather than a scene scan. A change writes one
 /// <c>localScale</c> per building. Obstacle avoidance needs no rescan — <see cref="OlfatiSaber"/> reads
 /// <c>Collider.bounds</c> every frame and a BoxCollider scales with its transform.</para>
 ///
@@ -74,6 +83,17 @@ public class BuildingWidthTuner : MonoBehaviour
         "Skyscraper_",
     };
 
+    [Header("Goal patches")]
+    [Tooltip("Size the buildings in the goal patches GoalPatchReplacer spawns by goalPatchWidthScale instead " +
+             "of by the city's width. Off, they match the city.")]
+    [SerializeField] private bool independentGoalPatchWidth = false;
+
+    [Tooltip("Multiplies the building width the goal patch prefab was authored with; 1 = unchanged. Used only " +
+             "while independentGoalPatchWidth is on. Goal patches are spawned at runtime and never static-" +
+             "batched, so unlike widthScale this can be dragged live during Play.")]
+    [Range(0.05f, 8f)]
+    [SerializeField] private float goalPatchWidthScale = 1f;
+
     [Tooltip("Log a line each time the width is re-applied. Off by default: dragging the slider applies " +
              "once per frame and would spam the console.")]
     [SerializeField] private bool logChanges = false;
@@ -103,6 +123,15 @@ public class BuildingWidthTuner : MonoBehaviour
     // Update, after which the field costs one reference compare per frame.
     private HashSet<Transform> preexisting;
 
+    // The buildings inside GoalPatchReplacer's goal patches, captured on the first Update of a play session.
+    // Kept out of `buildings` because they take their own width, and because they are never batched: the
+    // city's batching refusal must not hold them back, nor a city rescan capture them at the city's width.
+    private readonly List<Building> goalBuildings = new List<Building>();
+    private readonly HashSet<Transform> goalBuildingSet = new HashSet<Transform>();
+    private bool goalsCaptured;
+    private bool goalWidthLogged;
+    private float appliedGoalWidthScale = 1f; // relative to the goal prefab; they spawn at its authored width
+
     /// <summary>
     /// Snapshot the buildings the scene loaded with, so <see cref="MatchNewBuildings"/> can tell them
     /// from ones spawned later. Awake runs before every Start, which is what makes the snapshot exclude
@@ -125,6 +154,13 @@ public class BuildingWidthTuner : MonoBehaviour
 
     private void Update()
     {
+        if (!goalsCaptured && Application.isPlaying)
+        {
+            // First frame of a play session: GoalPatchReplacer has placed its goals in its own Start.
+            // Captured before anything below so no city pass mistakes a goal building for the city's.
+            CaptureGoalBuildings();
+        }
+
         if (preexisting != null)
         {
             // First frame of a tuned play session: every Start has run, so anything that was going to
@@ -133,24 +169,20 @@ public class BuildingWidthTuner : MonoBehaviour
             preexisting = null;
         }
 
-        if (widthScale == appliedWidthScale)
+        // The common case is two float compares per frame and nothing else.
+        if (widthScale != appliedWidthScale && gameObject.scene.IsValid()) // invalid = opened as a prefab asset
         {
-            return; // the common case: one float compare per frame, nothing else
+            if (!scanned)
+            {
+                // Deferred to Update rather than Start so GoalPatchReplacer, which instantiates goal
+                // patches in its own Start, has already placed them and they can be told apart.
+                Rescan();
+            }
+            ApplyWidth();
         }
 
-        if (!gameObject.scene.IsValid())
-        {
-            return; // opened as a prefab asset rather than in a scene; nothing to tune
-        }
-
-        if (!scanned)
-        {
-            // Deferred to Update rather than Start so GoalPatchReplacer, which instantiates goal
-            // patches in its own Start, has already placed them and their buildings are scanned too.
-            Rescan();
-        }
-
-        ApplyWidth();
+        // After the city, so goals that follow the city's width follow a change on the same frame.
+        ApplyGoalWidthIfChanged();
     }
 
 #if UNITY_EDITOR
@@ -210,6 +242,34 @@ public class BuildingWidthTuner : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Whether goal patches take <see cref="GoalPatchWidthScale"/> rather than the city's width. Assigning
+    /// applies it immediately to any goals already placed.
+    /// </summary>
+    public bool IndependentGoalPatchWidth
+    {
+        get => independentGoalPatchWidth;
+        set
+        {
+            independentGoalPatchWidth = value;
+            ApplyGoalWidthIfChanged();
+        }
+    }
+
+    /// <summary>
+    /// The goal patches' own width multiplier, relative to the goal prefab. Takes effect only while
+    /// <see cref="IndependentGoalPatchWidth"/> is set; assigning applies it immediately.
+    /// </summary>
+    public float GoalPatchWidthScale
+    {
+        get => goalPatchWidthScale;
+        set
+        {
+            goalPatchWidthScale = Mathf.Max(0.001f, value);
+            ApplyGoalWidthIfChanged();
+        }
+    }
+
     /// <summary>Put the buildings back to the width the scene was authored with.</summary>
     [ContextMenu("Restore authored width")]
     public void RestoreAuthoredWidth()
@@ -234,6 +294,11 @@ public class BuildingWidthTuner : MonoBehaviour
         int offAxis = 0;
         foreach (Transform t in CollectBuildings())
         {
+            if (goalBuildingSet.Contains(t))
+            {
+                continue; // sized by ApplyGoalWidth, at a width of its own
+            }
+
             int heightAxis = FindHeightAxis(t, out float verticality);
             if (verticality < 0.9f)
             {
@@ -341,9 +406,9 @@ public class BuildingWidthTuner : MonoBehaviour
 
         foreach (Transform t in CollectBuildings())
         {
-            if (preexisting.Contains(t))
+            if (preexisting.Contains(t) || goalBuildingSet.Contains(t))
             {
-                continue; // loaded with the scene, so it already carries the applied width
+                continue; // loaded with the scene, so already at the applied width; or a goal, sized apart
             }
             if (t.TryGetComponent(out Renderer renderer) && renderer.isPartOfStaticBatch)
             {
@@ -363,6 +428,98 @@ public class BuildingWidthTuner : MonoBehaviour
         {
             Debug.Log($"BuildingWidthTuner: matched {matched} newly spawned buildings to the city's " +
                       $"{scale:F3}x width.", this);
+        }
+    }
+
+    /// <summary>
+    /// Take over the buildings in every goal patch <see cref="GoalPatchReplacer"/> placed. They come straight
+    /// out of the prefab, so their live scale is the goal prefab's authored width. Found through
+    /// <see cref="GoalPatchReplacer.PlacedGoals"/> rather than by name, which is what makes "goal" mean the
+    /// same thing here as in the experiment recording.
+    /// </summary>
+    private void CaptureGoalBuildings()
+    {
+        goalsCaptured = true;
+
+        foreach (GoalPatchReplacer replacer in FindObjectsByType<GoalPatchReplacer>(FindObjectsSortMode.None))
+        {
+            foreach (GameObject goal in replacer.PlacedGoals)
+            {
+                if (goal == null || (cityRoot != null && !goal.transform.IsChildOf(cityRoot)))
+                {
+                    continue;
+                }
+                foreach (Transform t in goal.GetComponentsInChildren<Transform>(true))
+                {
+                    if (IsBuilding(t.name) && goalBuildingSet.Add(t))
+                    {
+                        goalBuildings.Add(new Building
+                        {
+                            transform = t,
+                            authoredScale = t.localScale,
+                            heightAxis = FindHeightAxis(t, out _),
+                        });
+                    }
+                }
+            }
+        }
+
+        appliedGoalWidthScale = 1f;
+        if (goalBuildings.Count > 0)
+        {
+            scanned = false; // a scan taken before the goals existed may hold them as city buildings
+        }
+    }
+
+    /// <summary>The width the goal patches should stand at: their own if independent, else the city's.</summary>
+    private float GoalWidthTarget =>
+        independentGoalPatchWidth ? Mathf.Max(0.001f, goalPatchWidthScale) : appliedWidthScale;
+
+    private void ApplyGoalWidthIfChanged()
+    {
+        if (goalBuildings.Count > 0 && GoalWidthTarget != appliedGoalWidthScale)
+        {
+            ApplyGoalWidth();
+        }
+    }
+
+    /// <summary>
+    /// Write <see cref="GoalWidthTarget"/> to every goal building. Not subject to the static-batch refusal in
+    /// <see cref="ApplyWidth"/>: runtime instances are never batched, which is why this works live in Play
+    /// while the city's width does not. <see cref="WalkerPatrol"/> sizes its path off the collider every
+    /// frame, so the pedestrians follow.
+    /// </summary>
+    private void ApplyGoalWidth()
+    {
+        float scale = GoalWidthTarget;
+        int applied = 0;
+
+        foreach (Building b in goalBuildings)
+        {
+            if (b.transform == null)
+            {
+                continue;
+            }
+            if (b.transform.TryGetComponent(out Renderer renderer) && renderer.isPartOfStaticBatch)
+            {
+                continue; // cannot happen to an instantiated goal; if it does, keep its collider on its mesh
+            }
+
+            Vector3 s = b.authoredScale;
+            if (b.heightAxis != 0) { s.x *= scale; }
+            if (b.heightAxis != 1) { s.y *= scale; }
+            if (b.heightAxis != 2) { s.z *= scale; }
+            b.transform.localScale = s;
+            applied++;
+        }
+
+        appliedGoalWidthScale = scale;
+
+        if (logChanges || !goalWidthLogged)
+        {
+            goalWidthLogged = true; // the first sizing is always reported, like MatchNewBuildings
+            string source = independentGoalPatchWidth ? "their own" : "the city's";
+            Debug.Log($"BuildingWidthTuner: {applied} goal-patch buildings sized to {source} {scale:F3}x width.", this);
         }
     }
 
