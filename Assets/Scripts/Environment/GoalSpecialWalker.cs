@@ -6,7 +6,7 @@ using UnityEditor;
 
 /// <summary>
 /// Ensures each goal patch contains exactly one visually-distinct "special"
-/// pedestrian (a <c>ModifiedWalker</c> prefab) among its many ordinary walkers,
+/// pedestrian (one of the hat-wearing walker prefabs) among its many ordinary walkers,
 /// and that no two goals in a session hand the pilot the same one.
 ///
 /// A goal patch holds several <see cref="WalkerPatrol"/> components (each spawning
@@ -28,8 +28,8 @@ using UnityEditor;
 public class GoalSpecialWalker : MonoBehaviour
 {
     [Tooltip("The visually-distinct pedestrian prefabs, one per hat. Each goal patch takes a " +
-             "different one until the set runs out, then the set is reshuffled. Auto-discovered " +
-             "by name (any prefab starting 'ModifiedWalker') in the editor; assign to override.")]
+             "different one until the set runs out, then the set is reshuffled. An empty list is " +
+             "filled in the editor from DefaultPrefabNames; assign explicitly to override.")]
     [SerializeField] private GameObject[] specialWalkerPrefabs;
 
     // The deal, shared across every goal patch: indices into one patch's prefab list, shuffled.
@@ -114,9 +114,18 @@ public class GoalSpecialWalker : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    // Auto-assign the ModifiedWalker prefabs so they don't have to be dragged onto
-    // the goal patch by hand; the resolved references are serialized for builds.
-    // Mirrors WalkerPatrol's SimpleWalker auto-assignment.
+    /// <summary>
+    /// The hats, named rather than pattern-matched. A name pattern is what there *isn't* a safe one
+    /// of: these are named for their hats, so the only shared token is the "Walker" suffix, and that
+    /// also matches <c>SimpleWalker</c> — the ordinary pedestrian the other 63 in a patch are built
+    /// from. Dealing that as a "special" would put a hatless target in a goal, and the pilot would be
+    /// hunting someone indistinguishable from the crowd. Add a hat by adding it here.
+    /// </summary>
+    private static readonly string[] DefaultPrefabNames = { "CapWalker", "CowboyWalker", "BucketWalker" };
+
+    // Auto-assign the special walker prefabs so they don't have to be dragged onto the goal patch by
+    // hand; the resolved references are serialized for builds, and this only fills an empty list, so
+    // an explicit assignment is never overwritten. Mirrors WalkerPatrol's SimpleWalker assignment.
     private void Reset() { AssignDefaultSpecialPrefabs(); }
     private void OnValidate() { AssignDefaultSpecialPrefabs(); }
 
@@ -124,20 +133,21 @@ public class GoalSpecialWalker : MonoBehaviour
     {
         if (specialWalkerPrefabs != null && specialWalkerPrefabs.Length > 0) return;
 
-        List<string> paths = new List<string>();
-        foreach (string guid in AssetDatabase.FindAssets("ModifiedWalker t:Prefab"))
+        List<GameObject> found = new List<GameObject>();
+        foreach (string wanted in DefaultPrefabNames)
         {
-            string path = AssetDatabase.GUIDToAssetPath(guid);
-            if (System.IO.Path.GetFileNameWithoutExtension(path).StartsWith("ModifiedWalker"))
-                paths.Add(path);
+            foreach (string guid in AssetDatabase.FindAssets(wanted + " t:Prefab"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (System.IO.Path.GetFileNameWithoutExtension(path) != wanted) continue;
+
+                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab != null) found.Add(prefab);
+                break;
+            }
         }
 
-        // Sorted, so the inspector order (and hence nothing at all about the deal) does not
-        // depend on the order the asset database happens to return.
-        paths.Sort(string.CompareOrdinal);
-        specialWalkerPrefabs = new GameObject[paths.Count];
-        for (int i = 0; i < paths.Count; i++)
-            specialWalkerPrefabs[i] = AssetDatabase.LoadAssetAtPath<GameObject>(paths[i]);
+        specialWalkerPrefabs = found.ToArray();
     }
 #endif
 }

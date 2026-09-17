@@ -4,8 +4,8 @@ using UnityEngine;
 // (see GoalSpecialWalker). Mostly a detection hook: other systems locate the
 // findable target with FindObjectsByType<SpecialWalker>() or
 // GetComponentInParent<SpecialWalker>(). It holds no behaviour of its own — the
-// special walker patrols exactly like a normal one; only its prefab (a
-// ModifiedWalker) looks different.
+// special walker patrols exactly like a normal one; only its prefab (one of the
+// hat-wearing walkers — CapWalker, CowboyWalker, BucketWalker) looks different.
 //
 // It also names which hat this one is wearing, so ExperimentRecorder can log the
 // hat per goal. The id belongs on the prefab rather than in a list beside it: it

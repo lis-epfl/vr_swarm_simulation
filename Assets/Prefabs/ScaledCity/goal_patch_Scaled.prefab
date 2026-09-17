@@ -7097,7 +7097,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   specialWalkerPrefabs:
+  - {fileID: 7159716781563447104, guid: 984e7cc49b6d6a84c8e333a0965cbdb4, type: 3}
   - {fileID: 5094124037760320590, guid: f5abe014cd51c914b85838ddec9970e0, type: 3}
+  - {fileID: 4022510991903748776, guid: 999f6df44f6fb9044bae304f2db03a8f, type: 3}
 --- !u!1 &8237912364196087655
 GameObject:
   m_ObjectHideFlags: 0
