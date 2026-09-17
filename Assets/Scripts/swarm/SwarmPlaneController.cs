@@ -495,16 +495,32 @@ public class SwarmPlaneController : MonoBehaviour
     /// Moves the wall's reference altitude with the climb stick, at the rate that stick moves each
     /// drone's own height setpoint (VelocityControl.SetNormalisedAltitudeRate). The rate is read off
     /// a drone rather than exposed as a second knob: one that disagreed would let the vertical leash
-    /// clip a climb the pilot is actually commanding.
+    /// clip a climb the pilot is actually commanding. Bounded above by the swarm's altitude ceiling
+    /// (<see cref="SwarmManager.maxHeightAboveTerrain"/>), for the same anti-windup reason the
+    /// per-drone setpoint is.
     /// </summary>
     private void IntegrateReferenceAltitude()
     {
-        if (InputManager.Instance == null) return;
+        if (InputManager.Instance != null)
+        {
+            float normAlt = Mathf.Clamp(InputManager.Instance.InputStatus["throttle"], -1.0f, 1.0f);
+            if (normAlt != 0.0f)
+            {
+                referenceAltitude += normAlt * referenceAltitudeRate * Time.fixedDeltaTime;
+            }
+        }
 
-        float normAlt = Mathf.Clamp(InputManager.Instance.InputStatus["throttle"], -1.0f, 1.0f);
-        if (normAlt == 0.0f) return;
-
-        referenceAltitude += normAlt * referenceAltitudeRate * Time.fixedDeltaTime;
+        // The same altitude ceiling every drone is held to (SwarmManager.maxHeightAboveTerrain),
+        // applied to the wall's own reference. Without it a held climb stick walks this past a
+        // ceiling the drones cannot follow it through, and every metre of that excess has to be
+        // flown back down before the stick does anything visible — the windup the per-drone clamp
+        // in VelocityControl is written to avoid. Measured at the centroid, which is where this
+        // altitude is latched from in the first place.
+        float ceiling = SwarmManager.Instance != null ? SwarmManager.Instance.GetMaxHeightAboveTerrain() : 0.0f;
+        if (ceiling > 0.0f && TerrainHeightSampler.TryGetHeight(swarmCentroid, out float groundHeight))
+        {
+            referenceAltitude = Mathf.Min(referenceAltitude, groundHeight + ceiling);
+        }
     }
 
     /// <summary>

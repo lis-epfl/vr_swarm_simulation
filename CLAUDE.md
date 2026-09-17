@@ -217,6 +217,49 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     on the net vertical bias the swarm forces carry (cohesion and the plane pull are zero-sum, ground
     repulsion is not). It tracks the climb stick at the rate read off the drones' own `maxAltitudeRate`,
     so the leash cannot clip a climb the pilot is commanding.
+- **The altitude ceiling is a hard cap on the height *setpoint*, measured from the Terrain, and it is
+  per scene.** `SwarmManager.maxHeightAboveTerrain` (0 = off) is pushed into every drone through
+  `SwarmAlgorithm`'s params update, and `VelocityControl` clamps `desired_height` to
+  `terrain + limit` — the symmetric counterpart of the `MinHeight` floor applied immediately after
+  it, with the floor winning if the two ever cross. Points worth keeping:
+  - **Clamping the setpoint rather than the stick is what keeps it free of windup.**
+    `desired_height` is clamped *in place*, so holding the climb stick at the ceiling stores nothing
+    and pushing back down moves the drone on the first tick. The same argument applies one level up,
+    which is why `SwarmPlaneController.IntegrateReferenceAltitude` clamps the wall's reference
+    altitude to the same ceiling at the centroid: left alone, a held stick walks that reference past
+    a ceiling the drones cannot follow it through, and every metre of it has to be flown back before
+    the stick does anything visible.
+  - **The swarm's upward force is dropped above the ceiling as well, and only in the horizontal
+    case.** In a tilted plane the swarm already drives the setpoint (`verticalSwarmAuthority`), which
+    the clamp bounds; in a horizontal formation its vertical force goes straight into thrust, where
+    the clamped setpoint does not reach it and a sustained upward pull from the lattice would simply
+    sit on top of the cap. Only the upward half is dropped, so a drone held at the ceiling still
+    settles back into the formation.
+  - **In plane mode a climb stick is dropped once the wall's reference altitude is pinned at the
+    ceiling, and the test has to be that reference rather than the drone's own setpoint.** A stick
+    left in the sum is added and clamped away every tick, which cancels the swarm's vertical term
+    exactly — so a wall flown up into the ceiling **pancakes flat against it** instead of re-forming
+    below, and drones end up in each other's cells. Measured on a headless ScaledCityWorld wall, 60 s
+    of full climb stick: plain clamp, the wall collapses to 51.24–51.33 m and **2 of 10 drones are
+    lost to a drone-drone collision at the cap**; with the stick dropped it keeps 37.9–51.3 m of
+    spread and loses none, the top still exactly at the ceiling. Gating on the drone's own setpoint
+    instead is worth nothing (it measured *worse*, 4 lost): the swarm pushes the setpoint a tick's
+    worth below the cap and that very dip re-enables the stick, which puts it straight back. The
+    same flattening is what the pre-existing `MinHeight` floor does at the bottom — the first bench
+    arm lost a pair that way at 1.8 m — and it is not addressed here.
+  - **Measured from the Unity Terrain under the drone, not from a downward raycast.** A raycast
+    ceiling rides up over the rooftops, which both defeats the point (a drone could sit at
+    `limit + 50` over a building) and shoves it down hard at every roof edge. Past the edge of the
+    terrain the nearest tile answers rather than nobody (`TerrainHeightSampler`), so flying off the
+    map is not a way out from under the ceiling; a scene with **no** Terrain — DJIScene,
+    FactoryScene — has no ground to measure from and gets no ceiling at all.
+  - **The flown ceiling is ~1.3 m above the number**, because the height PD holds each drone that far
+    above its setpoint (the `ForceMode.Acceleration` linear twin above). Fixing that is its own
+    change; do not compensate for it here, or the compensation becomes wrong the day it is fixed.
+  - The value belongs to the scene's geometry, so it is per scene: `ScaledCityWorld` 50, exactly its
+    uniform skyline, so the swarm must fly *around* a building rather than over it; `CityWorld` and
+    `CrowdWorld` 150, because the pack's unscaled buildings reach ~136; `RingChallenge` and
+    `NBackExperiment` 80, comfortably above their content (~47 and ~56).
 - **The heading loop is a cascade, and `AttitudeAlgorithm` is the PC, not the flight controller.**
   On the real fleet the PC sends a yaw *rate* (`YawControlMode.ANGULAR_VELOCITY`) and the DJI FC holds
   heading off its own IMU whenever that rate is zero. `AttitudeAlgorithm` is the analogue of the PC's

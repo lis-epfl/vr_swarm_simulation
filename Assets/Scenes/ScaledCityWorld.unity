@@ -69993,6 +69993,7 @@ MonoBehaviour:
   c2_core: 0.6
   coreStandoffRatio: 0.5
   maxCoreAccel: 2
+  maxHeightAboveTerrain: 50
   SelectedAttitudeAlgorithm: 3
   numNeighbours: 9
   numDimensions: 2

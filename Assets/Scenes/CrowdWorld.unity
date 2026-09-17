@@ -3922,6 +3922,7 @@ MonoBehaviour:
   maxObstacleAccel: 4
   d_shield: 1.4
   scaleFactor: 10
+  maxHeightAboveTerrain: 150
   SelectedAttitudeAlgorithm: 3
   numNeighbours: 9
   numDimensions: 2

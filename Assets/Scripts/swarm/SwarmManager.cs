@@ -144,6 +144,23 @@ public class SwarmManager : MonoBehaviour
         GLOBAL_CONVEXHULL,
     }
 
+    [Header("Altitude Limit")]
+    [Tooltip("Metres above the TERRAIN surface that a drone may be commanded to. 0 (or a scene " +
+             "with no Terrain, e.g. DJIScene and FactoryScene) = no limit. The height measured " +
+             "from is the Unity Terrain under the drone, not the rooftops, so the ceiling stays " +
+             "flat over the city: at 50 in ScaledCityWorld, whose buildings are all exactly 50 " +
+             "tall, the swarm must fly around a building rather than over it. This is a hard cap " +
+             "on the height SETPOINT (the symmetric counterpart of VelocityControl.MinHeight), so " +
+             "the climb stick simply stops having effect upward and nothing winds up; the swarm's " +
+             "own upward force is dropped above the ceiling as well, since in a horizontal " +
+             "formation it reaches thrust directly rather than through the setpoint. Per scene, " +
+             "because the value is a property of the scene's geometry: the city pack's unscaled " +
+             "buildings reach ~136 m, so CityWorld and CrowdWorld need far more headroom than " +
+             "ScaledCityWorld's uniform 50 m skyline. NOTE the height loop holds each drone about " +
+             "1.3 m above its setpoint (see the ForceMode note in CLAUDE.md), so the flown ceiling " +
+             "is about 1.3 m above this number.")]
+    public float maxHeightAboveTerrain = 50.0f;
+
     [Header("Attitude Control")]
     public AttitudeAlgorithm SelectedAttitudeAlgorithm;
     public int numNeighbours = 5;
@@ -307,6 +324,9 @@ public class SwarmManager : MonoBehaviour
     public float GetC2Core() => c2_core;
     public float GetCoreStandoffRatio() => coreStandoffRatio;
     public float GetMaxCoreAccel() => maxCoreAccel;
+
+    // Getter for the altitude ceiling
+    public float GetMaxHeightAboveTerrain() => maxHeightAboveTerrain;
 
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;

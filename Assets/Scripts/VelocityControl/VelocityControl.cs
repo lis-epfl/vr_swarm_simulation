@@ -77,6 +77,10 @@ public class VelocityControl : MonoBehaviour
     // Altitude the vertical leash is measured against — SwarmPlaneController.ReferenceAltitude, the
     // wall's own reference rather than any drone's. Set by SwarmAlgorithm.
     [HideInInspector] public float verticalReferenceAltitude = 0f;
+    // Metres above the terrain surface this drone may be commanded to; 0 = no ceiling. Pushed by
+    // SwarmAlgorithm from SwarmManager.maxHeightAboveTerrain, where it is tuned per scene, so a
+    // scene with no swarm (the DJI real-drone ones) leaves it at 0 and is unaffected.
+    [HideInInspector] public float maxHeightAboveTerrain = 0f;
     // Last-frame horizontal (XZ) acceleration magnitudes — read by FlightHUD
     [HideInInspector] public float lastUserAccelMag  = 0f;
     [HideInInspector] public float lastSwarmAccelMag = 0f;
@@ -135,6 +139,15 @@ public class VelocityControl : MonoBehaviour
     private float previousHeightError = 0.0f;
     private float filteredHeightErrorDerivative = 0.0f;
     private float userAltitudeRate = 0.0f;
+
+    // Cached ground sample for the altitude ceiling. The terrain is static scenery, so the only
+    // thing that can change the answer is the drone moving over a different part of it — hence a
+    // resample on horizontal movement rather than one per tick. The terrains in the city scenes are
+    // flat, so in practice this samples once per drone per flight.
+    private const float GroundResampleDistance = 4.0f;
+    private bool groundSampleValid = false;
+    private float groundSampleHeight = 0.0f;
+    private Vector2 groundSampleXZ = Vector2.zero;
 
     private float targetYawRate = 0.0f;
     private float filteredYawRate = 0.0f;
@@ -256,7 +269,30 @@ public class VelocityControl : MonoBehaviour
         // bounded offset. Through the setpoint the PD keeps its disturbance rejection — at formation
         // equilibrium the swarm force is zero, the setpoint stops moving, and the PD holds the drone
         // exactly where the wall wants it.
+        bool hasCeiling = TryGetAltitudeCeiling(out float altitudeCeiling);
+
         float heightRate = userAltitudeRate;
+
+        // Once the FORMATION is as high as it may go, a climb stick has nothing left to command,
+        // and leaving it in the sum is not harmless: it is added and clamped away every tick, which
+        // cancels the swarm's own vertical term, so a wall flown up into the ceiling pancakes flat
+        // against it instead of re-forming below it and drones end up in each other's cells (60 s
+        // of full climb stick in plane mode cost 2 of 10 drones to a drone-drone collision at the
+        // cap — the same failure the MinHeight floor already produces at the bottom).
+        //
+        // The test is the WALL's reference altitude, not this drone's own setpoint.
+        // SwarmPlaneController integrates the same stick into that reference and clamps it to the
+        // same ceiling, so the reference being pinned is exactly "the pilot has asked for more
+        // altitude than the formation may have". Testing the drone's own setpoint instead does
+        // nothing: the swarm pushes it a tick's worth below the cap and the stick, re-enabled by
+        // that very dip, puts it straight back. Horizontal formations keep the plain clamp below —
+        // there is no vertical swarm term there, so there is nothing to re-form.
+        if (hasCeiling && verticalSwarmAuthority && heightRate > 0.0f
+            && verticalReferenceAltitude >= altitudeCeiling - 0.01f)
+        {
+            heightRate = 0.0f;
+        }
+
         if (verticalSwarmAuthority)
         {
             heightRate += Mathf.Clamp(swarmVerticalSetpointGain * worldFilteredSwarmAccel.y,
@@ -274,6 +310,18 @@ public class VelocityControl : MonoBehaviour
                                          verticalReferenceAltitude + swarmVerticalLeash);
         }
 
+        // Altitude ceiling: a hard cap on the setpoint, measured from the terrain under the drone
+        // (SwarmManager.maxHeightAboveTerrain). It is the symmetric counterpart of MinHeight below,
+        // and it is applied to the setpoint rather than to the stick so that nothing winds up:
+        // desired_height is clamped in place, so pushing the stick back down moves the drone on the
+        // first tick instead of first paying off however long the pilot held climb.
+        if (hasCeiling)
+        {
+            desired_height = Mathf.Min(desired_height, altitudeCeiling);
+        }
+
+        // The floor wins if the two ever cross — a ceiling below MinHeight is a misconfiguration,
+        // and flying into the ground is the worse way to resolve it.
         desired_height = Mathf.Max(desired_height, MinHeight);
 
         float currentHeightError = desired_height - State.Altitude;
@@ -334,6 +382,17 @@ public class VelocityControl : MonoBehaviour
             // swarm is pushing hardest vertically. The thrust clamp's [0, 2.7g] asymmetry stops
             // mattering for the same reason: the vertical demand now goes through the PD, which is
             // bounded by the setpoint rather than by the raw swarm force.
+            desiredAcceleration.y = 0f;
+        }
+        else if (hasCeiling && State.Altitude >= altitudeCeiling && desiredAcceleration.y > 0f)
+        {
+            // Above the ceiling the swarm must not push the drone higher either. In a horizontal
+            // formation its vertical force goes straight into thrust (see desiredThrust below),
+            // where the clamped setpoint does not bound it — only the height PD opposes it, and a
+            // sustained upward force from the lattice would simply sit on top of the cap. The
+            // downward half is left alone, so a drone held at the ceiling still settles back into
+            // the formation. In plane mode the branch above has already zeroed it, because there
+            // the swarm drives the setpoint instead, which the ceiling clamps.
             desiredAcceleration.y = 0f;
         }
 
@@ -701,5 +760,41 @@ public class VelocityControl : MonoBehaviour
     {
         normAlt = Mathf.Clamp(normAlt, -1f, 1f);
         userAltitudeRate = normAlt * maxAltitudeRate;
+    }
+
+    /// <summary>
+    /// World altitude this drone may be commanded up to: the terrain surface under it plus
+    /// <see cref="maxHeightAboveTerrain"/>. False when there is no ceiling to apply — the knob is
+    /// off, or the scene has no Terrain to measure from.
+    ///
+    /// <para>The ground sample is cached and refreshed only once the drone has moved
+    /// <see cref="GroundResampleDistance"/> horizontally, because terrain is static scenery and the
+    /// answer cannot change while the drone hovers. On the city scenes' flat terrain it never
+    /// changes at all, which is what keeps a per-drone per-tick ceiling free.</para>
+    /// </summary>
+    private bool TryGetAltitudeCeiling(out float ceiling)
+    {
+        ceiling = 0f;
+        if (maxHeightAboveTerrain <= 0f) return false;
+
+        Vector3 position = transform.position;
+        Vector2 xz = new Vector2(position.x, position.z);
+
+        if (!groundSampleValid ||
+            (xz - groundSampleXZ).sqrMagnitude > GroundResampleDistance * GroundResampleDistance)
+        {
+            if (!TerrainHeightSampler.TryGetHeight(position, out groundSampleHeight))
+            {
+                // No Terrain in this scene: nothing to measure a height above, so no ceiling.
+                groundSampleValid = false;
+                return false;
+            }
+
+            groundSampleXZ = xz;
+            groundSampleValid = true;
+        }
+
+        ceiling = groundSampleHeight + maxHeightAboveTerrain;
+        return true;
     }
 }

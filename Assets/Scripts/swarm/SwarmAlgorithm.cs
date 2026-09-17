@@ -165,6 +165,13 @@ public class SwarmAlgorithm : MonoBehaviour
                 currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER
                     ? olfatiSaberAlgorithm
                     : null;
+
+            // Altitude ceiling, in metres above the terrain. Pushed from here rather than read in
+            // VelocityControl so it is tuned in one per-scene place beside the rest of the swarm's
+            // limits; this runs at Start and on every inspector edit, which is the whole life of a
+            // value that describes the scene's geometry.
+            velocityControl.maxHeightAboveTerrain =
+                swarmManager != null ? swarmManager.GetMaxHeightAboveTerrain() : 0f;
         }
 
         // Check the current algorithm and enable/disable the corresponding algorithm
