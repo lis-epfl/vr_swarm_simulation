@@ -661,12 +661,14 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   `OUTER_CIRCLE` feed (radius 2 m, scale 1) spans ~48°, so ~1024 px is its useful maximum, and the
   curved screen (radius 5 m, 90°, 3 m) wants ~1980×735. The stitch canvas carries ~1.8× the block
   width of detail, so **1024×576 blocks pair with a 1920×720 panorama** at ~21 texels/deg on both
-  screens; the sim scenes used 768×432 / 1600×600, ~16 texels/deg on both. 1280×720 (the envelope
-  max) would exceed the headset and only cost FPV render time. Feed render textures are mipmapped,
-  because the grid layouts show the same texture on screens half `OUTER_CIRCLE`'s size. The
-  `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`) are canvas pixels, so they
-  scale with the block width: 41/15/60 suit 768, the 1024 scenes use 55/20/80. DJIScene stays
-  800×450, the real feed's size.
+  screens; the sim scenes used 768×432 / 1600×600, ~16 texels/deg on both. The sim scenes now run
+  one step above that match, **1152×648 / 2160×810** (+12.5%, same aspects), trading a little FPV
+  render time for supersampling margin on screens viewed closer than their nominal distance.
+  1280×720 (the envelope max) would exceed the headset further and only cost FPV render time. Feed
+  render textures are mipmapped, because the grid layouts show the same texture on screens half
+  `OUTER_CIRCLE`'s size. The `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`)
+  are canvas pixels, so they scale with the block width: 41/15/60 suit 768, 55/20/80 suit 1024, the
+  1152 scenes use 61/22.5/90. DJIScene stays 800×450, the real feed's size.
 - **The TPS field is evaluated once per warp update on a lattice of at most 512 samples** along the
   canvas' longer side (`_field_lattice_size`, `STABSTITCH_FLOW_GRID`, 0 = exact) and resampled
   for each consumer: the canvas (blend masks), the panorama (`_field_to_image_grid`, with
