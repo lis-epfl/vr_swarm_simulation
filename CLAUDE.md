@@ -348,6 +348,15 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   frame at the wall. It follows `TargetYaw` rather than the drones' measured mean so the rig answers the
   stick 1:1 instead of lagging it, and `maxTargetLeadDeg` bounds the resulting lead. The lock is
   absolute, so entering plane mode also clears any pre-existing offset.
+- **A lone drone is not a swarm, and is detected, not configured** (`SwarmRegistry.TryGetLoneDrone`:
+  exactly one alive — one spawned, or the rest crashed). Outside plane mode `AttitudeAlgorithm` hands it
+  the yaw stick in every attitude mode (a hull needs three points, so the hull rule would otherwise
+  freeze its heading while the stick turned only the view), and `PyUniSharingFast.UpdateBodyYaw` locks
+  body yaw absolutely to its **commanded** heading (`VelocityControl.HeadingSetpointRad`), for the
+  same answers-the-stick reason the plane lock follows `TargetYaw`. `ScreenSpawn` always shows its
+  feed — no stitched-hide, no boundary gate, placed as `OUTER_CIRCLE` even under `OFF` — counted over
+  its bindings so a single live real feed qualifies too. Python cannot stitch one view, so the curved
+  screen is holding a stale panorama by then.
 - **The stitcher and the screen layout follow the configuration, and there are three of them**
   (`SwarmPlaneController.RefreshDisplayConfiguration`): vertical plane ⇒ `PLANAR` +
   `FORMATION_WALL`, horizontal with the gimbal down ⇒ `PLANAR` + `FORMATION_MAP`, horizontal
@@ -1065,11 +1074,20 @@ is silent, since neither side fails to compile, it just reads a float from the m
 
 ## City scenes and the ScaledCity assets
 
-Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `FactoryScene`,
-`RingChallenge`, `NBackExperiment`, and `DJIScene` (real drones, no sim swarm). All of them spawn the
+Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
+(generated from ScaledCityWorld, below), `FactoryScene`, `RingChallenge`, `NBackExperiment`, and `DJIScene`
+(real drones, no sim swarm). All of them spawn the
 same `Assets/Prefabs/DroneReduced.prefab`, so anything edited there — `maxPitch`, `maxSpeed`,
 `timeConstantAcceleration` — changes every scene at once. Per-scene tuning belongs on the scene's own
 `SwarmManager`, which is the only per-scene owner of those values.
+
+**`PracticeWorld` is generated, not authored — rebuild it after changing ScaledCityWorld**
+(`Tools/Swarm/Build practice world`, `PracticeWorldBuilder`). It is the participants' training scene: a copy of
+ScaledCityWorld keeping one tile (`MC_Patch_14`, moved 120 m down ParkRoad from the spawn) and the four walker
+prefabs standing on the idle loop under signs naming their hat, with the experiment recorder, goal replacer and
+city tuners stripped. The copy is the point: the gains, the altitude ceiling, the spawn, the input, the screens,
+`PyUniSharingFast`, the Arena, the rig and the lighting all live on ScaledCityWorld's scene objects, so a retune
+there reaches the practice world only through a rebuild — which also discards hand edits made to it.
 
 **`ScaledCityWorld` is a fork of `CityWorld` with its own prefab tree**, not a scaled instance of the
 original. `Assets/Prefabs/ScaledCity/` holds `City_Pack_01_Scaled`, `goal_patch_Scaled` and 48
