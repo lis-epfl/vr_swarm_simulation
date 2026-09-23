@@ -160,6 +160,11 @@ public class VelocityControl : MonoBehaviour
     // below it at all and anything that knocked the nose off heading came back only at the outer
     // loop's pace — a slow, visible swing of every screen on the ring.
     private float headingSetpoint = 0.0f;
+    /// <summary>
+    /// The commanded heading: radians, [-pi, pi], StateFinder.Angles.y's convention (Unity yaw,
+    /// clockwise from +Z). A lone drone's body yaw follows this (PyUniSharingFast.UpdateBodyYaw).
+    /// </summary>
+    public float HeadingSetpointRad => headingSetpoint;
     // Last tick's heading-hold diagnostics, for the CSV log.
     private float lastEffectiveYawRate = 0.0f;
     private float lastHeadingError = 0.0f;

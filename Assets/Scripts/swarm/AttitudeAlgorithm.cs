@@ -278,6 +278,19 @@ public class AttitudeAlgorithm : MonoBehaviour
         bool convexHull = selectedAttitudeAlgorithm == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
                        || selectedAttitudeAlgorithm == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL;
 
+        // A lone drone has no swarm to take a heading from — a hull needs three points, and the
+        // neighbour mean has no neighbours — so whatever the selected algorithm, the yaw stick
+        // steers it directly, and PyUniSharingFast slaves the body yaw to its commanded heading.
+        // Left to the hull rule it would hold whatever heading it had when the others crashed
+        // while the stick turned only the view. Overridden after the switch rather than skipping
+        // it, so the hull pass still refreshes the shared shape metrics the recorder logs.
+        if (SwarmRegistry.TryGetLoneDrone(out GameObject lone, out _) && lone == transform.parent.gameObject)
+        {
+            vc.desiredYawRate = inputYawRate;
+            vc.attitude_control_yaw = 0.0f;
+            return;
+        }
+
         // Set the desired yaw rate in the velocity control script
         vc.desiredYawRate = convexHull ? 0.0f : inputYawRate;
         vc.attitude_control_yaw = commandedYawRate;

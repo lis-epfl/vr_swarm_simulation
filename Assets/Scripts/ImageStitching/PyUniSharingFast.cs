@@ -2253,6 +2253,15 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
+        // A single drone left (or spawned): AttitudeAlgorithm hands it the yaw stick in every
+        // attitude mode, so the body is locked to its commanded heading.
+        if (SwarmRegistry.TryGetLoneDrone(out _, out SwarmRegistry.Entry lone) && lone.velocityControl != null)
+        {
+            bodyLockInitialized = false;
+            UpdateBodyYawFromLoneDrone(lone.velocityControl);
+            return;
+        }
+
         // Non-hull attitude modes (NONE/SIMPLE) spin the drone(s) with the yaw stick,
         // so slave the body/rig heading to the drone's ACTUAL heading instead of the
         // raw stick. Matching rate constants wouldn't cancel relative motion: the drone
@@ -2305,6 +2314,27 @@ public class PyUniSharingFast : MonoBehaviour
         if (deltaYaw == 0f) return;
 
         bodyYaw = Mathf.Repeat(planeYaw, 360f);
+        BodyYawDegrees = bodyYaw;
+
+        if (driveCameraRigYaw && cameraRigTransform != null)
+        {
+            cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
+        }
+    }
+
+    // Lock the body heading (and the rig) onto a lone drone's commanded heading — VelocityControl's
+    // heading-hold setpoint, the integral of the stick rate it is flying. The setpoint rather than
+    // the measured heading for the reason UpdateBodyYawFromPlane follows TargetYaw: the view answers
+    // the stick 1:1 instead of trailing the airframe, and the hold keeps the nose within
+    // maxHeadingHoldErrorDeg of it. Absolute like that lock too, so whatever offset the hull modes'
+    // stick-steered view had built up when the swarm dwindled to one drone is cleared at once.
+    private void UpdateBodyYawFromLoneDrone(VelocityControl vc)
+    {
+        float commandedYaw = vc.HeadingSetpointRad * Mathf.Rad2Deg;
+        float deltaYaw = Mathf.DeltaAngle(bodyYaw, commandedYaw);
+        if (deltaYaw == 0f) return;
+
+        bodyYaw = Mathf.Repeat(commandedYaw, 360f);
         BodyYawDegrees = bodyYaw;
 
         if (driveCameraRigYaw && cameraRigTransform != null)

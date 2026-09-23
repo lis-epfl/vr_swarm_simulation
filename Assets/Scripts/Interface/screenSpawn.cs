@@ -682,6 +682,9 @@ public class ScreenSpawn : MonoBehaviour
         // attitude algorithm.
         bool boundaryGate = IsBoundaryGateActive();
 
+        // Resolved before the grid solve, which reads it through IsFeedSuppressed.
+        loneFeedScreen = FindLoneFeedScreen();
+
         // Advance every display-yaw filter once, before anything reads one.
         StepDisplayYawFilters();
 
@@ -721,10 +724,13 @@ public class ScreenSpawn : MonoBehaviour
                 switch (screenStyle)
                 {
                     case ScreenStyle.OFF:
-                        HideScreen(screen);
+                        // OFF leaves OUTER_CIRCLE's geometry in place (the defaults), so a lone
+                        // feed goes where that layout would put it.
+                        if (screen == loneFeedScreen) UpdateOuterCircleScreen(screen, binding, i, false);
+                        else HideScreen(screen);
                         break;
                     case ScreenStyle.OUTER_CIRCLE:
-                        UpdateOuterCircleScreen(screen, binding, i, boundaryGate);
+                        UpdateOuterCircleScreen(screen, binding, i, boundaryGate && screen != loneFeedScreen);
                         break;
                     case ScreenStyle.FORMATION_WALL:
                         UpdateFormationWallScreen(screen, i);
@@ -872,6 +878,13 @@ public class ScreenSpawn : MonoBehaviour
     // exactly the set of screens that is about to be shown.
     private bool IsFeedSuppressed(DroneScreenBinding binding)
     {
+        // The only feed left is never hidden into the panorama: Python needs two views (PLANAR)
+        // or three to stitch at all, so whatever the curved screen shows is a stale frame.
+        if (loneFeedScreen != null && binding.screen == loneFeedScreen)
+        {
+            return false;
+        }
+
         // A real feed's equivalent of "its drone is gone" is "its frames stopped arriving". Without
         // this the last frame of a drone that dropped out would sit frozen in the layout for the
         // rest of the session, indistinguishable from a live one. Then the same panorama test as a
@@ -885,6 +898,33 @@ public class ScreenSpawn : MonoBehaviour
 
         return binding.drone == null
             || (stitchedDronesToHide.Count > 0 && stitchedDronesToHide.Contains(binding.drone));
+    }
+
+    // The screen of the only drone still flying, or null while zero or two or more are.
+    // That feed is always shown: no stitched-hide, no boundary gate, and a place even under
+    // OFF — the pilot's only picture is the drone itself. Counted over the bindings rather
+    // than via SwarmRegistry.TryGetLoneDrone so it covers real feeds too, where "flying" is
+    // "still streaming"; for sim drones the two agree, as every drone gets a binding.
+    private GameObject loneFeedScreen;
+
+    private GameObject FindLoneFeedScreen()
+    {
+        GameObject lone = null;
+        for (int i = 0; i < bindings.Count; i++)
+        {
+            DroneScreenBinding binding = bindings[i];
+            if (binding.screen == null) continue;
+
+            bool alive = binding.IsRealFeed
+                ? TryGetFeed(binding, out _)
+                : binding.drone != null
+                  && (binding.velocityControl == null || binding.velocityControl.State == null
+                      || binding.velocityControl.State.IsAlive);
+            if (!alive) continue;
+            if (lone != null) return null;
+            lone = binding.screen;
+        }
+        return lone;
     }
 
     // The convex-hull attitude modes are the only ones that populate

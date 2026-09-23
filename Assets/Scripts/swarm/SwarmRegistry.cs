@@ -52,4 +52,31 @@ public static class SwarmRegistry
         Register(droneRoot);
         return entries.TryGetValue(droneRoot, out entry);
     }
+
+    /// <summary>
+    /// The one alive drone, when exactly one is left — only one was spawned, or every other one
+    /// has crashed. False for zero or for two or more. A single drone has no swarm to take a
+    /// heading from, so AttitudeAlgorithm hands it the yaw stick and PyUniSharingFast slaves the
+    /// body yaw to its commanded heading. Destroyed drones are skipped; a drone with no
+    /// VelocityControl counts as alive, as in PyUniSharingFast.IsAlive.
+    /// </summary>
+    public static bool TryGetLoneDrone(out GameObject droneRoot, out Entry entry)
+    {
+        droneRoot = null;
+        entry = default;
+        int alive = 0;
+        foreach (KeyValuePair<GameObject, Entry> pair in entries)
+        {
+            if (pair.Key == null) continue;
+            VelocityControl vc = pair.Value.velocityControl;
+            if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
+            if (++alive > 1) return false;
+            droneRoot = pair.Key;
+            entry = pair.Value;
+        }
+        if (alive == 1) return true;
+        droneRoot = null;
+        entry = default;
+        return false;
+    }
 }
