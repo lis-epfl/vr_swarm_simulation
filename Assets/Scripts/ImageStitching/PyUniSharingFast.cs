@@ -727,6 +727,7 @@ public class PyUniSharingFast : MonoBehaviour
     private byte[] blockImageBytes;   // reusable scratch for one converted drone image
     private float nextSendTime, nextReceiveTime = 0f;
     private int lastPanoramaSeq = 0;  // sequence number of the panorama last uploaded (see panoramaSeqShift)
+    private int lastSeenPanoramaSeq = 0;  // last sequence number read, uploaded or not (PanoramaLastNewTime)
 
     // The bridge's main-thread work, by name in the Unity Profiler (CPU Usage > Hierarchy), so
     // its cost can be read against the frame time with the headset connected. Capture includes
@@ -1364,6 +1365,19 @@ public class PyUniSharingFast : MonoBehaviour
     // ScreenSpawn still reports the honest value.
     public static bool HideStitchedFeeds { get; private set; }
 
+    // Panorama read-outs for the experiment log (ExperimentRecorder), static like the ones above.
+    // PanoramaDisplayed is the resolved on-screen state -- the curved screen shown rather than the
+    // fallback feeds -- and is false while panorama reading is off. It says nothing about whether
+    // the picture is live: a Python that dies leaves its last panorama and quality word in the
+    // section, so the screen stays up showing a frozen image. PanoramaLastNewTime (Time.time at
+    // which the sequence number last changed, -1 before the first) is what tells those apart.
+    // Sequence 0 is a producer without the counter or nothing written yet, and never counts as new.
+    public static bool PanoramaDisplayed { get; private set; }
+    public static bool PanoramaPilotEnabled { get; private set; } = true;
+    public static int PanoramaQualityWord { get; private set; }
+    public static float PanoramaLastNewTime { get; private set; } = -1f;
+    public static stitcherType ActiveStitcher { get; private set; }
+
 
     // The "Drone N" root of the drone at the centre of the stitch selection (camera yaw closest to
     // the body yaw), i.e. the drone the pilot is looking through. Refreshed every frame whether or
@@ -1724,6 +1738,12 @@ public class PyUniSharingFast : MonoBehaviour
                 // panoramaSeqShift). Sequence 0 is a producer without the counter: upload.
                 int panoramaSeq = (qualityWord >> panoramaSeqShift) & panoramaSeqMask;
                 bool upload = panoramaGood && (panoramaSeq == 0 || panoramaSeq != lastPanoramaSeq);
+                PanoramaQualityWord = qualityWord;
+                if (panoramaSeq != 0 && panoramaSeq != lastSeenPanoramaSeq)
+                {
+                    lastSeenPanoramaSeq = panoramaSeq;
+                    PanoramaLastNewTime = Time.time;
+                }
                 if (upload)
                 {
                     // Upload straight from the mapped view while the flag is held.
@@ -1758,6 +1778,10 @@ public class PyUniSharingFast : MonoBehaviour
                 }
             }
         }
+
+        PanoramaDisplayed = enablePanoramaReading && panoramaDisplayActive;
+        PanoramaPilotEnabled = panoramaUserEnabled;
+        ActiveStitcher = typeOfStitcher;
     }
 
     // Switch between the stitched panorama screen and the individual drone
@@ -1800,8 +1824,9 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     // Decode the failing-gate bits of the packed quality word into a readable
-    // reason, so the transition log says *why* the panorama was hidden.
-    private string DescribeQualityReason(int qualityWord)
+    // reason, so the transition log says *why* the panorama was hidden. Public for
+    // ExperimentRecorder, which logs the same reasons against its own clock.
+    public static string DescribeQualityReason(int qualityWord)
     {
         string reasons = "";
         if ((qualityWord & REASON_CANVAS) != 0)

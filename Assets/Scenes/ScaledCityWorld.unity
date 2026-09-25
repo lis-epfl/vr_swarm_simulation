@@ -70110,13 +70110,13 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1839174494}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dc57387dd9a883740b6af778f897e6b8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  participantId: aaaa
-  trialNumber: 1
+  participantId: aabc
+  trialNumber: 4
   condition: 0
   sampleHz: 10
   correctKey: 49

@@ -65,8 +65,16 @@ public class ExperimentRecorder : MonoBehaviour
     private bool referencesResolved = false;
 
     // ---- output ----
-    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter, shapeWriter;
+    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter, shapeWriter, stitchWriter;
     private string dirPath, fileStem;
+
+    // ---- stitching (see UpdateStitchState) ----
+    // A panorama on screen with no new frame for this long is frozen, not stitching. Python writes
+    // at ~30 Hz and exits after 5 s without a Unity heartbeat, so 1 s is well clear of both.
+    private const float PanoramaStaleSec = 1f;
+    private bool stitchFunctional = false;
+    private float stitchFunctionalSec = 0f;
+    private int stitchOnCount = 0;
 
     // ---- timing / state ----
     private float sessionStartTime;
@@ -103,6 +111,9 @@ public class ExperimentRecorder : MonoBehaviour
             referencesResolved = true;
         }
 
+        // Every frame, not at sampleHz, so transitions are timed to the frame.
+        UpdateStitchState();
+
         // Fixed-rate continuous sampling (nextSampleTime pattern mirrors PyUniSharingFast.Update).
         if (Time.time >= nextSampleTime)
         {
@@ -112,6 +123,7 @@ public class ExperimentRecorder : MonoBehaviour
             WriteHeadSample(t, ms);
             WriteWalkerSample(t, ms);
             WriteShapeSample(t, ms);
+            WriteStitchSample(t, ms);
 
             float interval = sampleHz > 0f ? 1f / sampleHz : 0.1f;
             // Advance from the scheduled time; if we fell behind, resync to now to avoid a burst.
@@ -146,12 +158,14 @@ public class ExperimentRecorder : MonoBehaviour
 
         dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive");
         headWriter = NewWriter("head",
-            "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread");
+            "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread;" +
+            "gimbalPitch");
         walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ;hat");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
         shapeWriter = NewWriter("shape",
             "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
             "lookGapDeg;lookGapRawDeg;lookGapFill");
+        stitchWriter = NewWriter("stitch", "t;unixMs;stitcher;shown;qualityOk;pilotOn;reasonBits;panoAgeSec;functional");
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
@@ -292,6 +306,12 @@ public class ExperimentRecorder : MonoBehaviour
             $"{(AttitudeAlgorithm.SharedLookGapFillActive ? 1 : 0)}");
     }
 
+    /// <summary>
+    /// Head pose, body yaw and the pilot's inputs. <c>gimbalPitch</c> is the swarm-wide camera pitch
+    /// the joystick dial commands (<see cref="FPVCameraScript.SharedPitch"/>, degrees, 0 = level,
+    /// -90 = straight down); the dial itself is not in <c>InputStatus</c>, and the pitch it sets is a
+    /// linear map of it. Appended last, so runs recorded before it simply lack the column.
+    /// </summary>
     private void WriteHeadSample(float t, long ms)
     {
         Vector3 hp = Vector3.zero, he = Vector3.zero;
@@ -316,7 +336,64 @@ public class ExperimentRecorder : MonoBehaviour
 
         headWriter.WriteLine(
             $"{F(t)};{ms};{F(hp.x)};{F(hp.y)};{F(hp.z)};{F(he.y)};{F(he.x)};{F(he.z)};{F(bodyYaw)};" +
-            $"{F(thr)};{F(yaw)};{F(pit)};{F(rol)};{F(spr)}");
+            $"{F(thr)};{F(yaw)};{F(pit)};{F(rol)};{F(spr)};{F(FPVCameraScript.SharedPitch)}");
+    }
+
+    /// <summary>
+    /// Whether the stitched panorama is <b>functional and visible</b>: on screen (quality verdict
+    /// good and not toggled off by the pilot) and still being refreshed by Python. Runs every frame
+    /// and writes a <c>stitch_on</c> / <c>stitch_off</c> event on each change, the off event's note
+    /// saying why, so the durations come from frame-timed events rather than the sample grid.
+    ///
+    /// The freshness test is not redundant with the quality verdict: a Python that dies leaves its
+    /// last panorama and quality word in the section, so the screen stays up showing a frozen image
+    /// with no transition logged anywhere. Before this existed only PyUniSharingFast's untimed
+    /// <c>[Panorama] hidden/restored</c> lines in Editor.log recorded any of it.
+    /// </summary>
+    private void UpdateStitchState()
+    {
+        bool shown = PyUniSharingFast.PanoramaDisplayed;
+        float age = PanoramaAgeSec();
+        bool functional = shown && age <= PanoramaStaleSec;
+
+        if (functional) stitchFunctionalSec += Time.deltaTime;
+        if (functional == stitchFunctional) return;
+        stitchFunctional = functional;
+
+        if (functional)
+        {
+            stitchOnCount++;
+            WriteEvent("stitch_on", -1, "", -1f, PyUniSharingFast.ActiveStitcher.ToString());
+            return;
+        }
+
+        string reason;
+        if (!PyUniSharingFast.PanoramaPilotEnabled) reason = "pilot_off";
+        else if (!shown) reason = "quality: " + PyUniSharingFast.DescribeQualityReason(PyUniSharingFast.PanoramaQualityWord);
+        else reason = $"stale: no new panorama for {age.ToString("F1", Inv)} s";
+        WriteEvent("stitch_off", -1, "", -1f, reason);
+    }
+
+    /// <summary>Seconds since Python last delivered a new panorama; NaN before the first.</summary>
+    private static float PanoramaAgeSec()
+    {
+        float last = PyUniSharingFast.PanoramaLastNewTime;
+        return last < 0f ? float.NaN : Time.time - last;
+    }
+
+    /// <summary>
+    /// The components of <see cref="UpdateStitchState"/> at the sample rate: which stitcher, whether
+    /// the panorama is on screen, Python's quality bit and the pilot's toggle (the two things that
+    /// hide it), the raw failing-gate bits (<c>PyUniSharingFast.DescribeQualityReason</c> decodes
+    /// them), and the age of the newest panorama. <c>functional</c> is the combined verdict.
+    /// </summary>
+    private void WriteStitchSample(float t, long ms)
+    {
+        int word = PyUniSharingFast.PanoramaQualityWord;
+        stitchWriter.WriteLine(
+            $"{F(t)};{ms};{PyUniSharingFast.ActiveStitcher};{(PyUniSharingFast.PanoramaDisplayed ? 1 : 0)};" +
+            $"{word & 1};{(PyUniSharingFast.PanoramaPilotEnabled ? 1 : 0)};{word & 0xFFFE};" +
+            $"{F(PanoramaAgeSec())};{(stitchFunctional ? 1 : 0)}");
     }
 
     private void WriteWalkerSample(float t, long ms)
@@ -428,6 +505,8 @@ public class ExperimentRecorder : MonoBehaviour
             wallStartIso = wallStart.ToString("o"),
             wallEndIso = DateTime.Now.ToString("o"),
             durationSec = Time.time - sessionStartTime,
+            stitchFunctionalSec = stitchFunctionalSec,
+            stitchOnCount = stitchOnCount,
         };
 
         int nCorrect = 0;
@@ -480,6 +559,7 @@ public class ExperimentRecorder : MonoBehaviour
         SafeClose(ref walkersWriter);
         SafeClose(ref eventsWriter);
         SafeClose(ref shapeWriter);
+        SafeClose(ref stitchWriter);
     }
 
     private static void SafeClose(ref StreamWriter w)
@@ -505,6 +585,8 @@ public class ExperimentRecorder : MonoBehaviour
         public string wallEndIso;
         public float durationSec;
         public float totalTaskTime;
+        public float stitchFunctionalSec;  // panorama on screen and live (UpdateStitchState)
+        public int stitchOnCount;          // times it came on
         public int nCorrect;
         public int nGoals;
         public List<GoalResult> goals = new List<GoalResult>();
