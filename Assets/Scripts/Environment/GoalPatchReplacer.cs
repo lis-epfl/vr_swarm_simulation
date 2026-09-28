@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -18,8 +19,9 @@ using UnityEngine;
 /// only way to recover a specific historical layout.
 ///
 /// A goal is laid over the <i>block</i> it replaces, not copied from the tile's transform (see
-/// <see cref="GoalPositions"/>), and takes over any scenery tied to that tile (see
-/// <see cref="CarryTiedScenery"/>).
+/// <see cref="GoalPositions"/>), takes over any scenery tied to that tile (see
+/// <see cref="CarryTiedScenery"/>), and always gets verge trees, whether or not the tile had any (see
+/// <see cref="PlantGoalVerges"/>).
 /// </summary>
 public class GoalPatchReplacer : MonoBehaviour
 {
@@ -64,6 +66,16 @@ public class GoalPatchReplacer : MonoBehaviour
 
     [Tooltip("If true, Destroy the replaced tile; otherwise just deactivate it (reversible).")]
     [SerializeField] private bool destroyOriginal = true;
+
+    [Header("Verge trees")]
+    [Tooltip("Plant verge trees on every goal with the scene's VergeTreePlanter settings, whether or not the tile " +
+             "it replaced had any. They are laid out around the goal's own block, so a replaced tile's trees are " +
+             "replanted rather than carried over. Off, a goal only has trees if the tile it replaced did.")]
+    [SerializeField] private bool plantVergeTrees = true;
+
+    [Tooltip("The planter whose settings the goals' trees use. Empty uses the one in this scene; a scene with " +
+             "none plants nothing.")]
+    [SerializeField] private VergeTreePlanter vergeTreePlanter;
 
     // The goal patches instantiated this play session, in placement order. Populated in Start;
     // exposed so experiment tooling (e.g. ExperimentRecorder) can find the goals at runtime
@@ -140,6 +152,11 @@ public class GoalPatchReplacer : MonoBehaviour
         }
 
         Debug.Log($"GoalPatchReplacer: replaced {selected.Count} of {tiles.Count} '{tilePrefix}' tiles with goals ({mode}).", this);
+
+        if (plantVergeTrees)
+        {
+            StartCoroutine(PlantGoalVerges());
+        }
     }
 
     // ------------------------------------------------------------------ placement
@@ -187,7 +204,7 @@ public class GoalPatchReplacer : MonoBehaviour
     /// over to the goal replacing it, keeping its world placement. Untied, the street trees and plates hang off
     /// the city root and survive the replacement; tied, they would be destroyed with the tile, leaving a gap in
     /// the medians and verges exactly where each goal is — a cue visible from the air. A tile that was never
-    /// tied has nothing to carry.
+    /// tied has nothing to carry. With <see cref="plantVergeTrees"/> on, the verge is replanted a frame later.
     /// </summary>
     private static void CarryTiedScenery(Transform tile, Transform goal)
     {
@@ -199,6 +216,54 @@ public class GoalPatchReplacer : MonoBehaviour
                 container.SetParent(goal, true);
             }
         }
+    }
+
+    /// <summary>
+    /// Plant verge trees on every goal. Left to <see cref="CarryTiedScenery"/>, a goal has trees only when the
+    /// tile it replaced was one of the <see cref="VergeTreePlanter"/>'s picks.
+    ///
+    /// <para>Waits a frame because <see cref="StreetWidthTuner"/> only brings a goal's block to the city's block
+    /// scale on its first Update. The planter keeps each spot clear of what already stands on the tile — above
+    /// all an interior street's mouth — so planting in Start would measure the block at its authored size and
+    /// clear the wrong stretch of verge. A coroutine resumes after every Update, so one frame is enough.</para>
+    ///
+    /// <para>Planting replaces the verge a goal carried over from its tile: those trees were cleared around the
+    /// old block's streets and props, not the goal's. The planter seeds each tile by name and a goal is named
+    /// for the tile it replaced, so a replayed run gets the same trees.</para>
+    /// </summary>
+    private IEnumerator PlantGoalVerges()
+    {
+        yield return null;
+
+        VergeTreePlanter planter = vergeTreePlanter != null ? vergeTreePlanter : FindPlanter();
+        if (planter == null)
+        {
+            yield break; // a city with no verge trees has none for a goal to match
+        }
+
+        List<Transform> goals = new List<Transform>(placedGoals.Count);
+        foreach (GameObject goal in placedGoals)
+        {
+            if (goal != null)
+            {
+                goals.Add(goal.transform);
+            }
+        }
+        planter.Plant(goals);
+    }
+
+    /// <summary>The <see cref="VergeTreePlanter"/> in this component's scene, or null if it has none.</summary>
+    private VergeTreePlanter FindPlanter()
+    {
+        foreach (VergeTreePlanter planter in FindObjectsByType<VergeTreePlanter>(FindObjectsInactive.Include,
+                                                                                FindObjectsSortMode.None))
+        {
+            if (planter.gameObject.scene == gameObject.scene)
+            {
+                return planter;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------ random selection

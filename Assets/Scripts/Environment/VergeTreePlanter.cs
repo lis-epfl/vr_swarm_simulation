@@ -22,15 +22,19 @@ using UnityEditor.SceneManagement;
 /// <para><b>They stay on the verge.</b> Each tree hangs under its tile's <see cref="CityTiles.VergeContainer"/>,
 /// which the tuner scales by half the block's shrink, keeping the row in the middle of the verge if the block scale
 /// is changed later. Because the container belongs to the tile, the trees also move with it
-/// (<see cref="CityRowOffsetter"/>) and pass to a goal patch that replaces it (<see cref="GoalPatchReplacer"/>).
-/// Planting always starts from a cleared verge, so hand edits to planted trees do not survive a replant.</para>
+/// (<see cref="CityRowOffsetter"/>). Planting always starts from a cleared verge, so hand edits to planted trees do
+/// not survive a replant.</para>
+///
+/// <para><b>Goal patches always get trees.</b> <see cref="GoalPatchReplacer"/> calls
+/// <see cref="Plant(IEnumerable{Transform})"/> on every goal it places, with these settings, whatever
+/// <see cref="Choice"/> picked for the tile the goal replaced.</para>
 ///
 /// <para><b>Scripting.</b> Every inspector setting is also a property, and <see cref="Plant()"/>,
 /// <see cref="Plant(IEnumerable{Transform})"/> and <see cref="Clear()"/> are public, so an experiment script can pick
 /// tiles and plant. The result is deterministic: the same seed, settings and tile names give the same trees,
-/// whatever the hierarchy order and wherever the tiles have been moved. Prefer planting in edit mode: trees planted
-/// there are marked Batching Static like the rest of the city, whereas trees planted during Play stay ordinary
-/// dynamic objects, one draw call per mesh per eye.</para>
+/// whatever the hierarchy order and wherever the tiles have been moved. Trees planted in edit mode are marked
+/// Batching Static like the rest of the city and batched when Play starts; trees planted during Play are batched
+/// per tile as they are planted, so they cost about the same to render but, like anything done in Play, are not saved.</para>
 /// </summary>
 [DisallowMultipleComponent]
 public class VergeTreePlanter : MonoBehaviour
@@ -453,6 +457,13 @@ public class VergeTreePlanter : MonoBehaviour
                 planted++;
             }
         }
+
+        if (verge != null && Application.isPlaying)
+        {
+            // Too late for the static batch built when Play started. Unbatched, each tree would cost a draw call
+            // per material in every FPV camera that sees it — and goal patches are always planted in Play.
+            StaticBatchingUtility.Combine(verge.gameObject);
+        }
         return planted;
     }
 
@@ -469,6 +480,7 @@ public class VergeTreePlanter : MonoBehaviour
         {
             if (!renderer.enabled
                 || (verge != null && renderer.transform.IsChildOf(verge))
+                || SpawnedContentRoot.Covers(renderer.transform) // a walker is only passing; see SpawnedContentRoot
                 || HasAnyPrefix(renderer.name, groundNamePrefixes))
             {
                 continue;

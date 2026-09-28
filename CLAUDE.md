@@ -1153,8 +1153,16 @@ Pack-geometry facts scripts depend on:
 - **`VergeTreePlanter`** plants trees down the middle of that verge on a seeded subset of tiles (or a
   list, or all), skipping spots within `clearance` of anything on the tile and keeping interior street
   mouths clear across the verge. Deterministic per seed and tile *name*, scriptable (`Plant()`,
-  `Plant(tiles)`, `Clear()`), and it refuses at block scale ≥ 1, where there is no verge. Plant in edit
-  mode: it marks trees Batching Static, which a Play-mode plant cannot.
+  `Plant(tiles)`, `Clear()`), and it refuses at block scale ≥ 1, where there is no verge. Plant the city
+  in edit mode: it marks trees Batching Static and they are saved; a Play-mode plant is batched per tile
+  with `StaticBatchingUtility.Combine` and is gone at the end of the session.
+  **Every goal patch gets verge trees, whatever the subset** (`GoalPatchReplacer.plantVergeTrees`, on by
+  default). It replants each goal a frame after placing it, not in `Start`, because `StreetWidthTuner`
+  only matches a goal's block to the city's scale on its first `Update`, and the clearance test has to
+  see the block where it will stay. The verge a goal carries over from its tile is replaced, because
+  those trees were cleared around the *old* block's street mouths. The consequence: unless every tile
+  is planted (`TileChoice.All`), trees are a goal cue, since every goal has them and only
+  `tileFraction` of the other tiles do.
 - **`CityRowOffsetter`** staggers alternate rows (kerb-derived, numbered from the south or west edge) by
   a fraction of a tile, live in edit mode like the tuners, recording what it applied. It moves tile roots
   only, so it **refuses while the city root still holds untied scenery** — tie first. A half-tile stagger
