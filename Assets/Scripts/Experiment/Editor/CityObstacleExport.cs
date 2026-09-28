@@ -7,8 +7,9 @@ using UnityEngine;
 
 /// <summary>
 /// Writes the open scene's building colliders (layer <c>Obstacle</c>) as world-space oriented boxes, plus
-/// each city tile's kerb, to <c>city_obstacles_&lt;scene&gt;.json</c> beside <c>hat_visibility.py</c>, which
-/// uses them for its line-of-sight test. Re-run after changing the city (tuners, tile moves, buildings).
+/// each city tile's kerb, to <c>city_obstacles_&lt;scene&gt;.json</c> beside <c>analyse.py</c>, which uses
+/// them for the hat-visibility line-of-sight test and the turning maps. Re-run after changing the city
+/// (tuners, tile moves, buildings).
 /// Batch: <c>-executeMethod CityObstacleExport.RunScaledCityWorld</c>.
 /// </summary>
 public static class CityObstacleExport

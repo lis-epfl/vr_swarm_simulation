@@ -1278,3 +1278,49 @@ the real `StitcherThreading.py` as a subprocess. It uses sections of its own via
 `STITCH_SHM_SUFFIX` — named sections are machine-global, so on the real names it would be a second
 producer inside a live editor's session — and so it can run beside Unity in Play mode. It does not
 model Unity's frame cost; for that, read the `PyUniSharingFast.*` markers in the Unity Profiler.
+
+## Analysing experiment runs
+
+`ExperimentRecorder` (city-search-task runs, one participant/trial/condition each) writes every run into
+`%USERPROFILE%\AppData\LocalLow\UAVS@BERKELEY\DroneSim\experiment`, flat, until it is grouped. **Runs are
+analysed in *tests*, one folder per test series** (`internal_1`, `internal_2`, …), each with its own
+`test.json`, `results/` tables and `plots/<test>/` figures, so one series' numbers and figures never mix
+with another's. A single script, `Assets/Scripts/Experiment/analyse.py`, does everything — one run loader,
+one phase definition (transit/search split at a configurable metre zone around each goal, default 15 m),
+one set of plot helpers — replacing what used to be nine separate scripts with duplicated, disagreeing
+logic. Run it with the `stitching` miniconda env (see above): the default `python` has no pandas built
+against a compatible ABI here, and this project's convention is to keep every analysis interpreter the one
+used for the stitcher.
+
+**A test is not created automatically. Runs sit ungrouped at the root until someone decides which ones
+belong to a series**, because that decision (which runs count as one comparable series, which were false
+starts or bench tests) is the experimenter's, not something inferable from the data. The process, every
+time a new series is ready to analyse:
+
+1. `python analyse.py status` — lists every existing test (its runs by participant × condition, its
+   practice list) plus the archive count and, importantly, every run still sitting ungrouped at the root.
+2. Archive anything that isn't part of the series (`python analyse.py archive <selector>...`) — a bench
+   run, a false start, a run recorded on the wrong day. Do this *before* grouping, or a broad selector like
+   a bare participant ID will sweep it into the test.
+3. `python analyse.py group internal_N <selector>...` — moves the matching runs from the root into
+   `internal_N/` and writes `internal_N/test.json`, pre-filling its `practice` list with each
+   participant's first trial in each condition (selectors are a participant ID, `PID_tN`, or a full run
+   stem; `--date YYYYMMDD` narrows it; `--dry-run` previews without moving anything).
+4. **Check the pre-filled practice list by hand** — it is a starting guess (first trial per participant ×
+   condition), not a rule to trust blindly. Edit `internal_N/test.json` directly to add, remove, or leave a
+   description. Practice runs stay in every table (marked in a `practice` column) but are left out of every
+   figure and summary unless `--include-practice` is passed, which writes to a separate `with_practice/`
+   subfolder so the canonical outputs are never overwritten by a sensitivity check.
+5. If the identify keys weren't pressed live and answers were noted by hand instead:
+   `python analyse.py answers template internal_N` then fill in `internal_N/answers.csv` and
+   `python analyse.py answers apply internal_N`.
+6. `python analyse.py run internal_N` — the full analysis: `runs.csv` / `legs.csv` / `goals.csv` /
+   `crashes.csv` in `internal_N/results/`, a console report, and every figure in `plots/internal_N/`
+   (task time, pilot-command directness, spread/pitch dial usage, goal proximity, hat visibility, stitched-
+   panorama visibility, and two turning maps). `python analyse.py maps internal_N --all` draws one for every
+   run instead of just the two `run` picks, into `plots/internal_N/maps/`. Every figure carries a footer
+   naming the test, the zone setting, and whether practice was included, so a saved PNG is traceable back to
+   the settings that made it; `results/analysis_config.json` records the same for the tables.
+
+This only fires on request — never invent a new test folder or re-group an existing one without being
+told which runs belong in it.
