@@ -34,6 +34,11 @@ using UnityEngine.SceneManagement;
 ///
 /// <para><see cref="CityRowOffsetter"/> is removed from the built scene. It re-staggers tiles from where they stand and
 /// cannot see the diamonds, so a single nudge of it would slide whole columns of tiles into them.</para>
+///
+/// <para><b>The spawn road is <see cref="ParkRoadLengthFactor"/> times ScaledCityWorld's</b>, lengthened at the end away
+/// from the city, and the swarm's spawn moves out with it, so the swarm starts as far from the road's outer end as it
+/// did and that much further from the city. The road is lengthened with copies of its outer segment, never by scaling:
+/// a scaled segment stretches its texture with it.</para>
 /// </summary>
 public static class DiamondCityBuilder
 {
@@ -54,6 +59,12 @@ public static class DiamondCityBuilder
 
     /// <summary>How far any source kerb may sit off the grid fitted through them all before the build refuses.</summary>
     private const float MaxFitResidual = 1f;
+
+    private const string ParkRoadName = "ParkRoad";
+    private const int ParkRoadLengthFactor = 2;
+
+    /// <summary>How far the spawn road's segments may sit off one even spacing before the build refuses.</summary>
+    private const float MaxSegmentResidual = 0.01f;
 
     /// <summary>
     /// The city, north row first. Columns run west to east, and odd columns sit half a tile north of even ones, as in
@@ -132,6 +143,17 @@ public static class DiamondCityBuilder
     {
         public readonly List<KeyValuePair<string, Vector2Int>> Tiles = new List<KeyValuePair<string, Vector2Int>>();
         public readonly List<Diamond> Diamonds = new List<Diamond>();
+    }
+
+    /// <summary>The spawn road and what lengthening it takes, found and checked before anything is changed.</summary>
+    internal sealed class ParkRoad
+    {
+        public Transform Root;
+        public Transform Outer; // the segment at the end away from the city
+        public Vector3 Step;    // from one segment to the next, outward
+        public int Added;       // segments to add
+        public swarmSpawn Spawner;
+        public Vector3Int SpawnShift;
     }
 
     /// <summary>The new grid in the city root's frame: where the block centre of slot (column, row) stands.</summary>
@@ -303,6 +325,12 @@ public static class DiamondCityBuilder
         }
         SlotGrid grid = fitted.Value;
 
+        ParkRoad road = FindParkRoad(scene, city, out error);
+        if (road == null)
+        {
+            return null;
+        }
+
         int removed = 0;
         foreach (CityRowOffsetter offsetter in Object.FindObjectsByType<CityRowOffsetter>(FindObjectsInactive.Include,
                                                                                         FindObjectsSortMode.None))
@@ -369,12 +397,106 @@ public static class DiamondCityBuilder
             furthest = Mathf.Max(furthest, shift.magnitude);
         }
 
+        string lengthened = ExtendParkRoad(road);
+
         EditorSceneManager.MarkSceneDirty(scene);
         return $"re-laid {plan.Tiles.Count} tiles on {Columns} x {Rows} slots ({moved} moved, the furthest " +
                $"{furthest:F1} units; the source kerbs sat within {residual:F2} units of the fitted grid), drafted " +
                $"{built} diamond(s) and placed {reused} existing diamond prefab(s) under {DiamondsRootName}" +
                (flagsSet > 0 ? $" ({flagsSet} copied objects had their static flags restored)" : "") +
-               $", removed {removed} CityRowOffsetter(s).";
+               $", removed {removed} CityRowOffsetter(s), {lengthened}.";
+    }
+
+    /// <summary>
+    /// Finds the spawn road — a root named <see cref="ParkRoadName"/> whose children are its segments, evenly spaced in
+    /// a line — and the scene's one spawner, and works out the lengthening. Null, with <paramref name="error"/> set, if
+    /// the scene is not laid out that way or the spawn could not move by exactly the road's extension.
+    /// </summary>
+    internal static ParkRoad FindParkRoad(Scene scene, CityTiles.City city, out string error)
+    {
+        GameObject[] roots = scene.GetRootGameObjects().Where(go => go.name == ParkRoadName).ToArray();
+        if (roots.Length != 1)
+        {
+            error = $"the scene has {roots.Length} roots named {ParkRoadName}, not one.";
+            return null;
+        }
+        Transform root = roots[0].transform;
+        List<Transform> segments = root.Cast<Transform>().ToList();
+        if (segments.Count < 2)
+        {
+            error = $"{ParkRoadName} has {segments.Count} segment(s); it takes two to know which way it runs.";
+            return null;
+        }
+
+        Vector3 cityCentre = Vector3.zero;
+        foreach (Vector3 centre in city.Centres)
+        {
+            cityCentre += centre;
+        }
+        cityCentre /= city.Centres.Count;
+        float Reach(Transform t) => Vector2.Distance(new Vector2(t.position.x, t.position.z),
+                                                     new Vector2(cityCentre.x, cityCentre.z));
+
+        // Outermost first, so each segment's step to the next points back towards the city.
+        segments = segments.OrderByDescending(Reach).ToList();
+        Vector3 step = segments[0].position - segments[1].position;
+        for (int i = 1; i < segments.Count; i++)
+        {
+            Vector3 expected = segments[0].position - i * step;
+            if (Vector3.Distance(segments[i].position, expected) > MaxSegmentResidual)
+            {
+                error = $"{ParkRoadName}'s segments are not evenly spaced in a line ({segments[i].name} sits " +
+                        $"{Vector3.Distance(segments[i].position, expected):F3} units off it), so there is no one step " +
+                        "to lengthen it by.";
+                return null;
+            }
+        }
+
+        swarmSpawn[] spawners = Object.FindObjectsByType<swarmSpawn>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        if (spawners.Length != 1)
+        {
+            error = $"the scene has {spawners.Length} swarmSpawn components, not one, so there is no one spawn to move.";
+            return null;
+        }
+
+        int added = (ParkRoadLengthFactor - 1) * segments.Count;
+        Vector3 shift = added * step;
+        Vector3Int spawnShift = Vector3Int.RoundToInt(shift);
+        if (Vector3.Distance(shift, spawnShift) > MaxSegmentResidual)
+        {
+            error = $"the road would grow by {shift}, but swarmSpawn places the swarm in whole units, so the spawn " +
+                    "cannot move by the same distance.";
+            return null;
+        }
+
+        error = null;
+        return new ParkRoad
+        {
+            Root = root, Outer = segments[0], Step = step, Added = added, Spawner = spawners[0], SpawnShift = spawnShift,
+        };
+    }
+
+    /// <summary>Lays <see cref="ParkRoad.Added"/> copies of the outer segment beyond it and moves the spawn out as far.</summary>
+    internal static string ExtendParkRoad(ParkRoad road)
+    {
+        // The segments are named Unity's way (DoubleRoadSegment, DoubleRoadSegment (1), ...), so the copies continue it.
+        string baseName = System.Text.RegularExpressions.Regex.Replace(road.Outer.name, @" \(\d+\)$", "");
+        for (int k = 1; k <= road.Added; k++)
+        {
+            GameObject copy = Object.Instantiate(road.Outer.gameObject, road.Root);
+            copy.name = GameObjectUtility.GetUniqueNameForSibling(road.Root, baseName);
+            copy.transform.position = road.Outer.position + k * road.Step;
+            copy.transform.rotation = road.Outer.rotation;
+        }
+
+        swarmSpawn spawner = road.Spawner;
+        spawner.start_x += road.SpawnShift.x;
+        spawner.start_y += road.SpawnShift.y;
+        spawner.start_z += road.SpawnShift.z;
+        EditorUtility.SetDirty(spawner);
+
+        return $"lengthened {ParkRoadName} by {road.Added} segment(s) ({(road.Added * road.Step).magnitude:F1} units) " +
+               $"and moved the spawn by {road.SpawnShift} to ({spawner.start_x}, {spawner.start_y}, {spawner.start_z})";
     }
 
     /// <summary>
