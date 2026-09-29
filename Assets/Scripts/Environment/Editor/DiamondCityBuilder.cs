@@ -47,9 +47,9 @@ public static class DiamondCityBuilder
     public const string DiamondFolder = "Assets/Prefabs/ScaledCity/Diamonds";
     public const string DiamondsRootName = "Diamonds";
 
-    private const string TileNamePrefix = "MC_Patch";
-    private const string DiamondKerbPrefix = "Kerb_";
-    private const string DiamondContentPrefix = "Block";
+    internal const string TileNamePrefix = "MC_Patch";
+    internal const string DiamondKerbPrefix = "Kerb_";
+    internal const string DiamondContentPrefix = "Block";
 
     private const int Columns = 8;
     private const int Rows = 8;
