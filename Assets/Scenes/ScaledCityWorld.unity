@@ -69985,7 +69985,7 @@ MonoBehaviour:
   maxObstacleAccel: 4.57
   d_shield: 2.5
   scaleFactor: 10
-  hollowSwarmCore: 1
+  hollowSwarmCore: 0
   coreRadiusFraction: 0.5
   coreRadiusFilterTime: 0.5
   c_core: 1.5
@@ -69999,7 +69999,7 @@ MonoBehaviour:
   numDimensions: 2
   pointInwards: 0
   feedHeadingToleranceDeg: 5
-  fillLookDirectionGap: 0
+  fillLookDirectionGap: 1
   lookGapCoverageDeg: 20
   lookGapMaxShiftDeg: 15
   gimbalPitch: 0
@@ -70110,7 +70110,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1839174494}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dc57387dd9a883740b6af778f897e6b8, type: 3}
   m_Name: 
