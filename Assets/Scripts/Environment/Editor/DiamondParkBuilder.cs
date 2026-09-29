@@ -7,21 +7,39 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Dresses <c>Diamond_B</c> as a formal park, writing straight into its prefab. The diamond was restyled by hand into a
-/// cross-shaped lawn of grass planes, a fountain at its centre and two small plazas (nested ScaledCity patches) across
-/// the north–south corridors; this adds what makes that read as a park, and makes the lawn look like the terrain's grass.
+/// Makes the four diamonds (<see cref="DiamondCityBuilder"/>) formal parks built on one shared base, each distinct from
+/// the others, writing straight into their prefabs.
 ///
-/// <para><b>Everything it adds hangs under one <c>Park</c> child that is rebuilt from nothing on every run</b>, so the
-/// layout is this file, not hand edits: change a constant and run it again. Hand edits elsewhere in the prefab survive
-/// a run; hand edits under <c>Park</c> do not. The layout is measured from what the prefab already holds — the lawn is
-/// the union of the grass planes, the centre is the fountain, the axes run through it, and whatever stands on the lawn
-/// (plaza footpaths, buildings, props) is a keep-out — so moving a plane or the fountain and re-running follows the
-/// change. A spot that fails the lawn or keep-out test is skipped and counted, never nudged.</para>
+/// <para><b>The structure.</b> <c>Diamond_B</c> was restyled by hand into a cross-shaped lawn of grass planes with a
+/// fountain at its centre, inside the street shells of its four blocks. That became <see cref="BasePath"/>, and every
+/// diamond is now its own root holding three children: <c>Base</c>, a nested instance of it; <c>Plazas</c>, the two
+/// small plazas standing across the north–south corridors; and <c>Park</c>, the trees and tip buildings. Editing the base
+/// changes all four. It is a nested prefab rather than a Unity Prefab Variant on purpose: a variant's root is a new
+/// object, so turning the existing prefabs into variants would orphan the root-position overrides DiamondCityWorld holds
+/// for each placed diamond, and every diamond would jump to its prefab's stored position.</para>
 ///
-/// <para><b>The layout</b> (~115 trees): a ring round the fountain, open on the four axes; an avenue (a pair of rows)
-/// down each axis, from the ring or the far side of a plaza out towards the tip; a staggered double row inside both
-/// long edges of the north and south arms; a small grid grove either side of the avenue in the west and east arms; and
-/// at each of the four tips a single 50-unit building on a footpath slab slightly larger than its footprint.</para>
+/// <para><b>What a run does</b>, all of it idempotent: creates the base from <see cref="BaseSourceLetter"/> if it does not
+/// exist; puts any diamond not yet on the base onto it, keeping plazas it already has (Diamond_B's, made by hand) or
+/// drafting its spec's two plazas (see <see cref="DraftPlaza"/>); gives the base's grass planes the terrain's grass; and
+/// rebuilds every diamond's <c>Park</c> from nothing. So the layout is this file, not hand edits: change a constant or a
+/// spec and run it again. Hand edits to the base and to the plazas survive a run; hand edits under <c>Park</c> do not.
+/// Deleting a diamond's prefab gets <see cref="DiamondCityBuilder"/>'s tile-copy draft back, which the next run puts on
+/// the base again.</para>
+///
+/// <para><b>The park</b> (~115–120 trees) is measured from what the diamond holds — the lawn is the union of the grass
+/// planes, the centre is the fountain, the axes run through it, and whatever stands on the lawn (plaza footpaths,
+/// buildings, props) is a keep-out — and a spot that fails the lawn or keep-out test is skipped and counted, never
+/// nudged. A ring round the fountain, open on the four axes; an avenue (a pair of rows) down each axis, from the ring or
+/// the far side of a plaza out towards the tip; a staggered double row inside both long edges of two opposite arms, and
+/// a small grid grove either side of the avenue in the other two; and at each of the four tips a single 50-unit building
+/// on a footpath slab slightly larger than its footprint.</para>
+///
+/// <para><b>What makes each diamond distinct</b> is its <see cref="DiamondSpec"/>: its plazas, its four tip buildings,
+/// which arms carry the double rows and which the groves, which tree model each arrangement uses, and its seed. No patch
+/// is the source of anything in two diamonds, every tip building is a different design from its diamond's plazas and
+/// from every other diamond's tips, and everything comes from a patch at least three slots from its diamond in the
+/// <see cref="DiamondCityBuilder"/> layout, so nothing stands in sight of its twin. The pack has ~38 building designs,
+/// so a few designs do recur between one diamond's plazas and another's.</para>
 ///
 /// <para><b>The trees are the four models in <see cref="TreeFolder"/></b> — <c>Tree9_2</c> is the one
 /// DiamondCityWorld's <see cref="VergeTreePlanter"/> plants on the verges — all at <see cref="TreeScale"/> times their
@@ -33,9 +51,8 @@ using UnityEngine.SceneManagement;
 /// <para><b>The tip buildings are copies of ScaledCity buildings</b> (not prefab instances), so each keeps the UV-baked
 /// mesh <see cref="BuildingUvBaker"/> made for its 0.25-width scale, its 50-unit height, its <c>BoxCollider</c> on
 /// <c>Obstacle</c> and a name in one of the building families <see cref="ObstacleLayerAuditor"/> keeps on that layer.
-/// Each comes from a patch nowhere near the diamond, so it does not stand beside its twin. Its footpath is a generated
-/// quad with the pack footpath's own texel density: a scaled-down copy of the 76.2-unit footpath slab would shrink its
-/// paving five-fold.</para>
+/// Its footpath is a generated quad with the pack footpath's own texel density: a scaled-down copy of the 76.2-unit
+/// footpath slab would shrink its paving five-fold.</para>
 ///
 /// <para><b>The grass planes get <see cref="GrassMaterialPath"/></b>, built from the terrain's grass layer
 /// (<see cref="TerrainLayerPath"/>, which all four DiamondCityWorld terrains use): same texture, same metres per repeat
@@ -44,15 +61,18 @@ using UnityEngine.SceneManagement;
 /// bounds: each 76-unit plane stood over the park as a ~54-unit-radius repulsion field, the <c>Road_Structure</c>
 /// failure <see cref="ObstacleLayerAuditor"/> describes.</para>
 ///
-/// <para><b>It also keeps the diamond from being taken for a tile</b> (see <see cref="DiamondCityBuilder"/>): a
-/// nested patch's kerb (<c>Carbs_NN</c>) is renamed <c>Kerb_NN</c> and hidden, and its <c>MC_Patch</c> nodes become
-/// <c>Block</c>. A kerb under the diamonds' root stops <see cref="CityTiles.FindCity(Scene, out string)"/> finding the
-/// city at all — which silently stops goal-patch verge planting at runtime — and <see cref="CityObstacleExport"/> lists
-/// every <c>MC_Patch</c> node as a tile.</para>
+/// <para><b>It also keeps each diamond from being taken for a tile</b>: a plaza's kerb (<c>Carbs_NN</c>) is renamed
+/// <c>Kerb_NN</c> and hidden, and its <c>MC_Patch</c> nodes become <c>Block</c>, as <see cref="DiamondCityBuilder"/>
+/// does for its drafts. A kerb under the diamonds' root stops <see cref="CityTiles.FindCity(Scene, out string)"/>
+/// finding the city at all — which silently stops goal-patch verge planting at runtime — and
+/// <see cref="CityObstacleExport"/> lists every <c>MC_Patch</c> node as a tile.</para>
 /// </summary>
 public static class DiamondParkBuilder
 {
-    public const string PrefabPath = DiamondCityBuilder.DiamondFolder + "/Diamond_B.prefab";
+    public const string BasePath = DiamondCityBuilder.DiamondFolder + "/Diamond_Base.prefab";
+
+    /// <summary>The diamond restyled by hand, whose lawn, fountain and street shells the base is made from.</summary>
+    private const char BaseSourceLetter = 'B';
 
     private const string GeneratedFolder = DiamondCityBuilder.DiamondFolder + "/Generated";
     private const string GrassMaterialPath = "Assets/Materials/DiamondParkGrass.mat";
@@ -60,33 +80,51 @@ public static class DiamondParkBuilder
     private const string TreeFolder = "Assets/Tree9";
     private const string PatchFolder = "Assets/Prefabs/ScaledCity/Patches";
 
+    private const string BaseName = "Base";
+    private const string PlazasName = "Plazas";
     private const string ParkName = "Park";
     private const string GrassName = "Grass";
     private const string GrassPlanePrefix = "Plane";
     private const string FountainPrefix = "fountain";
+    private const string RoadPlatePrefix = "Road_Structure_";
+    private const string InteriorStreetPrefix = "Roads_Street_";
     private static readonly string[] FootpathPrefixes = { "FootPath_", "Footpath_" };
+
+    /// <summary>A pack footpath's height above its tile's road plate, for a patch that has no plate to measure by.</summary>
+    private const float FootpathHeight = 0.15f;
+
+    /// <summary>The building families <see cref="ObstacleLayerAuditor"/> keeps on <c>Obstacle</c>.</summary>
+    private static readonly string[] BuildingPrefixes =
+    {
+        "BnP_Small_Building_", "BnP_Large_Building_", "BnP_Apartment_", "Skyscraper_",
+    };
 
     /// <summary>Renderers a tree may stand next to: the ground, and the kerbs. The street medians are skipped too.</summary>
     private static readonly string[] GroundPrefixes =
     {
-        GrassPlanePrefix, "Road_Structure_", "Green_Belt", CityTiles.KerbPrefix, DiamondCityBuilder.DiamondKerbPrefix,
+        GrassPlanePrefix, RoadPlatePrefix, "Green_Belt", CityTiles.KerbPrefix, DiamondCityBuilder.DiamondKerbPrefix,
     };
 
     private const StaticEditorFlags Everything = (StaticEditorFlags)(-1); // what the city's tiles carry
+
+    // ---------------------------------------------------------------- plazas
+
+    /// <summary>
+    /// A drafted plaza's block content about its kerb, as Diamond_B's hand-made plazas were: their footpaths are 49.5
+    /// units across where a block's is 76.2. Buildings and props move in, keeping their size.
+    /// </summary>
+    private const float PlazaScale = 0.65f;
+    private const float PlazaMinGap = 1f;    // between two of a drafted plaza's buildings
+    private const float PlazaMinMargin = 0.5f; // from a building to its plaza's footpath edge
+
+    /// <summary>How far a placed building's base may sit from the diamond's ground before the build refuses it.</summary>
+    private const float MaxBaseHeight = 1f;
 
     // ---------------------------------------------------------------- trees
 
     /// <summary>Times the prefab's own size, so a park tree stands 7.4–8.5 units tall against a street tree's ~4.6.</summary>
     private const float TreeScale = 1.8f;
     private const float TreeScaleJitter = 0.1f; // either way
-    private const int TreeSeed = 1;
-
-    // The model each arrangement uses, by prefab name in TreeFolder; null mixes every model there.
-    private const string RingSpecies = "Tree9_3"; // the roundest canopy, and the one standing most nearly over its trunk
-    private const string NorthSouthAvenueSpecies = "Tree9_2";
-    private const string EastWestAvenueSpecies = "Tree9_4";
-    private const string EdgeRowSpecies = "Tree9_5";
-    private const string GroveSpecies = null;
 
     /// <summary>How close a trunk may stand to anything on the lawn, and to the lawn's edge.</summary>
     private const float TreeClearance = 3f;
@@ -101,11 +139,11 @@ public static class DiamondParkBuilder
     private const float AvenueGapToRing = 10f;
     private const float AvenueStandOff = 6f; // from a plaza, or from a tip building's footpath
 
-    private const float EdgeRowInset = 4f; // outer row from the lawn's edge
-    private const float EdgeRowGap = 6f;   // outer row to inner row
-    private const int EdgeRowTrees = 5;    // in the outer row; the inner row has one fewer, in the gaps
-    private const float EdgeRowStartGap = 6f; // past the corner where the arm leaves the cross
-    private const float EdgeRowEndGap = 5f;   // short of the tip
+    private const float EdgeRowInset = 4f;     // outer row from the lawn's edge
+    private const float EdgeRowGap = 6f;       // outer row to inner row
+    private const float EdgeRowSpacing = 8.5f; // about, in the outer row; the inner row stands in its gaps
+    private const float EdgeRowStartGap = 6f;  // past the corner where the arm leaves the cross, or past a plaza
+    private const float EdgeRowEndGap = 5f;    // short of the tip
 
     private const int GroveAlong = 3;  // columns, along the arm
     private const int GroveAcross = 2; // rows
@@ -138,6 +176,8 @@ public static class DiamondParkBuilder
         West,
     }
 
+    private static readonly Tip[] Tips = { Tip.North, Tip.East, Tip.South, Tip.West };
+
     private readonly struct TipBuilding
     {
         public readonly Tip Tip;
@@ -151,18 +191,6 @@ public static class DiamondParkBuilder
             Building = building;
         }
     }
-
-    /// <summary>
-    /// Compact footprints (7.7–12.5 units a side), four different designs, and from patches that stand nowhere near
-    /// Diamond_B in the <see cref="DiamondCityBuilder"/> layout.
-    /// </summary>
-    private static readonly TipBuilding[] TipBuildings =
-    {
-        new TipBuilding(Tip.North, "MC_Patch_05_Scaled", "BnP_Small_Building_D_004"),
-        new TipBuilding(Tip.East, "MC_Patch_03_Scaled", "BnP_Apartment_H_000"),
-        new TipBuilding(Tip.South, "MC_Patch_16_Scaled", "BnP_Large_Building_K_002"),
-        new TipBuilding(Tip.West, "MC_Patch_19_Scaled", "BnP_Apartment_E_002"),
-    };
 
     private const float TipInset = 3f;       // the footpath's outer edge from the lawn's edge
     private const float FootpathMargin = 2f; // footpath beyond the building on every side
@@ -189,38 +217,123 @@ public static class DiamondParkBuilder
         public Vector2 At(float x, float z) => new Vector2(u.x * x + u.y * z + u.z, v.x * x + v.y * z + v.z);
     }
 
-    [MenuItem("Tools/Swarm/Dress Diamond B park")]
-    private static void DressFromMenu()
+    // ---------------------------------------------------------------- the diamonds
+
+    /// <summary>Everything that makes one diamond different from the others.</summary>
+    private sealed class DiamondSpec
     {
-        PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
-        if (stage != null && stage.assetPath == PrefabPath)
-        {
-            EditorUtility.DisplayDialog("Dress Diamond B park",
-                "Diamond_B is open in Prefab Mode. Save and close it first: the park is written into the prefab asset, " +
-                "and saving the open stage afterwards would overwrite it.", "OK");
-            return;
-        }
-        string summary = Dress(out string error);
-        if (summary == null)
-        {
-            Debug.LogError("DiamondParkBuilder: " + error);
-        }
-        else
-        {
-            Debug.Log("DiamondParkBuilder: " + summary);
-        }
+        public char Letter;
+        public int Seed;
+
+        /// <summary>Double rows in the north and south arms and groves in the west and east, or the other way round.</summary>
+        public bool RowsNorthSouth;
+
+        // Tree models by prefab name in TreeFolder; the groves mix every model there.
+        public string Ring;
+        public string NorthSouthAvenues;
+        public string EastWestAvenues;
+        public string Rows;
+
+        /// <summary>West, then east: drafted only into a diamond that has no plazas of its own.</summary>
+        public string[] Plazas;
+
+        public TipBuilding[] TipBuildings;
+
+        public string PrefabPath => $"{DiamondCityBuilder.DiamondFolder}/Diamond_{Letter}.prefab";
     }
 
-    [MenuItem("Tools/Swarm/Dress Diamond B park", true)]
-    private static bool CanDress()
+    /// <summary>
+    /// Slots are (column, row) in <see cref="DiamondCityBuilder"/>'s layout; every source listed is at least three slots
+    /// from its diamond. B's plazas are the ones made by hand; its other values are what it was first dressed with.
+    /// </summary>
+    private static readonly DiamondSpec[] Diamonds =
+    {
+        new DiamondSpec
+        {
+            Letter = 'A', Seed = 2, RowsNorthSouth = false,
+            Ring = "Tree9_2", NorthSouthAvenues = "Tree9_5", EastWestAvenues = "Tree9_3", Rows = "Tree9_4",
+            Plazas = new[] { "MC_Patch_35_Scaled", "MC_Patch_26_Scaled" },
+            TipBuildings = new[]
+            {
+                new TipBuilding(Tip.North, "MC_Patch_25_Scaled", "BnP_Apartment_F_006"),
+                new TipBuilding(Tip.East, "MC_Patch_45_Scaled", "BnP_Large_Building_I_007"),
+                new TipBuilding(Tip.South, "MC_Patch_11_Scaled", "Skyscraper_J_002"),
+                new TipBuilding(Tip.West, "MC_Patch_42_Scaled", "BnP_Apartment_D_012"),
+            },
+        },
+        new DiamondSpec
+        {
+            Letter = 'B', Seed = 1, RowsNorthSouth = true,
+            Ring = "Tree9_3", NorthSouthAvenues = "Tree9_2", EastWestAvenues = "Tree9_4", Rows = "Tree9_5",
+            Plazas = new[] { "MC_Patch_02_Scaled", "MC_Patch_43_Scaled" },
+            TipBuildings = new[]
+            {
+                new TipBuilding(Tip.North, "MC_Patch_05_Scaled", "BnP_Small_Building_D_004"),
+                new TipBuilding(Tip.East, "MC_Patch_03_Scaled", "BnP_Apartment_H_000"),
+                new TipBuilding(Tip.South, "MC_Patch_16_Scaled", "BnP_Large_Building_K_002"),
+                new TipBuilding(Tip.West, "MC_Patch_19_Scaled", "BnP_Apartment_E_002"),
+            },
+        },
+        new DiamondSpec
+        {
+            Letter = 'C', Seed = 3, RowsNorthSouth = true,
+            Ring = "Tree9_4", NorthSouthAvenues = "Tree9_3", EastWestAvenues = "Tree9_5", Rows = "Tree9_2",
+            Plazas = new[] { "MC_Patch_12_Scaled", "MC_Patch_06_Scaled" },
+            TipBuildings = new[]
+            {
+                new TipBuilding(Tip.North, "MC_Patch_31_Scaled", "BnP_Apartment_I_004"),
+                new TipBuilding(Tip.East, "MC_Patch_46_Scaled", "BnP_Small_Building_B_007"),
+                new TipBuilding(Tip.South, "MC_Patch_07_Scaled", "Skyscraper_E_000"),
+                new TipBuilding(Tip.West, "MC_Patch_32_Scaled", "BnP_Apartment_C_002"),
+            },
+        },
+        new DiamondSpec
+        {
+            Letter = 'D', Seed = 4, RowsNorthSouth = false,
+            Ring = "Tree9_5", NorthSouthAvenues = "Tree9_4", EastWestAvenues = "Tree9_2", Rows = "Tree9_3",
+            Plazas = new[] { "MC_Patch_30_Scaled", "MC_Patch_38_Scaled" },
+            TipBuildings = new[]
+            {
+                new TipBuilding(Tip.North, "MC_Patch_48_Scaled", "Skyscraper_D_002"),
+                new TipBuilding(Tip.East, "MC_Patch_39_Scaled", "BnP_Large_Building_J_004"),
+                new TipBuilding(Tip.South, "MC_Patch_14_Scaled", "BnP_Large_Building_L_005"),
+                new TipBuilding(Tip.West, "MC_Patch_39_Scaled", "Skyscraper_I_000"),
+            },
+        },
+    };
+
+    // ---------------------------------------------------------------- entry points
+
+    [MenuItem("Tools/Swarm/Build diamond parks")]
+    private static void BuildFromMenu()
+    {
+        PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
+        if (stage != null && (stage.assetPath == BasePath || Diamonds.Any(d => d.PrefabPath == stage.assetPath)))
+        {
+            EditorUtility.DisplayDialog("Build diamond parks",
+                $"{Path.GetFileName(stage.assetPath)} is open in Prefab Mode. Save and close it first: the parks are written " +
+                "into the prefab assets, and saving the open stage afterwards would overwrite them.", "OK");
+            return;
+        }
+        Report(Build(out string error), error);
+    }
+
+    [MenuItem("Tools/Swarm/Build diamond parks", true)]
+    private static bool CanBuild()
     {
         return !EditorApplication.isPlayingOrWillChangePlaymode;
     }
 
-    /// <summary>Batch-mode entry point: <c>-executeMethod DiamondParkBuilder.DressInBatch</c>. Exits 0 on success.</summary>
-    public static void DressInBatch()
+    /// <summary>Batch-mode entry point: <c>-executeMethod DiamondParkBuilder.BuildInBatch</c>. Exits 0 on success.</summary>
+    public static void BuildInBatch()
     {
-        string summary = Dress(out string error);
+        string summary = Build(out string error);
+        Report(summary, error);
+        EditorApplication.Exit(summary != null ? 0 : 1);
+    }
+
+    private static void Report(string summary, string error)
+    {
         if (summary == null)
         {
             Debug.LogError("DiamondParkBuilder: " + error);
@@ -229,14 +342,14 @@ public static class DiamondParkBuilder
         {
             Debug.Log("DiamondParkBuilder: " + summary);
         }
-        EditorApplication.Exit(summary != null ? 0 : 1);
     }
 
     /// <summary>
-    /// Rebuilds Diamond_B's park and saves the prefab. Returns a one-line account of what it did, or null with
-    /// <paramref name="error"/> set, in which case the prefab is left as it was.
+    /// Puts every diamond on the base and rebuilds every park. Returns an account of what it did, or null with
+    /// <paramref name="error"/> set. Everything it needs is found before anything is changed; a failure part-way leaves
+    /// the prefabs already saved as they are, and a re-run carries on from there.
     /// </summary>
-    public static string Dress(out string error)
+    public static string Build(out string error)
     {
         // Every tree model in the folder, by name; a prefab without a Tree component is not one.
         List<GameObject> trees = AssetDatabase.FindAssets("t:Prefab", new[] { TreeFolder })
@@ -244,8 +357,8 @@ public static class DiamondParkBuilder
                                               .Where(p => p != null && p.GetComponent<Tree>() != null)
                                               .OrderBy(p => p.name, System.StringComparer.Ordinal)
                                               .ToList();
-        string missing = new[] { RingSpecies, NorthSouthAvenueSpecies, EastWestAvenueSpecies, EdgeRowSpecies, GroveSpecies }
-                         .FirstOrDefault(s => s != null && trees.All(p => p.name != s));
+        string missing = Diamonds.SelectMany(d => new[] { d.Ring, d.NorthSouthAvenues, d.EastWestAvenues, d.Rows })
+                                 .FirstOrDefault(s => trees.All(p => p.name != s));
         TerrainLayer grassLayer = AssetDatabase.LoadAssetAtPath<TerrainLayer>(TerrainLayerPath);
         if (trees.Count == 0 || missing != null || grassLayer == null || grassLayer.diffuseTexture == null)
         {
@@ -255,28 +368,181 @@ public static class DiamondParkBuilder
                   : $"{TerrainLayerPath} has no diffuse texture.";
             return null;
         }
-        List<TipSource> tips = FindTipSources(out error);
-        if (tips == null)
+        Dictionary<char, List<TipSource>> tips = new Dictionary<char, List<TipSource>>();
+        foreach (DiamondSpec spec in Diamonds)
+        {
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(spec.PrefabPath) == null)
+            {
+                error = $"no prefab at {spec.PrefabPath}; build the diamond city first (Tools/Swarm/Build diamond city).";
+                return null;
+            }
+            tips[spec.Letter] = FindTipSources(spec, out error);
+            if (tips[spec.Letter] == null)
+            {
+                return null;
+            }
+        }
+
+        string structure = EnsureStructure(out error);
+        if (structure == null)
         {
             return null;
         }
+        string grass = DressBase(grassLayer, out error);
+        if (grass == null)
+        {
+            return null;
+        }
+        List<string> parks = new List<string>();
+        foreach (DiamondSpec spec in Diamonds)
+        {
+            string park = DressDiamond(spec, trees, tips[spec.Letter], out error);
+            if (park == null)
+            {
+                error = $"Diamond_{spec.Letter}: {error}";
+                return null;
+            }
+            parks.Add(park);
+        }
+        AssetDatabase.SaveAssets();
+        return $"{structure}; {grass}.\n" + string.Join("\n", parks);
+    }
 
-        GameObject root = PrefabUtility.LoadPrefabContents(PrefabPath);
+    private static List<TipSource> FindTipSources(DiamondSpec spec, out string error)
+    {
+        int obstacle = LayerMask.NameToLayer("Obstacle");
+        List<TipSource> sources = new List<TipSource>();
+        foreach (Tip tip in Tips)
+        {
+            TipBuilding[] matches = spec.TipBuildings.Where(t => t.Tip == tip).ToArray();
+            if (matches.Length != 1)
+            {
+                error = $"Diamond_{spec.Letter} has {matches.Length} tip buildings for its {tip} tip, not one.";
+                return null;
+            }
+            TipBuilding building = matches[0];
+            string path = $"{PatchFolder}/{building.Patch}.prefab";
+            GameObject patch = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (patch == null)
+            {
+                error = $"no patch prefab at {path}.";
+                return null;
+            }
+            Transform source = patch.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == building.Building);
+            Renderer footpath = patch.GetComponentsInChildren<Renderer>(true)
+                                     .FirstOrDefault(r => HasAnyPrefix(r.name, FootpathPrefixes) && r.GetComponent<MeshFilter>());
+            if (source == null || footpath == null)
+            {
+                error = source == null ? $"{building.Patch} has no {building.Building}." : $"{building.Patch} has no footpath.";
+                return null;
+            }
+            if (source.gameObject.layer != obstacle || source.GetComponent<Collider>() == null)
+            {
+                error = $"{building.Building} in {building.Patch} is not a collider on Obstacle, so the swarm would not avoid it.";
+                return null;
+            }
+            sources.Add(new TipSource { Spec = building, Building = source, Footpath = footpath });
+        }
+        error = null;
+        return sources;
+    }
+
+    // ---------------------------------------------------------------- the base, and putting diamonds on it
+
+    /// <summary>
+    /// Creates the base if it is missing and puts every diamond not yet on it onto it. Returns what it did, or null
+    /// with <paramref name="error"/> set.
+    /// </summary>
+    private static string EnsureStructure(out string error)
+    {
+        List<string> notes = new List<string>();
+        DiamondSpec baseSource = Diamonds.First(d => d.Letter == BaseSourceLetter);
+        GameObject basePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(BasePath);
+        if (basePrefab == null)
+        {
+            basePrefab = CreateBase(baseSource, out error);
+            if (basePrefab == null)
+            {
+                return null;
+            }
+            notes.Add($"created {Path.GetFileName(BasePath)} from Diamond_{BaseSourceLetter}");
+        }
+
+        // Where a drafted plaza goes: on the base source's own plazas, which block the corridors.
+        Vector2[] plazaCentres = null;
+        foreach (DiamondSpec spec in Diamonds)
+        {
+            GameObject root = PrefabUtility.LoadPrefabContents(spec.PrefabPath);
+            try
+            {
+                if (IsOnBase(root.transform))
+                {
+                    continue;
+                }
+                List<Transform> plazas = FindPlazas(root.transform);
+                if (plazas.Count == 0 && plazaCentres == null)
+                {
+                    plazaCentres = PlazaCentres(baseSource, out error);
+                    if (plazaCentres == null)
+                    {
+                        return null;
+                    }
+                }
+                string note = PutOnBase(root.transform, spec, basePrefab, plazas, plazaCentres, out error);
+                if (note == null)
+                {
+                    return null;
+                }
+                PrefabUtility.SaveAsPrefabAsset(root, spec.PrefabPath, out bool saved);
+                if (!saved)
+                {
+                    error = $"could not save {spec.PrefabPath}.";
+                    return null;
+                }
+                notes.Add(note);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+        error = null;
+        return notes.Count == 0 ? "every diamond already on the base" : string.Join("; ", notes);
+    }
+
+    /// <summary>
+    /// Saves the base source's lawn, fountain and street shells — everything but its plazas and park — as the base,
+    /// its root at the origin so it sits exactly where they stood.
+    /// </summary>
+    private static GameObject CreateBase(DiamondSpec source, out string error)
+    {
+        GameObject root = PrefabUtility.LoadPrefabContents(source.PrefabPath);
         try
         {
-            string summary = Populate(root, trees, grassLayer, tips, out error);
-            if (summary == null)
+            if (IsOnBase(root.transform))
             {
+                error = $"{BasePath} is missing but Diamond_{source.Letter} is already built on it. Restore it from git.";
                 return null;
             }
-            PrefabUtility.SaveAsPrefabAsset(root, PrefabPath, out bool saved);
-            if (!saved)
+            if (root.transform.Find(GrassName) == null)
             {
-                error = $"could not save {PrefabPath}.";
+                error = $"Diamond_{source.Letter} has no {GrassName} child to make the base's lawn from.";
                 return null;
             }
-            AssetDatabase.SaveAssets();
-            return summary;
+            foreach (Transform child in root.transform.Cast<Transform>().ToList())
+            {
+                if (child.name == ParkName || IsPlaza(child))
+                {
+                    Object.DestroyImmediate(child.gameObject);
+                }
+            }
+            root.name = Path.GetFileNameWithoutExtension(BasePath);
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+            GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, BasePath, out bool ok);
+            error = ok ? null : $"could not save {BasePath}.";
+            return ok ? saved : null;
         }
         finally
         {
@@ -284,179 +550,270 @@ public static class DiamondParkBuilder
         }
     }
 
-    private static List<TipSource> FindTipSources(out string error)
+    /// <summary>
+    /// Replaces a diamond's content with the base, keeping the plazas it already has or drafting its spec's. The root
+    /// itself is kept, which is what keeps DiamondCityWorld's placement of it valid.
+    /// </summary>
+    private static string PutOnBase(Transform root, DiamondSpec spec, GameObject basePrefab, List<Transform> plazas,
+                                    Vector2[] plazaCentres, out string error)
     {
-        int obstacle = LayerMask.NameToLayer("Obstacle");
-        List<TipSource> sources = new List<TipSource>();
-        foreach (TipBuilding spec in TipBuildings)
+        // The plazas move to their container first, so clearing the rest cannot take one with it.
+        Transform plazaParent = CreateChild(root, PlazasName);
+        foreach (Transform plaza in plazas)
         {
-            string path = $"{PatchFolder}/{spec.Patch}.prefab";
-            GameObject patch = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-            if (patch == null)
+            plaza.SetParent(plazaParent, true);
+        }
+        foreach (Transform child in root.Cast<Transform>().ToList())
+        {
+            if (child != plazaParent)
             {
-                error = $"no patch prefab at {path}.";
+                Object.DestroyImmediate(child.gameObject);
+            }
+        }
+
+        GameObject baseInstance = (GameObject)PrefabUtility.InstantiatePrefab(basePrefab, root);
+        baseInstance.name = BaseName;
+        baseInstance.transform.localPosition = Vector3.zero;
+        baseInstance.transform.localRotation = Quaternion.identity;
+        baseInstance.transform.localScale = Vector3.one;
+        baseInstance.transform.SetSiblingIndex(0);
+
+        if (plazas.Count > 0)
+        {
+            error = null;
+            return $"Diamond_{spec.Letter} put on the base, keeping its {plazas.Count} plaza(s)";
+        }
+        List<string> drafted = new List<string>();
+        for (int i = 0; i < 2; i++)
+        {
+            string note = DraftPlaza(spec.Plazas[i], plazaParent, root, plazaCentres[i], out error);
+            if (note == null)
+            {
+                error = $"Diamond_{spec.Letter}'s plaza from {spec.Plazas[i]}: {error}";
                 return null;
             }
-            Transform building = patch.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == spec.Building);
-            Renderer footpath = patch.GetComponentsInChildren<Renderer>(true)
-                                     .FirstOrDefault(r => HasAnyPrefix(r.name, FootpathPrefixes) && r.GetComponent<MeshFilter>());
-            if (building == null || footpath == null)
-            {
-                error = building == null ? $"{spec.Patch} has no {spec.Building}." : $"{spec.Patch} has no footpath.";
-                return null;
-            }
-            if (building.gameObject.layer != obstacle || building.GetComponent<Collider>() == null)
-            {
-                error = $"{spec.Building} in {spec.Patch} is not a collider on Obstacle, so the swarm would not avoid it.";
-                return null;
-            }
-            sources.Add(new TipSource { Spec = spec, Building = building, Footpath = footpath });
+            drafted.Add(note);
         }
         error = null;
-        return sources;
+        return $"Diamond_{spec.Letter} put on the base with plazas drafted from {string.Join(" and ", drafted)}";
     }
 
     /// <summary>
-    /// Does the work on the loaded prefab contents. Everything is measured in the prefab root's frame, which is the
-    /// diamond's: its origin is the centre of the four blocks.
+    /// A ScaledCity patch made into a plaza the way Diamond_B's were by hand: its block centred on
+    /// <paramref name="centre"/> with its road plate at the diamond's ground, and drawn in about its kerb by
+    /// <see cref="PlazaScale"/> — footpaths scaled, buildings and props moved in at their own size — with its road plate,
+    /// interior streets and kerb hidden, so the lawn shows between its footpaths. (The streets would sit just under the
+    /// lawn, a few centimetres from z-fighting it.) Seven patches carry their content tens of units below their pivot,
+    /// which the city cancels on the tile instance; placing by the road plate is what keeps those out of the ground.
+    /// Checked afterwards: no two buildings closer than <see cref="PlazaMinGap"/>, none off the footpath. Returns a
+    /// note, or null with <paramref name="error"/> set.
     /// </summary>
-    private static string Populate(GameObject rootObject, List<GameObject> trees, TerrainLayer grassLayer,
-                                   List<TipSource> tips, out string error)
+    private static string DraftPlaza(string patchName, Transform parent, Transform frame, Vector2 centre, out string error)
     {
-        Transform root = rootObject.transform;
-
-        Transform oldPark = root.Find(ParkName);
-        if (oldPark != null)
+        string path = $"{PatchFolder}/{patchName}.prefab";
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+        if (prefab == null)
         {
-            Object.DestroyImmediate(oldPark.gameObject);
-        }
-
-        // The lawn.
-        Transform grass = root.Find(GrassName);
-        List<Renderer> planes = grass == null
-            ? new List<Renderer>()
-            : grass.GetComponentsInChildren<Renderer>(true).Where(r => r.name.StartsWith(GrassPlanePrefix)).ToList();
-        if (planes.Count == 0)
-        {
-            error = $"{PrefabPath} has no {GrassName}/{GrassPlanePrefix}* renderers to take the lawn from.";
+            error = $"no patch prefab at {path}.";
             return null;
         }
-        Vector2 planeSize = new Vector2(planes[0].bounds.size.x, planes[0].bounds.size.z);
-        if (planes.Any(p => Mathf.Abs(p.bounds.size.x - planeSize.x) > 0.01f || Mathf.Abs(p.bounds.size.z - planeSize.y) > 0.01f))
+        GameObject plaza = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+        Transform kerb = CityTiles.FindKerb(plaza.transform);
+        if (kerb == null)
         {
-            error = "the grass planes are not all one size, so no single tiling gives them all the terrain's texel density.";
+            error = $"{patchName} has no {CityTiles.KerbPrefix}NN kerb to centre it by.";
             return null;
         }
-        Material grassMaterial = GrassMaterial(grassLayer, planeSize);
-        int grassLayerChanges = 0;
-        foreach (Renderer plane in planes)
+        Vector3 target = frame.TransformPoint(new Vector3(centre.x, 0f, centre.y));
+        plaza.transform.position += new Vector3(target.x - kerb.position.x, target.y - PatchGround(plaza.transform),
+                                                target.z - kerb.position.z);
+        Vector3 k = kerb.position;
+
+        // Only a renderer with no renderer above it moves: anything below one travels with it. No container in the
+        // pack carries a renderer, so in practice that is every leaf.
+        List<Transform> leaves = plaza.GetComponentsInChildren<Renderer>(true)
+                                      .Select(r => r.transform)
+                                      .Where(t => !Ancestors(t, plaza.transform).Any(a => a.GetComponent<Renderer>() != null))
+                                      .ToList();
+        foreach (Transform t in leaves)
         {
-            plane.sharedMaterials = Enumerable.Repeat(grassMaterial, plane.sharedMaterials.Length).ToArray();
-            if (plane.gameObject.layer != 0)
+            if (t == kerb || t.name.StartsWith(RoadPlatePrefix) || t.name.StartsWith(InteriorStreetPrefix))
             {
-                plane.gameObject.layer = 0; // Default: see the class summary
-                grassLayerChanges++;
+                t.gameObject.SetActive(false);
+                PrefabUtility.RecordPrefabInstancePropertyModifications(t.gameObject);
+                continue;
             }
-            GameObjectUtility.SetStaticEditorFlags(plane.gameObject,
-                GameObjectUtility.GetStaticEditorFlags(plane.gameObject) | StaticEditorFlags.BatchingStatic);
-        }
-        List<Rect> lawn = planes.Select(p => Footprint(p.bounds, root)).ToList();
-        float groundY = planes.Max(p => root.InverseTransformPoint(p.bounds.max).y);
-
-        int kerbsHidden = 0;
-        int nodesRenamed = 0;
-        RenameTileMarkers(root, ref kerbsHidden, ref nodesRenamed);
-
-        Renderer fountain = root.Cast<Transform>()
-                                .Where(t => t.name.StartsWith(FountainPrefix, System.StringComparison.OrdinalIgnoreCase))
-                                .SelectMany(t => t.GetComponentsInChildren<Renderer>())
-                                .FirstOrDefault();
-        if (fountain == null)
-        {
-            error = $"{PrefabPath} has no {FountainPrefix}* child to centre the park on.";
-            return null;
-        }
-        Vector2 centre = Footprint(fountain.bounds, root).center;
-
-        List<Rect> keepOuts = KeepOuts(root);
-
-        Transform park = CreateChild(root, ParkName);
-        Transform tipsParent = CreateChild(park, "TipBuildings");
-        Transform treesParent = CreateChild(park, "Trees");
-
-        // Tips first: their footpaths end the avenues and are keep-outs for every tree.
-        Dictionary<Tip, Rect> tipFootpaths = new Dictionary<Tip, Rect>();
-        List<string> tipNotes = new List<string>();
-        foreach (TipSource tip in tips)
-        {
-            Rect footpath = PlaceTip(tip, tipsParent, root, lawn, centre, out string note, out error);
-            if (note == null)
+            Vector3 p = t.position;
+            t.position = new Vector3(k.x + (p.x - k.x) * PlazaScale, p.y, k.z + (p.z - k.z) * PlazaScale);
+            if (HasAnyPrefix(t.name, FootpathPrefixes))
             {
+                // Scale whichever local axes lie flat; the pack's -90-about-X import makes that x and y, but read it.
+                Vector3 s = t.localScale;
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    Vector3 unit = Vector3.zero;
+                    unit[axis] = 1f;
+                    if (Mathf.Abs(Vector3.Dot(t.rotation * unit, Vector3.up)) < 0.5f)
+                    {
+                        s[axis] *= PlazaScale;
+                    }
+                }
+                t.localScale = s;
+            }
+            PrefabUtility.RecordPrefabInstancePropertyModifications(t);
+        }
+
+        // Checked in the diamond's frame.
+        float half = CityTiles.BlockHalfSpan * PlazaScale;
+        Rect footpath = new Rect(centre - half * Vector2.one, 2f * half * Vector2.one);
+        List<Renderer> renderers = plaza.GetComponentsInChildren<Renderer>().Where(r => HasAnyPrefix(r.name, BuildingPrefixes)).ToList();
+        foreach (Renderer r in renderers)
+        {
+            float baseY = frame.InverseTransformPoint(r.bounds.min).y;
+            if (Mathf.Abs(baseY) > MaxBaseHeight)
+            {
+                error = $"{r.name} stands {baseY:F1} units off the ground.";
                 return null;
             }
-            tipFootpaths[tip.Spec.Tip] = footpath;
-            keepOuts.Add(footpath);
-            tipNotes.Add(note);
         }
-
-        // Trees, arrangement by arrangement.
-        List<TreeGroup> groups = new List<TreeGroup> { new TreeGroup("FountainRing", RingSpecies, Ring(centre)) };
-        foreach (Tip tip in new[] { Tip.North, Tip.East, Tip.South, Tip.West })
+        List<KeyValuePair<string, Rect>> buildings = renderers.Select(r => new KeyValuePair<string, Rect>(r.name, Footprint(r.bounds, frame)))
+                                                              .ToList();
+        for (int i = 0; i < buildings.Count; i++)
         {
-            bool northSouth = tip == Tip.North || tip == Tip.South;
-            groups.Add(new TreeGroup($"Avenue_{tip}", northSouth ? NorthSouthAvenueSpecies : EastWestAvenueSpecies,
-                                     Avenue(tip, centre, tipFootpaths[tip], keepOuts, out float plazaFarEdge)));
-            groups.Add(northSouth
-                ? new TreeGroup($"EdgeRows_{tip}", EdgeRowSpecies, EdgeRows(tip, centre, lawn))
-                : new TreeGroup($"Groves_{tip}", GroveSpecies, Groves(tip, centre, lawn, plazaFarEdge)));
-        }
-
-        System.Random rng = new System.Random(TreeSeed);
-        int planted = 0;
-        int offLawn = 0;
-        int crowded = 0;
-        List<string> counts = new List<string>();
-        Dictionary<string, int> perModel = trees.ToDictionary(t => t.name, t => 0);
-        foreach (TreeGroup group in groups)
-        {
-            Transform parent = CreateChild(treesParent, group.Name);
-            int here = 0;
-            foreach (Vector2 spot in group.Spots)
+            Rect a = buildings[i].Value;
+            if (a.xMin < footpath.xMin + PlazaMinMargin || a.xMax > footpath.xMax - PlazaMinMargin ||
+                a.yMin < footpath.yMin + PlazaMinMargin || a.yMax > footpath.yMax - PlazaMinMargin)
             {
-                // Every spot draws its numbers whether or not it is planted, so one skipped spot does not reshuffle
-                // every tree after it.
-                float yaw = (float)rng.NextDouble() * 360f;
-                float size = 1f + ((float)rng.NextDouble() * 2f - 1f) * TreeScaleJitter;
-                GameObject tree = group.Species != null ? trees.First(t => t.name == group.Species)
-                                                        : trees[rng.Next(trees.Count)];
-                if (!InLawn(spot, lawn, LawnMargin))
-                {
-                    offLawn++;
-                    continue;
-                }
-                if (Distance(spot, keepOuts) < TreeClearance)
-                {
-                    crowded++;
-                    continue;
-                }
-                PlantTree(tree, parent, new Vector3(spot.x, groundY, spot.y), yaw, size);
-                perModel[tree.name]++;
-                here++;
+                error = $"{buildings[i].Key} ends up off the plaza's footpath.";
+                return null;
             }
-            planted += here;
-            counts.Add($"{group.Name} {here}/{group.Spots.Count}");
+            for (int j = i + 1; j < buildings.Count; j++)
+            {
+                Rect b = buildings[j].Value;
+                float gap = Mathf.Max(a.xMin - b.xMax, b.xMin - a.xMax, a.yMin - b.yMax, b.yMin - a.yMax);
+                if (gap < PlazaMinGap)
+                {
+                    error = $"{buildings[i].Key} and {buildings[j].Key} end up {gap:F1} units apart.";
+                    return null;
+                }
+            }
         }
-
         error = null;
-        return $"planted {planted} trees ({string.Join(", ", counts)}; {offLawn} spot(s) off the lawn, {crowded} too close " +
-               $"to something; by model {string.Join(", ", perModel.Select(m => $"{m.Key} {m.Value}"))}) round the fountain " +
-               $"at ({centre.x:F1}, {centre.y:F1}); tips: {string.Join("; ", tipNotes)}; " +
-               $"{planes.Count} grass planes now use {GrassMaterialPath} at {grassMaterial.mainTextureScale.x:F3} repeats " +
-               $"({grassLayerChanges} moved off Obstacle); {kerbsHidden} stray kerb(s) renamed and hidden, " +
-               $"{nodesRenamed} MC_Patch node(s) renamed Block.";
+        return $"{patchName} ({buildings.Count} buildings)";
     }
 
-    // ---------------------------------------------------------------- the grass
+    /// <summary>
+    /// The world height of a patch's ground: its road plate, which lies at road level whatever offset the patch's
+    /// content is baked at; failing that, its footpath less <see cref="FootpathHeight"/>.
+    /// </summary>
+    private static float PatchGround(Transform patch)
+    {
+        Renderer[] renderers = patch.GetComponentsInChildren<Renderer>(true);
+        Renderer plate = renderers.FirstOrDefault(r => r.name.StartsWith(RoadPlatePrefix));
+        if (plate != null)
+        {
+            return plate.bounds.center.y;
+        }
+        Renderer footpath = renderers.FirstOrDefault(r => HasAnyPrefix(r.name, FootpathPrefixes));
+        return footpath != null ? footpath.bounds.center.y - FootpathHeight : patch.position.y;
+    }
+
+    /// <summary>The footpath centres of the base source's plazas, west first, in its frame.</summary>
+    private static Vector2[] PlazaCentres(DiamondSpec source, out string error)
+    {
+        GameObject root = PrefabUtility.LoadPrefabContents(source.PrefabPath);
+        try
+        {
+            Vector2[] centres = FindPlazas(root.transform)
+                .Select(p => p.GetComponentsInChildren<Renderer>().FirstOrDefault(r => HasAnyPrefix(r.name, FootpathPrefixes)))
+                .Where(r => r != null)
+                .Select(r => Footprint(r.bounds, root.transform).center)
+                .OrderBy(c => c.x)
+                .ToArray();
+            error = centres.Length == 2 ? null : $"Diamond_{source.Letter} has {centres.Length} plaza footpaths, not two, " +
+                                                 "so there is nowhere to put the other diamonds' plazas.";
+            return centres.Length == 2 ? centres : null;
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
+    }
+
+    /// <summary>Whether <paramref name="root"/> already holds the base under <see cref="BaseName"/>.</summary>
+    private static bool IsOnBase(Transform root)
+    {
+        Transform b = root.Find(BaseName);
+        return b != null && PrefabUtility.IsOutermostPrefabInstanceRoot(b.gameObject) &&
+               PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(b.gameObject) == BasePath;
+    }
+
+    /// <summary>A diamond's plazas: ScaledCity patch instances, at its top level or under <see cref="PlazasName"/>.</summary>
+    private static List<Transform> FindPlazas(Transform root)
+    {
+        Transform container = root.Find(PlazasName);
+        return root.Cast<Transform>()
+                   .Concat(container != null ? container.Cast<Transform>() : Enumerable.Empty<Transform>())
+                   .Where(IsPlaza)
+                   .ToList();
+    }
+
+    private static bool IsPlaza(Transform t)
+    {
+        return PrefabUtility.IsOutermostPrefabInstanceRoot(t.gameObject) &&
+               PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(t.gameObject).StartsWith(PatchFolder + "/");
+    }
+
+    // ---------------------------------------------------------------- the grass, on the base
+
+    private static string DressBase(TerrainLayer grassLayer, out string error)
+    {
+        GameObject root = PrefabUtility.LoadPrefabContents(BasePath);
+        try
+        {
+            Transform grass = root.transform.Find(GrassName);
+            List<Renderer> planes = grass == null
+                ? new List<Renderer>()
+                : grass.GetComponentsInChildren<Renderer>(true).Where(r => r.name.StartsWith(GrassPlanePrefix)).ToList();
+            if (planes.Count == 0)
+            {
+                error = $"{BasePath} has no {GrassName}/{GrassPlanePrefix}* renderers.";
+                return null;
+            }
+            Vector2 planeSize = new Vector2(planes[0].bounds.size.x, planes[0].bounds.size.z);
+            if (planes.Any(p => Mathf.Abs(p.bounds.size.x - planeSize.x) > 0.01f || Mathf.Abs(p.bounds.size.z - planeSize.y) > 0.01f))
+            {
+                error = "the grass planes are not all one size, so no single tiling gives them all the terrain's texel density.";
+                return null;
+            }
+            Material material = GrassMaterial(grassLayer, planeSize);
+            int moved = 0;
+            foreach (Renderer plane in planes)
+            {
+                plane.sharedMaterials = Enumerable.Repeat(material, plane.sharedMaterials.Length).ToArray();
+                if (plane.gameObject.layer != 0)
+                {
+                    plane.gameObject.layer = 0; // Default: see the class summary
+                    moved++;
+                }
+                GameObjectUtility.SetStaticEditorFlags(plane.gameObject,
+                    GameObjectUtility.GetStaticEditorFlags(plane.gameObject) | StaticEditorFlags.BatchingStatic);
+            }
+            int kerbs = 0;
+            int nodes = 0;
+            RenameTileMarkers(root.transform, ref kerbs, ref nodes);
+            PrefabUtility.SaveAsPrefabAsset(root, BasePath, out bool saved);
+            error = saved ? null : $"could not save {BasePath}.";
+            return saved
+                ? $"{planes.Count} base grass planes on {Path.GetFileName(GrassMaterialPath)} at " +
+                  $"{material.mainTextureScale.x:F3} repeats ({moved} moved off Obstacle)"
+                : null;
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
+    }
 
     private static Material GrassMaterial(TerrainLayer layer, Vector2 planeSize)
     {
@@ -496,11 +853,157 @@ public static class DiamondParkBuilder
         return material;
     }
 
+    // ---------------------------------------------------------------- a diamond's park
+
+    /// <summary>
+    /// Rebuilds one diamond's park and saves it. Everything is measured in the prefab root's frame, which is the
+    /// diamond's: its origin is the centre of the four blocks.
+    /// </summary>
+    private static string DressDiamond(DiamondSpec spec, List<GameObject> trees, List<TipSource> tips, out string error)
+    {
+        GameObject rootObject = PrefabUtility.LoadPrefabContents(spec.PrefabPath);
+        try
+        {
+            Transform root = rootObject.transform;
+            Transform oldPark = root.Find(ParkName);
+            if (oldPark != null)
+            {
+                Object.DestroyImmediate(oldPark.gameObject);
+            }
+
+            // The lawn, read from the base.
+            Transform grass = root.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == GrassName);
+            List<Renderer> planes = grass == null
+                ? new List<Renderer>()
+                : grass.GetComponentsInChildren<Renderer>(true).Where(r => r.name.StartsWith(GrassPlanePrefix)).ToList();
+            if (planes.Count == 0)
+            {
+                error = $"no {GrassName}/{GrassPlanePrefix}* renderers to take the lawn from.";
+                return null;
+            }
+            List<Rect> lawn = planes.Select(p => Footprint(p.bounds, root)).ToList();
+            float groundY = planes.Max(p => root.InverseTransformPoint(p.bounds.max).y);
+
+            int kerbsHidden = 0;
+            int nodesRenamed = 0;
+            RenameTileMarkers(root, ref kerbsHidden, ref nodesRenamed);
+
+            // The plazas batch with the rest of the city; a patch prefab's own objects are not marked for it.
+            Transform plazas = root.Find(PlazasName);
+            if (plazas != null)
+            {
+                foreach (Renderer r in plazas.GetComponentsInChildren<Renderer>(true))
+                {
+                    GameObjectUtility.SetStaticEditorFlags(r.gameObject,
+                        GameObjectUtility.GetStaticEditorFlags(r.gameObject) | StaticEditorFlags.BatchingStatic);
+                }
+            }
+
+            Renderer fountain = root.GetComponentsInChildren<Transform>(true)
+                                    .Where(t => t.name.StartsWith(FountainPrefix, System.StringComparison.OrdinalIgnoreCase))
+                                    .SelectMany(t => t.GetComponentsInChildren<Renderer>())
+                                    .FirstOrDefault();
+            if (fountain == null)
+            {
+                error = $"no {FountainPrefix}* to centre the park on.";
+                return null;
+            }
+            Vector2 centre = Footprint(fountain.bounds, root).center;
+
+            List<Rect> keepOuts = KeepOuts(root);
+
+            Transform park = CreateChild(root, ParkName);
+            Transform tipsParent = CreateChild(park, "TipBuildings");
+            Transform treesParent = CreateChild(park, "Trees");
+
+            // Tips first: their footpaths end the avenues and are keep-outs for every tree.
+            Dictionary<Tip, Rect> tipFootpaths = new Dictionary<Tip, Rect>();
+            List<string> tipNotes = new List<string>();
+            foreach (TipSource tip in tips)
+            {
+                Rect footpath = PlaceTip(tip, tipsParent, root, lawn, centre, out string note, out error);
+                if (note == null)
+                {
+                    return null;
+                }
+                tipFootpaths[tip.Spec.Tip] = footpath;
+                keepOuts.Add(footpath);
+                tipNotes.Add(note);
+            }
+
+            // Trees, arrangement by arrangement.
+            List<TreeGroup> groups = new List<TreeGroup> { new TreeGroup("FountainRing", spec.Ring, Ring(centre)) };
+            foreach (Tip tip in Tips)
+            {
+                bool northSouth = tip == Tip.North || tip == Tip.South;
+                groups.Add(new TreeGroup($"Avenue_{tip}", northSouth ? spec.NorthSouthAvenues : spec.EastWestAvenues,
+                                         Avenue(tip, centre, tipFootpaths[tip], keepOuts, out float plazaFarEdge)));
+                groups.Add(northSouth == spec.RowsNorthSouth
+                    ? new TreeGroup($"EdgeRows_{tip}", spec.Rows, EdgeRows(tip, centre, lawn, plazaFarEdge))
+                    : new TreeGroup($"Groves_{tip}", null, Groves(tip, centre, lawn, plazaFarEdge)));
+            }
+
+            System.Random rng = new System.Random(spec.Seed);
+            int planted = 0;
+            int offLawn = 0;
+            int crowded = 0;
+            List<string> counts = new List<string>();
+            Dictionary<string, int> perModel = trees.ToDictionary(t => t.name, t => 0);
+            foreach (TreeGroup group in groups)
+            {
+                Transform parent = CreateChild(treesParent, group.Name);
+                int here = 0;
+                foreach (Vector2 spot in group.Spots)
+                {
+                    // Every spot draws its numbers whether or not it is planted, so one skipped spot does not
+                    // reshuffle every tree after it.
+                    float yaw = (float)rng.NextDouble() * 360f;
+                    float size = 1f + ((float)rng.NextDouble() * 2f - 1f) * TreeScaleJitter;
+                    GameObject tree = group.Species != null ? trees.First(t => t.name == group.Species)
+                                                            : trees[rng.Next(trees.Count)];
+                    if (!InLawn(spot, lawn, LawnMargin))
+                    {
+                        offLawn++;
+                        continue;
+                    }
+                    if (Distance(spot, keepOuts) < TreeClearance)
+                    {
+                        crowded++;
+                        continue;
+                    }
+                    PlantTree(tree, parent, new Vector3(spot.x, groundY, spot.y), yaw, size);
+                    perModel[tree.name]++;
+                    here++;
+                }
+                planted += here;
+                counts.Add($"{group.Name} {here}/{group.Spots.Count}");
+            }
+
+            PrefabUtility.SaveAsPrefabAsset(rootObject, spec.PrefabPath, out bool saved);
+            if (!saved)
+            {
+                error = $"could not save {spec.PrefabPath}.";
+                return null;
+            }
+            error = null;
+            return $"Diamond_{spec.Letter}: planted {planted} trees ({string.Join(", ", counts)}; {offLawn} spot(s) off the " +
+                   $"lawn, {crowded} too close to something; by model {string.Join(", ", perModel.Select(m => $"{m.Key} {m.Value}"))}) " +
+                   $"round the fountain at ({centre.x:F1}, {centre.y:F1}); tips: {string.Join("; ", tipNotes)}" +
+                   (kerbsHidden + nodesRenamed > 0
+                       ? $"; {kerbsHidden} stray kerb(s) renamed and hidden, {nodesRenamed} MC_Patch node(s) renamed Block"
+                       : "") + ".";
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(rootObject);
+        }
+    }
+
     // ---------------------------------------------------------------- tile markers
 
     /// <summary>
     /// Renames what the city tools recognise a tile by, as <see cref="DiamondCityBuilder"/> does for its drafts, and
-    /// hides a nested patch's kerb: at full block size round a shrunk plaza it is a stray outline on the lawn.
+    /// hides a plaza's kerb: round a plaza it is either a stray full-size outline or, drafted, a second kerb inside it.
     /// </summary>
     private static void RenameTileMarkers(Transform root, ref int kerbsHidden, ref int nodesRenamed)
     {
@@ -541,9 +1044,10 @@ public static class DiamondParkBuilder
         Transform b = building.transform;
         b.rotation = root.rotation * source.Building.rotation;
         b.localScale = source.Building.lossyScale; // its patch's hierarchy is unscaled above it
-        // Heights are kept from the patch, measured from its root: its footpath and its building's base.
-        float pivotY = source.Building.position.y - source.Building.root.position.y;
-        float footpathY = source.Footpath.bounds.center.y - source.Footpath.transform.root.position.y;
+        // Heights are kept from the patch, measured from its road plate: its footpath and its building's base.
+        float ground = PatchGround(source.Building.root);
+        float pivotY = source.Building.position.y - ground;
+        float footpathY = source.Footpath.bounds.center.y - ground;
         b.position = root.TransformPoint(new Vector3(0f, pivotY, 0f));
         Rect footprint = Footprint(RendererBounds(building), root);
         if ((footprint.width >= footprint.height) != alongX)
@@ -554,6 +1058,13 @@ public static class DiamondParkBuilder
         foreach (Transform part in building.GetComponentsInChildren<Transform>(true))
         {
             GameObjectUtility.SetStaticEditorFlags(part.gameObject, Everything);
+        }
+        float baseY = root.InverseTransformPoint(RendererBounds(building).min).y;
+        if (Mathf.Abs(baseY) > MaxBaseHeight)
+        {
+            note = null;
+            error = $"{source.Spec.Building} would stand {baseY:F1} units off the ground at the {tip} tip.";
+            return default;
         }
 
         // The footpath: long side along the edge, outer edge TipInset in from it.
@@ -567,8 +1078,7 @@ public static class DiamondParkBuilder
         b.position += root.TransformVector(shift);
         footprint.center = middle;
 
-        Mesh mesh =FootpathMesh($"{Path.GetFileNameWithoutExtension(PrefabPath)}_Footpath_{tip}", size,
-                                 FitUv(source.Footpath, out float residual));
+        Mesh mesh = FootpathMesh($"{root.name}_Footpath_{tip}", size, FitUv(source.Footpath, out float residual));
         if (mesh == null)
         {
             note = null;
@@ -746,10 +1256,11 @@ public static class DiamondParkBuilder
     }
 
     /// <summary>
-    /// A staggered double row inside each long edge of the north or south arm: from just past the corner where the
-    /// arm leaves the cross, to just short of the tip.
+    /// A staggered double row inside each long edge of an arm: from just past the corner where the arm leaves the cross,
+    /// or past the plaza if that is further out, to just short of the tip, at about <see cref="EdgeRowSpacing"/> in the
+    /// outer row.
     /// </summary>
-    private static List<Vector2> EdgeRows(Tip tip, Vector2 centre, List<Rect> lawn)
+    private static List<Vector2> EdgeRows(Tip tip, Vector2 centre, List<Rect> lawn, float plazaFarEdge)
     {
         Vector2 axis = Axis(tip);
         Vector2 side = new Vector2(-axis.y, axis.x);
@@ -766,14 +1277,19 @@ public static class DiamondParkBuilder
         List<Vector2> spots = new List<Vector2>();
         foreach ((float edge, float corner, float sign) in new[] { (left, cornerLeft, 1f), (right, cornerRight, -1f) })
         {
-            float a = corner + EdgeRowStartGap;
+            float a = Mathf.Max(corner, plazaFarEdge) + EdgeRowStartGap;
             float b = reach - EdgeRowEndGap;
-            float step = (b - a) / (EdgeRowTrees - 1);
-            for (int k = 0; k < EdgeRowTrees; k++)
+            int count = Mathf.RoundToInt((b - a) / EdgeRowSpacing) + 1;
+            if (b <= a || count < 2)
+            {
+                continue;
+            }
+            float step = (b - a) / (count - 1);
+            for (int k = 0; k < count; k++)
             {
                 spots.Add(centre + axis * (a + k * step) + side * sign * (edge - EdgeRowInset));
             }
-            for (int k = 0; k < EdgeRowTrees - 1; k++)
+            for (int k = 0; k < count - 1; k++)
             {
                 spots.Add(centre + axis * (a + (k + 0.5f) * step) + side * sign * (edge - EdgeRowInset - EdgeRowGap));
             }
@@ -782,8 +1298,8 @@ public static class DiamondParkBuilder
     }
 
     /// <summary>
-    /// A <see cref="GroveAlong"/> x <see cref="GroveAcross"/> grid either side of the avenue in the west or east arm,
-    /// centred in the lawn between the plaza and the arm's end, and between the avenue and the arm's edge.
+    /// A <see cref="GroveAlong"/> x <see cref="GroveAcross"/> grid either side of the avenue in an arm, centred in the
+    /// lawn between the plaza (or the fountain) and the arm's end, and between the avenue and the arm's edge.
     /// </summary>
     private static List<Vector2> Groves(Tip tip, Vector2 centre, List<Rect> lawn, float plazaFarEdge)
     {
@@ -855,14 +1371,16 @@ public static class DiamondParkBuilder
 
     private static bool UnderContainer(Transform t, Transform root, string container)
     {
+        return Ancestors(t, root).Any(p => p.name == container);
+    }
+
+    /// <summary>The parents of <paramref name="t"/>, nearest first, up to but excluding <paramref name="root"/>.</summary>
+    private static IEnumerable<Transform> Ancestors(Transform t, Transform root)
+    {
         for (Transform p = t.parent; p != null && p != root; p = p.parent)
         {
-            if (p.name == container)
-            {
-                return true;
-            }
+            yield return p;
         }
-        return false;
     }
 
     /// <summary>The horizontal footprint of world-space <paramref name="bounds"/> in <paramref name="frame"/>.</summary>
