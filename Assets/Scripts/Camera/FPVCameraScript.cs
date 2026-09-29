@@ -39,6 +39,43 @@ public class FPVCameraScript : MonoBehaviour {
 	private Camera cam;
 	private int lastRenderedFrame = -1;
 
+	/// <summary>
+	/// <c>Time.time</c> of this camera's last render, or -infinity before the first. What the feed
+	/// schedule reads to tell that the stitch capture has already refreshed a screen this interval.
+	/// </summary>
+	public float LastRenderTime { get; private set; } = float.NegativeInfinity;
+
+	/// <summary>
+	/// The camera pose the last render was drawn from. A stitch block must carry the pose of the
+	/// pixels it holds, and when the capture renders a view on one frame and reads it back on a
+	/// later one (PLANAR's spread, see PyUniSharingFast) the live transform has moved on by then.
+	/// Whichever schedule rendered last, the RenderTexture and this record describe the same frame.
+	/// </summary>
+	public Vector3 LastRenderPosition { get; private set; }
+	public Quaternion LastRenderRotation { get; private set; } = Quaternion.identity;
+
+	/// <summary><c>Time.realtimeSinceStartup</c> of the last render, the block's captureTime.</summary>
+	public float LastRenderRealtime { get; private set; }
+
+	// Swarm-wide render counters. Every FPV render in the project goes through
+	// EnsureRenderedThisFrame, so these see all of them: the per-frame count is what ScreenSpawn
+	// levels its feed refresh against (captures land first, in Update, and the feeds make way), and
+	// the running total is what ExperimentRecorder logs as renders per sample.
+	private static int renderCountFrame = -1;
+	private static int rendersThisFrame;
+	public static long TotalRenders { get; private set; }
+
+	/// <summary>FPV renders issued so far in the current frame, by any schedule.</summary>
+	public static int RendersThisFrame => renderCountFrame == Time.frameCount ? rendersThisFrame : 0;
+
+	[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+	private static void ResetRenderCounters () {
+		// Statics survive a Play session in the editor when domain reload is off.
+		renderCountFrame = -1;
+		rendersThisFrame = 0;
+		TotalRenders = 0;
+	}
+
 	/// <summary>DJI-style gimbal tilt limits (degrees): straight down to slightly up.</summary>
 	public const float MinPitch = -90f;
 	public const float MaxPitch = 60f;
@@ -102,6 +139,16 @@ public class FPVCameraScript : MonoBehaviour {
 			if (cam == null) return false;
 		}
 		lastRenderedFrame = Time.frameCount;
+		LastRenderTime = Time.time;
+		LastRenderRealtime = Time.realtimeSinceStartup;
+		LastRenderPosition = transform.position;
+		LastRenderRotation = transform.rotation;
+		if (renderCountFrame != Time.frameCount) {
+			renderCountFrame = Time.frameCount;
+			rendersThisFrame = 0;
+		}
+		rendersThisFrame++;
+		TotalRenders++;
 		cam.Render();
 		return true;
 	}

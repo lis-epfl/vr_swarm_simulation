@@ -129,6 +129,30 @@ public class ScreenSpawn : MonoBehaviour
              "than N-at-once. 0 = render every frame (the pre-throttle behaviour).")]
     public float feedRenderHz = 30f;
 
+    [Tooltip("Refresh rate, in Hz, for a feed screen the pilot is not looking at (outside " +
+             "viewConeHalfAngleDeg of the head's forward). OUTER_CIRCLE puts screens all round " +
+             "the pilot, and in recorded swarm flights 44% of the shown feeds were behind or " +
+             "beside them at any moment -- each one a full-city render at feedRenderHz that " +
+             "nobody could see. Off-view screens keep their stagger slot and render on one slot " +
+             "in feedRenderHz/this, so one entering the view is refreshed at the full rate within " +
+             "a slot. Only the feed screens are affected: the views being stitched into the " +
+             "panorama are rendered by PyUniSharingFast's capture every sendInterval wherever the " +
+             "pilot looks. Set equal to feedRenderHz to disable; 0 freezes off-view feeds.")]
+    public float offViewFeedRenderHz = 5f;
+
+    [Tooltip("Half-angle, in degrees, of the cone about the head's forward direction that counts " +
+             "as in view, measured to the nearest edge of the screen. The Quest Pro's half-" +
+             "diagonal field of view is ~60-65 deg, so the default leaves a margin a screen " +
+             "cannot cross in less than a refresh slot even during a fast head turn.")]
+    [Range(30f, 180f)] public float viewConeHalfAngleDeg = 80f;
+
+    [Tooltip("Spread feed renders evenly over frames. The stitch capture renders its views all in " +
+             "one frame (PyUniSharingFast, before this runs), and a feed render landing on top " +
+             "makes that frame the one the headset misses. When this frame already has as many " +
+             "FPV renders as the running average (rounded up), a due feed render waits one frame " +
+             "(never more). Never delays a stitch capture.")]
+    public bool levelFeedRenders = true;
+
     // GameObject references
     private OVRCameraRig cameraRig;
     private List<GameObject> swarm = new List<GameObject>();
@@ -401,6 +425,17 @@ public class ScreenSpawn : MonoBehaviour
 
             // Create a screen using a quad
             GameObject screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
+
+            // CreatePrimitive adds a MeshCollider, and the screens move every frame: a moving
+            // static collider is re-inserted into the physics scene on each move, for a collider
+            // nothing queries (PyUniSharingFast's scene-plane raycast skips "Screen" hits, and
+            // ImageSharing takes its screens from Screens, not from physics). An emissive screen
+            // also neither casts nor needs shadows, and a shadow-receiving object in view is what
+            // pulls the eye cameras into the shadow pipeline in scenes whose sun casts shadows.
+            Destroy(screen.GetComponent<Collider>());
+            MeshRenderer screenRenderer = screen.GetComponent<MeshRenderer>();
+            screenRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            screenRenderer.receiveShadows = false;
 
             // Name the screen
             screen.name = "screen_" + droneNumber;
@@ -812,6 +847,24 @@ public class ScreenSpawn : MonoBehaviour
     ///
     /// Called from LateUpdate, and guarded on the frame like StepDisplayYawFilters, because
     /// UpdateScreenPositions runs more than once in some frames.
+    ///
+    /// A due slot does not always render. Three things can let it pass, and none of them moves
+    /// the schedule, which advances by one interval either way -- so every screen keeps the
+    /// phase SeedFeedRenderTime gave it and the stagger survives intact:
+    ///
+    ///  - **Already fresh.** The camera was rendered since this slot's previous due time, i.e.
+    ///    the stitch capture refreshed it. A stitched drone's screen is shown whenever the
+    ///    panorama is not, and the capture (sendInterval) and this schedule (feedRenderHz) run
+    ///    at nearly the same period without being phase-locked, so the frame gate alone merged
+    ///    them only when they happened to coincide: those drones rendered about twice per
+    ///    interval. This is also why the views being stitched never depend on this schedule --
+    ///    the capture renders them every send, and their slots here are simply always fresh.
+    ///  - **Out of view.** Outside viewConeHalfAngleDeg of the pilot's head, a screen renders
+    ///    on one slot in offViewDivisor. Since the schedule never stopped, a screen turning
+    ///    into view is at most one interval from its next full-rate render.
+    ///  - **Budget.** When the frame already holds as many FPV renders as the running average,
+    ///    rounded up -- a frame the stitch capture has just filled -- a due in-view render waits
+    ///    one frame. It is pushed back once at most, so it is never more than a frame late.
     /// </remarks>
     private void StepFeedRenders()
     {
@@ -822,6 +875,12 @@ public class ScreenSpawn : MonoBehaviour
 
         EnsureFeedRenderArrays();
 
+        int offViewDivisor = OffViewDivisor();
+        // The running average itself, rounded up: at 72 Hz that is 3, exactly what a STABSTITCH
+        // capture frame already holds, so its frame takes no feed render at all and the next
+        // frames absorb them. Deferral is once only, so nothing is ever more than a frame late.
+        int budget = Mathf.Max(2, Mathf.CeilToInt(rendersPerFrameEma));
+
         for (int i = 0; i < bindings.Count; i++)
         {
             if (!feedScreenVisible[i]) continue;
@@ -829,13 +888,78 @@ public class ScreenSpawn : MonoBehaviour
             if (renderer == null) continue;   // real feed, or a drone with no gimbal driver
 
             if (Time.time < nextFeedRenderTime[i]) continue;
-            renderer.EnsureRenderedThisFrame();
+
+            // Rendered within this slot's interval by something other than this schedule. Its own
+            // last render also lands after the previous due time (up to a frame late), so the
+            // window test alone would skip every other slot and halve the feed rate.
+            float lastRender = renderer.LastRenderTime;
+            bool fresh = lastRender > nextFeedRenderTime[i] - interval && lastRender > lastFeedRenderTime[i];
+            bool inView = offViewDivisor <= 1 || IsInPilotView(bindings[i].screen);
+            bool skipOffView = false;
+            if (inView)
+            {
+                offViewSlots[i] = 0;
+            }
+            else
+            {
+                skipOffView = offViewSlots[i] % offViewDivisor != 0;
+                offViewSlots[i]++;
+            }
+
+            if (!fresh && !skipOffView)
+            {
+                // In-view slots only: an off-view render is rare already, and deferring it would
+                // cost it its turn in the 1-in-offViewDivisor count on the next frame.
+                if (levelFeedRenders && inView && !feedRenderDeferred[i] && FPVCameraScript.RendersThisFrame >= budget)
+                {
+                    feedRenderDeferred[i] = true;
+                    continue;   // schedule not advanced: this slot is still due next frame
+                }
+                if (renderer.EnsureRenderedThisFrame()) lastFeedRenderTime[i] = renderer.LastRenderTime;
+            }
+            feedRenderDeferred[i] = false;
 
             // Advance by whole intervals but never fall more than one behind, so a stall does
             // not cash out as a burst of catch-up renders. Same rule as PyUniSharingFast's
             // nextSendTime, for the same reason.
             nextFeedRenderTime[i] = Mathf.Max(nextFeedRenderTime[i] + interval, Time.time - interval);
         }
+
+        // Renders per frame by every schedule, measured end of frame to end of frame, so it
+        // includes the capture renders that ran in this frame's Update.
+        long total = FPVCameraScript.TotalRenders;
+        if (lastTotalRenders >= 0)
+        {
+            rendersPerFrameEma = Mathf.Lerp(rendersPerFrameEma, total - lastTotalRenders, 0.05f);
+        }
+        lastTotalRenders = total;
+    }
+
+    // How many due slots an off-view screen lets pass per render: 1 = gating off.
+    private int OffViewDivisor()
+    {
+        if (offViewFeedRenderHz >= feedRenderHz) return 1;
+        if (offViewFeedRenderHz <= 0f) return int.MaxValue;   // render once on leaving view, then freeze
+        return Mathf.Max(1, Mathf.RoundToInt(feedRenderHz / offViewFeedRenderHz));
+    }
+
+    // Whether any part of the screen is within viewConeHalfAngleDeg of where the pilot's head
+    // points. The screen counts from its nearest edge (its bounding circle), so a large screen
+    // at the side is in view as soon as its edge is. With no headset rig everything is in view.
+    private bool IsInPilotView(GameObject screen)
+    {
+        if (screen == null || viewConeHalfAngleDeg >= 180f) return true;
+        Transform head = cameraRig != null ? cameraRig.centerEyeAnchor : null;
+        if (head == null) return true;
+
+        Vector3 toScreen = screen.transform.position - head.position;
+        float distance = toScreen.magnitude;
+        if (distance < 1e-3f) return true;
+
+        Vector3 size = screen.transform.lossyScale;   // the quad is 1 x 1 in its own space
+        float halfDiagonal = 0.5f * Mathf.Sqrt(size.x * size.x + size.y * size.y);
+        float angularRadius = Mathf.Atan2(halfDiagonal, distance) * Mathf.Rad2Deg;
+        return Vector3.Angle(head.forward, toScreen) - angularRadius <= viewConeHalfAngleDeg;
     }
 
     // Sized like the wall and display-yaw arrays: only when the binding count changes.
@@ -846,7 +970,14 @@ public class ScreenSpawn : MonoBehaviour
 
         nextFeedRenderTime = new float[n];
         feedScreenVisible = new bool[n];
-        for (int i = 0; i < n; i++) SeedFeedRenderTime(i);
+        offViewSlots = new int[n];
+        feedRenderDeferred = new bool[n];
+        lastFeedRenderTime = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            lastFeedRenderTime[i] = float.NegativeInfinity;
+            SeedFeedRenderTime(i);
+        }
     }
 
     // Schedules binding i's next render one fraction of an interval from now, the fraction
@@ -1051,6 +1182,18 @@ public class ScreenSpawn : MonoBehaviour
     private float[] nextFeedRenderTime = new float[0];
     private bool[] feedScreenVisible = new bool[0];
     private int feedRenderFrame = -1;
+    // Consecutive due slots a screen has spent outside the pilot's view (the off-view refresh
+    // renders one in every offViewDivisor of them), and whether its current slot has already
+    // been pushed back a frame by the per-frame render budget (see StepFeedRenders).
+    private int[] offViewSlots = new int[0];
+    private bool[] feedRenderDeferred = new bool[0];
+    // Time.time of the last render this schedule itself issued for each screen, so a render by
+    // the stitch capture can be told apart from the screen's own previous refresh.
+    private float[] lastFeedRenderTime = new float[0];
+    // Low-passed FPV renders per frame, by every schedule, and the running total it is measured
+    // from. What the per-frame budget is sized against.
+    private float rendersPerFrameEma = 3f;
+    private long lastTotalRenders = -1;
 
     // FORMATION_MAP: per-screen roll in degrees about its own view axis, and the eased *cell*
     // offsets it glides through. The map eases in cell space rather than in world position

@@ -10630,7 +10630,7 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: bridge.blockImageWidth
-      value: 1152
+      value: 1280
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -10640,7 +10640,7 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: bridge.blockImageHeight
-      value: 648
+      value: 720
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -10650,27 +10650,27 @@ PrefabInstance:
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: stabStitch.blurKernelSize
-      value: 61
+      value: 69
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: stabStitch.blurSigma
-      value: 22.5
+      value: 25
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: stabStitch.borderSize
-      value: 90
+      value: 100
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: bridge.panoramaImageWidth
-      value: 2160
+      value: 2400
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: bridge.panoramaImageHeight
-      value: 810
+      value: 900
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}

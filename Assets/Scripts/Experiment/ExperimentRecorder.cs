@@ -65,8 +65,15 @@ public class ExperimentRecorder : MonoBehaviour
     private bool referencesResolved = false;
 
     // ---- output ----
-    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter, shapeWriter, stitchWriter;
+    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter, shapeWriter, stitchWriter, perfWriter;
     private string dirPath, fileStem;
+
+    // ---- frame timing (see WritePerfSample) ----
+    // Accumulated every frame and written, then reset, at each sample: frames rendered and the
+    // longest frame since the previous row, and the FPV render count at the previous row.
+    private int perfFrames;
+    private float perfDtSum, perfDtMax;
+    private long perfLastRenders = -1;
 
     // ---- stitching (see UpdateStitchState) ----
     // A panorama on screen with no new frame for this long is frozen, not stitching. Python writes
@@ -114,6 +121,11 @@ public class ExperimentRecorder : MonoBehaviour
         // Every frame, not at sampleHz, so transitions are timed to the frame.
         UpdateStitchState();
 
+        float dt = Time.unscaledDeltaTime;
+        perfFrames++;
+        perfDtSum += dt;
+        if (dt > perfDtMax) perfDtMax = dt;
+
         // Fixed-rate continuous sampling (nextSampleTime pattern mirrors PyUniSharingFast.Update).
         if (Time.time >= nextSampleTime)
         {
@@ -124,6 +136,7 @@ public class ExperimentRecorder : MonoBehaviour
             WriteWalkerSample(t, ms);
             WriteShapeSample(t, ms);
             WriteStitchSample(t, ms);
+            WritePerfSample(t, ms);
 
             float interval = sampleHz > 0f ? 1f / sampleHz : 0.1f;
             // Advance from the scheduled time; if we fell behind, resync to now to avoid a burst.
@@ -166,6 +179,7 @@ public class ExperimentRecorder : MonoBehaviour
             "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
             "lookGapDeg;lookGapRawDeg;lookGapFill");
         stitchWriter = NewWriter("stitch", "t;unixMs;stitcher;shown;qualityOk;pilotOn;reasonBits;panoAgeSec;functional");
+        perfWriter = NewWriter("perf", "t;unixMs;frames;fps;dtMaxMs;fpvRenders");
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
@@ -396,6 +410,27 @@ public class ExperimentRecorder : MonoBehaviour
             $"{F(PanoramaAgeSec())};{(stitchFunctional ? 1 : 0)}");
     }
 
+    /// <summary>
+    /// Unity's own frame timing since the previous row: frames rendered, the mean rate over them,
+    /// the longest single frame, and how many drone FPV cameras rendered
+    /// (<see cref="FPVCameraScript.TotalRenders"/>, every schedule). With a headset attached the
+    /// frame time is quantised to the refresh (13.9 ms at 72 Hz), so <c>dtMaxMs</c> near 27.8
+    /// means a frame was missed, and a run of rows at ~36 fps is the runtime's half-rate lock.
+    /// Unscaled time, so a time-scaled session still reports real frame rates.
+    /// </summary>
+    private void WritePerfSample(float t, long ms)
+    {
+        long renders = FPVCameraScript.TotalRenders;
+        long rendersSince = perfLastRenders >= 0 ? renders - perfLastRenders : 0;
+        float fps = perfDtSum > 0f ? perfFrames / perfDtSum : 0f;
+        perfWriter.WriteLine($"{F(t)};{ms};{perfFrames};{F(fps)};{F(perfDtMax * 1000f)};{rendersSince}");
+
+        perfLastRenders = renders;
+        perfFrames = 0;
+        perfDtSum = 0f;
+        perfDtMax = 0f;
+    }
+
     private void WriteWalkerSample(float t, long ms)
     {
         for (int i = 0; i < goals.Count; i++)
@@ -560,6 +595,7 @@ public class ExperimentRecorder : MonoBehaviour
         SafeClose(ref eventsWriter);
         SafeClose(ref shapeWriter);
         SafeClose(ref stitchWriter);
+        SafeClose(ref perfWriter);
     }
 
     private static void SafeClose(ref StreamWriter w)

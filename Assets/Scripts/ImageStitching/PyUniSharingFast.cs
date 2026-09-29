@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Profiling;
 using UnityEngine;
@@ -165,6 +166,20 @@ public class PyUniSharingFast : MonoBehaviour
                  "already delivered is uploaded (sequence number in the quality word); until one " +
                  "arrives the section is re-checked every frame, which costs two int reads.")]
         public float readInterval = 0.0333f;
+
+        [Tooltip("PLANAR selects every alive drone, and rendering all ~10 of their FPV cameras in " +
+                 "one frame is a frame the headset misses on every send. Above this many views, " +
+                 "a send's renders are spread over consecutive frames (as few as fit in one " +
+                 "sendInterval) and read back together once the last has rendered, so every view " +
+                 "is still captured once per send and Python still sees one fresh wave per send. " +
+                 "Each block carries the pose its pixels were rendered from. STABSTITCH's three " +
+                 "views never exceed it. 0 = off (every view in the send frame, as before).")]
+        public int maxCapturesPerFrame = 4;
+
+        [Tooltip("Convert each readback straight into its shared-memory block instead of " +
+                 "converting into a scratch buffer and copying it in twice. Same bytes; two fewer " +
+                 "full-image passes on the main thread per block.")]
+        public bool inPlaceReadback = true;
     }
 
     /// <summary>
@@ -592,6 +607,8 @@ public class PyUniSharingFast : MonoBehaviour
     private int panoramaImageHeight { get => bridge.panoramaImageHeight; set => bridge.panoramaImageHeight = value; }
     private float sendInterval { get => bridge.sendInterval; set => bridge.sendInterval = value; }
     private float readInterval { get => bridge.readInterval; set => bridge.readInterval = value; }
+    private int maxCapturesPerFrame => bridge.maxCapturesPerFrame;
+    private bool inPlaceReadback => bridge.inPlaceReadback;
 
     private bool cylindrical { get => classic.cylindrical; set => classic.cylindrical = value; }
     private matcherType typeOfMatcher { get => classic.typeOfMatcher; set => classic.typeOfMatcher = value; }
@@ -672,15 +689,21 @@ public class PyUniSharingFast : MonoBehaviour
     public int BlockImageWidth => bridge.blockImageWidth;
     public int BlockImageHeight => bridge.blockImageHeight;
 
-    private string blockMapName = "BlockSharedMemory";
+    // Appended to all three section names, exactly as StitcherThreading.py's shm_name() does.
+    // Named sections are machine-global, so a benchmark copy of the project running beside a
+    // live editor needs sections of its own or it becomes a second producer inside that
+    // editor's session. Unset (the normal case) leaves the names unchanged.
+    private static readonly string shmNameSuffix = Environment.GetEnvironmentVariable("STITCH_SHM_SUFFIX") ?? "";
+
+    private string blockMapName = "BlockSharedMemory" + shmNameSuffix;
     private int blockImageCount = 0;  // slots Python should scan; a hint, sizes nothing
     private int blockImageSize = 0;   // bytes of live payload per slot (W*H*3)
     private int blockSize = 0;        // slot stride; always the blockSlotStride constant
 
-    private string panoramaMapName = "PanoramaSharedMemory";
+    private string panoramaMapName = "PanoramaSharedMemory" + shmNameSuffix;
     private int panoramaImageSize = 0;
 
-    private string metadataMapName = "MetadataSharedMemory";
+    private string metadataMapName = "MetadataSharedMemory" + shmNameSuffix;
     // Total bytes WriteMetadata actually writes, including the trailing reserved gap.
     // Must equal metadataTailEnd + metadataReservedGap + 8 and must match StitcherThreading.py's
     // METADATA_SIZE, or the two processes request different section sizes.
@@ -770,13 +793,38 @@ public class PyUniSharingFast : MonoBehaviour
     private bool readbackFlipCalibrated = false;
     private bool readbackFlipCalibrating = false;
 
+    // PLANAR render spread (see SendBlocks). A send that selects more views than
+    // maxCapturesPerFrame renders them over consecutive frames instead of all in one, and the
+    // readbacks are issued together once the last one has rendered, so Python still sees one
+    // fresh wave per send. The camera and its gate are held here rather than looked up again
+    // by index, because FindCameras rebuilds camerasToCapture every few seconds and the spread
+    // can straddle a rebuild.
+    private struct SpreadCapture
+    {
+        public int slot;
+        public int camIdx;
+        public Camera camera;
+        public FPVCameraScript renderer;
+    }
+    private readonly List<SpreadCapture> spreadToRender = new List<SpreadCapture>();
+    private readonly List<SpreadCapture> spreadRendered = new List<SpreadCapture>();
+    private int spreadPerFrame;
+    // Low-passed frame time, for how many frames one send interval spans.
+    private float smoothedDeltaTime = 1f / 72f;
+
     // Row-wise RGBA32 -> BGR24 conversion (optionally flipping row order) into
     // the top-down BGR block layout the Python stitcher consumes.
+    //
+    // The destination is a raw pointer so the same job can write either the scratch buffer
+    // (row-order calibration, and the inPlaceReadback = false path) or the mapped block itself.
+    // Writing the block directly is what inPlaceReadback buys: the old path converted into the
+    // scratch buffer, copied that into a managed array and copied the array into the section --
+    // three full-image passes on the main thread per block, ten blocks per PLANAR send.
     [BurstCompile]
-    private struct ConvertRgbaToBgrJob : IJobParallelFor
+    private unsafe struct ConvertRgbaToBgrJob : IJobParallelFor
     {
         [ReadOnly, NativeDisableParallelForRestriction] public NativeArray<byte> src;  // RGBA32
-        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<byte> dst; // BGR24
+        [NativeDisableUnsafePtrRestriction] public byte* dst;                          // BGR24
         public int width;
         public int height;
         public bool flipRows;
@@ -1212,17 +1260,17 @@ public class PyUniSharingFast : MonoBehaviour
     private float poseNoiseDt = 0f;
 
     /// <summary>
-    /// Pose of camera <paramref name="camIdx"/> to publish with its frame.
-    /// Read from the camera transform, never reconstructed from StateFinder: the FPV
-    /// camera is offset from the drone body and Slerps toward its target rotation
-    /// (FPVCameraScript), so the body pose is neither the optical centre nor the
-    /// current orientation.
+    /// Pose of camera <paramref name="camIdx"/> to publish with its frame, from the camera
+    /// transform it was rendered with (<paramref name="renderPos"/>, <paramref name="renderRot"/>),
+    /// never reconstructed from StateFinder: the FPV camera is offset from the drone body and
+    /// Slerps toward its target rotation (FPVCameraScript), so the body pose is neither the
+    /// optical centre nor the current orientation.
     /// </summary>
-    private void GetCameraPose(int camIdx, Camera camera,
+    private void GetCameraPose(int camIdx, Vector3 renderPos, Quaternion renderRot,
                                out Vector3 pos, out Quaternion rot, out int status)
     {
-        pos = camera.transform.position;
-        rot = camera.transform.rotation;
+        pos = renderPos;
+        rot = renderRot;
         status = POSE_VALID;
 
         if (poseSource == StitchPoseSourceMode.GroundTruth)
@@ -1499,6 +1547,11 @@ public class PyUniSharingFast : MonoBehaviour
         {
             GenerateCurvedScreen();
             panoramaRenderer = GetComponent<MeshRenderer>();
+            // An emissive screen neither casts nor needs shadows, and a shadow-receiving object in
+            // the eye cameras' view is what pulls them into the shadow pipeline in a scene whose
+            // sun casts shadows (see ScreenSpawn.SpawnScreens).
+            panoramaRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            panoramaRenderer.receiveShadows = false;
             curvedScreenMaterial = panoramaRenderer.material;
             curvedScreenMaterial.SetFloat("_Glossiness", 0f);
             curvedScreenMaterial.SetColor("_EmissionColor", Color.white);
@@ -1658,34 +1711,33 @@ public class PyUniSharingFast : MonoBehaviour
         // per drone, handshaken independently — matches image_stream.py).
         if (enableImageWriting)
         {
+            smoothedDeltaTime = Mathf.Lerp(smoothedDeltaTime, Time.unscaledDeltaTime, 0.1f);
+
             if (camerasToCapture.Count == 0)
             {
                 FindCameras();
             }
-            else if (Time.time >= nextSendTime && blockPtr != IntPtr.Zero)
+            else if (blockPtr != IntPtr.Zero)
             {
-                // Queue an async GPU readback for the drones selected this frame. The
-                // block write to shared memory happens in the completion callback, 1-2
-                // frames later — no ReadPixels stall on the main thread.
-                //
-                // The section has a fixed slot count, so any slot the selection doesn't
-                // reach this frame is explicitly marked empty. Without that they would keep
-                // serving a stale frame from Python's busy-block cache indefinitely.
-                //
-                // Iterates the whole capacity rather than blockImageCount: when the fleet
-                // shrinks, the slots that drop off the end have to be retired too, and
-                // blockImageCount has already moved past them by the time this runs.
-                for (int j = 0; j < blockSlotCapacity; j++)
+                bool sendDue = Time.time >= nextSendTime;
+
+                // Finish a spread send before anything else: its next group renders now, and
+                // once the last has rendered the whole send is read back in one wave. A group
+                // still waiting when the next send falls due renders now rather than slipping
+                // into the next interval -- a view is never captured less than once per send.
+                if (spreadToRender.Count > 0 || spreadRendered.Count > 0)
                 {
-                    if (j < selectedStitchIndices.Length)
-                        RequestBlockCapture(j, selectedStitchIndices[j]);
-                    else
-                        InvalidateBlockSlot(j);
+                    StepSpreadCapture(sendDue ? spreadToRender.Count : spreadPerFrame);
                 }
 
-                // Advance by whole intervals, but never fall more than one interval
-                // behind — a long stall must not trigger a burst of catch-up sends.
-                nextSendTime = Mathf.Max(nextSendTime + sendInterval, Time.time - sendInterval);
+                if (sendDue)
+                {
+                    SendBlocks();
+
+                    // Advance by whole intervals, but never fall more than one interval
+                    // behind — a long stall must not trigger a burst of catch-up sends.
+                    nextSendTime = Mathf.Max(nextSendTime + sendInterval, Time.time - sendInterval);
+                }
             }
         }
 
@@ -1844,6 +1896,103 @@ public class PyUniSharingFast : MonoBehaviour
         return reasons.Length > 0 ? reasons : "unspecified";
     }
 
+    // One send: every selected view goes to its slot, and every slot the selection doesn't
+    // reach is explicitly marked empty. Without that they would keep serving a stale frame
+    // from Python's busy-block cache indefinitely.
+    //
+    // Iterates the whole capacity rather than blockImageCount: when the fleet shrinks, the
+    // slots that drop off the end have to be retired too, and blockImageCount has already
+    // moved past them by the time this runs.
+    //
+    // A send selecting more than maxCapturesPerFrame views (only PLANAR, which takes every
+    // alive drone) renders them over the frames one sendInterval spans rather than all in
+    // this one: ten full-city renders in a single frame is a frame the headset misses on every
+    // send, and a missed frame is what gets the app locked at half rate. The readbacks still go
+    // out together once the last view has rendered (StepSpreadCapture), and that is what keeps
+    // the stitch rate exactly as it was. Every view is still captured once per send, and Python
+    // still sees one fresh wave per send: StitcherThreading.first_thread wakes the render on
+    // *any* fresh slot, floored at RENDER_MIN_PERIOD, so two waves a frame apart would re-render
+    // the mosaic up to 40 times a second instead of 30. Each block carries the pose its pixels
+    // were rendered from (FPVCameraScript's render record), so a view rendered a frame before
+    // the wave is still exact for the pose-driven solve, and a frame is far inside
+    // PlanarStitcher.MAX_CAPTURE_SKEW_S. STABSTITCH's three views are never spread.
+    private void SendBlocks()
+    {
+        int n = selectedStitchIndices.Length;
+        int perFrame = SpreadGroupSize(n);
+
+        for (int j = 0; j < blockSlotCapacity; j++)
+        {
+            if (j >= n)
+            {
+                InvalidateBlockSlot(j);
+            }
+            else if (perFrame >= n || !TryQueueSpread(j, selectedStitchIndices[j]))
+            {
+                RequestBlockCapture(j, selectedStitchIndices[j]);
+            }
+        }
+
+        if (spreadToRender.Count > 0)
+        {
+            spreadPerFrame = perFrame;
+            StepSpreadCapture(perFrame);
+        }
+    }
+
+    // Views to render per frame for a send of n: all of them unless the spread is on and n is
+    // over the limit, and never fewer than it takes to finish within one sendInterval. At 36 fps
+    // one interval is a single frame, so nothing is spread there and a pending send never meets
+    // the next one.
+    private int SpreadGroupSize(int n)
+    {
+        if (maxCapturesPerFrame <= 0 || n <= maxCapturesPerFrame) return n;
+        int framesPerSend = Mathf.Max(1, Mathf.FloorToInt(sendInterval / Mathf.Max(1e-4f, smoothedDeltaTime)));
+        return Mathf.Max(maxCapturesPerFrame, Mathf.CeilToInt(n / (float)framesPerSend));
+    }
+
+    // Queues one view for a spread render. Only a camera with its own feed RenderTexture at the
+    // block size and a render gate can be spread: the fallback RenderTexture is shared by every
+    // camera, so a view rendered into it on one frame would be overwritten before the wave.
+    private bool TryQueueSpread(int slot, int camIdx)
+    {
+        if (camIdx < 0 || camIdx >= camerasToCapture.Count) return false;
+        Camera camera = camerasToCapture[camIdx];
+        FPVCameraScript renderer = stitchRenderers != null && camIdx < stitchRenderers.Count
+                                 ? stitchRenderers[camIdx]
+                                 : null;
+        RenderTexture rt = camera != null ? camera.targetTexture : null;
+        if (renderer == null || rt == null || rt.width != blockImageWidth || rt.height != blockImageHeight)
+            return false;
+
+        spreadToRender.Add(new SpreadCapture { slot = slot, camIdx = camIdx, camera = camera, renderer = renderer });
+        return true;
+    }
+
+    // Renders the next `count` queued views, and once none are left reads the whole send back.
+    private void StepSpreadCapture(int count)
+    {
+        using var profilerScope = blockCaptureMarker.Auto();
+        int take = Mathf.Min(Mathf.Max(1, count), spreadToRender.Count);
+        for (int k = 0; k < take; k++)
+        {
+            SpreadCapture c = spreadToRender[k];
+            if (c.renderer != null) c.renderer.EnsureRenderedThisFrame();
+            spreadRendered.Add(c);
+        }
+        spreadToRender.RemoveRange(0, take);
+
+        if (spreadToRender.Count > 0) return;
+
+        for (int k = 0; k < spreadRendered.Count; k++)
+        {
+            SpreadCapture c = spreadRendered[k];
+            if (c.camera == null || c.renderer == null) continue;   // drone destroyed mid-send
+            QueueBlockReadback(c.slot, c.camIdx, c.camera, c.camera.targetTexture, c.renderer);
+        }
+        spreadRendered.Clear();
+    }
+
     // Renders (if needed) and queues an async GPU readback of one selected
     // camera into the given block slot. The camera's ScreenSpawn feed RT is the
     // capture source (SpawnScreens sizes it to the block resolution), so the
@@ -1858,6 +2007,7 @@ public class PyUniSharingFast : MonoBehaviour
         Camera camera = camerasToCapture[camIdx];
         if (camera == null) return;
 
+        FPVCameraScript renderer = null;
         RenderTexture rt = camera.targetTexture;
         if (rt != null && rt.width == blockImageWidth && rt.height == blockImageHeight)
         {
@@ -1868,9 +2018,9 @@ public class PyUniSharingFast : MonoBehaviour
             // schedules share one render on a drone that is both displayed and stitched, and
             // still renders on demand for a drone whose screen is hidden (the common case here,
             // since hideStitchedDroneScreens hides exactly the stitched ones).
-            FPVCameraScript renderer = stitchRenderers != null && camIdx < stitchRenderers.Count
-                                     ? stitchRenderers[camIdx]
-                                     : null;
+            renderer = stitchRenderers != null && camIdx < stitchRenderers.Count
+                     ? stitchRenderers[camIdx]
+                     : null;
             if (renderer != null)
             {
                 renderer.EnsureRenderedThisFrame();
@@ -1892,6 +2042,19 @@ public class PyUniSharingFast : MonoBehaviour
             rt = reusableTexture;
         }
 
+        QueueBlockReadback(slot, camIdx, camera, rt, renderer);
+    }
+
+    // Queues the async GPU readback of `rt` into block `slot`. The pose, heading and capture
+    // time recorded with it are those of the pixels in `rt`: the render record when the camera
+    // has a render gate (it may have rendered on an earlier frame of a spread send, or been
+    // refreshed since by the feed schedule -- either way the record and the texture agree), and
+    // the live transform otherwise, which is only reached straight after an on-demand render.
+    private void QueueBlockReadback(int slot, int camIdx, Camera camera, RenderTexture rt,
+                                    FPVCameraScript renderer)
+    {
+        if (pendingReadbacks == null || camera == null || rt == null) return;
+
         int p = AcquirePendingSlot();
         if (p < 0)
         {
@@ -1911,16 +2074,20 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
+        bool fromRecord = renderer != null && rt == camera.targetTexture;
+        Vector3 renderPos = fromRecord ? renderer.LastRenderPosition : camera.transform.position;
+        Quaternion renderRot = fromRecord ? renderer.LastRenderRotation : camera.transform.rotation;
+
         pendingReadbacks[p].slot = slot;
         pendingReadbacks[p].droneId = camIdx;
         // Heading and pose are recorded now, matching the image being read back — not
         // at completion, when the drone may have yawed or flown on.
-        pendingReadbacks[p].heading = camera.transform.eulerAngles.y;
-        GetCameraPose(camIdx, camera,
+        pendingReadbacks[p].heading = renderRot.eulerAngles.y;
+        GetCameraPose(camIdx, renderPos, renderRot,
                       out pendingReadbacks[p].camPos,
                       out pendingReadbacks[p].camRot,
                       out pendingReadbacks[p].poseStatus);
-        pendingReadbacks[p].captureTime = Time.realtimeSinceStartup;
+        pendingReadbacks[p].captureTime = fromRecord ? renderer.LastRenderRealtime : Time.realtimeSinceStartup;
 
         // One-time row-order calibration: capture the same RT synchronously so
         // the completion callback can pick the flip that reproduces the exact
@@ -2036,21 +2203,26 @@ public class PyUniSharingFast : MonoBehaviour
         // a word Python is already writing, and it runs on the frame the readbacks land,
         // which is the frame that was already the most expensive.
         //
-        // It does not replace the check below: this is a hint, and the flag can still be
-        // taken between here and there. The authoritative check-and-set is left exactly
-        // where it was, so the window in which the flag is held is unchanged.
+        // It does not replace the check that follows the conversion on the copy path: this is
+        // a hint, and the flag can still be taken between here and there. The in-place path
+        // takes the flag straight after it instead, and converts while holding it.
         if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
             return;
 
-        var job = new ConvertRgbaToBgrJob
+        if (inPlaceReadback)
         {
-            src = data,
-            dst = convertedBlock,
-            width = blockImageWidth,
-            height = blockImageHeight,
-            flipRows = readbackFlipRows,
-        };
-        job.Schedule(blockImageHeight, 32).Complete();
+            // Convert straight into the section while holding the flag. The flag is held for
+            // the conversion instead of for the copy the other path ends with -- about the
+            // same time -- and the two full-image passes before it (scratch -> managed array
+            // -> section) are gone. Same bytes land in the block either way.
+            Marshal.WriteInt32(block, blockFlagOffset, 1);
+            WriteBlockHeader(block, pending);
+            ConvertReadback(data, IntPtr.Add(block, blockImageDataOffset), readbackFlipRows);
+            Marshal.WriteInt32(block, blockFlagOffset, 0);
+            return;
+        }
+
+        ConvertReadback(data, ScratchBlockPtr(), readbackFlipRows);
         convertedBlock.CopyTo(blockImageBytes);
 
         // Skip this slot if the consumer took the block while we were converting.
@@ -2059,7 +2231,15 @@ public class PyUniSharingFast : MonoBehaviour
 
         // Mark busy while we write the header + image.
         Marshal.WriteInt32(block, blockFlagOffset, 1);
+        WriteBlockHeader(block, pending);
+        Marshal.Copy(blockImageBytes, 0, IntPtr.Add(block, blockImageDataOffset), blockImageSize);
 
+        // Ready for the consumer.
+        Marshal.WriteInt32(block, blockFlagOffset, 0);
+    }
+
+    private void WriteBlockHeader(IntPtr block, PendingReadback pending)
+    {
         Marshal.WriteInt32(block, blockDroneIdOffset, pending.droneId);
         WriteFloat(block, blockHeadingOffset, pending.heading);
 
@@ -2072,11 +2252,26 @@ public class PyUniSharingFast : MonoBehaviour
         WriteFloat(block, blockCamRotOffset + 12, pending.camRot.w);
         WriteFloat(block, blockCaptureTimeOffset, pending.captureTime);
         Marshal.WriteInt32(block, blockPoseStatusOffset, pending.poseStatus);
+    }
 
-        Marshal.Copy(blockImageBytes, 0, IntPtr.Add(block, blockImageDataOffset), blockImageSize);
+    // Converts one RGBA readback into blockImageSize bytes of top-down BGR at `dst`: the
+    // scratch buffer, or a block in the mapped section. The only pointer code in the bridge.
+    private unsafe void ConvertReadback(NativeArray<byte> src, IntPtr dst, bool flipRows)
+    {
+        var job = new ConvertRgbaToBgrJob
+        {
+            src = src,
+            dst = (byte*)dst.ToPointer(),
+            width = blockImageWidth,
+            height = blockImageHeight,
+            flipRows = flipRows,
+        };
+        job.Schedule(blockImageHeight, 32).Complete();
+    }
 
-        // Ready for the consumer.
-        Marshal.WriteInt32(block, blockFlagOffset, 0);
+    private unsafe IntPtr ScratchBlockPtr()
+    {
+        return (IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(convertedBlock);
     }
 
     // Decides readbackFlipRows by converting the first readback both ways and
@@ -2117,15 +2312,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     private int CountConversionMismatches(NativeArray<byte> data, byte[] reference, bool flipRows)
     {
-        var job = new ConvertRgbaToBgrJob
-        {
-            src = data,
-            dst = convertedBlock,
-            width = blockImageWidth,
-            height = blockImageHeight,
-            flipRows = flipRows,
-        };
-        job.Schedule(blockImageHeight, 32).Complete();
+        ConvertReadback(data, ScratchBlockPtr(), flipRows);
 
         int mismatches = 0;
         for (int i = 0; i < blockImageSize; i++)

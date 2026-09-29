@@ -97,6 +97,16 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - The readback pool is still sized to two full batches (`EnsureReadbackPool`): with a pool smaller
     than the per-send slot count, `AcquirePendingSlot` starves the *same* tail slots every send, so
     they are never written at all rather than merely late.
+  - **Each readback is converted straight into its block** (`bridge.inPlaceReadback`, default on):
+    the Burst RGBA→BGR job writes through a pointer into the mapped section while the flag is held,
+    instead of converting into scratch, copying that into a managed array and copying the array in —
+    three full-image passes on the main thread per block, ten blocks per PLANAR send. Same bytes on
+    the wire. It is the bridge's only pointer code (`ConvertReadback` / `ScratchBlockPtr`), enabled
+    for Assembly-CSharp by `Assets/csc.rsp` (`-unsafe`) rather than the Player setting, because an
+    editor holding the project open does not pick up a ProjectSettings edit made on disk.
+  - `PyUniSharingFast` appends `STITCH_SHM_SUFFIX` to its section names, as `StitcherThreading.py`'s
+    `shm_name()` does, so a benchmark copy of the project can run the real bridge and Python on
+    private sections beside a live editor.
   - **There is no per-stitcher view knob.** `maxStitchViews` and `ImageSharing.stitchSlots` are gone;
     `PLANAR` mosaics every alive drone that passes the plane-hit/range/obliquity tests, and
     STABSTITCH still writes its three. Switching stitcher no longer touches the wire at all.
@@ -162,6 +172,12 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   a main-thread `LoadRawTextureData` + `Apply` whose RGB24→RGBA32 conversion (D3D11 has no 24-bit
   format) grows with the panorama size. `0` is a producer without the counter and gets the old
   upload-every-read behaviour, so either side can be updated first.
+  **Measured, not adopted (2026-09-29):** uploading the same bytes as an R8 texture three times as
+  wide (a format D3D11 takes as-is) and swizzling them into an sRGB RGBA target with a one-pass blit
+  is byte-exact and saves only ~0.65 ms of main-thread time per 2400×900 upload (1.30 → 0.66 ms;
+  frame time 2.50 → 1.78 ms), too little beside the FPV renders to justify a second texture path.
+  (The unpack is three `Load`s per pixel with the exact piecewise sRGB decode, so the target's
+  sRGB encode on write returns the uploaded byte.)
 
 ## Conventions & invariants (not enforced by code)
 
@@ -401,20 +417,107 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     — under the throttle every FPV camera is disabled. A camera whose GameObject has no
     `FPVCameraScript` falls back to being left `enabled`: with nothing to drive it manually,
     disabling it would freeze that feed rather than merely slow it.
-  - **Stitch captures are deliberately NOT staggered.** They stay synchronised at `sendInterval`,
+  - **STABSTITCH's triplet is deliberately NOT staggered.** It stays synchronised at `sendInterval`,
     because spreading a triplet across frames introduces exactly the capture skew
-    `MAX_CAPTURE_SKEW_S` exists to reject.
+    `MAX_CAPTURE_SKEW_S` exists to reject. **PLANAR's views are spread, but only their renders**
+    (`bridge.maxCapturesPerFrame`, default 4, 0 = off): it selects every alive drone, and ten
+    full-city renders in one frame is a frame the headset misses on every send. A send over the
+    limit renders over the frames one `sendInterval` spans (none at 36 fps, where that is one frame),
+    and its readbacks are issued **together** once the last view has rendered. That second half is
+    load-bearing: `StitcherThreading.first_thread` wakes the render on *any* fresh slot, floored at
+    `RENDER_MIN_PERIOD`, so two waves a frame apart would re-render the mosaic up to 40 Hz instead of
+    30 — a stitching-rate change. Each block carries the pose its pixels were drawn from
+    (`FPVCameraScript`'s render record: `LastRenderPosition/Rotation/Realtime`), not the transform at
+    request time, which is what makes a view rendered a frame before the wave still exact for the
+    pose-driven solve.
+  - **The stitched views never lose rate, whatever the pilot looks at.** Everything below that
+    thins the *feed* refresh lives in `ScreenSpawn.StepFeedRenders`; the capture path renders every
+    selected view every send and consults none of it, and captures run first in the frame, so feed
+    renders make way for them and never the reverse. The perf bench asserts it on the wire: each
+    stitched slot's `captureTime` advances at 30 Hz through head sweeps and with the panorama off.
+  - **A due feed slot can pass without rendering, and the schedule advances either way**, so every
+    screen keeps its `SeedFeedRenderTime` phase:
+    - *Already fresh* — rendered since the slot's previous due time by the capture, not by this
+      schedule's own last render (testing the window alone skips every other slot, since a slot's
+      own render lands up to a frame after its due time). A stitched drone's screen is shown
+      whenever the panorama is not, and the capture (0.033 s) and the feed (0.0333 s) periods are not
+      phase-locked, so the frame gate alone merged them only when they coincided: those drones
+      rendered about twice per interval, ~390 renders/s instead of 300.
+    - *Out of view* — outside `viewConeHalfAngleDeg` (80°, the Quest Pro's ~60–65° half-diagonal plus
+      margin, measured to the screen's nearest edge) of the head, a screen renders on one slot in
+      `feedRenderHz / offViewFeedRenderHz` (default 5 Hz; set it to `feedRenderHz` to disable). In the
+      recorded swarm flights 44% of the shown `OUTER_CIRCLE` feeds were outside that cone at any
+      moment. Because the schedule never stopped, a screen turning into view is at most one interval
+      from its next full-rate render.
+    - *Over budget* (`levelFeedRenders`) — when the frame already holds more FPV renders than the
+      running average, rounded up (a frame the capture has just filled — at 72 Hz the budget is 3,
+      exactly a STABSTITCH triplet), an in-view render waits one frame, never more.
+  - **The drone bodies are merged at spawn** (`DroneBodyCombiner`, `SwarmSpawn.combineDroneBodies`).
+    The DJI model is 96 MeshRenderers on 7 materials, ~139k triangles; every FPV render with another
+    drone in view drew each as its own call, and `FPVCameraScript` toggled all 96 around every render
+    of the drone's own camera. Merged it is one renderer per material plus the four propellers
+    `VelocityControl` spins. The originals are *destroyed*, not disabled —
+    `DroneHealthMonitor.UnparkDrone` re-enables everything it cached — and mirrored parts (two nodes
+    at scale −10) go on a second child at scale −1, so culling flips in a transform rather than
+    depending on how `CombineMeshes` treats winding.
   - `allowHDR` is off and `stereoTargetEye` is `None` on every FPV camera, set both on
     `DroneReduced.prefab` and again in `ScreenSpawn` beside `aspect`/`fieldOfView`/`targetTexture`
     so a scene override cannot reintroduce them. There is no post-processing on these cameras and
     the stitcher consumes 8-bit BGR, so the FP16 intermediate bought nothing; `Both` on a camera
     that renders into a RenderTexture risks the built-in XR path treating the pass as stereo.
-  - **Occlusion culling is worth baking and is not code.** The flight scenes ship with
-    `m_OcclusionCullingData: {fileID: 0}` and a zeroed `m_SceneGUID`, so each FPV camera submits
-    the whole city with nothing hidden behind anything. The static flags are already right (1,765
-    objects in `ScaledCityWorld` at `m_StaticEditorFlags: 4294967295`, Occluder and Occludee
-    included), so `Window > Rendering > Occlusion Culling > Bake` is the whole job. It pays at
-    street level and very little at altitude.
+  - **Do not bake occlusion culling in the city scenes, tempting as it is.** They ship with
+    `m_OcclusionCullingData: {fileID: 0}`, so each FPV camera submits everything in its frustum, and
+    the static flags look ready (Occluder and Occludee set). But `GoalPatchReplacer` destroys or
+    deactivates static tiles at runtime and puts a differently built goal patch in their place, so
+    the baked occluders of the removed buildings would keep hiding whatever stands behind where
+    they used to be — around the goals, which is where the participants are searching. It would
+    need occluder data that knows about the swap, not a bake.
+  - **The city scenes cast no shadows** (their one directional light has `m_Shadows` 0), so an FPV
+    render is a single forward pass and the Ultra quality level's 4 cascades at 150 m cost nothing
+    there; only RingChallenge, NBackExperiment and FactoryScene (22 soft-shadowed lights) pay for
+    them. The GPU is not the constraint either: what an FPV render costs is CPU-side culling and
+    submission, which is why resolution was cheap to raise and draw calls are not. Attributed by
+    hiding one category at a time (headless bench, 1280×720, a hull drone looking out at 25 m in
+    ScaledCityWorld): one render is **~3.1 ms of main thread, ~1,830 batches, ~9.1 M triangles**;
+    hiding the **837 Tree Creator trees** saves the most (−27% main thread, −37% batches, −65%
+    triangles: 8.7k triangles each, two legacy materials, no LOD, and at 21k vertices each static
+    batching can merge almost none of them), then the buildings (−24%), the walkers when a goal is
+    in view (−11%, and ~1 ms of frame time per render with skinning), the terrain (−7%). Small props
+    and the (merged) drones cost nothing measurable, and terrain `drawInstanced` changes nothing.
+    **The trees are the next lever, and not a drop-in:** they are static-batched at load (so a
+    runtime merge cannot read their original mesh), they hang under tile containers that
+    `GoalPatchReplacer` swaps at runtime, and the goals' verge trees are planted at runtime. A merge
+    has to be per tile container, after the swap, from the prefab's mesh. The walkers' Animators are
+    already `CullUpdateTransforms` (the import default), so animation culling buys nothing.
+    The feed quads and the curved screen neither cast nor receive shadows (and the quads have no
+    collider — `CreatePrimitive` adds one, and a moving static collider is re-inserted into the
+    physics scene every frame for nothing), so the eye cameras stay out of the shadow pipeline in
+    the scenes that have one.
+- **Over Link the frame rate is 72 or 36, and a missed frame is what decides which.** The Quest Pro
+  runs at 72 Hz and Oculus ASW (the runtime default) locks an app that keeps missing the 13.9 ms
+  budget to exactly half rate. The recorded runs show nothing in between: `ExperimentRecorder`'s
+  10 Hz sample intervals are whole frames, ~97 ms only at 72 fps and ~83 ms only at 36. In the
+  2026-09-23 runs (1152×648) SingleDrone held 72 fps ~100% of the time and Swarm 62–83%, falling
+  from 92% with 3–4 hull drones to 41% with 10 — the number of feeds being refreshed is the driver.
+  So judge any change by its *worst* frames, not its average: one frame with nine FPV renders in it
+  costs the half-rate lock, however cheap the rest are. The 2026-09-29 render-scheduling pass was
+  measured headless (batchmode, no XR, real bridge + Python on `STITCH_SHM_SUFFIX` sections, same
+  flight program from the same spawn): against HEAD at 1152×648, the new code at 1280×720 took the
+  main thread from 12.4–15.8 to 5.4–8.1 ms per frame, the p95 frame from 17–24 to 15–18.5 ms, FPV
+  renders from 271/s (324 with the panorama off) to 186, and frames holding six or more FPV renders
+  from ~200 per 12 s phase to none, with every stitched slot still at 30.1–30.3 Hz. The remaining
+  p95 is the STABSTITCH capture frame (three renders by design). Consequences worth keeping:
+  - `launch_sim_scripts.ps1` turns ASW **off** on every launch (`-Asw Auto` restores it, `-Asw Keep`
+    leaves it), through `OculusDebugToolCLI.exe -f` with the bare commands `asw.Off` / `asw.Auto`
+    (the CLI's `help` lists them; there is no `server:` prefix). With ASW off an overrun costs only
+    the frames that miss. The setting belongs to the Oculus service and resets when it restarts.
+  - `ExperimentRecorder` writes `_perf.csv` per run (frames, fps, longest frame, FPV renders per
+    10 Hz row): measure there, not by interval forensics. `dtMaxMs` near 27.8 is a missed frame.
+  - `VrFramePacing` caps `Time.maximumDeltaTime` at 0.1 s (the project setting is 0.333), so one
+    hitch cannot cash out as 16 catch-up physics steps in the next frame — itself a missed frame.
+  - **Run experiments with the Game view on *Play Maximized*.** The saved layout docks the Scene view
+    beside the Game view with gizmos on, so in Play the Editor renders the whole city a second time
+    every frame, plus `SwarmSpawn`'s `Handles.Label`s and a repainting Inspector.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - **The look-direction gap fill (`SwarmManager.fillLookDirectionGap`, off by default) is the one
@@ -662,13 +765,16 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   curved screen (radius 5 m, 90°, 3 m) wants ~1980×735. The stitch canvas carries ~1.8× the block
   width of detail, so **1024×576 blocks pair with a 1920×720 panorama** at ~21 texels/deg on both
   screens; the sim scenes used 768×432 / 1600×600, ~16 texels/deg on both. The sim scenes now run
-  one step above that match, **1152×648 / 2160×810** (+12.5%, same aspects), trading a little FPV
-  render time for supersampling margin on screens viewed closer than their nominal distance.
-  1280×720 (the envelope max) would exceed the headset further and only cost FPV render time. Feed
-  render textures are mipmapped, because the grid layouts show the same texture on screens half
-  `OUTER_CIRCLE`'s size. The `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`)
-  are canvas pixels, so they scale with the block width: 41/15/60 suit 768, 55/20/80 suit 1024, the
-  1152 scenes use 61/22.5/90. DJIScene stays 800×450, the real feed's size.
+  at the envelope maximum, **1280×720 / 2400×900** (same aspects), on the user's request for a
+  little more resolution; it went 1024 → 1152 → 1280, each step buying supersampling margin on
+  screens viewed closer than their nominal distance. There is no step past it without a wire change:
+  1280×720 is what `blockSlotStride` is sized for. What made it affordable is that the GPU (an RTX
+  4090) was never the constraint — pixels are cheap, and the FPV cost is CPU-side submission (see
+  the FPV-render bullets above), which resolution does not touch. Feed render textures are
+  mipmapped, because the grid layouts show the same texture on screens half `OUTER_CIRCLE`'s size.
+  The `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`) are canvas pixels, so
+  they scale with the block width: 41/15/60 suit 768, 55/20/80 suit 1024, 61/22.5/90 suit 1152, and
+  the 1280 scenes use 69/25/100. DJIScene stays 800×450, the real feed's size.
 - **The TPS field is evaluated once per warp update on a lattice of at most 512 samples** along the
   canvas' longer side (`_field_lattice_size`, `STABSTITCH_FLOW_GRID`, 0 = exact) and resampled
   for each consumer: the canvas (blend masks), the panorama (`_field_to_image_grid`, with

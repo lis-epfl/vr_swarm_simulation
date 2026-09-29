@@ -30,6 +30,11 @@ public class swarmSpawn : MonoBehaviour
     public int YawDegrees = 0;
     public bool trackBirdsEye = false;
     public bool drawGizmos = true;
+
+    [Tooltip("Merge each drone's 96 body renderers into one per material when it spawns " +
+             "(DroneBodyCombiner). Same triangles and materials; every FPV render with another " +
+             "drone in view draws it in ~11 calls instead of ~96. Off = the prefab as authored.")]
+    public bool combineDroneBodies = true;
     public GameObject swarmParent;
     private InterfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
@@ -170,6 +175,13 @@ public class swarmSpawn : MonoBehaviour
 
         // Move the drone to the position
         Transform droneParent = drone.transform.Find("DroneParent");
+
+        // Merged here, straight after Instantiate, because the merge has to happen before any of
+        // the drone's own Start methods cache its renderers (DroneBodyCombiner explains why).
+        if (combineDroneBodies && droneParent != null)
+        {
+            droneParent.gameObject.AddComponent<DroneBodyCombiner>();
+        }
         droneParent.position = dronePosition;
         droneParent.rotation = droneRotation;
 
