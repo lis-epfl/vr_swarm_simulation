@@ -118,10 +118,23 @@ public class SwarmManager : MonoBehaviour
     [Tooltip("Core beta-agent velocity-match gain (s^-1). Damps radial overshoot without touching " +
              "travel around the ring. Set to 0 and the core becomes conservative: drones pushed out " +
              "spring back in and the ring breathes.\n\n" +
-             "It is measured against each drone's absolute velocity while the core travels with the " +
-             "swarm, so at cruise it is also a drag on the whole formation (about 0.7 m/s^2 at 1.6) -- " +
-             "one that fades out beside buildings, i.e. differs between neighbours exactly there.")]
+             "With coreRelativeVelocity unticked it is measured against each drone's absolute velocity " +
+             "while the core travels with the swarm, so at cruise it is also a drag on the whole " +
+             "formation (about 0.7 m/s^2 at 1.6) -- one that fades out beside buildings, i.e. differs " +
+             "between neighbours exactly there.")]
     public float c2_core = 1.6f;
+
+    [Tooltip("Measure the core's velocity match against the swarm's mean velocity instead of each " +
+             "drone's absolute velocity. The core stands on the centroid and travels with the swarm, so " +
+             "the absolute form treats a moving obstacle as a static one: in cruise it brakes every ring " +
+             "drone, by an amount that depends on where the drone sits on the ring, which shears " +
+             "neighbours into each other and costs cruise speed. Relative, it damps only motion relative " +
+             "to the formation -- the radial overshoot it exists for.\n\n" +
+             "In a replica driven by internal_2's recorded pilot inputs this took drone-drone kills at " +
+             "d_ref 0.4 from 0.82 to 0.62 a minute, raised the drones on the hull there from 85% to 91%, " +
+             "and restored the 2-4% of full-stick cruise speed the brake cost, with the spread step " +
+             "response unchanged. Unticked reproduces the old behaviour exactly.")]
+    public bool coreRelativeVelocity = true;
 
     [Tooltip("Core standoff as a multiple of the live d_ref, in swarm units. Sized to the lattice " +
              "spacing so the annulus comes out about one cell thick -- deliberately not d_obs, " +
@@ -132,6 +145,33 @@ public class SwarmManager : MonoBehaviour
              "what guarantees a building wins where the two disagree, and the swarm can still " +
              "deform freely around obstacles.")]
     public float maxCoreAccel = 2.0f;
+
+    [Header("Close-Range Damping")]
+    [Tooltip("Gain (s^-1) of a damper on the closing speed of any two drones closer than d_damp. It acts " +
+             "only on the part of their relative velocity along the line between them, only while they " +
+             "approach, and equally and oppositely on both -- so it never pulls drones together, never " +
+             "resists spreading out, and leaves the pair's shared motion alone. It has no position term: " +
+             "the lattice still sets the spacing. 0 = off.\n\n" +
+             "Why it exists: at the spread stick's tightest d_ref the lattice cannot push a pair apart " +
+             "harder than ~0.45 m/s^2 each, even at the 0.5 m kill distance, so whatever builds a closing " +
+             "speed -- the core, the shield braking neighbours unequally, a stick reversal -- is resisted " +
+             "only by each drone's own velocity loop. This is Olfati-Saber's velocity consensus (c_vm) " +
+             "cut down to the one component that causes collisions, which is why it does not share " +
+             "c_vm's cost to the spread response.")]
+    public float c_damp = 2.0f;
+
+    [Tooltip("Range of the close-range damper, in swarm units (metres / scaleFactor). It fades in over " +
+             "this range with the same rho_h bump the obstacle field uses. It needs room to shed a closing " +
+             "speed before contact: 0.3 (3 m) beat 0.2 in the replica. At d_ref 0.4 the lattice's " +
+             "neighbours sit about 2 m apart, inside it; at d_ref 1 and above they are 5-11 m apart and it " +
+             "only wakes when something squeezes a pair together.")]
+    public float d_damp = 0.3f;
+
+    [Tooltip("Ceiling on the damper's force in m/s^2, a smooth sigma_1 saturation like the obstacle " +
+             "field's. Further clamped per drone to its tilt budget. The damper is also projected out of " +
+             "any building within d_shield, as the pilot's stick is, so it can never push a drone the " +
+             "shield is braking into the facade.")]
+    public float maxDampAccel = 4.57f;
 
     public enum AttitudeAlgorithm
     {
@@ -322,8 +362,14 @@ public class SwarmManager : MonoBehaviour
     public float GetCoreRadiusFilterTime() => coreRadiusFilterTime;
     public float GetCCore() => c_core;
     public float GetC2Core() => c2_core;
+    public bool GetCoreRelativeVelocity() => coreRelativeVelocity;
     public float GetCoreStandoffRatio() => coreStandoffRatio;
     public float GetMaxCoreAccel() => maxCoreAccel;
+
+    // Getters for the close-range damper
+    public float GetCDamp() => c_damp;
+    public float GetDDamp() => d_damp;
+    public float GetMaxDampAccel() => maxDampAccel;
 
     // Getter for the altitude ceiling
     public float GetMaxHeightAboveTerrain() => maxHeightAboveTerrain;

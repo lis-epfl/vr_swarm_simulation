@@ -85,6 +85,7 @@ public class SwarmPlaneController : MonoBehaviour
 
     // Per-tick swarm aggregates, recomputed in FixedUpdate ahead of every drone's.
     private Vector3 swarmCentroid = Vector3.zero;
+    private Vector3 swarmMeanVelocity = Vector3.zero;
     private float swarmMeanYaw = 0.0f;
     private float swarmMeanRadius = 0.0f;
     private bool hasSwarmAggregates = false;
@@ -141,6 +142,14 @@ public class SwarmPlaneController : MonoBehaviour
     /// only one definition of this in the codebase.
     /// </summary>
     public Vector3 SwarmCentroid => swarmCentroid;
+
+    /// <summary>
+    /// Mean world velocity of the alive drones — the velocity of <see cref="SwarmCentroid"/>, and so
+    /// of the virtual core standing on it. The core's velocity match is measured against this: the
+    /// core is a moving obstacle, and damping each drone's absolute velocity instead brakes the whole
+    /// formation in translation, by a different amount for each drone.
+    /// </summary>
+    public Vector3 SwarmMeanVelocity => swarmMeanVelocity;
 
     /// <summary>Alive drones counted in the aggregates this tick.</summary>
     public int AliveDroneCount => swarmDroneCount;
@@ -534,6 +543,7 @@ public class SwarmPlaneController : MonoBehaviour
         if (roster == null) return false;
 
         Vector3 positionSum = Vector3.zero;
+        Vector3 velocitySum = Vector3.zero;
         float sumSin = 0.0f;
         float sumCos = 0.0f;
         int count = 0;
@@ -547,6 +557,10 @@ public class SwarmPlaneController : MonoBehaviour
 
             positionSum += entry.droneParent.position;
 
+            // The state estimate, rotated to world exactly as OlfatiSaber reads a neighbour's, so the
+            // core's reference velocity and the velocity each drone measures against it agree.
+            velocitySum += entry.droneParent.TransformDirection(droneControl.State.VelocityVector);
+
             // Circular mean via sin/cos components: averaging the angles directly crosses the +-pi
             // seam and returns a heading no drone holds (the mean of +179 and -179 is 180, not 0).
             float yaw = droneControl.State.Angles.y;
@@ -559,6 +573,7 @@ public class SwarmPlaneController : MonoBehaviour
         if (count == 0) return false;
 
         swarmCentroid = positionSum / count;
+        swarmMeanVelocity = velocitySum / count;
         swarmMeanYaw = Mathf.Atan2(sumSin, sumCos);
 
         // Mean distance from the centroid — how big the formation actually is right now. Needed as

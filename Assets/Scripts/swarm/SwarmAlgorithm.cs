@@ -125,6 +125,10 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.CoreActive = coreOn;
             olfatiSaberAlgorithm.CoreCentre = coreOn ? plane.SwarmCentroid : Vector3.zero;
             olfatiSaberAlgorithm.CoreRadius = coreOn ? plane.CoreRadiusMetres : 0.0f;
+            // Zero when the relative form is unticked, which is exactly the static-obstacle core.
+            olfatiSaberAlgorithm.CoreVelocity = coreOn && swarmManager.GetCoreRelativeVelocity()
+                ? plane.SwarmMeanVelocity
+                : Vector3.zero;
         }
 
         // A vertical plane puts the formation's spread on the vertical axis, which the altitude-hold
@@ -305,6 +309,8 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.c2_beta = swarmManager.GetC2Beta();
             olfatiSaberAlgorithm.d_shield = swarmManager.GetDShield();
             olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();
+            olfatiSaberAlgorithm.c_damp = swarmManager.GetCDamp();
+            olfatiSaberAlgorithm.d_damp = swarmManager.GetDDamp();
 
             // Hollow swarm core. HollowCore is the one switch: it gates both the shortened cohesion
             // range (through OlfatiSaber.EffectiveR0Coh) and, with ApplyPlaneConstraint's per-tick
@@ -337,6 +343,10 @@ public class SwarmAlgorithm : MonoBehaviour
             // a low tilt limit must not have the core demanding more than it can produce.
             olfatiSaberAlgorithm.MaxCoreAccel =
                 Mathf.Min(swarmManager.GetMaxCoreAccel(), tiltBudget);
+
+            // And the close-range damper, for the same reason as the obstacle field.
+            olfatiSaberAlgorithm.MaxDampAccel =
+                Mathf.Min(swarmManager.GetMaxDampAccel(), tiltBudget);
         }
     }
 

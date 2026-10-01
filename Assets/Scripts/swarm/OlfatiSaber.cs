@@ -57,6 +57,28 @@ public class OlfatiSaber : MonoBehaviour
     // alpha-agent velocity consensus only. The beta-agent's velocity match has its own gain
     // (c2_beta) -- see there for why sharing one was a bug rather than a simplification.
     public float c_vm = 1.0f;
+
+    // ---- Close-range damping -------------------------------------------------------------------
+    // A damper on the closing speed of two drones closer than d_damp: c_damp times the rho_h bump
+    // times the (negative) range rate, along the line between them, applied equally and oppositely
+    // to both. It is the alpha-agent velocity consensus above cut down to the one component that
+    // causes collisions -- along the line of sight, and only while approaching -- so it never pulls
+    // drones together, never resists the formation spreading out, and leaves a pair's shared motion
+    // alone. No position term, so it cannot move the lattice's equilibrium. c_damp = 0 is off.
+    //
+    // It exists because the lattice's own repulsion shrinks with d_ref: at the spread stick's 0.4 the
+    // sigma_1 action function cannot push a pair apart harder than ~0.45 m/s^2 each even at the 0.5 m
+    // kill distance (1.6-2.0 at d_ref >= 1.15), so a closing speed from any source was resisted only
+    // by each drone's velocity loop (1/tau = 1.33 s^-1). That was almost every loss in internal_2.
+    //
+    // c_vm's failure beside buildings -- handing a drone the shield is braking the momentum of the
+    // neighbour behind it -- is shared in miniature, since half of every correction goes to the
+    // drone in front. So the sum is projected out of any building within d_shield exactly as the
+    // pilot's stick is (RemoveInwardComponent), and saturated like the obstacle field.
+    public float c_damp = 0.0f;       // s^-1
+    public float d_damp = 0.3f;       // swarm units
+    public float MaxDampAccel = 4.57f; // world m/s^2, not scaled by ScaleFactor
+
     public float d_obs = 5.0f;
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
@@ -117,12 +139,16 @@ public class OlfatiSaber : MonoBehaviour
     // out. SwarmPlaneController.UpdateCoreRadius sizes it from the swarm's measured radius for that
     // reason -- see the long note there.
     //
-    // CoreActive/CoreCentre/CoreRadius are pushed every tick by SwarmAlgorithm.ApplyPlaneConstraint
+    // CoreActive/CoreCentre/CoreRadius/CoreVelocity are pushed every tick by SwarmAlgorithm.ApplyPlaneConstraint
     // from the one centroid definition (SwarmPlaneController), so every drone repels from the same
     // virtual agent. Hidden because they are state, not settings.
     [HideInInspector] public bool CoreActive = false;
     [HideInInspector] public Vector3 CoreCentre = Vector3.zero;   // world metres
     [HideInInspector] public float CoreRadius = 0.0f;             // world metres
+    // The core's own velocity -- the swarm's mean velocity (SwarmPlaneController.SwarmMeanVelocity),
+    // pushed with the centre. The core's velocity match is measured relative to it. Zero reproduces
+    // the static-obstacle form exactly, which is what SwarmManager.coreRelativeVelocity unticked sends.
+    [HideInInspector] public Vector3 CoreVelocity = Vector3.zero; // world m/s
 
     // Core standoff as a multiple of the live d_ref, in swarm units. Deliberately not d_obs: that
     // is sized to the surface of a building (0.4 = 4 m), whereas the core wants a standoff on the
@@ -137,10 +163,11 @@ public class OlfatiSaber : MonoBehaviour
     // component and mu -> 1 near the surface, so travel along the ring is untouched while radial
     // overshoot is damped. Without it the core is conservative and a drone pushed out springs back
     // in -- the same rebound documented on c2_beta above -- and the ring breathes.
-    // The catch: vel_obs is built from the drone's absolute velocity, as for a static obstacle, but
-    // this one travels with the swarm. At cruise the term therefore also brakes the translation of
-    // every ring drone (about 0.7 m/s^2 at 1.6, measured as the cruise speed it costs), and the
-    // proximity fade below switches that brake off beside buildings only.
+    // It is measured relative to CoreVelocity, because the core travels with the swarm. Built from
+    // absolute velocity, as for a static obstacle (CoreVelocity zero), the term also brakes the
+    // translation of every ring drone at cruise (about 0.7 m/s^2 at 1.6) -- by a different amount
+    // for each, since how much of a drone's velocity is "radial" depends on where it sits on the
+    // ring. At small spreads that shear was the leading term in most drone-drone collisions.
     public float c2_core = 1.6f;
 
     // The core's OWN ceiling, m/s^2, deliberately not MaxObstacleAccel's. Keeping it well under the
@@ -190,6 +217,7 @@ public class OlfatiSaber : MonoBehaviour
 
         Vector3 velocityConsensus = Vector3.zero;
         Vector3 cohesion = Vector3.zero;
+        Vector3 closeDamping = Vector3.zero;
         Vector3 obstacle = Vector3.zero;
 
         // Get the position and velocity of the current drone
@@ -239,7 +267,18 @@ public class OlfatiSaber : MonoBehaviour
             float distance = relativePosition.magnitude / ScaleFactor;
 
             // Cohesion
-            cohesion += GetCohesionForce(distance, d_ref, EffectiveR0Coh) * relativePosition.normalized;
+            Vector3 lineOfSight = relativePosition.normalized;
+            cohesion += GetCohesionForce(distance, d_ref, EffectiveR0Coh) * lineOfSight;
+
+            // Close-range damping: only the approaching part of the range rate, so a pair moving
+            // apart or in parallel gets exactly nothing. In constrained mode the line of sight is
+            // already in-plane, so the dot product drops any out-of-plane relative velocity.
+            if (c_damp > 0.0f && distance < d_damp)
+            {
+                float rangeRate = Vector3.Dot(neighbourVelocity - velocity, lineOfSight);
+                if (rangeRate < 0.0f)
+                    closeDamping += c_damp * GetBetaBump(distance, d_damp) * rangeRate * lineOfSight;
+            }
         }
 
         // In constrained mode, correct drift off the plane. The target offset along the normal is the
@@ -260,7 +299,14 @@ public class OlfatiSaber : MonoBehaviour
         obstacle = GetObstacleForce(position, velocity);
         Vector3 core = GetCoreForce(position, velocity);
 
-        return velocityConsensus + cohesion + obstacle + core + planeCorrection;
+        // After GetObstacleForce, which is what fills the shield frames the projection reads.
+        // Saturated first and projected last, so the vector that leaves here never points into a
+        // building the shield is holding this drone off.
+        if (MaxDampAccel > 0.0f)
+            closeDamping /= Mathf.Sqrt(1.0f + closeDamping.sqrMagnitude / (MaxDampAccel * MaxDampAccel));
+        closeDamping = RemoveInwardComponent(closeDamping);
+
+        return velocityConsensus + cohesion + closeDamping + obstacle + core + planeCorrection;
     }
 
     /// <summary>
@@ -289,7 +335,9 @@ public class OlfatiSaber : MonoBehaviour
         if (!frame.valid)
             return Vector3.zero;
 
-        GetObstacleContribution(frame, droneVelocity, standoff,
+        // Relative to the core's own velocity: it is a moving obstacle. The beta-agent's vel_obs
+        // construction is unchanged -- it just sees the drone as the formation does.
+        GetObstacleContribution(frame, droneVelocity - CoreVelocity, standoff,
                                 out Vector3 repulsion, out Vector3 velocityMatch);
 
         Vector3 force = c_core * repulsion + c2_core * velocityMatch;
@@ -552,23 +600,31 @@ public class OlfatiSaber : MonoBehaviour
     /// with the same rho_h bump the force uses. Its range is d_shield, not d_obs, because the
     /// command has to be neutralised over the stopping distance while the standoff stays tight.
     ///
-    /// Note this shields the pilot's command only. Cohesion is not projected, so a drone squeezed
-    /// between the formation and a facade still relies on the beta force alone.
+    /// Note this shields the pilot's command and the close-range damper only. Cohesion is not
+    /// projected, so a drone squeezed between the formation and a facade still relies on the beta
+    /// force alone.
     /// </remarks>
-    public Vector3 ProjectCommandVelocity(Vector3 worldCommand)
+    public Vector3 ProjectCommandVelocity(Vector3 worldCommand) => RemoveInwardComponent(worldCommand);
+
+    /// <summary>
+    /// The shield's projection for any world vector: fades out the part heading into an obstacle
+    /// within d_shield, leaving the tangential and outward parts alone. Shared by the pilot's command
+    /// and the close-range damper so the two cannot disagree about what "into a building" means.
+    /// </summary>
+    private Vector3 RemoveInwardComponent(Vector3 v)
     {
         if (d_shield <= 0.0f)
-            return worldCommand;
+            return v;
 
         for (int i = 0; i < shieldFrames.Count; i++)
         {
             ObstacleFrame frame = shieldFrames[i];
-            float inward = -Vector3.Dot(worldCommand, frame.outward);
+            float inward = -Vector3.Dot(v, frame.outward);
             if (inward > 0.0f)
-                worldCommand += GetBetaBump(frame.distance, d_shield) * inward * frame.outward;
+                v += GetBetaBump(frame.distance, d_shield) * inward * frame.outward;
         }
 
-        return worldCommand;
+        return v;
     }
 
     public float GetCohesionForce(float r, float ref_d = -1, float r0 = -1)
