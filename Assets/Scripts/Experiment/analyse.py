@@ -275,10 +275,11 @@ def pos_at(c, t):
 
 # ============================================================================= task time
 #
-# totalTaskTime is set by ExperimentRecorder at Finalize as start -> last identify keypress, so it only
-# means something when the experimenter pressed the identify keys live. A run whose answers were
-# back-filled by `answers apply` never gets one (it stays 0, as does an aborted run), so each run uses
-# totalTaskTime when it is > 0 and falls back to durationSec (start -> Finalize); time_source says which.
+# totalTaskTime is set by ExperimentRecorder at Finalize as start -> last identify: the pilot's RC press
+# (C2) where there was one, else the experimenter's keypress. So it only means something when one of those
+# was pressed live. A run whose answers were only back-filled by `answers apply` never gets one (it stays 0,
+# as does an aborted run), so each run uses totalTaskTime when it is > 0 and falls back to durationSec
+# (start -> Finalize); time_source says which.
 
 def task_family(run):
     total = float(run.session.get("totalTaskTime", 0.0) or 0.0)
@@ -1557,7 +1558,9 @@ def build_tables(runs, res):
         for gi, g in enumerate(r.goals):
             idx = g.get("goalIndex", gi)
             row = dict(r.ident(), goalIndex=idx, hat=hat_name(g), visitOrder=g.get("visitOrder", -1),
-                       answeredHat=g.get("answeredHat", ""), outcome=g.get("outcome", ""))
+                       answeredHat=g.get("answeredHat", ""), outcome=g.get("outcome", ""),
+                       decisionTimeSec=g.get("decisionTimeSec", -1.0),
+                       identifySource=g.get("identifySource", ""))
             row.update({k: v for k, v in prox.get(idx, {}).items() if k not in ("run", "goalIndex")})
             row.update({k: v for k, v in hat.get(idx, {}).items() if k not in ("run", "goalIndex")})
             goal_rows.append(row)
@@ -1813,7 +1816,9 @@ def cmd_quicklook(a):
 # marked `~` in visitOrder -- check those by hand. `apply` sets, per goal: answered / outcome (correct iff
 # the named hat is the hat on that patch), visitOrder, visitEnterSec, visitExitSec, visitApprox, visitZoneM,
 # and recomputes nCorrect. decisionTimeSec, swarmToWalkerDist and the centroid stay unset (-1 / 0) and no
-# identify events are written: the moment of each answer was not recorded. Safe to re-run.
+# identify events are written: the moment of each answer was not recorded -- unless the pilot pressed the
+# RC's identify button (identifySource "rc"), whose moment the recorder did log; those three are kept then.
+# Safe to re-run.
 
 N_ANSWERS = 3
 
@@ -1880,11 +1885,13 @@ def cmd_answers(a):
             x = answers[k] if k < len(answers) else ""
             outcome = "" if not x else "skip" if x.lower() == "skip" else \
                 "correct" if norm_hat(x) == norm_hat(g["hat"]) else "incorrect"
-            g.update(answered=bool(outcome), outcome=outcome, answeredHat=x,
-                     decisionTimeSec=-1.0, swarmToWalkerDist=-1.0,
-                     centroidAtAnswerX=0.0, centroidAtAnswerY=0.0, centroidAtAnswerZ=0.0,
+            timed = g.get("identifySource") == "rc" and g.get("decisionTimeSec", -1.0) >= 0
+            g.update(answered=bool(outcome) or timed, outcome=outcome, answeredHat=x,
                      visitOrder=k + 1, visitEnterSec=round(enter, 4), visitExitSec=round(exit_, 4),
                      visitApprox=approx, visitZoneM=a.zone)
+            if not timed:
+                g.update(decisionTimeSec=-1.0, swarmToWalkerDist=-1.0,
+                         centroidAtAnswerX=0.0, centroidAtAnswerY=0.0, centroidAtAnswerZ=0.0)
         j["nCorrect"] = sum(g["outcome"] == "correct" for g in j["goals"])
         j["answersSource"] = "manual (analyse.py answers, matched by visit order)"
         with open(run.path("session.json"), "w", encoding="utf-8", newline="") as f:

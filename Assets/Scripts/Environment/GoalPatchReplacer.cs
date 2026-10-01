@@ -22,6 +22,14 @@ using UnityEngine;
 /// <see cref="GoalPositions"/>), takes over any scenery tied to that tile (see
 /// <see cref="CarryTiedScenery"/>), and always gets verge trees, whether or not the tile had any (see
 /// <see cref="PlantGoalVerges"/>).
+///
+/// <para><b>Diamond plazas are candidates too</b> (<see cref="includeDiamondPlazas"/>): the blocks standing in the
+/// diamonds' parks, found by their <see cref="DiamondPlaza"/> component because they are deliberately not tiles. A goal
+/// replacing one is still placed under <see cref="cityPack"/>, where its kerb is a tile's kerb like any other goal's, so
+/// the city stays findable and <see cref="StreetWidthTuner"/> brings it to the city's block scale. It matches the
+/// block it replaces in the ways a plaza differs from a tile: its road plate is hidden and it stands at the plaza's
+/// raised ground. Like every goal it gets verge trees, which round a plaza stand on the park's lawn. Adjacency still
+/// takes its spacing from the tile grid alone.</para>
 /// </summary>
 public class GoalPatchReplacer : MonoBehaviour
 {
@@ -42,6 +50,13 @@ public class GoalPatchReplacer : MonoBehaviour
 
     [Tooltip("Name prefix identifying replaceable tiles among the City_Pack children.")]
     [SerializeField] private string tilePrefix = "MC_Patch";
+
+    [Tooltip("Also offer the blocks standing in the diamonds' parks (DiamondPlaza) as goal candidates. A goal " +
+             "replacing one has no road ring, like the plaza itself.")]
+    [SerializeField] private bool includeDiamondPlazas = true;
+
+    /// <summary>A road plate's name prefix: the street ring round a tile's block, which a plaza does not have.</summary>
+    private const string RoadPlatePrefix = "Road_Structure_";
 
     [Header("Replay (reproduce a past run)")]
     [Tooltip("Random = a fresh random layout each play. Replay = reproduce the goal positions recorded in a previous run's session JSON.")]
@@ -107,20 +122,25 @@ public class GoalPatchReplacer : MonoBehaviour
             }
         }
 
-        if (tiles.Count == 0)
+        // The diamonds' plazas, beside the tiles. Candidates are the two together; the tiles alone set the spacing.
+        Dictionary<Transform, DiamondPlaza> plazas = FindPlazas();
+        List<Transform> candidates = new List<Transform>(tiles);
+        candidates.AddRange(plazas.Keys);
+
+        if (candidates.Count == 0)
         {
             Debug.LogWarning($"GoalPatchReplacer: no '{tilePrefix}' tiles found under {cityPack.name}; nothing to replace.", this);
             return;
         }
 
-        // Where a goal for each tile would stand. Selection compares these for every pair of tiles and replay
-        // for every recorded goal, so they are worked out once, up front.
-        Dictionary<Transform, Vector3> goalPositions = GoalPositions(tiles);
+        // Where a goal for each candidate would stand. Selection compares these for every pair of candidates and
+        // replay for every recorded goal, so they are worked out once, up front.
+        Dictionary<Transform, Vector3> goalPositions = GoalPositions(tiles, plazas);
 
-        // Choose which tiles to replace, then run the shared placement loop below.
+        // Choose which candidates to replace, then run the shared placement loop below.
         List<Transform> selected = mode == PlacementMode.Replay
-            ? SelectReplayTiles(tiles, goalPositions)
-            : SelectRandomTiles(tiles, goalPositions);
+            ? SelectReplayTiles(candidates, goalPositions)
+            : SelectRandomTiles(candidates, tiles, goalPositions);
 
         if (selected == null || selected.Count == 0)
         {
@@ -128,14 +148,26 @@ public class GoalPatchReplacer : MonoBehaviour
             return;
         }
 
+        int onPlazas = 0;
         foreach (Transform tile in selected)
         {
             GameObject goal = Instantiate(goalPrefab, cityPack);
             goal.name = $"goal_patch ({tile.name})";
 
             goal.transform.localPosition = goalPositions[tile];
-            goal.transform.localRotation = tile.localRotation;
-            goal.transform.localScale = tile.localScale;
+            if (plazas.ContainsKey(tile))
+            {
+                // Not a child of cityPack, so its placement is carried over through the world frame.
+                goal.transform.localRotation = Quaternion.Inverse(cityPack.rotation) * tile.rotation;
+                goal.transform.localScale = Vector3.one;
+                HideRoadPlate(goal.transform);
+                onPlazas++;
+            }
+            else
+            {
+                goal.transform.localRotation = tile.localRotation;
+                goal.transform.localScale = tile.localScale;
+            }
 
             CarryTiedScenery(tile, goal.transform);
 
@@ -151,7 +183,8 @@ public class GoalPatchReplacer : MonoBehaviour
             }
         }
 
-        Debug.Log($"GoalPatchReplacer: replaced {selected.Count} of {tiles.Count} '{tilePrefix}' tiles with goals ({mode}).", this);
+        Debug.Log($"GoalPatchReplacer: replaced {selected.Count} of {tiles.Count} '{tilePrefix}' tiles and {plazas.Count} " +
+                  $"diamond plazas with goals, {onPlazas} of them on plazas ({mode}).", this);
 
         if (plantVergeTrees)
         {
@@ -176,8 +209,11 @@ public class GoalPatchReplacer : MonoBehaviour
     ///
     /// <para>A block is located by its kerb, the point <see cref="StreetWidthTuner"/> scales the block about.
     /// If the goal prefab or a tile has no kerb, that tile falls back to copying its transform.</para>
+    ///
+    /// <para>A plaza's goal has its kerb laid over the plaza's centre, and stands at the plaza's own ground rather
+    /// than at zero: see <see cref="DiamondPlaza"/>.</para>
     /// </summary>
-    private Dictionary<Transform, Vector3> GoalPositions(List<Transform> tiles)
+    private Dictionary<Transform, Vector3> GoalPositions(List<Transform> tiles, Dictionary<Transform, DiamondPlaza> plazas)
     {
         // The goal's block relative to its own root, measured on the asset so no instance is needed.
         Transform goalKerb = CityTiles.FindKerb(goalPrefab.transform);
@@ -185,7 +221,7 @@ public class GoalPatchReplacer : MonoBehaviour
             ? goalPrefab.transform.InverseTransformPoint(goalKerb.position)
             : Vector3.zero;
 
-        Dictionary<Transform, Vector3> positions = new Dictionary<Transform, Vector3>(tiles.Count);
+        Dictionary<Transform, Vector3> positions = new Dictionary<Transform, Vector3>(tiles.Count + plazas.Count);
         foreach (Transform tile in tiles)
         {
             Transform kerb = goalKerb != null ? CityTiles.FindKerb(tile) : null;
@@ -196,7 +232,53 @@ public class GoalPatchReplacer : MonoBehaviour
             pos.y = 0f;
             positions[tile] = pos;
         }
+        foreach (KeyValuePair<Transform, DiamondPlaza> plaza in plazas)
+        {
+            Quaternion rotation = Quaternion.Inverse(cityPack.rotation) * plaza.Key.rotation;
+            Vector3 pos = cityPack.InverseTransformPoint(plaza.Value.Centre.position) - rotation * goalBlockOffset;
+            pos.y = cityPack.InverseTransformPoint(plaza.Value.GroundPoint).y;
+            positions[plaza.Key] = pos;
+        }
         return positions;
+    }
+
+    /// <summary>
+    /// The active diamond plazas in the city's scene, by their root, if they are included at all. The city's scene, not
+    /// this component's: <see cref="SwarmManager"/> moves the object this sits on to DontDestroyOnLoad in Awake.
+    /// </summary>
+    private Dictionary<Transform, DiamondPlaza> FindPlazas()
+    {
+        Dictionary<Transform, DiamondPlaza> plazas = new Dictionary<Transform, DiamondPlaza>();
+        if (!includeDiamondPlazas)
+        {
+            return plazas;
+        }
+        foreach (DiamondPlaza plaza in FindObjectsByType<DiamondPlaza>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+        {
+            if (plaza.gameObject.scene != cityPack.gameObject.scene)
+            {
+                continue;
+            }
+            if (plaza.Centre == null)
+            {
+                Debug.LogWarning($"GoalPatchReplacer: diamond plaza {plaza.name} has no centre to place a goal by; skipped.", plaza);
+                continue;
+            }
+            plazas[plaza.transform] = plaza;
+        }
+        return plazas;
+    }
+
+    /// <summary>Hide a goal's road ring: it replaces a plaza, which stands in the park's lawn with no street round it.</summary>
+    private static void HideRoadPlate(Transform goal)
+    {
+        foreach (Renderer r in goal.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r.name.StartsWith(RoadPlatePrefix))
+            {
+                r.gameObject.SetActive(false);
+            }
+        }
     }
 
     /// <summary>
@@ -230,6 +312,11 @@ public class GoalPatchReplacer : MonoBehaviour
     /// <para>Planting replaces the verge a goal carried over from its tile: those trees were cleared around the
     /// old block's streets and props, not the goal's. The planter seeds each tile by name and a goal is named
     /// for the tile it replaced, so a replayed run gets the same trees.</para>
+    ///
+    /// <para>The planter finds the city by the goals it is handed, not by its own scene: in the city scenes it
+    /// sits, like this component, on <c>gameManager</c>, which <see cref="SwarmManager"/> moves to DontDestroyOnLoad
+    /// in Awake. Before 2026-09-30 it looked in its own scene, found no city, and logged an error instead of
+    /// planting, so in every run until then a goal kept only the verge carried over from its tile.</para>
     /// </summary>
     private IEnumerator PlantGoalVerges()
     {
@@ -249,16 +336,22 @@ public class GoalPatchReplacer : MonoBehaviour
                 goals.Add(goal.transform);
             }
         }
-        planter.Plant(goals);
+        if (goals.Count > 0)
+        {
+            planter.Plant(goals);
+        }
     }
 
-    /// <summary>The <see cref="VergeTreePlanter"/> in this component's scene, or null if it has none.</summary>
+    /// <summary>
+    /// The <see cref="VergeTreePlanter"/> in this component's scene or the city's, or null if neither has one. Both,
+    /// because this component's is DontDestroyOnLoad at runtime wherever it sits on <c>gameManager</c>.
+    /// </summary>
     private VergeTreePlanter FindPlanter()
     {
         foreach (VergeTreePlanter planter in FindObjectsByType<VergeTreePlanter>(FindObjectsInactive.Include,
                                                                                 FindObjectsSortMode.None))
         {
-            if (planter.gameObject.scene == gameObject.scene)
+            if (planter.gameObject.scene == gameObject.scene || planter.gameObject.scene == cityPack.gameObject.scene)
             {
                 return planter;
             }
@@ -268,8 +361,12 @@ public class GoalPatchReplacer : MonoBehaviour
 
     // ------------------------------------------------------------------ random selection
 
-    /// <summary>Randomly pick up to <see cref="replaceCount"/> non-adjacent tiles.</summary>
-    private List<Transform> SelectRandomTiles(List<Transform> tiles, Dictionary<Transform, Vector3> goalPositions)
+    /// <summary>
+    /// Randomly pick up to <see cref="replaceCount"/> non-adjacent candidates. <paramref name="gridTiles"/> are the
+    /// tiles among them, which alone set the spacing.
+    /// </summary>
+    private List<Transform> SelectRandomTiles(List<Transform> tiles, List<Transform> gridTiles,
+                                              Dictionary<Transform, Vector3> goalPositions)
     {
         if (useFixedSeed)
         {
@@ -287,15 +384,18 @@ public class GoalPatchReplacer : MonoBehaviour
         // grid pitch apart. Tile numbering is scrambled relative to position, so adjacency must come
         // from world XZ, not tile index. Edge neighbours sit ~1 pitch away, diagonals ~1.41 pitch.
         // Measured between goal positions, i.e. between blocks, for the reason GoalPositions gives.
+        // The plazas are left out: they are off the grid, so the closest pair involving one says
+        // nothing about the pitch, and a shorter one would stop diagonal tiles counting as adjacent.
+        List<Transform> spacing = gridTiles.Count > 1 ? gridTiles : tiles;
         float thresholdSq = 0f;
-        if (preventAdjacent && tiles.Count > 1)
+        if (preventAdjacent && spacing.Count > 1)
         {
             float minSq = float.MaxValue;
-            for (int a = 0; a < tiles.Count; a++)
+            for (int a = 0; a < spacing.Count; a++)
             {
-                for (int b = a + 1; b < tiles.Count; b++)
+                for (int b = a + 1; b < spacing.Count; b++)
                 {
-                    float d = SqrDistanceXZ(goalPositions[tiles[a]], goalPositions[tiles[b]]);
+                    float d = SqrDistanceXZ(goalPositions[spacing[a]], goalPositions[spacing[b]]);
                     if (d < minSq)
                     {
                         minSq = d;

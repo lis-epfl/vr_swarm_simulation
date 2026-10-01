@@ -11,9 +11,13 @@ using UnityEngine;
 ///
 /// Lives on the scene's <c>gameManager</c> object. Session metadata (participant / trial / condition)
 /// is set in the Inspector before pressing Play; the recorder then samples continuous state at a
-/// fixed rate and logs an "identify" event whenever the experimenter presses a key (correct /
-/// incorrect / skip) — the participant reports verbally, the experimenter records the outcome. The
-/// identify action also marks that goal complete (there is no separate proximity trigger).
+/// fixed rate and logs an "identify" event for each answer. The pilot marks the moment of an answer
+/// with the RC's C2 button (<c>rcjoy bridge --profile sim</c>, <see cref="UDPReceiverManager.MarkPresses"/>)
+/// and reports the hat verbally; the experimenter's key (correct / incorrect / skip) then records that
+/// answer's outcome. A key with no RC press waiting for an outcome is the identify itself, timed at the
+/// key — the original protocol — so either works alone. An identify marks the nearest unanswered goal
+/// complete (there is no separate proximity trigger), and the session finishes once every goal has an
+/// outcome.
 ///
 /// Condition is a recorded label only: this component does not change the drone count — the
 /// experimenter still configures <see cref="swarmSpawn"/> as usual.
@@ -44,6 +48,13 @@ public class ExperimentRecorder : MonoBehaviour
     [Tooltip("Manually finish/abort the session (also fires automatically after all goals answered).")]
     public KeyCode endSessionKey = KeyCode.Backspace;
 
+    [Header("Identify from the pilot's RC")]
+    [Tooltip("The RC's C2 button (rcjoy bridge --profile sim) marks the moment of an identify; the keys above " +
+             "then give its outcome. Off: presses are ignored and the keys alone identify, as before.")]
+    public bool rcIdentify = true;
+    [Tooltip("An RC press this soon after the previous RC identify is a double tap, logged and ignored.")]
+    public float rcIdentifyDebounceSec = 1f;
+
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
     private Transform headTransform;   // OVRCameraRig.centerEyeAnchor (fallback Camera.main)
@@ -56,7 +67,8 @@ public class ExperimentRecorder : MonoBehaviour
         public string hat = "";            // which hat this goal's special walker wears
         public bool answered;
         // Filled in when the goal is answered:
-        public string outcome = "";        // correct / incorrect / skip
+        public string source = "";         // rc (the pilot's C2) / key (the experimenter's key)
+        public string outcome = "";        // correct / incorrect / skip; "" while an RC identify awaits its key
         public float decisionTimeSec = -1f;
         public float swarmToWalkerDist = -1f;
         public Vector3 centroidAtAnswer;
@@ -89,6 +101,10 @@ public class ExperimentRecorder : MonoBehaviour
     private float nextSampleTime;
     private bool sessionOpen = false;   // files open, sampling active
     private bool finalized = false;     // summary written, files closed
+
+    // ---- RC identify (see PollRcIdentify) ----
+    private int rcPressesSeen;
+    private float lastRcIdentifyTime = float.NegativeInfinity;
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -144,10 +160,11 @@ public class ExperimentRecorder : MonoBehaviour
             if (nextSampleTime < Time.time) nextSampleTime = Time.time + interval;
         }
 
-        // Identify actions (edge-detected).
-        if (Input.GetKeyDown(correctKey)) RecordIdentify("correct");
-        else if (Input.GetKeyDown(incorrectKey)) RecordIdentify("incorrect");
-        else if (Input.GetKeyDown(skipKey)) RecordIdentify("skip");
+        // Identify actions: the pilot's RC press, then the experimenter's key (edge-detected).
+        PollRcIdentify();
+        if (Input.GetKeyDown(correctKey)) RecordOutcome("correct");
+        else if (Input.GetKeyDown(incorrectKey)) RecordOutcome("incorrect");
+        else if (Input.GetKeyDown(skipKey)) RecordOutcome("skip");
 
         if (Input.GetKeyDown(endSessionKey)) Finalize("manual_end");
     }
@@ -183,6 +200,7 @@ public class ExperimentRecorder : MonoBehaviour
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
+        rcPressesSeen = UDPReceiverManager.MarkPresses;   // a press before the session is not an answer
         sessionOpen = true;
 
         WriteEvent("session_start", -1, "", -1f, $"pid={pid};trial={trialNumber};condition={condition}");
@@ -444,27 +462,99 @@ public class ExperimentRecorder : MonoBehaviour
 
     // ------------------------------------------------------------------ identify
 
-    private void RecordIdentify(string outcome)
+    /// <summary>
+    /// The pilot's RC button: an identify timed at the press, its outcome left for the experimenter's
+    /// key. Every press is logged — an ignored one as <c>rc_press_ignored</c> — so a mistaken or
+    /// doubled press can be found afterwards. Presses arriving in one frame count once.
+    /// </summary>
+    private void PollRcIdentify()
     {
-        int idx = NearestUnansweredGoal(out float dist, out Vector3 centroid);
+        int presses = UDPReceiverManager.MarkPresses;
+        if (presses == rcPressesSeen) return;
+        bool pressed = presses > rcPressesSeen;   // lower: the counter was reset under us
+        rcPressesSeen = presses;
+        if (!pressed || !rcIdentify) return;
+
+        if (Time.time - lastRcIdentifyTime < rcIdentifyDebounceSec)
+        {
+            WriteEvent("rc_press_ignored", -1, "", -1f, "debounce");
+            return;
+        }
+        if (RecordIdentify("", "rc")) lastRcIdentifyTime = Time.time;
+        else WriteEvent("rc_press_ignored", -1, "", -1f, "all goals answered");
+    }
+
+    /// <summary>
+    /// An experimenter key. It gives the outcome of the latest RC identify still waiting for one; with
+    /// none waiting it is the identify itself, timed at the key, exactly as before the RC button existed.
+    /// </summary>
+    private void RecordOutcome(string outcome)
+    {
+        int idx = LatestAwaitingOutcome();
         if (idx < 0)
         {
-            Debug.Log("ExperimentRecorder: identify pressed but all goals already answered (ignored).", this);
+            RecordIdentify(outcome, "key");
             return;
         }
 
         GoalInfo g = goals[idx];
+        g.outcome = outcome;
+        float lag = Time.time - sessionStartTime - g.decisionTimeSec;
+        WriteEvent("outcome", idx, outcome, g.swarmToWalkerDist, $"source=key lagSec={F(lag)}");
+        FinalizeIfComplete();
+    }
+
+    /// <summary>Answers the nearest unanswered goal; false if none remain.</summary>
+    private bool RecordIdentify(string outcome, string source)
+    {
+        int idx = NearestUnansweredGoal(out float dist, out Vector3 centroid);
+        if (idx < 0)
+        {
+            Debug.Log($"ExperimentRecorder: identify ({source}) but all goals already answered (ignored).", this);
+            return false;
+        }
+
+        GoalInfo g = goals[idx];
         g.answered = true;
+        g.source = source;
         g.outcome = outcome;
         g.decisionTimeSec = Time.time - sessionStartTime;
         g.swarmToWalkerDist = dist;
         g.centroidAtAnswer = centroid;
+        // No ';' in the note: pandas readers of _events.csv split on it.
         WriteEvent("identify", idx, outcome, dist,
-            $"centroid={F(centroid.x)},{F(centroid.y)},{F(centroid.z)}");
+            $"centroid={F(centroid.x)},{F(centroid.y)},{F(centroid.z)} source={source}");
+        if (outcome == "")
+            Debug.Log($"ExperimentRecorder: RC identify -> goal {idx} ({g.hat}, walker {F(dist)} m away); " +
+                      "press the outcome key.", this);
 
-        int answered = 0;
-        foreach (GoalInfo gi in goals) if (gi.answered) answered++;
-        if (goals.Count > 0 && answered >= goals.Count) Finalize("all_goals_answered");
+        FinalizeIfComplete();
+        return true;
+    }
+
+    /// <summary>The most recent RC identify with no outcome yet; -1 if none.</summary>
+    private int LatestAwaitingOutcome()
+    {
+        int best = -1;
+        for (int i = 0; i < goals.Count; i++)
+        {
+            GoalInfo g = goals[i];
+            if (g.answered && g.outcome == "" && (best < 0 || g.decisionTimeSec > goals[best].decisionTimeSec))
+                best = i;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Finishes once every goal has an outcome, so an RC identify still waiting for its key holds the
+    /// session open. Where no key is pressed (answers noted by hand) it ends manually, as it always has.
+    /// </summary>
+    private void FinalizeIfComplete()
+    {
+        if (goals.Count == 0) return;
+        foreach (GoalInfo g in goals)
+            if (!g.answered || g.outcome == "") return;
+        Finalize("all_goals_answered");
     }
 
     /// <summary>Nearest not-yet-answered goal to the swarm centroid; -1 if none remain.</summary>
@@ -560,6 +650,7 @@ public class ExperimentRecorder : MonoBehaviour
                 specialSpawnX = g.specialSpawnPos.x, specialSpawnY = g.specialSpawnPos.y, specialSpawnZ = g.specialSpawnPos.z,
                 hat = g.hat,
                 answered = g.answered,
+                identifySource = g.source,
                 outcome = g.outcome,
                 decisionTimeSec = g.decisionTimeSec,
                 swarmToWalkerDist = g.swarmToWalkerDist,
@@ -570,7 +661,8 @@ public class ExperimentRecorder : MonoBehaviour
         }
         data.nCorrect = nCorrect;
         data.nGoals = goals.Count;
-        // Total task time = start → last identify (0 if nothing was answered).
+        // Total task time = start → last identify: the pilot's RC press where there was one, else the
+        // key (0 if nothing was answered).
         data.totalTaskTime = lastIdentifyT;
 
         string json = JsonUtility.ToJson(data, true);
@@ -636,6 +728,7 @@ public class ExperimentRecorder : MonoBehaviour
         public float specialSpawnX, specialSpawnY, specialSpawnZ;
         public string hat;
         public bool answered;
+        public string identifySource;   // rc: decisionTimeSec is the pilot's press; key: the experimenter's key
         public string outcome;
         public float decisionTimeSec;
         public float swarmToWalkerDist;

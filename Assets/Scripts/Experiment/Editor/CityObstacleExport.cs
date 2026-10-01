@@ -37,7 +37,7 @@ public static class CityObstacleExport
             if (c.gameObject.layer != layer || !c.enabled) continue;
             string tile = "";
             for (Transform t = c.transform; t != null; t = t.parent)
-                if (t.name.StartsWith("MC_Patch")) { tile = t.name; break; }
+                if (t.name.StartsWith("MC_Patch") || t.GetComponent<DiamondPlaza>() != null) { tile = t.name; break; }
             Vector3 center, ax, ay, az;
             if (c is BoxCollider b)
             {
@@ -63,6 +63,12 @@ public static class CityObstacleExport
             Transform kerb = CityTiles.FindKerb(t);
             sb.Append(first ? "" : ",\n"); first = false;
             sb.Append($"{{\"name\":\"{t.name}\",\"pos\":{V(t.position)},\"kerb\":{(kerb ? V(kerb.position) : "null")}}}");
+        }
+        // The blocks in the diamonds' parks, which GoalPatchReplacer may also replace; see DiamondPlaza.
+        foreach (var plaza in Object.FindObjectsOfType<DiamondPlaza>())
+        {
+            sb.Append(first ? "" : ",\n"); first = false;
+            sb.Append($"{{\"name\":\"{plaza.name}\",\"pos\":{V(plaza.transform.position)},\"kerb\":{(plaza.Centre ? V(plaza.Centre.position) : "null")}}}");
         }
         sb.Append("\n]}\n");
         string path = Path.Combine(Application.dataPath, "Scripts", "Experiment", $"city_obstacles_{sceneName}.json");

@@ -1269,6 +1269,13 @@ Pack-geometry facts scripts depend on:
   those trees were cleared around the *old* block's street mouths. The consequence: unless every tile
   is planted (`TileChoice.All`), trees are a goal cue, since every goal has them and only
   `tileFraction` of the other tiles do.
+  **This has only been true since 2026-09-30, so every experiment run recorded before then has goals
+  without it**: a goal kept only the verge carried over from the tile it replaced, trees included only
+  if that tile was one of the planter's picks. The planter, the replacer and the tuner all sit on
+  `gameManager`, which `SwarmManager.Awake` moves to DontDestroyOnLoad, so the planter looked for the
+  city in that scene, logged "found 0 tile kerbs" and planted nothing. It now finds the city by the
+  goals it is handed. Anything on `gameManager` that looks for city objects must not use its own
+  `gameObject.scene` at runtime.
 - **`CityRowOffsetter`** staggers alternate rows (kerb-derived, numbered from the south or west edge) by
   a fraction of a tile, live in edit mode like the tuners, recording what it applied. It moves tile roots
   only, so it **refuses while the city root still holds untied scenery** — tie first. A half-tile stagger
@@ -1347,17 +1354,44 @@ forces at every crash:
   a braking drone back the command the shield removed (0.1 cut drone-drone kills 4× and nearly tripled
   contacts) and slows the spread response, so it stays 0. `d_shield` 3.0 saves a few more drones for 5% of
   progress speed.
-- **The hollow core's velocity match brakes the swarm in translation** (`vel_obs` is built from absolute
-  velocity, but the core travels with the swarm): about 0.7 m/s² at 1.6, switched off beside buildings
-  only. `c2_core` 0.6 buys back the speed the wider shield costs; the hover ring still forms.
+- **The hollow core's velocity match is measured relative to the swarm** (`coreRelativeVelocity`, on:
+  `SwarmPlaneController.SwarmMeanVelocity` → `OlfatiSaber.CoreVelocity`). The core stands on the centroid
+  and moves with it, but `vel_obs` used to be built from each drone's *absolute* velocity, as for a static
+  obstacle. In cruise that braked every ring drone (about 0.7 m/s² at 1.6, which is why `c2_core` came
+  down to 0.6), and by a different amount for each, since how much of a drone's velocity counts as radial
+  depends on where it sits on the ring — at `d_ref` 0.4 that shear was the leading closing term in 7 of
+  internal_2's 8 drone-drone losses. Relative, it only damps motion relative to the formation and costs no
+  cruise speed (full stick 7.30–7.44 → 7.62 m/s, the drag-limited cruise). `CoreVelocity` zero is the old
+  form exactly, which is what unticking sends. `c2_core` has not been re-tuned since it stopped costing speed.
 - **In Unity a contact is worse than a bump.** PhysX friction (default material, μ 0.6) pins a drone that
   cohesion is pressing into a facade; the swarm leaves it and it dies as `TooFarFromSwarm`, or flips as
   `Crashed`. Baseline flights with no contact never split; flights with one were split 39% of the time.
   `DroneHealthMonitor` has no contact check, so count contacts as well as deaths when tuning.
-- **Two limits no tuning here removes.** Full stick at the joystick's tightest spread (`d_ref` 0.4, ~1.8 m
-  spacing) loses drones to each other even in open sky, under the old values as much as the new; 0.7 is
-  safe. And the values are sized for 10 drones: cohesion sums over neighbours, so at 15 contacts come back
-  (0.8/km) until `a` is scaled by about 9/(N−1), and drone-drone losses still rise with N.
+- **At `d_ref` 0.4 the lattice cannot keep drones apart, so a close-range damper does** (`c_damp` 2 s⁻¹
+  within `d_damp` 0.3 = 3 m, `maxDampAccel`). That is the joystick's tightest spread: all-to-all cohesion
+  squeezes the flown spacing to ~2.1 m (half the commanded 4), and the σ₁ action function cannot push a
+  pair apart harder than **0.45 m/s² each even at the 0.5 m kill distance** (1.6–2.0 at `d_ref` ≥ 1.15) —
+  below the core's own 2 m/s² ceiling. In internal_2 it held 8 of the 9 losses, ~1 a minute of the 8.5
+  minutes flown there against 1 in 31 minutes at 1.0–1.6, and those pairs closed *slowly* (0.3–1.9 m/s
+  over 1–3 s) in steady cruise 8–33 m from buildings — not the reversal momentum of the bullet above.
+  Points worth keeping:
+  - It opposes only the **approaching** part of a pair's range rate, along the line between them, equally
+    and oppositely on both: `c_vm` cut down to the one component that causes collisions. So it cannot pull
+    drones together, resist expansion or move the lattice's equilibrium, and the spread step response is
+    unchanged. It needs room to shed a closing speed: 3 m beat 2 m.
+  - It inherits `c_vm`'s building hazard in miniature — half of every correction goes to the drone in
+    front, which may be the one the shield is braking — so it is saturated and then projected out of any
+    building within `d_shield` through the shield's own `RemoveInwardComponent`.
+  - Measured in a 2D replica driven by internal_2's recorded pilot inputs, which reproduces Unity at 0.4
+    (0.82 vs 0.94 kills/min, 2.07 vs 2.12 m spacing): kills at 0.4 went 0.82 → 0.62/min with the relative
+    core, → 0.18 with both. Speed limits would not help (recorded near-misses at 0.4 are almost as common
+    at hover as in cruise), and neither did prioritising the swarm force in the tilt clamp. **Not yet
+    measured in Unity**, and the replica cannot judge building contacts (its city is the edit-mode export,
+    and 38 of its 40 building kills fell on goal tiles swapped at runtime) — count contacts on the headless
+    bench before trusting it beside facades.
+- **The fleet size is a limit no tuning here removes.** The values are sized for 10 drones: cohesion sums
+  over neighbours, so at 15 contacts come back (0.8/km) until `a` is scaled by about 9/(N−1), and
+  drone-drone losses still rise with N.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 
@@ -1419,7 +1453,8 @@ time a new series is ready to analyse:
    subfolder so the canonical outputs are never overwritten by a sensitivity check.
 5. If the identify keys weren't pressed live and answers were noted by hand instead:
    `python analyse.py answers template internal_N` then fill in `internal_N/answers.csv` and
-   `python analyse.py answers apply internal_N`.
+   `python analyse.py answers apply internal_N`. `apply` keeps the moment of any answer the pilot
+   marked with the RC (below) and only fills in its outcome.
 6. `python analyse.py run internal_N` — the full analysis: `runs.csv` / `legs.csv` / `goals.csv` /
    `crashes.csv` in `internal_N/results/`, a console report, and every figure in `plots/internal_N/`
    (task time, pilot-command directness, spread/pitch dial usage, goal proximity, hat visibility, stitched-
@@ -1430,3 +1465,22 @@ time a new series is ready to analyse:
 
 This only fires on request — never invent a new test folder or re-group an existing one without being
 told which runs belong in it.
+
+**The pilot times each identify with the RC's C2 button; the experimenter's 1/2/3 key gives its outcome.**
+Under `rcjoy bridge --profile sim` (what `launch_sim_scripts.ps1` runs) C2 no longer resets the knobs:
+it counts into a cumulative `marks` field that `UDPReceiverManager.MarkPresses` turns into presses, and
+`ExperimentRecorder` answers the nearest unanswered goal at the press with the outcome pending (`identify`
+event, `source=rc`). The next key fills in the latest pending outcome (`outcome` event, with the lag); a
+key with nothing pending is the identify itself, as before, so keys-only sessions are unchanged. Points
+worth keeping:
+- **The press is what the pilot perceived, the key is what the experimenter heard.** The key lags the
+  answer by the verbal report plus the experimenter's own reaction, so `decisionTimeSec` and
+  `totalTaskTime` now come from the press wherever there was one (`identifySource` per goal says which).
+- **A press answers a goal, so a stray one consumes the nearest.** Presses within
+  `rcIdentifyDebounceSec` of the last are dropped as double taps, and every dropped press is logged as
+  `rc_press_ignored`, so a bad attribution can be found afterwards.
+- **The session auto-ends only once every goal has an outcome**, so a pending press holds it open for its
+  key. In a session with no keys pressed it ends by hand, as it always did.
+- The count is cumulative on the wire, not a flag, because a press carried in one datagram is lost with
+  it and a count is not. The first packet, and a restarted bridge counting from 0, are only a baseline —
+  which is also why a press made before Play never lands late.

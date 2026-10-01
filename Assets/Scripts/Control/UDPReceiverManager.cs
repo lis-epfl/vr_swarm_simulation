@@ -13,6 +13,25 @@ public class UDPReceiverManager : MonoBehaviour
     // Shared data for all objects to read from
     public static JoystickData sharedJoystickData;
 
+    /// <summary>
+    /// Presses of the RC's mark button (C2 under <c>rcjoy bridge --profile sim</c>) received since
+    /// this play session's first packet; only ever increases. The bridge sends a cumulative count, so
+    /// this is the count's rise: the first packet (and a restarted bridge counting from 0 again) is
+    /// only a baseline, which is how a press made before Play never fires late. Consumers keep their
+    /// own last-seen value and act on the difference. Stays 0 on the Taranis path, which sends no count.
+    /// </summary>
+    public static int MarkPresses { get; private set; }
+    private static int lastRawMarks = -1;
+
+    // Statics survive Play sessions when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        sharedJoystickData = null;
+        MarkPresses = 0;
+        lastRawMarks = -1;
+    }
+
     void Start()
     {
         // Initialize the UDP client
@@ -37,6 +56,10 @@ public class UDPReceiverManager : MonoBehaviour
     {
         // Convert the JSON string to a JoystickData object
         sharedJoystickData = JsonUtility.FromJson<JoystickData>(message);
+
+        int raw = sharedJoystickData.marks;
+        if (lastRawMarks >= 0 && raw > lastRawMarks) MarkPresses += raw - lastRawMarks;
+        lastRawMarks = raw;
     }
 
     private void OnApplicationQuit()
@@ -52,6 +75,9 @@ public class JoystickData
     public LinearVelocity linear;
     public AngularVelocity angular;
     public Switches switches;
+    // Cumulative mark-button presses (rcjoy bridge --profile sim only; absent, so 0, otherwise).
+    // Read through UDPReceiverManager.MarkPresses, not directly.
+    public int marks;
 }
 
 [Serializable]

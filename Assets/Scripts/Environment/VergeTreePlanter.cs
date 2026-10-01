@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -228,14 +229,15 @@ public class VergeTreePlanter : MonoBehaviour
     /// </summary>
     public int Plant(IEnumerable<Transform> tiles)
     {
-        CityTiles.City city = FindCity();
+        List<Transform> given = tiles.Where(t => t != null).ToList();
+        CityTiles.City city = FindCity(given.Count > 0 ? given[0].gameObject.scene : CityScene());
         if (city == null || !CanPlant(out float blockScale))
         {
             return 0;
         }
 
         int undoGroup = BeginUndo();
-        List<int> indices = IndicesOf(city, tiles);
+        List<int> indices = IndicesOf(city, given);
         foreach (int i in indices)
         {
             ClearTile(city.Tiles[i]);
@@ -278,15 +280,32 @@ public class VergeTreePlanter : MonoBehaviour
 
     private CityTiles.City FindCity()
     {
+        return FindCity(CityScene());
+    }
+
+    /// <summary>The city under <see cref="cityRoot"/> if it is set, otherwise the city in <paramref name="scene"/>.</summary>
+    private CityTiles.City FindCity(Scene scene)
+    {
         string error;
         CityTiles.City city = cityRoot != null
             ? CityTiles.FindCity(cityRoot, out error)
-            : CityTiles.FindCity(gameObject.scene, out error);
+            : CityTiles.FindCity(scene, out error);
         if (city == null)
         {
             Debug.LogError("VergeTreePlanter: " + error, this);
         }
         return city;
+    }
+
+    /// <summary>
+    /// The scene the city is in: this component's, except during play in the city scenes. There this sits on
+    /// <c>gameManager</c>, which <see cref="SwarmManager"/> moves to DontDestroyOnLoad in Awake, and the city is left behind
+    /// in the active scene. <see cref="Plant(IEnumerable{Transform})"/> goes by the tiles it is given instead, which is how
+    /// <see cref="GoalPatchReplacer"/>'s goals are found; until that was so, no goal was ever replanted.
+    /// </summary>
+    private Scene CityScene()
+    {
+        return Application.isPlaying && gameObject.scene.name == "DontDestroyOnLoad" ? SceneManager.GetActiveScene() : gameObject.scene;
     }
 
     /// <summary>Whether there is anything to plant, and anywhere to plant it: <paramref name="blockScale"/> below 1.</summary>
