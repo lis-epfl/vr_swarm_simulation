@@ -10,17 +10,21 @@ using UnityEngine;
 /// each city tile's kerb, to <c>city_obstacles_&lt;scene&gt;.json</c> beside <c>analyse.py</c>, which uses
 /// them for the hat-visibility line-of-sight test and the turning maps. Re-run after changing the city
 /// (tuners, tile moves, buildings).
-/// Batch: <c>-executeMethod CityObstacleExport.RunScaledCityWorld</c>.
+/// Batch: <c>-executeMethod CityObstacleExport.RunScaledCityWorld</c> (or <c>RunDiamondCityWorld</c>).
 /// </summary>
 public static class CityObstacleExport
 {
     [MenuItem("Tools/Swarm/Export city obstacles")]
     public static void ExportOpenScene() => Export(EditorSceneManager.GetActiveScene().name);
 
-    public static void RunScaledCityWorld()
+    public static void RunScaledCityWorld() => RunScene("ScaledCityWorld");
+
+    public static void RunDiamondCityWorld() => RunScene("DiamondCityWorld");
+
+    static void RunScene(string sceneName)
     {
-        EditorSceneManager.OpenScene("Assets/Scenes/ScaledCityWorld.unity");
-        Export("ScaledCityWorld");
+        EditorSceneManager.OpenScene($"Assets/Scenes/{sceneName}.unity");
+        Export(sceneName);
         EditorApplication.Exit(0);
     }
 

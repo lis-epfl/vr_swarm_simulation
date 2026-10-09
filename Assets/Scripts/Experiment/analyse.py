@@ -23,8 +23,11 @@ Workflow for a new test series:
     python analyse.py run internal_3
 
 test.json
-    {"name": "internal_3", "created": "2026-10-01", "description": "", "practice": ["AABD_t1", "AABD_t4"]}
-Each practice entry names runs by prefix, case-insensitively and in whole '_'-separated fields: "AABD_t1"
+    {"name": "internal_3", "created": "2026-10-01", "description": "", "practice": ["AABD_t1", "AABD_t4"],
+     "city": "DiamondCityWorld"}
+`city` names the scene the runs were flown in (default ScaledCityWorld): the buildings for the hat line of
+sight and the turning maps are read from city_obstacles_<city>.json (Tools/Swarm/Export city obstacles), and
+the run's goals must each match one of that file's tiles or plazas. Each practice entry names runs by prefix, case-insensitively and in whole '_'-separated fields: "AABD_t1"
 matches AABD_t1_Swarm_20261001_101500 but not AABD_t10_... . `group` pre-fills the list with each
 participant's first trial in each condition. Practice runs stay in every table (the `practice` column) and
 are left out of every figure and summary; --include-practice puts them back and writes the figures to
@@ -60,7 +63,7 @@ import pandas as pd
 DEFAULT_ROOT = os.path.join(os.path.expanduser("~"), "AppData", "LocalLow", "UAVS@BERKELEY", "DroneSim",
                             "experiment")
 HERE = os.path.dirname(os.path.abspath(__file__))
-OBSTACLES = os.path.join(HERE, "city_obstacles_ScaledCityWorld.json")
+DEFAULT_CITY = "ScaledCityWorld"    # test.json "city" when absent: every test before internal_3
 MANIFEST = "test.json"
 ARCHIVE, PLOTS, RESULTS = "archive", "plots", "results"
 
@@ -68,7 +71,8 @@ STEM_RE = re.compile(r"^([A-Za-z0-9]+)_t(\d+)_([A-Za-z]+)_(\d{8})_(\d{6})$")
 RUN_FILE_RE = re.compile(r"^([A-Za-z0-9]+_t\d+_[A-Za-z]+_\d{8}_\d{6})_[A-Za-z]+\.(csv|json)$")
 
 MAX_SPEED = 9.31          # VelocityControl.maxSpeed (DroneReduced prefab, both conditions)
-TILE_HALF = 90.83 / 2     # goal patch = one city tile (the 90.83 m grid pitch)
+PITCH = 90.8304           # CityTiles.Pitch: the city's tile grid
+TILE_HALF = PITCH / 2     # goal patch = one city tile
 AXES = ["inPitch", "inRoll", "inYaw", "inThrottle"]
 AXIS_NAMES = ["pitch", "roll", "yaw", "throttle"]
 CONDS = ["SingleDrone", "Swarm"]
@@ -77,7 +81,7 @@ SPREAD_RANGE = (0.4, 1.6)       # joystick dial -> d_ref
 PITCH_RANGE = (-90.0, 60.0)     # FPVCameraScript.MinPitch / MaxPitch
 
 DEFAULTS = dict(zone=15.0, deadband=0.1, tol=0.2, settle=0.5, spread_tol=0.1, pitch_tol=10.0, down=-30.0,
-                range=40.0, dists=[0.0, 10.0, 15.0, 20.0, 30.0, 40.0], arrow_s=4.0)
+                range=40.0, dists=[0.0, 10.0, 15.0, 20.0, 30.0, 40.0], arrow_s=4.0, long_street=136.0)
 
 WARNINGS = []
 
@@ -181,8 +185,8 @@ def read_events(path):
 class Run:
     """One recorded run with every file read once. Optional files that are missing are None."""
 
-    def __init__(self, folder, stem, practice=False):
-        self.folder, self.stem, self.practice = folder, stem, practice
+    def __init__(self, folder, stem, practice=False, city=DEFAULT_CITY):
+        self.folder, self.stem, self.practice, self.city = folder, stem, practice, city
         p = parse_stem(stem)
         self.pid, self.trial, self.date, self.timestamp = p["pid"], p["trial"], p["date"], p["timestamp"]
         with open(self.path("session.json"), encoding="utf-8") as f:
@@ -199,9 +203,10 @@ class Run:
             raise ValueError("no _drones.csv")
         self.alive = self.drones[self.drones.alive == 1]
         # Centroid of the alive drones on the drone-log clock; a sample stands for the time until the next.
-        self.centroid = self.alive.groupby("t")[["gtX", "gtZ"]].mean()
+        self.centroid = self.alive.groupby("t")[["gtX", "gtY", "gtZ"]].mean()
         self.ct = self.centroid.index.to_numpy()
         self.cx, self.cz = self.centroid.gtX.to_numpy(), self.centroid.gtZ.to_numpy()
+        self.cy = self.centroid.gtY.to_numpy()
         self.cdt = np.minimum(np.diff(np.append(self.ct, self.duration)), 0.5)
 
     def path(self, suffix):
@@ -228,9 +233,10 @@ def load_test(root, test):
     for e in entries:
         if not any(matches(s, e) for s in stems):
             warn(f"{MANIFEST}: practice entry {e!r} matches no run")
+    city = manifest.get("city", DEFAULT_CITY)
     runs = []
     for s in stems:
-        r = attempt("loading", s, Run, folder, s, any(matches(s, e) for e in entries))
+        r = attempt("loading", s, Run, folder, s, any(matches(s, e) for e in entries), city)
         if r is not None:
             runs.append(r)
     runs.sort(key=lambda r: (r.pid, r.trial, r.timestamp))
@@ -630,7 +636,7 @@ def proximity_family(run, legs, cfg):
 #   2. heading the hat is inside the camera's horizontal field of view (74.4 deg: the DJI Mini 3 Pro's
 #              82.1 deg diagonal at 16:9, as ScreenSpawn sets it).
 #   3. sight   the line from the camera to the hat misses every building: the city's colliders
-#              (city_obstacles_ScaledCityWorld.json, from Tools/Swarm/Export city obstacles) minus the
+#              (city_obstacles_<city>.json, from Tools/Swarm/Export city obstacles) minus the
 #              tiles the goals replaced, plus each goal patch's own nine buildings.
 # The gimbal pitch is not tested (the camera is assumed pitched to where the walker is); levelCamPct is the
 # share of the in-view time a level gimbal would also have covered. Head direction is not used: this is time
@@ -654,18 +660,17 @@ GOAL_KERB_X = 0.36
 BLOCK_SCALE = 0.8
 BUILDING_TOP = 50.2
 
-_CITY = None
+_CITIES = {}
 
 
-def load_city():
-    global _CITY
-    if _CITY is None:
-        with open(OBSTACLES, encoding="utf-8") as f:
+def load_city(city):
+    if city not in _CITIES:
+        with open(os.path.join(HERE, f"city_obstacles_{city}.json"), encoding="utf-8") as f:
             d = json.load(f)
         boxes = [(b["tile"], np.array(b["c"]), np.array(b["ax"], dtype=float)) for b in d["boxes"]]
         kerbs = {t["name"]: np.array(t["kerb"]) for t in d["tiles"] if t["kerb"]}
-        _CITY = boxes, kerbs
-    return _CITY
+        _CITIES[city] = boxes, kerbs
+    return _CITIES[city]
 
 
 def pillar_boxes(gx, gz):
@@ -680,9 +685,9 @@ def pillar_boxes(gx, gz):
     return out
 
 
-def scene_boxes(goals):
+def scene_boxes(goals, city_name):
     """City buildings minus the tiles the goals replaced, plus each goal patch's own buildings."""
-    city, kerbs = load_city()
+    city, kerbs = load_city(city_name)
     replaced = set()
     for g in goals:
         name, dist = min(((n, math.hypot(k[0] - GOAL_KERB_X - g["goalX"], k[2] - g["goalZ"]))
@@ -748,7 +753,7 @@ def hat_family(run, cfg):
         raise ValueError("no _walkers.csv")
     dr, wk = run.alive, run.walkers
     ts, dt = run.ct, run.cdt
-    boxes = scene_boxes(run.goals)
+    boxes = scene_boxes(run.goals, run.city)
     r_id = cfg.range
     rows = []
     for gi, g in enumerate(run.goals):
@@ -792,6 +797,243 @@ def hat_family(run, cfg):
             occludedSec=round(blocked_only, 1),
             episodes=" | ".join(f"{a:.0f}-{b:.0f} ({v:.0f}s)" for a, b, v in eps)))
     return rows
+
+
+# ============================================================================= street use
+#
+# Did the pilot follow the streets, or cut across the blocks? Every point of the city is classified from
+# city_obstacles_<city>.json alone, on a GRID_RES raster (StreetGrid):
+#   street    the open ground between two blocks' footpaths, verges included (29.9 m across).
+#   block     a tile's block: the square of half-width BLOCK_HALF (CityTiles.BlockHalfSpan x the street tuner's
+#             0.8 = 30.5 m) about its kerb, which every building of the tile stands inside; a goal patch is the
+#             same square. Split by height: between the buildings (below BUILDING_TOP), or over the roofs
+#             (the 50 m ceiling is flown at ~51.3 m, just above them).
+#   diamond   one of DiamondCityWorld's superblocks: the cross of 76 m lawn planes its park stands on
+#             (Diamond_Base.prefab's Grass), which covers its four slots and the streets between them out to
+#             the road on every side. The export does not mark them: the tiles are fitted to their staggered
+#             lattice, and four empty slots in a diamond's shape (two stacked in one column, one in each
+#             neighbouring column) are one.
+#   outside   beyond every slot (a tile plus half the street around it): the spawn road, and anything flown
+#             round the edge of the city. Not counted.
+# A street is *long* where the straight run along it -- through street, to the next block, diamond or the
+# city's edge, along X or Z, whichever is longer -- is at least --long-street (default 136 m, 1.5 tiles), and
+# *short* otherwise. In these staggered cities that separates the north-south corridors the stagger leaves
+# straight (545 m in ScaledCityWorld, 145-505 m between DiamondCityWorld's diamonds) from the east-west
+# connectors, which end in a T-junction half a tile along (90-121 m); a crossing belongs to its corridor.
+# street_map.png draws the classification: check it after any change to the city.
+#
+# Shares are of the path flown over the city by the centroid of the alive drones (the drone in SingleDrone
+# runs), not of time: a time share credits hovering and slow flight, so a corridor flown down at full speed
+# would look avoided.
+#   street_frac        street / everything in the city (street + block + diamond)
+#   long_frac          long street / street
+#   long_pref          long_frac / the long streets' share of the city's street area: 1 = no preference between
+#                      long and short streets, > 1 = the long ones used beyond their extent.
+#   block_low_frac / block_roof_frac / diamond_frac   the rest of the city path (they sum to 1 - street_frac)
+#   drone_street_frac  street_frac of every drone's own path together (= street_frac for a single drone). A
+#                      check on the centroid: a swarm split round a block puts its centroid over the block
+#                      although no drone flew there, which would show as the two disagreeing.
+#   city_m / outside_m path length in / outside the city (m)
+# Unsuffixed for the transit phases (route choice; the figures), _search and _all (the whole run) in runs.csv,
+# and per leg and phase in legs.csv.
+
+BLOCK_HALF = 38.1 * BLOCK_SCALE    # CityTiles.BlockHalfSpan, shrunk by StreetWidthTuner's block scale
+LAWN_HALF = 38.1                   # a diamond's lawn planes: the unshrunk BlockHalfSpan, out to the road
+LATTICE_TOL = 3.0                  # m a kerb may sit off its lattice slot and still be a tile there
+GRID_RES = 1.0                     # m
+KINDS = ["outside", "long", "short", "block_low", "block_roof", "diamond"]    # codes 0..5
+KIND_COLOURS = {"long": "#2a78d6", "short": "#eb6834", "diamond": "#1baf7a", "block_low": "#9a9994",
+                "block_roof": "#d3d2cd"}
+KIND_LABELS = {"long": "long straight street", "short": "short street", "diamond": "diamond (park)",
+               "block_low": "block, between buildings", "block_roof": "block, over the roofs"}
+
+
+def on_lattice(v, ref):
+    f = (np.asarray(v) - ref) / PITCH
+    return np.abs(f - np.round(f)) * PITCH < LATTICE_TOL
+
+
+def fit_lattice(kerbs):
+    """(tiles {name: kerb (x, z)}, slots [(column, x, z, filled)]).
+
+    Tile columns are a whole number of pitches apart in X, and each column's tiles a whole number apart in Z,
+    with a phase of its own (the stagger). Each column has a slot at every pitch between the city's southmost
+    and northmost tile, so a hole in a column is an empty slot. The slots are an exact lattice, fitted through
+    the kerbs, so their squares tile the city without gaps: kerbs sit up to ~0.7 m off it (ScaledCityWorld's
+    MC_Patch_34), which would otherwise leave a sliver of "outside" across a corridor and cut its run. A kerb on
+    no slot is not a tile (DiamondCityWorld's plazas)."""
+    names = list(kerbs)
+    xz = np.array([kerbs[n][[0, 2]] for n in names])
+    x_ref = max(xz[:, 0], key=lambda x: on_lattice(xz[:, 0], x).sum())
+    cols = {}
+    for n, (x, z) in zip(names, xz):
+        if on_lattice(x, x_ref):
+            cols.setdefault(int(round((x - x_ref) / PITCH)), []).append((n, x, z))
+    tiles, phase = {}, {}
+    for i, members in cols.items():
+        zs = np.array([m[2] for m in members])
+        z_ref = max(zs, key=lambda z: on_lattice(zs, z).sum())
+        cols[i] = [m for m in members if on_lattice(m[2], z_ref)]
+        tiles.update((n, np.array([x, z])) for n, x, z in cols[i])
+        phase[i] = float(np.mean([z - round((z - z_ref) / PITCH) * PITCH for _, _, z in cols[i]]))
+    x0 = float(np.mean([x - i * PITCH for i, members in cols.items() for _, x, _ in members]))
+    zs = [p[1] for p in tiles.values()]
+    lo, hi = min(zs) - LATTICE_TOL, max(zs) + LATTICE_TOL
+    slots = []
+    for i, members in sorted(cols.items()):
+        for k in range(math.ceil((lo - phase[i]) / PITCH), math.floor((hi - phase[i]) / PITCH) + 1):
+            z = phase[i] + k * PITCH
+            slots.append((i, x0 + i * PITCH, z, any(abs(m[2] - z) < LATTICE_TOL for m in members)))
+    return tiles, slots
+
+
+def find_diamonds(slots):
+    """([(centre (x, z), [(x, z) of its four slots])], [empty slots that make no diamond]).
+
+    Empty slots within 1.2 pitches of each other are one group (a diamond's side slot is 1.12 from its middle
+    ones); a group is a diamond if it has DiamondCityBuilder's shape: two slots in one column and one in each
+    neighbour, level with the street between the two."""
+    groups = []
+    for i, x, z, filled in slots:
+        if filled:
+            continue
+        near = [g for g in groups if any(math.hypot(x - gx, z - gz) < 1.2 * PITCH for _, gx, gz in g)]
+        groups = [g for g in groups if g not in near] + [[(i, x, z)] + [s for g in near for s in g]]
+    diamonds, stray = [], []
+    for g in groups:
+        cols = {}
+        for i, x, z in g:
+            cols.setdefault(i, []).append((x, z))
+        mid = [i for i, v in cols.items() if len(v) == 2]
+        if len(g) == 4 and len(mid) == 1 and sorted(cols) == [mid[0] - 1, mid[0], mid[0] + 1]:
+            (x, za), (_, zb) = cols[mid[0]]
+            diamonds.append((np.array([x, (za + zb) / 2]), [np.array([x, z]) for _, x, z in g]))
+        else:
+            stray += g
+    return diamonds, stray
+
+
+def run_lengths(mask):
+    """For each True cell, the length (cells) of the run of True along its row that it is in; 0 elsewhere."""
+    out = np.zeros(mask.shape, np.float32)
+    for r, row in enumerate(mask):
+        d = np.diff(np.r_[0, row.astype(np.int8), 0])
+        for a, b in zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)):
+            out[r, a:b] = b - a
+    return out
+
+
+class StreetGrid:
+    """One city classified into KINDS codes on a GRID_RES raster: cls[row, col] is the cell at
+    (x0 + col * GRID_RES, z0 + row * GRID_RES). Blocks are stored as block_low; kind() splits them by height."""
+
+    def __init__(self, city, long_m):
+        _, kerbs = load_city(city)
+        tiles, slots = fit_lattice(kerbs)
+        self.diamonds, stray = find_diamonds(slots)
+        if stray:
+            warn(f"{city}: empty tile slot(s) at {', '.join(f'({x:.0f}, {z:.0f})' for _, x, z in stray)} make no "
+                 f"diamond; counted as outside the city")
+        xs, zs = [s[1] for s in slots], [s[2] for s in slots]
+        self.x0, self.z0 = min(xs) - TILE_HALF, min(zs) - TILE_HALF
+        nx = int(math.ceil((max(xs) + TILE_HALF - self.x0) / GRID_RES))
+        nz = int(math.ceil((max(zs) + TILE_HALF - self.z0) / GRID_RES))
+        X, Z = np.meshgrid(self.x0 + (np.arange(nx) + 0.5) * GRID_RES, self.z0 + (np.arange(nz) + 0.5) * GRID_RES)
+
+        def square(c, half):
+            return (np.abs(X - c[0]) <= half) & (np.abs(Z - c[1]) <= half)
+
+        inside, block, dia = (np.zeros(X.shape, bool) for _ in range(3))
+        for i, x, z, _ in slots:
+            if (i, x, z) not in stray:
+                inside |= square((x, z), TILE_HALF)
+        for c in tiles.values():
+            block |= square(c, BLOCK_HALF)
+        for (cx, cz), _ in self.diamonds:
+            dx, dz = np.abs(X - cx), np.abs(Z - cz)      # the lawn's two arms
+            dia |= ((dx <= PITCH + LAWN_HALF) & (dz <= LAWN_HALF)) | ((dx <= LAWN_HALF) & (dz <= PITCH / 2 + LAWN_HALF))
+        street = inside & ~block & ~dia
+        run = np.maximum(run_lengths(street), run_lengths(street.T).T) * GRID_RES
+        self.cls = np.zeros(X.shape, np.uint8)
+        self.cls[street] = np.where(run[street] >= long_m, KINDS.index("long"), KINDS.index("short"))
+        self.cls[block & ~dia] = KINDS.index("block_low")
+        self.cls[dia] = KINDS.index("diamond")
+        n_long, n_short = (self.cls == 1).sum(), (self.cls == 2).sum()
+        self.long_area = n_long / (n_long + n_short)
+        self.city, self.long_m = city, long_m
+        for name in sorted(set(kerbs) - set(tiles)):     # in a diamond, it is one of its plazas
+            k = kerbs[name]
+            if self.kind([k[0]], [k[2]], [0.0])[0] != KINDS.index("diamond"):
+                warn(f"{city}: {name} is on no tile slot and in no diamond; its block is classified as street")
+        print(f"[info] {city}: {len(tiles)} tiles, {len(self.diamonds)} diamond(s); long streets (straight run "
+              f">= {long_m:g} m) are {100 * self.long_area:.0f}% of the street area")
+
+    def kind(self, x, z, y):
+        """KINDS code of each point (x, y, z)."""
+        c = np.floor((np.asarray(x, float) - self.x0) / GRID_RES).astype(int)
+        r = np.floor((np.asarray(z, float) - self.z0) / GRID_RES).astype(int)
+        ok = (r >= 0) & (r < self.cls.shape[0]) & (c >= 0) & (c < self.cls.shape[1])
+        k = np.zeros(len(c), np.uint8)
+        k[ok] = self.cls[r[ok], c[ok]]
+        k[(k == KINDS.index("block_low")) & (np.asarray(y, float) > BUILDING_TOP)] = KINDS.index("block_roof")
+        return k
+
+    def extent(self):
+        return self.x0, self.x0 + self.cls.shape[1] * GRID_RES, self.z0, self.z0 + self.cls.shape[0] * GRID_RES
+
+
+_STREETS = {}
+
+
+def street_grid(city, long_m):
+    if (city, long_m) not in _STREETS:
+        _STREETS[city, long_m] = StreetGrid(city, long_m)
+    return _STREETS[city, long_m]
+
+
+def ratio(a, b):
+    return a / b if b > 0 else np.nan
+
+
+def path_steps(grid, t, x, y, z):
+    """(start time, KINDS code of the start point, length) of each step of one path."""
+    return t[:-1], grid.kind(x[:-1], z[:-1], y[:-1]), np.hypot(np.diff(x), np.diff(z))
+
+
+def metres_by_kind(steps, spans):
+    """Metres flown per KINDS code by the steps starting inside any of the spans [(t0, t1)]."""
+    t, k, length = steps
+    sel = np.zeros(len(t), bool)
+    for t0, t1 in spans:
+        sel |= (t >= t0) & (t < t1)
+    return np.bincount(k[sel], weights=length[sel], minlength=len(KINDS))
+
+
+def street_family(run, legs, cfg):
+    """(run-level dict, [leg rows])."""
+    grid = street_grid(run.city, cfg.long_street)
+    centroid = path_steps(grid, run.ct, run.cx, run.cy, run.cz)
+    each = [path_steps(grid, g.t.to_numpy(), g.gtX.to_numpy(), g.gtY.to_numpy(), g.gtZ.to_numpy())
+            for _, g in run.alive.sort_values("t").groupby("droneId") if len(g) > 1]
+    drones = tuple(np.concatenate(p) for p in zip(*each)) if each else centroid
+
+    def shares(spans):
+        m, d = metres_by_kind(centroid, spans), metres_by_kind(drones, spans)
+        street, city = m[1] + m[2], m[1:].sum()
+        out = dict(street_frac=ratio(street, city), long_frac=ratio(m[1], street))
+        out.update(long_pref=out["long_frac"] / grid.long_area, block_low_frac=ratio(m[3], city),
+                   block_roof_frac=ratio(m[4], city), diamond_frac=ratio(m[5], city),
+                   drone_street_frac=ratio(d[1] + d[2], d[1:].sum()), city_m=float(city), outside_m=float(m[0]))
+        return out
+
+    transit = [(L["t0"], L["enter"]) for L in legs]
+    search = [(L["enter"], L["exit"]) for L in legs]
+    rows = [dict(run=run.stem, leg=L["leg"], hat=hat_name(L["goal"]), phase=phase, **shares([span]))
+            for L, tr, se in zip(legs, transit, search) for phase, span in (("transit", tr), ("search", se))]
+    out = {}
+    for suffix, spans in (("", transit), ("_search", search), ("_all", [(-np.inf, np.inf)])):
+        out.update({k + suffix: v for k, v in shares(spans).items()})
+    return out, rows
 
 
 # ============================================================================= editor logs
@@ -1268,6 +1510,106 @@ def fig_proximity(goals, cfg, out):
         out.save(fig, f"goal_proximity_{hat.lower()}.png")
 
 
+STREET_PANELS = [("street_frac", "Path in the streets\n(share of the path over the city)"),
+                 ("long_pref", "Long-street preference\n(long share of street path / of street area)")]
+STREET_STACK = ["long", "short", "diamond", "block_low", "block_roof"]
+
+
+def street_stack(df):
+    """Share of the city path per STREET_STACK kind, one column each."""
+    return pd.DataFrame({"long": df.street_frac * df.long_frac, "short": df.street_frac * (1 - df.long_frac),
+                         "diamond": df.diamond_frac, "block_low": df.block_low_frac,
+                         "block_roof": df.block_roof_frac}).fillna(0.0)
+
+
+def fig_street(runs, shown, grid, out):
+    """runs: runs.csv rows; shown: the matching Run objects (for the map)."""
+    plt = _plt()
+    from matplotlib.colors import ListedColormap, to_rgb
+    from matplotlib.collections import PolyCollection
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    from matplotlib.ticker import PercentFormatter
+
+    # One observation per run, by condition.
+    fig, axs = plt.subplots(1, len(STREET_PANELS), figsize=(4.6 * len(STREET_PANELS), 4.8))
+    rng = np.random.default_rng(0)
+    for ax, (col, label) in zip(axs, STREET_PANELS):
+        data = condition_box(ax, runs, col, rng)
+        ax.set_ylabel(label)
+        if col == "long_pref":
+            top = max([1.0] + [float(np.max(v)) for v in data if len(v)])
+            ax.set_ylim(0, top * 1.12)
+            ax.axhline(1, color="0.3", lw=0.8, ls="--", zorder=1)
+            ax.text(0.98, 1, "no preference", transform=ax.get_yaxis_transform(), ha="right", va="bottom",
+                    fontsize=8, color="0.3")
+        else:
+            ax.set_ylim(0, 1.02)
+            ax.yaxis.set_major_formatter(PercentFormatter(1))
+    axs[0].legend(cond_handles(plt), CONDS, loc="lower left")
+    fig.suptitle(f"Street use in transit ({pid_list(runs)}; dots = runs)\nlong street: straight run "
+                 f">= {grid.long_m:g} m, {100 * grid.long_area:.0f}% of the street area", fontsize=11)
+    fig.tight_layout()
+    out.save(fig, "street_use.png")
+
+    # Each run's transit path over the city, by kind of ground.
+    kinds = [k for k in STREET_STACK if k != "diamond" or grid.diamonds]
+    df = runs.sort_values(["condition", "pid", "trial"]).reset_index(drop=True)
+    stack = street_stack(df)
+    n = len(df)
+    fig, ax = plt.subplots(figsize=(10, 1.4 + 0.42 * n))
+    y = np.arange(n)[::-1]
+    left = np.zeros(n)
+    for kind in kinds:
+        w = stack[kind].to_numpy()
+        ax.barh(y, w, left=left, height=0.7, color=KIND_COLOURS[kind], edgecolor="white", linewidth=1.5,
+                label=KIND_LABELS[kind])
+        left += w
+    for yi, row in zip(y, df.itertuples()):
+        if not np.isnan(row.street_frac):
+            ax.text(1.01, yi, f"{100 * row.street_frac:.0f}% street", va="center", ha="left", fontsize=9)
+    ax.set_yticks(y, [f"{r.pid} t{r.trial} · {r.condition}" for r in df.itertuples()])
+    ax.set_xlim(0, 1)
+    ax.xaxis.set_major_formatter(PercentFormatter(1))
+    ax.set_xlabel("share of the transit path over the city (path length)")
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    fig.legend(*ax.get_legend_handles_labels(), loc="upper left", ncol=len(kinds), fontsize=9,
+               frameon=False, bbox_to_anchor=(0.0, 1.0))
+    fig.tight_layout(rect=(0, 0, 0.93, 1 - 0.45 / fig.get_size_inches()[1]))
+    out.save(fig, "street_use_runs.png")
+
+    # The classification itself, with every centroid path flown over it, one panel per condition.
+    conds = [c for c in CONDS if any(r.condition == c for r in shown)]
+    x0, x1, z0, z1 = grid.extent()
+    tint = [(1.0, 1.0, 1.0)] + [tuple(1 - 0.38 * (1 - np.array(to_rgb(KIND_COLOURS[k])))) for k in KINDS[1:]]
+    polys = [footprint(c, a) for _, c, a in load_city(grid.city)[0]]
+    fig, axs = plt.subplots(1, len(conds), figsize=(6.2 * len(conds), 6.2 * (z1 - z0) / (x1 - x0) + 1.4),
+                            squeeze=False)
+    for ax, cond in zip(axs.flat, conds):
+        ax.imshow(grid.cls, origin="lower", extent=(x0, x1, z0, z1), cmap=ListedColormap(tint),
+                  vmin=-0.5, vmax=len(KINDS) - 0.5, interpolation="nearest", zorder=0)
+        ax.add_collection(PolyCollection(polys, facecolor="0.55", edgecolor="none", zorder=1))
+        cr = [r for r in shown if r.condition == cond]
+        for r in cr:
+            ax.plot(r.cx, r.cz, color="#0b0b0b", lw=0.9, alpha=0.6, zorder=2)
+        ax.set_xlim(x0 - 10, x1 + 10)
+        ax.set_ylim(z0 - 10, z1 + 10)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel("X (m)")
+        ax.set_title(f"{cond}: {len(cr)} runs ({', '.join(sorted({r.pid for r in cr}))})", fontsize=10)
+    axs[0, 0].set_ylabel("Z (m)")
+    handles = [Patch(fc=tint[KINDS.index(k)], ec="0.6", lw=0.5, label=KIND_LABELS[k].split(",")[0])
+               for k in ("long", "short", "diamond", "block_low") if k in kinds]
+    handles += [Patch(fc="0.55", label="building"), Line2D([], [], color="#0b0b0b", lw=1, label="centroid path, one per run")]
+    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=9, frameon=False)
+    fig.suptitle(f"{grid.city}: streets by straight run (long >= {grid.long_m:g} m) and the paths flown",
+                 fontsize=11)
+    fig.tight_layout(rect=(0, 0.6 / fig.get_size_inches()[1], 1, 1))
+    out.save(fig, "street_map.png")
+
+
 # Palette for the panorama timeline: on / hidden are states, not conditions; not recoverable = neutral.
 C_ON, C_OFF = "#2a78d6", "#eb6834"
 C_UNKNOWN, C_HATCH = "#f0efec", "#a8a79f"
@@ -1384,7 +1726,7 @@ def fig_turning_map(run, legs, metrics, lims, cfg, out, headline):
     colour = COLOURS[run.condition]
     (x0, x1), (z0, z1) = lims
     fig, ax = plt.subplots(figsize=(9, 9 * (z1 - z0) / (x1 - x0) + 0.9))
-    polys = [footprint(ctr, a) for _, ctr, a in scene_boxes(run.goals)]
+    polys = [footprint(ctr, a) for _, ctr, a in scene_boxes(run.goals, run.city)]
     ax.add_collection(PolyCollection(polys, facecolor="0.82", edgecolor="0.62", lw=0.4, zorder=1))
 
     order = {L["gi"]: L["leg"] for L in legs}
@@ -1467,6 +1809,8 @@ def add_tuning_args(p):
     p.add_argument("--dist", dest="dists", nargs="+", type=float, default=d["dists"],
                    help="near-goal distances (m) for the dwell sweep")
     p.add_argument("--arrow-s", type=float, default=d["arrow_s"], help="seconds between arrows on the turning maps")
+    p.add_argument("--long-street", type=float, default=d["long_street"],
+                   help="straight run (m) from which a street counts as long (default %(default)g)")
     p.add_argument("--include-practice", action="store_true",
                    help="put the practice runs back into the figures and summaries (figures go to with_practice/)")
 
@@ -1474,7 +1818,7 @@ def add_tuning_args(p):
 def analyse_runs(runs, cfg, log_runs, families):
     """Per-run results of the requested families: dict of {stem: ...} maps."""
     res = {k: {} for k in ("legs", "task", "cmd", "cmd_legs", "dial", "dial_legs", "series", "prox", "hat",
-                           "stitch", "deaths", "crashes")}
+                           "street", "street_legs", "stitch", "deaths", "crashes")}
     for run in runs:
         legs = goal_legs(run, cfg.zone)
         res["legs"][run.stem] = legs
@@ -1499,6 +1843,10 @@ def analyse_runs(runs, cfg, log_runs, families):
             r = attempt("hat visibility", run.stem, hat_family, run, cfg)
             if r:
                 res["hat"][run.stem] = r
+        if "street" in families:
+            r = attempt("street use", run.stem, street_family, run, legs, cfg)
+            if r:
+                res["street"][run.stem], res["street_legs"][run.stem] = r
         if "stitch" in families and run.condition == "Swarm":
             r = attempt("stitch visibility", run.stem, stitch_family, run, log_runs)
             if r:
@@ -1527,6 +1875,7 @@ def build_tables(runs, res):
         row.update(res["task"][r.stem])
         row.update(res["cmd"].get(r.stem, {}))
         row.update(res["dial"].get(r.stem, {}))
+        row.update(res["street"].get(r.stem, {}))
         if r.stem in res["stitch"]:
             row.update(res["stitch"][r.stem][0])
         if r.stem in res["deaths"]:
@@ -1536,13 +1885,12 @@ def build_tables(runs, res):
 
     leg_frames = []
     for stem in res["legs"]:
-        c = pd.DataFrame(res["cmd_legs"].get(stem, []))
-        d = pd.DataFrame(res["dial_legs"].get(stem, []))
-        if len(c) and len(d):
-            m = c.merge(d, on=["run", "leg", "hat", "phase"], how="outer")
-        else:
-            m = c if len(c) else d
-        if len(m):
+        parts = [pd.DataFrame(res[k].get(stem, [])) for k in ("cmd_legs", "dial_legs", "street_legs")]
+        parts = [p for p in parts if len(p)]
+        if parts:
+            m = parts[0]
+            for p in parts[1:]:
+                m = m.merge(p, on=["run", "leg", "hat", "phase"], how="outer")
             leg_frames.append(pd.concat([pd.DataFrame([ident(stem)] * len(m)), m.drop(columns="run")], axis=1))
     legs_df = pd.concat(leg_frames, ignore_index=True) if leg_frames else pd.DataFrame()
     if len(legs_df):
@@ -1579,6 +1927,8 @@ DIAL_SHOW = ["spread_adj", "spread_adj_per_min", "spread_adj_per_min_transit", "
              "spread_tv_per_min", "spread_transit", "spread_search", "spread_search_delta",
              "spacing_transit_m", "spacing_search_m", "spacing_search_delta_m",
              "pitch_adj_per_min", "pitch_transit", "pitch_search", "pitch_search_delta", "pitch_down_frac"]
+STREET_SHOW = ["city_m", "street_frac", "long_frac", "long_pref", "block_low_frac", "block_roof_frac", "diamond_frac",
+               "drone_street_frac", "street_frac_search", "street_frac_all", "long_pref_all"]
 STITCH_SHOW = ["stitch_source", "durationSec", "stitch_knownOnSec", "stitch_knownOffSec", "stitch_unknownSec",
                "stitch_visibleMinPct", "stitch_visibleMaxPct", "stitch_nOn", "stitch_hidden_photometric",
                "stitch_hidden_no_overlap", "stitch_hidden_pilot"]
@@ -1641,6 +1991,12 @@ def report(runs_df, legs_df, goals_df, deaths_df, cfg):
             print(show(goals_df, ids + ["hat", "firstSightSec", "inViewSec", "nEpisodes", "longestSec", "hatMinDistM",
                                         "meanDronesInView", "levelCamPct", "occludedSec", "episodes"]))
 
+    if "street_frac" in runs_df:
+        section(f"Street use (shares of the transit path over the city; long street = straight run >= "
+                f"{cfg.long_street:g} m; _search / _all = search phases / whole run)")
+        print(show(runs_df, ids + STREET_SHOW))
+        print(means(runs_df, STREET_SHOW[1:]))
+
     if "stitch_source" in runs_df:
         section("Stitched panorama visibility (swarm runs)")
         print(show(runs_df[runs_df.stitch_source.notna()], ids + STITCH_SHOW))
@@ -1675,7 +2031,7 @@ def cmd_run(a):
     log_runs = parse_editor_logs(sorted(glob.glob(os.path.join(folder, "*.log"))))
     print(f"[info] {a.test}: {len(runs)} runs, {sum(r.practice for r in runs)} practice; "
           f"zone {a.zone:g} m; {len(log_runs)} run(s) in the editor log(s)")
-    res = analyse_runs(runs, a, log_runs, {"cmd", "dial", "prox", "hat", "stitch", "crash"})
+    res = analyse_runs(runs, a, log_runs, {"cmd", "dial", "prox", "hat", "street", "stitch", "crash"})
     runs_df, legs_df, goals_df, deaths_df = build_tables(runs, res)
     write_tables(folder, dict(runs=runs_df, legs=legs_df, goals=goals_df, crashes=deaths_df), a, runs, manifest)
 
@@ -1699,6 +2055,8 @@ def cmd_run(a):
                 out)
     if len(fg) and "transitSec" in fg:
         attempt("figure", "goal proximity", fig_proximity, fg, a, out)
+    if "street_frac" in fr and shown:
+        attempt("figure", "street use", fig_street, fr, shown, street_grid(shown[0].city, a.long_street), out)
     stitch_rows = [(dict(pid=r.pid, trial=r.trial, durationSec=r.duration, **res["stitch"][r.stem][0]),
                     res["stitch"][r.stem][1], res["stitch"][r.stem][2]) for r in shown if r.stem in res["stitch"]]
     if stitch_rows:
@@ -1706,6 +2064,10 @@ def cmd_run(a):
     picks = default_picks(shown, res["cmd"])
     if picks:
         draw_maps(picks, res["legs"], res["cmd"], a, out)
+    # and one map per run, in their own folder (what `maps --all` draws)
+    picks = all_map_picks(shown, res["cmd"])
+    if picks:
+        draw_maps(picks, res["legs"], res["cmd"], a, Figures(a.root, a.test, a, sub="maps"))
     print_warnings()
 
 
@@ -1722,17 +2084,20 @@ def cmd_maps(a):
     res = analyse_runs(runs, a, {}, {"cmd"})
     runs = [r for r in runs if r.stem in res["cmd"] and "course_turn_per_min" in res["cmd"][r.stem]]
     out = Figures(a.root, a.test, a, sub="maps")      # never overwrites the two maps `run` draws
-    if a.all or a.stem:
-        picks = []
-        for cond, label in (("SingleDrone", "Single drone"), ("Swarm", "Swarm")):
-            sub = sorted((r for r in runs if r.condition == cond),
-                         key=lambda r: -res["cmd"][r.stem]["course_turn_per_min"])
-            picks += [(r, f"{label}, commanded turning rank {k} of {len(sub)} (1 = most)")
-                      for k, r in enumerate(sub, start=1)]
-    else:
-        picks = default_picks(runs, res["cmd"])
+    picks = all_map_picks(runs, res["cmd"]) if a.all or a.stem else default_picks(runs, res["cmd"])
     draw_maps(picks, res["legs"], res["cmd"], a, out)
     print_warnings()
+
+
+def all_map_picks(runs, cmd):
+    """Every run that has command metrics, ranked by commanded turning within its condition."""
+    runs = [r for r in runs if r.stem in cmd and "course_turn_per_min" in cmd[r.stem]]
+    picks = []
+    for cond, label in (("SingleDrone", "Single drone"), ("Swarm", "Swarm")):
+        sub = sorted((r for r in runs if r.condition == cond), key=lambda r: -cmd[r.stem]["course_turn_per_min"])
+        picks += [(r, f"{label}, commanded turning rank {k} of {len(sub)} (1 = most)")
+                  for k, r in enumerate(sub, start=1)]
+    return picks
 
 
 def cmd_quicklook(a):
@@ -2028,7 +2393,8 @@ def main():
     add_tuning_args(p)
     p.add_argument("--no-plot", action="store_true")
 
-    p = sub.add_parser("maps", help="turning maps for more runs than `run` draws (into plots/<test>/maps/)")
+    p = sub.add_parser("maps", help="redraw turning maps into plots/<test>/maps/ without the rest of `run` "
+                                    "(which already draws one per run there)")
     p.add_argument("test")
     p.add_argument("--all", action="store_true", help="every run, ranked within its condition")
     p.add_argument("--stem", nargs="+", help="these runs (stem prefixes; practice runs allowed)")

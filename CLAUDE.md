@@ -1466,6 +1466,10 @@ time a new series is ready to analyse:
    description. Practice runs stay in every table (marked in a `practice` column) but are left out of every
    figure and summary unless `--include-practice` is passed, which writes to a separate `with_practice/`
    subfolder so the canonical outputs are never overwritten by a sensitivity check.
+   **Also set the city**: runs flown outside ScaledCityWorld need `"city": "<Scene>"` in `test.json`
+   (internal_3 is `DiamondCityWorld`) and a `city_obstacles_<Scene>.json` beside `analyse.py`
+   (`Tools/Swarm/Export city obstacles`, or `CityObstacleExport.Run<Scene>` in batchmode). Hat line of
+   sight and the turning maps read the buildings from it; without it they use the wrong city.
 5. If the identify keys weren't pressed live and answers were noted by hand instead:
    `python analyse.py answers template internal_N` then fill in `internal_N/answers.csv` and
    `python analyse.py answers apply internal_N`. `apply` keeps the moment of any answer the pilot
@@ -1473,8 +1477,11 @@ time a new series is ready to analyse:
 6. `python analyse.py run internal_N` — the full analysis: `runs.csv` / `legs.csv` / `goals.csv` /
    `crashes.csv` in `internal_N/results/`, a console report, and every figure in `plots/internal_N/`
    (task time, pilot-command directness, spread/pitch dial usage, goal proximity, hat visibility, stitched-
-   panorama visibility, and two turning maps). `python analyse.py maps internal_N --all` draws one for every
-   run instead of just the two `run` picks, into `plots/internal_N/maps/`. Every figure carries a footer
+   panorama visibility, street use — how much of each transit path kept to the streets, and how much of that
+   to the long straight ones (`street_map.png` draws the classification; check it after any city change) —
+   and two turning maps — the single-drone run with the most commanded turning and the
+   swarm run with the least), plus a turning map for **every** run in `plots/internal_N/maps/`, on one shared
+   scale (`python analyse.py maps internal_N --all` redraws just those). Every figure carries a footer
    naming the test, the zone setting, and whether practice was included, so a saved PNG is traceable back to
    the settings that made it; `results/analysis_config.json` records the same for the tables.
 
