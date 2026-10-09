@@ -98,6 +98,9 @@ public class GoalPatchReplacer : MonoBehaviour
     private readonly List<GameObject> placedGoals = new List<GameObject>();
     public IReadOnlyList<GameObject> PlacedGoals => placedGoals;
 
+    /// <summary>The goal patch prefab this scene's goals are made from.</summary>
+    public GameObject GoalPrefab => goalPrefab;
+
     // Start is called before the first frame update
     private void Start()
     {

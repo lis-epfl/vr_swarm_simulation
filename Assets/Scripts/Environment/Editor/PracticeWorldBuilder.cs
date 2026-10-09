@@ -8,8 +8,8 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Builds <c>PracticeWorld</c>, where participants train before ScaledCityWorld: the same swarm, rig and display, the
-/// four pedestrians the experiment uses standing in a row under signs that name their hat, and one city tile to
-/// practise obstacle avoidance on.
+/// four pedestrians the experiment uses standing in a row under signs that name their hat, one city tile to
+/// practise obstacle avoidance on, and one goal patch behind it to practise the search on.
 ///
 /// <para><b>It is ScaledCityWorld with things taken out, not a scene assembled from parts</b>, because what has to
 /// carry over is the flight experience, and that lives on scene objects rather than on prefabs: the swarm gains and
@@ -23,6 +23,13 @@ using UnityEngine.SceneManagement;
 /// experiment or the tuning of the city (<see cref="StrippedComponents"/>). None of those undoes its work when removed
 /// — each acts only when its own values change — so the kept tile keeps ScaledCityWorld's street width, verge and
 /// trees exactly, and its buildings stay on the <c>Obstacle</c> layer the swarm avoids.</para>
+///
+/// <para><b>The goal patch is placed the way the experiment leaves one a frame into Play</b> (<see cref="PlaceGoal"/>):
+/// <see cref="GoalPatchReplacer"/>'s prefab with its kerb on the tile grid, its block at the city's block scale, its
+/// buildings at the goals' width and its verge planted. In the experiment the tuners and the planter do that to each
+/// goal at runtime, and here they are stripped, so the builder has them do it once before they go. Its pedestrians are
+/// left to the prefab: <see cref="WalkerPatrol"/> spawns them in Play and <see cref="GoalSpecialWalker"/> deals one of
+/// the hats to one of them, so which hat it is changes from session to session as it does between goals.</para>
 ///
 /// <para><b>The walkers stand still because nothing moves them</b>: walking is <see cref="WalkerPatrol"/>'s doing,
 /// and these are bare prefab instances. The walk <i>cycle</i> is on the prefab, though, so it is swapped for the
@@ -51,11 +58,16 @@ public static class PracticeWorldBuilder
     // The layout runs east from the drone spawn: down ParkRoad, the way ScaledCityWorld's city lies. The swarm starts
     // on the ground and holds whatever height the pilot climbs to, and a level FPV camera at height h sees the ground
     // only beyond ~1.5 h, so at 45 m the walkers stay in view from the spawn through a climb to ~29 m. The tile is far
-    // enough past them that the two exercises do not overlap.
+    // enough past them that the two exercises do not overlap. The goal patch is the tile's neighbour on the far side,
+    // one street between them as between any two tiles of the city.
     private static readonly Vector3 DownRange = Vector3.right;
     private const float WalkerRowDistance = 45f; // spawn to the row of walkers, metres
     private const float WalkerSpacing = 7f;      // between neighbouring walkers
     private const float TileCentreDistance = 120f; // spawn to the tile's block centre
+    private const float GoalCentreDistance = TileCentreDistance + CityTiles.Pitch; // spawn to the goal's block centre
+
+    // Also seeds its verge trees, which VergeTreePlanter draws per tile name.
+    private const string GoalName = "goal_patch (practice)";
 
     // Sign geometry, metres. The board clears the tallest hat (~2.0 m) and hangs directly over its walker, so it
     // cannot come between a drone's camera and the hat: only a view from straight overhead crosses it, and from there
@@ -92,8 +104,9 @@ public static class PracticeWorldBuilder
         new Station("Assets/Prefabs/SimpleWalker.prefab", "NO HAT"),
     };
 
-    // Experiment bookkeeping and city tuning. The tuners' work is already baked into the tile's transforms, and with
-    // no goal patches spawned there is nothing left for their play-mode passes to match.
+    // Experiment bookkeeping and city tuning. The tuners' work is already baked into the tile's transforms and into
+    // the goal patch, which is placed before they are removed; with no goals spawned in Play there is nothing left for
+    // their play-mode passes to match.
     private static readonly System.Type[] StrippedComponents =
     {
         typeof(ExperimentRecorder),
@@ -256,17 +269,6 @@ public static class PracticeWorldBuilder
             return null;
         }
 
-        int stripped = 0;
-        foreach (System.Type type in StrippedComponents)
-        {
-            foreach (Object component in Object.FindObjectsByType(type, FindObjectsInactive.Include,
-                                                                  FindObjectsSortMode.None))
-            {
-                Object.DestroyImmediate(component);
-                stripped++;
-            }
-        }
-
         // Scenery not tied to any tile belongs to the city as a whole, so it goes with the city. After
         // CitySceneryParenter has run there is none.
         List<Transform> leaving = city.LooseChildren();
@@ -289,6 +291,25 @@ public static class PracticeWorldBuilder
         Vector3 shift = tileCentre - city.Centres[keep];
         shift.y = 0f;
         tile.position += shift;
+
+        // Before the stripping, which takes the tuners and the planter the goal is finished with.
+        Vector3 goalCentre = spawn + DownRange * GoalCentreDistance;
+        string goalSummary = PlaceGoal(city.Root, tile, goalCentre, out error);
+        if (goalSummary == null)
+        {
+            return null;
+        }
+
+        int stripped = 0;
+        foreach (System.Type type in StrippedComponents)
+        {
+            foreach (Object component in Object.FindObjectsByType(type, FindObjectsInactive.Include,
+                                                                  FindObjectsSortMode.None))
+            {
+                Object.DestroyImmediate(component);
+                stripped++;
+            }
+        }
 
         // The walkers stand on the surface the altitude ceiling is measured from. Its cache follows runtime scene
         // loads, not an editor OpenScene, so it is dropped first.
@@ -325,9 +346,63 @@ public static class PracticeWorldBuilder
         float fontSize = MatchLabelSizes(labels);
 
         EditorSceneManager.MarkSceneDirty(scene);
-        return $"kept {KeptTileName} with its block centred at {tileCentre}, removed {leaving.Count} tiles and loose " +
-               $"objects and {stripped} experiment/tuning components, stood {Stations.Length} walkers at {rowCentre} " +
-               $"under signs lettered at font size {fontSize:F2}.";
+        return $"kept {KeptTileName} with its block centred at {tileCentre}, {goalSummary}, removed {leaving.Count} " +
+               $"tiles and loose objects and {stripped} experiment/tuning components, stood {Stations.Length} walkers " +
+               $"at {rowCentre} under signs lettered at font size {fontSize:F2}.";
+    }
+
+    /// <summary>
+    /// Places the goal patch with its kerb at <paramref name="centre"/>, turned and scaled like
+    /// <paramref name="neighbour"/> as <see cref="GoalPatchReplacer"/> turns a goal like the tile it replaces, and has
+    /// the scene's tuners and planter finish it as they finish a goal in Play. Returns a fragment of the build summary,
+    /// or null with <paramref name="error"/> set.
+    /// </summary>
+    private static string PlaceGoal(Transform cityRoot, Transform neighbour, Vector3 centre, out string error)
+    {
+        GoalPatchReplacer replacer = Object.FindFirstObjectByType<GoalPatchReplacer>(FindObjectsInactive.Include);
+        if (replacer == null || replacer.GoalPrefab == null)
+        {
+            error = $"{SourceScenePath} has no GoalPatchReplacer with a goal prefab to make the practice goal from.";
+            return null;
+        }
+
+        GameObject goal = (GameObject)PrefabUtility.InstantiatePrefab(replacer.GoalPrefab, cityRoot);
+        goal.name = GoalName;
+        Transform root = goal.transform;
+        root.localRotation = neighbour.localRotation;
+        root.localScale = neighbour.localScale;
+
+        Transform kerb = CityTiles.FindKerb(root);
+        if (kerb == null)
+        {
+            error = $"the goal prefab {replacer.GoalPrefab.name} has no kerb ({CityTiles.KerbPrefix}NN) to place it by.";
+            return null;
+        }
+        Vector3 shift = centre - kerb.position;
+        shift.y = 0f;
+        root.position += shift;
+        Vector3 local = root.localPosition;
+        local.y = 0f; // at ground level, where GoalPatchReplacer stands every goal
+        root.localPosition = local;
+        PrefabUtility.RecordPrefabInstancePropertyModifications(goal);
+        PrefabUtility.RecordPrefabInstancePropertyModifications(root);
+
+        // In the order they act in Play: the tuners on the first frame, the planter a frame later, so it keeps its
+        // clearances from the block as it finally stands.
+        StreetWidthTuner streets = Object.FindFirstObjectByType<StreetWidthTuner>(FindObjectsInactive.Include);
+        BuildingWidthTuner widths = Object.FindFirstObjectByType<BuildingWidthTuner>(FindObjectsInactive.Include);
+        VergeTreePlanter planter = Object.FindFirstObjectByType<VergeTreePlanter>(FindObjectsInactive.Include);
+        if (streets != null)
+        {
+            streets.MatchNewPatch(root);
+        }
+        int sized = widths != null ? widths.SizeGoalPatch(root) : 0;
+        int trees = planter != null ? planter.Plant(new[] { root }) : 0;
+
+        error = null;
+        return $"placed {replacer.GoalPrefab.name} with its block centred at {centre} " +
+               $"(block scale {(streets != null ? streets.AppliedBlockScale : 1f):F2}, {sized} buildings sized, " +
+               $"{trees} verge trees)";
     }
 
     /// <summary>A board on two posts, lettered on both faces. Returns the two labels.</summary>

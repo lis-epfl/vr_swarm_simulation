@@ -612,7 +612,6 @@ public class StreetWidthTuner : MonoBehaviour
     /// </summary>
     private void MatchNewPatches()
     {
-        float scale = appliedBlockScale;
         int matched = 0;
 
         foreach (Transform kerb in CollectKerbs())
@@ -621,55 +620,84 @@ public class StreetWidthTuner : MonoBehaviour
             {
                 continue; // loaded with the scene, so it already carries the applied scale
             }
-
-            Transform tile = kerb.parent;
-            if (tile == null)
+            if (MatchKerb(kerb))
             {
-                continue;
+                matched++;
             }
-
-            Vector3 centre = kerb.localPosition;
-            int frameHeightAxis = FindHeightAxis(tile, out _);
-
-            foreach (Renderer renderer in tile.GetComponentsInChildren<Renderer>(true))
-            {
-                Transform t = renderer.transform;
-                if (IsIgnored(t.name) || renderer.isPartOfStaticBatch || SpawnedContentRoot.Covers(t))
-                {
-                    continue;
-                }
-
-                Vector3 live = tile.InverseTransformPoint(t.position);
-                Vector3 target = centre + (live - centre) * scale;
-                target[frameHeightAxis] = live[frameHeightAxis];
-
-                if (t.parent == tile)
-                {
-                    t.localPosition = target;
-                }
-                else
-                {
-                    t.position = tile.TransformPoint(target);
-                }
-
-                if (IsShell(t.name))
-                {
-                    int ownHeightAxis = FindHeightAxis(t, out _);
-                    Vector3 s = t.localScale;
-                    if (ownHeightAxis != 0) { s.x *= scale; }
-                    if (ownHeightAxis != 1) { s.y *= scale; }
-                    if (ownHeightAxis != 2) { s.z *= scale; }
-                    t.localScale = s;
-                }
-            }
-            matched++;
         }
 
         if (matched > 0)
         {
             Debug.Log($"StreetWidthTuner: matched {matched} newly spawned tiles to the city's " +
-                      $"{scale:F3}x block scale.", this);
+                      $"{appliedBlockScale:F3}x block scale.", this);
         }
+    }
+
+    /// <summary>
+    /// Bring one tile fresh out of its prefab up to the city's block scale, as <see cref="MatchNewPatches"/> does
+    /// for the tiles spawned in Play — for a tool placing one in edit mode, which no play session will match:
+    /// <c>PracticeWorldBuilder</c> places a goal patch and then removes this component. Returns false if
+    /// <paramref name="patch"/> holds no kerb.
+    /// </summary>
+    public bool MatchNewPatch(Transform patch)
+    {
+        Transform kerb = CityTiles.FindKerb(patch);
+        if (kerb == null || !MatchKerb(kerb))
+        {
+            return false;
+        }
+        scanned = false; // a scan taken before it existed would leave it behind at the next change
+        MarkSceneDirtyInEditMode();
+        return true;
+    }
+
+    /// <summary>Apply the block scale to the tile holding <paramref name="kerb"/>, assumed at its authored layout.</summary>
+    private bool MatchKerb(Transform kerb)
+    {
+        Transform tile = kerb.parent;
+        if (tile == null)
+        {
+            return false;
+        }
+
+        float scale = appliedBlockScale;
+        Vector3 centre = kerb.localPosition;
+        int frameHeightAxis = FindHeightAxis(tile, out _);
+
+        foreach (Renderer renderer in tile.GetComponentsInChildren<Renderer>(true))
+        {
+            Transform t = renderer.transform;
+            if (IsIgnored(t.name) || renderer.isPartOfStaticBatch || SpawnedContentRoot.Covers(t))
+            {
+                continue;
+            }
+
+            Vector3 live = tile.InverseTransformPoint(t.position);
+            Vector3 target = centre + (live - centre) * scale;
+            target[frameHeightAxis] = live[frameHeightAxis];
+
+            if (t.parent == tile)
+            {
+                t.localPosition = target;
+            }
+            else
+            {
+                t.position = tile.TransformPoint(target);
+            }
+
+            if (IsShell(t.name))
+            {
+                int ownHeightAxis = FindHeightAxis(t, out _);
+                Vector3 s = t.localScale;
+                if (ownHeightAxis != 0) { s.x *= scale; }
+                if (ownHeightAxis != 1) { s.y *= scale; }
+                if (ownHeightAxis != 2) { s.z *= scale; }
+                t.localScale = s;
+            }
+
+            RecordEditModeChange(t);
+        }
+        return true;
     }
 
     /// <summary>

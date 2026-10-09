@@ -475,6 +475,35 @@ public class BuildingWidthTuner : MonoBehaviour
     private float GoalWidthTarget =>
         independentGoalPatchWidth ? Mathf.Max(0.001f, goalPatchWidthScale) : appliedWidthScale;
 
+    /// <summary>
+    /// Size the buildings of a goal patch fresh out of its prefab to the width goals stand at in Play — for a tool
+    /// placing one in edit mode, which no play session will capture: <c>PracticeWorldBuilder</c> places a goal patch
+    /// and then removes this component. Returns the number of buildings sized.
+    /// </summary>
+    public int SizeGoalPatch(Transform goal)
+    {
+        float scale = GoalWidthTarget;
+        int sized = 0;
+        foreach (Transform t in goal.GetComponentsInChildren<Transform>(true))
+        {
+            if (!IsBuilding(t.name))
+            {
+                continue;
+            }
+
+            int heightAxis = FindHeightAxis(t, out _);
+            Vector3 s = t.localScale;
+            if (heightAxis != 0) { s.x *= scale; }
+            if (heightAxis != 1) { s.y *= scale; }
+            if (heightAxis != 2) { s.z *= scale; }
+            t.localScale = s;
+            RecordEditModeChange(t);
+            sized++;
+        }
+        MarkSceneDirtyInEditMode();
+        return sized;
+    }
+
     private void ApplyGoalWidthIfChanged()
     {
         if (goalBuildings.Count > 0 && GoalWidthTarget != appliedGoalWidthScale)

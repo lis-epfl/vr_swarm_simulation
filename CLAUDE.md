@@ -1200,9 +1200,13 @@ same `Assets/Prefabs/DroneReduced.prefab`, so anything edited there — `maxPitc
 
 **`PracticeWorld` is generated, not authored — rebuild it after changing ScaledCityWorld**
 (`Tools/Swarm/Build practice world`, `PracticeWorldBuilder`). It is the participants' training scene: a copy of
-ScaledCityWorld keeping one tile (`MC_Patch_14`, moved 120 m down ParkRoad from the spawn) and the four walker
-prefabs standing on the idle loop under signs naming their hat, with the experiment recorder, goal replacer and
-city tuners stripped. The copy is the point: the gains, the altitude ceiling, the spawn, the input, the screens,
+ScaledCityWorld keeping one tile (`MC_Patch_14`, moved 120 m down ParkRoad from the spawn), one goal patch directly
+behind it (the tile's far-side neighbour, one street between them), and the four walker prefabs standing on the idle
+loop under signs naming their hat, with the experiment recorder, goal replacer and city tuners stripped. The goal is
+finished at build time the way the experiment finishes one a frame into Play — block scale, the goals' own building
+width, verge trees — by the very tuners and planter that are then stripped (`StreetWidthTuner.MatchNewPatch`,
+`BuildingWidthTuner.SizeGoalPatch`); its pedestrians and the hat one of them wears are still dealt at runtime by the
+prefab's `WalkerPatrol`s and `GoalSpecialWalker`, so the hat changes between sessions. The copy is the point: the gains, the altitude ceiling, the spawn, the input, the screens,
 `PyUniSharingFast`, the Arena, the rig and the lighting all live on ScaledCityWorld's scene objects, so a retune
 there reaches the practice world only through a rebuild — which also discards hand edits made to it.
 
