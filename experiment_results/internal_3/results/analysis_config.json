@@ -1,0 +1,36 @@
+{
+  "generated": "2026-10-01T19:39:30",
+  "script": "analyse.py",
+  "test": "internal_3",
+  "practice": [],
+  "runs": [
+    "BBAA_t1_SingleDrone_20261001_153231",
+    "BBAA_t2_SingleDrone_20261001_154919",
+    "BBAA_t3_Swarm_20261001_160353",
+    "BBAA_t4_Swarm_20261001_161344",
+    "BBCC_t1_Swarm_20261001_170217",
+    "BBCC_t2_Swarm_20261001_171144",
+    "BBCC_t3_SingleDrone_20261001_172059",
+    "BBCC_t4_SingleDrone_20261001_173145"
+  ],
+  "settings": {
+    "zone": 15.0,
+    "deadband": 0.1,
+    "tol": 0.2,
+    "settle": 0.5,
+    "spread_tol": 0.1,
+    "pitch_tol": 10.0,
+    "down": -30.0,
+    "range": 40.0,
+    "dists": [
+      0.0,
+      10.0,
+      15.0,
+      20.0,
+      30.0,
+      40.0
+    ],
+    "arrow_s": 4.0,
+    "long_street": 136.0
+  }
+}

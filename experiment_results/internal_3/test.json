@@ -1,0 +1,14 @@
+{
+  "name": "internal_3",
+  "created": "2026-10-01",
+  "description": "Participants BBAA and BBCC, two SingleDrone and two Swarm trials each, flown in DiamondCityWorld; practice was flown separately and not recorded here, so every run is a trial.",
+  "practice": [],
+  "city": "DiamondCityWorld",
+  "swarmParams": {
+    "hollowSwarmCore": true,
+    "coreRelativeVelocity": true,
+    "c_damp": 2.0,
+    "d_damp": 0.3,
+    "maxDampAccel": 4.57
+  }
+}
