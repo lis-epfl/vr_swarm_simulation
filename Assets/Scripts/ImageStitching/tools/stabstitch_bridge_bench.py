@@ -329,7 +329,9 @@ def main():
     frames = make_frames(frame, count=30)
     headings = (-40.0, 0.0, 40.0)     # left, centre, right about head angle 0
 
-    env = dict(_CHILD_ENV, STITCH_SHM_SUFFIX=args.suffix, PYTHONUNBUFFERED="1")
+    # STITCH_PRINT_RATES: the per-thread rate lines are off by default and parsed below.
+    env = dict(_CHILD_ENV, STITCH_SHM_SUFFIX=args.suffix, STITCH_PRINT_RATES="1",
+               PYTHONUNBUFFERED="1")
     proc = subprocess.Popen([args.python, "-u", "-B", "-W", "ignore", "StitcherThreading.py"],
                             cwd=ROOT, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, bufsize=1)

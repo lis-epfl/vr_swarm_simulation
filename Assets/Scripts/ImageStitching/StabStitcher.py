@@ -12,6 +12,7 @@ import contextlib
 from collections import deque, OrderedDict
 
 from BaseStitcher import BaseStitcher
+from run_clock import stamp
 
 # ---------------------------------------------------------------------------
 # Path setup – add the StabStitch2 Codes directory so that its local imports
@@ -76,11 +77,26 @@ NET_FRAME_PERIOD = float(os.environ.get("STABSTITCH_NET_FRAME_PERIOD", "0.05"))
 # few feeds, no overlap) or Unity stalls.
 VIDEO_GAP_S = 4 * NET_FRAME_PERIOD
 
-# How long a raw quality verdict must persist before the panorama is hidden or shown again,
-# in seconds. It used to be a count of 2 warp updates, which was ~0.35 s at the old 5-6 Hz
-# warp rate and became 0.1 s at 20 Hz -- short enough for a PSNR hovering at the threshold to
-# flash the panorama on and off.
-QUALITY_HYSTERESIS_S = 0.35
+# Minimum period between warp updates on the warp thread, in seconds (0 = one update per
+# admission, i.e. 1 / NET_FRAME_PERIOD). Independent of the admission cadence on purpose:
+# an update ingests every frame admitted since the last one, so the nets still see the same
+# 7-frame, ~350 ms window and only how often SmoothNet re-runs over it (and the warp's age at
+# render time) changes. Phase-carried like admissions, so the mean rate is 1 / WARP_PERIOD.
+WARP_PERIOD = float(os.environ.get("STABSTITCH_WARP_PERIOD", "0.1"))
+
+# How long a raw quality verdict must persist before the panorama is hidden (HIDE) or shown
+# again (SHOW), in seconds. It used to be a count of 2 warp updates, which was ~0.35 s at the
+# old 5-6 Hz warp rate and became 0.1 s at 20 Hz -- short enough for a PSNR hovering at the
+# threshold to flash the panorama on and off. Asymmetric on purpose: a panorama that has gone
+# bad should leave promptly, but one that has just recovered has to prove it before it is
+# put back, or a PSNR wandering about the threshold shows it for a second or two at a time.
+QUALITY_HIDE_S = float(os.environ.get("STABSTITCH_QUALITY_HIDE_S", "0.5"))
+QUALITY_SHOW_S = float(os.environ.get("STABSTITCH_QUALITY_SHOW_S", "1.5"))
+
+# PSNR dead band, in dB: a shown panorama is hidden below ``quality_threshold``, a hidden one
+# is shown again only at ``quality_threshold + QUALITY_PSNR_MARGIN_DB``. Timing alone cannot
+# stop a PSNR that drifts across a single threshold every second or two; the band can.
+QUALITY_PSNR_MARGIN_DB = float(os.environ.get("STABSTITCH_QUALITY_PSNR_MARGIN_DB", "1.5"))
 
 
 def _env_flag(name, default="0"):
@@ -482,7 +498,7 @@ class StabStitcher(BaseStitcher):
                  border_size: int = 60,
                  quality_enabled: bool = True, quality_threshold: float = 18.0,
                  distortion_threshold: float = 1.0, canvas_ratio_max: float = 5.0,
-                 quality_hysteresis: int = 2):
+                 quality_hysteresis: int = 4):
         # BaseStitcher sets up attributes consumed by StitcherManager's
         # hyperparameter-change detection (active_matcher_type, isRANSAC, …).
         # We pass device="cpu" so its SuperPoint model stays off-GPU; our
@@ -545,7 +561,9 @@ class StabStitcher(BaseStitcher):
         self.distortion_threshold = distortion_threshold  # max inter-grid (shape) loss
         self.canvas_ratio_max = canvas_ratio_max          # max canvas / input dim ratio
         self.quality_hysteresis = quality_hysteresis      # consecutive updates before switching
-        self.quality_hysteresis_s = QUALITY_HYSTERESIS_S  # ... and for at least this long
+        self.quality_hide_s = QUALITY_HIDE_S              # ... lasting this long to hide
+        self.quality_show_s = QUALITY_SHOW_S              # ... or this long to show again
+        self.quality_psnr_margin_db = QUALITY_PSNR_MARGIN_DB  # dead band above the threshold
         self._fallback_active = False
         self._bad_count = 0
         self._good_count = 0
@@ -607,6 +625,8 @@ class StabStitcher(BaseStitcher):
         self._pending = []
         self._next_admit = -1.0
         self._last_admit = None
+        # When compute_warps may next run an update (see WARP_PERIOD); -1 = not yet.
+        self._next_warp = -1.0
         # The (left, centre, right) drone ids the buffered frames came from (see stab_pano).
         self._view_ids = None
         # Only the latest HR frame is ever warped (stab_pano supplies it directly),
@@ -1199,7 +1219,7 @@ class StabStitcher(BaseStitcher):
                 psnr = 99.0 if mse <= 1e-6 else 10.0 * math.log10((255.0 ** 2) / mse)
 
             distortion_ok = distortion <= self.distortion_threshold
-            photometric_ok = psnr >= self.quality_threshold
+            photometric_ok = psnr >= self._psnr_threshold_now()
 
             quality_ok = canvas_ok and distortion_ok and photometric_ok
 
@@ -1245,10 +1265,10 @@ class StabStitcher(BaseStitcher):
         if quality_ok != self._quality_last_verdict or now - self._quality_last_print >= 1.0:
             self._quality_last_print = now
             self._quality_last_verdict = quality_ok
-            psnr_str = "n/a(canvas)" if psnr is None else f"{psnr:.2f}dB"
-            print(f"[StabStitch quality] psnr={psnr_str} "
-                  f"(threshold>={self.quality_threshold:.1f}) "
-                  f"{'OK' if quality_ok else 'BAD'}")
+            psnr_str = "n/a (canvas)" if psnr is None else f"{psnr:.2f} dB"
+            print(f"{stamp()} PSNR {psnr_str}  {'OK' if quality_ok else 'BAD'}  "
+                  f"(threshold >= {self._psnr_threshold_now():.1f}"
+                  f"{', recovering' if self._fallback_active else ''})")
 
         if not self.quality_debug:
             return
@@ -1267,7 +1287,7 @@ class StabStitcher(BaseStitcher):
                       "<=", f"{self.distortion_threshold:.2f}"),
                 _gate(photometric_ok, "psnr",
                       "n/a" if psnr is None else f"{psnr:.2f}dB",
-                      ">=", f"{self.quality_threshold:.1f}"),
+                      ">=", f"{self._psnr_threshold_now():.1f}"),
             ]
             print("[StabStitch quality] BAD  " + "  ".join(parts))
 
@@ -1281,13 +1301,20 @@ class StabStitcher(BaseStitcher):
                 f"photometric={c['photometric']})"
             )
 
+    def _psnr_threshold_now(self):
+        """The PSNR a verdict must reach: higher while the panorama is hidden (dead band)."""
+        return self.quality_threshold + (self.quality_psnr_margin_db if self._fallback_active
+                                         else 0.0)
+
     def _apply_hysteresis(self, raw_ok):
         """
         Debounce the raw per-update quality decision so the display does not
         flicker between panorama and fallback.  Requires ``quality_hysteresis``
         consecutive updates of the opposite verdict, spanning at least
-        ``quality_hysteresis_s``, before switching state: a count alone shrinks as
-        the warp rate rises (see QUALITY_HYSTERESIS_S).
+        ``quality_hide_s`` to hide or ``quality_show_s`` to show again, before
+        switching state: a count alone shrinks as the warp rate rises (see
+        QUALITY_HIDE_S).  The PSNR dead band is applied upstream, in the raw verdict
+        (``_psnr_threshold_now``).
 
         Returns the (debounced) panorama-ok flag: True ⇒ show panorama.
         """
@@ -1298,7 +1325,7 @@ class StabStitcher(BaseStitcher):
             self._good_count += 1
             self._bad_count = 0
             if (self._fallback_active and self._good_count >= self.quality_hysteresis
-                    and now - self._verdict_since >= self.quality_hysteresis_s):
+                    and now - self._verdict_since >= self.quality_show_s):
                 self._fallback_active = False
         else:
             if self._bad_count == 0:
@@ -1306,7 +1333,7 @@ class StabStitcher(BaseStitcher):
             self._bad_count += 1
             self._good_count = 0
             if (not self._fallback_active and self._bad_count >= self.quality_hysteresis
-                    and now - self._verdict_since >= self.quality_hysteresis_s):
+                    and now - self._verdict_since >= self.quality_hide_s):
                 self._fallback_active = True
         return not self._fallback_active
 
@@ -1434,16 +1461,26 @@ class StabStitcher(BaseStitcher):
         Run one warp update on the dedicated warp thread.
 
         Blocks until ``stab_pano`` has admitted a new frame (with a timeout so the
-        caller's loop stays responsive to a stitcher switch), then ingests every
-        frame admitted since the last update and refreshes the cached warp
-        parameters.  The render path keeps using the previous cache meanwhile.
+        caller's loop stays responsive to a stitcher switch), waits out the rest of
+        ``WARP_PERIOD``, then ingests every frame admitted since the last update and
+        refreshes the cached warp parameters.  The render path keeps using the
+        previous cache meanwhile.
 
         Returns True when the cache was refreshed, False otherwise (timed out, or
         the window is still filling), so the caller can count real updates.
         """
         if not self._frame_event.wait(timeout=0.1):
             return False
+        wait = self._next_warp - time.perf_counter()
+        if wait > 0:
+            # Bounded like the event wait above, so a stitcher switch is not held off.
+            time.sleep(min(wait, WARP_PERIOD))
         self._frame_event.clear()
+        now = time.perf_counter()
+        # Phase carried over so the mean rate is 1 / WARP_PERIOD; floored so a stall
+        # does not cause a burst of catch-up updates.
+        self._next_warp = (now + WARP_PERIOD if self._next_warp < 0.0
+                           else max(self._next_warp + WARP_PERIOD, now - WARP_PERIOD))
         return self._update_warps()
 
     def _update_warps(self):

@@ -1,3 +1,4 @@
+from run_clock import stamp   # first, so the run clock starts at launch
 import numpy as np
 import cv2
 import glob
@@ -53,6 +54,14 @@ RENDER_MIN_PERIOD = 0.025
 # Rate at which the per-thread rate lines are printed, in seconds. The threads run at
 # 20-30 Hz each; one summary a second says the same thing as sixty lines.
 RATE_PRINT_PERIOD = 1.0
+
+# The per-thread rate lines are off by default -- they are a perf-tuning read-out, not
+# something to watch during a session. STITCH_PRINT_RATES=1 brings them back
+# (stabstitch_bridge_bench.py sets it, since it parses them).
+PRINT_THREAD_RATES = os.environ.get("STITCH_PRINT_RATES", "0") not in ("", "0")
+
+# Period of the run-time + Unity frame-rate status line, in seconds.
+STATUS_PRINT_PERIOD = 10.0
 
 # Window over which Unity's frame rate is estimated from its heartbeat, in seconds.
 UNITY_FPS_WINDOW = 1.0
@@ -1489,7 +1498,8 @@ def stitching_thread(manager: StitcherManager, num_pano_img=3, verbose=False, de
 
         rate.tick()
 
-        if verbose and manager.print_rate and t - last_print >= RATE_PRINT_PERIOD:
+        if (verbose and PRINT_THREAD_RATES and manager.print_rate
+                and t - last_print >= RATE_PRINT_PERIOD):
             last_print = t
             unity = f" | unity {manager.unity_fps:.0f} fps" if manager.unity_fps else ""
             print(f"[stitching_thread] {rate.hz:.1f} Hz (5s avg){unity} | last loop {time.perf_counter()-t:.3f}s")
@@ -1540,7 +1550,8 @@ def warp_computation_thread(manager: StitcherManager, verbose=False, debug=False
             continue
         rate.tick()
 
-        if verbose and manager.print_rate and t - last_print >= RATE_PRINT_PERIOD:
+        if (verbose and PRINT_THREAD_RATES and manager.print_rate
+                and t - last_print >= RATE_PRINT_PERIOD):
             last_print = t
             print(f"[warp_thread] {rate.hz:.1f} Hz (5s avg) | last update {time.perf_counter()-t:.3f}s")
 
@@ -1773,9 +1784,14 @@ def main():
     warp_t.daemon = True
     warp_t.start()
 
+    # The main thread has nothing else to do, so it owns the slow status line: how long
+    # the script has been running and Unity's frame rate (from the heartbeat).
     while True:
-        time.sleep(100)
-    
+        time.sleep(STATUS_PRINT_PERIOD)
+        fps = manager.unity_fps
+        unity = f"Unity {fps:.0f} fps" if fps else "Unity: waiting for heartbeat"
+        print(f"{stamp()} {unity}")
+
 
 if __name__ == '__main__':
     main()

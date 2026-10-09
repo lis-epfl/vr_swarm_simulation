@@ -99,6 +99,7 @@ import torch.nn.functional as F
 
 from BaseStitcher import BaseStitcher
 import planar_geometry as pg
+from run_clock import stamp
 
 # Failing-gate bits. Pre-shift values, matching StitcherThreading's REASON_* -- see
 # write_panorama_memory for how they are packed.
@@ -1891,6 +1892,8 @@ class PlanarStitcher(BaseStitcher):
         self._last_est_log = now
 
         sweep, refine = self._sweep_stats, self._refine_stats
+        if sweep or refine:
+            print(stamp())
         if sweep:
             if "skipped" in sweep:
                 print(f"[PLANAR] plane sweep idle: {sweep['skipped']}")
@@ -1932,7 +1935,7 @@ class PlanarStitcher(BaseStitcher):
         stale = s.get("stale", 0)
         unposed_txt = f", {unposed} unposed" if unposed else ""
         unposed_txt += f", {stale} stale" if stale else ""
-        print(f"[PLANAR] {s.get('views', 0)} views "
+        print(f"{stamp()} [PLANAR] {s.get('views', 0)} views "
               f"(+{s.get('dropped', 0)} dropped{unposed_txt}) | blend {s.get('blend', '?')} | "
               f"coverage {s.get('coverage', 0):.0%} | "
               f"mean range {s.get('mean_range', 0):.1f} m | "

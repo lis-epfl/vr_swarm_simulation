@@ -12,7 +12,7 @@ Why
 ---
 "It flickers more" is not something a per-stage timing or an equivalence test can see. This
 replays exactly what the render thread does -- one render per recorded send, frames admitted to
-the temporal window on NET_FRAME_PERIOD, a warp update per admission -- and records, for every
+the temporal window on NET_FRAME_PERIOD, a warp update every WARP_PERIOD -- and records, for every
 displayed frame, where the three views' source control points land in the panorama. Over a
 hovering swarm those should barely move, so their frame-to-frame motion is the flicker and warp
 the pilot sees, in panorama pixels. The recording is 1.8 MB per view per send (a 15 s hover at
@@ -178,13 +178,18 @@ def replay(args):
 
     pts, concat, psnr = [], [], []
     last_wp = None
+    warp_period = ss.WARP_PERIOD if args.warp_period is None else args.warp_period
+    next_warp = -1.0
     with torch.no_grad():
         for i in range(T):
             clock["t"] = float(times[i])
             imgs, ids = triplet(i)
             pano, _, _ = st.stab_pano(imgs, [0, 1], [1, 2], out_size=wire,
                                       view_ids=None if args.no_view_ids else ids)
-            if st._pending:
+            # Paced like StabStitcher.compute_warps: at most one update per WARP_PERIOD,
+            # ingesting every frame admitted since the last.
+            if st._pending and clock["t"] >= next_warp:
+                next_warp = clock["t"] + warp_period
                 st._update_warps()
             wp = st._cached_warp
             is_concat = pano is not None and not isinstance(pano, ss.WireReadyPanorama)
@@ -243,6 +248,8 @@ def main():
     p.add_argument("--switch", action="store_true", help="simulate a triplet change mid-run")
     p.add_argument("--buffer", type=int, default=7, help="temporal window length (trained: 7)")
     p.add_argument("--period", type=float, default=None, help="NET_FRAME_PERIOD override")
+    p.add_argument("--warp-period", type=float, default=None,
+                   help="WARP_PERIOD override (0 = one warp update per admission)")
     p.add_argument("--antialias", type=int, choices=(0, 1), default=None)
     p.add_argument("--no-pad", action="store_true", help="wait for real frames at a new video")
     p.add_argument("--no-view-ids", action="store_true", help="do not report triplet changes")

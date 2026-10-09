@@ -765,16 +765,17 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   curved screen (radius 5 m, 90°, 3 m) wants ~1980×735. The stitch canvas carries ~1.8× the block
   width of detail, so **1024×576 blocks pair with a 1920×720 panorama** at ~21 texels/deg on both
   screens; the sim scenes used 768×432 / 1600×600, ~16 texels/deg on both. The sim scenes now run
-  at the envelope maximum, **1280×720 / 2400×900** (same aspects), on the user's request for a
-  little more resolution; it went 1024 → 1152 → 1280, each step buying supersampling margin on
-  screens viewed closer than their nominal distance. There is no step past it without a wire change:
-  1280×720 is what `blockSlotStride` is sized for. What made it affordable is that the GPU (an RTX
+  at **1152×648 / 2160×810** (same aspects): it went 1024 → 1152 → 1280 (the envelope maximum),
+  each step buying supersampling margin on screens viewed closer than their nominal distance, then
+  back 10% to 1152 on the user's request (2026-10-01). Only the scene overrides moved — the
+  envelope stays 1280×720, so returning to it needs no wire change, and there is no step past it
+  without one: 1280×720 is what `blockSlotStride` is sized for. What made the higher sizes affordable is that the GPU (an RTX
   4090) was never the constraint — pixels are cheap, and the FPV cost is CPU-side submission (see
   the FPV-render bullets above), which resolution does not touch. Feed render textures are
   mipmapped, because the grid layouts show the same texture on screens half `OUTER_CIRCLE`'s size.
   The `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`) are canvas pixels, so
-  they scale with the block width: 41/15/60 suit 768, 55/20/80 suit 1024, 61/22.5/90 suit 1152, and
-  the 1280 scenes use 69/25/100. DJIScene stays 800×450, the real feed's size.
+  they scale with the block width: 41/15/60 suit 768, 55/20/80 suit 1024, 61/22.5/90 suit 1152 (what
+  the sim scenes use), and 69/25/100 suit 1280. DJIScene stays 800×450, the real feed's size.
 - **The TPS field is evaluated once per warp update on a lattice of at most 512 samples** along the
   canvas' longer side (`_field_lattice_size`, `STABSTITCH_FLOW_GRID`, 0 = exact) and resampled
   for each consumer: the canvas (blend masks), the panorama (`_field_to_image_grid`, with
@@ -798,7 +799,11 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   protocol without the 7× repetition (150 ms → ~40 ms per update, so the warp thread keeps pace
   with admissions). Frames are admitted at `NET_FRAME_PERIOD` (0.05 s, the cadence the sim always
   fed the nets at), **not** at the render rate — a faster render must not shorten the ~350 ms
-  smoothing window. `STABSTITCH_LEGACY_WARP=1` restores the full-window recompute for comparison;
+  smoothing window. The warp *updates* have a third cadence, `WARP_PERIOD` (0.1 s, 10 Hz,
+  `STABSTITCH_WARP_PERIOD`; 0 = one per admission, the old 20 Hz), on the user's request
+  (2026-10-01): `compute_warps` waits out the period and then ingests every frame admitted since,
+  so the window is unchanged and only the SmoothNet re-runs and the warp's freshness halve.
+  `STABSTITCH_LEGACY_WARP=1` restores the full-window recompute for comparison;
   `tools/stabstitch_selftest.py` asserts the two agree (fp32/deterministic: ≤0.01 px; under
   default TF32/autotuned cuDNN they drift by a few tenths of a pixel run to run, which is float
   noise, not logic).
@@ -818,9 +823,13 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   blocks (2.1×) the aliasing shimmers frame to frame, the nets track it, and the displayed warp
   jittered ~30% more than at 768; antialiased, it jitters less than 768 did. No weights, layers or
   maths change — only the filter that produces the 480×360 input.
-- **The quality debounce is timed** (`QUALITY_HYSTERESIS_S`, 0.35 s), not a count of warp updates:
-  two updates was ~0.35 s at the old 5–6 Hz warp rate and only 0.1 s at 20 Hz, enough for a PSNR
-  near the threshold to flash the panorama on and off.
+- **The quality debounce is timed, asymmetric, and has a PSNR dead band** (2026-10-01). Timed
+  (`QUALITY_HIDE_S` 0.5 s to hide, `QUALITY_SHOW_S` 1.5 s to show again) rather than a count of
+  warp updates: two updates was ~0.35 s at the old 5–6 Hz warp rate and only 0.1 s at 20 Hz. A
+  single symmetric 0.35 s timer still let a PSNR drifting across the threshold show the panorama
+  for a second or two at a time, which no timer of that length can stop — hence the band: a
+  hidden panorama must reach `quality_threshold + QUALITY_PSNR_MARGIN_DB` (1.5 dB) to count as
+  good. All three are `STABSTITCH_QUALITY_*` env overrides; the threshold itself is Unity's.
 - **Measure flicker on real frames, not by eye:** `tools/stabstitch_flicker_replay.py record`
   captures the three stitch slots from a playing Unity without taking a block flag, and `replay`
   runs them through the stitcher on a simulated clock and scores the displayed control points'
@@ -1408,9 +1417,11 @@ the default `python` has no torch. StabStitch++ models load from
 Checkers: `python tools/stabstitch_selftest.py [--frame 1024x576 --wire 1920x720]` (STABSTITCH
 equivalence + timings, needs the GPU and the `debug_input_drone_*.jpg` frames),
 `python tools/planar_selftest.py`, `python tools/check_wire_layout.py`. `STABSTITCH_TIMING=1` prints the
-per-stage warp/render breakdown; the per-thread rate lines print once a second, and the stitch line
-carries **Unity's frame rate**, measured from the per-frame heartbeat — the number every bridge
-setting trades against, visible with the headset on.
+per-stage warp/render breakdown. The default console is kept quiet: the PSNR line once a second and a
+status line every 10 s with the run time and **Unity's frame rate** (measured from the per-frame
+heartbeat — the number every bridge setting trades against, visible with the headset on), each
+stamped `[up H:MM:SS]` from `run_clock.py`. The per-thread stitch/warp rate lines are off unless
+`STITCH_PRINT_RATES=1` (the bridge bench sets it, because it parses them).
 
 `python tools/stabstitch_bridge_bench.py --frame 1024x576 --wire 1920x720` times the whole Python side
 end to end with a stand-in for Unity (metadata, posed blocks at 30 Hz, heartbeat, panorama reads) and

@@ -446,20 +446,33 @@ def test_timed_debounce(st):
     try:
         st._fallback_active = False
         st._bad_count = st._good_count = 0
-        hidden_at = None
-        for k in range(40):                     # a bad verdict every 50 ms
+        hidden_at = shown_at = None
+        for k in range(100):                    # a bad verdict every 50 ms
             clock["t"] = 0.05 * k
             if not st._apply_hysteresis(False) and hidden_at is None:
                 hidden_at = 0.05 * k
+        band_hidden = st._psnr_threshold_now() - st.quality_threshold
+        t0 = clock["t"]
+        for k in range(1, 100):                 # then a good one every 50 ms
+            clock["t"] = t0 + 0.05 * k
+            if st._apply_hysteresis(True) and shown_at is None:
+                shown_at = 0.05 * k
+        band_shown = st._psnr_threshold_now() - st.quality_threshold
     finally:
         ss_mod.time = real_time
         st._fallback_active = False
         st._bad_count = st._good_count = 0
     print(f"  bad verdicts every 50 ms hide the panorama after {hidden_at:.2f} s "
-          f"(QUALITY_HYSTERESIS_S = {ss_mod.QUALITY_HYSTERESIS_S})")
-    check(hidden_at is not None and ss_mod.QUALITY_HYSTERESIS_S <= hidden_at
-          <= ss_mod.QUALITY_HYSTERESIS_S + 0.05 + 1e-6,
-          "the panorama is hidden once the bad verdict has lasted the hysteresis time")
+          f"(QUALITY_HIDE_S = {ss_mod.QUALITY_HIDE_S}); good ones show it again after "
+          f"{shown_at:.2f} s (QUALITY_SHOW_S = {ss_mod.QUALITY_SHOW_S})")
+    check(hidden_at is not None and ss_mod.QUALITY_HIDE_S <= hidden_at
+          <= ss_mod.QUALITY_HIDE_S + 0.05 + 1e-6,
+          "the panorama is hidden once the bad verdict has lasted the hide time")
+    check(shown_at is not None and ss_mod.QUALITY_SHOW_S <= shown_at
+          <= ss_mod.QUALITY_SHOW_S + 0.05 + 1e-6,
+          "the panorama is shown again once the good verdict has lasted the show time")
+    check(band_hidden == ss_mod.QUALITY_PSNR_MARGIN_DB and band_shown == 0.0,
+          "while hidden the PSNR must clear the threshold plus the dead band")
 
 
 def test_syncs(st, seq):
