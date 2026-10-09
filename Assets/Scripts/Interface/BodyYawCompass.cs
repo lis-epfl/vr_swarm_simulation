@@ -31,7 +31,7 @@ public class BodyYawCompass : MonoBehaviour
 
     [Tooltip("Horizontal distance from the OVRCameraRig to the arrow's centre, along the body " +
              "heading, in metres.")]
-    public float forwardOffset = 0.5f;
+    public float forwardOffset = 1.6f;
 
     [Tooltip("Tip-to-tail length of the arrow, in metres.")]
     public float arrowLength = 0.45f;
