@@ -18,6 +18,18 @@ yaw is separate via AttitudeAlgorithm.
 - [VelocityControl.cs](Assets/Scripts/VelocityControl/VelocityControl.cs) — low-level controller (tilt/yaw/height loops, circular clamps); reads limits from a `FlightProfile`.
 - [SwarmSpawn.cs](Assets/Scripts/swarm/SwarmSpawn.cs) — spawns the drone grid, wires the `swarm` list into each drone, plus reset/reposition/health helpers.
 
+## Swarm testing offline (headless bench + replica)
+
+All in `Assets/Scripts/swarm/Bench/`; [README.md](Assets/Scripts/swarm/Bench/README.md) is the manual. Run the Python with the `stitching` env.
+
+- [run_bench.ps1](Assets/Scripts/swarm/Bench/run_bench.ps1) — the headless Unity bench: mirrors this working tree into a project copy on D: (the live editor holds the project), keeps its Library, deletes `ilpp.pid`, refuses a second Unity on the copy, runs batchmode with a timeout and one retry, and prints the report. `-CompileOnly` / `-SyncOnly`.
+- [SwarmBenchRunner.cs](Assets/Scripts/swarm/Bench/SwarmBenchRunner.cs) — the runtime harness, inert unless `SWARM_BENCH_CONFIG` is set: disables sockets/sections/recorder/cameras, steers waypoint flights in world terms, applies parameter sets as overrides on the scene's SwarmManager (snapshot + restore), forces the look-gap fill off without an injected pilot heading, and writes self-describing JSON lines.
+- [Editor/SwarmBenchLauncher.cs](Assets/Scripts/swarm/Bench/Editor/SwarmBenchLauncher.cs) — batchmode entry points: `Run` (opens the config's scene, enters play mode) and `CompileCheck`.
+- [bench.py](Assets/Scripts/swarm/Bench/bench.py) — `scenarios` (generate a held-out set + spread steps for a city), `config` (build one, validated against SwarmManager.cs), `report` (losses, contacts, clean %, speed, step t90/overshoot; reads the September result format too).
+- [scenarios/](Assets/Scripts/swarm/Bench/scenarios) — flight sets: ScaledCityWorld's frozen from the September retune, DiamondCityWorld's generated (seed 1).
+- [swarm_replica.py](Assets/Scripts/swarm/Bench/swarm_replica.py) — the 2D replica: `sim` (closed loop on a test's recorded pilot inputs, through each run's runtime city), `forces` (per-term closing-acceleration attribution at each recorded crash), `step` (spread step response), `params`. Mirrors the C# force law as of `FORCE_LAW_COMMIT` and refuses once git shows it changed.
+- [swarm_params.py](Assets/Scripts/swarm/Bench/swarm_params.py) — resolves SwarmManager and airframe values from the C# initialisers, scene YAML, `DroneReduced.prefab`, a test's `swarmParams` and a run's `<stem>_swarm.json`, recording where each came from.
+
 ## VR display & camera capture (Unity ↔ Python bridge)
 
 - [PyUniSharingFast.cs](Assets/Scripts/ImageStitching/PyUniSharingFast.cs) — captures the selected feeds → `BlockSharedMemory` (3 head-facing boundary drones normally; every plane-facing drone in `PLANAR`, with camera pose in the block header), writes metadata/HMD yaw + the producer heartbeat, resolves and publishes the scene plane, reads the panorama, renders the curved screen, and drives the quality fallback. Owns the block section's fixed geometry (`blockSlotCapacity` × `blockSlotStride`, created once in `Start` and never resized — a named section cannot be).

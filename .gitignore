@@ -54,8 +54,9 @@ Assets/DroneImages/
 UserSettings/
 Assets/Data/
 
-# Pycache files
+# Pycache files (and the .meta Unity makes for a __pycache__ folder under Assets)
 __pycache__/
+__pycache__.meta
 *.pyc
 
 # Ignore Image Stitching project files

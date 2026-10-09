@@ -197,6 +197,7 @@ public class ExperimentRecorder : MonoBehaviour
             "lookGapDeg;lookGapRawDeg;lookGapFill");
         stitchWriter = NewWriter("stitch", "t;unixMs;stitcher;shown;qualityOk;pilotOn;reasonBits;panoAgeSec;functional");
         perfWriter = NewWriter("perf", "t;unixMs;frames;fps;dtMaxMs;fpvRenders");
+        WriteSwarmSettings();
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
@@ -213,6 +214,31 @@ public class ExperimentRecorder : MonoBehaviour
         var w = new StreamWriter(path, false, new UTF8Encoding(false));
         w.WriteLine(header);
         return w;
+    }
+
+    /// <summary>
+    /// The swarm's settings as this run started, as <c>&lt;stem&gt;_swarm.json</c>: the scene and every
+    /// SwarmManager field, as JsonUtility serialises the component. The CSVs record only the live d_ref and
+    /// the core flag, and a scene's gains change between tests (ScaledCityWorld's hollow core was on for
+    /// internal_2 and is off now), so without this an offline replay has to be told by hand what a run
+    /// flew. Read by <c>Assets/Scripts/swarm/Bench/swarm_params.py</c>. Its d_ref is the starting value;
+    /// the spread stick moves it, and shape.csv has it per sample.
+    /// </summary>
+    private void WriteSwarmSettings()
+    {
+        if (SwarmManager.Instance == null) return;
+        try
+        {
+            string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            string json = "{\n\"scene\": \"" + scene + "\",\n\"swarmManager\": "
+                        + JsonUtility.ToJson(SwarmManager.Instance, true) + "\n}\n";
+            File.WriteAllText(Path.Combine(dirPath, $"{fileStem}_swarm.json"), json, new UTF8Encoding(false));
+        }
+        catch (Exception e)
+        {
+            // The run's own data matters more than this summary of its settings.
+            Debug.LogWarning($"ExperimentRecorder: could not write {fileStem}_swarm.json. {e.Message}", this);
+        }
     }
 
     private Transform ResolveHeadTransform()

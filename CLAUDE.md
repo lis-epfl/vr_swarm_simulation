@@ -1340,7 +1340,8 @@ still following the spread stick quickly, and no longer match `CityWorld`/`Crowd
 `maxObstacleAccel` 4 → 4.57 (the tilt budget), `d_shield` 1.4 → 2.5, `c2_core` 1.6 → 0.6,
 `coreRadiusFilterTime` 2 → 0.5. `b` and `c_vm` are deliberately unchanged, and no code changed. On 120
 held-out flights in headless Unity (full-stick transits, waypoint tours, straight at a building, bang-bang
-reversals) drones lost went 88 → 16, building contacts 160 → 0, clean flights 22% → 95%, for 1% of
+reversals; frozen as `Assets/Scripts/swarm/Bench/scenarios/ScaledCityWorld_heldout.json`, flown with the
+hollow core on) drones lost went 88 → 16, building contacts 160 → 0, clean flights 22% → 95%, for 1% of
 progress speed. After a spread-stick step the formation settles in 4.5 s instead of 4.8 s with 7% overshoot
 instead of 25%, though a contraction takes ~1.3 s longer to reach 90%. The causes, found by attributing
 forces at every crash:
@@ -1395,16 +1396,51 @@ forces at every crash:
   - It inherits `c_vm`'s building hazard in miniature — half of every correction goes to the drone in
     front, which may be the one the shield is braking — so it is saturated and then projected out of any
     building within `d_shield` through the shield's own `RemoveInwardComponent`.
-  - Measured in a 2D replica driven by internal_2's recorded pilot inputs, which reproduces Unity at 0.4
-    (0.82 vs 0.94 kills/min, 2.07 vs 2.12 m spacing): kills at 0.4 went 0.82 → 0.62/min with the relative
-    core, → 0.18 with both. Speed limits would not help (recorded near-misses at 0.4 are almost as common
-    at hover as in cruise), and neither did prioritising the swarm force in the tilt clamp. **Not yet
-    measured in Unity**, and the replica cannot judge building contacts (its city is the edit-mode export,
-    and 38 of its 40 building kills fell on goal tiles swapped at runtime) — count contacts on the headless
-    bench before trusting it beside facades.
+  - Measured in the 2D replica (`swarm_replica.py sim`) driven by internal_2's recorded pilot inputs, which
+    reproduces Unity at 0.4 (0.82 vs 0.94 kills/min, 2.07 vs 2.12 m spacing): kills at 0.4 went 0.82 →
+    0.62/min with the relative core, → 0.18 with both. Speed limits would not help (recorded near-misses at
+    0.4 are almost as common at hover as in cruise), and neither did prioritising the swarm force in the
+    tilt clamp. **Those figures were flown on the edit-mode city.** With each run's goal patches swapped in
+    as they were at runtime (the replica has done so since 2026-10-09), the same inputs give 0.46/min with
+    both: the tight-spread minutes are flown searching among the goal patches' narrow pillars. internal_3
+    measured 0.58 in Unity (DiamondCityWorld). The damper does shed the slow closings; what remains are
+    fast ones (2–4.5 m/s) that something outside the lattice forced — shield braking, a straggler pulled
+    back, the pilot's own stops. The replica still cannot judge building contacts (no PhysX: a footprint
+    entry is a kill), so count them on the headless bench before trusting a change beside facades.
 - **The fleet size is a limit no tuning here removes.** The values are sized for 10 drones: cohesion sums
   over neighbours, so at 15 contacts come back (0.8/km) until `a` is scaled by about 9/(N−1), and
   drone-drone losses still rise with N.
+
+## Testing swarm changes offline (headless bench + replica)
+
+Two tools in `Assets/Scripts/swarm/Bench/`, described in full in its `README.md`. The **headless Unity
+bench** (`run_bench.ps1` + `SwarmBenchRunner.cs`) flies scripted flight sets through the real scene in
+batchmode. Use it for building contacts, Unity's own loss rules and step response. The **2D replica**
+(`swarm_replica.py`) drives a numpy model of the horizontal law with a test's recorded pilot inputs: fast
+A/B on how pilots actually flew, and per-term crash attribution (`forces`). Narrow a design on the replica and
+confirm it on the bench. Invariants:
+- **The bench always flies this working tree.** The live editor holds the project, so batchmode runs on a
+  copy on D:, and `run_bench.ps1` mirrors `Assets`/`Packages`/`ProjectSettings` into it before every run.
+  There is no separate bench code to keep in sync, which is what went stale before (the September copy
+  missed the damper, the relative core and the lone-drone handling). Its runners compile in the live editor
+  too, so `run_bench.ps1 -CompileOnly` after any C# change.
+- **Bench parameter sets are overrides on the scene as authored**, restored before every set: an empty set
+  is the scene, and an old config can never silently undo a retune. Names are validated before anything
+  flies. Don't write absolute value lists into configs.
+- **The look-direction gap fill is forced off in the bench unless `pilotHeading` is on**: it reads the
+  pilot's body yaw, which nothing sets headless, and the scenes save it on.
+- **The bench overrides `VrFramePacing`'s 0.1 s `maximumDeltaTime`** in `Start` and before every flight, or a
+  20x run silently crawls; every flight records `sim_per_wall`.
+- **The replica reads every number** from `SwarmManager.cs`, the scene, `DroneReduced.prefab`, the test's
+  `test.json` `swarmParams` and the run's `<stem>_swarm.json` (`swarm_params.py`), but **the structure of
+  the law is copied**: it mirrors OlfatiSaber, SwarmAlgorithm, SwarmPlaneController (core state),
+  VelocityControl and StateFinder as of `FORCE_LAW_COMMIT`, and refuses (exit 3) once git shows those
+  files changed. **When you change the horizontal force law, update `swarm_replica.py` in the same change
+  and bump the constant**; a change that leaves the law alone needs only the bump.
+- **The replica has no heading, no altitude, no street furniture, no PhysX contact and no
+  DroneHealthMonitor**, so it cannot judge what the pilot sees, the ceiling, pole strikes or building
+  contacts. It does fly each run's runtime city (goal patches swapped in), which is worth 3x in predicted
+  drone-drone kills at d_ref 0.4.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 
@@ -1470,6 +1506,11 @@ time a new series is ready to analyse:
    (internal_3 is `DiamondCityWorld`) and a `city_obstacles_<Scene>.json` beside `analyse.py`
    (`Tools/Swarm/Export city obstacles`, or `CityObstacleExport.Run<Scene>` in batchmode). Hat line of
    sight and the turning maps read the buildings from it; without it they use the wrong city.
+   **Runs recorded before 2026-10-09 also need `"swarmParams"`** — the SwarmManager fields they flew that
+   the scene may no longer hold (internal_2: `{"hollowSwarmCore": true, "coreRelativeVelocity": false,
+   "c_damp": 0}`, where ScaledCityWorld now saves the core off). Since then `ExperimentRecorder` writes each
+   run's settings to `<stem>_swarm.json`, which `group`/`archive` move with the run. Only
+   `swarm_replica.py` reads either; `analyse.py` ignores both.
 5. If the identify keys weren't pressed live and answers were noted by hand instead:
    `python analyse.py answers template internal_N` then fill in `internal_N/answers.csv` and
    `python analyse.py answers apply internal_N`. `apply` keeps the moment of any answer the pilot

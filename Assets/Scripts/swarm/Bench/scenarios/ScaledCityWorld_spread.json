@@ -1,0 +1,19 @@
+{"city": "ScaledCityWorld", "source": "frozen 2026-10-09 from the September obstacle tuning's config_spread1.json (generator lost)", "seed": null,
+"scenarios": [
+{"kind": "step_1.0_1.6", "sx": -700.0, "sz": -250.0, "T": 75.0, "wps": [], "spread": [0.0, 1.0, 30.0, 1.0, 30.0, 1.6], "record": true},
+{"kind": "step_1.0_1.6", "sx": -760.0, "sz": -250.0, "T": 75.0, "wps": [], "spread": [0.0, 1.0, 30.0, 1.0, 30.0, 1.6], "record": true},
+{"kind": "step_1.6_1.0", "sx": -700.0, "sz": -180.0, "T": 75.0, "wps": [], "spread": [0.0, 1.6, 30.0, 1.6, 30.0, 1.0], "record": true},
+{"kind": "step_1.6_1.0", "sx": -760.0, "sz": -180.0, "T": 75.0, "wps": [], "spread": [0.0, 1.6, 30.0, 1.6, 30.0, 1.0], "record": true},
+{"kind": "step_1.0_0.4", "sx": -700.0, "sz": -110.0, "T": 75.0, "wps": [], "spread": [0.0, 1.0, 30.0, 1.0, 30.0, 0.4], "record": true},
+{"kind": "step_1.0_0.4", "sx": -760.0, "sz": -110.0, "T": 75.0, "wps": [], "spread": [0.0, 1.0, 30.0, 1.0, 30.0, 0.4], "record": true},
+{"kind": "step_0.4_1.0", "sx": -700.0, "sz": -40.0, "T": 75.0, "wps": [], "spread": [0.0, 0.4, 30.0, 0.4, 30.0, 1.0], "record": true},
+{"kind": "step_0.4_1.0", "sx": -760.0, "sz": -40.0, "T": 75.0, "wps": [], "spread": [0.0, 0.4, 30.0, 0.4, 30.0, 1.0], "record": true},
+{"kind": "step_0.4_1.6", "sx": -700.0, "sz": 30.0, "T": 75.0, "wps": [], "spread": [0.0, 0.4, 30.0, 0.4, 30.0, 1.6], "record": true},
+{"kind": "step_0.4_1.6", "sx": -760.0, "sz": 30.0, "T": 75.0, "wps": [], "spread": [0.0, 0.4, 30.0, 0.4, 30.0, 1.6], "record": true},
+{"kind": "step_1.6_0.4", "sx": -700.0, "sz": 100.0, "T": 75.0, "wps": [], "spread": [0.0, 1.6, 30.0, 1.6, 30.0, 0.4], "record": true},
+{"kind": "step_1.6_0.4", "sx": -760.0, "sz": 100.0, "T": 75.0, "wps": [], "spread": [0.0, 1.6, 30.0, 1.6, 30.0, 0.4], "record": true},
+{"kind": "step_1.08_0.5", "sx": -700.0, "sz": 170.0, "T": 75.0, "wps": [], "spread": [0.0, 1.08, 30.0, 1.08, 30.0, 0.5], "record": true},
+{"kind": "step_1.08_0.5", "sx": -760.0, "sz": 170.0, "T": 75.0, "wps": [], "spread": [0.0, 1.08, 30.0, 1.08, 30.0, 0.5], "record": true},
+{"kind": "step_1.08_1.5", "sx": -700.0, "sz": 240.0, "T": 75.0, "wps": [], "spread": [0.0, 1.08, 30.0, 1.08, 30.0, 1.5], "record": true},
+{"kind": "step_1.08_1.5", "sx": -760.0, "sz": 240.0, "T": 75.0, "wps": [], "spread": [0.0, 1.08, 30.0, 1.08, 30.0, 1.5], "record": true}
+]}
