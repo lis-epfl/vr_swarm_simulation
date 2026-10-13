@@ -15,8 +15,14 @@ using UnityEngine;
 /// Set <see cref="mode"/> to <see cref="PlacementMode.Replay"/> to instead reproduce the exact goal
 /// layout of a previous run: it reads the goal positions from that run's <c>*_session.json</c> (written
 /// by <c>ExperimentRecorder</c>) and replaces the tiles nearest those positions, in the same order — so
-/// <c>goalIndex</c> lines up with the original. Since past runs did not use a fixed seed, this is the
-/// only way to recover a specific historical layout.
+/// <c>goalIndex</c> lines up with the original. Runs recorded before 2026-10-12 carried no seed, so this is
+/// the only way to recover their layout, and their hats and target walkers are dealt afresh.
+///
+/// <para><b>Every goal draw comes from one session seed</b> (<see cref="GoalSession"/>), set here before any goal
+/// is instantiated: the inspector's <see cref="seed"/> with <see cref="useFixedSeed"/>, a replayed run's recorded
+/// seed in Replay, otherwise a fresh one. The tiles chosen, the hat each goal is dealt, the walker that wears it
+/// and every walker's starting point follow from it, and <c>ExperimentRecorder</c> writes it into the session JSON,
+/// so Replay reproduces all of them, not only the goal positions.</para>
 ///
 /// A goal is laid over the <i>block</i> it replaces, not copied from the tile's transform (see
 /// <see cref="GoalPositions"/>), takes over any scenery tied to that tile (see
@@ -75,7 +81,8 @@ public class GoalPatchReplacer : MonoBehaviour
     [SerializeField] private bool blockDiagonalNeighbors = true;
 
     [Header("Randomization")]
-    [Tooltip("If true, seed the RNG with 'seed' for a reproducible selection each play.")]
+    [Tooltip("If true, the session's goal seed is 'seed' (reproducible tiles, hats and target walkers each play); " +
+             "otherwise a fresh seed is drawn and logged. Replay ignores both and uses the recorded run's seed.")]
     [SerializeField] private bool useFixedSeed = false;
     [SerializeField] private int seed = 0;
 
@@ -140,9 +147,36 @@ public class GoalPatchReplacer : MonoBehaviour
         // replay for every recorded goal, so they are worked out once, up front.
         Dictionary<Transform, Vector3> goalPositions = GoalPositions(tiles, plazas);
 
+        // The session's goal seed, before any goal exists: each goal's GoalSpecialWalker reads it in Awake, which
+        // runs inside the Instantiate below. Replay takes the recorded run's, so its hats and target walkers come
+        // back as well as its goal positions.
+        ReplaySession replay = null;
+        string replayPath = null;
+        if (mode == PlacementMode.Replay)
+        {
+            replay = LoadReplaySession(out replayPath);
+            if (replay != null && !string.IsNullOrEmpty(replay.goalSeedSource))
+            {
+                GoalSession.Set(replay.goalSeed, "replay");
+            }
+            else
+            {
+                GoalSession.Set(GoalSession.FreshSeed(), "fresh");
+                if (replay != null)
+                {
+                    Debug.LogWarning($"GoalPatchReplacer: {Path.GetFileName(replayPath)} predates seeded goals (no goalSeed); " +
+                                     "its goal positions are replayed but the hats and target walkers are dealt afresh.", this);
+                }
+            }
+        }
+        else
+        {
+            GoalSession.Set(useFixedSeed ? seed : GoalSession.FreshSeed(), useFixedSeed ? "inspector" : "fresh");
+        }
+
         // Choose which candidates to replace, then run the shared placement loop below.
         List<Transform> selected = mode == PlacementMode.Replay
-            ? SelectReplayTiles(candidates, goalPositions)
+            ? SelectReplayTiles(candidates, goalPositions, replay, replayPath)
             : SelectRandomTiles(candidates, tiles, goalPositions);
 
         if (selected == null || selected.Count == 0)
@@ -371,10 +405,9 @@ public class GoalPatchReplacer : MonoBehaviour
     private List<Transform> SelectRandomTiles(List<Transform> tiles, List<Transform> gridTiles,
                                               Dictionary<Transform, Vector3> goalPositions)
     {
-        if (useFixedSeed)
-        {
-            UnityEngine.Random.InitState(seed);
-        }
+        // Drawn from the session's goal seed (set in Start), not UnityEngine.Random, whose state depends on whatever
+        // else consumed it first. The candidates arrive in hierarchy order, which is stable for a given scene.
+        System.Random rng = GoalSession.Rng("goal tiles");
 
         int count = Mathf.Clamp(replaceCount, 0, tiles.Count);
         if (count == 0)
@@ -412,7 +445,7 @@ public class GoalPatchReplacer : MonoBehaviour
         // Full Fisher-Yates shuffle so the accept/reject scan below sees tiles in random order.
         for (int i = tiles.Count - 1; i > 0; i--)
         {
-            int j = UnityEngine.Random.Range(0, i + 1);
+            int j = rng.Next(i + 1);
             (tiles[i], tiles[j]) = (tiles[j], tiles[i]);
         }
 
@@ -461,9 +494,9 @@ public class GoalPatchReplacer : MonoBehaviour
     /// recorded order so the resulting <see cref="PlacedGoals"/> — and thus each goalIndex — matches the
     /// original run.
     /// </summary>
-    private List<Transform> SelectReplayTiles(List<Transform> tiles, Dictionary<Transform, Vector3> goalPositions)
+    private List<Transform> SelectReplayTiles(List<Transform> tiles, Dictionary<Transform, Vector3> goalPositions,
+                                              ReplaySession session, string resolvedPath)
     {
-        ReplaySession session = LoadReplaySession(out string resolvedPath);
         if (session == null)
         {
             return null; // LoadReplaySession already logged the reason
@@ -593,6 +626,9 @@ public class GoalPatchReplacer : MonoBehaviour
     private class ReplaySession
     {
         public List<ReplayGoal> goals = new List<ReplayGoal>();
+        // The recorded run's GoalSession seed (ExperimentRecorder); an empty source means a run from before it.
+        public int goalSeed;
+        public string goalSeedSource;
     }
 
     [Serializable]

@@ -4,6 +4,7 @@
     python swarm_replica.py forces --test internal_3 [--crash RUN@T[:i,j]]
     python swarm_replica.py step   [--scene ScaledCityWorld] [--variant ...]
     python swarm_replica.py params --test internal_3 [--run STEM]
+    python swarm_replica.py validate D:/claude_obstacle_bench/runs/<tag> [more runs]
 
   sim     closed loop. Each recorded swarm run's pilot inputs (stick, body yaw, spread) drive a simulated swarm
           from that run's take-off state through that run's city -- the edit-mode city with the run's goal
@@ -15,6 +16,12 @@
   step    spread-stick step response at hover in open sky (the spread-response requirement: any retune must
           keep the swarm following d_ref quickly and stably), then a cruise / stop / reversal block at d_ref 0.4.
   params  the resolved parameters and where each one came from.
+  validate  the replica against the headless Unity bench: every flight of a bench run that recorded its trajectory
+          (bench.py config --record-all) is flown again here -- the same city (the run's layout.json, or the
+          scene's city_obstacles file), the exact SwarmManager values the run logged, the recorded start, and the
+          bench's own pilot (stick at the next waypoint, capture radius, timeouts, spread schedule) -- and compared:
+          centroid track error, mean nearest-neighbour spacing, drones lost, and for spread steps the settled ring
+          and t90. VALIDATION_LIMITS is the pass/fail gate the visibility study puts before its Tier B' results.
 
 Run with the `stitching` env. Output goes to <test>/results/replica/ (or --out).
 
@@ -231,8 +238,10 @@ class City:
         self.flat = np.abs(self.unit[..., 1]) < 0.5       # the box axes that lie in the horizontal
 
     @classmethod
-    def for_run(cls, goals, city_name):
-        return cls(analyse.scene_boxes(goals, city_name))
+    def for_run(cls, goals, city_name, layout=""):
+        """A recorded run's buildings: its own generated layout when the session names one (ProceduralCityWorld,
+        whose goals are already boxes in it), else the test's tile city with the run's goal patches swapped in."""
+        return cls(analyse.scene_boxes(goals, layout or city_name))
 
     def _proj(self, P, B, alt):
         d = np.zeros((len(P), len(B), 3))
@@ -423,21 +432,108 @@ class Sim:
         P = P + V * m.dt
         self.w[idx], self.th[idx], self.V[idx], self.P[idx] = w, th, V, P
         self.tick += 1
+        self._losses(idx, P, dref)
 
-        # ---- losses: pairs closer than PAIR_KILL_M, and drones inside a building footprint
+    def _pair_losses(self, P, dref):
+        """Local indices of the drones in a pair closer than PAIR_KILL_M (DroneHealthMonitor: both die)."""
         dead = set()
-        if n > 1:
+        if len(P) > 1:
             Dt = np.linalg.norm(P[None] - P[:, None], axis=-1)
             for i, j in zip(*np.where(np.triu(Dt < PAIR_KILL_M, 1))):
                 if i in dead or j in dead:
                     continue
                 dead |= {i, j}
                 self.kills.append((self.t, "drone", dref))
+        return dead
+
+    def _losses(self, idx, P, dref):
+        """The replica's loss rule: pairs closer than PAIR_KILL_M, and drones inside a building footprint."""
+        dead = self._pair_losses(P, dref)
         for i in np.flatnonzero(self.city.footprint_hit(P, self.cand, DRONE_HALF_M)):
             if i not in dead:
                 dead.add(i)
                 self.kills.append((self.t, "building", dref))
         self.alive[idx[list(dead)]] = False
+
+
+PHYSX_FRICTION = 0.6    # the default PhysicMaterial's friction: no building or drone collider here sets its own
+TOUCH_MARGIN_M = 0.15   # beyond the push-out's 0.05 m: a drone held against a wall stays one contact
+
+
+class ContactSim(Sim):
+    """Sim with Unity's loss rules in place of the replica's footprint kill. A drone that enters a building
+    footprint is a CONTACT, as PhysX resolves it: put back on the footprint's surface (plus DRONE_HALF_M) with the
+    velocity into it removed; with `friction` (Coulomb; PhysX's default material, which every building here has, is
+    0.6) the velocity along the facade loses up to friction x the normal velocity removed, so a drone that cohesion
+    keeps pressing into a wall can stick to it, as it does in Unity. `contacts` counts contact EVENTS as the bench's
+    OnCollisionEnter does (a drone still touching from the previous tick, within TOUCH_MARGIN_M, is not a new one);
+    `contact_ticks` counts ticks in contact. A drone whose nearest live neighbour is beyond the cohesion cutoff
+    (r0_eff x S) is lost as DroneHealthMonitor.IsTooFarFromSwarm loses it. Pair kills stand. No flips, no ground,
+    no altitude. citysim (Tier B / B') and `validate` fly this; `validate` is its gate against the bench."""
+
+    def __init__(self, *a, isolation=True, friction=PHYSX_FRICTION, **kw):
+        super().__init__(*a, **kw)
+        self.contacts = 0
+        self.contact_ticks = 0
+        self.touching = np.zeros(len(self.P), bool)
+        self.isolation = isolation
+        self.friction = float(friction)
+
+    def _losses(self, idx, P, dref):
+        dead = self._pair_losses(P, dref)
+        pushed = np.zeros(len(self.P), bool)
+        for i in np.flatnonzero(self.city.footprint_hit(P, self.cand, DRONE_HALF_M)):
+            if i in dead:
+                continue
+            g = idx[i]
+            self.P[g], self.V[g] = push_out(self.city, self.cand, self.P[g], self.V[g], friction=self.friction)
+            pushed[g] = True
+            self.contact_ticks += 1
+            if not self.touching[g]:
+                self.contacts += 1
+        # a contact begins with a push-out and lasts while the drone stays within TOUCH_MARGIN_M of the footprint
+        near = self.city.footprint_hit(self.P[idx], self.cand, DRONE_HALF_M + TOUCH_MARGIN_M)
+        self.touching[idx] = pushed[idx] | (self.touching[idx] & near)
+        if self.isolation:
+            live = [k for k in range(len(idx)) if k not in dead]
+            if len(live) > 1:
+                Q = self.P[idx[live]]
+                D = np.linalg.norm(Q[None] - Q[:, None], axis=-1)
+                np.fill_diagonal(D, np.inf)
+                for k in np.flatnonzero(D.min(1) > self.m.r0_eff(dref) * self.m.S):
+                    dead.add(live[k])
+                    self.kills.append((self.t, "isolated", dref))
+        self.alive[idx[list(dead)]] = False
+
+
+def push_out(city, cand, p, v, margin=DRONE_HALF_M + 0.05, friction=0.0):
+    """The nearest point outside every candidate footprint (grown by margin), and v without its inward part (and,
+    with friction, with its part along the face reduced by up to friction x the inward part removed)."""
+    for _ in range(4):
+        inside = False
+        for b in cand:
+            o = (np.array([p[0], 0.0, p[1]]) - city.c3[b]) @ city.unit[b].T
+            flat = city.flat[b]
+            half = city.half[b] + margin
+            if not (np.abs(o[flat]) <= half[flat]).all():
+                continue
+            inside = True
+            ks = np.flatnonzero(flat)
+            k = ks[np.argmin(half[ks] - np.abs(o[ks]))]          # leave through the nearest face
+            nrm3 = city.unit[b, k] * np.sign(o[k] if o[k] != 0 else 1.0)
+            nrm = nrm3[[0, 2]] / max(np.linalg.norm(nrm3[[0, 2]]), 1e-9)
+            p = p + (half[k] - abs(o[k]) + 1e-3) * nrm
+            vn = float(v @ nrm)
+            if vn < 0:
+                v = v - vn * nrm
+                if friction > 0:
+                    vt = v - float(v @ nrm) * nrm
+                    st = float(np.linalg.norm(vt))
+                    if st > 1e-9:
+                        v = v - vt * min(1.0, friction * -vn / st)
+        if not inside:
+            break
+    return p, v
 
 
 def formation_sample(P):
@@ -461,8 +557,10 @@ def load_run(test_dir, stem):
     piv = {k: dr.pivot_table(index="t", columns="droneId", values=k) for k in ["gtX", "gtY", "gtZ", "alive", "yawDeg"]}
     T = piv["gtX"].index.values
     P3 = np.stack([piv["gtX"].values, piv["gtY"].values, piv["gtZ"].values], -1)
+    layout = session.get("layout") or {}
     return dict(stem=stem, T=T, P3=P3, alive=piv["alive"].values > 0.5, yaw=piv["yawDeg"].values,
-                hd=hd, sh=sh, goals=session.get("goals", []))
+                hd=hd, sh=sh, goals=session.get("goals", []),
+                layout=layout.get("id", "") if isinstance(layout, dict) else "")
 
 
 def recorded_core(sh):
@@ -474,7 +572,7 @@ def run_sim(job):
     stem, label, swarm, air, city_name, test_dir, seed = job
     R = load_run(test_dir, stem)
     m = Model(swarm, air)
-    city = City.for_run(R["goals"], city_name)
+    city = City.for_run(R["goals"], city_name, R["layout"])
     T, P3 = R["T"], R["P3"]
     alt_mean = np.nanmean(P3[..., 1], 1)
     k0 = int(np.argmax(alt_mean > min(10.0, 0.5 * np.nanmax(alt_mean))))   # airborne
@@ -578,7 +676,7 @@ def run_forces(test_dir, city_name, crashes, swarm_for, air, window_samples):
         R["V3"] = np.gradient(R["P3"], T, axis=0)
         acc = np.gradient(R["V3"], T, axis=0)
         m = Model(swarm_for(stem), air)
-        city = City.for_run(R["goals"], city_name)
+        city = City.for_run(R["goals"], city_name, R["layout"])
         i, j = ids
         ti = int(np.searchsorted(T, tcrash)) - 2       # last sample with both alive and a clean central difference
         print(f"\n==== {stem} t={tcrash:.2f} pair {i},{j}   closing acceleration, m/s^2 (+ = pushes the pair together)")
@@ -677,6 +775,261 @@ def step_metrics(rec, t_step, t_end):
     w = (t > t_step) & (t <= t_end)
     tt, frac = t[w] - t_step, (R[w] - r0) / (r1 - r0)
     return r1, tt[np.argmax(frac >= 0.5)], tt[np.argmax(frac >= 0.9)], max(0.0, frac.max() - 1.0) * 100
+
+
+# ============================================================================= validate: the replica against the bench
+
+# The gate (per run, over its recorded flights). Positions: the replica's centroid may drift from Unity's by this
+# share of the flown path (median over flights); spacing: mean nearest-neighbour within this relative error
+# (median); losses: the replica's and the bench's drones lost may differ by at most this many in total per 10
+# flights; spread steps: t90 within this many seconds (median).
+VALIDATION_LIMITS = dict(track_frac=0.10, nn_rel=0.15, lost_per10=2.0, t90_s=1.5)
+
+
+def read_bench_run(run_dir):
+    """(config, start line, {set label: params line}, [flight lines]) of a bench run folder."""
+    run_dir = Path(run_dir)
+    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    start, params, flights = None, {}, []
+    for line in (run_dir / "results.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        d = json.loads(line)
+        if d.get("event") == "start":
+            start = d
+        elif d.get("event") == "params":
+            params[d["set"]] = d
+        elif d.get("event") == "flight":
+            flights.append(d)
+    return cfg, start, params, flights
+
+
+def bench_city(run_dir, cfg):
+    """The buildings the bench flew among, as replica boxes: the run's layout, else the scene's city file."""
+    lay_file = Path(run_dir) / "layout.json"
+    if cfg.get("layout"):
+        src = str(lay_file) if lay_file.exists() else cfg["layout"]
+        boxes, _ = analyse.load_city(src)
+        return list(boxes)
+    if cfg.get("goalReplaySession"):
+        raise ValueError("a run that replayed a session's goals: validate needs that session's goal list (not wired)")
+    boxes, _ = analyse.load_city(Path(cfg["scene"]).stem)
+    return list(boxes)
+
+
+def spread_at(sched, t):
+    """SwarmBenchRunner.SpreadAt: piecewise linear over (t, d_ref) pairs, held past the ends; -1 = none."""
+    if not sched or len(sched) < 2:
+        return -1.0
+    ts, vs = sched[0::2], sched[1::2]
+    if t <= ts[0]:
+        return vs[0]
+    for q in range(1, len(ts)):
+        if t <= ts[q]:
+            t0, t1, v0, v1 = ts[q - 1], ts[q], vs[q - 1], vs[q]
+            return v1 if t1 - t0 < 1e-6 else v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return vs[-1]
+
+
+HOLD_GAIN = 0.25    # 1/s, SwarmBenchRunner's default holdGain (citysim.formation.PILOT_GAIN)
+
+
+def bench_capture(sc, wps, wp, capture):
+    """SwarmBenchRunner.CaptureRadius: the waypoint before a hold is captured within the scenario's `arrive`."""
+    nxt = wp + 1
+    if (sc.get("arrive") or 0) > 0 and 4 * nxt + 2 < len(wps) and wps[4 * nxt + 2] < 0:
+        return float(sc["arrive"])
+    return capture
+
+
+def replay_flight(job):
+    """One recorded bench flight flown again by the replica; per-flight comparison metrics."""
+    run_dir, label, index, sc, effective, air, capture, boxes, seed, buildings, friction = job
+    traj = Path(run_dir) / f"traj_{label}_{index}.csv"
+    df = pd.read_csv(traj)
+    n = sum(1 for c in df.columns if c.startswith("x") and c[1:].isdigit())
+    X = df[[f"x{i}" for i in range(n)]].values
+    Z = df[[f"z{i}" for i in range(n)]].values
+    mask = ((df.alive_mask.values[:, None] >> np.arange(n)) & 1).astype(bool)
+    t_rec = df.t.values
+    swarm = {k: v for k, v in effective.items()}
+    m = Model(swarm, air)
+    alive0 = mask[0]
+    P0 = np.c_[X[0], Z[0]][alive0]
+    k1 = 1 if len(df) > 1 else 0
+    V0 = (np.c_[X[k1], Z[k1]][alive0] - P0) / max(t_rec[k1] - t_rec[0], 1e-6)
+    if buildings == "contact":
+        sim = ContactSim(m, City(boxes), P0, V0, seed, friction=friction)
+    else:
+        sim = Sim(m, City(boxes), P0, V0, seed)
+    wps = sc.get("wps") or []
+    nwp, wp = len(wps) // 4, 0
+    wp_t0 = 0.0
+    d_scene = float(effective["d_ref"])
+    hold_gain = float(sc.get("holdGain") or HOLD_GAIN) / m.max_speed
+    rec = []
+    while sim.t < sc["T"] - 1e-9 and sim.alive.sum() > 0:
+        if sc.get("endOnDone") and nwp > 0 and wp >= nwp:
+            break
+        c = sim.P[sim.alive].mean(0)
+        cmd = np.zeros(2)
+        holding = False
+        if wp < nwp:   # SwarmBenchRunner's waypoint pilot, hold waypoints (negative stick) included
+            d = np.array([wps[4 * wp], wps[4 * wp + 1]]) - c
+            dd = float(np.linalg.norm(d))
+            timeout = wps[4 * wp + 3]
+            hold = wps[4 * wp + 2] < 0
+            if (not hold and dd < bench_capture(sc, wps, wp, capture)) or (timeout > 0 and sim.t - wp_t0 > timeout):
+                wp += 1
+                wp_t0 = sim.t
+            if wp < nwp:
+                d = np.array([wps[4 * wp], wps[4 * wp + 1]]) - c
+                dd = float(np.linalg.norm(d))
+                mag = wps[4 * wp + 2]
+                if mag < 0:
+                    holding = True
+                    cmd = d * hold_gain
+                    sn = float(np.linalg.norm(cmd))
+                    if sn > -mag:
+                        cmd = cmd * (-mag / sn)
+                elif dd > 1e-6:
+                    cmd = d / dd * min(max(mag, 0.0), 1.0)
+        spread = spread_at(sc.get("spread"), sim.t)
+        if holding and (sc.get("holdSpread") or 0) > 0:
+            spread = float(sc["holdSpread"])
+        if sim.tick % 5 == 0:
+            Pa = sim.P[sim.alive]
+            nn = np.nan
+            if len(Pa) > 1:
+                D = np.linalg.norm(Pa[None] - Pa[:, None], axis=-1)
+                np.fill_diagonal(D, np.inf)
+                nn = float(D.min(1).mean())
+            ring = float(np.linalg.norm(Pa - Pa.mean(0), axis=1).mean()) if len(Pa) else np.nan
+            rec.append((sim.t, *Pa.mean(0), nn, ring, len(Pa)))
+        sim.step(cmd, 0.0, spread if spread >= 0 else d_scene)
+    R = np.array(rec, float).reshape(-1, 6)
+    # the bench's own series on its clock
+    cx = np.nanmean(np.where(mask, X, np.nan), axis=1)
+    cz = np.nanmean(np.where(mask, Z, np.nan), axis=1)
+    bnn, bring = [], []
+    for k in range(len(df)):
+        Pa = np.c_[X[k], Z[k]][mask[k]]
+        if len(Pa) > 1:
+            D = np.linalg.norm(Pa[None] - Pa[:, None], axis=-1)
+            np.fill_diagonal(D, np.inf)
+            bnn.append(float(D.min(1).mean()))
+        else:
+            bnn.append(np.nan)
+        bring.append(float(np.linalg.norm(Pa - Pa.mean(0), axis=1).mean()) if len(Pa) else np.nan)
+    bnn, bring = np.array(bnn), np.array(bring)
+    T = min(t_rec[-1], R[-1, 0]) if len(R) else 0.0
+    tg = np.arange(0.0, T, 0.1)
+    rx = np.interp(tg, R[:, 0], R[:, 1])
+    rz = np.interp(tg, R[:, 0], R[:, 2])
+    bx = np.interp(tg, t_rec, cx)
+    bz = np.interp(tg, t_rec, cz)
+    err = np.hypot(rx - bx, rz - bz)
+    path = float(np.hypot(np.diff(bx), np.diff(bz)).sum()) if len(bx) > 1 else 0.0
+    r_nn = np.interp(tg, R[:, 0], R[:, 3])
+    b_nn = np.interp(tg, t_rec, bnn)
+    ok = np.isfinite(r_nn) & np.isfinite(b_nn)
+    out = dict(set=label, scenario=index, kind=sc["kind"], drones=int(alive0.sum()), seconds=round(float(T), 1),
+               path_m=round(path, 1), track_rmse_m=round(float(np.sqrt(np.mean(err ** 2))), 2) if len(err) else np.nan,
+               track_end_m=round(float(err[-1]), 2) if len(err) else np.nan,
+               nn_bench_m=round(float(np.mean(b_nn[ok])), 3) if ok.any() else np.nan,
+               nn_replica_m=round(float(np.mean(r_nn[ok])), 3) if ok.any() else np.nan,
+               lost_bench=int(alive0.sum() - mask[-1].sum()), lost_replica=int(alive0.sum() - sim.alive.sum()),
+               replica_pair_kills=sum(1 for k in sim.kills if k[1] == "drone"),
+               replica_building_kills=sum(1 for k in sim.kills if k[1] == "building"),
+               replica_isolated=sum(1 for k in sim.kills if k[1] == "isolated"),
+               replica_contacts=int(getattr(sim, "contacts", 0)),
+               replica_kills=[k[1] for k in sim.kills])
+    if sc["kind"].startswith("step_") and sc.get("spread") and len(sc["spread"]) >= 4:
+        t_step = sc["spread"][2]
+        out.update({f"{who}_{k}": v for who, (tt, rr) in (("bench", (t_rec, bring)), ("replica", (R[:, 0], R[:, 4])))
+                    for k, v in zip(("ring_m", "t90_s"), _settle(tt, rr, t_step))})
+    return out
+
+
+def _settle(t, ring, t_step):
+    """(settled ring radius, t90) of a spread step."""
+    t, ring = np.asarray(t, float), np.asarray(ring, float)
+    r0 = np.nanmean(ring[(t > t_step - 3) & (t <= t_step)])
+    r1 = np.nanmean(ring[t > t[-1] - 5])
+    w = t > t_step
+    if not np.isfinite(r0) or abs(r1 - r0) < 1e-6:
+        return round(float(r1), 2), np.nan
+    frac = (ring[w] - r0) / (r1 - r0)
+    hit = np.flatnonzero(frac >= 0.9)
+    return round(float(r1), 2), round(float(t[w][hit[0]] - t_step), 2) if len(hit) else np.nan
+
+
+def cmd_validate(a):
+    check_force_law(a.allow_stale)
+    air = dict(sp.resolve_airframe())
+    rows = []
+    for run_dir in a.runs:
+        cfg, start, params, flights = read_bench_run(run_dir)
+        boxes = bench_city(run_dir, cfg)
+        jobs = []
+        for f in flights:
+            label, idx = f["set"], int(f["scenario"])
+            if not (Path(run_dir) / f"traj_{label}_{idx}.csv").exists():
+                continue
+            eff = params[label]["effective"]
+            jobs.append((run_dir, label, idx, cfg["scenarios"][idx], eff, air, float(cfg.get("capture", 10.0)), boxes,
+                         a.seed, a.buildings, a.friction))
+        if not jobs:
+            print(f"[replica] {run_dir}: no recorded trajectories (fly it with bench.py config --record-all)")
+            continue
+        with Pool(min(a.jobs, len(jobs))) as pool:
+            res = pool.map(replay_flight, jobs)
+        bench = {(f["set"], int(f["scenario"])): f for f in flights}
+        for r in res:
+            r["run"] = Path(run_dir).name
+            f = bench.get((r["set"], int(r["scenario"])), {})
+            r["bench_contacts"] = f.get("contacts", np.nan)
+            r["bench_deaths"] = ";".join(f"{k}={v}" for k, v in sorted((f.get("deaths") or {}).items()))
+        rows += res
+    if not rows:
+        sys.exit(2)
+    df = pd.DataFrame(rows)
+    df["track_frac"] = df.track_rmse_m / df.path_m.clip(lower=50.0)
+    df["nn_rel"] = (df.nn_replica_m - df.nn_bench_m).abs() / df.nn_bench_m
+    pd.set_option("display.width", 250)
+    cols = ["run", "set", "scenario", "kind", "drones", "seconds", "path_m", "track_rmse_m", "track_end_m",
+            "nn_bench_m", "nn_replica_m", "lost_bench", "lost_replica", "bench_contacts", "replica_contacts"]
+    print(df[[c for c in cols if c in df]].to_string(index=False))
+    verdicts = []
+    for run, g in df.groupby("run"):
+        multi = g[g.drones > 1]
+        steps = g[g.kind.str.startswith("step_")]
+        v = dict(run=run, flights=len(g), buildings=a.buildings, friction=a.friction,
+                 lost_bench=int(g.lost_bench.sum()), lost_replica=int(g.lost_replica.sum()),
+                 contacts_bench=int(np.nansum(g.bench_contacts)), contacts_replica=int(g.replica_contacts.sum()),
+                 track_frac_median=round(float(g.track_frac.median()), 3),
+                 nn_rel_median=round(float(multi.nn_rel.median()), 3) if len(multi) else np.nan,
+                 lost_diff_per10=round(abs(int(g.lost_replica.sum()) - int(g.lost_bench.sum())) * 10.0 / len(g), 2),
+                 t90_diff_median=round(float((steps.replica_t90_s - steps.bench_t90_s).abs().median()), 2)
+                 if len(steps) and "bench_t90_s" in steps else np.nan)
+        L = VALIDATION_LIMITS
+        fails = [k for k, ok in (("track", v["track_frac_median"] <= L["track_frac"]),
+                                 ("spacing", not (v["nn_rel_median"] > L["nn_rel"])),
+                                 ("losses", v["lost_diff_per10"] <= L["lost_per10"]),
+                                 ("t90", not (v["t90_diff_median"] > L["t90_s"]))) if not ok]
+        v["verdict"] = "PASS" if not fails else "FAIL (" + ", ".join(fails) + ")"
+        verdicts.append(v)
+    vd = pd.DataFrame(verdicts)
+    print("\n" + vd.to_string(index=False))
+    print(f"limits: {VALIDATION_LIMITS}; buildings as {a.buildings}" +
+          (f" (friction {a.friction})" if a.buildings == "contact" else ""))
+    if a.out:
+        out = Path(a.out)
+        out.mkdir(parents=True, exist_ok=True)
+        df.drop(columns=["replica_kills"]).to_csv(out / f"validate_{stamp()}.csv", index=False)
+        vd.to_csv(out / f"validate_verdicts_{stamp()}.csv", index=False)
+        print(f"written {out}")
+    sys.exit(0 if all(v["verdict"] == "PASS" for v in verdicts) else 1)
 
 
 # ============================================================================= command line
@@ -886,6 +1239,19 @@ def main():
     p.add_argument("--seeds", type=int, default=6)
     p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
     p.set_defaults(func=cmd_step)
+
+    p = sub.add_parser("validate", help="fly a bench run's recorded flights again and compare (the replica's gate)")
+    p.add_argument("runs", nargs="+", help="bench run folders (runs/<tag>) flown with --record-all")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    p.add_argument("--out", help="write the per-flight table and the verdicts here")
+    p.add_argument("--allow-stale", action="store_true", help="run even if the mirrored C# has changed")
+    p.add_argument("--buildings", choices=["contact", "kill"], default="contact",
+                   help="a footprint entry is a contact, as PhysX resolves it (ContactSim, what citysim flies; "
+                        "default) or a kill (Sim, what `sim` and `forces` fly)")
+    p.add_argument("--friction", type=float, default=PHYSX_FRICTION,
+                   help="Coulomb friction on contacts (default %(default)s, PhysX's default material)")
+    p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("params", help="print the resolved parameters and their sources")
     common(p)

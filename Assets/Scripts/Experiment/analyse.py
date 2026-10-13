@@ -27,7 +27,11 @@ test.json
      "city": "DiamondCityWorld"}
 `city` names the scene the runs were flown in (default ScaledCityWorld): the buildings for the hat line of
 sight and the turning maps are read from city_obstacles_<city>.json (Tools/Swarm/Export city obstacles), and
-the run's goals must each match one of that file's tiles or plazas. Each practice entry names runs by prefix, case-insensitively and in whole '_'-separated fields: "AABD_t1"
+the run's goals must each match one of that file's tiles or plazas. `goalPatchWidth` (default 2) is the goal
+patches' BuildingWidthTuner.goalPatchWidthScale as flown: 2 in every test since 2026-09-15, 1 for July's.
+A run flown in a generated city (ProceduralCityWorld) names its layout in its session JSON ("layout": {"id", ...}):
+that layout is the run's city, whatever test.json says, its goals are discs (zoneShape "disc", patchRadius) rather
+than tiles, and its streets are the layout's own (citysim/layout.py). Each practice entry names runs by prefix, case-insensitively and in whole '_'-separated fields: "AABD_t1"
 matches AABD_t1_Swarm_20261001_101500 but not AABD_t10_... . `group` pre-fills the list with each
 participant's first trial in each condition. Practice runs stay in every table (the `practice` column) and
 are left out of every figure and summary; --include-practice puts them back and writes the figures to
@@ -35,7 +39,9 @@ plots/<test>/with_practice/ instead.
 
 Phases -- one definition, used by every metric (--zone, default 15 m). A goal's zone is its tile (a square
 of half-width TILE_HALF about the goal patch centre: the block plus half of each surrounding street) grown
-by `zone` metres, so 15 m takes in the whole street around the patch, up to the opposite kerb. Position is
+by `zone` metres, so 15 m takes in the whole street around the patch, up to the opposite kerb. A procedural
+goal's patch is a disc of its patchRadius instead (ring radius plus a ring building's half-diagonal), grown
+the same way -- the zone ExperimentRecorder's auto-scored identify uses (IGoalZone). Position is
 the centroid of the alive drones (the drone itself in SingleDrone runs). Goals are ordered by first entry
 into their zone. *Transit* leg k runs from the last exit of zone k-1 before that entry (the session start
 for k = 1, so it includes take-off) to the first entry of zone k; *search* k runs from that entry to the
@@ -45,18 +51,25 @@ back is still searching it. A goal whose zone is never entered has no phases and
 Each metric family is documented in its own section below. Subcommands: status, group, archive, answers,
 run, maps, quicklook -- `python analyse.py <command> -h` for each.
 """
-import argparse
-import csv
-import datetime
-import glob
-import json
-import math
-import os
-import re
-import shutil
+import sys
 
-import numpy as np
-import pandas as pd
+sys.dont_write_bytecode = True   # nothing under Assets/ may grow a __pycache__ (citysim is imported below)
+
+import argparse  # noqa: E402
+import csv  # noqa: E402
+import datetime  # noqa: E402
+import glob  # noqa: E402
+import json  # noqa: E402
+import math  # noqa: E402
+import os  # noqa: E402
+import re  # noqa: E402
+import shutil  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from citysim.camera import HFOV_HALF, VFOV_HALF  # noqa: E402  (the one copy of the FPV field of view)
 
 # ============================================================================= constants
 
@@ -185,14 +198,19 @@ def read_events(path):
 class Run:
     """One recorded run with every file read once. Optional files that are missing are None."""
 
-    def __init__(self, folder, stem, practice=False, city=DEFAULT_CITY):
+    def __init__(self, folder, stem, practice=False, city=DEFAULT_CITY, goal_width=None):
         self.folder, self.stem, self.practice, self.city = folder, stem, practice, city
+        self.goal_width = GOAL_PATCH_WIDTH if goal_width is None else float(goal_width)
         p = parse_stem(stem)
         self.pid, self.trial, self.date, self.timestamp = p["pid"], p["trial"], p["date"], p["timestamp"]
         with open(self.path("session.json"), encoding="utf-8") as f:
             self.session = json.load(f)
         self.condition = self.session["condition"]
         self.duration = float(self.session["durationSec"])
+        layout = self.session.get("layout") or {}
+        self.layout_id = layout.get("id", "") if isinstance(layout, dict) else ""
+        if self.layout_id:      # a procedural city: the run's own layout is its city
+            self.city = self.layout_id
         self.goals = self.session.get("goals", [])
         self.head = self._csv("head")
         self.drones = self._csv("drones")
@@ -234,9 +252,10 @@ def load_test(root, test):
         if not any(matches(s, e) for s in stems):
             warn(f"{MANIFEST}: practice entry {e!r} matches no run")
     city = manifest.get("city", DEFAULT_CITY)
+    goal_width = manifest.get("goalPatchWidth", GOAL_PATCH_WIDTH)
     runs = []
     for s in stems:
-        r = attempt("loading", s, Run, folder, s, any(matches(s, e) for e in entries), city)
+        r = attempt("loading", s, Run, folder, s, any(matches(s, e) for e in entries), city, goal_width)
         if r is not None:
             runs.append(r)
     runs.sort(key=lambda r: (r.pid, r.trial, r.timestamp))
@@ -252,10 +271,18 @@ def load_test(root, test):
 # ============================================================================= phases
 
 def tile_distance(x, z, g):
-    """Horizontal distance from (x, z) to goal g's tile, 0 anywhere over it."""
+    """Horizontal distance from (x, z) to goal g's patch, 0 anywhere over it: its tile, or for a procedural goal
+    (zoneShape "disc") the disc of its patchRadius about the goal centre."""
+    if g.get("zoneShape") == "disc":
+        return np.maximum(np.hypot(np.asarray(x) - g["goalX"], np.asarray(z) - g["goalZ"]) - g["patchRadius"], 0)
     ex = np.maximum(np.abs(x - g["goalX"]) - TILE_HALF, 0)
     ez = np.maximum(np.abs(z - g["goalZ"]) - TILE_HALF, 0)
     return np.hypot(ex, ez)
+
+
+def patch_half(g):
+    """Half the extent of a goal's patch: the tile's half-width, or a procedural goal's patch radius."""
+    return g["patchRadius"] if g.get("zoneShape") == "disc" else TILE_HALF
 
 
 def goal_legs(run, zone):
@@ -634,38 +661,78 @@ def proximity_family(run, legs, cfg):
 #              although they never came closer than 27-34 m, so the true limit is >= ~35 m; at 40 m the
 #              walker is ~34 px tall in the 1152x648 feed and the hat ~6 px across.
 #   2. heading the hat is inside the camera's horizontal field of view (74.4 deg: the DJI Mini 3 Pro's
-#              82.1 deg diagonal at 16:9, as ScreenSpawn sets it).
+#              82.1 deg diagonal at 16:9, as ScreenSpawn sets it; citysim/camera.py holds the number).
 #   3. sight   the line from the camera to the hat misses every building: the city's colliders
 #              (city_obstacles_<city>.json, from Tools/Swarm/Export city obstacles) minus the
-#              tiles the goals replaced, plus each goal patch's own nine buildings.
+#              tiles the goals replaced, plus each goal patch's own nine buildings at the width they
+#              had in the run (goal_boxes; test.json "goalPatchWidth", default 2).
 # The gimbal pitch is not tested (the camera is assumed pitched to where the walker is); levelCamPct is the
 # share of the in-view time a level gimbal would also have covered. Head direction is not used: this is time
 # the hat was on a feed, not on the pilot's eye.
 # Per goal: inViewSec (summed in-view time), firstSightSec, observation episodes (in-view samples joined
 # across gaps <= GAP_S) and the longest one's span, hatMinDistM (closest camera while in view),
 # meanDronesInView, occludedSec (in range and heading but blocked, and no other drone saw it).
+#
+# The same test on the bases the visibility study compares (citysim/replay.py), added beside those:
+#   inViewShownSec / firstSightShownSec / occludedShownSec   only cameras whose feed was on the ring: a swarm
+#        drone while it was a (debounced) hull vertex turned onto its heading, a lone drone always. Runs from
+#        2026-10-12 on log `shown` per drone; older runs have it rebuilt from the hull rule (shownBasis says which).
+#   inViewHeadSec   ... and on a feed inside the HMD's +-50 deg of the recorded head yaw (the single drone's feed is
+#        in front: = shown).
+#   inViewGazeSec   ... and on the feed the recorded gaze ray hit (runs from 2026-10-12 on; NaN before).
+#   candidateSec / escapeShownSec   occlusion escape's denominators: time some camera had the hat in range and
+#        heading but blocked, and the part of it another shown feed saw the hat.
+#   sightToPressSec   the identify press (decisionTimeSec) minus the first sight on a shown feed: how long the hat
+#        was on screen before the pilot answered -- the utilisation gap.
 
-ASPECT = 16 / 9
-VFOV_HALF = math.atan(math.tan(math.radians(82.1 / 2)) / math.sqrt(ASPECT ** 2 + 1))
-HFOV_HALF = math.atan(math.tan(VFOV_HALF) * ASPECT)
 GAP_S = 5.0          # s, gaps up to this long do not split an episode
 HAT_HEIGHT = 1.6     # m above the walker's logged position (0.2 m up) -> hat centre ~1.8 m above ground
-# Goal patch buildings (goal_patch_Scaled.prefab, goal-root frame): x0, x1, z0, z1; all 0.2..50.2 tall.
-# StreetWidthTuner (blockScale 0.8) moves them about the kerb at runtime; sizes are unchanged.
-GOAL_PILLARS = [
-    (2.0, 4.7, 27.2, 30.2), (-31.2, -29.2, 26.8, 29.8), (2.0, 4.7, -31.4, -28.4), (29.8, 31.8, 26.8, 29.8),
-    (-31.3, -28.3, 0.2, 2.9), (-31.2, -29.2, -31.8, -28.8), (29.8, 31.8, -31.8, -28.8), (28.9, 31.9, 0.2, 2.9),
-    (-1.4, 2.1, -1.5, 1.3)]
+# Goal patch buildings (goal_patch_Scaled.prefab) as they stand at runtime, in the goal-root frame: each
+# building's pivot after StreetWidthTuner (blockScale 0.8) has moved it about the kerb, the offset of its
+# collider's centre from that pivot, and the collider's horizontal half-extents -- the last two at the prefab
+# width. BuildingWidthTuner then scales a goal building's two horizontal local axes about its pivot by
+# goalPatchWidthScale, which scales the offset and the half-extents together (goal_boxes). Every test since
+# 2026-09-15 flew goalPatchWidthScale 2 (centre 6.96 x 5.50 m, ring 5.34 x 5.94 / 4.04 x 5.87 m); July's ran at 1.
+# Resolved from the prefab's transforms and BoxColliders (pivot x, pivot z, dx, dz, half x, half z); the
+# previous table scaled each box's centre rather than its pivot about the kerb and ignored the width.
+GOAL_BUILDINGS = [
+    (3.297, 22.960, -0.648, 0.000, 1.334, 1.486),     # BnP_Small_Building_F_017   (patrolled)
+    (-24.087, 22.640, 0.000, 0.000, 1.010, 1.469),    # BnP_Small_Building_G_022
+    (3.297, -23.920, -0.648, 0.000, 1.334, 1.486),    # BnP_Small_Building_F_015
+    (24.713, 22.640, 0.000, 0.000, 1.010, 1.469),     # BnP_Small_Building_G_020
+    (-23.767, 1.760, 0.000, -0.648, 1.486, 1.334),    # BnP_Small_Building_F_016
+    (-24.087, -24.240, 0.000, 0.000, 1.010, 1.469),   # BnP_Small_Building_G_023
+    (24.713, -24.240, 0.000, 0.000, 1.010, 1.469),    # BnP_Small_Building_G_021
+    (24.393, 1.760, 0.000, -0.648, 1.486, 1.334),     # BnP_Small_Building_F_018
+    (0.348, -0.072, 0.000, 0.000, 1.740, 1.376)]      # BnP_Apartment_B_016        (centre, no patrol)
+GOAL_PATCH_WIDTH = 2.0     # BuildingWidthTuner.goalPatchWidthScale in every test since 2026-09-15
 GOAL_KERB_X = 0.36
 BLOCK_SCALE = 0.8
-BUILDING_TOP = 50.2
+BUILDING_BASE, BUILDING_TOP = 0.2, 50.2
 
 _CITIES = {}
 
 
+def city_file(city):
+    """("tile", path) for a tile city with a city_obstacles_<city>.json beside this script, else ("layout", path)
+    for a generated layout (a path, or an id under layouts/; citysim.layout.resolve)."""
+    p = os.path.join(HERE, f"city_obstacles_{city}.json")
+    if os.path.exists(p):
+        return "tile", p
+    from citysim import layout as lay
+    return "layout", str(lay.resolve(city))
+
+
+def is_layout(city):
+    return city_file(city)[0] == "layout"
+
+
 def load_city(city):
+    """(boxes [(tile, centre, axes)], kerbs {tile: kerb}) of a tile city or a generated layout. A layout's file is
+    a city_obstacles file with no tiles (its goal buildings are boxes like any other), so kerbs is empty."""
     if city not in _CITIES:
-        with open(os.path.join(HERE, f"city_obstacles_{city}.json"), encoding="utf-8") as f:
+        _, path = city_file(city)
+        with open(path, encoding="utf-8-sig") as f:
             d = json.load(f)
         boxes = [(b["tile"], np.array(b["c"]), np.array(b["ax"], dtype=float)) for b in d["boxes"]]
         kerbs = {t["name"]: np.array(t["kerb"]) for t in d["tiles"] if t["kerb"]}
@@ -673,21 +740,22 @@ def load_city(city):
     return _CITIES[city]
 
 
-def pillar_boxes(gx, gz):
+def goal_boxes(gx, gz, width=GOAL_PATCH_WIDTH):
+    """A goal patch's nine buildings, rooted at (gx, gz), at goalPatchWidthScale `width`."""
     out = []
-    for x0, x1, z0, z1 in GOAL_PILLARS:
-        cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
-        cx = GOAL_KERB_X + BLOCK_SCALE * (cx - GOAL_KERB_X)
-        cz = BLOCK_SCALE * cz
-        c = np.array([gx + cx, (0.2 + BUILDING_TOP) / 2, gz + cz])
-        ax = np.diag([(x1 - x0) / 2, (BUILDING_TOP - 0.2) / 2, (z1 - z0) / 2])
+    for px, pz, dx, dz, hx, hz in GOAL_BUILDINGS:
+        c = np.array([gx + px + width * dx, (BUILDING_BASE + BUILDING_TOP) / 2, gz + pz + width * dz])
+        ax = np.diag([width * hx, (BUILDING_TOP - BUILDING_BASE) / 2, width * hz])
         out.append(("goal", c, ax))
     return out
 
 
-def scene_boxes(goals, city_name):
-    """City buildings minus the tiles the goals replaced, plus each goal patch's own buildings."""
+def scene_boxes(goals, city_name, goal_width=GOAL_PATCH_WIDTH):
+    """City buildings minus the tiles the goals replaced, plus each goal patch's own buildings. A generated layout
+    already holds its goals' buildings, at their size, so it is returned as it stands."""
     city, kerbs = load_city(city_name)
+    if is_layout(city_name):
+        return list(city)
     replaced = set()
     for g in goals:
         name, dist = min(((n, math.hypot(k[0] - GOAL_KERB_X - g["goalX"], k[2] - g["goalZ"]))
@@ -698,7 +766,7 @@ def scene_boxes(goals, city_name):
         replaced.add(name)
     boxes = [b for b in city if b[0] not in replaced]
     for g in goals:
-        boxes += pillar_boxes(g["goalX"], g["goalZ"])
+        boxes += goal_boxes(g["goalX"], g["goalZ"], goal_width)
     return boxes
 
 
@@ -753,7 +821,7 @@ def hat_family(run, cfg):
         raise ValueError("no _walkers.csv")
     dr, wk = run.alive, run.walkers
     ts, dt = run.ct, run.cdt
-    boxes = scene_boxes(run.goals, run.city)
+    boxes = scene_boxes(run.goals, run.city, run.goal_width)
     r_id = cfg.range
     rows = []
     for gi, g in enumerate(run.goals):
@@ -796,7 +864,32 @@ def hat_family(run, cfg):
             levelCamPct=round(100 * level / in_view) if in_view else None,
             occludedSec=round(blocked_only, 1),
             episodes=" | ".join(f"{a:.0f}-{b:.0f} ({v:.0f}s)" for a, b, v in eps)))
+    add_study_bases(run, boxes, rows)
     return rows
+
+
+def add_study_bases(run, boxes, rows):
+    """The shown / head / gaze columns of the hat family (see above), merged into the goal rows by goalIndex."""
+    from citysim import replay
+    shown_basis = "recorded" if "shown" in run.drones else "reconstructed"
+    by_idx = {r["goalIndex"]: r for r in rows}
+    for b in replay.hat_bases(run, boxes):
+        row = by_idx.get(b["goalIndex"])
+        if row is None:
+            continue
+        t, dt = b["t"], b["dt"]
+        first_shown, shown_s, _ = replay.episodes_first(t, dt, b["shown"])
+        row.update(shownBasis=shown_basis, inViewShownSec=round(shown_s, 1),
+                   firstSightShownSec=round(first_shown, 1) if math.isfinite(first_shown) else np.nan,
+                   inViewHeadSec=round(float(dt[b["head"]].sum()), 1),
+                   inViewGazeSec=round(float(dt[b["gaze"]].sum()), 1) if "gaze" in b else np.nan,
+                   occludedShownSec=round(float(dt[b["blocked_shown"] & ~b["shown"]].sum()), 1),
+                   candidateSec=round(float(dt[b["blocked_all"]].sum()), 1),
+                   escapeShownSec=round(float(dt[b["blocked_all"] & b["shown"]].sum()), 1))
+        g = next((g for g in run.goals if g.get("goalIndex") == b["goalIndex"]), None)
+        press = float(g.get("decisionTimeSec", -1.0)) if g else -1.0
+        row["sightToPressSec"] = round(press - first_shown, 1) if press >= 0 and math.isfinite(first_shown) \
+            and press >= first_shown else np.nan
 
 
 # ============================================================================= street use
@@ -982,12 +1075,47 @@ class StreetGrid:
         return self.x0, self.x0 + self.cls.shape[1] * GRID_RES, self.z0, self.z0 + self.cls.shape[0] * GRID_RES
 
 
+class LayoutStreetGrid(StreetGrid):
+    """A generated layout's streets on the same raster and codes as StreetGrid: a cell is street when it is within
+    half a street's width of one of the layout's centrelines, block anywhere else in the arena, outside beyond it.
+    A street segment at least long_m long is long. There are no diamonds."""
+
+    def __init__(self, city, long_m):
+        from citysim import layout as lay
+        L = lay.load(lay.resolve(city))
+        x0, x1, z0, z1 = L.layout["arena"]
+        self.x0, self.z0 = float(x0), float(z0)
+        nx, nz = int(math.ceil((x1 - x0) / GRID_RES)), int(math.ceil((z1 - z0) / GRID_RES))
+        X, Z = np.meshgrid(self.x0 + (np.arange(nx) + 0.5) * GRID_RES, self.z0 + (np.arange(nz) + 0.5) * GRID_RES)
+        P = np.c_[X.ravel(), Z.ravel()]
+        long_, short = np.zeros(len(P), bool), np.zeros(len(P), bool)
+        for st in L.streets:
+            pts = np.asarray(st["polyline"], float)
+            for a, b in zip(pts[:-1], pts[1:]):
+                lo, hi = np.minimum(a, b) - st["width"], np.maximum(a, b) + st["width"]
+                near = np.flatnonzero((P[:, 0] >= lo[0]) & (P[:, 0] <= hi[0]) & (P[:, 1] >= lo[1]) & (P[:, 1] <= hi[1]))
+                ab = b - a
+                t = np.clip(((P[near] - a) @ ab) / max(float(ab @ ab), 1e-9), 0.0, 1.0)
+                on = np.linalg.norm(P[near] - (a + t[:, None] * ab), axis=1) <= st["width"] / 2
+                (long_ if np.linalg.norm(ab) >= long_m else short)[near[on]] = True
+        cls = np.full(len(P), KINDS.index("block_low"), np.uint8)
+        cls[short] = KINDS.index("short")
+        cls[long_] = KINDS.index("long")
+        self.cls = cls.reshape(X.shape)
+        n_long, n_short = (self.cls == 1).sum(), (self.cls == 2).sum()
+        self.long_area = n_long / max(n_long + n_short, 1)
+        self.diamonds = []
+        self.city, self.long_m = city, long_m
+        print(f"[info] {city}: generated layout, {len(L.streets)} street segments; long streets (a straight segment "
+              f">= {long_m:g} m) are {100 * self.long_area:.0f}% of the street area")
+
+
 _STREETS = {}
 
 
 def street_grid(city, long_m):
     if (city, long_m) not in _STREETS:
-        _STREETS[city, long_m] = StreetGrid(city, long_m)
+        _STREETS[city, long_m] = (LayoutStreetGrid if is_layout(city) else StreetGrid)(city, long_m)
     return _STREETS[city, long_m]
 
 
@@ -1713,8 +1841,8 @@ def command_arrows(run, every_s, windows, db):
 def map_extent(runs):
     xs, zs = [], []
     for r in runs:
-        xs += list(r.cx) + [g["goalX"] + s * TILE_HALF for g in r.goals for s in (-1, 1)]
-        zs += list(r.cz) + [g["goalZ"] + s * TILE_HALF for g in r.goals for s in (-1, 1)]
+        xs += list(r.cx) + [g["goalX"] + s * patch_half(g) for g in r.goals for s in (-1, 1)]
+        zs += list(r.cz) + [g["goalZ"] + s * patch_half(g) for g in r.goals for s in (-1, 1)]
     return (min(xs) - MAP_MARGIN_M, max(xs) + MAP_MARGIN_M), (min(zs) - MAP_MARGIN_M, max(zs) + MAP_MARGIN_M)
 
 
@@ -1726,17 +1854,24 @@ def fig_turning_map(run, legs, metrics, lims, cfg, out, headline):
     colour = COLOURS[run.condition]
     (x0, x1), (z0, z1) = lims
     fig, ax = plt.subplots(figsize=(9, 9 * (z1 - z0) / (x1 - x0) + 0.9))
-    polys = [footprint(ctr, a) for _, ctr, a in scene_boxes(run.goals, run.city)]
+    polys = [footprint(ctr, a) for _, ctr, a in scene_boxes(run.goals, run.city, run.goal_width)]
     ax.add_collection(PolyCollection(polys, facecolor="0.82", edgecolor="0.62", lw=0.4, zorder=1))
 
     order = {L["gi"]: L["leg"] for L in legs}
     for gi, g in enumerate(run.goals):
-        gx, gz, r = g["goalX"], g["goalZ"], TILE_HALF
-        ax.add_patch(plt.Rectangle((gx - r, gz - r), 2 * r, 2 * r, facecolor="#e8c547", alpha=0.18,
-                                   edgecolor="#a8871a", lw=1.2, zorder=2))
-        if cfg.zone > 0:   # the zone is the tile grown by `zone` m: a rectangle with round corners
-            ax.add_patch(FancyBboxPatch((gx - r, gz - r), 2 * r, 2 * r, boxstyle=f"round,pad={cfg.zone}",
-                                        facecolor="none", edgecolor="#a8871a", lw=0.9, ls="--", zorder=2))
+        gx, gz, r = g["goalX"], g["goalZ"], patch_half(g)
+        if g.get("zoneShape") == "disc":    # a procedural goal: its patch and zone are discs
+            ax.add_patch(plt.Circle((gx, gz), r, facecolor="#e8c547", alpha=0.18, edgecolor="#a8871a", lw=1.2,
+                                    zorder=2))
+            if cfg.zone > 0:
+                ax.add_patch(plt.Circle((gx, gz), r + cfg.zone, facecolor="none", edgecolor="#a8871a", lw=0.9,
+                                        ls="--", zorder=2))
+        else:
+            ax.add_patch(plt.Rectangle((gx - r, gz - r), 2 * r, 2 * r, facecolor="#e8c547", alpha=0.18,
+                                       edgecolor="#a8871a", lw=1.2, zorder=2))
+            if cfg.zone > 0:   # the zone is the tile grown by `zone` m: a rectangle with round corners
+                ax.add_patch(FancyBboxPatch((gx - r, gz - r), 2 * r, 2 * r, boxstyle=f"round,pad={cfg.zone}",
+                                            facecolor="none", edgecolor="#a8871a", lw=0.9, ls="--", zorder=2))
         ax.text(gx - r, gz + r + cfg.zone + 3, f"goal {order[gi]}" if gi in order else "goal (not reached)",
                 ha="left", va="bottom", fontsize=11, fontweight="bold", color="0.2", zorder=8,
                 bbox=dict(facecolor="white", alpha=0.85, edgecolor="none", pad=1.5))
@@ -1872,6 +2007,9 @@ def build_tables(runs, res):
     for r in runs:
         row = dict(r.ident(), durationSec=r.duration, nGoals=r.session.get("nGoals"),
                    nCorrect=r.session.get("nCorrect"), goalsReached=len(res["legs"][r.stem]))
+        if "identifyMode" in r.session:     # runs from 2026-10-12 on
+            row.update(identifyMode=r.session["identifyMode"], falseAlarms=r.session.get("falseAlarms", 0),
+                       layout=r.layout_id)
         row.update(res["task"][r.stem])
         row.update(res["cmd"].get(r.stem, {}))
         row.update(res["dial"].get(r.stem, {}))
@@ -1909,6 +2047,9 @@ def build_tables(runs, res):
                        answeredHat=g.get("answeredHat", ""), outcome=g.get("outcome", ""),
                        decisionTimeSec=g.get("decisionTimeSec", -1.0),
                        identifySource=g.get("identifySource", ""))
+            if "falseAlarms" in g:     # runs from 2026-10-12 on: the auto-scored identify and the goal's geometry
+                row.update(falseAlarms=g["falseAlarms"], zoneShape=g.get("zoneShape", "tile"),
+                           r_g=g.get("r_g"), w_c=g.get("w_c"), c_g=g.get("c_g"))
             row.update({k: v for k, v in prox.get(idx, {}).items() if k not in ("run", "goalIndex")})
             row.update({k: v for k, v in hat.get(idx, {}).items() if k not in ("run", "goalIndex")})
             goal_rows.append(row)

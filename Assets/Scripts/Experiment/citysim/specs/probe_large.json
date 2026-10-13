@@ -1,0 +1,17 @@
+{
+ "name": "probe_large",
+ "description": "Probe after G1's first failure: does the swarm's advantage keep growing past a 20 m occluder, with the ring moved out to keep the annulus? C0 only, two seeds.",
+ "seeds": [0, 1],
+ "band": "internal_3",
+ "common": {"size": 2.0, "goals": 3, "g": 4.0},
+ "clutter": {"C0": {"p": 90.83, "s": 15.0, "alpha": 0.024}},
+ "goal": {
+  "G0": {"w_c": 7.0, "r_g": 26.0, "n_b": 8, "ring_size": 0.9},
+  "G4": {"w_c": 16.0, "r_g": 34.0, "n_b": 8, "ring_size": 0.9},
+  "G8": {"w_c": 20.0, "r_g": 40.0, "n_b": 8, "ring_size": 0.9},
+  "G9": {"w_c": 24.0, "r_g": 44.0, "n_b": 8, "ring_size": 0.9},
+  "G10": {"w_c": 28.0, "r_g": 48.0, "n_b": 8, "ring_size": 0.9},
+  "G11": {"w_c": 24.0, "r_g": 36.0, "n_b": 8, "ring_size": 0.9},
+  "G12": {"w_c": 20.0, "r_g": 32.0, "n_b": 8, "ring_size": 0.9}
+ }
+}

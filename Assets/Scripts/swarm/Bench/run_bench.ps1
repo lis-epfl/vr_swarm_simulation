@@ -150,6 +150,13 @@ if (Test-Path (Join-Path $run 'results.jsonl')) { Fail 1 "$run already has resul
 New-Item -ItemType Directory -Force $run | Out-Null
 $cfgCopy = Join-Path $run 'config.json'
 Copy-Item $Config $cfgCopy -Force
+# A generated layout the config flies, kept beside it, so the run records exactly which city it flew.
+$cfgObj = Get-Content $Config -Raw | ConvertFrom-Json
+if ($cfgObj.layout) {
+    $layoutFile = Join-Path $live "Assets\Scripts\Experiment\layouts\$($cfgObj.layout)"
+    if (Test-Path $layoutFile) { Copy-Item $layoutFile (Join-Path $run 'layout.json') -Force }
+    else { Write-Host "[bench] warning: layout $($cfgObj.layout) is not in the live layouts folder" }
+}
 $results = Join-Path $run 'results.jsonl'
 $log = Join-Path $run 'unity.log'
 

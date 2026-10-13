@@ -11,13 +11,24 @@ using UnityEngine;
 ///
 /// Lives on the scene's <c>gameManager</c> object. Session metadata (participant / trial / condition)
 /// is set in the Inspector before pressing Play; the recorder then samples continuous state at a
-/// fixed rate and logs an "identify" event for each answer. The pilot marks the moment of an answer
-/// with the RC's C2 button (<c>rcjoy bridge --profile sim</c>, <see cref="UDPReceiverManager.MarkPresses"/>)
-/// and reports the hat verbally; the experimenter's key (correct / incorrect / skip) then records that
-/// answer's outcome. A key with no RC press waiting for an outcome is the identify itself, timed at the
-/// key — the original protocol — so either works alone. An identify marks the nearest unanswered goal
-/// complete (there is no separate proximity trigger), and the session finishes once every goal has an
-/// outcome.
+/// fixed rate and logs an "identify" event for each answer.
+///
+/// <para><b>Identify, AutoScore (<see cref="identifyMode"/>, the default since 2026-10-12).</b> The pilot presses
+/// the RC's C2 button (<c>rcjoy bridge --profile sim</c>, <see cref="UDPReceiverManager.MarkPresses"/>) when they
+/// believe the hat is on screen, and the press is scored on the spot. Its goal is the one whose zone — the patch
+/// grown by <see cref="identifyZoneM"/>, analyse.py's 15 m zone — contains the ALIVE drones' centroid (not merely
+/// the nearest goal); it is <c>correct</c> when that goal's hat is inside the central
+/// <see cref="identifyCentralFraction"/> of some shown feed's image, within <see cref="identifyRangeM"/> of its
+/// camera, with no building in the way; otherwise a <c>false_alarm</c> (logged, the goal stays open) or, with no
+/// zone round the centroid, <c>out_of_zone</c>. Every press is logged with the scoring camera's distance, its feed
+/// and the feed the pilot's gaze was on. The experimenter's keys override the latest press's score (an
+/// <c>outcome_override</c> event) and never create an identify of their own. The session finishes once every goal
+/// is resolved — identified correctly, or overridden — or on the end key. The verbal hat report is a secondary
+/// check only: with three hats it is right by chance a third of the time.</para>
+///
+/// <para><b>Legacy</b> is the protocol before that: a press marks the moment of an answer and the experimenter's
+/// key (correct / incorrect / skip) gives its outcome; a key with no press waiting is the identify itself; an
+/// identify answers the nearest unanswered goal; the session finishes once every goal has an outcome.</para>
 ///
 /// Condition is a recorded label only: this component does not change the drone count — the
 /// experimenter still configures <see cref="swarmSpawn"/> as usual.
@@ -55,9 +66,30 @@ public class ExperimentRecorder : MonoBehaviour
     [Tooltip("An RC press this soon after the previous RC identify is a double tap, logged and ignored.")]
     public float rcIdentifyDebounceSec = 1f;
 
+    public enum IdentifyMode { AutoScore, Legacy }
+
+    [Header("Identify scoring")]
+    [Tooltip("AutoScore: an RC press is scored against what the shown feeds show (see the class summary) and the " +
+             "keys only override it. Legacy: a press or key answers the nearest unanswered goal and the key gives " +
+             "the outcome.")]
+    public IdentifyMode identifyMode = IdentifyMode.AutoScore;
+    [Tooltip("A press is for a goal when the alive drones' centroid is within this many metres of its patch " +
+             "(analyse.py's zone).")]
+    public float identifyZoneM = 15f;
+    [Tooltip("The hat must be within this of the camera whose feed shows it (analyse.py --range).")]
+    public float identifyRangeM = 40f;
+    [Tooltip("...and inside this central share of that feed's image, horizontally and vertically.")]
+    [Range(0.1f, 1f)]
+    public float identifyCentralFraction = 0.8f;
+
+    /// <summary>The hat's height above the walker's origin (analyse.py's HAT_HEIGHT).</summary>
+    private const float HatAboveWalker = 1.6f;
+
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
+    private ScreenSpawn screenSpawn;   // which drones' feeds are on screen, and where the quads hang
     private Transform headTransform;   // OVRCameraRig.centerEyeAnchor (fallback Camera.main)
+    private int obstacleMask;
 
     private class GoalInfo
     {
@@ -65,6 +97,15 @@ public class ExperimentRecorder : MonoBehaviour
         public Transform special;          // the SpecialWalker's transform (may be null)
         public Vector3 specialSpawnPos;    // captured at resolve time
         public string hat = "";            // which hat this goal's special walker wears
+        // The seeded choices that put the hat there (GoalSpecialWalker), so a replay can be checked against them.
+        public int dealOrdinal = -1;
+        public int targetPatrolIndex = -1;
+        public string targetPatrol = "";
+        public int targetWalkerIndex = -1;
+        // The patch's shape and geometry (IGoalZone on the goal root; a tile goal has none).
+        public string zoneShape = "tile";
+        public float patchRadius = GoalZones.TileHalf;
+        public float ringRadius = -1f, occluderWidth = -1f, clearance = -1f;
         public bool answered;
         // Filled in when the goal is answered:
         public string source = "";         // rc (the pilot's C2) / key (the experimenter's key)
@@ -72,6 +113,11 @@ public class ExperimentRecorder : MonoBehaviour
         public float decisionTimeSec = -1f;
         public float swarmToWalkerDist = -1f;
         public Vector3 centroidAtAnswer;
+        // AutoScore: presses scored wrong at this goal, and the scoring camera of the correct one.
+        public int falseAlarms;
+        public int scoredFeed = -1;
+        public float scoredCamDist = -1f;
+        public int gazeFeedAtAnswer = -1;
     }
     private readonly List<GoalInfo> goals = new List<GoalInfo>();
     private bool referencesResolved = false;
@@ -105,6 +151,10 @@ public class ExperimentRecorder : MonoBehaviour
     // ---- RC identify (see PollRcIdentify) ----
     private int rcPressesSeen;
     private float lastRcIdentifyTime = float.NegativeInfinity;
+    // AutoScore: the latest scored press, which the experimenter's key overrides. -2 none yet, -1 out of zone.
+    private int lastPressGoal = -2;
+    private float lastPressTime = -1f;
+    private Vector3 lastPressCentroid;
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -177,19 +227,23 @@ public class ExperimentRecorder : MonoBehaviour
     private void OpenSession()
     {
         spawner = FindObjectOfType<swarmSpawn>();
+        screenSpawn = FindObjectOfType<ScreenSpawn>();
         headTransform = ResolveHeadTransform();
+        obstacleMask = LayerMask.GetMask("Obstacle");
 
-        dirPath = Path.Combine(Application.persistentDataPath, "experiment");
+        // EXPERIMENT_RECORDER_DIR redirects a headless check (ProceduralCityProbe) away from the experiment folder.
+        string redirect = Environment.GetEnvironmentVariable("EXPERIMENT_RECORDER_DIR");
+        dirPath = string.IsNullOrEmpty(redirect) ? Path.Combine(Application.persistentDataPath, "experiment") : redirect;
         Directory.CreateDirectory(dirPath);
 
         string pid = string.IsNullOrWhiteSpace(participantId) ? "XXXX" : participantId.Trim().ToUpperInvariant();
         wallStart = DateTime.Now;
         fileStem = $"{pid}_t{trialNumber}_{condition}_{wallStart:yyyyMMdd_HHmmss}";
 
-        dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive");
+        dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive;hull;shown");
         headWriter = NewWriter("head",
             "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread;" +
-            "gimbalPitch");
+            "gimbalPitch;gazeX;gazeY;gazeZ;gazeConf;gazeFeed");
         walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ;hat");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
         shapeWriter = NewWriter("shape",
@@ -204,7 +258,7 @@ public class ExperimentRecorder : MonoBehaviour
         rcPressesSeen = UDPReceiverManager.MarkPresses;   // a press before the session is not an answer
         sessionOpen = true;
 
-        WriteEvent("session_start", -1, "", -1f, $"pid={pid};trial={trialNumber};condition={condition}");
+        WriteEvent("session_start", -1, "", -1f, $"pid={pid};trial={trialNumber};condition={condition};identify={identifyMode}");
         Debug.Log($"ExperimentRecorder: logging to {dirPath} ({fileStem}_*.csv)", this);
     }
 
@@ -252,12 +306,20 @@ public class ExperimentRecorder : MonoBehaviour
     {
         goals.Clear();
 
-        // Prefer the registry exposed by GoalPatchReplacer; fall back to name-scanning if empty.
+        // Prefer the registries, which keep the goals' order: GoalPatchReplacer's (tile cities), then the procedural
+        // city's (layout order). Only with neither does it fall back to scanning for special walkers, whose order
+        // FindObjectsByType does not define.
         List<GameObject> goalObjects = new List<GameObject>();
         GoalPatchReplacer replacer = FindObjectOfType<GoalPatchReplacer>();
+        ProceduralCityBuilder procedural = FindObjectOfType<ProceduralCityBuilder>();
         if (replacer != null && replacer.PlacedGoals != null && replacer.PlacedGoals.Count > 0)
         {
             foreach (GameObject g in replacer.PlacedGoals)
+                if (g != null) goalObjects.Add(g);
+        }
+        else if (procedural != null && procedural.PlacedGoals.Count > 0)
+        {
+            foreach (GameObject g in procedural.PlacedGoals)
                 if (g != null) goalObjects.Add(g);
         }
         else
@@ -291,7 +353,21 @@ public class ExperimentRecorder : MonoBehaviour
                 special = special,
                 specialSpawnPos = special != null ? special.position : Vector3.zero,
                 hat = hat,
+                dealOrdinal = gsw != null ? gsw.DealOrdinal : -1,
+                targetPatrolIndex = gsw != null ? gsw.TargetPatrolIndex : -1,
+                targetPatrol = gsw != null ? gsw.TargetPatrolName : "",
+                targetWalkerIndex = gsw != null ? gsw.TargetWalkerIndex : -1,
             });
+            IGoalZone zone = g.GetComponent<IGoalZone>();
+            if (zone != null)
+            {
+                GoalInfo info = goals[goals.Count - 1];
+                info.zoneShape = zone.ZoneShape;
+                info.patchRadius = zone.PatchRadius;
+                info.ringRadius = zone.RingRadius;
+                info.occluderWidth = zone.OccluderWidth;
+                info.clearance = zone.Clearance;
+            }
         }
 
         if (goals.Count == 0)
@@ -321,8 +397,13 @@ public class ExperimentRecorder : MonoBehaviour
                 alive = vc.State.IsAlive;
             }
             float yaw = dp.eulerAngles.y;
+            // hull: AttitudeAlgorithm's debounced boundary flag; shown: the drone's feed quad is on screen (interior
+            // drones, a feed held back while it turns, and the stitched triplet under the panorama all are not).
+            AttitudeAlgorithm att = dp.GetComponent<AttitudeAlgorithm>();
+            bool hull = att != null && att.BoundaryEstimate;
+            bool shown = FeedShown(drone);
             dronesWriter.WriteLine(
-                $"{F(t)};{ms};{i};{F(pos.x)};{F(pos.y)};{F(pos.z)};{F(yaw)};{(alive ? 1 : 0)}");
+                $"{F(t)};{ms};{i};{F(pos.x)};{F(pos.y)};{F(pos.z)};{F(yaw)};{(alive ? 1 : 0)};{(hull ? 1 : 0)};{(shown ? 1 : 0)}");
         }
     }
 
@@ -392,9 +473,16 @@ public class ExperimentRecorder : MonoBehaviour
             s.TryGetValue("spread", out spr);
         }
 
+        // Gaze: the combined ray's world direction and confidence, and the feed it lands on (-1 none / no tracking).
+        EyeGazeTracker.GazeSample gaze = EyeGazeTracker.Combined;
+        bool gazeOk = EyeGazeTracker.EyeTrackingActive && gaze.IsValid;
+        Vector3 gd = gazeOk ? gaze.Direction : new Vector3(float.NaN, float.NaN, float.NaN);
+        int gazeFeed = gazeOk ? GazeFeed(gaze) : -1;
+
         headWriter.WriteLine(
             $"{F(t)};{ms};{F(hp.x)};{F(hp.y)};{F(hp.z)};{F(he.y)};{F(he.x)};{F(he.z)};{F(bodyYaw)};" +
-            $"{F(thr)};{F(yaw)};{F(pit)};{F(rol)};{F(spr)};{F(FPVCameraScript.SharedPitch)}");
+            $"{F(thr)};{F(yaw)};{F(pit)};{F(rol)};{F(spr)};{F(FPVCameraScript.SharedPitch)};" +
+            $"{F(gd.x)};{F(gd.y)};{F(gd.z)};{F(gazeOk ? gaze.Confidence : 0f)};{gazeFeed}");
     }
 
     /// <summary>
@@ -506,8 +594,154 @@ public class ExperimentRecorder : MonoBehaviour
             WriteEvent("rc_press_ignored", -1, "", -1f, "debounce");
             return;
         }
+        if (identifyMode == IdentifyMode.AutoScore)
+        {
+            ScorePress();
+            lastRcIdentifyTime = Time.time;
+            return;
+        }
         if (RecordIdentify("", "rc")) lastRcIdentifyTime = Time.time;
         else WriteEvent("rc_press_ignored", -1, "", -1f, "all goals answered");
+    }
+
+    /// <summary>
+    /// AutoScore: score a press (see the class summary). Correct answers the goal; a false alarm is counted and
+    /// leaves it open; out of zone touches no goal. The press is remembered for the experimenter's override.
+    /// </summary>
+    private void ScorePress()
+    {
+        Vector3 centroid = AliveCentroid();
+        int gazeFeed = EyeGazeTracker.EyeTrackingActive && EyeGazeTracker.Combined.IsValid ? GazeFeed(EyeGazeTracker.Combined) : -1;
+        float t = Time.time - sessionStartTime;
+        int gi = GoalAtCentroid(centroid, out float zoneDist);
+        lastPressGoal = gi;
+        lastPressTime = t;
+        lastPressCentroid = centroid;
+        string where = $"centroid={F(centroid.x)},{F(centroid.y)},{F(centroid.z)} source=rc score=auto gazeFeed={gazeFeed}";
+        if (gi < 0)
+        {
+            WriteEvent("identify", -1, "out_of_zone", -1f, where);
+            Debug.Log("ExperimentRecorder: RC press outside every goal's zone (out_of_zone).", this);
+            return;
+        }
+        GoalInfo g = goals[gi];
+        float walkerDist = g.special != null ? Vector3.Distance(centroid, g.special.position) : -1f;
+        bool seen = HatOnShownFeed(g, out int feed, out float camDist);
+        string note = $"{where} feed={feed} camDist={F(camDist)} zoneDist={F(zoneDist)}";
+        if (g.answered && g.outcome == "correct")
+        {
+            WriteEvent("identify", gi, "repeat", walkerDist, note);
+            return;
+        }
+        if (!seen)
+        {
+            g.falseAlarms++;
+            WriteEvent("identify", gi, "false_alarm", walkerDist, note);
+            Debug.Log($"ExperimentRecorder: RC press at goal {gi} ({g.hat}) scored a false alarm: the hat is on no " +
+                      "shown feed.", this);
+            return;
+        }
+        g.answered = true;
+        g.source = "rc";
+        g.outcome = "correct";
+        g.decisionTimeSec = t;
+        g.swarmToWalkerDist = walkerDist;
+        g.centroidAtAnswer = centroid;
+        g.scoredFeed = feed;
+        g.scoredCamDist = camDist;
+        g.gazeFeedAtAnswer = gazeFeed;
+        WriteEvent("identify", gi, "correct", walkerDist, note);
+        Debug.Log($"ExperimentRecorder: RC press at goal {gi} ({g.hat}) scored correct: feed {feed}, {F(camDist)} m.", this);
+        FinalizeIfComplete();
+    }
+
+    /// <summary>The goal whose zone contains the point (the nearest such patch if zones overlap), or -1.</summary>
+    private int GoalAtCentroid(Vector3 point, out float zoneDist)
+    {
+        int best = -1;
+        zoneDist = float.PositiveInfinity;
+        for (int i = 0; i < goals.Count; i++)
+        {
+            if (goals[i].goal == null) continue;
+            float d = GoalZones.DistanceToPatch(goals[i].goal, point);
+            if (d <= identifyZoneM && d < zoneDist)
+            {
+                zoneDist = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Whether the goal's hat is inside the central part of an alive drone's shown feed, within range, with no
+    /// building between camera and hat. The nearest such camera is reported (index in the swarm list, distance).
+    /// </summary>
+    private bool HatOnShownFeed(GoalInfo g, out int feed, out float camDist)
+    {
+        feed = -1;
+        camDist = -1f;
+        List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+        if (g.special == null || swarm == null) return false;
+        Vector3 hat = g.special.position + Vector3.up * HatAboveWalker;
+        float half = 0.5f * identifyCentralFraction;
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < swarm.Count; i++)
+        {
+            GameObject drone = swarm[i];
+            if (drone == null || !FeedShown(drone)) continue;
+            Transform dp = drone.transform.Find("DroneParent");
+            VelocityControl vc = dp != null ? dp.GetComponent<VelocityControl>() : null;
+            if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
+            Transform fpv = drone.transform.Find("FPV");
+            Camera cam = fpv != null ? fpv.GetComponent<Camera>() : null;
+            if (cam == null) continue;
+            float d = Vector3.Distance(cam.transform.position, hat);
+            if (d > identifyRangeM || d >= best) continue;
+            Vector3 v = cam.WorldToViewportPoint(hat);
+            if (v.z <= 0f || Mathf.Abs(v.x - 0.5f) > half || Mathf.Abs(v.y - 0.5f) > half) continue;
+            if (Physics.Linecast(cam.transform.position, hat, obstacleMask, QueryTriggerInteraction.Ignore)) continue;
+            best = d;
+            feed = i;
+            camDist = d;
+        }
+        return feed >= 0;
+    }
+
+    /// <summary>Whether a drone's feed quad is on screen (false when there is no ScreenSpawn).</summary>
+    private bool FeedShown(GameObject drone)
+    {
+        if (screenSpawn == null || drone == null) return false;
+        GameObject screen = screenSpawn.ScreenFor(drone);
+        return screen != null && screen.activeInHierarchy;
+    }
+
+    /// <summary>
+    /// The swarm-list index of the drone whose feed quad the gaze ray meets first, or -1. The quads carry no
+    /// collider (ScreenSpawn removes them), so this intersects the ray with each shown quad's plane: Unity's Quad
+    /// spans [-0.5, 0.5] in its local X and Y.
+    /// </summary>
+    private int GazeFeed(EyeGazeTracker.GazeSample gaze)
+    {
+        if (screenSpawn == null || spawner == null || spawner.swarm == null || !gaze.IsValid) return -1;
+        float bestT = float.PositiveInfinity;
+        GameObject hit = null;
+        foreach (GameObject screen in screenSpawn.Screens)
+        {
+            if (screen == null || !screen.activeInHierarchy) continue;
+            Transform s = screen.transform;
+            float denom = Vector3.Dot(gaze.Direction, s.forward);
+            if (Mathf.Abs(denom) < 1e-6f) continue;
+            float t = Vector3.Dot(s.position - gaze.Origin, s.forward) / denom;
+            if (t <= 0f || t >= bestT) continue;
+            Vector3 local = s.InverseTransformPoint(gaze.Origin + t * gaze.Direction);
+            if (Mathf.Abs(local.x) > 0.5f || Mathf.Abs(local.y) > 0.5f) continue;
+            bestT = t;
+            hit = screen;
+        }
+        if (hit == null) return -1;
+        GameObject drone = screenSpawn.DroneFor(hit);
+        return drone != null ? spawner.swarm.IndexOf(drone) : -1;
     }
 
     /// <summary>
@@ -516,6 +750,11 @@ public class ExperimentRecorder : MonoBehaviour
     /// </summary>
     private void RecordOutcome(string outcome)
     {
+        if (identifyMode == IdentifyMode.AutoScore)
+        {
+            OverrideLatestPress(outcome);
+            return;
+        }
         int idx = LatestAwaitingOutcome();
         if (idx < 0)
         {
@@ -527,6 +766,33 @@ public class ExperimentRecorder : MonoBehaviour
         g.outcome = outcome;
         float lag = Time.time - sessionStartTime - g.decisionTimeSec;
         WriteEvent("outcome", idx, outcome, g.swarmToWalkerDist, $"source=key lagSec={F(lag)}");
+        FinalizeIfComplete();
+    }
+
+    /// <summary>
+    /// AutoScore: the experimenter's key overrides the latest press's score. It never makes an identify of its own:
+    /// with no scored press, or the latest out of every zone, it is logged and changes nothing.
+    /// </summary>
+    private void OverrideLatestPress(string outcome)
+    {
+        if (lastPressGoal < 0)
+        {
+            WriteEvent("outcome_override", -1, outcome, -1f,
+                       lastPressGoal == -1 ? "source=key ignored: the latest press was out of zone"
+                                           : "source=key ignored: no press to override");
+            return;
+        }
+        GoalInfo g = goals[lastPressGoal];
+        string before = g.outcome;
+        g.outcome = outcome;
+        g.answered = true;
+        g.source = string.IsNullOrEmpty(g.source) ? "key_override" : (g.source.EndsWith("+key") ? g.source : g.source + "+key");
+        if (g.decisionTimeSec < 0f)
+        {
+            g.decisionTimeSec = lastPressTime;
+            g.centroidAtAnswer = lastPressCentroid;
+        }
+        WriteEvent("outcome_override", lastPressGoal, outcome, g.swarmToWalkerDist, $"source=key before={before}");
         FinalizeIfComplete();
     }
 
@@ -580,13 +846,13 @@ public class ExperimentRecorder : MonoBehaviour
         if (goals.Count == 0) return;
         foreach (GoalInfo g in goals)
             if (!g.answered || g.outcome == "") return;
-        Finalize("all_goals_answered");
+        Finalize(identifyMode == IdentifyMode.AutoScore ? "all_goals_identified" : "all_goals_answered");
     }
 
     /// <summary>Nearest not-yet-answered goal to the swarm centroid; -1 if none remain.</summary>
     private int NearestUnansweredGoal(out float swarmToWalkerDist, out Vector3 centroid)
     {
-        centroid = SwarmCentroid();
+        centroid = AliveCentroid();
         swarmToWalkerDist = -1f;
         int best = -1;
         float bestSq = float.MaxValue;
@@ -599,6 +865,30 @@ public class ExperimentRecorder : MonoBehaviour
         if (best >= 0 && goals[best].special != null)
             swarmToWalkerDist = Vector3.Distance(centroid, goals[best].special.position);
         return best;
+    }
+
+    /// <summary>
+    /// Centroid of the alive drones. A crashed drone stays in the swarm list where it fell (below ground, once
+    /// parked), so averaging every drone pulled the centroid down and sideways and could attribute a press to the
+    /// wrong goal; every centroid this recorder logs or scores with is now this one.
+    /// </summary>
+    private Vector3 AliveCentroid()
+    {
+        List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+        if (swarm == null || swarm.Count == 0) return Vector3.zero;
+        Vector3 sum = Vector3.zero;
+        int n = 0;
+        foreach (GameObject drone in swarm)
+        {
+            if (drone == null) continue;
+            Transform dp = drone.transform.Find("DroneParent");
+            if (dp == null) continue;
+            VelocityControl vc = dp.GetComponent<VelocityControl>();
+            if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
+            sum += (vc != null && vc.State != null) ? vc.State.GroundTruthPosition : dp.position;
+            n++;
+        }
+        return n > 0 ? sum / n : SwarmCentroid();
     }
 
     private Vector3 SwarmCentroid()
@@ -658,14 +948,19 @@ public class ExperimentRecorder : MonoBehaviour
             durationSec = Time.time - sessionStartTime,
             stitchFunctionalSec = stitchFunctionalSec,
             stitchOnCount = stitchOnCount,
+            goalSeed = GoalSession.HasSeed ? GoalSession.Seed : 0,
+            goalSeedSource = GoalSession.HasSeed ? GoalSession.Source : "",
+            identifyMode = identifyMode.ToString(),
+            layout = CityLayoutInfo.Current ?? new CityLayoutInfo.Record(),
         };
 
-        int nCorrect = 0;
+        int nCorrect = 0, falseAlarms = 0;
         float lastIdentifyT = 0f;
         for (int i = 0; i < goals.Count; i++)
         {
             GoalInfo g = goals[i];
             if (g.outcome == "correct") nCorrect++;
+            falseAlarms += g.falseAlarms;
             if (g.answered && g.decisionTimeSec > lastIdentifyT) lastIdentifyT = g.decisionTimeSec;
             // g.goal may be a destroyed Transform if finalizing during scene teardown.
             Vector3 goalPos = g.goal != null ? g.goal.position : Vector3.zero;
@@ -675,6 +970,15 @@ public class ExperimentRecorder : MonoBehaviour
                 goalX = goalPos.x, goalY = goalPos.y, goalZ = goalPos.z,
                 specialSpawnX = g.specialSpawnPos.x, specialSpawnY = g.specialSpawnPos.y, specialSpawnZ = g.specialSpawnPos.z,
                 hat = g.hat,
+                dealOrdinal = g.dealOrdinal,
+                targetPatrolIndex = g.targetPatrolIndex,
+                targetPatrol = g.targetPatrol,
+                targetWalkerIndex = g.targetWalkerIndex,
+                zoneShape = g.zoneShape,
+                patchRadius = g.patchRadius,
+                r_g = g.ringRadius,
+                w_c = g.occluderWidth,
+                c_g = g.clearance,
                 answered = g.answered,
                 identifySource = g.source,
                 outcome = g.outcome,
@@ -683,9 +987,14 @@ public class ExperimentRecorder : MonoBehaviour
                 centroidAtAnswerX = g.centroidAtAnswer.x,
                 centroidAtAnswerY = g.centroidAtAnswer.y,
                 centroidAtAnswerZ = g.centroidAtAnswer.z,
+                falseAlarms = g.falseAlarms,
+                scoredFeed = g.scoredFeed,
+                scoredCamDist = g.scoredCamDist,
+                gazeFeedAtAnswer = g.gazeFeedAtAnswer,
             });
         }
         data.nCorrect = nCorrect;
+        data.falseAlarms = falseAlarms;
         data.nGoals = goals.Count;
         // Total task time = start → last identify: the pilot's RC press where there was one, else the
         // key (0 if nothing was answered).
@@ -741,6 +1050,13 @@ public class ExperimentRecorder : MonoBehaviour
         public float totalTaskTime;
         public float stitchFunctionalSec;  // panorama on screen and live (UpdateStitchState)
         public int stitchOnCount;          // times it came on
+        // GoalSession's seed: the goal tiles, hat deal, target walkers and walker starts all follow from it, and
+        // GoalPatchReplacer's Replay reads it back. An empty source = no goal seed was set (no goals).
+        public int goalSeed;
+        public string goalSeedSource;
+        public string identifyMode;        // AutoScore or Legacy (absent = Legacy: runs before 2026-10-12)
+        public int falseAlarms;            // AutoScore presses scored wrong, over every goal
+        public CityLayoutInfo.Record layout;   // the generated layout the city was built from (empty id in tile cities)
         public int nCorrect;
         public int nGoals;
         public List<GoalResult> goals = new List<GoalResult>();
@@ -753,11 +1069,22 @@ public class ExperimentRecorder : MonoBehaviour
         public float goalX, goalY, goalZ;
         public float specialSpawnX, specialSpawnY, specialSpawnZ;
         public string hat;
+        public int dealOrdinal;            // this goal's place in the hat deal (GoalSpecialWalker)
+        public int targetPatrolIndex;      // which of the goal's patrols carries the hat, and its building
+        public string targetPatrol;
+        public int targetWalkerIndex;      // which of that patrol's walkers wears it
+        public string zoneShape;           // "tile" (analyse.py's square) or "disc" (a procedural goal)
+        public float patchRadius;          // the tile's half-width, or the disc's radius
+        public float r_g, w_c, c_g;        // a procedural goal's ring radius, occluder width and clearance (-1 tile)
         public bool answered;
         public string identifySource;   // rc: decisionTimeSec is the pilot's press; key: the experimenter's key
         public string outcome;
         public float decisionTimeSec;
         public float swarmToWalkerDist;
         public float centroidAtAnswerX, centroidAtAnswerY, centroidAtAnswerZ;
+        public int falseAlarms;            // AutoScore presses at this goal scored wrong
+        public int scoredFeed;             // the swarm-list index of the camera that scored the correct press
+        public float scoredCamDist;        // its distance to the hat (m)
+        public int gazeFeedAtAnswer;       // the feed the pilot's gaze was on at that press (-1 none)
     }
 }

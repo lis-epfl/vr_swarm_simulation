@@ -27,11 +27,24 @@ public class SwarmBenchRunner : MonoBehaviour
         public string kind;
         public float sx, sz, T;
         public float[] wps;     // flattened (x, z, stickMagnitude, timeoutSeconds)
-        public bool record;     // write every drone's XZ every 5 fixed steps to traj_<set>_<index>.csv
+        public bool record;     // every 5 fixed steps to traj_<set>_<index>.csv: masks, x/z, yaw, y, waypoint
         // Spread-stick schedule, flattened (t, d_ref) pairs, piecewise linear and held past the ends.
         // Written to InputStatus["spread"], i.e. through SwarmAlgorithm.SetSwarmSpread like the joystick.
         // Empty = the stick is left alone (-1).
         public float[] spread;
+        // Goal holds (bench.py scenarios --goals; citysim Tier C). A waypoint with a NEGATIVE stick magnitude is a
+        // hold: a centring pilot on (x, z) -- stick = holdGain x error / maxSpeed, clipped to |magnitude| -- for its
+        // timeout, never captured, the spread stick at holdSpread (0 = the schedule's), and a lone drone yawing at
+        // holdYawRate deg/s. It is how citysim's formation.envelop and dynamic.fly_layout hold a goal, and
+        // swarm_replica.replay_flight flies the same rule. The waypoint before a hold is captured within `arrive`
+        // m (0 = the config's capture).
+        public float arrive;
+        public float holdSpread;
+        public float holdGain;
+        public float holdYawRate;
+        // End the flight once its last waypoint is done rather than at T (which is then only the cap), so a route
+        // budgeted for the slowest case does not hover out the difference.
+        public bool endOnDone;
     }
 
     [Serializable]
@@ -60,6 +73,14 @@ public class SwarmBenchRunner : MonoBehaviour
         // flies that run's city. Empty = no goals: GoalPatchReplacer is disabled, as a random layout per
         // run would make flights incomparable.
         public string goalReplaySession = "";
+        // A generated layout (ProceduralCityWorld): a file name or id under Assets/Scripts/Experiment/layouts in the
+        // mirrored copy (ProceduralCityBuilder.Resolve), built at boot in place of the one the scene was saved with.
+        // Empty = the scene as it is.
+        public string layout = "";
+        // Drones to fly; 0 = the scene's swarmSpawn setting. 1 flies the single-drone condition.
+        public int droneCount = 0;
+        // Pedestrians on the goals' ring buildings. Off by default: they cost frames and the swarm ignores them.
+        public bool walkers = false;
         public ParamSet[] paramSets;
         public Scenario[] scenarios;
     }
@@ -84,6 +105,9 @@ public class SwarmBenchRunner : MonoBehaviour
         else if (c.scenarios == null || c.scenarios.Length == 0) error = "the config has no scenarios";
         else if (string.IsNullOrEmpty(OutPath(c))) error = $"no output file: set {OutEnv} or outPath";
         else if (c.timeScale <= 0f) error = "timeScale must be positive";
+        else if (c.droneCount < 0) error = "droneCount must be >= 0 (0 = the scene's)";
+        else if (!string.IsNullOrEmpty(c.layout) && ProceduralCityBuilder.Resolve(c.layout) == null)
+            error = $"layout '{c.layout}' is not a file under Assets/{ProceduralCityBuilder.LayoutFolder} (or a path)";
         return error == null ? c : null;
     }
 
@@ -125,6 +149,9 @@ public class SwarmBenchRunner : MonoBehaviour
 
     static Config cfg;
     static string outPath;
+    static string layoutId = "";
+    static float layoutAlpha = float.NaN;
+    static int layoutGoals;
     static MethodInfo setBodyYaw, setBodyYawValid;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -141,6 +168,8 @@ public class SwarmBenchRunner : MonoBehaviour
         foreach (var c in FindObjectsOfType<ImageSharing>(true)) c.enabled = false;
         foreach (var c in FindObjectsOfType<ExperimentRecorder>(true)) c.enabled = false;
         if (!ConfigureGoalPatches()) return;
+        if (!ConfigureLayout()) return;
+        ConfigureDroneCount();
         DisableCameras();
 
         if (cfg.pilotHeading)
@@ -189,6 +218,51 @@ public class SwarmBenchRunner : MonoBehaviour
             r.enabled = true;
         }
         return true;
+    }
+
+    // The config's layout, built over whatever the scene's ProceduralCityBuilder built in its Awake (Boot runs after
+    // every Awake and before any Start, so the swarm spawns at the layout's spawn point).
+    static bool ConfigureLayout()
+    {
+        if (string.IsNullOrEmpty(cfg.layout)) return true;
+        ProceduralCityBuilder builder = FindObjectOfType<ProceduralCityBuilder>(true);
+        if (builder == null)
+        {
+            Fatal(ExitConfigError, $"layout is set but {cfg.scene} has no ProceduralCityBuilder (fly ProceduralCityWorld)");
+            return false;
+        }
+        builder.layoutPath = cfg.layout;
+        builder.spawnWalkers = cfg.walkers;
+        // The config is the record of what flew (run_bench.ps1 copies its layout beside it): a CITY_LAYOUT left in the
+        // shell would otherwise override it inside Build and fly another city under this one's name.
+        Environment.SetEnvironmentVariable(ProceduralCityBuilder.LayoutEnv, null);
+        if (!builder.Build(out string error))
+        {
+            Fatal(ExitConfigError, $"layout '{cfg.layout}': {error}");
+            return false;
+        }
+        layoutId = builder.Layout.layout.id ?? "";
+        layoutAlpha = builder.Layout.layout.alpha_achieved;
+        layoutGoals = builder.PlacedGoals.Count;
+        return true;
+    }
+
+    // Before swarmSpawn.Start, which spawns the drones: the Circle pattern takes a count, the Grid a row.
+    static void ConfigureDroneCount()
+    {
+        if (cfg.droneCount <= 0) return;
+        foreach (swarmSpawn sp in FindObjectsOfType<swarmSpawn>(true))
+        {
+            if (sp.spawnPattern == SpawnPattern.Circle)
+            {
+                sp.circleDroneCount = cfg.droneCount;
+            }
+            else
+            {
+                sp.dronesAlongX = cfg.droneCount;
+                sp.dronesAlongZ = 1;
+            }
+        }
     }
 
     // Physics only: nothing needs drawing, and the FPV cameras' offscreen targets are the expensive part.
@@ -351,6 +425,9 @@ public class SwarmBenchRunner : MonoBehaviour
             .Num("timeScale", cfg.timeScale).Num("settleTime", cfg.settleTime).Num("altitude", cfg.altitude)
             .Num("capture", cfg.capture).Bool("pilotHeading", cfg.pilotHeading)
             .Str("goalReplaySession", cfg.goalReplaySession).Int("goalsPlaced", goalsPlaced)
+            .Str("layout", layoutId).Num("layoutAlpha", layoutAlpha).Int("layoutGoals", layoutGoals)
+            .Bool("walkers", cfg.walkers).Int("droneCountSetting", cfg.droneCount)
+            .Num("gimbalPitch", FPVCameraScript.SharedPitch)
             .Int("drones", vcs.Count).Int("paramSets", cfg.paramSets.Length).Int("scenarios", cfg.scenarios.Length)
             .ToString());
 
@@ -470,7 +547,7 @@ public class SwarmBenchRunner : MonoBehaviour
 
     // World command (cx, cz) -> stick. VelocityControl resolves the stick as Euler(0, psi, 0) * (roll, 0,
     // pitch) with psi the body yaw in the VR frame and 0 in the World frame; this is its inverse.
-    static void SetStick(float cx, float cz, float spread)
+    static void SetStick(float cx, float cz, float spread, float yaw = 0f)
     {
         float psi = ResolveStickFrame() == InputManager.CommandFrame.VR ? PyUniSharingFast.BodyYawDegrees * Mathf.Deg2Rad : 0f;
         float cs = Mathf.Cos(psi), sn = Mathf.Sin(psi);
@@ -478,8 +555,31 @@ public class SwarmBenchRunner : MonoBehaviour
         st["roll"] = cx * cs - cz * sn;
         st["pitch"] = cx * sn + cz * cs;
         st["throttle"] = 0f;
-        st["yaw"] = 0f;
+        st["yaw"] = yaw;
         st["spread"] = spread;
+    }
+
+    const float DefaultHoldGain = 0.25f;       // 1/s: citysim formation.PILOT_GAIN
+    const float LoneYawFullStickDeg = 30f;     // heading error at which the lone drone's yaw stick is full
+
+    float CaptureRadius(Scenario sc, float[] wps, int wp)
+    {
+        int next = wp + 1;
+        bool beforeHold = next * 4 + 2 < wps.Length && wps[next * 4 + 2] < 0f;
+        return beforeHold && sc.arrive > 0f ? sc.arrive : cfg.capture;
+    }
+
+    // The yaw stick, which only a lone drone obeys (AttitudeAlgorithm hands it the stick; a swarm's headings are the
+    // hull rule's). A single-drone pilot's view is the drone's heading, so the scripted one looks where it flies --
+    // turning to face the commanded direction -- and scans at holdYawRate during a hold. Zero for a swarm, as before.
+    float LoneYawStick(bool holding, float holdYawRate, float cx, float cz)
+    {
+        if (vcs.Count != 1) return 0f;
+        float maxRateDeg = vcs[0].maxYawRate * Mathf.Rad2Deg;
+        if (holding) return maxRateDeg > 0f ? Mathf.Clamp(holdYawRate / maxRateDeg, -1f, 1f) : 0f;
+        if (cx * cx + cz * cz < 1e-6f) return 0f;
+        float err = Mathf.DeltaAngle(parents[0].eulerAngles.y, Mathf.Atan2(cx, cz) * Mathf.Rad2Deg);
+        return Mathf.Clamp(err / LoneYawFullStickDeg, -1f, 1f);
     }
 
     static void SetPilotYaw(float degrees)
@@ -543,13 +643,14 @@ public class SwarmBenchRunner : MonoBehaviour
         int trackN = 0, nearTicks = 0;
         double hullSum = 0, nnSum = 0, speedSum = 0;
         int hullN = 0, nnN = 0, speedN = 0, splitN = 0, tick = 0;
-        StringBuilder traj = sc.record ? new StringBuilder("t,alive_mask," + TrajHeader() + "\n") : null;
+        StringBuilder traj = sc.record ? new StringBuilder("t,alive_mask,hull_mask,shown_mask," + TrajHeader() + "\n") : null;
         float wall0 = Time.realtimeSinceStartup;
         t0 = Time.fixedTime;
         while (Time.fixedTime - t0 < sc.T)
         {
             Vector3 c = Centroid(out int alive);
             if (alive == 0) break;
+            if (sc.endOnDone && nWp > 0 && wp >= nWp) break;
             float t = Time.fixedTime - t0;
             if (tick > 0) look?.Sample(this, pilotYaw);   // the step that just ran, under the yaw set before it
             if (tick % 10 == 0 && alive >= 4)
@@ -563,37 +664,63 @@ public class SwarmBenchRunner : MonoBehaviour
             if (traj != null && tick % 5 == 0)
             {
                 traj.Append(t.ToString("F2", Inv)).Append(',');
-                int mask = 0;
-                for (int i = 0; i < vcs.Count; i++) if (vcs[i].State.IsAlive) mask |= 1 << i;
-                traj.Append(mask);
+                // alive; on the hull (AttitudeAlgorithm.BoundaryEstimate); feed shown (BoundaryFeedReady, the gate
+                // ScreenSpawn's OUTER_CIRCLE applies -- the bench draws no screens)
+                int mask = 0, hull = 0, shown = 0;
+                for (int i = 0; i < vcs.Count; i++)
+                {
+                    if (!vcs[i].State.IsAlive) continue;
+                    mask |= 1 << i;
+                    if (atts[i] != null && atts[i].BoundaryEstimate) hull |= 1 << i;
+                    if (atts[i] != null && atts[i].BoundaryFeedReady) shown |= 1 << i;
+                }
+                if (vcs.Count == 1) shown = mask;   // a lone drone's feed is always on screen
+                traj.Append(mask).Append(',').Append(hull).Append(',').Append(shown);
                 for (int i = 0; i < vcs.Count; i++)
                     traj.Append(',').Append(parents[i].position.x.ToString("F3", Inv))
                         .Append(',').Append(parents[i].position.z.ToString("F3", Inv));
-                traj.Append('\n');
+                for (int i = 0; i < vcs.Count; i++)
+                    traj.Append(',').Append(parents[i].eulerAngles.y.ToString("F2", Inv));
+                for (int i = 0; i < vcs.Count; i++)
+                    traj.Append(',').Append(parents[i].position.y.ToString("F2", Inv));
+                traj.Append(',').Append(wp).Append(',').Append(pilotYaw.ToString("F2", Inv)).Append('\n');
             }
             tick++;
             Vector3 step = c - prevC; step.y = 0f;
             pathLen += step.magnitude;
 
-            // ---- steer toward the waypoint in world terms; a pilot heading turns to face it
+            // ---- steer toward the waypoint in world terms; a pilot heading turns to face it. A hold waypoint
+            // (negative magnitude) centres the swarm on its point instead and leaves the heading alone.
             float cx = 0f, cz = 0f;
+            bool holding = false;
             if (wp < nWp)
             {
                 float dx = wps[wp * 4] - c.x, dz = wps[wp * 4 + 1] - c.z;
                 float dd = Mathf.Sqrt(dx * dx + dz * dz);
                 float timeout = wps[wp * 4 + 3];
-                if (dd < cfg.capture || (timeout > 0f && Time.fixedTime - wpT0 > timeout))
+                bool hold = wps[wp * 4 + 2] < 0f;
+                bool captured = !hold && dd < CaptureRadius(sc, wps, wp);
+                if (captured || (timeout > 0f && Time.fixedTime - wpT0 > timeout))
                 {
-                    if (dd < cfg.capture) wpDone++;
+                    if (captured || hold) wpDone++;
                     wp++; wpT0 = Time.fixedTime;
                 }
                 if (wp < nWp)
                 {
                     dx = wps[wp * 4] - c.x; dz = wps[wp * 4 + 1] - c.z;
                     dd = Mathf.Sqrt(dx * dx + dz * dz);
-                    float mag = Mathf.Clamp01(wps[wp * 4 + 2]);
-                    if (dd > 1e-6f)
+                    float mag = wps[wp * 4 + 2];
+                    if (mag < 0f)
                     {
+                        holding = true;
+                        float gain = (sc.holdGain > 0f ? sc.holdGain : DefaultHoldGain) / vcs[0].maxSpeed;
+                        cx = dx * gain; cz = dz * gain;
+                        float s = Mathf.Sqrt(cx * cx + cz * cz);
+                        if (s > -mag) { cx *= -mag / s; cz *= -mag / s; }
+                    }
+                    else if (dd > 1e-6f)
+                    {
+                        mag = Mathf.Clamp01(mag);
                         cx = dx / dd * mag; cz = dz / dd * mag;
                         float bearing = Mathf.Atan2(dx, dz) * Mathf.Rad2Deg;
                         pilotYaw = Mathf.MoveTowardsAngle(pilotYaw, bearing, cfg.pilotYawRate * Time.fixedDeltaTime);
@@ -601,7 +728,8 @@ public class SwarmBenchRunner : MonoBehaviour
                 }
             }
             if (cfg.pilotHeading) SetPilotYaw(pilotYaw);
-            SetStick(cx, cz, SpreadAt(sc.spread, t));
+            SetStick(cx, cz, holding && sc.holdSpread > 0f ? sc.holdSpread : SpreadAt(sc.spread, t),
+                     LoneYawStick(holding, sc.holdYawRate, cx, cz));
             float cm = Mathf.Sqrt(cx * cx + cz * cz);
             if (cm > 1e-6f && t > 0f)
             {
@@ -666,9 +794,11 @@ public class SwarmBenchRunner : MonoBehaviour
 
     // ------------------------------------------------------------------ look-direction metrics
 
-    // Half the FPV camera's horizontal FOV (66.3 deg vertical at 16:9). Past this the look direction is
-    // in no shown drone's image at all.
-    const float HalfHfovDeg = 49.25f;
+    // Half the FPV camera's horizontal FOV, as ScreenSpawn sets it up (82.1 deg diagonal at the 16:9 feed:
+    // 74.4 deg horizontally). Past this the look direction is in no shown drone's image at all. Until
+    // 2026-10-12 this was 49.25, from the prefab's 66.3 deg vertical that ScreenSpawn overrides at spawn, so
+    // live_shown_blind_frac in earlier runs counts only looks more than 49 deg off every shown heading.
+    static readonly float HalfHfovDeg = 0.5f * FpvCameraFov.HorizontalDeg(FpvCameraFov.FeedAspect);
 
     // What the look-direction gap fill is for: how far the pilot's look direction sits from the nearest
     // hull heading (geometric, before and after the fill's shift) and from the nearest drone whose feed
@@ -771,6 +901,10 @@ public class SwarmBenchRunner : MonoBehaviour
     {
         var sb = new StringBuilder();
         for (int i = 0; i < vcs.Count; i++) { if (i > 0) sb.Append(','); sb.Append('x').Append(i).Append(",z").Append(i); }
+        for (int i = 0; i < vcs.Count; i++) sb.Append(",yaw").Append(i);
+        for (int i = 0; i < vcs.Count; i++) sb.Append(",y").Append(i);
+        sb.Append(",wp");      // the waypoint being flown (holds included), for scoring a goal's hold window
+        sb.Append(",bodyYaw"); // the scripted pilot's heading, deg: the body yaw it injects under pilotHeading
         return sb.ToString();
     }
 

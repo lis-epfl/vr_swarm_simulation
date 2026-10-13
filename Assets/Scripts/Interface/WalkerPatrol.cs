@@ -43,6 +43,13 @@ public class WalkerPatrol : MonoBehaviour
     // patrol's walkers is spawned from this prefab instead of walkerPrefab and
     // tagged with a SpecialWalker marker. Null = all walkers are ordinary.
     private GameObject specialWalkerPrefab;
+    private int requestedSpecialIndex = -1;   // which walker; -1 = drawn here
+
+    // Set via SetSeed() by GoalSpecialWalker (a stream of the session's goal seed, see
+    // GoalSession): every draw in Start then comes from it, so a replayed seed starts
+    // each walker where it started. Unseeded patrols draw from UnityEngine.Random.
+    private int seed;
+    private bool seeded;
 
     private class WalkerInfo
     {
@@ -92,10 +99,19 @@ public class WalkerPatrol : MonoBehaviour
 #endif
 
     // Called by GoalSpecialWalker (in its Awake, before this Start) to request that
-    // exactly one of this patrol's walkers use the visually-distinct prefab.
-    public void RequestSpecial(GameObject prefab)
+    // exactly one of this patrol's walkers use the visually-distinct prefab: walker
+    // `index` (spawn order), or one drawn here when it is out of range.
+    public void RequestSpecial(GameObject prefab, int index = -1)
     {
         specialWalkerPrefab = prefab;
+        requestedSpecialIndex = index;
+    }
+
+    // Called by GoalSpecialWalker before this Start: draw every random choice below from `value`.
+    public void SetSeed(int value)
+    {
+        seed = value;
+        seeded = true;
     }
 
     void Start()
@@ -106,10 +122,17 @@ public class WalkerPatrol : MonoBehaviour
             return;
         }
 
+        System.Random rng = seeded ? new System.Random(seed) : null;
+        float Rand(float min, float max) => rng != null ? GoalSession.Range(rng, min, max) : Random.Range(min, max);
+
         // Pick which walker (if any) is the special one. -1 = none.
-        int specialIndex = (specialWalkerPrefab != null && numWalkers > 0)
-            ? Random.Range(0, numWalkers)
-            : -1;
+        int specialIndex = -1;
+        if (specialWalkerPrefab != null && numWalkers > 0)
+        {
+            specialIndex = requestedSpecialIndex >= 0 && requestedSpecialIndex < numWalkers
+                ? requestedSpecialIndex
+                : (rng != null ? rng.Next(numWalkers) : Random.Range(0, numWalkers));
+        }
 
         footprint = GetComponent<Collider>();
         if (shape == PathShape.Rectangle && footprint == null)
@@ -149,17 +172,17 @@ public class WalkerPatrol : MonoBehaviour
                 // Start a fixed baseOffset out from the collider edge, then
                 // expand outward by a random amount so each side sits in
                 // [collider + baseOffset, collider + baseOffset + margin].
-                info.expand = baseOffset + Random.Range(0f, margin) * 0.5f;
+                info.expand = baseOffset + Rand(0f, margin) * 0.5f;
                 SizeRectangle(info, baseExtents);
 
                 // Random start position along the perimeter.
-                info.distance = Random.Range(0f, Perimeter(info));
+                info.distance = Rand(0f, Perimeter(info));
                 position = center + GetLocalXZ(info, info.distance);
             }
             else
             {
-                info.orbitRadius = Random.Range(minRadius, maxRadius);
-                info.currentAngle = Random.Range(0f, 360f);
+                info.orbitRadius = Rand(minRadius, maxRadius);
+                info.currentAngle = Rand(0f, 360f);
                 info.angularSpeed = (speedMetersPerSec * 360f) / (2f * Mathf.PI * info.orbitRadius);
                 position = center + GetCircleXZ(info, info.currentAngle);
             }

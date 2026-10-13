@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4709407304989422170
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4059359747549460579}
+  - component: {fileID: 4652362758148947437}
+  - component: {fileID: 7532297566386688680}
+  m_Layer: 0
+  m_Name: ProceduralGoalRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4059359747549460579
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4709407304989422170}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &4652362758148947437
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4709407304989422170}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ebe3f873c1124387b98ecb64e55b5214, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  specialWalkerPrefabs:
+  - {fileID: 7159716781563447104, guid: 984e7cc49b6d6a84c8e333a0965cbdb4, type: 3}
+  - {fileID: 5094124037760320590, guid: f5abe014cd51c914b85838ddec9970e0, type: 3}
+  - {fileID: 4022510991903748776, guid: 999f6df44f6fb9044bae304f2db03a8f, type: 3}
+--- !u!114 &7532297566386688680
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4709407304989422170}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b51d3d201ccc44b7aadc10e6fa0ec21e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  index: 0
+  ringRadius: 0
+  occluderWidth: 0
+  clearance: 0
+  patchRadius: 0
+  clearRadius: 0
+  centreBox: 
+  ringBoxes: []

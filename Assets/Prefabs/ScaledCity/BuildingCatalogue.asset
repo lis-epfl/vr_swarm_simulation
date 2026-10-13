@@ -1,0 +1,347 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c7de61140817419d90ee69cb0c981f48, type: 3}
+  m_Name: BuildingCatalogue
+  m_EditorClassIdentifier: 
+  entries:
+  - design: BnP_Apartment_A
+    family: BnP_Apartment_
+    source: {fileID: 8412566147741998337, guid: d2e0e19b379f4e3da02f9a2e9f5acc9c,
+      type: 3}
+    patch: MC_Patch_01_Scaled
+    colliderSize: {x: 20.873589, y: 21.432386, z: 21.360668}
+    colliderCenter: {x: 0.000016212463, y: -0.000014305113, z: 10.680334}
+    lossyScale: {x: 0.25, y: 0.24999999, z: 2.340751}
+    count: 8
+  - design: BnP_Apartment_B
+    family: BnP_Apartment_
+    source: {fileID: 1854145524391258057, guid: 4c7a86b937324c3e8be7bd114eaa7bbc,
+      type: 3}
+    patch: MC_Patch_03_Scaled
+    colliderSize: {x: 19.889269, y: 15.72399, z: 20.92242}
+    colliderCenter: {x: 4.472334e-19, y: 0.00003099442, z: 10.46121}
+    lossyScale: {x: 0.25000006, y: 0.25000006, z: 2.3897815}
+    count: 10
+  - design: BnP_Apartment_C
+    family: BnP_Apartment_
+    source: {fileID: 6877688076625247756, guid: 2ace6f6698ed4f189ca43b33ddb4187e,
+      type: 3}
+    patch: MC_Patch_09_Scaled
+    colliderSize: {x: 55.152256, y: 24.402807, z: 25.53629}
+    colliderCenter: {x: -0.000015258789, y: 5.9530025, z: 12.768145}
+    lossyScale: {x: 0.25000012, y: 0.2500001, z: 1.9579985}
+    count: 8
+  - design: BnP_Apartment_D
+    family: BnP_Apartment_
+    source: {fileID: 2098442099727266836, guid: 450f696997014082a2ce2b1574b27371,
+      type: 3}
+    patch: MC_Patch_12_Scaled
+    colliderSize: {x: 49.51574, y: 21.682892, z: 19.507204}
+    colliderCenter: {x: -0.000014305115, y: 0.0000009536725, z: 9.753588}
+    lossyScale: {x: 0.25000012, y: 0.2500001, z: 2.5631566}
+    count: 8
+  - design: BnP_Apartment_E
+    family: BnP_Apartment_
+    source: {fileID: 505010005321987477, guid: 39b98bd8662949f291c953b006064715, type: 3}
+    patch: MC_Patch_19_Scaled
+    colliderSize: {x: 50.020992, y: 34.61676, z: 19.809155}
+    colliderCenter: {x: -0.000017166138, y: -8.6736174e-19, z: 9.904577}
+    lossyScale: {x: 0.25000006, y: 0.25000006, z: 2.524086}
+    count: 4
+  - design: BnP_Apartment_F
+    family: BnP_Apartment_
+    source: {fileID: 3393046179592875840, guid: ab29b70c39fe4deebd85b0234c589789,
+      type: 3}
+    patch: MC_Patch_06_Scaled
+    colliderSize: {x: 43.582848, y: 31.370888, z: 16.397148}
+    colliderCenter: {x: -0.000002861023, y: 0.000006675722, z: 8.198574}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 3.0493116}
+    count: 5
+  - design: BnP_Apartment_G
+    family: BnP_Apartment_
+    source: {fileID: 9011732672028267438, guid: bad3a8efb8da4b9b89e288ac6ae86a93,
+      type: 3}
+    patch: MC_Patch_02_Scaled
+    colliderSize: {x: 39.081505, y: 41.685383, z: 25.215439}
+    colliderCenter: {x: -0.000039100647, y: -0.000016212463, z: 12.607719}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 1.9829125}
+    count: 3
+  - design: BnP_Apartment_H
+    family: BnP_Apartment_
+    source: {fileID: 1854181065004009873, guid: 4c7a86b937324c3e8be7bd114eaa7bbc,
+      type: 3}
+    patch: MC_Patch_03_Scaled
+    colliderSize: {x: 36.94144, y: 30.77734, z: 19.384169}
+    colliderCenter: {x: 9.141613, y: -8.073494, z: 9.692084}
+    lossyScale: {x: 0.25000012, y: 0.2500001, z: 2.5794253}
+    count: 4
+  - design: BnP_Apartment_I
+    family: BnP_Apartment_
+    source: {fileID: 1971550532038496101, guid: 4ce16bcbe3654701aef879043a400bc8,
+      type: 3}
+    patch: MC_Patch_10_Scaled
+    colliderSize: {x: 38.052605, y: 25.860525, z: 20.230656}
+    colliderCenter: {x: -0.039981842, y: 0.19710164, z: 10.115328}
+    lossyScale: {x: 0.3327782, y: 0.25000006, z: 2.471497}
+    count: 6
+  - design: BnP_Large_Building_A
+    family: BnP_Large_Building_
+    source: {fileID: 2767012787276784055, guid: ad3dc5509fd54344855cf9f932fee09b,
+      type: 3}
+    patch: MC_Patch_27_Scaled
+    colliderSize: {x: 60.04637, y: 45.474, z: 92.67116}
+    colliderCenter: {x: 0.36160287, y: -0.16567707, z: 46.33558}
+    lossyScale: {x: 0.26209387, y: 0.26209384, z: 0.5395424}
+    count: 2
+  - design: BnP_Large_Building_B
+    family: BnP_Large_Building_
+    source: {fileID: 7794136117911403475, guid: 9c26f063e40145cdb02eb5f918ac1eb5,
+      type: 3}
+    patch: MC_Patch_30_Scaled
+    colliderSize: {x: 34.750324, y: 40.308666, z: 69.81786}
+    colliderCenter: {x: 4.9608565e-13, y: 0, z: 34.90893}
+    lossyScale: {x: 0.43805274, y: 0.43805268, z: 0.71614933}
+    count: 1
+  - design: BnP_Large_Building_C
+    family: BnP_Large_Building_
+    source: {fileID: 9011906341215683408, guid: bad3a8efb8da4b9b89e288ac6ae86a93,
+      type: 3}
+    patch: MC_Patch_02_Scaled
+    colliderSize: {x: 40.202892, y: 19.868868, z: 64.013756}
+    colliderCenter: {x: 0, y: 0, z: 32.006878}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 0.78108233}
+    count: 8
+  - design: BnP_Large_Building_D
+    family: BnP_Large_Building_
+    source: {fileID: 4379333726574439490, guid: 0fb5494c080543d0bdd60e07aef3233f,
+      type: 3}
+    patch: MC_Patch_35_Scaled
+    colliderSize: {x: 71.592804, y: 29.89257, z: 135.57472}
+    colliderCenter: {x: -1.5409782, y: -4.3797214e-14, z: 67.78736}
+    lossyScale: {x: 0.25000012, y: 0.2500001, z: 0.36880043}
+    count: 1
+  - design: BnP_Large_Building_E
+    family: BnP_Large_Building_
+    source: {fileID: 1317280148527506166, guid: 638e355c25374f6dbbf80a756827d345,
+      type: 3}
+    patch: MC_Patch_11_Scaled
+    colliderSize: {x: 2.6850731, y: 1.4764067, z: 7.135494}
+    colliderCenter: {x: 0.0000039935107, y: -0.0000013411047, z: 3.567747}
+    lossyScale: {x: 5.1650014, y: 5.165001, z: 7.007225}
+    count: 3
+  - design: BnP_Large_Building_F
+    family: BnP_Large_Building_
+    source: {fileID: 8867232315263530235, guid: da6f6032da034273a71f568856547896,
+      type: 3}
+    patch: MC_Patch_14_Scaled
+    colliderSize: {x: 0.9265204, y: 0.5914116, z: 3.2872257}
+    colliderCenter: {x: 0, y: 0.00000047683716, z: 1.6436129}
+    lossyScale: {x: 5.165, y: 5.165001, z: 15.210399}
+    count: 7
+  - design: BnP_Large_Building_G
+    family: BnP_Large_Building_
+    source: {fileID: 1971503385761658835, guid: 4ce16bcbe3654701aef879043a400bc8,
+      type: 3}
+    patch: MC_Patch_10_Scaled
+    colliderSize: {x: 1.1145444, y: 0.6433822, z: 2.8830354}
+    colliderCenter: {x: -0.00000777841, y: -1.1297983e-19, z: 1.4415177}
+    lossyScale: {x: 5.1650023, y: 5.165002, z: 17.342838}
+    count: 3
+  - design: BnP_Large_Building_I
+    family: BnP_Large_Building_
+    source: {fileID: 3525682030120720668, guid: ab43d9a11a5140d8aadd160b6ecd6940,
+      type: 3}
+    patch: MC_Patch_15_Scaled
+    colliderSize: {x: 1.9368984, y: 1.4708687, z: 4.8881216}
+    colliderCenter: {x: 0.0000009536743, y: -4.1403992e-21, z: 2.44406}
+    lossyScale: {x: 5.1650023, y: 5.165002, z: 10.228882}
+    count: 4
+  - design: BnP_Large_Building_J
+    family: BnP_Large_Building_
+    source: {fileID: 7899718894765558931, guid: d92a19ec748941468bc0d014ac74dcbe,
+      type: 3}
+    patch: MC_Patch_05_Scaled
+    colliderSize: {x: 1.6146787, y: 0.8248296, z: 4.159581}
+    colliderCenter: {x: 0, y: -0.00000011920929, z: 2.0797906}
+    lossyScale: {x: 5.1650023, y: 5.165002, z: 12.020446}
+    count: 4
+  - design: BnP_Large_Building_K
+    family: BnP_Large_Building_
+    source: {fileID: 8720352812629262870, guid: 736797ddf4d74b8eaa39c34f338e17bd,
+      type: 3}
+    patch: MC_Patch_16_Scaled
+    colliderSize: {x: 1.6885307, y: 2.1965313, z: 4.1956234}
+    colliderCenter: {x: 0, y: -0.0000002384186, z: 2.0978117}
+    lossyScale: {x: 5.165, y: 5.165001, z: 11.917182}
+    count: 2
+  - design: BnP_Large_Building_L
+    family: BnP_Large_Building_
+    source: {fileID: 8865343993148919991, guid: da6f6032da034273a71f568856547896,
+      type: 3}
+    patch: MC_Patch_14_Scaled
+    colliderSize: {x: 0.9414408, y: 1.2409219, z: 5.65019}
+    colliderCenter: {x: 0.000000029802322, y: -0.000003039836, z: 2.825095}
+    lossyScale: {x: 5.165, y: 5.1649995, z: 8.849261}
+    count: 3
+  - design: BnP_Small_Building_A
+    family: BnP_Small_Building_
+    source: {fileID: 1971939987512136975, guid: 4ce16bcbe3654701aef879043a400bc8,
+      type: 3}
+    patch: MC_Patch_10_Scaled
+    colliderSize: {x: 0.1185894, y: 0.1185891, z: 0.0637383}
+    colliderCenter: {x: 0.00000009872019, y: 0.00000023841858, z: 0.031869177}
+    lossyScale: {x: 43.24827, y: 43.248264, z: 784.45734}
+    count: 3
+  - design: BnP_Small_Building_B
+    family: BnP_Small_Building_
+    source: {fileID: 8412193891200256295, guid: d2e0e19b379f4e3da02f9a2e9f5acc9c,
+      type: 3}
+    patch: MC_Patch_01_Scaled
+    colliderSize: {x: 28.176863, y: 23.018244, z: 27.783873}
+    colliderCenter: {x: 0.000041007992, y: 0.0000138282785, z: 13.891936}
+    lossyScale: {x: 0.24999999, y: 0.25000006, z: 1.7996056}
+    count: 8
+  - design: BnP_Small_Building_C
+    family: BnP_Small_Building_
+    source: {fileID: 8896943328090459609, guid: bf770d7b6cce4b2baa9054c120aab2f7,
+      type: 3}
+    patch: MC_Patch_04_Scaled
+    colliderSize: {x: 4.6100554, y: 3.6880498, z: 5.8305345}
+    colliderCenter: {x: -2.991901e-20, y: -0.000003874302, z: 2.9152644}
+    lossyScale: {x: 1.4156533, y: 1.4156532, z: 8.575545}
+    count: 4
+  - design: BnP_Small_Building_D
+    family: BnP_Small_Building_
+    source: {fileID: 7899729936455984801, guid: d92a19ec748941468bc0d014ac74dcbe,
+      type: 3}
+    patch: MC_Patch_05_Scaled
+    colliderSize: {x: 36.497696, y: 36.49771, z: 25.665537}
+    colliderCenter: {x: 0, y: 0.000003814698, z: 12.832768}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 1.9481381}
+    count: 3
+  - design: BnP_Small_Building_E
+    family: BnP_Small_Building_
+    source: {fileID: 9012592366554128920, guid: bad3a8efb8da4b9b89e288ac6ae86a93,
+      type: 3}
+    patch: MC_Patch_02_Scaled
+    colliderSize: {x: 29.787746, y: 11.5453615, z: 20.888851}
+    colliderCenter: {x: 0.00008440018, y: -0.000035762783, z: 10.444426}
+    lossyScale: {x: 0.25000003, y: 0.25, z: 2.393622}
+    count: 12
+  - design: BnP_Small_Building_F
+    family: BnP_Small_Building_
+    source: {fileID: 8008897105256086992, guid: dbf702d1c0fb4b36825f25f795e6bbda,
+      type: 3}
+    patch: MC_Patch_08_Scaled
+    colliderSize: {x: 16.984924, y: 7.841282, z: 21.236488}
+    colliderCenter: {x: 0.0000047683716, y: -0.0000015497211, z: 10.618244}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 2.3544388}
+    count: 26
+  - design: BnP_Small_Building_G
+    family: BnP_Small_Building_
+    source: {fileID: 8009125791941997374, guid: dbf702d1c0fb4b36825f25f795e6bbda,
+      type: 3}
+    patch: MC_Patch_08_Scaled
+    colliderSize: {x: 16.7849, y: 11.545364, z: 20.888851}
+    colliderCenter: {x: 0.000030517578, y: 0.000026702884, z: 10.444426}
+    lossyScale: {x: 0.25000006, y: 0.25000006, z: 2.393622}
+    count: 12
+  - design: Skyscraper_A
+    family: Skyscraper_
+    source: {fileID: 9012166174743490238, guid: bad3a8efb8da4b9b89e288ac6ae86a93,
+      type: 3}
+    patch: MC_Patch_02_Scaled
+    colliderSize: {x: 28.641672, y: 20.071455, z: 72.43836}
+    colliderCenter: {x: 0.000040531173, y: -0.000011920932, z: 36.21918}
+    lossyScale: {x: 0.25000012, y: 0.2500001, z: 0.69024223}
+    count: 6
+  - design: Skyscraper_B
+    family: Skyscraper_
+    source: {fileID: 1853733393609692085, guid: 4c7a86b937324c3e8be7bd114eaa7bbc,
+      type: 3}
+    patch: MC_Patch_03_Scaled
+    colliderSize: {x: 13.953069, y: 13.3273735, z: 57.506657}
+    colliderCenter: {x: -6.7762636e-20, y: 0.0000023841862, z: 28.753328}
+    lossyScale: {x: 0.25000006, y: 0.25000006, z: 0.8694648}
+    count: 4
+  - design: Skyscraper_C
+    family: Skyscraper_
+    source: {fileID: 8719555109135512668, guid: 736797ddf4d74b8eaa39c34f338e17bd,
+      type: 3}
+    patch: MC_Patch_16_Scaled
+    colliderSize: {x: 20.02223, y: 13.62584, z: 52.84271}
+    colliderCenter: {x: 0, y: 0.00001692772, z: 26.421354}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 0.94620454}
+    count: 7
+  - design: Skyscraper_D
+    family: Skyscraper_
+    source: {fileID: 8412237088886480045, guid: d2e0e19b379f4e3da02f9a2e9f5acc9c,
+      type: 3}
+    patch: MC_Patch_01_Scaled
+    colliderSize: {x: 41.815144, y: 22.84265, z: 50.89959}
+    colliderCenter: {x: 0.000011444092, y: 0.0000014305106, z: 25.449795}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 0.98232645}
+    count: 6
+  - design: Skyscraper_E
+    family: Skyscraper_
+    source: {fileID: 8897071444405288463, guid: bf770d7b6cce4b2baa9054c120aab2f7,
+      type: 3}
+    patch: MC_Patch_04_Scaled
+    colliderSize: {x: 42.382412, y: 22.842665, z: 93.41866}
+    colliderCenter: {x: -0.00003719331, y: -0.000007152559, z: 46.709316}
+    lossyScale: {x: 0.25000012, y: 0.2500001, z: 0.53522515}
+    count: 3
+  - design: Skyscraper_F
+    family: Skyscraper_
+    source: {fileID: 8007665655378843634, guid: dbf702d1c0fb4b36825f25f795e6bbda,
+      type: 3}
+    patch: MC_Patch_08_Scaled
+    colliderSize: {x: 14.740883, y: 14.623745, z: 71.971016}
+    colliderCenter: {x: 0, y: 0, z: 35.985508}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 0.6947242}
+    count: 6
+  - design: Skyscraper_G
+    family: Skyscraper_
+    source: {fileID: 1972555317436596249, guid: 4ce16bcbe3654701aef879043a400bc8,
+      type: 3}
+    patch: MC_Patch_10_Scaled
+    colliderSize: {x: 27.605541, y: 27.605553, z: 71.971016}
+    colliderCenter: {x: -0.000018119812, y: -0.000005722044, z: 35.985508}
+    lossyScale: {x: 0.25000003, y: 0.25, z: 0.6947242}
+    count: 3
+  - design: Skyscraper_H
+    family: Skyscraper_
+    source: {fileID: 6877532010937142486, guid: 2ace6f6698ed4f189ca43b33ddb4187e,
+      type: 3}
+    patch: MC_Patch_09_Scaled
+    colliderSize: {x: 25.423676, y: 19.435022, z: 96.94558}
+    colliderCenter: {x: -6.3340717e-15, y: -0.2228604, z: 48.320393}
+    lossyScale: {x: 0.25000012, y: 0.2500001, z: 0.5157535}
+    count: 3
+  - design: Skyscraper_I
+    family: Skyscraper_
+    source: {fileID: 8897309128193302491, guid: bf770d7b6cce4b2baa9054c120aab2f7,
+      type: 3}
+    patch: MC_Patch_04_Scaled
+    colliderSize: {x: 28.999615, y: 16.551638, z: 96.79318}
+    colliderCenter: {x: 0, y: -0.000015258789, z: 48.396576}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 0.51656544}
+    count: 3
+  - design: Skyscraper_J
+    family: Skyscraper_
+    source: {fileID: 8411685140820682615, guid: d2e0e19b379f4e3da02f9a2e9f5acc9c,
+      type: 3}
+    patch: MC_Patch_01_Scaled
+    colliderSize: {x: 32.210747, y: 25.242582, z: 54.2233}
+    colliderCenter: {x: 0.0000047683716, y: 0.0000023841872, z: 27.11165}
+    lossyScale: {x: 0.25, y: 0.25000006, z: 0.92211306}
+    count: 7

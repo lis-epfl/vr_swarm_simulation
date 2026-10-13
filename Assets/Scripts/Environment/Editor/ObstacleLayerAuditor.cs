@@ -148,7 +148,7 @@ public static class ObstacleLayerAuditor
         return Mathf.Sqrt(e.x * e.x + e.z * e.z);
     }
 
-    private static bool IsBuilding(string objectName)
+    internal static bool IsBuilding(string objectName)
     {
         foreach (string prefix in k_BuildingPrefixes)
         {
@@ -161,7 +161,7 @@ public static class ObstacleLayerAuditor
     }
 
     /// <summary>Trailing instance number stripped, so BnP_Street_Light_216 groups with its peers.</summary>
-    private static string Family(string objectName)
+    internal static string Family(string objectName)
     {
         int i = objectName.Length;
         while (i > 0 && (char.IsDigit(objectName[i - 1]) || objectName[i - 1] == ' '))

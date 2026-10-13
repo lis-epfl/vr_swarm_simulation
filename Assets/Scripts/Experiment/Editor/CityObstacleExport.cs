@@ -21,11 +21,50 @@ public static class CityObstacleExport
 
     public static void RunDiamondCityWorld() => RunScene("DiamondCityWorld");
 
+    /// <summary>
+    /// The round-trip check of a generated layout: opens ProceduralCityWorld, builds its layout in edit mode
+    /// (CITY_LAYOUT overrides the scene's), and exports it to city_obstacles_ProceduralCityWorld.json, which
+    /// citysim compares box by box with the layout file it came from (`vissim.py roundtrip`).
+    /// </summary>
+    public static void RunProceduralCityWorld()
+    {
+        EditorSceneManager.OpenScene("Assets/Scenes/ProceduralCityWorld.unity");
+        ProceduralCityBuilder builder = Object.FindFirstObjectByType<ProceduralCityBuilder>(FindObjectsInactive.Include);
+        string error = null;
+        if (builder == null || !builder.Build(out error))
+        {
+            Debug.LogError("CityObstacleExport: could not build the procedural city" +
+                           (builder == null ? " (no ProceduralCityBuilder in the scene)." : $": {error}"));
+            EditorApplication.Exit(1);
+            return;
+        }
+        Export("ProceduralCityWorld");
+        Debug.Log($"CityObstacleExport: built and exported layout {builder.Layout.layout.id} from {builder.ResolvedPath}");
+        EditorApplication.Exit(0);
+    }
+
     static void RunScene(string sceneName)
     {
         EditorSceneManager.OpenScene($"Assets/Scenes/{sceneName}.unity");
         Export(sceneName);
         EditorApplication.Exit(0);
+    }
+
+    /// <summary>
+    /// The tile (or diamond plaza) a collider belongs to, named as the "tiles" list below names it: the
+    /// <c>MC_Patch</c> node whose parent is not one. Not the first <c>MC_Patch</c> ancestor: every patch prefab
+    /// nests a node named after its <i>original</i> tile (<c>MC_Patch_10_Scaled</c> holds <c>MC_Patch_10</c>), so a
+    /// scene's second copy of a design, <c>MC_Patch_10 (1)</c>, had its buildings tagged <c>MC_Patch_10</c> and a
+    /// goal replacing either tile removed the other tile's buildings in analyse.scene_boxes.
+    /// </summary>
+    static string TileOf(Transform collider)
+    {
+        for (Transform t = collider; t != null; t = t.parent)
+        {
+            if (t.GetComponent<DiamondPlaza>() != null) return t.name;
+            if (t.name.StartsWith("MC_Patch") && (t.parent == null || !t.parent.name.StartsWith("MC_Patch"))) return t.name;
+        }
+        return "";
     }
 
     static string F(float v) => v.ToString("R", CultureInfo.InvariantCulture);
@@ -39,9 +78,7 @@ public static class CityObstacleExport
         foreach (var c in Object.FindObjectsOfType<Collider>())
         {
             if (c.gameObject.layer != layer || !c.enabled) continue;
-            string tile = "";
-            for (Transform t = c.transform; t != null; t = t.parent)
-                if (t.name.StartsWith("MC_Patch") || t.GetComponent<DiamondPlaza>() != null) { tile = t.name; break; }
+            string tile = TileOf(c.transform);
             Vector3 center, ax, ay, az;
             if (c is BoxCollider b)
             {

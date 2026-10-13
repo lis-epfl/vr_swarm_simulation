@@ -1,0 +1,480 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+/// <summary>
+/// Builds a city from a generated layout file (Assets/Scripts/Experiment/layouts/&lt;id&gt;.json, written by the Python
+/// generator citysim/citygen.py): every building a copy of a ScaledCity pack building from the
+/// <see cref="BuildingCatalogue"/>, the streets as flat meshes, and the goals as <see cref="ProceduralGoal"/> roots
+/// whose ring buildings carry <see cref="WalkerPatrol"/>s. Sits on its own scene root (<c>ProceduralCity</c>), never on
+/// <c>gameManager</c>, which <see cref="SwarmManager"/> moves to DontDestroyOnLoad.
+///
+/// <para><b>Placement is by collider centre.</b> A pack building is authored local +Z up with the pivot at its base
+/// (see the catalogue), so it is given the rotation <c>Euler(-90, yaw, 0)</c>, its design's lossy scale with the two
+/// horizontal axes times the layout's size, and the position that puts its BoxCollider's centre exactly on the
+/// layout's box centre; the result is asserted. That is the frame the layout's half-axes were written in
+/// (citysim/layout.py), so CityObstacleExport of the built scene reproduces the layout's boxes.</para>
+///
+/// <para><b>Nothing here may collide unless the swarm can see it</b>: buildings stay on <c>Obstacle</c>, streets have no
+/// collider, and there is no street furniture — in the tile cities, lamps and hydrants on Default killed drones the
+/// avoidance law cannot see (internal_3's one non-pair crash).</para>
+///
+/// <para><b>The goals' order and randomness come from the layout.</b> <see cref="PlacedGoals"/> is in the layout's goal
+/// order (the recorder's goal index). The session's goal seed (<see cref="GoalSession"/>) is the layout's seed, set
+/// before any goal root is activated, so the hats, the target walkers and the walkers' starts are the same every
+/// time a layout is flown, whichever interface flies it. Each goal root is instantiated under an inactive holder and
+/// activated only once its buildings and patrols are in place: <see cref="GoalSpecialWalker"/> picks its patrol in
+/// Awake, before any patrol's Start.</para>
+///
+/// <para>The layout's arena and spawn must stand on the scene's Terrain: past it there is no ground for the altitude
+/// ceiling (<see cref="TerrainHeightSampler"/>), so the build refuses a layout that leaves it.</para>
+/// </summary>
+[DisallowMultipleComponent]
+public class ProceduralCityBuilder : MonoBehaviour
+{
+    public const string LayoutEnv = "CITY_LAYOUT";
+    /// <summary>"0" turns the ring buildings' pedestrians off whatever spawnWalkers says (the headless bench sets it:
+    /// the builder runs in Awake, before the bench's own setup).</summary>
+    public const string WalkersEnv = "CITY_WALKERS";
+    public const string LayoutFolder = "Scripts/Experiment/layouts";
+
+    [Tooltip("The layout: an id or file name under Assets/Scripts/Experiment/layouts, a path under Assets/, or an " +
+             "absolute path. The CITY_LAYOUT environment variable overrides it (the headless bench).")]
+    public string layoutPath = "";
+    public BuildingCatalogue catalogue;
+    [Tooltip("ProceduralGoalRoot.prefab: GoalSpecialWalker (with its hat prefabs) and ProceduralGoal on the root.")]
+    public GameObject goalRootPrefab;
+    [Tooltip("The ordinary pedestrian every patrol spawns (SimpleWalker).")]
+    public GameObject walkerPrefab;
+    public bool buildOnAwake = true;
+    [Tooltip("Off: no WalkerPatrol on the ring buildings (the headless bench flies without pedestrians).")]
+    public bool spawnWalkers = true;
+    [Tooltip("Move swarmSpawn's start to the layout's spawn point.")]
+    public bool setSpawn = true;
+
+    [Header("Patrols (WalkerPatrol on each ring building)")]
+    public int numWalkers = 8;
+    public float walkerSpeed = 2f;
+    public float baseOffset = 0.5f;
+    public float margin = 3f;
+    public float cornerRadius = 1f;
+
+    [Header("Streets")]
+    public Material streetMaterial;
+    public float streetHeight = 0.02f;
+
+    private const string BuildingsName = "Buildings", StreetsName = "Streets", GoalsName = "Goals";
+    private readonly List<GameObject> placedGoals = new List<GameObject>();
+
+    /// <summary>The goal roots in the layout's goal order. Empty until Build has run.</summary>
+    public IReadOnlyList<GameObject> PlacedGoals => placedGoals;
+
+    /// <summary>The parsed layout file of the last build (null before).</summary>
+    public LayoutFile Layout { get; private set; }
+
+    /// <summary>The layout file the last build read.</summary>
+    public string ResolvedPath { get; private set; } = "";
+
+    void Awake()
+    {
+        if (buildOnAwake && Application.isPlaying)
+        {
+            if (!Build(out string error))
+            {
+                Debug.LogError("ProceduralCityBuilder: " + error, this);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ the file
+
+    [Serializable]
+    public class LayoutFile
+    {
+        public LayoutBox[] boxes;
+        public LayoutStreet[] streets;
+        public LayoutRecord layout;
+    }
+
+    [Serializable]
+    public class LayoutBox
+    {
+        public string name;
+        public string tile;
+        public float[] c;            // collider centre, world
+        public string design;
+        public float size;           // horizontal scale of the design
+        public int yaw;              // 0 or 90
+        public string role;          // city, goal_centre, goal_ring
+        public int goal;             // -1 for city buildings
+        public bool patrol;
+    }
+
+    [Serializable]
+    public class LayoutStreet
+    {
+        public int id;
+        public float[] xz;           // flattened polyline
+        public float width;
+        public bool edge;
+    }
+
+    [Serializable]
+    public class LayoutGoal
+    {
+        public int index;
+        public float[] centre;
+        public string centre_box;
+        public string[] ring_boxes;
+        public float w_c, R_c, r_g, c_g, clear_radius, ring_size;
+        public int n_b;
+    }
+
+    [Serializable]
+    public class LayoutRecord
+    {
+        public string generator_version;
+        public string id;
+        public int seed;
+        public string mode;
+        public string design;
+        public float size, p, s, f, g, alpha_achieved, alpha_target;
+        public float[] arena;
+        public float[] spawn;
+        public float spawn_yaw;
+        public LayoutGoal[] goals;
+    }
+
+    /// <summary>The file a layout name resolves to, or null.</summary>
+    public static string Resolve(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        name = name.Trim();
+        string folder = Path.Combine(Application.dataPath, LayoutFolder);
+        string[] candidates =
+        {
+            name,
+            Path.Combine(folder, name),
+            Path.Combine(folder, name + ".json"),
+            Path.Combine(Application.dataPath, name),
+        };
+        foreach (string c in candidates)
+        {
+            if (File.Exists(c)) return Path.GetFullPath(c);
+        }
+        return null;
+    }
+
+    // ------------------------------------------------------------------ build
+
+    /// <summary>Builds the layout under this root, replacing any previous build. False with an error on failure.</summary>
+    public bool Build(out string error)
+    {
+        string name = Environment.GetEnvironmentVariable(LayoutEnv);
+        if (string.IsNullOrEmpty(name)) name = layoutPath;
+        string path = Resolve(name);
+        if (path == null)
+        {
+            error = $"no layout file for '{name}' (looked under Assets/{LayoutFolder} and Assets/).";
+            return false;
+        }
+        LayoutFile file;
+        try
+        {
+            file = JsonUtility.FromJson<LayoutFile>(File.ReadAllText(path));
+        }
+        catch (Exception e)
+        {
+            error = $"cannot read {path}: {e.Message}";
+            return false;
+        }
+        if (file == null || file.boxes == null || file.layout == null)
+        {
+            error = $"{path} is not a layout file (no boxes / layout record).";
+            return false;
+        }
+        if (catalogue == null)
+        {
+            error = "no BuildingCatalogue assigned (Tools/Swarm/Export building catalogue writes one).";
+            return false;
+        }
+        if (file.layout.goals != null && file.layout.goals.Length > 0 && goalRootPrefab == null)
+        {
+            error = "the layout has goals but no goalRootPrefab is assigned.";
+            return false;
+        }
+        if (!OnTerrain(file.layout, out error)) return false;
+        bool walkers = spawnWalkers && Environment.GetEnvironmentVariable(WalkersEnv) != "0";
+        foreach (LayoutBox b in file.boxes)
+        {
+            if (catalogue.Find(b.design) == null)
+            {
+                error = $"design '{b.design}' (box {b.name}) is not in the catalogue.";
+                return false;
+            }
+        }
+
+        Clear();
+        Layout = file;
+        ResolvedPath = path;
+        Transform buildings = Child(BuildingsName);
+        Transform streets = Child(StreetsName);
+        Transform goalsRoot = Child(GoalsName);
+
+        int nCity = 0;
+        foreach (LayoutBox b in file.boxes)
+        {
+            if (b.role != "city") continue;
+            if (Place(b, buildings, out error) == null) return false;
+            nCity++;
+        }
+        BuildStreets(file.streets, streets);
+
+        // Goals: the session's goal seed first (the hats, target walkers and walker starts follow from it).
+        GoalSession.Set(file.layout.seed, "layout");
+        GameObject holder = new GameObject("goal holder (inactive)");
+        holder.SetActive(false);
+        holder.transform.SetParent(goalsRoot, false);
+        var roots = new List<GameObject>();
+        foreach (LayoutGoal g in file.layout.goals ?? new LayoutGoal[0])
+        {
+            GameObject root = Instantiate(goalRootPrefab, holder.transform);
+            root.name = $"goal_{g.index}";
+            root.transform.SetPositionAndRotation(new Vector3(g.centre[0], 0f, g.centre[1]), Quaternion.identity);
+            ProceduralGoal pg = root.GetComponent<ProceduralGoal>();
+            if (pg == null) pg = root.AddComponent<ProceduralGoal>();
+            pg.index = g.index;
+            pg.ringRadius = g.r_g;
+            pg.occluderWidth = g.w_c;
+            pg.clearance = g.c_g;
+            pg.clearRadius = g.clear_radius;
+            pg.centreBox = g.centre_box ?? "";
+            pg.ringBoxes = g.ring_boxes ?? new string[0];
+            float ringHalfDiag = 0f;
+            foreach (LayoutBox b in file.boxes)
+            {
+                if (b.goal != g.index || b.role == "city") continue;
+                GameObject building = Place(b, root.transform, out error);
+                if (building == null) return false;
+                if (b.role == "goal_ring")
+                {
+                    Bounds bb = building.GetComponent<Collider>().bounds;
+                    ringHalfDiag = Mathf.Max(ringHalfDiag, new Vector2(bb.extents.x, bb.extents.z).magnitude);
+                    if (walkers && b.patrol) AddPatrol(building);
+                }
+            }
+            pg.patchRadius = g.r_g + ringHalfDiag;
+            roots.Add(root);
+        }
+        // Activating in layout order: each GoalSpecialWalker.Awake deals its hat in that order.
+        foreach (GameObject root in roots)
+        {
+            root.transform.SetParent(goalsRoot, true);
+            placedGoals.Add(root);
+        }
+        DestroyNow(holder);
+
+        if (Application.isPlaying)
+        {
+            StaticBatchingUtility.Combine(buildings.gameObject);
+        }
+#if UNITY_EDITOR
+        else
+        {
+            foreach (Transform t in buildings.GetComponentsInChildren<Transform>(true))
+            {
+                UnityEditor.GameObjectUtility.SetStaticEditorFlags(t.gameObject, (UnityEditor.StaticEditorFlags)~0);
+            }
+            TerrainHeightSampler.Invalidate();
+        }
+#endif
+
+        if (setSpawn && file.layout.spawn != null && file.layout.spawn.Length >= 3)
+        {
+            swarmSpawn spawner = FindObjectOfType<swarmSpawn>(true);
+            if (spawner != null)
+            {
+                spawner.start_x = Mathf.RoundToInt(file.layout.spawn[0]);
+                spawner.start_y = Mathf.RoundToInt(file.layout.spawn[1]);
+                spawner.start_z = Mathf.RoundToInt(file.layout.spawn[2]);
+            }
+        }
+
+        CityLayoutInfo.Set(new CityLayoutInfo.Record
+        {
+            id = file.layout.id ?? "",
+            path = path,
+            seed = file.layout.seed,
+            design = file.layout.design ?? "",
+            size = file.layout.size,
+            p = file.layout.p,
+            s = file.layout.s,
+            f = file.layout.f,
+            alphaAchieved = file.layout.alpha_achieved,
+            scene = gameObject.scene.name,
+            generatorVersion = file.layout.generator_version ?? "",
+        });
+
+        error = null;
+        Debug.Log($"ProceduralCityBuilder: built {file.layout.id} ({nCity} city buildings, {placedGoals.Count} goals, " +
+                  $"{file.streets?.Length ?? 0} streets, alpha {file.layout.alpha_achieved:F3}, goal seed {file.layout.seed}) " +
+                  $"from {path}", this);
+        return true;
+    }
+
+    /// <summary>Removes the previous build (this root's Buildings, Streets and Goals).</summary>
+    public void Clear()
+    {
+        placedGoals.Clear();
+        foreach (string n in new[] { BuildingsName, StreetsName, GoalsName })
+        {
+            Transform t = transform.Find(n);
+            if (t != null) DestroyNow(t.gameObject);
+        }
+        Layout = null;
+    }
+
+    private Transform Child(string n)
+    {
+        var go = new GameObject(n);
+        go.transform.SetParent(transform, false);
+        return go.transform;
+    }
+
+    private static void DestroyNow(GameObject go)
+    {
+        if (Application.isPlaying) Destroy(go);
+        else DestroyImmediate(go);
+    }
+
+    /// <summary>One building, its collider centred on the box centre. Null with an error if that fails.</summary>
+    private GameObject Place(LayoutBox b, Transform parent, out string error)
+    {
+        BuildingCatalogue.Entry e = catalogue.Find(b.design);
+        GameObject go = Instantiate(e.source, parent);
+        go.name = b.name;
+        go.SetActive(true);
+        Transform t = go.transform;
+        Quaternion rot = Quaternion.Euler(-90f, b.yaw, 0f);
+        Vector3 scale = new Vector3(e.lossyScale.x * b.size, e.lossyScale.y * b.size, e.lossyScale.z);
+        Vector3 c = new Vector3(b.c[0], b.c[1], b.c[2]);
+        t.rotation = rot;
+        t.localScale = scale;          // the containers above are unscaled at the origin
+        t.position = c - rot * Vector3.Scale(e.colliderCenter, scale);
+        BoxCollider box = go.GetComponent<BoxCollider>();
+        if (box == null)
+        {
+            error = $"the catalogue's {b.design} has no BoxCollider.";
+            return null;
+        }
+        box.enabled = true;
+        Vector3 got = t.TransformPoint(box.center);
+        if ((got - c).sqrMagnitude > 1e-4f)
+        {
+            error = $"{b.name}: its collider centre landed at {got}, not {c} -- the catalogue's frame is wrong.";
+            return null;
+        }
+        error = null;
+        return go;
+    }
+
+    private void AddPatrol(GameObject building)
+    {
+        WalkerPatrol p = building.GetComponent<WalkerPatrol>();
+        if (p == null) p = building.AddComponent<WalkerPatrol>();
+        p.shape = WalkerPatrol.PathShape.Rectangle;
+        p.walkerPrefab = walkerPrefab;
+        p.numWalkers = numWalkers;
+        p.speedMetersPerSec = walkerSpeed;
+        p.baseOffset = baseOffset;
+        p.margin = margin;
+        p.cornerRadius = cornerRadius;
+        p.verticalOffset = 0f;
+    }
+
+    /// <summary>One mesh of flat quads along every street centreline (no collider).</summary>
+    private void BuildStreets(LayoutStreet[] streets, Transform parent)
+    {
+        if (streets == null || streets.Length == 0) return;
+        var verts = new List<Vector3>();
+        var tris = new List<int>();
+        var uvs = new List<Vector2>();
+        foreach (LayoutStreet s in streets)
+        {
+            if (s.xz == null) continue;
+            for (int k = 0; k + 3 < s.xz.Length; k += 2)
+            {
+                var a = new Vector3(s.xz[k], streetHeight, s.xz[k + 1]);
+                var b = new Vector3(s.xz[k + 2], streetHeight, s.xz[k + 3]);
+                Vector3 d = b - a;
+                if (d.sqrMagnitude < 1e-6f) continue;
+                Vector3 side = Vector3.Cross(Vector3.up, d.normalized) * (0.5f * s.width);
+                int i = verts.Count;
+                verts.Add(a - side);
+                verts.Add(a + side);
+                verts.Add(b + side);
+                verts.Add(b - side);
+                float len = d.magnitude / Mathf.Max(s.width, 1e-3f);
+                uvs.Add(new Vector2(0, 0));
+                uvs.Add(new Vector2(1, 0));
+                uvs.Add(new Vector2(1, len));
+                uvs.Add(new Vector2(0, len));
+                tris.AddRange(new[] { i, i + 2, i + 1, i, i + 3, i + 2 });
+            }
+        }
+        var mesh = new Mesh { name = "Procedural streets", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+        mesh.SetVertices(verts);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTriangles(tris, 0);
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        var go = new GameObject("Street surface");
+        go.transform.SetParent(parent, false);
+        go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        MeshRenderer r = go.AddComponent<MeshRenderer>();
+        r.sharedMaterial = streetMaterial;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
+    /// <summary>Whether the arena's corners and the spawn stand on one of the scene's Terrains.</summary>
+    private static bool OnTerrain(LayoutRecord r, out string error)
+    {
+        error = null;
+        Terrain[] terrains = Terrain.activeTerrains;
+        if (terrains.Length == 0)
+        {
+            error = "the scene has no Terrain, so no altitude ceiling: keep the city scenes' four terrain tiles.";
+            return false;
+        }
+        var pts = new List<Vector2>();
+        if (r.arena != null && r.arena.Length == 4)
+        {
+            pts.Add(new Vector2(r.arena[0], r.arena[2]));
+            pts.Add(new Vector2(r.arena[1], r.arena[2]));
+            pts.Add(new Vector2(r.arena[0], r.arena[3]));
+            pts.Add(new Vector2(r.arena[1], r.arena[3]));
+        }
+        if (r.spawn != null && r.spawn.Length >= 3) pts.Add(new Vector2(r.spawn[0], r.spawn[2]));
+        foreach (Vector2 p in pts)
+        {
+            bool on = false;
+            foreach (Terrain t in terrains)
+            {
+                Vector3 o = t.transform.position, s = t.terrainData.size;
+                if (p.x >= o.x - 1e-3f && p.x <= o.x + s.x + 1e-3f && p.y >= o.z - 1e-3f && p.y <= o.z + s.z + 1e-3f)
+                {
+                    on = true;
+                    break;
+                }
+            }
+            if (!on)
+            {
+                error = $"the layout's point ({p.x:F0}, {p.y:F0}) is off every Terrain: there would be no ground for " +
+                        "the altitude ceiling there.";
+                return false;
+            }
+        }
+        return true;
+    }
+}

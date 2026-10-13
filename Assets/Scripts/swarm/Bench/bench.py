@@ -4,6 +4,9 @@
     python bench.py config --scene DiamondCityWorld --scenarios scenarios/DiamondCityWorld_heldout.json \\
                            --set scene --set "no damper:c_damp=0" --out my_config.json
     python bench.py report D:/claude_obstacle_bench/runs/<tag> [more runs ...]
+    python bench.py scenarios --city <layout id> --seed 1 --out-dir <dir>       # flights for a generated layout
+    python bench.py scenarios --city <layout id> --goals --out-dir <dir>        # Tier C's goal flights for it
+    python bench.py config --scene ProceduralCityWorld --layout <layout id> --drones 1 ...  # fly it, single drone
 
 A config's parameter sets are OVERRIDES on the scene as authored -- `--set scene` (no fields) flies the scene
 exactly as it is -- and every field name and value is checked against SwarmManager.cs before anything is
@@ -19,6 +22,7 @@ sys.dont_write_bytecode = True   # nothing under Assets/ may grow a __pycache__ 
 
 import argparse  # noqa: E402
 import glob  # noqa: E402
+import re  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import os  # noqa: E402
@@ -47,6 +51,14 @@ ZIGZAG_LEGS, ZIGZAG_LEG, ZIGZAG_TIMEOUT, ZIGZAG_T = 24, (15.0, 40.0), (2.1, 5.7)
 START_CLEARANCE = 10.0    # m from any building footprint, for a start or a zigzag waypoint
 SPREAD_STEPS = [(1.0, 1.6), (1.6, 1.0), (1.0, 0.4), (0.4, 1.0), (0.4, 1.6), (1.6, 0.4), (1.08, 0.5), (1.08, 1.5)]
 SPREAD_STEP_AT, SPREAD_T, SPREAD_OFFSET = 30.0, 75.0, 280.0   # step time, flight length, m west of the city
+# Tier C's goal flights (--goals): citysim.dynamic's program, so the replica (Tier B') and Unity fly the same thing --
+# from the spawn along the street route at full stick, the goal reached within GOAL_ARRIVE_M of its centre, then a
+# centring hold (formation.PILOT_GAIN, stick <= PILOT_MAX) at the goal spread, a lone drone scanning at maxYawRate
+# (single.scan) meanwhile. Each waypoint may take GOAL_MIN_PROGRESS m/s before it is given up (stuck); the flight ends
+# when the last hold does.
+GOAL_ARRIVE_M, GOAL_HOLD_S, GOAL_HOLD_STICK, GOAL_HOLD_GAIN = 25.0, 60.0, 0.5, 0.25
+GOAL_SPREAD, GOAL_TRANSIT_SPREADS, GOAL_SCAN_RATE = 1.6, (0.4, 1.0), 75.0
+GOAL_WP_SLACK_S, GOAL_MIN_PROGRESS = 15.0, 2.0
 
 
 def transit_time(length):
@@ -139,6 +151,37 @@ def generate(city, seed):
     return heldout, spread
 
 
+def goal_flights(city):
+    """Tier C's task flights through a generated layout: from its spawn, every goal in the layout's order and in
+    reverse, at each of GOAL_TRANSIT_SPREADS. kind = goals_<transit d_ref>."""
+    sys.path.insert(0, str(sp.EXPERIMENT_DIR))
+    from citysim import dynamic, layout as lay
+    L = lay.load(lay.resolve(city))
+    graph = dynamic.street_graph(L)
+    spawn = np.array([L.layout["spawn"][0], L.layout["spawn"][2]], float)
+    goals = [np.array(g["centre"], float) for g in L.goals()]
+    out = []
+    for order, seq in (("forward", goals), ("reverse", goals[::-1])):
+        for d in GOAL_TRANSIT_SPREADS:
+            wps, here, cap = [], spawn, 0.0
+            for gc in seq:
+                route = dynamic.route(graph, here, gc) if graph is not None else [gc]
+                prev = here
+                for q in route:
+                    seg = float(np.linalg.norm(q - prev))
+                    timeout = GOAL_WP_SLACK_S + seg / GOAL_MIN_PROGRESS
+                    wps += [float(q[0]), float(q[1]), 1.0, timeout]
+                    cap += timeout
+                    prev = q
+                wps += [float(gc[0]), float(gc[1]), -GOAL_HOLD_STICK, GOAL_HOLD_S]
+                cap += GOAL_HOLD_S
+                here = gc
+            out.append(dict(kind=f"goals_{d}", order=order, sx=float(spawn[0]), sz=float(spawn[1]), T=round(cap, 1),
+                            wps=wps, record=True, spread=[0.0, d], arrive=GOAL_ARRIVE_M, holdSpread=GOAL_SPREAD,
+                            holdGain=GOAL_HOLD_GAIN, holdYawRate=GOAL_SCAN_RATE, endOnDone=True))
+    return out
+
+
 def write_scenarios(path, city, source, seed, scenarios):
     """One scenario per line, so a diff of two sets reads."""
     def r(x):
@@ -154,14 +197,27 @@ def load_scenarios(path):
 
 
 def cmd_scenarios(a):
-    heldout, spread = generate(a.city, a.seed)
     SCENARIO_DIR.mkdir(exist_ok=True)
-    src = f"bench.py scenarios --city {a.city} --seed {a.seed}"
-    for name, sc in (("heldout", heldout), ("spread", spread)):
-        path = Path(a.out_dir or SCENARIO_DIR) / f"{a.city}_{name}.json"
+    src = f"bench.py scenarios --city {a.city} " + ("--goals" if a.goals else f"--seed {a.seed}")
+    city = a.city
+    if analyse.is_layout(a.city):        # a generated layout: name the files and the set by its id
+        sys.path.insert(0, str(sp.EXPERIMENT_DIR))
+        from citysim import layout as lay
+        city = lay.load(lay.resolve(a.city)).id
+    elif a.goals:
+        raise ValueError("--goals needs a generated layout (its spawn, goals and streets)")
+    if a.goals:
+        sets = (("goals", goal_flights(a.city)),)
+    else:
+        if a.seed is None:
+            raise ValueError("--seed is required (the held-out set is drawn from it)")
+        heldout, spread = generate(a.city, a.seed)
+        sets = (("heldout", heldout), ("spread", spread))
+    for name, sc in sets:
+        path = Path(a.out_dir or SCENARIO_DIR) / f"{city}_{name}.json"
         if path.exists() and not a.force:
             sys.exit(f"[bench] {path} exists; --force to overwrite (results flown on it stop being comparable)")
-        write_scenarios(path, a.city, src, a.seed, sc)
+        write_scenarios(path, city, src, a.seed, sc)
         print(f"[bench] {path}: {dict(Counter(s['kind'] for s in sc))}")
 
 
@@ -206,23 +262,44 @@ def pick(scenarios, spec):
     return out
 
 
+def layout_file_and_id(name):
+    """(path the bench copy resolves, relative to the layouts folder, layout id) of a generated layout, by id or path:
+    a trial layout (layouts/<file>) or a sweep's (layouts/sweep~/<sweep>/<file>, which the mirror copies too)."""
+    sys.path.insert(0, str(sp.EXPERIMENT_DIR))
+    from citysim import layout as lay
+    path = lay.resolve(name)
+    lid = lay.load(path).id
+    layouts = (sp.EXPERIMENT_DIR / "layouts").resolve()
+    try:
+        rel = path.resolve().relative_to(layouts)
+    except ValueError:
+        raise ValueError(f"{path} is not under {layouts}: the bench copy resolves layouts there (copy it in, or "
+                         "generate it with citygen one --out layouts/...)") from None
+    return rel.as_posix(), lid
+
+
 def cmd_config(a):
     sp.scene_path(a.scene).stat()   # a typo'd scene fails here, not after Unity starts
     fields = sp.swarm_manager_fields()
+    layout_name, layout_id = layout_file_and_id(a.layout) if a.layout else ("", "")
+    expected_city = layout_id or Path(a.scene).stem
     scenarios = []
     for f in a.scenarios:
         city, sc = load_scenarios(f)
-        if city and city != Path(a.scene).stem and not a.any_city:
-            raise ValueError(f"{f} was generated for {city}, not {a.scene} (--any-city to fly it anyway)")
+        if city and city != expected_city and not a.any_city:
+            raise ValueError(f"{f} was generated for {city}, not {expected_city} (--any-city to fly it anyway)")
         scenarios += sc
     scenarios = pick(scenarios, a.pick)
+    if a.record_all:     # every flight's trajectory, for swarm_replica.py validate
+        scenarios = [dict(s, record=True) for s in scenarios]
     sets = [parse_set(s, fields, a.pilot_heading) for s in (a.set or ["scene"])]
     labels = [s["label"] for s in sets]
     if len(set(labels)) != len(labels):
         raise ValueError(f"duplicate set labels in {labels}")
     cfg = OrderedDict(scene=a.scene, timeScale=a.time_scale, settleTime=a.settle, altitude=a.altitude,
                       capture=a.capture, pilotHeading=a.pilot_heading, pilotYawRate=a.pilot_yaw_rate,
-                      goalReplaySession=a.goal_replay or "", paramSets=sets, scenarios=scenarios)
+                      goalReplaySession=a.goal_replay or "", layout=layout_name, droneCount=a.drones,
+                      walkers=a.walkers, paramSets=sets, scenarios=scenarios)
     Path(a.out).write_text(json.dumps(cfg, indent=1) + "\n", encoding="utf-8", newline="\n")
     flights = len(scenarios) * len(sets)
     est = sum(s["T"] + a.settle for s in scenarios) * len(sets) / a.time_scale / 60
@@ -266,7 +343,7 @@ def step_response(traj, step_at):
     the alive drones from their centroid -- the measure swarm_replica.py step uses)."""
     df = pd.read_csv(traj)
     t = df.t.values
-    n = (len(df.columns) - 2) // 2
+    n = sum(1 for c in df.columns if re.fullmatch(r"x\d+", c))   # traj files gained mask and yaw columns
     X = df[[f"x{i}" for i in range(n)]].values
     Z = df[[f"z{i}" for i in range(n)]].values
     alive = ((df.alive_mask.values[:, None] >> np.arange(n)) & 1).astype(bool)
@@ -299,7 +376,8 @@ def summarise_set(fl):
         contacts_per_km=round(df.contacts.sum() / km, 3) if km > 0 else np.nan,
         lost_per_km=round(lost.sum() / km, 3) if km > 0 else np.nan,
         km=round(km, 1), speed=round(df.mean_speed.mean(), 2), progress=round(track, 2),
-        hull=round(df.hull_frac.mean(), 3), nn=round(df.nn_mean.mean(), 2), min_pair=round(df.min_pair.min(), 2),
+        hull=round(df.hull_frac.mean(), 3), nn=round(df.nn_mean.mean(), 2),
+        min_pair=round(df.min_pair.min(), 2) if df.min_pair.min() < 1e8 else np.nan,   # 1e9 = no pair (one drone)
         split_pct=round(100 * df.split_frac.mean(), 1))
     if "sim_per_wall" in df:
         row["x_real"] = round(df.sim_per_wall.min(), 1)
@@ -307,6 +385,10 @@ def summarise_set(fl):
 
 
 def cmd_report(a):
+    # A single-drone flight has no formation: its spacing, hull and step-response metrics are NaN, which is the
+    # honest answer, and numpy's empty-slice warnings would otherwise reach run_bench.ps1 as stderr and fail the run.
+    import warnings
+    warnings.simplefilter("ignore", category=RuntimeWarning)
     pd.set_option("display.width", 250)
     pd.set_option("display.max_columns", 40)
     rows, kinds = [], []
@@ -317,7 +399,9 @@ def cmd_report(a):
         if start:
             head += (f": {start['scene']}, {start['drones']} drones, {start['timeScale']:g}x, "
                      f"pilotHeading {start['pilotHeading']}" +
-                     (f", goals from {start['goalReplaySession']}" if start.get("goalReplaySession") else ""))
+                     (f", goals from {start['goalReplaySession']}" if start.get("goalReplaySession") else "") +
+                     (f", layout {start['layout']} (alpha {start.get('layoutAlpha')}, {start.get('layoutGoals')} goals)"
+                      if start.get("layout") else ""))
         print(head + ("" if done else "   [INCOMPLETE: no done line]"))
         for e in errors:
             print(f"   ERROR (exit {e.get('code')}): {e.get('message')}")
@@ -375,8 +459,10 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("scenarios", help="generate a held-out flight set and a spread-step set for a city")
-    p.add_argument("--city", required=True, help="a scene with a city_obstacles_<city>.json beside analyse.py")
-    p.add_argument("--seed", type=int, required=True)
+    p.add_argument("--city", required=True, help="a scene with a city_obstacles_<city>.json beside analyse.py, or a "
+                                                 "generated layout's id")
+    p.add_argument("--seed", type=int, help="the held-out set's seed (required unless --goals)")
+    p.add_argument("--goals", action="store_true", help="Tier C's goal flights through a generated layout instead")
     p.add_argument("--out-dir", help=f"default {SCENARIO_DIR}")
     p.add_argument("--force", action="store_true", help="overwrite existing files")
     p.set_defaults(func=cmd_scenarios)
@@ -395,6 +481,12 @@ def main():
     p.add_argument("--altitude", type=float, default=25.0)
     p.add_argument("--capture", type=float, default=10.0, help="m from a waypoint that counts as reaching it")
     p.add_argument("--any-city", action="store_true", help="allow scenarios generated for another city")
+    p.add_argument("--layout", help="a generated layout (id or file under Assets/Scripts/Experiment/layouts); fly "
+                                    "it in ProceduralCityWorld")
+    p.add_argument("--drones", type=int, default=0, help="drones to fly (0 = the scene's; 1 = single drone)")
+    p.add_argument("--walkers", action="store_true", help="spawn the goals' pedestrians (off by default)")
+    p.add_argument("--record-all", action="store_true",
+                   help="write every flight's trajectory (swarm_replica.py validate replays them)")
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_config)
 

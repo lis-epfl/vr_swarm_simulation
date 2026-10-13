@@ -310,6 +310,30 @@ public class ScreenSpawn : MonoBehaviour
     /// </summary>
     public IReadOnlyList<GameObject> Screens => screens;
 
+    /// <summary>
+    /// The feed screen bound to a sim drone (the swarm list's root GameObject), or null. By binding rather than by
+    /// index, because the swarm list can be re-sorted in place while the bindings keep their spawn order.
+    /// ExperimentRecorder reads it to log whether each drone's feed was on screen.
+    /// </summary>
+    public GameObject ScreenFor(GameObject drone)
+    {
+        foreach (DroneScreenBinding b in bindings)
+        {
+            if (b.drone == drone) return b.screen;
+        }
+        return null;
+    }
+
+    /// <summary>The sim drone whose feed a screen carries, or null (a real feed has no drone object).</summary>
+    public GameObject DroneFor(GameObject screen)
+    {
+        foreach (DroneScreenBinding b in bindings)
+        {
+            if (b.screen == screen) return b.drone;
+        }
+        return null;
+    }
+
     // Set which drones' individual feeds to hide because they already appear in
     // the stitched panorama. Called by PyUniSharingFast; null/empty restores all.
     public void SetStitchedDronesHidden(IEnumerable<GameObject> drones)
@@ -521,11 +545,9 @@ public class ScreenSpawn : MonoBehaviour
 
                 // DJI Mini 3 Pro is specced at 82.1 deg diagonal FOV. Unity's
                 // Camera.fieldOfView is vertical, so convert the diagonal spec to
-                // the vertical FOV for the current aspect ratio (~46.4 deg at 16:9).
-                const float djiDiagonalFov = 82.1f;
-                float diagHalfRad = djiDiagonalFov * 0.5f * Mathf.Deg2Rad;
-                float vertHalfRad = Mathf.Atan(Mathf.Tan(diagHalfRad) / Mathf.Sqrt(aspect * aspect + 1f));
-                cam.fieldOfView = vertHalfRad * 2f * Mathf.Rad2Deg;
+                // the vertical FOV for the current aspect ratio (~46.2 deg at 16:9).
+                // FpvCameraFov holds the number for everything else that needs it.
+                cam.fieldOfView = FpvCameraFov.VerticalDeg(aspect);
 
                 // The feed RT doubles as the stitch-capture source in
                 // PyUniSharingFast, so it's needed regardless of screen style.

@@ -1437,10 +1437,54 @@ confirm it on the bench. Invariants:
   VelocityControl and StateFinder as of `FORCE_LAW_COMMIT`, and refuses (exit 3) once git shows those
   files changed. **When you change the horizontal force law, update `swarm_replica.py` in the same change
   and bump the constant**; a change that leaves the law alone needs only the bump.
-- **The replica has no heading, no altitude, no street furniture, no PhysX contact and no
-  DroneHealthMonitor**, so it cannot judge what the pilot sees, the ceiling, pole strikes or building
-  contacts. It does fly each run's runtime city (goal patches swapped in), which is worth 3x in predicted
-  drone-drone kills at d_ref 0.4.
+- **The bench flies generated cities too** (`--scene ProceduralCityWorld --layout <id>`, `--drones N`), and
+  `bench.py scenarios --goals` writes the density study's goal flights, whose hold waypoints (a centring pilot
+  at a goal) the replica mirrors. A lone drone's heading is steered by the scripted pilot -- AttitudeAlgorithm
+  hands a lone drone the yaw stick, which the bench otherwise leaves at zero, so its feed would never turn.
+- **The replica has no heading, no altitude and no street furniture**, so it cannot judge what the pilot
+  sees, the ceiling or pole strikes. It does fly each run's runtime city (goal patches swapped in, or a
+  procedural run's own layout), which is worth 3x in predicted drone-drone kills at d_ref 0.4.
+- **Buildings come in two models, and which one a number came from matters.** `sim`, `forces` and `step`
+  fly `Sim`, where entering a footprint is a kill, so they cannot judge building contacts. `validate` and the
+  density study (`citysim`) fly `ContactSim`, where it is a contact as PhysX resolves it: the drone is put
+  back on the surface, loses its inward velocity and, through Coulomb friction 0.6 (PhysX's default
+  material, which every collider here has), part of its slide; contacts are counted as events, as the bench's
+  `OnCollisionEnter` counts them; and a drone whose nearest live neighbour is beyond the cohesion cutoff is
+  lost, as `DroneHealthMonitor.IsTooFarFromSwarm` loses it. **The gate chose that model, not taste**: on
+  17-flight bench runs in DiamondCityWorld and two generated cities (2026-10-12), kill-on-entry failed the
+  dense city (18 drones lost against Unity's 5), contacts without friction matched the losses but missed the
+  spacing limit (15.1% against 15%), and with friction every run passed. Friction is what pins a drone that
+  cohesion presses into a facade until the swarm leaves it behind -- the `TooFarFromSwarm` deaths.
+- **`swarm_replica.py validate` is the replica's gate against Unity**: it flies a bench run's recorded
+  flights again (record them with `bench.py config --record-all`) and compares the track, spacing, losses and
+  contacts against fixed limits. Run it before trusting the replica in a kind of city it has not been checked
+  in.
+
+## The density study and ProceduralCityWorld
+
+The study that chooses the human trials' city levels: generated cities with controlled clutter and goal
+geometry, the swarm's and the single drone's view of a goal predicted by four tiers of model, and three
+levels picked by a rule fixed beforehand. **[docs/density_study/README.md](docs/density_study/README.md) is the
+manual** (tiers, gates, results, how to run), [protocol.md](docs/density_study/protocol.md) the trial
+protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` env), the outputs
+`experiment_results/density_study/`. Invariants:
+- **A layout is a `city_obstacles` file plus streets and a generator record**, so `analyse.py`, the replica and
+  the bench read it as a city with no special case. Trial layouts are committed in
+  `Assets/Scripts/Experiment/layouts/` (`L1_…`, `L2_…`, `L3_…`); sweep layouts live in `layouts/sweep~/`,
+  which is git-ignored and which Unity's asset database skips (the trailing `~`).
+- **`ProceduralCityBuilder` sits on its own `ProceduralCity` root, never on `gameManager`** (which
+  `SwarmManager.Awake` moves to DontDestroyOnLoad -- the trap the goal verges fell into). It places buildings
+  by collider centre, builds each goal from `ProceduralGoalRoot.prefab` inactive and activates it after its
+  children, so `GoalSpecialWalker.Awake` sees the patrols before their `Start`, and lists `PlacedGoals` in
+  layout order, which the recorder uses. Streets have no colliders, and nothing on the Default layer is
+  placed: street furniture the force law cannot see kills drones (internal_3's pole).
+- **The goal seed is the layout's seed** (`GoalSession`): the hat deal and the target walker are drawn from it
+  (in a tile city, the goal choice too), so everyone who flies a layout searches for the same targets, and
+  Replay reproduces them.
+- **The camera's field of view has one source on each side**: `FpvCameraFov.cs` (scenes, bench) and
+  `citysim/camera.py` (analyse.py, the study) -- 82.1 deg diagonal, 74.4 x 46.2 at 16:9. Change them together.
+- **The levels are a rule's output, not a choice to revisit by hand.** `select_levels` applies the plan's
+  section-8 rule to the tiers' tables; rerun it when an input changes and record why the levels moved.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 
@@ -1505,7 +1549,8 @@ time a new series is ready to analyse:
    **Also set the city**: runs flown outside ScaledCityWorld need `"city": "<Scene>"` in `test.json`
    (internal_3 is `DiamondCityWorld`) and a `city_obstacles_<Scene>.json` beside `analyse.py`
    (`Tools/Swarm/Export city obstacles`, or `CityObstacleExport.Run<Scene>` in batchmode). Hat line of
-   sight and the turning maps read the buildings from it; without it they use the wrong city.
+   sight and the turning maps read the buildings from it; without it they use the wrong city. A
+   **ProceduralCityWorld** run needs neither: its session names its layout, and the layout is its city.
    **Runs recorded before 2026-10-09 also need `"swarmParams"`** — the SwarmManager fields they flew that
    the scene may no longer hold (internal_2: `{"hollowSwarmCore": true, "coreRelativeVelocity": false,
    "c_damp": 0}`, where ScaledCityWorld now saves the core off). Since then `ExperimentRecorder` writes each
@@ -1529,21 +1574,30 @@ time a new series is ready to analyse:
 This only fires on request — never invent a new test folder or re-group an existing one without being
 told which runs belong in it.
 
-**The pilot times each identify with the RC's C2 button; the experimenter's 1/2/3 key gives its outcome.**
-Under `rcjoy bridge --profile sim` (what `launch_sim_scripts.ps1` runs) C2 no longer resets the knobs:
-it counts into a cumulative `marks` field that `UDPReceiverManager.MarkPresses` turns into presses, and
-`ExperimentRecorder` answers the nearest unanswered goal at the press with the outcome pending (`identify`
-event, `source=rc`). The next key fills in the latest pending outcome (`outcome` event, with the lag); a
-key with nothing pending is the identify itself, as before, so keys-only sessions are unchanged. Points
+**The pilot identifies with the RC's C2 button, and since 2026-10-12 the press is scored on the spot**
+(`ExperimentRecorder.identifyMode`, `AutoScore` by default). Under `rcjoy bridge --profile sim` (what
+`launch_sim_scripts.ps1` runs) C2 no longer resets the knobs: it counts into a cumulative `marks` field that
+`UDPReceiverManager.MarkPresses` turns into presses. A press answers the goal whose zone (`identifyZoneM`,
+analyse.py's 15 m) holds the **live** drones' centroid -- not merely the nearest goal -- and is `correct` when
+that goal's hat is inside the central `identifyCentralFraction` (80%) of a shown feed's image, within
+`identifyRangeM` (40 m) of its camera, with no building in the way; otherwise it is a `false_alarm`, logged,
+with the goal left open, or `out_of_zone` when no zone holds the centroid. Each press logs the scoring
+camera's distance, its feed and the feed the gaze was on. The experimenter's 1/2/3 keys override the latest
+press's score (`outcome_override`) and never create an identify, and the session ends once every goal is
+resolved, or on the end key. **`Legacy`** is the flow before that, kept for comparing older runs: a press
+answers the nearest unanswered goal with the outcome pending (`identify` event, `source=rc`), the next key
+fills it in (`outcome` event, with the lag), and a key with nothing pending is the identify itself. Points
 worth keeping:
 - **The press is what the pilot perceived, the key is what the experimenter heard.** The key lags the
   answer by the verbal report plus the experimenter's own reaction, so `decisionTimeSec` and
-  `totalTaskTime` now come from the press wherever there was one (`identifySource` per goal says which).
-- **A press answers a goal, so a stray one consumes the nearest.** Presses within
-  `rcIdentifyDebounceSec` of the last are dropped as double taps, and every dropped press is logged as
-  `rc_press_ignored`, so a bad attribution can be found afterwards.
-- **The session auto-ends only once every goal has an outcome**, so a pending press holds it open for its
-  key. In a session with no keys pressed it ends by hand, as it always did.
+  `totalTaskTime` come from the press wherever there was one (`identifySource` per goal says which).
+- **Under `Legacy` a press answers a goal, so a stray one consumes the nearest**; under `AutoScore` a stray
+  press is a false alarm and consumes nothing. Either way presses within `rcIdentifyDebounceSec` of the last
+  are dropped as double taps, and every dropped press is logged as `rc_press_ignored`, so a bad attribution
+  can be found afterwards.
+- **The session auto-ends only once every goal is resolved** -- under `Legacy`, once every goal has an
+  outcome, so a pending press holds it open for its key. In a session with no keys pressed it ends by hand,
+  as it always did.
 - The count is cumulative on the wire, not a flag, because a press carried in one datagram is lost with
   it and a count is not. The first packet, and a restarted bridge counting from 0, are only a baseline —
   which is also why a press made before Play never lands late.

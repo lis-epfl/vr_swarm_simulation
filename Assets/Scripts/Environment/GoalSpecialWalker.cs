@@ -24,6 +24,13 @@ using UnityEditor;
 /// different, and a fourth goal starts a fresh shuffle that never repeats the hat
 /// just dealt. Which hat landed where is recorded per goal by
 /// <c>ExperimentRecorder</c>, off the <see cref="SpecialWalker"/> marker.</para>
+///
+/// <para>Every draw here comes from the session's goal seed (<see cref="GoalSession"/>): the
+/// deck's shuffle, which patrol gets the hat and which of its walkers wears it, and each
+/// patrol's own stream for where its walkers start. Keyed by this goal's place in the deal
+/// (<see cref="DealOrdinal"/>), which is the order goals are instantiated in and so the
+/// recorder's goal index, so a replayed seed gives every goal the same hat and the same
+/// target walker. The choices are kept on the component for the recorder to log.</para>
 /// </summary>
 public class GoalSpecialWalker : MonoBehaviour
 {
@@ -37,6 +44,8 @@ public class GoalSpecialWalker : MonoBehaviour
     private static readonly List<int> undealt = new List<int>();
     private static int deckSize = -1;
     private static int lastDealt = -1;
+    private static System.Random dealRng;   // from the session's goal seed, on the first deal
+    private static int dealCount;           // goals dealt so far this session
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetDeal()
@@ -44,7 +53,24 @@ public class GoalSpecialWalker : MonoBehaviour
         undealt.Clear();
         deckSize = -1;
         lastDealt = -1;
+        dealRng = null;
+        dealCount = 0;
     }
+
+    /// <summary>This goal's place in the session's deal (0 for the first goal dealt), or -1 if it dealt nothing.</summary>
+    public int DealOrdinal { get; private set; } = -1;
+
+    /// <summary>Index, among this patch's patrols in hierarchy order, of the one whose walker wears the hat.</summary>
+    public int TargetPatrolIndex { get; private set; } = -1;
+
+    /// <summary>Name of the building that patrol walks round.</summary>
+    public string TargetPatrolName { get; private set; } = "";
+
+    /// <summary>Which of that patrol's walkers wears the hat (WalkerPatrol's spawn index).</summary>
+    public int TargetWalkerIndex { get; private set; } = -1;
+
+    /// <summary>The hat prefab dealt to this goal.</summary>
+    public string DealtPrefab { get; private set; } = "";
 
     // Awake runs before every component's Start, so the chosen patrol sees the
     // request before it spawns its walkers in WalkerPatrol.Start.
@@ -65,9 +91,22 @@ public class GoalSpecialWalker : MonoBehaviour
             Debug.LogError("GoalSpecialWalker: specialWalkerPrefabs is empty; no special pedestrian placed.", this);
             return;
         }
+        DealOrdinal = dealCount++;
+        DealtPrefab = prefab.name;
 
-        WalkerPatrol chosen = patrols[Random.Range(0, patrols.Count)];
-        chosen.RequestSpecial(prefab);
+        // Every patrol walks its walkers from its own stream of the session seed, so a replay starts them where
+        // they started; the target's patrol and walker come from this goal's stream.
+        int seed = GoalSession.EnsureSeed();
+        for (int i = 0; i < patrols.Count; i++)
+        {
+            patrols[i].SetSeed(GoalSession.Derive(seed, $"goal {DealOrdinal} patrol {i}"));
+        }
+        System.Random rng = GoalSession.Rng($"goal {DealOrdinal} target");
+        TargetPatrolIndex = rng.Next(patrols.Count);
+        WalkerPatrol chosen = patrols[TargetPatrolIndex];
+        TargetPatrolName = chosen.name;
+        TargetWalkerIndex = chosen.numWalkers > 0 ? rng.Next(chosen.numWalkers) : -1;
+        chosen.RequestSpecial(prefab, TargetWalkerIndex);
     }
 
     // Next prefab off the shuffled deck, refilling it when it runs out.
@@ -85,7 +124,8 @@ public class GoalSpecialWalker : MonoBehaviour
 
         // A patch configured with a different set than the last one re-deals rather than
         // indexing this list with the other's indices.
-        if (undealt.Count == 0 || deckSize != usable.Count) Refill(usable.Count);
+        if (dealRng == null) dealRng = GoalSession.Rng("deal");
+        if (undealt.Count == 0 || deckSize != usable.Count) Refill(usable.Count, dealRng);
 
         int take = undealt[undealt.Count - 1];
         undealt.RemoveAt(undealt.Count - 1);
@@ -93,7 +133,7 @@ public class GoalSpecialWalker : MonoBehaviour
         return specialWalkerPrefabs[usable[take]];
     }
 
-    private static void Refill(int count)
+    private static void Refill(int count, System.Random rng)
     {
         undealt.Clear();
         deckSize = count;
@@ -101,7 +141,7 @@ public class GoalSpecialWalker : MonoBehaviour
 
         for (int i = count - 1; i > 0; i--)
         {
-            int j = Random.Range(0, i + 1);
+            int j = rng.Next(i + 1);
             (undealt[i], undealt[j]) = (undealt[j], undealt[i]);
         }
 
