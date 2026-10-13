@@ -842,8 +842,10 @@ def bench_capture(sc, wps, wp, capture):
     return capture
 
 
-def replay_flight(job):
-    """One recorded bench flight flown again by the replica; per-flight comparison metrics."""
+def replay_flight(job, keep_positions=False):
+    """One recorded bench flight flown again by the replica; per-flight comparison metrics (and, keep_positions,
+    the replica's drones every 5 ticks, 0.1 s at the project's step, as [(t, (n, 2) with NaN once lost)] under
+    "positions")."""
     run_dir, label, index, sc, effective, air, capture, boxes, seed, buildings, friction = job
     traj = Path(run_dir) / f"traj_{label}_{index}.csv"
     df = pd.read_csv(traj)
@@ -868,6 +870,7 @@ def replay_flight(job):
     d_scene = float(effective["d_ref"])
     hold_gain = float(sc.get("holdGain") or HOLD_GAIN) / m.max_speed
     rec = []
+    track = []
     while sim.t < sc["T"] - 1e-9 and sim.alive.sum() > 0:
         if sc.get("endOnDone") and nwp > 0 and wp >= nwp:
             break
@@ -906,6 +909,8 @@ def replay_flight(job):
                 nn = float(D.min(1).mean())
             ring = float(np.linalg.norm(Pa - Pa.mean(0), axis=1).mean()) if len(Pa) else np.nan
             rec.append((sim.t, *Pa.mean(0), nn, ring, len(Pa)))
+            if keep_positions:
+                track.append((sim.t, np.where(sim.alive[:, None], sim.P, np.nan)))
         sim.step(cmd, 0.0, spread if spread >= 0 else d_scene)
     R = np.array(rec, float).reshape(-1, 6)
     # the bench's own series on its clock
@@ -948,6 +953,8 @@ def replay_flight(job):
         t_step = sc["spread"][2]
         out.update({f"{who}_{k}": v for who, (tt, rr) in (("bench", (t_rec, bring)), ("replica", (R[:, 0], R[:, 4])))
                     for k, v in zip(("ring_m", "t90_s"), _settle(tt, rr, t_step))})
+    if keep_positions:
+        out["positions"] = track
     return out
 
 

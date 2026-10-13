@@ -10,6 +10,13 @@ Everything runs from `Assets/Scripts/Experiment` with the `stitching` env's Pyth
 (`%LOCALAPPDATA%\miniconda3\envs\stitching\python.exe`), as `python -B -m citysim.<module>`. Outputs go to
 `experiment_results/density_study/`.
 
+To see the study rather than read it, open
+[explorer/density_study.html](../../experiment_results/density_study/explorer/density_study.html) in a
+browser. It decodes the level codes, maps one generated city of every level and the three trial cities,
+animates a goal scene for each interface, plays the Unity flights and charts every tier's results and
+checks. It is one file with the
+data inside, but it loads d3 and its fonts from CDNs, so it needs a network connection.
+
 ## 1. Where it stands (2026-10-13)
 
 | | result |
@@ -282,6 +289,7 @@ python -B -m citysim.select_levels --sweep tierB2 --tierC tierC       # the leve
 python -B -m citysim.vissim validate                          # replay + predict internal_3
 python -B -m citysim.vissim anchor                            # internal_3's empirical occlusion escape
 python -B -m citysim.report --sweep tierB2                    # figures
+python -B -m citysim.explorer                                 # the explorer page (~35 s)
 python -B citysim/tests/run_tests.py                          # tests (or pytest where installed)
 ```
 
@@ -304,10 +312,11 @@ The replica's gate is `python -B swarm_replica.py validate <bench runs> --out <d
 | `…/tierC/<name>/` | `plan.json`, `tierC_flights.csv`, `tierC_goals.csv`, `tierC_levels.csv` |
 | `…/gate1/` | G1 per sweep: the deltas, the candidates, the verdict |
 | `…/levels.json`, `levels_table.csv` | the picks, every level's predictions and the gates' margins |
-| `…/replica_validation/` | the replica gate (contact model; `kill/` holds the failing kill-mode run) |
+| `…/replica_validation/` | the replica gate (contact with friction; `kill/` and `contact_nofriction/` hold the two failing models' runs) |
 | `…/validate/internal_3/` | the replay and the prediction of internal_3 |
 | `…/anchor/` | internal_3's empirical occlusion escape |
 | `…/figures/` | `report.py`'s figures |
+| `…/explorer/density_study.html` | the explorer page (`citysim/explorer.py` filling `citysim/explorer.html`) |
 
 ## 8. Decisions made while implementing
 

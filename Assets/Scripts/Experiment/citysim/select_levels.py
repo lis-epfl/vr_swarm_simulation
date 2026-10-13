@@ -83,7 +83,7 @@ def collect(sweep, tierc=None):
         lev = lev.merge(d1.reset_index(), on="level", how="left").merge(d4.reset_index(), on="level", how="left")
     if tierc:
         tc = pd.read_csv(STUDY_DIR / "tierC" / tierc / "tierC_levels.csv")
-        lev = lev.merge(tc, on="level", how="left")
+        lev = lev.merge(tc, on="level", how="left", suffixes=("", "_C"))     # a clash keeps B''s name, C's gets _C
         alive = STUDY_DIR / "tierC" / tierc / "tierB_at_alive.csv"
         if alive.exists():         # Tier B's advantage with Tier C's surviving drones (reported, not a gate)
             al = pd.read_csv(alive)[["level", "swarm_E_head_alive", "delta_alive", "delta_alive_sd"]]
