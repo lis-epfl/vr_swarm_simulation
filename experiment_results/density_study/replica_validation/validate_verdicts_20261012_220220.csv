@@ -1,0 +1,4 @@
+run,flights,buildings,friction,lost_bench,lost_replica,contacts_bench,contacts_replica,track_frac_median,nn_rel_median,lost_diff_per10,t90_diff_median,verdict
+val_L1_20261012,17,contact,0.6,0,0,0,1,0.003,0.003,0.0,0.0,PASS
+val_L3_20261012,17,contact,0.6,5,3,23,16,0.031,0.104,1.18,0.0,PASS
+val_diamond_20261012,17,contact,0.6,2,0,0,0,0.003,0.016,1.18,0.1,PASS

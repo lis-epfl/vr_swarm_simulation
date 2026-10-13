@@ -1,0 +1,82 @@
+{
+ "name": "tierB2",
+ "description": "Tier B second pass, after G1 failed on tierB: the dense clutter level made reachable (C2 jammed at alpha ~0.178 with 4 m facade gaps, so it targets 0.17) and the goal range extended to 20-28 m occluders with the ring moved out to keep the annulus (probe_large showed the advantage still growing there). Cramped goals G6 / G7 stay as the L3 candidates.",
+ "seeds": [
+  0,
+  1,
+  2
+ ],
+ "band": "internal_3",
+ "common": {
+  "size": 2.0,
+  "goals": 3,
+  "g": 4.0
+ },
+ "clutter": {
+  "C0": {
+   "p": 90.83,
+   "s": 15.0,
+   "alpha": 0.024
+  },
+  "C1": {
+   "p": 70.0,
+   "s": 12.0,
+   "alpha": 0.12
+  },
+  "C2": {
+   "p": 60.0,
+   "s": 10.0,
+   "alpha": 0.17
+  }
+ },
+ "goal": {
+  "G0": {
+   "w_c": 7.0,
+   "r_g": 26.0,
+   "n_b": 8,
+   "ring_size": 0.9
+  },
+  "G2": {
+   "w_c": 13.06,
+   "r_g": 30.0,
+   "n_b": 8,
+   "ring_size": 0.9
+  },
+  "G4": {
+   "w_c": 16.0,
+   "r_g": 34.0,
+   "n_b": 8,
+   "ring_size": 0.9
+  },
+  "G8": {
+   "w_c": 20.0,
+   "r_g": 40.0,
+   "n_b": 8,
+   "ring_size": 0.9
+  },
+  "G9": {
+   "w_c": 24.0,
+   "r_g": 44.0,
+   "n_b": 8,
+   "ring_size": 0.9
+  },
+  "G10": {
+   "w_c": 28.0,
+   "r_g": 48.0,
+   "n_b": 8,
+   "ring_size": 0.9
+  },
+  "G6": {
+   "w_c": 13.06,
+   "r_g": 20.0,
+   "n_b": 8,
+   "ring_size": 0.9
+  },
+  "G7": {
+   "w_c": 10.0,
+   "r_g": 17.0,
+   "n_b": 6,
+   "ring_size": 0.9
+  }
+ }
+}

@@ -1,0 +1,67 @@
+{
+ "test": "internal_3",
+ "replay_max_abs_diff_s": 0.03999999999999915,
+ "reproduced": true,
+ "within_band": [
+  {
+   "condition": "Swarm",
+   "basis": "shown",
+   "predicted_lo": 0.0,
+   "predicted_median": 0.41570638020833334,
+   "predicted_hi": 0.7093858506944445,
+   "measured_median": 0.4433073314675505,
+   "measured_mean": 0.4457551167318121,
+   "measured_within": 1.0
+  },
+  {
+   "condition": "Swarm",
+   "basis": "head",
+   "predicted_lo": 0.0,
+   "predicted_median": 0.12098237940960434,
+   "predicted_hi": 0.20398358890081889,
+   "measured_median": 0.21904946039142742,
+   "measured_mean": 0.21157162022336107,
+   "measured_within": 0.4166666666666667
+  },
+  {
+   "condition": "Swarm",
+   "basis": "first_sight_s",
+   "predicted_lo": 0.7005208333333334,
+   "predicted_median": 13.847981770833334,
+   "predicted_hi": 60.0,
+   "measured_median": 5.499149999999993,
+   "measured_mean": 6.881433333333342,
+   "measured_within": 0.8333333333333334
+  },
+  {
+   "condition": "SingleDrone",
+   "basis": "shown",
+   "predicted_lo": 0.0,
+   "predicted_median": 0.049421296296296297,
+   "predicted_hi": 0.10091688368055556,
+   "measured_median": 0.13193440640597648,
+   "measured_mean": 0.1351897908979001,
+   "measured_within": 0.3333333333333333
+  },
+  {
+   "condition": "SingleDrone",
+   "basis": "head",
+   "predicted_lo": 0.0,
+   "predicted_median": 0.049421296296296297,
+   "predicted_hi": 0.10091688368055556,
+   "measured_median": 0.13193440640597648,
+   "measured_mean": 0.1351897908979001,
+   "measured_within": 0.3333333333333333
+  },
+  {
+   "condition": "SingleDrone",
+   "basis": "first_sight_s",
+   "predicted_lo": 11.449761284722221,
+   "predicted_median": 36.75694444444445,
+   "predicted_hi": 60.0,
+   "measured_median": 24.75179999999999,
+   "measured_mean": 19.62644166666666,
+   "measured_within": 0.5833333333333334
+  }
+ ]
+}

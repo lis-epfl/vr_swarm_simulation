@@ -11,3 +11,10 @@ versioned. One folder per test:
 
 The raw per-run recordings are **not** here; they stay in the experiment folder. To regenerate, run
 `python Assets/Scripts/Experiment/analyse.py run <test>` (in the `stitching` env) and copy the outputs back.
+`internal_3/results/operator_internal_3.json` is the operator band the density study calibrates from
+those runs (`python -B -m citysim.operator_band calibrate internal_3`).
+
+`density_study/` is different: it holds the outputs of the simulation study that chose the trial levels
+(the tiers' tables, the gates, the level picks, the validation runs and the figures), written there
+directly by `citysim`. [docs/density_study/README.md](../docs/density_study/README.md) says what each file is
+and how to regenerate it.
