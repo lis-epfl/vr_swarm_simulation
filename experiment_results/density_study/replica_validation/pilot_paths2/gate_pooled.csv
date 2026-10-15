@@ -1,0 +1,9 @@
+city,pilot,flights,lost_bench,lost_replica,contacts_bench,contacts_replica,track_frac_median,nn_rel_median,lost_diff_per10,verdict
+C1p,single,2,0,0,0,0,0.002,,0.0,PASS
+C1p,swarm,12,30,32,7,4,0.008,0.141,1.67,PASS
+C2p,single,2,0,0,0,0,0.003,,0.0,PASS
+C2p,swarm,12,32,37,7,5,0.01,0.207,4.17,"FAIL (spacing, losses)"
+L1,single,2,0,0,0,0,0.004,,0.0,PASS
+L1,swarm,12,10,10,4,3,0.003,0.035,0.0,PASS
+L3,single,2,0,0,0,0,0.02,,0.0,PASS
+L3,swarm,12,50,44,2,5,0.018,0.389,5.0,"FAIL (spacing, losses)"

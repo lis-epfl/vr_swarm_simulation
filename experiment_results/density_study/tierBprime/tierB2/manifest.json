@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-12T22:21:57",
+ "generated": "2026-10-13T18:54:46",
  "sweep": "tierB2",
  "levels": [
   "all"
@@ -9,6 +9,16 @@
   1.0
  ],
  "goal_spread": 1.6,
- "flights": 144,
- "seconds": 211
+ "routing": [
+  "pilot",
+  "street"
+ ],
+ "interfaces": [
+  "swarm",
+  "single",
+  "single_direct",
+  "single_scan"
+ ],
+ "flights": 720,
+ "seconds": 2262
 }
