@@ -207,9 +207,9 @@ def fig_envmap(env, out, name="envmap.png", n=10):
 
 # ============================================================================= Tier C
 
-def fig_tierC(lev, picks, out, loss_max, name="tierC_losses.png"):
+def fig_tierC(lev, picks, out, loss_max, name="tierC_losses.png", street=None):
     """Drones lost per run by level (tierc.per_run_losses: internal_3's transit-spread use), ten drones and one
-    where it flew, against G3's bar."""
+    where it flew, against G3's bar; `street`, when given, is the same levels flown on the street route (hollow)."""
     p = plt()
     names = {v: k for k, v in picks.items() if v}
     order = [picks[k] for k in ("L1", "L2", "L3") if picks.get(k) in set(lev.level)]
@@ -217,8 +217,15 @@ def fig_tierC(lev, picks, out, loss_max, name="tierC_losses.png"):
     lv = lev.set_index("level").loc[order]
     x = np.arange(len(order))
     fig, ax = p.subplots(figsize=(max(6.0, 0.6 * len(order) + 2.5), 3.6))
+    top = float(np.nanmax(lv.loss_rate + lv.loss_rate_sd.fillna(0)))
+    if street is not None:
+        sv = street.set_index("level").reindex(order)
+        ax.plot(x - 0.3, sv.loss_rate, "o", ms=6, mfc="none", mec=SWARM, mew=1.4, clip_on=False,
+                label="swarm on the street route (Tier C as first flown)")
+        top = max(top, float(np.nanmax(sv.loss_rate)))
     ax.errorbar(x - 0.1, lv.loss_rate, lv.loss_rate_sd.fillna(0), fmt="o", ms=6, color=SWARM, lw=1.4,
-                label="swarm, 10 drones (bars: SD over layout seeds)")
+                label="swarm, 10 drones" + (" on the pilot paths" if street is not None else "") +
+                      " (bars: SD over layout seeds)")
     if "single_loss_rate" in lv and lv.single_loss_rate.notna().any():
         ax.plot(x + 0.1, lv.single_loss_rate, "s", ms=6, color=SINGLE, label="single drone", clip_on=False,
                 zorder=4)
@@ -226,7 +233,7 @@ def fig_tierC(lev, picks, out, loss_max, name="tierC_losses.png"):
     ax.text(len(order) - 1.6, loss_max * 1.02, f"G3's bar: {loss_max:g} per run", va="bottom", ha="right",
             fontsize=8, color=INK2)
     ax.set_xticks(x, [f"{names[l]}\n{l}" if l in names else l for l in order], fontsize=8)
-    ax.set_ylim(0, max(loss_max, float(np.nanmax(lv.loss_rate + lv.loss_rate_sd.fillna(0)))) * 1.12)
+    ax.set_ylim(0, max(loss_max, top) * 1.12)
     ax.set_ylabel("drones lost per run\n(spawn -> 3 goals, internal_3's spread use)")
     ax.set_title("Tier C: losses in the headless Unity bench, the picks and their neighbours", loc="left", fontsize=9)
     ax.legend(fontsize=8, loc="upper left")
@@ -273,6 +280,133 @@ def fig_maps(paths_titles, out, name):
     save(fig, out / name)
 
 
+# ============================================================================= the capability study and the transits
+
+CLUTTER_ORDER = ["C0", "C1p", "C2p", "C1", "C2"]          # by coverage: open, porous, packed
+STREET = "#8a8984"                                        # the street route: muted ink, never a series hue
+
+
+def _by_clutter(df, col, keys=("clutter",)):
+    """(mean, SD over the layout seeds) of col per clutter level, in CLUTTER_ORDER."""
+    g = df.groupby(list(keys) + ["seed"])[col].mean().groupby(list(keys)).agg(["mean", "std"])
+    return g.reindex([c for c in CLUTTER_ORDER if c in g.index])
+
+
+def fig_capability(st, mv, ly, out, name="capability.png"):
+    """What each interface sees, by clutter: standing (now / in the head view / within 1 s) and flying (sweep width,
+    and what the swarm saw first round a corner), at the hat's 40 m."""
+    p = plt()
+    s = st[np.isclose(st.d_ref, 1.0)]
+    m = mv[mv.band == "matched"]
+    sw = m[(m.interface == "swarm") & (m.routing == "pilot") & np.isclose(m.d_ref, 1.0)]
+    sg = m[(m.interface == "single") & (m.routing == "pilot")]
+    order = [c for c in CLUTTER_ORDER if c in set(ly.clutter)]
+    alpha = ly.groupby("clutter").alpha.mean()
+    labels = [f"{c}\nα {alpha[c]:.2f}" for c in order]
+    x = np.arange(len(order))
+    fig, axs = p.subplots(1, 4, figsize=(15.0, 3.6))
+    handles = {}
+    panels = [
+        (axs[0], "Standing: ground in view now (m2)", [(s, "A_any_r40", SWARM, "o", "swarm, every feed"),
+                                                        (s, "A_head_r40", SWARM, "^", "swarm, in the head view"),
+                                                        (s, "A_single_r40", SINGLE, "s", "single drone")]),
+        (axs[1], "Standing: in view within 1 s (m2)", [(s, "V_swarm_1_r40", SWARM, "o", "swarm, every feed"),
+                                                        (s, "V_single_1_r40", SINGLE, "s", "single drone")]),
+        (axs[2], "Flying: sweep width W (m)", [(sw, "sweep_any_r40_m", SWARM, "o", "swarm, every feed"),
+                                               (sw, "sweep_head_r40_m", SWARM, "^", "swarm, in the head view"),
+                                               (sg, "sweep_any_r40_m", SINGLE, "s", "single drone")]),
+    ]
+    for ax, title, series in panels:
+        k = len(series)
+        for j, (df, col, colour, marker, lab) in enumerate(series):
+            g = _by_clutter(df, col).reindex(order)
+            off = (j - (k - 1) / 2) * 0.16
+            h = ax.errorbar(x + off, g["mean"], g["std"], fmt=marker, color=colour, ms=6, lw=1.2,
+                            mfc=colour if marker != "^" else SURFACE, label=lab)
+            handles.setdefault(lab, h)
+        ax.set_xticks(x, labels, fontsize=7.5)
+        ax.set_ylim(0, None)
+        ax.set_title(title, loc="left", fontsize=9)
+    ax = axs[3]
+    for j, d in enumerate((0.4, 1.0, 1.6)):
+        df = m[(m.interface == "swarm") & (m.routing == "pilot") & np.isclose(m.d_ref, d)]
+        if not len(df):
+            continue
+        g = _by_clutter(df, "behind_corner_r40_frac").reindex(order)
+        h = ax.errorbar(x + (j - 1) * 0.16, 100 * g["mean"], 100 * g["std"], fmt="o", color=BLUES[2 + 2 * j], ms=6,
+                        lw=1.2, label=f"swarm, spread {d:g}")
+        handles.setdefault(f"swarm, spread {d:g}", h)
+    ax.set_xticks(x, labels, fontsize=7.5)
+    ax.set_ylim(0, None)
+    ax.set_title("Flying: swarm's ground first seen round a corner (%)", loc="left", fontsize=9)
+    fig.legend(list(handles.values()), list(handles.keys()), loc="upper center", ncol=len(handles), fontsize=7.5,
+               bbox_to_anchor=(0.5, 1.07))
+    fig.text(0.01, -0.06, "Points: mean over the layouts' seeds (bars: SD); standing at the search band's altitude and "
+             "pitch, flying at the transit band's, both interfaces the same; recognition within 40 m. The single "
+             "drone flies its own pilot path, facing its travel. Spread 1.0 unless named.", fontsize=7, color=INK2)
+    save(fig, out / name)
+
+
+def fig_paths(mv, out, name="capability_paths.png"):
+    """How each pilot flies a city: path / straight line, the pilot's adjustments per 100 m, and the buildings the
+    swarm morphed round per km -- the pilot paths, and the street route for comparison."""
+    p = plt()
+    m = mv[mv.band == "matched"]
+    order = [c for c in CLUTTER_ORDER if c in set(m.clutter)]
+    x = np.arange(len(order))
+    series = [("swarm", "pilot", 1.0, SWARM, "o", "swarm, pilot path"),
+              ("single", "pilot", None, SINGLE, "s", "single drone, pilot path"),
+              ("swarm", "street", 1.0, STREET, "D", "swarm, street route"),
+              ("single", "street", None, STREET, "x", "single drone, street route")]
+    fig, axs = p.subplots(1, 3, figsize=(13.0, 3.5))
+    handles = {}
+    for ax, col, title in ((axs[0], "path_ratio", "Path flown / straight line"),
+                           (axs[1], "adj_per_100m", "Pilot's adjustments per 100 m"),
+                           (axs[2], "morph_per_km", "Buildings the swarm morphed round, per km")):
+        for j, (iface, rt, d, colour, marker, lab) in enumerate(series):
+            if col == "morph_per_km" and iface != "swarm":
+                continue
+            df = m[(m.interface == iface) & (m.routing == rt)]
+            if d is not None:
+                df = df[np.isclose(df.d_ref, d)]
+            if not len(df) or col not in df:
+                continue
+            g = _by_clutter(df, col).reindex(order)
+            h = ax.errorbar(x + (j - 1.5) * 0.14, g["mean"], g["std"], fmt=marker, color=colour, ms=6, lw=1.2,
+                            label=lab)
+            handles.setdefault(lab, h)
+        ax.set_xticks(x, order, fontsize=8)
+        ax.set_title(title, loc="left", fontsize=9)
+        if col == "path_ratio":
+            ax.axhline(1.0, color=MUTED, lw=0.8)
+        else:
+            ax.set_ylim(0, None)
+    fig.legend(list(handles.values()), list(handles.keys()), loc="upper center", ncol=len(handles), fontsize=7.5,
+               bbox_to_anchor=(0.5, 1.08))
+    fig.text(0.01, -0.04, "Clutter levels in order of coverage: C0 open, C1p / C2p porous, C1 / C2 packed. Points: mean "
+             "over the layouts' seeds (bars: SD); the swarm at spread 1.0.", fontsize=7, color=INK2)
+    save(fig, out / name)
+
+
+def fig_passby(pb, out, name="passby.png", r=80):
+    """Goal detection while passing: the share of passes at each lateral offset that saw the goal's walkers on a
+    shown feed, per trial level (and internal_3's city), swarm against the single drone."""
+    p = plt()
+    labels = [l for l in ("L1", "L2", "L3", "internal_3") if l in set(pb.label)]
+    fig, axs = p.subplots(1, len(labels), figsize=(3.4 * len(labels), 3.2), squeeze=False)
+    col = f"det_any_r{r}"
+    for ax, lab in zip(axs[0], labels):
+        for iface, colour, marker, name_ in (("swarm", SWARM, "o", "swarm"), ("single", SINGLE, "s", "single drone")):
+            g = pb[(pb.label == lab) & (pb.interface == iface)].groupby("offset_m")[col].mean()
+            ax.plot(g.index, g.values, marker=marker, color=colour, lw=1.6, ms=5, label=name_)
+        ax.set_ylim(0, 1.05)
+        ax.set_xlabel("lateral offset of the pass from the goal (m)")
+        ax.set_title(lab, loc="left", fontsize=9)
+    axs[0][0].set_ylabel(f"passes that saw the goal\n(walkers within {r} m)")
+    axs[0][-1].legend(fontsize=8, loc="upper right")
+    save(fig, out / name)
+
+
 # ============================================================================= command line
 
 def main():
@@ -281,6 +415,7 @@ def main():
     ap.add_argument("--l1", default="C0-G0")
     ap.add_argument("--tierC", default="tierC", help="the Tier C plan whose tierC_levels.csv to draw")
     ap.add_argument("--loss-max", type=float, default=2.5, help="G3's bar (select_levels --loss-max)")
+    ap.add_argument("--capability", default="capability", help="the capability run to draw")
     a = ap.parse_args()
     out = STUDY_DIR / "figures"
     lj = STUDY_DIR / "levels.json"
@@ -311,8 +446,18 @@ def main():
     if trial:
         fig_maps(trial, out, "trial_layouts.png")
     tc = STUDY_DIR / "tierC" / a.tierC / "tierC_levels.csv"
+    first = STUDY_DIR / "tierC" / "tierC" / "tierC_levels.csv"          # the street-routed set, flown first
     if tc.exists():
-        fig_tierC(pd.read_csv(tc), picks, out, a.loss_max)
+        fig_tierC(pd.read_csv(tc), picks, out, a.loss_max,
+                  street=pd.read_csv(first) if a.tierC != "tierC" and first.exists() else None)
+    cap = STUDY_DIR / "capability" / a.capability
+    if (cap / "moving.csv").exists():
+        st, mv, ly = (pd.read_csv(cap / f"{n}.csv") for n in ("static", "moving", "layouts"))
+        fig_capability(st, mv, ly, out, f"{a.capability}.png")
+        fig_paths(mv, out, f"{a.capability}_paths.png")
+    pb = STUDY_DIR / "transit" / "passby.csv"
+    if pb.exists():
+        fig_passby(pd.read_csv(pb), out)
 
 
 if __name__ == "__main__":

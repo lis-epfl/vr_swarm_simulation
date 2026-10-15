@@ -18,6 +18,10 @@ Blocks mode (the study's cities):
   4. City buildings: the study design at `size`, yaw 0 / 90, dropped by random sequential adsorption into the
      blocks round-robin, wholly inside a block, at least g (the facade gap) from every other building and
      outside every patch, until the coverage reaches alpha (or block fill f) or every block has jammed.
+     core="shell" (a POROUS city, for the capability study) also keeps every two avoidance cylinders -- the
+     circumcircles OlfatiSaber steers round -- at least g_shell apart, so with g_shell >= the formation's pass width
+     (routing.w_pass) the swarm can flow between any two buildings and the blocks are open to it. The default
+     core="facade" is the study's original packing, under which dense blocks close to the avoidance law.
 Scatter mode (`--mode scatter`, the Boolean-model comparison): no blocks or streets; buildings dropped over the
 whole arena with a hard core between their avoidance cylinders (centres at least R_i + R_j + g apart).
 
@@ -62,6 +66,9 @@ GRID_CELL = 40.0                              # spatial hash cell for the gap te
 # drones (formation.py writes data/formation_diameters.json; these are the fallback until it has run).
 FALLBACK_DIAMETERS = {0.4: 6.5, 0.7: 10.5, 1.0: 14.5, 1.3: 18.5, 1.6: 22.5}
 STANDOFF_M = 4.0                              # d_obs * scaleFactor: the obstacle repulsion's reach
+# Params fields added after generator version 2, with the value that reproduces it: recorded in a layout's params only
+# when set otherwise, so a version-2 layout regenerated today is byte-identical to the committed one.
+LATER_FIELDS = {"core": "facade", "g_shell": 0.0}
 
 
 @dataclass
@@ -84,6 +91,8 @@ class Params:
     arena: tuple = ARENA
     spawn: tuple = SPAWN
     spawn_yaw: float = SPAWN_YAW
+    core: str = "facade"      # "shell": also keep avoidance cylinders g_shell apart (a porous city)
+    g_shell: float = 0.0      # least gap between two avoidance cylinders under core="shell" (m)
 
     def ident(self, seed):
         if self.mode == "scatter":
@@ -91,6 +100,8 @@ class Params:
         else:
             fill = f"f{self.f:g}" if self.f >= 0 else f"a{self.alpha:g}"
             core = f"bl_p{self.p:g}_s{self.s:g}_{fill}_g{self.g:g}"
+            if self.core == "shell":
+                core += f"_gs{self.g_shell:g}"
         ring = "" if self.ring_size < 0 else f"_rs{self.ring_size:g}"
         return f"{core}_x{self.size:g}_wc{self.w_c:g}_rg{self.r_g:g}_nb{self.n_b}{ring}_seed{seed}"
 
@@ -129,6 +140,17 @@ class RectIndex:
         if not idx:
             return True
         return bool((geo.rect_gap(r, np.array([self.rects[k] for k in idx])) >= gap - 1e-9).all())
+
+    def shell_clear(self, r, gap):
+        """Whether r's circumcircle is at least `gap` from every other rectangle's circumcircle (the avoidance
+        cylinders OlfatiSaber steers round)."""
+        R = math.hypot(r[2], r[3])
+        idx = self.near(r, gap + R + math.hypot(self.max_half, self.max_half))
+        if not idx:
+            return True
+        o = np.array([self.rects[k] for k in idx])
+        d = np.hypot(o[:, 0] - r[0], o[:, 1] - r[1]) - np.hypot(o[:, 2], o[:, 3]) - R
+        return bool((d >= gap - 1e-9).all())
 
 
 def load_diameters():
@@ -316,7 +338,8 @@ def generate(P, seed):
                     if not ((corners @ nrm.T) <= cc[None, :] + 1e-9).all():
                         fails[k] += 1
                         continue
-                    if not allowed(r) or not index.clear(r, P.g):
+                    if not allowed(r) or not index.clear(r, P.g) or \
+                            (P.core == "shell" and not index.shell_clear(r, P.g_shell)):
                         fails[k] += 1
                         continue
                     drop(r, yaw, f"B{k:03d}")
@@ -372,7 +395,10 @@ def generate(P, seed):
         n_blocks=int(sum(1 for b in blocks if len(b) >= 3)), n_buildings=len(boxes), n_city_buildings=n_city,
         ell_mean=st["ell_m"], ell_theta=st["ell_theta_m"], ell_anisotropy=st["anisotropy"], p_free_40m=st["p_free"],
         arena=list(P.arena), extent=extent(rects), spawn=list(P.spawn), spawn_yaw=P.spawn_yaw, goals=goal_recs,
-        params={k: v for k, v in asdict(P).items() if k not in ("arena", "spawn")})
+        params={k: v for k, v in asdict(P).items() if k not in ("arena", "spawn") and
+                not (k in LATER_FIELDS and v == LATER_FIELDS[k])})
+    if P.core != "facade":
+        record.update(core=P.core, g_shell=P.g_shell)
     record.update(neighbourhood_stats(rects, P))
     record.update(street_stats(L, rects, diam, goal_recs))
     record["formation_diameters_source"] = diam_src
@@ -435,7 +461,8 @@ def street_stats(L, rects, diameters, goal_recs, step=5.0):
 
 def params_from(a):
     return Params(mode=a.mode, p=a.p, s=a.s, alpha=a.alpha, f=a.f, g=a.g, size=a.size, design=a.design or "",
-                  w_c=a.wc, r_g=a.rg, n_b=a.nb, ring_size=a.ring_size, goals=a.goals)
+                  w_c=a.wc, r_g=a.rg, n_b=a.nb, ring_size=a.ring_size, goals=a.goals, core=a.core,
+                  g_shell=a.g_shell)
 
 
 def cmd_one(a):
@@ -528,6 +555,9 @@ def add_params(p):
     p.add_argument("--nb", type=int, default=d.n_b, help="patrolled buildings per goal")
     p.add_argument("--ring-size", type=float, default=d.ring_size, help="ring building scale (< 0 = --size)")
     p.add_argument("--goals", type=int, default=d.goals)
+    p.add_argument("--core", choices=["facade", "shell"], default=d.core,
+                   help="shell: also keep avoidance cylinders --g-shell apart (a porous city)")
+    p.add_argument("--g-shell", type=float, default=d.g_shell, help="least gap between avoidance cylinders (m)")
 
 
 def main():

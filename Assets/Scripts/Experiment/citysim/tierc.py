@@ -37,7 +37,6 @@ import json  # noqa: E402
 import math  # noqa: E402
 import subprocess  # noqa: E402
 import time  # noqa: E402
-from multiprocessing import Pool  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -54,8 +53,23 @@ SWEEP_SEEDS = (0, 1, 2)
 DT = 0.5
 ENV_EARLY = (20.0, 30.0)          # s into a hold: Tier B' measured its 30 s hover's last 10 s
 ENV_LATE_S = 10.0
-SINGLE_PICK = "goals_1.0:2"       # one drone: the transit spread means nothing, so the two goal orders only
 RUN_TIMEOUT_MIN = 30              # run_bench.ps1 -TimeoutMin per Tier C run (its default, 180, is for long sets)
+# what each routing's runs fly: (scenario set name, 10-drone pick, 1-drone pick, capture radius)
+ROUTINGS = {
+    "street": ("goals", None, "goals_1.0:2", 10.0),          # one drone: the spread means nothing, so two orders only
+    "pilot": ("goals_pilot", "goals_pilot_0.4:2,goals_pilot_1.0:2", "goals_single:2", 6.0),
+}
+TRANSIT_PITCH = camera.DIAL_CENTRE_PITCH_DEG      # internal_3's transit median (operator_band, Swarm transit p50)
+
+
+def spread_key(kind):
+    """'0.4' / '1.0' for a swarm goal flight (goals_<d> or goals_pilot_<d>), 'single' for goals_single."""
+    tail = str(kind).rsplit("_", 1)[-1]
+    try:
+        float(tail)
+        return tail
+    except ValueError:
+        return tail
 
 
 # ============================================================================= plan
@@ -108,6 +122,7 @@ def cmd_plan(a):
     scen_dir.mkdir(parents=True, exist_ok=True)
     py = sys.executable
     bench = str(BENCH_DIR / "bench.py")
+    set_name, pick10, pick1, capture = ROUTINGS[a.routing]
     runs = []
     for level in levels:
         is_pick = level in picked
@@ -117,25 +132,30 @@ def cmd_plan(a):
                 print(f"[tierC] no layout for {level} seed {seed}; skipped")
                 continue
             L = lay.load(path)
-            scen = scen_dir / f"{L.id}_goals.json"
+            scen = scen_dir / f"{L.id}_{set_name}.json"
             if not scen.exists():
-                subprocess.run([py, "-B", bench, "scenarios", "--city", str(path), "--goals", "--out-dir",
-                                str(scen_dir)], check=True, cwd=str(BENCH_DIR))
+                subprocess.run([py, "-B", bench, "scenarios", "--city", str(path), "--goals", "--routing", a.routing,
+                                "--out-dir", str(scen_dir)], check=True, cwd=str(BENCH_DIR))
             for drones in ((10, 1) if is_pick else (10,)):
                 tag = f"tierC_{a.name}_{level}_s{seed}_n{drones}"
                 cfg = cfg_dir / f"{tag}.json"
                 cmd = [py, "-B", bench, "config", "--scene", "ProceduralCityWorld", "--layout", str(path),
                        "--drones", str(drones), "--pilot-heading", "--altitude", str(a.altitude),
-                       "--time-scale", str(a.time_scale), "--scenarios", str(scen), "--out", str(cfg)]
-                if drones == 1:
-                    cmd += ["--pick", SINGLE_PICK]
+                       "--time-scale", str(a.time_scale), "--scenarios", str(scen), "--capture", str(capture),
+                       "--out", str(cfg)]
+                pk = pick1 if drones == 1 else pick10
+                if pk:
+                    cmd += ["--pick", pk]
+                if getattr(a, "record_all", False):
+                    cmd += ["--record-all"]
                 subprocess.run(cmd, check=True, cwd=str(BENCH_DIR), stdout=subprocess.DEVNULL)
                 runs.append(dict(tag=tag, config=str(cfg), level=level, seed=seed, drones=drones, layout=L.id,
                                  layout_path=str(path), picked=is_pick))
     out = STUDY_DIR / "tierC" / a.name
     out.mkdir(parents=True, exist_ok=True)
     plan = dict(generated=time.strftime("%Y-%m-%dT%H:%M:%S"), name=a.name, sweep=a.sweep, bench_root=str(bench_root),
-                pick=pick, levels=levels, altitude=a.altitude, time_scale=a.time_scale, runs=runs)
+                pick=pick, levels=levels, altitude=a.altitude, time_scale=a.time_scale, routing=a.routing,
+                capture=capture, runs=runs)
     (out / "plan.json").write_text(json.dumps(plan, indent=1) + "\n", encoding="utf-8")
     write_runner(cfg_dir, bench_root, runs)
     print(f"[tierC] {len(runs)} runs over {len(levels)} levels -> {out / 'plan.json'}\n"
@@ -296,6 +316,71 @@ def score_hold(tr, rows, g, L, B3, pitches, head_yaws, head_w, single):
     return rows_out
 
 
+def score_transit(tr, sc, L, holds, single, height=None):
+    """citysim.transit's per-flight measures of a bench flight: its legs between goal holds, the feeds the bench showed
+    (BoundaryFeedReady), the camera at the flight's median altitude (or `height`, which the replica's transit gate
+    passes so both sides are scored at one) and the transit-phase gimbal pitch, and the waypoint pilot's stick rebuilt
+    from its waypoints (the bench does not log it)."""
+    from citysim import transit, vissim
+    from citysim.los import Footprints
+    wps = sc.get("wps") or []
+    n_wp = len(wps) // 4
+    hold_idx = [k for k, _ in holds]
+    goal_of, prev = {}, -1
+    for k, g in holds:
+        for w in range(prev + 1, k + 1):
+            goal_of[w] = int(g["index"])
+        prev = k
+    wp = tr["wp"]
+    leg = np.array([goal_of.get(int(w), -1) for w in wp])
+    in_transit = ~np.isin(wp, hold_idx) & (wp < n_wp) & (leg >= 0)
+    X, Z, A = tr["X"], tr["Z"], tr["alive"]
+    with np.errstate(all="ignore"):
+        cx = np.nanmean(np.where(A, X, np.nan), axis=1)
+        cz = np.nanmean(np.where(A, Z, np.nan), axis=1)
+    # the scripted stick: at the current waypoint from the centroid, its magnitude; the heading the pilot faced
+    tx = np.array([wps[4 * int(w)] if w < n_wp else np.nan for w in wp])
+    tz = np.array([wps[4 * int(w) + 1] if w < n_wp else np.nan for w in wp])
+    mag = np.array([abs(wps[4 * int(w) + 2]) if w < n_wp else 0.0 for w in wp])
+    d = np.c_[tx - cx, tz - cz]
+    nd = np.maximum(np.linalg.norm(d, axis=1), 1e-9)
+    stick = d / nd[:, None] * np.minimum(mag, 1.0)[:, None]
+    heading = tr["body"] if np.isfinite(tr["body"]).all() else np.degrees(np.arctan2(stick[:, 0], stick[:, 1]))
+    cmd = np.c_[tr["t"], stick, heading, np.where(in_transit, leg, -1 - np.maximum(leg, 0))]
+    cmd = cmd[np.isfinite(cmd).all(1)]
+    legs = []
+    for k, g in holds:
+        rows = np.flatnonzero(in_transit & (leg == int(g["index"])))
+        hold_rows = np.flatnonzero(wp == k)
+        if not len(rows) or not len(hold_rows):
+            continue
+        t0, t1 = float(tr["t"][rows[0]]), float(tr["t"][hold_rows[0]])
+        legs.append(dict(leg=int(g["index"]), t0=t0, t1=t1, start=np.array([cx[rows[0]], cz[rows[0]]]),
+                         goal=np.array(g["centre"], float), arrive_m=float(sc.get("arrive") or 25.0)))
+    step = max(1, int(round(DT / max(float(np.median(np.diff(tr["t"]))), 1e-6))))
+    keep = np.arange(0, len(tr["t"]), step)
+    thin = {k: (v[keep] if isinstance(v, np.ndarray) and v.ndim >= 1 and len(v) == len(tr["t"]) else v)
+            for k, v in tr.items()}
+    thin["leg"] = leg[keep]
+    key = spread_key(sc.get("kind", ""))
+    d_ref = float(key) if key.replace(".", "", 1).isdigit() else 1.0
+    rec = transit.FlightRecord.from_bench(thin, dict(interface="single" if single else "swarm", d_ref=d_ref), single,
+                                          in_transit[keep], legs)
+    rec.cmd = cmd
+    fp = Footprints(L.boxes_as_tuples())
+    rows = rec.transit_rows()
+    if not len(rows):
+        return {}
+    flown_h = float(np.nanmedian(np.where(A[keep][rows], tr["Y"][keep][rows], np.nan)))
+    height = flown_h if height is None else float(height)
+    cells = transit.Cells.around(fp, [rec.centroid[rows]], max(transit.RANGES) + 4.0)
+    s = transit.score(rec, fp, cells, height, TRANSIT_PITCH, layout=L.id, goals=vissim.goal_loops(L))
+    s.pop("firsts", None)
+    s.pop("interface", None)
+    s["transit_height_m"] = round(flown_h, 2)
+    return s
+
+
 def score_flight(job):
     run_dir, meta, fi, flight, sc, L_path, pitches, head_yaws, head_w = job
     L = lay.load(L_path)
@@ -311,6 +396,7 @@ def score_flight(job):
     for k, v in (flight.get("deaths") or {}).items():
         frow[f"death_{k}"] = v
     frow["stuck_wps"] = frow["wp_total"] - (frow["wp_done"] or 0)
+    frow["spread_key"] = spread_key(flight["kind"])
     if not traj.exists():
         return frow, []
     tr = read_traj(traj)
@@ -321,6 +407,10 @@ def score_flight(job):
     frow["alive_transit"] = popcount_mean(tr["alive"], transit)
     frow["hull_transit"] = popcount_mean(tr["hull"] & tr["alive"], transit)
     frow["shown_transit"] = popcount_mean(tr["shown"] & tr["alive"], transit)
+    try:
+        frow.update(score_transit(tr, sc, L, holds, single))
+    except Exception as e:  # noqa: BLE001 -- the transit scores are added value; the flight's row stands without them
+        frow["transit_error"] = f"{type(e).__name__}: {e}"
     B3 = Boxes(L.boxes_as_tuples())
     grows = []
     for order_k, (k, g) in enumerate(holds):
@@ -361,8 +451,33 @@ def cmd_score(a):
     if not jobs:
         raise SystemExit("[tierC] nothing to score")
     t0 = time.time()
-    with Pool(min(a.jobs, len(jobs))) as pool:
-        res = pool.map(score_flight, jobs)
+    # Scoring a flight's transit takes minutes, so each flight's result is cached against its trajectory file
+    # (size and mtime) and the scoring code; a plan scored again re-scores only what was re-flown.
+    import hashlib
+    import pickle
+    from citysim import discovery, transit
+    cache = out / "cache"
+    cache.mkdir(exist_ok=True)
+    code = hashlib.sha1(b"".join(Path(m.__file__).read_bytes()
+                                 for m in (sys.modules[__name__], transit, discovery, exposure)))
+    res, todo, keys = [None] * len(jobs), [], []
+    for i, j in enumerate(jobs):
+        traj = Path(j[0]) / f"traj_{j[3]['set']}_{int(j[3]['scenario'])}.csv"
+        st = traj.stat() if traj.exists() else None
+        key = hashlib.sha1(repr((j[0], sorted(j[1].items()), j[2], st.st_size if st else 0,
+                                 st.st_mtime_ns if st else 0, j[6], code.hexdigest())).encode()).hexdigest()
+        f = cache / f"{key}.pkl"
+        if f.exists():
+            res[i] = pickle.loads(f.read_bytes())
+        else:
+            todo.append(i)
+        keys.append(f)
+    if todo:
+        from citysim.parallel import run_jobs
+        print(f"[tierC] scoring {len(todo)} flight(s), {len(jobs) - len(todo)} from the cache", flush=True)
+        for i, r in zip(todo, run_jobs(score_flight, [jobs[i] for i in todo], "tierC", a.jobs)):
+            res[i] = r
+            keys[i].write_bytes(pickle.dumps(r))
     flights = pd.DataFrame([r[0] for r in res])
     goals = pd.DataFrame([g for r in res for g in r[1]])
     flights.to_csv(out / "tierC_flights.csv", index=False)
@@ -394,7 +509,8 @@ def per_run_losses(sw, weights):
     """Drones lost per run the way pilots fly: each transit spread's mean loss per goal flight, weighted by the share
     of transit time internal_3's pilots spent nearest it. The goal flights are the trial's run (spawn, three goals);
     G3's bar, 2.5 per run, is internal_3's rate under the same spread use, so this is the like-for-like figure."""
-    rates = {k: sw[sw.kind == f"goals_{k}"].lost.mean() for k in weights}
+    keys = sw.spread_key if "spread_key" in sw else sw.kind.map(spread_key)
+    rates = {k: sw[keys == k].lost.mean() for k in weights}
     if any(not np.isfinite(v) for v in rates.values()):
         return float(sw.lost.mean()) if len(sw) else math.nan
     return float(sum(weights[k] * rates[k] for k in weights))
@@ -415,12 +531,13 @@ def summarise_levels(flights, goals, weights=None):
         gs = g[(g.drones > 1) & np.isclose(g.pitch, pit)] if len(g) else g
         g1 = g[(g.drones == 1) & np.isclose(g.pitch, pit)] if len(g) else g
         by_seed = [per_run_losses(x, weights) for _, x in sw.groupby("seed")]
+        keys = sw.kind.map(spread_key) if len(sw) else pd.Series(dtype=object)
         row = dict(level=level, flights=len(sw), runs=sw.run.nunique() if len(sw) else 0,
                    loss_rate=per_run_losses(sw, weights) if len(sw) else math.nan,
                    loss_rate_sd=float(np.std(by_seed, ddof=1)) if len(by_seed) > 1 else math.nan,
                    loss_rate_flown=float(sw.lost.mean()) if len(sw) else math.nan,
-                   loss_rate_04=float(sw[sw.kind == "goals_0.4"].lost.mean()) if len(sw) else math.nan,
-                   loss_rate_10=float(sw[sw.kind == "goals_1.0"].lost.mean()) if len(sw) else math.nan,
+                   loss_rate_04=float(sw[keys == "0.4"].lost.mean()) if len(sw) else math.nan,
+                   loss_rate_10=float(sw[keys == "1.0"].lost.mean()) if len(sw) else math.nan,
                    w_04=weights["0.4"], w_10=weights["1.0"],
                    contacts_per_flight=float(sw.contacts.mean()) if len(sw) else math.nan,
                    contacts_per_km=float(sw.contacts.sum() / max(sw.path_km.sum(), 1e-9)) if len(sw) else math.nan,
@@ -443,8 +560,22 @@ def summarise_levels(flights, goals, weights=None):
         deaths = [c for c in sw.columns if c.startswith("death_")]
         for c in deaths:
             row[c] = float(sw[c].fillna(0).mean())
+        # transit (citysim.transit on the bench flights): the swarm at spread 1.0 and the single drone
+        sw10 = sw[keys == "1.0"] if len(sw) else sw
+        for who, df_ in (("swarm", sw10), ("single", sg)):
+            for c in TRANSIT_SUMMARY:
+                if c in df_ and len(df_):
+                    row[f"{who}_{c}_C"] = float(pd.to_numeric(df_[c], errors="coerce").mean())
+            disc = [c for c in df_.columns if c.startswith("disc_g") and c.endswith("_any_r80_s")] if len(df_) else []
+            if disc:
+                row[f"{who}_discovery_s_C"] = float(np.nanmean(df_[disc].to_numpy(float)))
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+TRANSIT_SUMMARY = ("path_ratio", "street_frac", "adj_per_100m", "cmd_straightness", "morph_per_km",
+                   "sweep_any_r40_m", "sweep_head_r40_m", "area_any_r40_per_m", "behind_corner_r40_frac",
+                   "progress_ms")
 
 
 # ============================================================================= Tier B at Tier C's alive count

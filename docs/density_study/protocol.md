@@ -137,10 +137,22 @@ identified in internal_3 whose closest approach was 27–34 m.
 
 ## 7. Outcomes
 
-- **Primary:** per-goal search time, zone entry → correct press.
+- **Co-primary (two):**
+  1. **Search time** per goal: zone entry → correct press.
+  2. **Discovery time** per goal: leg start (leaving the previous goal's zone, or the run start for the first goal)
+     → the first instant the goal is on a shown feed. "On a shown feed" is `citysim.discovery`'s definition, the one
+     the predictions use: at least one of the goal's walkers expected on a shown feed, within 80 m slant range,
+     inside the camera's field of view and the gimbal's vertical band, with a clear sight line. analyse.py computes it
+     from the poses, the `shown` masks and the layout, with no new logging (`discoverySec` in `legs.csv`); a goal
+     already seen on an earlier leg scores 0 (`preSeen`). This is where the swarm's transit advantage enters the
+     task: its feeds cover twice the width of city a single drone's does as it flies, and its leading drones see
+     round the buildings it passes (README §2.1). The task itself is unchanged: goals are not announced, so the
+     transit is a search for the next one.
+- **Confirmatory secondaries, with the directions in §11:** flown / straight-line path ratio in transit, stick
+  adjustments per 100 m of straight-line progress (analyse.py's command measures), share of the transit path over
+  the streets, transit time between goals.
 - **Secondary:** first sight → press gap (utilisation; first sight on the shown-feed basis); false alarms;
-  transit time between goals; commands per 100 m, yaw duty and flown/straight path ratio; drones lost;
-  NASA-TLX per interface.
+  yaw duty; drones lost; NASA-TLX per interface. Discovery at the 40, 120 and 200 m sensitivities of the range.
 - **Manipulation check:** measured hat exposure per cell on the shown-feed and head bases
   (`analyse.py`'s `inViewShownSec`, `inViewHeadSec` over search time) against the predicted band below.
 - **Covariates:** alive and hull-feed counts (time-varying), panorama on-time, the spread at the goal,
@@ -156,6 +168,9 @@ identified in internal_3 whose closest approach was 27–34 m.
   spread use. Nearly all of it comes at the tight spread (5.0 per run at d_ref 0.4, 0.83 at 1.0), so it
   depends on how much pilots squeeze the formation in transit. If the pilot block's L3 loss rate exceeds
   2.5, re-run the selection with the measured rate before the main block.
+  **With the transits on the pilots' paths it does not** (2026-10-13): 2.99 ± 0.88 per run (7.0 per flight at 0.4,
+  1.0 at 1.0), and every packed level flown is over the bar. Which option to take (README §8) is undecided, and the
+  levels are on hold until it is.
 - **Exclusions (pre-register):** practice criterion not met in an interface; a technical failure that
   ends a run early (crash, tracking loss); a run spent mostly at 36 fps is kept and flagged.
 
@@ -167,8 +182,20 @@ Goal-level mixed models, fitted on found goals:
 log(search_time) ~ interface * level + trial_index + (1 + interface | participant) + (1 | layout)
 ```
 
-The same structure is used for the first sight → press gap and the transit outcomes, and a logistic model
-for whether a goal was found. Censored goals (run cap, swarm failed) enter a censored-data sensitivity
+The discovery co-primary is modelled per leg:
+
+```
+log(discovery_s + 1) ~ interface * level + log(leg_m) + trial_index + leg + (1 + interface | participant) + (1 | layout)
+```
+
+`leg_m` is the straight-line distance from the leg's start to the goal. It is in the model because the pilots
+choose the order they visit goals in: in internal_3 the swarm's legs were half as long again as the single
+drone's (median 290 against 192 m), which made the swarm look slower in raw seconds while it was faster per
+100 m (14.0 against 20.1 s at 80 m). Pre-seen legs enter at 0, with a sensitivity analysis that excludes them.
+**The two co-primaries are tested with Holm's correction at α = 0.05 overall.**
+
+The same structure as search time is used for the first sight → press gap and the transit outcomes, and a logistic
+model for whether a goal was found. Censored goals (run cap, swarm failed) enter a censored-data sensitivity
 model. **Predicted exposure is a covariate only in a secondary model**: it is a mediator of the level
 effect, not a confounder. The primary hypothesis is the direction of the interface effect across
 levels (H5); the interface × level interaction in the predicted direction is secondary.
@@ -182,6 +209,14 @@ participant × layout design):
   pilots are a prior only;
 - layout variance from Tier B's across-seed spread;
 - smallest effect of interest: **15 s per goal of search time**, about 25 % of internal_3's median.
+- **The discovery co-primary is simulated beside search time, from the same participants.** Its leg-level
+  variance and its correlation with search time come from the pilot block. internal_3's 24 legs are the prior:
+  after `log(leg_m)` and the interface, the residual SD of `log(discovery_s + 1)` is 0.54, discovery time grows
+  as leg length to the power 1.33, and the swarm's coefficient is −0.21 (a ratio of 0.81 at equal leg length;
+  two pilots, so a prior, not an estimate). Its smallest effect of interest is
+  proposed as **a 20 % difference in discovery time at equal leg length** (a ratio of 0.8 on the model's log
+  scale). Power is computed for the Holm-corrected pair: n is the smallest at which both co-primaries reach
+  0.8, each at its Holm-adjusted α.
 
 The pilot block fixes n, expected at 20–30 participants. Six trials each, every layout flown once per
 interface, means 3n layouts: 60–90 for 20–30 participants. n, the hypotheses, the levels, the exclusion rules
@@ -213,6 +248,46 @@ Directions to test: swarm search time shorter than single at L1, more so at L2 (
 gone or reversed at L3 (H1's collapse); the first sight → press gap longer for the swarm and growing with
 feed and distractor load (H-util); losses per level as Tier C predicts (H-redundancy).
 
+**Transit and discovery, with every transit on the pilots' paths** (README §2.2, §4; added 2026-10-13). Tier C is
+the headless Unity bench on pilot paths, the swarm at spread 1.0 for the transit measures; the discovery rows are
+the pass-by model (README §4) with internal_3's search efficiency and Tier C's speeds.
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| discovery time of an unannounced goal (80 m, shown feeds), swarm / single — pass-by | 51 / 81 s | 37 / 54 s | 80 / 138 s |
+| swarm ÷ single discovery time: shown feeds / head-visible feeds (200 m: shown) | 0.64 / 0.71 (0.54) | 0.69 / 0.84 (0.68) | 0.58 / 0.73 (0.53) |
+| sweep width for a goal (80 m, shown feeds), swarm / single — pass-by | 218 / 145 m | 277 / 200 m | 208 / 127 m |
+| next goal first seen when its position is known (directed bound), swarm / single — Tier C | 46 / 49 s | 39 / 44 s | 71 / 84 s |
+| path ÷ straight line in transit, swarm / single — Tier C | 1.05 / 1.09 | 1.06 / 1.11 | 1.12 / 1.17 |
+| stick adjustments per 100 m, swarm / single — Tier C | 0.3 / 2.0 | 0.3 / 2.1 | 2.2 / 4.7 |
+| share of the transit path over the streets, swarm / single — Tier C | 0.24 / 0.26 | 0.24 / 0.30 | 0.70 / 0.66 |
+| progress in transit, swarm / single — Tier C | 5.9 / 5.4 m/s | 6.3 / 5.8 m/s | 3.7 / 3.4 m/s |
+| sweep width in transit, any feed / head view / single (40 m) — Tier C | 83 / 66 / 44 m | 80 / 65 / 45 m | 77 / 54 / 38 m |
+| drones lost per run at internal_3's spread use, pilot paths — Tier C | 0.55 ± 0.38 | 0.61 ± 0.25 | **2.99 ± 0.88** (fails G3) |
+| swarm E_head / single exposure at the dial centre, pilot paths — Tier C | 0.074 / 0.096 | 0.154 / 0.043 | 0.000 / 0.042 |
+
+Directions, from these rows:
+- **Discovery (co-primary): shorter for the swarm at every level.** The model's ratio is 0.58–0.69 on the trials'
+  shown-feed basis, larger than the smallest effect of interest (0.8, §10); 0.71–0.84 on the head-visible basis.
+  Unlike exposure at the goal it does not collapse at L3, because it comes from the sweep in transit, which clutter
+  does not take away. The absolute times are scaled by internal_3's two pilots and are the weak part.
+- **Stick adjustments per 100 m (confirmatory): fewer for the swarm at every level**, by 6–7 times at L1/L2 and
+  twice at L3 in the scripted flights. Human pilots adjust far more than the scripted stick (README §9), so only the
+  direction is predicted.
+- **Path / straight-line ratio (confirmatory): shorter for the swarm, two-sided test proposed.** The scripted flights
+  give the swarm a 4–5% shorter path in Unity (in the replica the two are equal; Unity's single drone strays further
+  from its planned line), which is small. internal_3's
+  pilots flew 1.11× with the swarm against 1.58× with the single drone, a gap the model cannot produce: its pilots
+  know where the goals are, and that gap is most likely the search (README §9).
+- **Street share and transit time (confirmatory): no difference predicted** on the street share at any level;
+  transit time shorter for the swarm, following discovery.
+- **L3's exposure at the goal reverses more strongly on the pilot paths**: the formation now reaches the goal centre
+  inside the 17 m ring (enveloped 56–67% of holds, against 0–11% on the street route), and from 13.7 m at −15° its
+  cameras look over the walkers there.
+
+**The levels are on hold (README §1).** On the pilot paths L3 loses 2.99 drones per run, above G3's bar, and the
+selection rule run on these flights picks no L3. The rows above are for the levels as selected on the street route.
+
 **L2 is the robust prediction; L1's advantage may be near zero.** Two checks point the same way at
 today's geometry. Tier C's scripted single drone matches the swarm at L1 (0.090 against 0.081). Real
 single-drone pilots in internal_3 also saw the target 2.7 times longer than the scripted policies Tier B
@@ -235,8 +310,12 @@ reversal. Tier C flies both.
 - [ ] Practice criterion, run cap, *swarm failed* rule, L3 loss threshold, exclusions (§4, §8)
 - [ ] Auto-scored identification rule and constants (central 80 %, 40 m, 15 m zone) (§5)
 - [ ] Primary and secondary outcomes, covariates, manipulation check (§7)
-- [ ] Model specifications and the censoring sensitivity analysis (§9)
-- [ ] n from the pilot block's power simulation, and the stopping rule (§10)
+- [ ] The discovery definition: `citysim.discovery` at the commit the trials run on, its range (80 m, or 200 m
+      if the pilot block settles it there; README §5.6) and the 40 / 120 / 200 m sensitivities (§7)
+- [ ] The confirmatory secondaries' directions, taken from §11's transit rows before any trial data
+- [ ] Model specifications, Holm across the two co-primaries, the pre-seen-leg sensitivity and the censoring
+      sensitivity analysis (§9)
+- [ ] n from the pilot block's power simulation for both co-primaries, and the stopping rule (§10)
 - [ ] The software version (commit) the trials run on
 
 ## 13. Running a session

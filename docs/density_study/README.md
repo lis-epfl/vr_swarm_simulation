@@ -21,13 +21,25 @@ data inside, but it loads d3 and its fonts from CDNs, so it needs a network conn
 
 | | result |
 |---|---|
-| Levels | **L1 = C0-G0, L2 = C0-G10, L3 = C2-G7** ([levels.json](../../experiment_results/density_study/levels.json)) |
+| Levels | **L1 = C0-G0, L2 = C0-G10, L3 = C2-G7** ([levels.json](../../experiment_results/density_study/levels.json)), selected with the transits on the street route. **On hold since the pilot paths:** L3 fails G3 there (below) |
 | G1 (Tier B: the levels exist) | **pass.** L2's swarm − single exposure advantage is 2.22× L1's (+0.106 vs +0.048), 40 times its seed SD; L3's reverses (−0.050). |
-| Replica gate (Tier B' usable) | **pass** with buildings as contacts with friction; fails with them as kills (§5.1) |
-| G2 (Tier B': spacing at L3) | **pass.** 6.6 m mean nearest-neighbour spacing in transit at spread 1.0, against the 3 m internal_3's losses came at |
-| G3 (Tier C: losses at L3) | **pass, narrowly.** L3 loses 2.21 ± 0.38 drones per run at internal_3's transit-spread use, against a bar of 2.5 (§4, Tier C). On the flights as flown, half at the tight spread, it is 2.92. |
+| Replica gate (Tier B' usable) | **pass** with buildings as contacts with friction; fails with them as kills (§5.1). On the pilot paths: passes in L1 and the porous C1p, fails on spacing and losses in the porous C2p and in L3; the transit measures agree everywhere except the stick adjustment count and, in L3, speed (§5.5) |
+| G2 (Tier B': spacing at L3) | **pass** on both routings: 6.6 m mean nearest-neighbour spacing in transit at spread 1.0 on the street route, 9.5 m on the pilot paths, against the 3 m internal_3's losses came at |
+| G3 (Tier C: losses at L3) | street route: **pass, narrowly**, 2.21 ± 0.38 drones per run at internal_3's transit-spread use against a bar of 2.5 (2.92 as flown). **Pilot paths: fail, 2.99 per run** (7.0 per flight at spread 0.4, 1.0 at 1.0); the rule then has no L3 ([levels_recheck.json](../../experiment_results/density_study/levels_recheck.json)) |
+| What each interface sees (task-independent) | swarm ÷ single drone: 5.7–6.3× the ground on screen, 1.6–1.8× in the headset's view, 2.1–2.3× the sweep width in flight; 0.8% of its ground first seen round a corner in the open city, 3–8% in dense ones (§2.1) |
+| Transit on pilot paths | 1.05–1.09× the straight line for both interfaces (1.33–1.53× on the street route); the swarm needs a fifth (L1) to a twelfth (L2) of the single drone's stick adjustments, and 0.6 of them at L3 (§4, Tier B') |
+| Goal discovery (co-primary) | internal_3 scored (§5.6); predicted swarm ÷ single discovery time for an unannounced goal 0.61–0.69 at all three levels on shown feeds (§4, discovery) |
 | internal_3 reproduced / predicted | replay exact (24 goals within 0.04 s); swarm displayed exposure predicted (median 0.42 vs 0.44 measured); head-visible and single-drone exposure under-predicted (§5.2) |
 | Unity procedural city | built from a layout, round-trip exact; Play-mode probe passes all seven checks (§5.4) |
+
+**A decision is needed before the pilot block: G3 fails for L3 once the drones fly through the city.** The levels
+were picked with every transit on the street route. Flown the way pilots fly, through the blocks, the packed L3 loses
+more drones at the tight spread (7.0 per flight at 0.4, against 5.0 on the street route) and a little more at 1.0
+(1.0 against 0.83). That puts it at 2.99 per run against G3's bar of 2.5. Every other packed level flown fails too (C1-G0
+and C1-G7 2.71, C2-G6 2.93), while the open levels lose fewer than before (L1 0.55, L2 0.61). The losses are
+drone–drone collisions at the tight spread, between walls. The rule's only L3 candidate was C2-G7, so
+re-run on the pilot paths it picks no L3 at all; L1 and L2 are unchanged. Nothing has been changed: `levels.json`
+still holds the street-route picks, and the re-run is in `levels_recheck.json`. The options are in §8.
 
 **Read the levels with one caveat.** L3 is a knife-edge between two goal geometries. C2-G7 (10 m
 occluder, ring at 17 m, 6 patrolled buildings) reverses the advantage. Its neighbour C2-G6 (13 m, 20 m, 8)
@@ -58,6 +70,82 @@ feed: within R slant range, inside the camera's field of view (74.4° × 46.2°)
 clear line of sight. E_any counts any shown feed. **E_head** counts only feeds inside the pilot's ±50°
 field of view, averaged over internal_3's recorded head-yaw distribution. For the single drone the two are
 equal. Every walker is scored, because the target is a random one of the goal's walkers.
+
+### 2.1 What each interface can see, task-independent ([capability/](../../experiment_results/density_study/capability/capability))
+
+No goals and no walkers: how much ground each interface has on the pilot's screens, standing anywhere in a city
+and flying across it, from today's sparse city to dense ones (`citysim.capability`, `vissim capability`). The cities
+are the study's three clutter levels as generated (C0 open; C1 and C2 with **packed** blocks, whose 4 m facade gaps
+close them to the avoidance law) and two **porous** ones (C1p, C2p: `citygen` core "shell", every two avoidance
+cylinders at least 6 m apart, the narrowest gap the formation flows through, §2.2), three seeds each. Standing: 12
+random points per city, the formation flown in and settled there by the replica, the single drone on its centre facing
+the same way, at the search band's median altitude and pitch (12.4 m, −21°). Flying: six crossings of every city
+(origin and destination at least 400 m apart) by each pilot on its own path (§2.2), at the transit band's (19.5 m,
+−15°). Recognition is the hat's 40 m; 80 m (a person) is beside it in the tables.
+
+Swarm ÷ single drone, the swarm at spread 1.0 ([headline.csv](../../experiment_results/density_study/capability/capability/headline.csv),
+[figure](../../experiment_results/density_study/figures/capability.png)):
+
+| city | built over | building encounters / km | on screen now | in the headset's view | within 1 s | could be seen at all | sweep width | … in the headset's view | swarm's ground first seen round a corner |
+|---|---|---|---|---|---|---|---|---|---|
+| C0, open | 2.4% | 2.9 | 6.3× | 1.8× | 2.1× | 1.3× | 2.1× | 1.6× | 0.8% |
+| C1p, porous | 8.0% | 9.1 | 6.0× | 1.7× | 2.0× | 1.2× | 2.2× | 1.4× | 3.2% |
+| C2p, porous | 11% | 13.0 | 6.0× | 1.7× | 2.0× | 1.2× | 2.3× | 1.4× | 4.4% |
+| C1, packed | 12% | 13.4 | 5.8× | 1.7× | 1.9× | 1.2× | 2.3× | 1.4× | 4.6% |
+| C2, packed | 17% | 19.9 | 5.7× | 1.6× | 1.9× | 1.2× | 2.3× | 1.4× | 7.9% |
+
+- **The swarm's advantage is simultaneity, not reach.** Its hull feeds put about six times the ground on the pilot's
+  screens (3,100–5,200 m² against 550–830 m²), 1.6–1.8 times as much inside the headset's ±50°, and twice as much
+  within a second, because a head turn and the rig's body yaw bring every feed into view while a single drone has to
+  turn its whole view at 75°/s. What could be seen at all, given time to turn (its feeds' union against the single
+  drone's 360° isovist), is only 1.2–1.3×: the plan's "the potential viewshed is a wash".
+- **Flying, the swarm clears 2.1–2.3 times the width of city** per metre flown (sweep width W: 75–83 m against
+  32–40 m), 1.35–1.6 times inside the headset's view, and the ratio grows with clutter, as buildings cut the single
+  drone's one forward cone shorter than the spread of the swarm's. A single drone that looks round as it flies (yaw
+  sweeps at internal_3's single-drone yaw duty) clears only 7–9% more, at two to three and a half times the stick
+  adjustments.
+- **Seeing behind buildings grows with clutter.** The share of the swarm's ground that its feeds saw first while a
+  camera at the formation's centre could not, because a building blocked it, rises from 0.8% in today's city to 3–4%
+  in the porous ones and 4.6–7.9% in the packed ones (more at the tight spread, less at 1.6): 0.8, 2.8–3.7 and
+  3.7–5.4 thousand m² per km flown. The rest of what the rim adds is reach: 78–91% of the swarm's first sightings came
+  while the cell was out of the centre camera's range or vertical band, and 16–24% of its ground the centre's camera
+  never saw on the whole crossing. Of the ground both saw, the feeds saw 76–87% first, a median 1.4–2.4 s sooner: the
+  leading drones see the street ahead, and round the building beside it, before the formation gets there.
+- **Standing, rim parallax recovers 12–18%** of the ground hidden from the formation's centre inside the feeds'
+  wedges (`E_par`), and 8–9.5 of the ten feeds stay useful (not a wall).
+
+### 2.2 How the pilots fly a city: pilot paths, not the street route
+
+Tier B' and Tier C used to fly every transit along the shortest street route, 1.35–1.64× the straight line in the
+trial cities, where internal_3's human swarm pilots flew 1.06–1.12× in three of four runs. Since 2026-10-13 every
+scripted flight flies the path its pilot would (`citysim.routing`; the street route stays as the comparison):
+
+- **The swarm's pilot steers round only what the formation cannot flow through.** A gate probe (`vissim gates`,
+  [gates.csv](../../experiment_results/density_study/transit/gates.csv)) flies the formation at full stick through a
+  wall with one gap and straight at a lone building. It flows round a lone building at every spread, and through a
+  gap of 6 m between avoidance cylinders at spreads 0.4 and 1.0 (12 m at 1.6) with no drone left behind and no stall
+  over 5 s (`w_pass`, `citysim/data/w_pass.json`). Buildings closer than that are walls; the pilot keeps the
+  formation's centre a formation radius off them (a per-metre surcharge, so it flies the middle of a corridor), and
+  holds the stick through everything else.
+- **The single drone's pilot steers round every building** (its avoidance cylinder plus 1 m). The probe says why: a
+  lone drone flown straight at a building stalls against it for 9–21 s before its noise slides it off.
+- **The swarm morphs round 1.5–4.7 buildings per km at spread 1.0** on these paths (a building inside the live
+  drones' hull while the formation is still compact; most in the porous cities, up to 7.8 at spread 1.6). At 0.4 the
+  formation is too small to wrap a building: it passes beside one whole, or stretches. Threading the porous cities'
+  6 m gaps at 1.0 it spends about half its transit more than 2.5 formation diameters across (14–31% in the packed
+  ones). It holds one heading throughout: no stick adjustment at all in the open and porous cities at spreads 0.4 and
+  1.0 against 1.0–3.5 per 100 m for the single drone, and 1.2–2.6 against 3.6–4.4 in the packed ones. Its paths are 1.00–1.02× the straight line in
+  open and porous cities and 1.05–1.09× in packed ones (it keeps further off walls than the single drone, whose paths
+  are 1.02–1.10×); the street route is 1.18–1.31× for both
+  ([capability_paths.png](../../experiment_results/density_study/figures/capability_paths.png)).
+- **Flying through clutter at the tight spread costs drones.** At spread 0.4 the formation lost 2.0–4.0 drones per
+  crossing in the porous and packed cities, against 0.2–0.6 at spread 1.0 and 1.6. Morphing round buildings is cheap
+  at 1.0 and expensive at 0.4.
+- **What a wall-grazing path cost:** before the pilot kept the formation off walls, its path through L3's packed
+  blocks lost 2.5 drones per flight at spread 1.0 on the bench (the replica: 2.3), where the street route lost 0.8
+  (0.7) and was no slower. With the surcharge, over all of Tier C's L3 flights, it loses 1.0 per flight at spread
+  1.0 against the street route's 0.83, and 7.0 at 0.4 against 5.0: through packed blocks the tight spread is
+  costly whatever the path (§1, G3).
 
 ## 3. The levels and the rule that picked them
 
@@ -136,11 +224,39 @@ is in transit (Tier B'), which is why L1 and L2 share C0.
 
 ### Tier B': the formation in flight ([dynamic.csv](../../experiment_results/density_study/tierBprime/tierB2/dynamic.csv), [envmap.csv](../../experiment_results/density_study/tierBprime/envmap.csv))
 
-Each layout is flown from its spawn to every goal along the street route at full stick, arriving within 25 m,
-then held 30 s at spread 1.6 with the centring pilot; transits at spreads 0.4 and 1.0. Progress falls with
-clutter (6.1, 5.3 and 4.6 m/s at C0, C1, C2). Spread 0.4 is where drones are lost: 0–4 per flight at C0
-(mean 1.4), 0–6 at C1 (2.5) and 2–8 at C2 (4.7). At spread 1.0 every level keeps 4–10 m mean spacing and
-loses 0–3 drones per flight (none at C0). The envelopment map (`envmap`, an isolated goal over w_c × r_g ×
+Each layout is flown from its spawn to every goal at full stick, arriving within 25 m, then held 30 s at spread 1.6
+with the centring pilot; transits at spreads 0.4 and 1.0. Since 2026-10-13 the transits fly each pilot's own path
+(§2.2), and the street route the study used to fly is flown beside them as the comparison (`dynamic.csv`'s `routing`
+column; [transit.csv](../../experiment_results/density_study/tierBprime/tierB2/transit.csv) scores every flight). On
+the street route the speed along the route falls with clutter (6.1, 5.3 and 4.6 m/s at C0, C1, C2) and spread 0.4 is
+where drones are lost (mean 1.4, 2.5 and 4.7 per flight); at 1.0 every level keeps 4–10 m spacing.
+
+At the trial levels, swarm / single drone on the pilot paths (the street route in brackets, swarm):
+
+| | L1 | L2 | L3 |
+|---|---|---|---|
+| path ÷ straight line | 1.05 / 1.04 (1.53) | 1.05 / 1.08 (1.48) | 1.09 / 1.09 (1.33) |
+| share of the path over the streets | 0.27 / 0.27 (0.85) | 0.28 / 0.32 (0.86) | 0.64 / 0.62 (0.92) |
+| stick adjustments per 100 m | 0.3 / 1.3 (2.6) | 0.2 / 2.4 (2.6) | 2.4 / 3.9 (3.6) |
+| progress (straight-line distance ÷ time), m/s | 6.1 / 5.9 (4.4) | 6.5 / 6.0 (4.5) | 4.0 / 4.0 (3.6) |
+| sweep width, any feed / in the headset's view | 82 / 58 m against 40 m | 80 / 60 m against 40 m | 70 / 43 m against 33 m |
+| drones lost per flight, spread 1.0 / 0.4 | 0.7 / 0.7 (0 / 2.0) | 0 / 0.7 (0 / 2.0) | 1.0 / 5.3 (0.7 / 6.0) |
+| next goal first seen, s into the leg (80 m) | 42 / 45 (56) | 35 / 35 (46) | 61 / 63 (64) |
+
+- **Flying through the city is nearly a third shorter and needs a tenth of the stick work** at L1 and L2: the swarm holds
+  one heading through the blocks where the street route turned at every junction. At L3 the packed blocks leave
+  little but the streets, and the gain is a fifth of the path.
+- **The single drone's pilot path is as short as the swarm's**, because the scripted pilot knows the city. What the
+  swarm saves is the steering: 4–12 times fewer adjustments at L1/L2, 1.6 times at L3. internal_3's single-drone
+  pilots flew 1.04–1.87× the straight line (median 1.58, against 1.11 for the swarm), so real single-drone paths are
+  longer than the model's (§9).
+- **Discovery when the goal is known is a tie.** Flying straight at a goal they know, both interfaces see it at about
+  the same moment, because the walkers come into the forward cameras first. The swarm's advantage in finding a goal
+  is in searching for one it does not know, through its twice-as-wide sweep: the pass-by model (below).
+- **L3's numbers here are the replica's in a packed city**, where it flies too fast and splits differently from Unity
+  (§5.5); Tier C's are the ones to use.
+
+The envelopment map (`envmap`, an isolated goal over w_c × r_g ×
 spread × drones alive) is monotone, as it should be: a bigger occluder needs a wider spread or a larger
 ring. A 7 m occluder is enveloped from spread 0.7 with a 24 m ring; a 20 m one needs spread 1.0 with a
 32 m ring, or 1.3 with 28 m.
@@ -192,6 +308,79 @@ What Tier C adds:
   thing as §5.2: at today's geometry the swarm's predicted margin is small and policy-dependent.
 - **With the drones still alive at a goal**, Tier B's advantages barely move (+0.047, +0.103, −0.046
   against +0.048, +0.106, −0.050 with ten; `vissim tierC-alive`).
+
+### Tier C on the pilot paths ([tierC/tierC_pilot/](../../experiment_results/density_study/tierC/tierC_pilot))
+
+The same 36 runs (126 flights) flown again with every transit on the pilot paths (`tierC-plan --routing pilot`).
+Five of them flew on a second copy of the bench project after a Unity start crashed and left a process holding the
+first copy's lock. Pilot paths, the street route in brackets
+([figure](../../experiment_results/density_study/figures/tierC_losses.png)):
+
+| level | runs | lost per run, pilot (street) | at 0.4 / 1.0 per flight, pilot (street) | alive / hull at a goal | enveloped 20–30 s / end | swarm E_head / single, −15° |
+|---|---|---|---|---|---|---|
+| **L1 C0-G0** | 3 | 0.55 ± 0.38 (0.77) | 1.67 / 0.00 (1.67 / 0.33) | 9.4 / 8.2 | 1.00 / 0.97 | 0.074 / 0.096 |
+| C1-G0 | 3 | 2.71 ± 0.54 (1.33) | 5.83 / 1.17 (3.33 / 0.33) | 6.9 / 6.5 | 0.94 / 0.94 | 0.042 |
+| C0-G2 | 3 | 0.44 ± 0.19 (0.11) | 1.33 / 0.00 (0.33 / 0.00) | 9.6 / 9.0 | 1.00 / 1.00 | 0.130 |
+| **L2 C0-G10** | 3 | 0.61 ± 0.25 (1.11) | 0.83 / 0.50 (2.00 / 0.67) | 9.8 / 8.8 | 1.00 / 0.97 | 0.154 / 0.043 |
+| C1-G10 | 3 | 1.88 ± 0.51 (1.16) | 4.67 / 0.50 (3.50 / 0.00) | 8.1 / 8.0 | 0.94 / 0.94 | 0.163 |
+| C0-G9 | 3 | 0.88 ± 0.51 (1.33) | 2.00 / 0.33 (3.33 / 0.33) | 9.2 / 8.6 | 1.00 / 1.00 | 0.161 |
+| **L3 C2-G7** | 3 | 2.99 ± 0.88 (2.21) | 7.00 / 1.00 (5.00 / 0.83) | 6.5 / 5.1 | 0.56 / 0.67 | 0.000 / 0.042 |
+| C1-G7 | 3 | 2.71 ± 0.54 (0.88) | 6.17 / 1.00 (2.00 / 0.33) | 7.2 / 5.7 | 0.56 / 0.75 | 0.001 |
+| C2-G6 | 3 | 2.93 ± 0.75 (2.49) | 6.50 / 1.17 (5.83 / 0.83) | 6.8 / 6.0 | 0.53 / 0.58 | 0.004 |
+
+- **Through packed blocks the tight spread costs drones.** At spread 0.4 the packed levels lose 5.8–7.0 drones per
+  flight on the pilot paths against 2.0–5.8 on the street route; at 1.0 the pilot paths lose 0.2–0.8 more.
+  The losses are drone–drone collisions (1.6–1.8 colliding pairs per flight at the packed levels, against 0.4–1.5 on
+  the street route), not buildings (0–0.3 contacts per flight): the formation squeezed between walls at its tightest
+  spread. Every packed level is now over G3's bar; the open levels lose fewer drones than before.
+- **The formation reaches cramped goals it used to stop short of.** On the street route the swarm halted 10–14 m from
+  the centre of L3's goal, outside its 17 m ring. Through the blocks it arrives on the centre, and envelops 53–75% of
+  the holds at the cramped goals (G6, G7) where it enveloped 0–53%. From inside a tight ring at 13.7 m and −15° its
+  cameras look over the walkers: exposure at the dial centre falls to 0.000–0.004 (0.038–0.060 on the street route;
+  at −40° it keeps 0.034). **The collapse at L3 is stronger on the pilot paths, not weaker.**
+- **The open levels are unchanged at the goal** (L1 E_head 0.074 against 0.081, L2 0.154 against 0.156) and lose
+  fewer drones (0.55 and 0.61 per run, against 0.77 and 1.11).
+- **The transit, in Unity**, is protocol §11's table: swarm / single paths 1.05–1.12 / 1.09–1.17 of the straight line,
+  a sixth to a seventh of the single drone's stick adjustments at L1/L2 and half at L3, about twice its sweep width, and the
+  next goal seen 3–13 s sooner when its position is known.
+
+### Discovery: finding a goal nobody announced ([transit/](../../experiment_results/density_study/transit))
+
+The goals are not announced, so in transit the pilot is searching, and the co-primary is how long the next goal
+takes to appear on a shown feed. Flying straight at a known goal, the two interfaces see it at much the same moment
+(the directed bound: Tier C 46 / 49 s at L1, 39 / 44 s at L2, 71 / 84 s at L3, swarm / single), because the walkers
+enter the forward cameras first. The swarm's advantage is in the search, through the width of city it clears.
+
+**The pass-by probe** (`vissim passby`) flies each pilot on its own path straight past every trial goal (27) and
+every goal of internal_3's runs (24): six headings, lateral offsets 0–300 m, 600 m passes, the swarm at spread 1.0.
+A pass detects the goal when one of its walkers is expected on a shown feed (`citysim.discovery`). The share of
+passes that detect it at offset x is the goal's lateral range curve, and twice its integral the sweep width W_goal
+([passby_W.csv](../../experiment_results/density_study/transit/passby_W.csv),
+[figure](../../experiment_results/density_study/figures/passby.png)):
+
+| W_goal, swarm / single | L1 | L2 | L3 | internal_3's city |
+|---|---|---|---|---|
+| 80 m, shown feeds | 218 / 145 m | 277 / 200 m | 208 / 127 m | 237 / 164 m |
+| 80 m, head-visible | 196 / 145 m | 228 / 200 m | 165 / 127 m | 198 / 164 m |
+| 200 m, shown feeds | 517 / 291 m | 520 / 372 m | 444 / 250 m | 520 / 315 m |
+
+(At 200 m the swarm's curve is still above zero at the probe's last offsets, so its W is a lower bound.)
+
+**The search model** (`vissim discovery-predict`): random search finds the next of k goals in an area A at the
+rate k W v / A, so a trial's three legs average 0.611 A / (W v). internal_3's pilots found goals 5.0 times
+(swarm) and 4.4 times (single drone) faster than random search would in their city, at 80 m (η 0.20 and 0.23):
+nearly the same search skill with both interfaces, which is what lets the swarm / single ratio stand without it.
+The predictions use the mean η. Scaled by η,
+with Tier C's speeds ([discovery_predictions.csv](../../experiment_results/density_study/transit/discovery_predictions.csv)):
+
+| next goal on a shown feed (80 m), swarm / single | L1 | L2 | L3 |
+|---|---|---|---|
+| predicted discovery time | 51 / 81 s | 37 / 54 s | 80 / 138 s |
+| swarm ÷ single, shown / head-visible feeds | 0.64 / 0.71 | 0.69 / 0.84 | 0.58 / 0.73 |
+
+The ratio is the robust output: unlike exposure at the goal it holds at L3, because it comes from the sweep in
+transit, which clutter shortens for both interfaces. The absolute times rest on η from two pilots. With the
+replica's speeds instead of Unity's the ratios are within 0.03.
 
 ## 5. Validation
 
@@ -265,6 +454,71 @@ ones). For the single drone the figure is 0. That is occlusion escape at today's
 - Bench smoke runs at 10 and 1 drones in a layout, and a goal flight replayed by the replica to within
   4.9 m RMS over 1.4 km.
 
+### 5.5 The replica on the pilot paths ([pilot_paths2/](../../experiment_results/density_study/replica_validation/pilot_paths2))
+
+Pilot paths are a new kind of path, flown in two new kinds of city, so the replica was gated again before any B' or
+capability number was used. The bench flew the goal flights on pilot paths with every flight recorded: the three L1
+and three L3 trial layouts, and three layouts each of C1p and C2p. The swarm flew at spreads 0.4 and 1.0 in both goal
+orders (12 flights per kind of city), and the single drone in one layout per kind (2 flights). Two checks:
+
+**`swarm_replica.py validate`**, its usual limits, pooled per kind of city (four flights per run are too few for a
+loss limit of 2 per 10):
+
+| city | swarm verdict | drones lost, Unity / replica | spacing off by | track off by |
+|---|---|---|---|---|
+| L1, open | **pass** | 10 / 10 | 3.5% | 0.3% |
+| C1p, porous | **pass** | 30 / 32 | 14.1% | 0.8% |
+| C2p, porous | **fail** (spacing, losses) | 32 / 37 | 20.7% | 1.0% |
+| L3, packed | **fail** (spacing, losses) | 50 / 44 | 38.9% | 1.8% |
+
+The single drone passes everywhere (no losses on either side; track within 2%). By spread, L1 passes at both, C1p at
+1.0, C2p fails on spacing at 0.4 and on losses at 1.0 (6 against Unity's 2), and L3 fails on spacing at both (33–41%)
+while its losses at 1.0 agree (8 against 9). The tracks agree everywhere. What fails is the formation's inside in the
+dense cities: threading walls it stretches and splits, and the replica's groups sit at a different spacing from
+Unity's.
+
+**`vissim transit-gate`** scores the same Unity flights, and two replica re-flights of each, with the study's transit
+measures at one altitude (13.7 m, the flights' median) and the transit pitch, so only the flying differs. A cell agrees
+when within 15% or two standard errors of Unity
+([transit_gate.csv](../../experiment_results/density_study/replica_validation/pilot_paths2/transit_gate.csv)):
+
+- **Agree in every city:** path ratio, street share (except the single drone in C2p: 0.44 against 0.37), sweep
+  width (any feed and head-visible), area seen per metre, the share seen round a corner, the share of time stretched
+  or split, and losses within two standard errors (the validate gate's absolute limit, above, is the stricter test).
+  So do the swarm − single contrasts on all of these ([transit_gate_contrast.csv](../../experiment_results/density_study/replica_validation/pilot_paths2/transit_gate_contrast.csv)).
+- **Stick adjustments are under-counted** by a third to a half: 0.15–0.20 per 100 m for the swarm against Unity's
+  0.29–0.31 in L1 and the porous cities, and 1.3 against 2.1 for the single drone in L1. Both interfaces are under-counted, and the
+  contrast holds: the swarm needs a fraction of the single drone's adjustments in every city, in both.
+- **In packed L3 the replica flies too fast:** 4.3–4.6 m/s against Unity's 2.8–3.7 for the swarm, 4.7 against 3.6 for
+  the single drone. It reaches goals sooner (swarm discovery at spread 0.4: 47 s against 93 s), counts fewer morph
+  events (2.4 against 5.5 per km at 1.0), and the swarm − single discovery contrast changes sign there.
+
+What follows: §2.1's capability measures rest on quantities the gate confirms, in the cities it passed and in the
+porous ones, apart from the adjustment counts, which are low for both interfaces (their ratio holds). In packed cities
+the replica's speeds and discovery times are optimistic, so **L3's transit speed, losses and discovery come from Tier
+C**, and the replica's packed-city numbers (C1, C2 in §2.1, L3 in Tier B') are a relative comparison only.
+
+### 5.6 Goal discovery in internal_3 ([legs.csv](../../experiment_results/internal_3/results/legs.csv), [discovery_range.csv](../../experiment_results/internal_3/results/discovery_range.csv))
+
+`analyse.py`'s discovery family scores the recorded runs by the co-primary's definition (`citysim.discovery`): leg
+start to the first instant the next goal's walkers are on a shown feed. Median per leg (12 legs per interface):
+
+| | single drone | swarm |
+|---|---|---|
+| discovery time at 80 m (40 / 120 / 200 m) | 31.0 s (36.8 / 24.5 / 18.8) | 55.6 s (62.0 / 43.2 / 23.3) |
+| straight-line leg | 192 m | 290 m |
+| discovery time per 100 m of leg, at 80 m / 200 m | 20.1 / 10.3 s | 14.0 / 6.7 s |
+| distance from the goal at first sight (80 m) | 109 m | 113 m |
+
+In raw seconds the swarm was slower, but its pilots chose legs half as long again; per 100 m of leg it found the next
+goal faster at every range. That is why the co-primary's model carries the leg's length (protocol §9).
+
+**The range.** A pilot with no map cannot turn onto a goal before seeing it. On the 11 legs where a pilot visibly
+turned onto the goal for the final approach (`commitSec` > 1 s), first sight came no later than that turn in 9% of
+them at 80 m (the turn came a median 19 s before sight) and in 55% at 200 m (median 0.4 s): pilots seem to notice a
+goal's crowd from about 200 m. Two pilots who had flown the same city before may also have known where goals could
+be, so 80 m stays the definition and 200 m is reported beside it; the pilot block, in fresh cities, can settle it.
+
 ## 6. Running it
 
 ```
@@ -288,10 +542,24 @@ python -B -m citysim.vissim tierC-alive                       # ... read at Tier
 python -B -m citysim.select_levels --sweep tierB2 --tierC tierC       # the levels with G3 applied
 python -B -m citysim.vissim validate                          # replay + predict internal_3
 python -B -m citysim.vissim anchor                            # internal_3's empirical occlusion escape
-python -B -m citysim.report --sweep tierB2                    # figures
+python -B -m citysim.vissim gates                             # the pilots' gate probe -> citysim/data/w_pass.json (~15 s)
+python -B -m citysim.vissim capability                        # §2.1: what each interface sees, standing and flying (~10 min)
+python -B -m citysim.vissim dynamic --sweep tierB2            # Tier B', both routings, every pilot, scored (~25 min)
+python -B -m citysim.vissim tierC-plan                        # Tier C on the pilot paths (name tierC_pilot) + runner
+powershell -File D:\claude_obstacle_bench\cfg\tierC\tierC_pilot\run_tierC.ps1   # fly them (~2 h, resumable)
+python -B -m citysim.vissim tierC                             # score them -> tierC/tierC_pilot/
+python -B -m citysim.vissim transit-gate                      # the replica against Unity on the transit measures (~40 min)
+python -B -m citysim.vissim passby                            # goal lateral range curves and W_goal (~15 min)
+python -B -m citysim.vissim discovery-predict --speeds-from tierC_pilot   # the discovery predictions (Unity's speeds)
+python -B -m citysim.vissim tierC-alive --name tierC_pilot    # Tier B at the pilot paths' alive-at-goal count
+python -B -m citysim.select_levels --sweep tierB2 --tierC tierC_pilot --out levels_recheck   # the levels re-checked
+                                                              # on the pilot paths (levels.json is left alone)
+python -B -m citysim.report --sweep tierB2 --tierC tierC_pilot          # figures
 python -B -m citysim.explorer                                 # the explorer page (~35 s)
 python -B citysim/tests/run_tests.py                          # tests (or pytest where installed)
 ```
+
+The discovery co-primary of recorded runs is `analyse.py run <test>` (its discovery family, `legs.csv`).
 
 The replica's gate is `python -B swarm_replica.py validate <bench runs> --out <dir>` from
 `Assets/Scripts/swarm/Bench`, on runs flown with `bench.py config --record-all`. In Unity:
@@ -311,12 +579,18 @@ The replica's gate is `python -B swarm_replica.py validate <bench runs> --out <d
 | `…/tierBprime/` | `envmap.csv`, and per sweep `dynamic.csv` / `dynamic_goals.csv` |
 | `…/tierC/<name>/` | `plan.json`, `tierC_flights.csv`, `tierC_goals.csv`, `tierC_levels.csv` |
 | `…/gate1/` | G1 per sweep: the deltas, the candidates, the verdict |
-| `…/levels.json`, `levels_table.csv` | the picks, every level's predictions and the gates' margins |
+| `…/levels.json`, `levels_table.csv` | the picks, every level's predictions and the gates' margins (selected on the street route) |
+| `…/levels_recheck.json`, `levels_recheck_table.csv` | the same rule on the pilot paths: no L3 (§1) |
+| `…/tierC/tierC_pilot/` | Tier C re-flown on the pilot paths: as `tierC/`, plus each flight's transit and discovery columns; `cache/` (git-ignored) holds per-flight scores so a re-score only scores re-flown runs |
 | `…/replica_validation/` | the replica gate (contact with friction; `kill/` and `contact_nofriction/` hold the two failing models' runs) |
 | `…/validate/internal_3/` | the replay and the prediction of internal_3 |
 | `…/anchor/` | internal_3's empirical occlusion escape |
 | `…/figures/` | `report.py`'s figures |
 | `…/explorer/density_study.html` | the explorer page (`citysim/explorer.py` filling `citysim/explorer.html`) |
+| `…/capability/capability/` | §2.1: `static.csv` (per point × spread × body yaw), `moving.csv` (per crossing × pilot, both camera bands), `pairs.csv` (swarm against single on the same crossing), `layouts.csv` (porosity), `headline.csv` |
+| `…/transit/` | `gates.csv` (the gate probe), `passby.csv` / `passby_W.csv` (goal lateral range curves, W_goal), `discovery_predictions.csv` |
+| `…/tierBprime/tierB2/transit.csv` | every Tier B' flight scored by `citysim.transit` (path, commands, coverage, look-behind, discovery per goal) |
+| `…/replica_validation/pilot_paths2/` | the replica's gate on the final pilot paths (`gate_pooled.csv`, `gate_by_spread.csv`) and its transit gate (`transit_gate.csv` per city × pilot, `transit_gate_contrast.csv` swarm against single drone, `transit_gate_flights.csv`); `pilot_paths/` is the first pilot's, which grazed walls |
 
 ## 8. Decisions made while implementing
 
@@ -343,7 +617,36 @@ The replica's gate is `python -B swarm_replica.py validate <bench runs> --out <d
   and interpolated at Tier C's alive-at-goal count. Reported, not a gate.
 - **Sweeps cannot hang any more.** Twice a pool worker died silently and its job was lost, leaving the
   sweep waiting forever with every worker idle. `vissim` now ends a sweep after 15 min without a result,
-  saying how many jobs were outstanding.
+  saying how many jobs were outstanding; the commands added since (`gates`, `capability`, `dynamic`,
+  `passby`) rerun the lost jobs in a fresh pool instead (`citysim.parallel`).
+- **Transits fly pilot paths, not the street route** (2026-10-13, §2.2). The street route made every scripted flight
+  a third to two thirds longer than the straight line and kept the swarm out of the blocks, which is the opposite of
+  how internal_3's pilots flew it, and it hid the swarm's transit advantage: holding one heading while the formation
+  morphs round buildings, and its leading drones seeing round them. The pilot model has three parts, each pinned by a
+  measurement: `w_pass` by the gate probe, the swarm keeping a formation radius off walls by the bench (a path that
+  grazed L3's walls lost three times the drones), and the single drone steering round every building by the probe
+  (a lone drone flown at a building stalls). The street route is flown beside it as the comparison.
+- **Porous cities exist only in the capability study.** Without them a through-the-city path in a dense city *is*
+  a street path, so morphing would only ever have been measured in today's sparse city. The trial levels are
+  unchanged: L3 stays packed.
+- **G3 on the pilot paths is open, and it is the experimenter's call** (2026-10-13, §1). Nothing was changed:
+  `levels.json` holds the street-route picks, `levels_recheck.json` the rule re-run on the pilot paths (no L3). The
+  options:
+  1. *Keep L3 = C2-G7 and let the pilot block decide*, as protocol §8 already provides ("if the pilot block's L3
+     loss rate exceeds 2.5, re-run the selection with the measured rate"). The scripted pilot spends a third of its
+     transit at spread 0.4 at full stick through packed blocks, internal_3's share of tight spread from a sparser
+     city; whether people fly a packed city that way is what the pilot block measures. Everything else about L3
+     holds, and its collapse at the goal is stronger on the pilot paths.
+  2. *Apply the rule as written to the pilot paths*: there is no L3, and relaxing "the densest clutter level" does
+     not produce one among the flown levels: every packed level is over the bar (C1-G0 2.71, C1-G7 2.71, C2-G6
+     2.93, C2-G7 2.99), and the one C1 level under it (C1-G10, 1.88) keeps the swarm's advantage. A different goal
+     geometry or a sparser L3 would have to be flown first.
+  3. *Calibrate the bar like for like*: 2.5 is human pilots in DiamondCityWorld; the scripted pilot's rate on pilot
+     paths in that city has not been measured (goal flights need a generated layout, which a tile city is not). If
+     the scripted pilot loses more than people there, 2.99 may be within today's experience.
+- **Discovery is a co-primary outcome** (the protocol, §7). It needs no new logging: analyse.py and the simulator
+  share `citysim.discovery`. Its range is 80 m a priori; internal_3 suggests pilots notice a goal's crowd from about
+  200 m (§5.6), so 200 m is reported beside it, and the choice is the pre-registration's.
 
 ## 9. Limits
 
@@ -356,3 +659,17 @@ The replica's gate is `python -B swarm_replica.py validate <bench runs> --out <d
 - **Tier B' has no heading, altitude or flips**, and its friction is one constant. Tier C has all three,
   with scripted pilots that do not search the way people do.
 - **Building size is ×2 throughout.** The plan's ×4 size sensitivity was not run.
+- **The pilots are scripted and informed.** The pilot paths know the city: they are what a pilot who can see where
+  the walls are would fly, not a search. How humans search a city for an unannounced goal is modelled only through
+  the sweep width (random search, calibrated on internal_3), which is crude in absolute terms; the swarm / single
+  ratio is the robust part. The single drone's look-round variant flies only in the replica.
+- **So the model's paths cannot show the path-ratio gap internal_3 showed.** Scripted, the two interfaces fly paths of
+  the same length (1.04–1.09× at the trial levels); internal_3's pilots flew 1.11× with the swarm and 1.58× with the
+  single drone (medians). Their paths include the search, since goals are not announced, so the likelier source of
+  that gap is wandering until the next goal is seen, which the swarm's wider sweep shortens, rather than steering.
+  The directed flights put a floor under both interfaces' path ratios; the gap is the trials' to measure.
+- **The replica under-counts stick adjustments** by a third to a half against Unity flying the same paths, for both
+  interfaces (§5.5); their ratio holds, their absolute values are low. Human pilots also make many adjustments the
+  scripted stick never does (internal_3: 3.8–9.8 per 100 m over both interfaces, against the model's 0–4.4).
+- **Look-behind is measured against an ideal camera at the formation's centre**, which sees all round; against the
+  single drone it is the sweep width and who saw a cell first (`pairs.csv`).

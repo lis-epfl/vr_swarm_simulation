@@ -35,6 +35,7 @@ from citysim.los import Boxes, Footprints  # noqa: E402
 
 TEMPLATE = PACKAGE_DIR / "explorer.html"
 OUT = STUDY_DIR / "explorer" / "density_study.html"
+DEFAULT_ROOT_RESULTS = REPO / "experiment_results" / "internal_3" / "results"     # the committed internal_3 snapshot
 ALT, PITCH = 12.4, camera.DIAL_CENTRE_PITCH_DEG      # the scenes' camera: internal_3's median, the dial centre
 SCENE_S, SCENE_DT = 60.0, 0.5                         # Tier B's exposure window and clock
 FLIGHT_DT, WALKER_DT = 0.5, 1.0                       # flight frames, walker frames during a hold
@@ -253,19 +254,33 @@ def replica_track(run_dir, f, sc, rows):
                 kills=res["replica_kills"], track_rmse=res["track_rmse_m"], path_m=res["path_m"])
 
 
-def pick_flights(plan):
-    """The bench flights the page plays: each pick, ten drones and one, transit spread 1.0, goals in layout order;
-    and L3 at the tight spread, with the replica beside it."""
-    runs_root = Path(plan["bench_root"]) / "runs"
+def pick_flights(plan, pilot_plan=None):
+    """The bench flights the page plays: each pick on the pilot paths (ten drones at spread 1.0, and one drone) when
+    that plan has flown, then on the street route the study first flew (ten drones and one, spread 1.0), goals in
+    layout order; and L3 at the tight spread on the street route, with the replica beside it."""
+    out = []
+    if pilot_plan is not None:
+        want = []
+        for name in ("L1", "L2", "L3"):
+            lv = pilot_plan["pick"][name]
+            want.append((name, lv, 10, "goals_pilot_1.0", f"{name} {lv} · ten drones · spread 1.0 · pilot path"))
+            want.append((name, lv, 1, "goals_single", f"{name} {lv} · one drone · pilot path"))
+        out += _flights(pilot_plan, want, "pilot")
     picks = plan["pick"]
     want = []
     for name in ("L1", "L2", "L3"):
         lv = picks[name]
-        want.append((name, lv, 10, "goals_1.0", f"{name} {lv} · ten drones · spread 1.0"))
-    want.append(("L3", picks["L3"], 10, "goals_0.4", f"L3 {picks['L3']} · ten drones · spread 0.4 · with the replica"))
+        want.append((name, lv, 10, "goals_1.0", f"{name} {lv} · ten drones · spread 1.0 · street route"))
+    want.append(("L3", picks["L3"], 10, "goals_0.4", f"L3 {picks['L3']} · ten drones · spread 0.4 · street route · "
+                                                     "with the replica"))
     for name in ("L1", "L2", "L3"):
         lv = picks[name]
-        want.append((name, lv, 1, "goals_1.0", f"{name} {lv} · one drone"))
+        want.append((name, lv, 1, "goals_1.0", f"{name} {lv} · one drone · street route"))
+    return out + _flights(plan, want, "street")
+
+
+def _flights(plan, want, routing):
+    runs_root = Path(plan["bench_root"]) / "runs"
     out = []
     for name, lv, n, kind, title in want:
         run = next((r for r in plan["runs"] if r["level"] == lv and r["drones"] == n and r["seed"] == 101), None)
@@ -279,7 +294,98 @@ def pick_flights(plan):
             continue
         replica = (name, f"n{n}", kind) == REPLICA_FLIGHT
         print(f"[explorer] flight: {title}", flush=True)
-        out.append(dict(flight(runs_root / run["tag"], fi, title, replica), pick=name, level=lv))
+        out.append(dict(flight(runs_root / run["tag"], fi, title, replica), pick=name, level=lv, routing=routing))
+    return out
+
+
+# ============================================================================= what each interface sees, and how it flies
+
+CAPABILITY_RUN = "capability"
+STATIC_COLS = ["A_any_r40", "A_head_r40", "A_single_r40", "A_pot_r40", "A_single_pot_r40", "V_swarm_1_r40",
+               "V_single_1_r40", "E_par_r40", "useful_feeds", "A_any_r80", "A_single_r80"]
+MOVING_COLS = ["sweep_any_r40_m", "sweep_head_r40_m", "sweep_any_r80_m", "sweep_head_r80_m", "area_any_r40_per_m",
+               "area_head_r40_per_m", "behind_corner_r40_frac", "behind_reach_r40_frac", "lead_vs_omni_r40_s",
+               "persist_any_r40_s", "path_ratio", "adj_per_100m", "cmd_straightness", "morph_per_km", "street_frac",
+               "drones_lost", "progress_ms", "stuck"]
+
+
+def _seed_stats(df, keys, cols):
+    """Mean over the layout seeds of each key group, with the SD across seeds (columns <c> and <c>_sd)."""
+    cols = [c for c in cols if c in df]
+    per = df.groupby(keys + ["seed"])[cols].mean()
+    m = per.groupby(level=keys).mean()
+    s = per.groupby(level=keys).std().add_suffix("_sd")
+    return pd.concat([m, s], axis=1).reset_index()
+
+
+def capability_data():
+    """The capability study's tables, by clutter level: standing (d_ref 1.0), flying (every pilot), the cities."""
+    cap = STUDY_DIR / "capability" / CAPABILITY_RUN
+    if not (cap / "moving.csv").exists():
+        return None
+    st, mv, ly = (pd.read_csv(cap / f"{n}.csv") for n in ("static", "moving", "layouts"))
+    head = pd.read_csv(cap / "headline.csv") if (cap / "headline.csv").exists() else pd.DataFrame()
+    stat = _seed_stats(st[np.isclose(st.d_ref, 1.0)], ["clutter"], STATIC_COLS)
+    stat_spread = _seed_stats(st, ["clutter", "d_ref"], ["A_any_r40", "A_head_r40", "E_par_r40", "useful_feeds"])
+    m = mv[mv.band == "matched"].copy()
+    m["d_ref"] = np.where(m.interface == "swarm", m.d_ref, np.nan)
+    m["pilot"] = m.interface + "|" + m.routing + "|" + m.d_ref.map(lambda v: "" if not np.isfinite(v) else f"{v:g}")
+    mov = _seed_stats(m, ["clutter", "pilot"], MOVING_COLS)
+    own = mv[(mv.band == "own")]
+    mov_own = _seed_stats(own, ["clutter", "interface", "routing"], ["sweep_any_r40_m", "area_any_r40_per_m"])
+    cities = ly.groupby("clutter").agg(alpha=("alpha", "mean"), ell_m=("ell_m", "mean"),
+                                        encounters_per_km=("encounters_per_km", "mean"),
+                                        wall_share=("wall_share", "mean"), n_buildings=("n_buildings", "mean"),
+                                        core=("core", "first"), g_shell=("g_shell", "first")).reset_index()
+    man = json.loads((cap / "manifest.json").read_text(encoding="utf-8"))
+    return dict(static=records(stat), static_spread=records(stat_spread), moving=records(mov),
+                moving_own=records(mov_own), cities=records(cities), headline=records(head),
+                band=man.get("band"), points=man.get("static_points"), pairs=man.get("pairs"),
+                w_pass=(man.get("w_pass") or {}).get("w_pass_m"))
+
+
+def transit_data(levels_pick):
+    """The transit at the trial levels (Tier B' on the pilot paths and the street route, every pilot), the goal
+    pass-by curves, the discovery predictions, and Tier C on the pilot paths when it has flown."""
+    out = {}
+    tr_path = STUDY_DIR / "tierBprime" / "tierB2" / "transit.csv"
+    if tr_path.exists():
+        tr = pd.read_csv(tr_path)
+        names = {v: k for k, v in levels_pick.items() if v}
+        tr = tr[tr.level.isin(names)].copy()
+        disc = [c for c in tr.columns if c.startswith("disc_g") and c.endswith("_any_r80_s")]
+        disc200 = [c for c in tr.columns if c.startswith("disc_g") and c.endswith("_any_r200_s")]
+        tr["discovery_r80_s"] = tr[disc].mean(axis=1) if disc else np.nan
+        tr["discovery_r200_s"] = tr[disc200].mean(axis=1) if disc200 else np.nan
+        tr["pick"] = tr.level.map(names)
+        tr["d_ref"] = np.where(tr.interface == "swarm", tr.transit_dref, np.nan)
+        tr["pilot"] = tr.interface + "|" + tr.routing + "|" + tr.d_ref.map(lambda v: "" if not np.isfinite(v)
+                                                                          else f"{v:g}")
+        out["levels"] = records(_seed_stats(tr, ["pick", "pilot"], MOVING_COLS + ["discovery_r80_s",
+                                                                                  "discovery_r200_s"]))
+    pb = STUDY_DIR / "transit" / "passby.csv"
+    if pb.exists():
+        p = pd.read_csv(pb)
+        cols = [c for c in p.columns if c.startswith("det_") and not c.endswith("_dist_m")]
+        out["passby"] = records(p.groupby(["label", "interface", "offset_m"])[cols].mean().reset_index())
+        W = STUDY_DIR / "transit" / "passby_W.csv"
+        if W.exists():
+            out["passby_W"] = records(pd.read_csv(W))
+    dp = STUDY_DIR / "transit" / "discovery_predictions.csv"
+    if dp.exists():
+        out["discovery"] = records(pd.read_csv(dp))
+    tcp = STUDY_DIR / "tierC" / "tierC_pilot" / "tierC_levels.csv"
+    if tcp.exists():
+        out["tierC_pilot"] = records(pd.read_csv(tcp))
+    gp = STUDY_DIR / "transit" / "gates.csv"
+    if gp.exists():
+        g = pd.read_csv(gp)
+        out["gates"] = records(g.groupby(["kind", "n", "d_ref", "gap_m", "offset_m"]).agg(
+            passed=("passed", "mean"), lost=("lost", "mean"), stall=("longest_stall_s", "max"),
+            t_cross=("t_cross_s", "mean")).reset_index())
+        wp = PACKAGE_DIR / "data" / "w_pass.json"
+        if wp.exists():
+            out["w_pass"] = json.loads(wp.read_text(encoding="utf-8"))
     return out
 
 
@@ -295,7 +401,12 @@ def results():
     reveal = geo.groupby(["level", "d_ref"])[vcols].mean().reset_index()
     envB = pd.read_csv(STUDY_DIR / "tierB" / "tierB2" / "envelop.csv").groupby(["level", "d_ref"]).agg(
         enveloped=("enveloped", "mean"), kills=("kills", "mean")).reset_index()
-    dyn = pd.read_csv(STUDY_DIR / "tierBprime" / "tierB2" / "dynamic.csv").groupby(["level", "transit_dref"]).agg(
+    dyn = pd.read_csv(STUDY_DIR / "tierBprime" / "tierB2" / "dynamic.csv")
+    if "routing" in dyn:            # since 2026-10-13: the swarm on its pilot paths (the street route beside it)
+        dyn = dyn[dyn.interface == "swarm"]
+    else:
+        dyn = dyn.assign(routing="street")
+    dyn = dyn.groupby(["level", "routing", "transit_dref"]).agg(
         lost=("drones_lost", "mean"), nn=("nn_transit_m", "mean"), progress=("progress_ms", "mean"),
         contacts_km=("contacts_per_km", "mean"), enveloped=("enveloped_frac", "mean"),
         useful=("useful_transit", "mean")).reset_index()
@@ -336,13 +447,20 @@ def validation():
                 per = pd.read_csv(sorted(folder.glob("validate_2*.csv"))[-1])
                 v = v.merge(per.groupby("run")[["lost_bench", "lost_replica"]].sum().reset_index(), on="run", how="left")
             models.append(dict(key=key, label=label, rows=records(v)))
+    pooled = rv / "pilot_paths2" / "gate_pooled.csv"
+    pilot_gate = records(pd.read_csv(pooled)) if pooled.exists() else []
+    tg, tgc = rv / "pilot_paths2" / "transit_gate.csv", rv / "pilot_paths2" / "transit_gate_contrast.csv"
     v3 = STUDY_DIR / "validate" / "internal_3"
     comp = records(pd.read_csv(v3 / "comparison.csv"))
     anchor = json.loads((STUDY_DIR / "anchor" / "anchor_internal_3.json").read_text(encoding="utf-8"))
     summ = json.loads((v3 / "summary.json").read_text(encoding="utf-8"))
+    disc = DEFAULT_ROOT_RESULTS / "discovery_range.csv"
     return dict(replica=models, limits=dict(track_frac=0.1, nn_rel=0.15, lost_per10=2.0, t90_s=1.5),
                 internal3=dict(comparison=comp, replay_max_diff=summ["replay_max_abs_diff_s"]),
-                anchor=anchor["by_condition"])
+                anchor=anchor["by_condition"], pilot_gate=pilot_gate,
+                transit_gate=records(pd.read_csv(tg)) if tg.exists() else [],
+                transit_gate_contrast=records(pd.read_csv(tgc)) if tgc.exists() else [],
+                discovery_range=records(pd.read_csv(disc, sep=";")) if disc.exists() else [])
 
 
 def levels_and_params():
@@ -388,12 +506,14 @@ def runs_summary():
         dict(tier="B", what=f"{len(lays)} generated cities ({lays.level.nunique()} levels x 3 seeds), each goal "
                             "settled at 3 spreads and scored against 64 walkers for 60 s over the operator band",
              count=f"{exp.drop_duplicates().shape[0]} goals, {len(env)} formation settles", where="tierB/tierB2/"),
-        dict(tier="B'", what="The 2-D replica flies each city spawn to every goal (transit spread 0.4 and 1.0), and "
-                             "the envelopment map over occluder x ring x spread x drones",
+        dict(tier="B'", what="The 2-D replica flies each city spawn to every goal, on the pilot paths and the street "
+                             "route (the swarm at transit spread 0.4 and 1.0; the single drone planned, direct and "
+                             "looking round), and the envelopment map over occluder x ring x spread x drones",
              count=f"{len(dyn)} flights, {len(envm)} settles", where="tierBprime/"),
         dict(tier="C", what="Headless Unity flies the same goal flights in the three picks' trial cities and their "
-                            "neighbours, ten drones (and one drone on the picks)",
+                            "neighbours, ten drones (and one drone on the picks), on the street route",
              count=f"{tcf.run.nunique()} runs, {len(tcf)} flights", where="tierC/tierC/"),
+        *extra_runs(rd),
         dict(tier="Gate", what="The replica flies 17 recorded Unity flights per city again (DiamondCityWorld, an L1 "
                                "city, a dense C2 city) and is compared with Unity",
              count=f"{rvn} flights", where="replica_validation/"),
@@ -406,6 +526,42 @@ def runs_summary():
         dict(tier="Unit", what="Generator, line of sight, display rule, walkers, formations, exposure, contact model, "
                                "Tier C bookkeeping", count=f"{len(tests)} tests", where="citysim/tests/"),
     ]
+
+
+def extra_runs(rd):
+    """The rows for what the 2026-10-13 revision ran (pilot paths, capability, discovery), each where its output is."""
+    rows = []
+    tcp = rd / "tierC" / "tierC_pilot" / "tierC_flights.csv"
+    if tcp.exists():
+        f = pd.read_csv(tcp, usecols=["run"])
+        rows.append(dict(tier="C, pilot paths", what="Tier C flown again with every transit on the pilots' paths",
+                         count=f"{f.run.nunique()} runs, {len(f)} flights", where="tierC/tierC_pilot/"))
+    cap = rd / "capability" / "capability"
+    if (cap / "moving.csv").exists():
+        pts = pd.read_csv(cap / "static.csv", usecols=["layout", "point"]).drop_duplicates().shape[0]
+        mv = pd.read_csv(cap / "moving.csv", usecols=["band"])
+        rows.append(dict(tier="Capability", what="No goals: standing at random points (three spreads, four body "
+                                                 "yaws) and crossing each city (every pilot, both routings), in open, "
+                                                 "porous and packed cities, three seeds each",
+                         count=f"{pts} points, {int((mv.band == 'matched').sum())} crossings",
+                         where="capability/capability/"))
+    pb = rd / "transit" / "passby.csv"
+    if pb.exists():
+        rows.append(dict(tier="Pass-by", what="Straight passes past every trial goal and internal_3's, each pilot on "
+                                              "its own path, for the goals' sweep widths and the discovery model",
+                         count=f"{len(pd.read_csv(pb, usecols=['goal']))} passes", where="transit/"))
+    p2 = rd / "replica_validation" / "pilot_paths2"
+    v2 = sorted(p2.glob("validate_2*.csv"))
+    tg = p2 / "transit_gate_flights.csv"
+    if v2:
+        n = len(pd.read_csv(v2[-1], usecols=["run"]))
+        rep = int((pd.read_csv(tg, usecols=["source"]).source == "replica").sum()) if tg.exists() else 0
+        rows.append(dict(tier="Gate, pilot paths", what="Unity flies the pilot paths in L1, L3 and the porous cities "
+                                                        "with every flight recorded; the replica flies them again, "
+                                                        "checked on spacing and losses and on the transit measures",
+                         count=f"{n} flights" + (f", {rep} re-flights" if rep else ""),
+                         where="replica_validation/pilot_paths2/"))
+    return rows
 
 
 def unit_tests():
@@ -452,7 +608,9 @@ def build(out_path=OUT, bare=False):
         if path:
             print(f"[explorer] goal scene {name}", flush=True)
             scenes.append(dict(goal_scene(path, name), level=picks[name]))
-    flights = pick_flights(plan)
+    pp = STUDY_DIR / "tierC" / "tierC_pilot" / "plan.json"
+    pilot_plan = json.loads(pp.read_text(encoding="utf-8")) if pp.exists() else None
+    flights = pick_flights(plan, pilot_plan)
     try:
         commit = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], capture_output=True,
                                 text=True).stdout.strip()
@@ -470,7 +628,8 @@ def build(out_path=OUT, bare=False):
                           loss_max=2.5, transit_weights=json.loads((STUDY_DIR / "tierC" / "tierC" / "manifest.json")
                                                                    .read_text(encoding="utf-8")).get("transit_weights")),
                 **lp, layouts=layouts, scenes=scenes, flights=flights, results=results(), validation=validation(),
-                operator=operator_summary(), runs=runs_summary(), tests=unit_tests())
+                operator=operator_summary(), runs=runs_summary(), tests=unit_tests(),
+                capability=capability_data(), transit=transit_data(picks))
     text = json.dumps(clean(data), separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
     html = TEMPLATE.read_text(encoding="utf-8")
     assert "__DATA__" in html, "the template has no __DATA__ placeholder"

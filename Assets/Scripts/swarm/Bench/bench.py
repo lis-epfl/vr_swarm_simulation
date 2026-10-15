@@ -6,6 +6,7 @@
     python bench.py report D:/claude_obstacle_bench/runs/<tag> [more runs ...]
     python bench.py scenarios --city <layout id> --seed 1 --out-dir <dir>       # flights for a generated layout
     python bench.py scenarios --city <layout id> --goals --out-dir <dir>        # Tier C's goal flights for it
+    python bench.py scenarios --city <layout id> --goals --routing pilot ...    # ... on citysim.routing's pilot paths
     python bench.py config --scene ProceduralCityWorld --layout <layout id> --drones 1 ...  # fly it, single drone
 
 A config's parameter sets are OVERRIDES on the scene as authored -- `--set scene` (no fields) flies the scene
@@ -52,7 +53,8 @@ START_CLEARANCE = 10.0    # m from any building footprint, for a start or a zigz
 SPREAD_STEPS = [(1.0, 1.6), (1.6, 1.0), (1.0, 0.4), (0.4, 1.0), (0.4, 1.6), (1.6, 0.4), (1.08, 0.5), (1.08, 1.5)]
 SPREAD_STEP_AT, SPREAD_T, SPREAD_OFFSET = 30.0, 75.0, 280.0   # step time, flight length, m west of the city
 # Tier C's goal flights (--goals): citysim.dynamic's program, so the replica (Tier B') and Unity fly the same thing --
-# from the spawn along the street route at full stick, the goal reached within GOAL_ARRIVE_M of its centre, then a
+# from the spawn at full stick, along the street route (--routing street, the original) or the pilot paths of
+# citysim.routing (--routing pilot: the swarm's and the single drone's), the goal reached within GOAL_ARRIVE_M of its centre, then a
 # centring hold (formation.PILOT_GAIN, stick <= PILOT_MAX) at the goal spread, a lone drone scanning at maxYawRate
 # (single.scan) meanwhile. Each waypoint may take GOAL_MIN_PROGRESS m/s before it is given up (stuck); the flight ends
 # when the last hold does.
@@ -151,23 +153,36 @@ def generate(city, seed):
     return heldout, spread
 
 
-def goal_flights(city):
+def goal_flights(city, routing="street"):
     """Tier C's task flights through a generated layout: from its spawn, every goal in the layout's order and in
-    reverse, at each of GOAL_TRANSIT_SPREADS. kind = goals_<transit d_ref>."""
+    reverse. routing "street" (the study's original transit): the shortest street route at each of
+    GOAL_TRANSIT_SPREADS, kind goals_<transit d_ref>. routing "pilot" (citysim.routing): the swarm's pilot path at each
+    spread, kind goals_pilot_<d_ref>, and the single drone's, kind goals_single (fly it with --drones 1)."""
     sys.path.insert(0, str(sp.EXPERIMENT_DIR))
-    from citysim import dynamic, layout as lay
+    from citysim import dynamic, layout as lay, routing as rt
     L = lay.load(lay.resolve(city))
     graph = dynamic.street_graph(L)
+    cyl = rt.Cylinders(L.boxes_as_tuples())
+    arena = tuple(L.layout["arena"]) if L.layout.get("arena") else None
     spawn = np.array([L.layout["spawn"][0], L.layout["spawn"][2]], float)
     goals = [np.array(g["centre"], float) for g in L.goals()]
+    if routing == "street":
+        variants = [(f"goals_{d}", d, lambda a, b, d=d: dynamic.route(graph, a, b) if graph is not None else [b])
+                    for d in GOAL_TRANSIT_SPREADS]
+    elif routing == "pilot":
+        variants = [(f"goals_pilot_{d}", d, lambda a, b, d=d: rt.interface_plan(cyl, "swarm", a, b, d, arena))
+                    for d in GOAL_TRANSIT_SPREADS]
+        variants.append(("goals_single", 1.0, lambda a, b: rt.interface_plan(cyl, "single", a, b, 1.0, arena)))
+    else:
+        raise ValueError(f"unknown routing {routing!r}")
     out = []
     for order, seq in (("forward", goals), ("reverse", goals[::-1])):
-        for d in GOAL_TRANSIT_SPREADS:
+        for kind, d, plan in variants:
             wps, here, cap = [], spawn, 0.0
             for gc in seq:
-                route = dynamic.route(graph, here, gc) if graph is not None else [gc]
+                path = plan(here, gc)
                 prev = here
-                for q in route:
+                for q in path:
                     seg = float(np.linalg.norm(q - prev))
                     timeout = GOAL_WP_SLACK_S + seg / GOAL_MIN_PROGRESS
                     wps += [float(q[0]), float(q[1]), 1.0, timeout]
@@ -176,7 +191,7 @@ def goal_flights(city):
                 wps += [float(gc[0]), float(gc[1]), -GOAL_HOLD_STICK, GOAL_HOLD_S]
                 cap += GOAL_HOLD_S
                 here = gc
-            out.append(dict(kind=f"goals_{d}", order=order, sx=float(spawn[0]), sz=float(spawn[1]), T=round(cap, 1),
+            out.append(dict(kind=kind, order=order, sx=float(spawn[0]), sz=float(spawn[1]), T=round(cap, 1),
                             wps=wps, record=True, spread=[0.0, d], arrive=GOAL_ARRIVE_M, holdSpread=GOAL_SPREAD,
                             holdGain=GOAL_HOLD_GAIN, holdYawRate=GOAL_SCAN_RATE, endOnDone=True))
     return out
@@ -198,7 +213,7 @@ def load_scenarios(path):
 
 def cmd_scenarios(a):
     SCENARIO_DIR.mkdir(exist_ok=True)
-    src = f"bench.py scenarios --city {a.city} " + ("--goals" if a.goals else f"--seed {a.seed}")
+    src = f"bench.py scenarios --city {a.city} " + (f"--goals --routing {a.routing}" if a.goals else f"--seed {a.seed}")
     city = a.city
     if analyse.is_layout(a.city):        # a generated layout: name the files and the set by its id
         sys.path.insert(0, str(sp.EXPERIMENT_DIR))
@@ -207,7 +222,7 @@ def cmd_scenarios(a):
     elif a.goals:
         raise ValueError("--goals needs a generated layout (its spawn, goals and streets)")
     if a.goals:
-        sets = (("goals", goal_flights(a.city)),)
+        sets = (("goals" if a.routing == "street" else f"goals_{a.routing}", goal_flights(a.city, a.routing)),)
     else:
         if a.seed is None:
             raise ValueError("--seed is required (the held-out set is drawn from it)")
@@ -463,6 +478,9 @@ def main():
                                                  "generated layout's id")
     p.add_argument("--seed", type=int, help="the held-out set's seed (required unless --goals)")
     p.add_argument("--goals", action="store_true", help="Tier C's goal flights through a generated layout instead")
+    p.add_argument("--routing", choices=["street", "pilot"], default="street",
+                   help="goal flights: the street route (the original), or citysim.routing's pilot paths (swarm and "
+                        "single drone)")
     p.add_argument("--out-dir", help=f"default {SCENARIO_DIR}")
     p.add_argument("--force", action="store_true", help="overwrite existing files")
     p.set_defaults(func=cmd_scenarios)

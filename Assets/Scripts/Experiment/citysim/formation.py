@@ -3,6 +3,7 @@ sit, as the force law puts them, rather than an assumed ring.
 
     python -B -m citysim.formation diameters                       # hover ring diameter per d_ref -> data/
     python -B -m citysim.formation envelope --out envmap.csv       # the envelopment map over (w_c, r_g, d_ref, n)
+    python -B -m citysim.vissim gates                              # the gate probe -> data/w_pass.json (routing)
 
 hover_template   the pattern run_step uses: random start in open sky, stick (0, 0), d_ref held, 40 s to settle.
 envelop          a goal patch (occluder + ring, citygen.goal_buildings) or a layout's goal, flown with a centring
@@ -15,6 +16,9 @@ envelop          a goal patch (occluder + ring, citygen.goal_buildings) or a lay
                  the drones' convex hull, no bearing gap round it wider than MAX_GAP_DEG and, given the patch's
                  clear radius, at least INSIDE_FRAC of the drones inside it -- between the occluder and the ring,
                  looking out at the ring; surrounding the whole patch from outside the ring is not envelopment.
+gate_map         what the formation flows through, for the pilots of citysim.routing: a wall with one gap of a set
+                 width between avoidance cylinders, and a lone building straight ahead ("ram"), flown at full stick
+                 at each spread and by a lone drone. w_pass is the narrowest gap passed with nothing lost.
 Contacts         the replica kills a drone that enters a building footprint; in Unity that is a bump (only a
                  drone-drone approach under 0.5 m, a flip, the ground or isolation kill). swarm_replica.ContactSim
                  keeps the replica's pair kills but turns a footprint entry into a CONTACT -- the drone is put back
@@ -234,6 +238,123 @@ def envelope_map(w_cs, r_gs, n_bs, drefs, ns, seeds, size=2.0, jobs=None):
     with Pool(min(jobs or max(1, (os.cpu_count() or 2) - 2), len(grid))) as pool:
         rows = pool.map(_envmap_job, grid)
     return pd.DataFrame(rows)
+
+
+# ============================================================================= the gate probe: what the formation flows through
+
+GATE_GAPS = (0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0)   # m between avoidance cylinders
+GATE_DREFS = (0.4, 1.0, 1.6)
+RAM_OFFSETS = (0.0, 3.0)          # m the lone building sits off the flight line
+GATE_START_X, GATE_AIM_X, GATE_PAST_X = -90.0, 150.0, 40.0
+GATE_T = 75.0
+GATE_WALL_EACH_SIDE = 6           # buildings either side of the gap, cylinders overlapping: no way round in time
+GATE_OVERLAP = 0.25               # of a cylinder radius, between neighbours in the wall
+GATE_STALL_OK_S = 5.0             # longest stretch the centroid may make < 1 m/s and still "flow through": a longer
+#                                   one (a lone drone parked head-on against a building until the noise slides it
+#                                   off) is where a pilot would step in
+
+
+def gate_city(kind, gap=0.0, offset=0.0, size=2.0):
+    """Replica boxes of a probe: "gate" -- a wall of the study design across the flight line (x = 0) with one gap of
+    `gap` m between the two central avoidance cylinders; "ram" -- one building on the line, `offset` m off it."""
+    from citysim import catalogue, layout as lay
+    design = catalogue.study_design()
+    hx, hz = design.footprint(size, 0)
+    R = math.hypot(hx, hz)
+    if kind == "ram":
+        centres = [(0.0, offset)]
+    else:
+        z = R + gap / 2.0
+        centres = []
+        for k in range(GATE_WALL_EACH_SIDE):
+            centres += [(0.0, z + k * (2 - GATE_OVERLAP) * R), (0.0, -z - k * (2 - GATE_OVERLAP) * R)]
+    boxes = []
+    for k, (x, zc) in enumerate(centres):
+        b = lay.make_box(f"probe_{k}", "probe", x, zc, design, size, 0)
+        boxes.append((b["tile"], np.array(b["c"], float), np.array(b["ax"], float)))
+    return boxes
+
+
+def gate_trial(job):
+    """One probe flight: the formation (or a lone drone) settled at GATE_START_X and flown at full stick at a point
+    GATE_AIM_X down the line. Passed (it FLOWS through) = every surviving drone beyond GATE_PAST_X within GATE_T, none
+    left behind until it was lost as isolated, and no stall longer than GATE_STALL_OK_S on the way. Drone-drone pair
+    losses do not fail it: at the tightest spread they come in open sky too (the bench's known d_ref 0.4 problem), and
+    the transit flights count them as losses; `clean` is the stricter nothing-lost-at-all."""
+    kind, gap, offset, d_ref, n, seed = job
+    check(allow_stale=False)
+    m = model()
+    boxes = gate_city(kind, gap, offset)
+    if n > 1:
+        P0, _ = hover_template(d_ref, n, seed)
+    else:
+        P0 = np.zeros((1, 2))
+    P0 = P0 + np.array([GATE_START_X, 0.0])
+    sim = ContactSim(m, rep.City(boxes), P0, np.zeros((len(P0), 2)), seed)
+    aim = np.array([GATE_AIM_X, 0.0])
+    t_cross, stall, slow = math.nan, 0.0, 0.0
+    every = max(1, int(round(0.5 / m.dt)))
+    prev_x = None
+    while sim.t < GATE_T and sim.alive.sum() > 0:
+        P = sim.P[sim.alive]
+        c = P.mean(0)
+        if (P[:, 0] > GATE_PAST_X).all():
+            t_cross = sim.t
+            break
+        d = aim - c
+        sim.step(d / max(float(np.linalg.norm(d)), 1e-9), 0.0, d_ref)
+        if sim.tick % every == 0:
+            x = float(c[0])
+            if prev_x is not None and x < GATE_PAST_X:
+                slow = slow + 0.5 if (x - prev_x) / 0.5 < 1.0 else 0.0
+                stall = max(stall, slow)
+            prev_x = x
+    alive = sim.alive
+    crossed = int((sim.P[alive][:, 0] > GATE_PAST_X).sum()) if alive.any() else 0
+    lost = int(n - alive.sum())
+    kinds = [k[1] for k in sim.kills]
+    isolated = sum(1 for k in kinds if k == "isolated")
+    flowed = bool(alive.any() and crossed == int(alive.sum()) and math.isfinite(t_cross) and isolated == 0 and
+                  stall <= GATE_STALL_OK_S)
+    return dict(kind=kind, gap_m=gap, offset_m=offset, d_ref=d_ref, n=n, seed=seed, lost=lost,
+                kills=kinds, pair_kills=sum(1 for k in kinds if k == "drone"), isolated=isolated,
+                contacts=int(sim.contacts), crossed=crossed,
+                t_cross_s=round(t_cross, 2) if math.isfinite(t_cross) else math.nan,
+                longest_stall_s=round(stall, 1), passed=flowed, clean=bool(flowed and lost == 0))
+
+
+def gate_map(seeds=3, gaps=GATE_GAPS, drefs=GATE_DREFS, jobs=None):
+    """Every probe flight (a DataFrame) and the summary routing reads: w_pass per d_ref (the narrowest probed gap
+    passed in every seed, with every wider one passed too) and whether a lone building is flowed round (ram_ok); the
+    same for one drone."""
+    import pandas as pd
+    check()
+    grid = [("gate", g, 0.0, d, 10, s) for g in gaps for d in drefs for s in range(seeds)]
+    grid += [("gate", g, 0.0, 1.0, 1, s) for g in gaps for s in range(seeds)]
+    grid += [("ram", 0.0, o, d, 10, s) for o in RAM_OFFSETS for d in drefs for s in range(seeds)]
+    grid += [("ram", 0.0, o, 1.0, 1, s) for o in RAM_OFFSETS for s in range(seeds)]
+    from citysim.parallel import run_jobs
+    df = pd.DataFrame(run_jobs(gate_trial, grid, "gate probe", processes=jobs, stall_s=120.0))
+
+    def narrowest(sub):
+        ok = sub.groupby("gap_m").passed.all().sort_index()
+        good = None
+        for g in sorted(ok.index, reverse=True):
+            if not ok[g]:
+                break
+            good = g
+        return None if good is None else float(good)
+
+    gates, rams = df[df.kind == "gate"], df[df.kind == "ram"]
+    summary = dict(
+        scene=SCENE, force_law=rep.FORCE_LAW_COMMIT, seeds=seeds, gaps_m=list(gaps), passed_rule=(
+            "every surviving drone beyond the wall within %g s, none lost as isolated, no stall over %g s (drone-drone "
+            "pair losses are counted, not failed); w_pass = the narrowest gap passed in every seed with every wider "
+            "probed gap passed too" % (GATE_T, GATE_STALL_OK_S)),
+        w_pass_m={f"{d:g}": narrowest(gates[(gates.n == 10) & np.isclose(gates.d_ref, d)]) for d in drefs},
+        ram_ok={f"{d:g}": bool(rams[(rams.n == 10) & np.isclose(rams.d_ref, d)].passed.all()) for d in drefs},
+        single_w_pass_m=narrowest(gates[gates.n == 1]), single_ram_ok=bool(rams[rams.n == 1].passed.all()))
+    return df, summary
 
 
 def main():

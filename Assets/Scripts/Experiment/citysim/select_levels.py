@@ -40,9 +40,11 @@ from citysim.checks import GATE_RATIO, GATE_SD, VANISH_SD, level_deltas  # noqa:
 ENVELOP_MIN, ENVELOP_FAIL = 0.9, 0.1
 U_KEEP, U_DROP = 0.7, 0.6
 NN_MIN = 3.0
+TRANSIT_COLS = ["path_ratio", "street_frac", "adj_per_100m", "cmd_straightness", "morph_per_km", "sweep_any_r40_m",
+                "sweep_head_r40_m", "area_any_r40_per_m", "behind_corner_r40_frac", "progress_ms"]
 
 
-def collect(sweep, tierc=None):
+def collect(sweep, tierc=None, routing="pilot"):
     src = STUDY_DIR / "tierB" / sweep
     exp = pd.read_csv(src / "exposure.csv")
     geo = pd.read_csv(src / "geometry.csv")
@@ -73,6 +75,8 @@ def collect(sweep, tierc=None):
     dyn_path = STUDY_DIR / "tierBprime" / sweep / "dynamic.csv"
     if dyn_path.exists():
         dyn = pd.read_csv(dyn_path)
+        if "routing" in dyn:              # since 2026-10-13: the swarm on its pilot paths (the street route is the comparison)
+            dyn = dyn[(dyn.routing == routing) & (dyn.interface == "swarm")]
         d1 = dyn[np.isclose(dyn.transit_dref, 1.0)].groupby("level").agg(
             lost_per_flight_B1=("drones_lost", "mean"), nn_transit_m=("nn_transit_m", "mean"),
             progress_ms=("progress_ms", "mean"), useful_transit=("useful_transit", "mean"),
@@ -81,6 +85,18 @@ def collect(sweep, tierc=None):
         d4 = dyn[np.isclose(dyn.transit_dref, 0.4)].groupby("level").agg(
             lost_per_flight_B04=("drones_lost", "mean"), nn_transit_04_m=("nn_transit_m", "mean"))
         lev = lev.merge(d1.reset_index(), on="level", how="left").merge(d4.reset_index(), on="level", how="left")
+    tr_path = STUDY_DIR / "tierBprime" / sweep / "transit.csv"
+    if tr_path.exists():                 # the transit predictions (citysim.transit), reported beside the rule's inputs
+        tr = pd.read_csv(tr_path)
+        tr = tr[(tr.routing == routing) & ((tr.interface != "swarm") | np.isclose(tr.transit_dref, 1.0))]
+        cols = [c for c in TRANSIT_COLS if c in tr]
+        disc = [c for c in tr.columns if c.startswith("disc_g") and c.endswith("_any_r80_s")]
+        if disc:
+            tr = tr.assign(discovery_r80_s=tr[disc].mean(axis=1))
+            cols.append("discovery_r80_s")
+        piv = tr.groupby(["level", "interface"])[cols].mean().unstack("interface")
+        piv.columns = [f"{iface}_{c}" for c, iface in piv.columns]
+        lev = lev.merge(piv.reset_index(), on="level", how="left")
     if tierc:
         tc = pd.read_csv(STUDY_DIR / "tierC" / tierc / "tierC_levels.csv")
         lev = lev.merge(tc, on="level", how="left", suffixes=("", "_C"))     # a clash keeps B''s name, C's gets _C
@@ -138,8 +154,11 @@ def main():
     ap.add_argument("--tierC", help="a Tier C tag (experiment_results/density_study/tierC/<tag>/tierC_levels.csv)")
     ap.add_argument("--loss-max", type=float, default=2.5,
                     help="G3: drones lost per run allowed at L3 (internal_3's rate was ~2.5 per run)")
+    ap.add_argument("--routing", choices=["pilot", "street"], default="pilot",
+                    help="whose Tier B' transits G2 reads: the pilot paths (since 2026-10-13) or the street route")
+    ap.add_argument("--out", default="levels", help="output stem under experiment_results/density_study")
     a = ap.parse_args()
-    lev, spec = collect(a.sweep, a.tierC)
+    lev, spec = collect(a.sweep, a.tierC, a.routing)
     lev, pick, info = select(lev, spec, a.l1, a.loss_max)
     pd.set_option("display.width", 260)
     cols = ["level", "alpha", "ell_m", "delta", "sd", "ratio_to_L1", "swarm_E_head", "single_E_head",
@@ -149,7 +168,8 @@ def main():
     print(f"\nL1 {pick['L1']}   L2 {pick['L2']}   L3 {pick['L3']}   (L2 candidates {info['L2_candidates']}; "
           f"L3 candidates {info['L3_candidates']}; densest clutter {info['densest']}"
           f"{'; G3 pending Tier C' if info['G3_pending'] else ''})")
-    out = dict(generated=datetime.datetime.now().isoformat(timespec="seconds"), sweep=a.sweep, rule=__doc__,
+    out = dict(generated=datetime.datetime.now().isoformat(timespec="seconds"), sweep=a.sweep, routing=a.routing,
+               tierC=a.tierC, rule=__doc__,
                pick=pick, info=info, levels={})
     for k in ("L1", "L2", "L3"):
         lvl = pick[k]
@@ -162,9 +182,9 @@ def main():
                                                 (float(v) if isinstance(v, (int, float, np.floating, np.integer))
                                                  else str(v))))
                                            for c, v in row.items() if c not in ("level", "clutter", "goal_level")})
-    path = STUDY_DIR / "levels.json"
+    path = STUDY_DIR / f"{a.out}.json"
     path.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8", newline="\n")
-    lev.to_csv(STUDY_DIR / "levels_table.csv", index=False)
+    lev.to_csv(STUDY_DIR / f"{a.out}_table.csv", index=False)
     print(f"written {path}")
 
 

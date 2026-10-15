@@ -15,7 +15,15 @@ The package behind docs/density_study/ (see its README for the study, its tiers 
     single      single-drone policies: static best vantage and the orbit / scan
     operator    the operator band from internal_3 (altitude, pitch, spread, head yaw)
     theory      Tier A: the Boolean blockage model
-    vissim      the tiers' command line: Tier A/B sweeps, B' dynamic, Tier C scoring, validate, gate1
+    routing     the paths the scripted pilots fly: the street route, and the swarm's / single drone's pilot paths
+    dynamic     Tier B': the replica flown through a layout by any pilot on either routing (and fly_od)
+    transit     what a flight sees and how it flies: coverage, sweep width, look-behind, path, commands, discovery
+    discovery   a goal's first sight: the one definition the simulator and analyse.py share
+    capability  the task-independent capability study: standing and flying, across clutter
+    passby      goal lateral range curves and W_goal, and the discovery predictions
+    parallel    a process pool that reruns the jobs a dead worker lost
+    vissim      the tiers' command line: Tier A/B sweeps, B' dynamic, Tier C scoring, validate, gate1, gates,
+                capability, passby, discovery-predict
     report      figures
 
 Everything here is numpy (+ scipy/pandas where noted) and never imports Unity. Run with the `stitching`

@@ -219,6 +219,7 @@ tr:last-child td { border-bottom: 0; }
 
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button class="tab-btn" role="tab" id="t-levels" aria-controls="p-levels">The codes</button>
+    <button class="tab-btn" role="tab" id="t-sees" aria-controls="p-sees">What each sees</button>
     <button class="tab-btn" role="tab" id="t-cities" aria-controls="p-cities">Cities</button>
     <button class="tab-btn" role="tab" id="t-goal" aria-controls="p-goal">At a goal</button>
     <button class="tab-btn" role="tab" id="t-flights" aria-controls="p-flights">Flights in Unity</button>
@@ -356,6 +357,21 @@ tr:last-child td { border-bottom: 0; }
       </div>
     </section>
 
+    <!-- ======================================================== what each sees -->
+    <section class="tab" id="p-sees" role="tabpanel" aria-labelledby="t-sees" hidden>
+      <div class="intro">
+        <h2>What each interface sees, and how it flies a city</h2>
+        <p>Task-independent: no goals, no walkers. Generated cities from today's sparse one to dense ones, the packed blocks the study first used and porous ones the formation can flow through. Standing anywhere in them, and flying across them on the path each interface's pilot would fly: the swarm's pilot steers round only the walls the formation cannot flow through and lets it morph round everything else; the single drone's pilot steers round every building. Recognition is the hat's 40 m throughout.</p>
+      </div>
+      <div class="charts">
+        <div class="chart"><div class="head"><div><h3>Swarm ÷ single drone, by city</h3><p>Standing: the ground on the pilot's screens now, in the headset's view, and what the pilot can bring into view within a second. Flying: the sweep width (the width of city cleared per metre flown) and the share of the swarm's ground it saw first round a corner. The swarm at spread 1.0.</p></div></div><div class="tablewrap"><table id="sees-head"></table></div></div>
+        <div class="chart"><div class="head"><div><h3>Standing: what each interface has on screen</h3><p>The formation settled at random points away from the goals; the single drone on its centre, facing the same way. Points: mean over three cities per level; whiskers: their spread.</p></div></div><div id="ch-sees-static"></div></div>
+        <div class="chart"><div class="head"><div><h3>Flying: the width of city each clears</h3><p>Sweep width W: for ground at each distance from the flight's track, the share ever seen on a feed, summed across the track. Six crossings of every city per pilot.</p></div></div><div id="ch-sees-sweep"></div></div>
+        <div class="chart"><div class="head"><div><h3>Seeing behind buildings as the swarm passes them</h3><p>The share of the swarm's ground that its feeds saw first while a camera at the formation's centre could not: blocked by a building (round a corner), or out of its range. The leading drones are the ones that see it.</p></div></div><div id="ch-sees-behind"></div></div>
+        <div class="chart"><div class="head"><div><h3>How each pilot flies a city</h3><p>The path flown over the straight line, the pilot's stick adjustments per 100 m (the same measure the human runs are scored with), and the buildings the formation morphed round per km. Grey: the street route the study first flew.</p></div></div><div id="ch-sees-paths"></div></div>
+      </div>
+    </section>
+
     <!-- ======================================================== results -->
     <section class="tab" id="p-results" role="tabpanel" aria-labelledby="t-results" hidden>
       <div class="intro">
@@ -366,10 +382,12 @@ tr:last-child td { border-bottom: 0; }
         <div class="chart"><div class="head"><div><h3>G1: the swarm's advantage at a goal, by level (Tier B)</h3><p>Swarm (best spread, head-visible feeds) minus the single drone (best of its orbits and scan), in percentage points of walker-time. G1 asks for a level at least twice L1's advantage, and one where it vanishes or reverses.</p></div></div><div id="ch-g1"></div></div>
         <div class="chart"><div class="head"><div><h3>What each interface sees, by goal geometry (Tier B)</h3><p>The single drone's exposure falls as the occluder grows; the swarm's holds. At the cramped goals (G6, G7) the formation cannot get round the occluder and the single drone does better.</p></div></div><div id="ch-exp"></div></div>
         <div class="two">
-          <div class="chart"><div class="head"><div><h3>Drones lost per flight in the replica (Tier B')</h3><p>Spawn to every goal. Losses come at the tight spread, and grow with clutter.</p></div></div><div id="ch-dyn-lost"></div></div>
+          <div class="chart"><div class="head"><div><h3>Drones lost per flight in the replica (Tier B')</h3><p>Spawn to every goal on the swarm's pilot path. Losses come at the tight spread, and grow with clutter.</p></div></div><div id="ch-dyn-lost"></div></div>
           <div class="chart"><div class="head"><div><h3>Spacing in transit (Tier B', G2)</h3><p>Mean distance to the nearest drone. G2 asks for at least 3 m at spread 1.0, the spacing internal_3's collisions came at.</p></div></div><div id="ch-dyn-nn"></div></div>
         </div>
-        <div class="chart"><div class="head"><div><h3>Drones lost per run in Unity (Tier C, G3)</h3><p>Per run of the trial (spawn, three goals), at the share of tight spread internal_3's pilots flew. Whiskers: the spread over three cities per level. Small marks: the loss per flight at each transit spread on its own.</p></div></div><div id="ch-tierc"></div></div>
+        <div class="chart"><div class="head"><div><h3>The transit at the trial levels (Tier B')</h3><p>Spawn to every goal, each pilot on its own path, and the street route the study first flew. The discovery time is from leaving one goal to the next goal's first sight on a shown feed (80 m), with the goal's position known: the directed bound.</p></div></div><div id="ch-transit"></div></div>
+        <div class="chart"><div class="head"><div><h3>Seeing a goal while passing it</h3><p>Straight passes past each trial goal (and internal_3's), each pilot on its own path: the share that saw the goal's walkers on a shown feed within 80 m, by how far off the goal the pass ran. Its area is the sweep width for goals, which sets how fast an unannounced goal is found.</p></div></div><div id="ch-passby"></div></div>
+        <div class="chart"><div class="head"><div><h3>Drones lost per run in Unity (Tier C, G3)</h3><p>Per run of the trial (spawn, three goals), at the share of tight spread internal_3's pilots flew. Whiskers: the spread over three cities per level. Small marks: the loss per flight at each transit spread on its own. Diamonds: the same levels flown again on the pilot paths, through the blocks; there L3 no longer passes G3, so the levels are on hold until that is decided.</p></div></div><div id="ch-tierc"></div></div>
         <div class="chart"><div class="head"><div><h3>Where the swarm can surround the occluder (Tier B' envelopment map)</h3><p>An isolated goal with the formation flown in from 60 m and held over it: the share of settles that envelop, by occluder width and ring radius, at each spread. Empty squares were not built: the ring's buildings cannot keep 5 m from the occluder there.</p></div><div class="seg" id="env-n"></div></div><div id="ch-env"></div></div>
         <div class="chart"><div class="head"><div><h3>Free-sight length against coverage (Tier A)</h3><p>The Boolean model: ℓ, the mean distance a sight line runs before it meets a building, falls as more of the ground is built over. Today's density (C0) is range-limited; the two denser levels are transitional, and the city starts to hide walkers the camera could otherwise recognise. The generated cities use buildings twice today's size throughout; the other two curves show what building size does.</p></div></div><div id="ch-tiera"></div>
           <div class="legend"><span><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" style="stroke:var(--ink);stroke-width:2.4"/></svg>×2, the study's buildings</span><span><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" style="stroke:var(--muted);stroke-width:1.4;stroke-dasharray:2 3"/></svg>×1, today's buildings</span><span><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" style="stroke:var(--muted);stroke-width:1.4;stroke-dasharray:6 4"/></svg>×4, not built</span><span><i class="lg dot" style="background:var(--ink)"></i>C0–C2, measured on the generated cities</span><span><i class="lg ring" style="border-color:var(--ink-2)"></i>today's two cities (DiamondCityWorld, ScaledCityWorld)</span></div></div>
@@ -385,6 +403,9 @@ tr:last-child td { border-bottom: 0; }
       </div>
       <div class="chart"><div class="head"><div><h3>What ran</h3></div></div><div class="tablewrap"><table id="ck-runs"></table></div></div>
       <div class="chart"><div class="head"><div><h3>The replica against Unity</h3><p>The 2-D replica flew 17 recorded Unity flights per city again, from the same start with the same pilot. It passes when the median track error is within 10% of the path, the spacing within 15%, and the drones lost within 2 per 10 flights of Unity's. How a drone that hits a building is treated decided it.</p></div></div><div class="tablewrap"><table id="ck-replica"></table></div><p class="hint">Watch it happen: <a href="#flights" id="ck-to-flight">the L3 flight at spread 0.4</a> shows the replica beside Unity.</p></div>
+      <div class="chart"><div class="head"><div><h3>The replica on the pilot paths</h3><p>Every pilot-path number rests on the replica, so it was checked again on those paths before any was used: Unity flew the swarm's and the single drone's goal flights in L1, L3 and the two porous cities (three cities each, twelve swarm flights per kind of city), every flight recorded, and the replica flew them again. Same limits as above, pooled per kind of city.</p></div></div><div class="tablewrap"><table id="ck-replica-pilot"></table></div></div>
+      <div class="chart"><div class="head"><div><h3>The transit measures, replica against Unity</h3><p>The same Unity flights and the replica's re-flights of them (two each), scored by the study's transit measures at one altitude and pitch, so only the flying differs. Each cell is Unity → replica. ✕ marks a difference of more than 15% and more than two standard errors.</p></div></div><div class="tablewrap"><table id="ck-transit-gate"></table></div><p class="hint" id="ck-transit-gate-note"></p></div>
+      <div class="chart"><div class="head"><div><h3>How far a goal is seen from (internal_3)</h3><p>The discovery co-primary counts a goal as seen when its walkers are on a shown feed within 80 m. A pilot with no map cannot turn onto a goal before seeing it, so on the legs where internal_3's pilots visibly turned onto the goal for the final approach, first sight should come first. It matched best at about 200 m, which is why 200 m is reported beside 80 m.</p></div></div><div class="tablewrap"><table id="ck-disc"></table></div></div>
       <div class="chart"><div class="head"><div><h3>internal_3: replayed, then predicted</h3><p>The recorded human runs, scored through the study's camera model, reproduce the analysis to 0.04 s. Predicting them with Tier B's machinery gets the swarm's displayed exposure right and under-predicts the single drone and the head-visible feeds: the pilots did better than the scripted model.</p></div></div><div id="ck-i3"></div></div>
       <div class="two">
         <div class="chart"><div class="head"><div><h3>Unit tests</h3><p id="ck-tests-note"></p></div></div><div class="tablewrap"><table id="ck-tests"></table></div></div>
@@ -507,11 +528,17 @@ function masthead() {
     [yes(L3.G3) ? (g3.loss_rate > 0.85 * D.meta.loss_max ? "warn" : "good") : "bad", yes(L3.G3) ? "!" : "✕", "G3, losses at L3",
       `${num(g3.loss_rate, 2)} per run against ${D.meta.loss_max}, narrowly`]
   ];
+  const g3p = ((D.transit && D.transit.tierC_pilot) || []).find(r => r.level === PICK.L3);
+  if (g3p && isNum(g3p.loss_rate)) {
+    const ok = g3p.loss_rate <= D.meta.loss_max;
+    gates.push([ok ? "good" : "bad", ok ? "✓" : "✕", "G3 on the pilot paths",
+      `${num(g3p.loss_rate, 2)} per run against ${D.meta.loss_max}` + (ok ? "" : ": the levels are on hold until that is decided")]);
+  }
   $("#gates").innerHTML = gates.map(([cls, ic, lab, val]) => `<span class="gate"><span class="ic ${cls}" aria-hidden="true">${ic}</span><b>${lab}</b><span class="muted">${val}</span></span>`).join("");
 }
 
 // ------------------------------------------------------------------ tabs
-const TABS = ["levels", "cities", "goal", "flights", "results", "checks", "glossary"];
+const TABS = ["levels", "sees", "cities", "goal", "flights", "results", "checks", "glossary"];
 const INIT = {}, SHOW = {}, HIDE = {}, inited = {};
 let current = null;
 function selectTab(id) {
@@ -1175,7 +1202,7 @@ INIT.results = () => {
     });
   });
   const dynChart = (id, key, label, ref) => chart(id, (host, W) => {
-    const dyn = D.results.dynamic, H = 250, m = { l: 40, r: 10, t: 14, b: 30 };
+    const dyn = D.results.dynamic.filter(r => !r.routing || r.routing === "pilot"), H = 250, m = { l: 40, r: 10, t: 14, b: 30 };
     const per = 3, pw = (W - 2 * 12) / per;
     const svg = svgIn(host, W, H + 14, label);
     const ymax = Math.max(ref || 0, d3.max(dyn, r => r[key])) * 1.12;
@@ -1199,6 +1226,44 @@ INIT.results = () => {
   });
   dynChart("#ch-dyn-lost", "lost", "Drones lost per flight", null);
   dynChart("#ch-dyn-nn", "nn", "Mean spacing to the nearest drone, m", 3);
+  const TR = D.transit || {};
+  if (TR.levels && TR.levels.length) {
+    const tl = {}; for (const r of TR.levels) tl[`${r.pick}/${r.pilot}`] = r;
+    const R = (pilot, col) => c => { const r = tl[`${c}/${pilot}`]; return r ? { v: r[col], sd: r[col + "_sd"] } : null; };
+    const SW = { color: "var(--swarm)", shape: "c" }, SG = { color: "var(--single)", shape: "s" }, ST = { color: "var(--muted)", shape: "d" };
+    const cats = ["L1", "L2", "L3"].filter(c => TR.levels.some(r => r.pick === c));
+    const four = col => [{ ...SW, label: "swarm, pilot path", row: R("swarm|pilot|1", col) }, { ...SG, label: "single drone, pilot path", row: R("single|pilot|", col) },
+      { ...ST, label: "swarm, street route", row: R("swarm|street|1", col) }, { color: "var(--muted)", shape: "s", hollow: true, label: "single drone, street route", row: R("single|street|", col) }];
+    dotPanels("#ch-transit", cats, [
+      { title: "Path flown ÷ straight line", fmt: v => num(v, 2), ymin: 0.9, ref: 1, series: four("path_ratio") },
+      { title: "Stick adjustments per 100 m", fmt: v => num(v, 1), series: four("adj_per_100m") },
+      { title: "Next goal first seen after (s)", fmt: v => num(v, 0), series: four("discovery_r80_s") },
+      { title: "Sweep width (m)", fmt: v => num(v, 0), series: four("sweep_any_r40_m") }
+    ], "The transit at the trial levels", c => `${c} ${PICK[c]}`);
+  } else $("#ch-transit").innerHTML = `<p class="muted small">Tier B' has not flown the pilot paths: <span class="mono">python -B -m citysim.vissim dynamic</span></p>`;
+  if (TR.passby && TR.passby.length) chart("#ch-passby", (host, W) => {
+    const labels = ["L1", "L2", "L3", "internal_3"].filter(l => TR.passby.some(r => r.label === l));
+    const per = W < 640 ? 1 : W < 1000 ? 2 : labels.length, gap = 18, pw = (W - (per - 1) * gap) / per, ph = 200;
+    const rows = Math.ceil(labels.length / per), svg = svgIn(host, W, rows * (ph + 26) + 24, "Goal seen while passing it, by offset");
+    const offs = [...new Set(TR.passby.map(r => r.offset_m))].sort((a, b) => a - b);
+    labels.forEach((lab, i) => {
+      const g = svg.append("g").attr("transform", `translate(${(i % per) * (pw + gap)},${Math.floor(i / per) * (ph + 26) + 24})`), m = { l: 40, r: 8, t: 16, b: 30 };
+      const x = d3.scaleLinear().domain([0, d3.max(offs)]).range([m.l, pw - m.r]), y = d3.scaleLinear().domain([0, 1]).range([ph - m.b, m.t]);
+      g.append("text").attr("class", "lab-ink").attr("x", m.l).attr("y", 6).text(lab === "internal_3" ? "internal_3 (DiamondCityWorld)" : `${lab} ${PICK[lab]}`);
+      g.append("g").attr("class", "gridl").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickSize(-(pw - m.l - m.r)).tickFormat(""));
+      g.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(v => pct(v, 0)));
+      g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph - m.b})`).call(d3.axisBottom(x).ticks(5).tickFormat(v => v + " m"));
+      for (const [iface, col, shape] of [["swarm", "var(--swarm)", "c"], ["single", "var(--single)", "s"]]) {
+        const pts = TR.passby.filter(r => r.label === lab && r.interface === iface).sort((a, b) => a.offset_m - b.offset_m);
+        g.append("path").attr("d", d3.line().x(r => x(r.offset_m)).y(r => y(r.det_any_r80))(pts)).style("fill", "none").style("stroke", col).style("stroke-width", 2);
+        for (const r of pts) { mark(g, shape, x(r.offset_m), y(r.det_any_r80), col); g.append("circle").attr("cx", x(r.offset_m)).attr("cy", y(r.det_any_r80)).attr("r", 9).style("fill", "transparent").on("mousemove", ev => showTip(`<b>${esc(lab)}</b> · ${iface === "swarm" ? "swarm" : "single drone"}<br>Passes ${r.offset_m} m off the goal: <b>${pct(r.det_any_r80, 0)}</b> saw it within 80 m${isNum(r.det_any_r200) ? `<br><span class="t2">within 200 m: ${pct(r.det_any_r200, 0)}</span>` : ""}`, ev)).on("mouseleave", hideTip); }
+      }
+    });
+    const lg = svg.append("g").attr("transform", "translate(6,10)");
+    mark(lg, "c", 6, 0, "var(--swarm)"); lg.append("text").attr("class", "lab").attr("x", 15).attr("y", 4).text("swarm");
+    mark(lg, "s", 76, 0, "var(--single)"); lg.append("text").attr("class", "lab").attr("x", 85).attr("y", 4).text("single drone");
+  });
+  else $("#ch-passby").innerHTML = `<p class="muted small">The pass-by probe has not run: <span class="mono">python -B -m citysim.vissim passby</span></p>`;
   chart("#ch-tierc", (host, W) => {
     const key = lv => { const [cl, g] = lv.split("-"); return CLUT.indexOf(cl) * 100 + GOALS.indexOf(g); };
     const rows = [...D.results.tierC].sort((a, b) => key(a.level) - key(b.level));
@@ -1216,6 +1281,8 @@ INIT.results = () => {
       for (const [k, dx] of [["loss_rate_04", -11], ["loss_rate_10", 11]]) if (isNum(r[k])) svg.append("line").attr("x1", cx + dx - 4).attr("x2", cx + dx + 4).attr("y1", y(r[k])).attr("y2", y(r[k])).style("stroke", "var(--ink-2)").style("stroke-width", 2);
       svg.append("circle").attr("cx", cx).attr("cy", y(r.loss_rate)).attr("r", 5.5).style("fill", "var(--swarm)").style("stroke", "var(--panel)").style("stroke-width", 2);
       if (isNum(r.single_loss_rate)) svg.append("rect").attr("x", cx + 13).attr("y", y(r.single_loss_rate) - 4.5).attr("width", 9).attr("height", 9).attr("rx", 1).style("fill", "var(--single)");
+      const pr = (TR.tierC_pilot || []).find(q => q.level === r.level);
+      if (pr && isNum(pr.loss_rate)) svg.append("path").attr("d", `M${cx - 22},${y(pr.loss_rate) - 6}l6,6l-6,6l-6,-6Z`).style("fill", "var(--panel)").style("stroke", "var(--swarm)").style("stroke-width", 2);
       svg.append("text").attr("class", p ? "lab-ink" : "lab-mono").attr("x", cx).attr("y", H - m.b + 16).attr("text-anchor", "middle").text(r.level);
       if (p) svg.append("text").attr("class", "lab-ink").attr("x", cx).attr("y", H - m.b + 31).attr("text-anchor", "middle").text(p);
       svg.append("rect").attr("x", x(r.level)).attr("width", x.bandwidth()).attr("y", m.t).attr("height", H - m.b - m.t).style("fill", "transparent")
@@ -1224,6 +1291,7 @@ INIT.results = () => {
     const lg = svg.append("g").attr("transform", `translate(${Math.max(m.l, W - 420)},${m.t - 4})`);
     lg.append("circle").attr("cx", 5).attr("cy", 0).attr("r", 4.5).style("fill", "var(--swarm)"); lg.append("text").attr("class", "lab").attr("x", 14).attr("y", 4).text("ten drones");
     lg.append("rect").attr("x", 92).attr("y", -4.5).attr("width", 9).attr("height", 9).style("fill", "var(--single)"); lg.append("text").attr("class", "lab").attr("x", 106).attr("y", 4).text("one drone");
+    if ((TR.tierC_pilot || []).length) { lg.append("path").attr("d", "M186,-6l6,6l-6,6l-6,-6Z").style("fill", "var(--panel)").style("stroke", "var(--swarm)").style("stroke-width", 2); lg.append("text").attr("class", "lab").attr("x", 197).attr("y", 4).text("ten drones, pilot paths"); }
     lg.append("line").attr("x1", 178).attr("x2", 188).attr("y1", 0).attr("y2", 0).style("stroke", "var(--ink-2)").style("stroke-width", 2); lg.append("text").attr("class", "lab").attr("x", 194).attr("y", 4).text("per flight at 0.4 (left), 1.0 (right)");
   });
   let envN = 10;
@@ -1332,6 +1400,34 @@ INIT.checks = () => {
   const verdict = v => String(v).startsWith("PASS") ? `<span class="st good"><i>✓</i>pass</span>` : `<span class="st bad"><i>✕</i>fail</span><br><span class="small muted">${esc(String(v).replace(/^FAIL\s*/, ""))}</span>`;
   $("#ck-replica").innerHTML = `<thead><tr><th>City</th>${models.map(m => `<th>${esc(m.label)}</th>`).join("")}</tr></thead><tbody>` +
     runs.map(run => `<tr><td>${esc(cityName(run))}</td>${models.map(m => { const r = m.rows.find(q => q.run === run); return r ? `<td>${verdict(r.verdict)}<div class="small muted" style="margin-top:4px">drones lost: replica ${r.lost_replica ?? "—"}, Unity ${r.lost_bench ?? "—"}<br>spacing off by ${pct(r.nn_rel_median, 0)}, track by ${pct(r.track_frac_median, 1)}</div></td>` : "<td>—</td>"; }).join("")}</tr>`).join("") + `</tbody>`;
+  const pg = D.validation.pilot_gate || [];
+  $("#ck-replica-pilot").innerHTML = pg.length ? `<thead><tr><th>City</th><th>Pilot</th><th>Flights</th><th>Verdict</th><th>Drones lost (replica / Unity)</th><th>Spacing off by</th><th>Track off by</th></tr></thead><tbody>` +
+    pg.map(r => `<tr><td class="mono">${esc(r.city)}</td><td>${r.pilot === "swarm" ? "swarm" : "single drone"}</td><td>${r.flights}</td><td>${verdict(r.verdict)}</td><td>${r.lost_replica} / ${r.lost_bench}</td><td>${pct(r.nn_rel_median, 0)}</td><td>${pct(r.track_frac_median, 1)}</td></tr>`).join("") + `</tbody>`
+    : `<tbody><tr><td class="muted">Not yet validated on the pilot paths.</td></tr></tbody>`;
+  const tg = D.validation.transit_gate || [], tgc = D.validation.transit_gate_contrast || [];
+  const TG = [["path_ratio", "Path ÷ straight line", v => num(v, 2)], ["adj_per_100m", "Adjustments per 100 m", v => num(v, 2)],
+    ["sweep_any_r40_m", "Sweep width", v => num(v, 0) + " m"], ["sweep_head_r40_m", "… in the headset's view", v => num(v, 0) + " m"],
+    ["behind_corner_r40_frac", "Seen round a corner", v => pct(v, 1)], ["morph_per_km", "Buildings morphed round per km", v => num(v, 1)],
+    ["disc_any_r80_s", "Goal first seen, s into the leg", v => num(v, 0) + " s"], ["lost", "Drones lost per flight", v => num(v, 2)]];
+  const tgKeys = [...new Set(tg.map(r => `${r.city}|${r.interface}|${r.d_ref}`))];
+  $("#ck-transit-gate").innerHTML = tg.length ? `<thead><tr><th>City</th><th>Pilot</th>${TG.map(t => `<th class="n">${t[1]}</th>`).join("")}</tr></thead><tbody>` +
+    tgKeys.map(k => {
+      const [city, iface, d] = k.split("|");
+      const cell = t => {
+        const r = tg.find(q => q.city === city && q.interface === iface && String(q.d_ref) === d && q.metric === t[0]);
+        if (!r || r.bench == null || r.replica == null) return `<td class="n muted">—</td>`;
+        return `<td class="n">${t[2](r.bench)} <span class="muted">→</span> ${t[2](r.replica)}${r.agree ? "" : ` <span class="st bad" title="more than 15% and two standard errors apart"><i>✕</i></span>`}</td>`;
+      };
+      return `<tr><td class="mono">${esc(city)}</td><td>${iface === "swarm" ? `swarm, spread ${esc(d)}` : "single drone"}</td>${TG.map(cell).join("")}</tr>`;
+    }).join("") + `</tbody>`
+    : `<tbody><tr><td class="muted">The transit gate has not run: <span class="mono">python -B -m citysim.vissim transit-gate</span></td></tr></tbody>`;
+  const off = tgc.filter(r => !r.agree);
+  $("#ck-transit-gate-note").textContent = tgc.length ? `Swarm against single drone on the layouts both flew: ${tgc.length - off.length} of ${tgc.length} differences have Unity's sign or come within the tolerance` +
+    (off.length ? `; the rest: ${off.map(r => `${r.city} ${r.metric.replace(/_/g, " ")} at spread ${r.d_ref}`).join(", ")}.` : ".") : "";
+  const dr = D.validation.discovery_range || [];
+  $("#ck-disc").innerHTML = dr.length ? `<thead><tr><th>Range</th><th>Legs with a turn onto the goal</th><th>First sight no later than the turn</th><th>Turn − sight, median</th><th>|Turn − sight|, median</th></tr></thead><tbody>` +
+    dr.map(r => `<tr><td>${num(r.range_m, 0)} m${r.range_m === 80 ? " (the definition)" : ""}</td><td>${r.legs}</td><td>${pct(r.sight_by_commit, 0)}</td><td>${num(r.median_lag_s, 1)} s</td><td>${num(r.median_abs_lag_s, 1)} s</td></tr>`).join("") + `</tbody>`
+    : `<tbody><tr><td class="muted">No discovery range check.</td></tr></tbody>`;
   $("#ck-to-flight").addEventListener("click", e => { e.preventDefault(); selectTab("flights"); const i = D.flights.findIndex(f => f.replica); if (i >= 0) { const s = $("#fl-sel"); s.value = String(i); s.dispatchEvent(new Event("change")); } });
   chart("#ck-i3", (host, W) => {
     const rows = D.validation.internal3.comparison, H = 40 + rows.length * 46, m = { l: W < 600 ? 120 : 210, r: 16, t: 26, b: 10 };
@@ -1354,6 +1450,119 @@ INIT.checks = () => {
   const tests = D.tests;
   $("#ck-tests-note").textContent = `${tests.length} tests, all passing when last run. They pin the pieces the tiers are built from.`;
   $("#ck-tests").innerHTML = `<tbody>` + tests.map(t => `<tr><td><span class="st good"><i>✓</i></span></td><td>${esc(t.title)}${t.doc ? `<div class="small muted">${esc(t.doc)}</div>` : ""}</td><td class="mono small muted">${esc(t.file.replace("test_", ""))}</td></tr>`).join("") + `</tbody>`;
+};
+
+// ================================================================== tab: what each sees
+const CAP_ORDER = ["C0", "C1p", "C2p", "C1", "C2"];
+function mark(g, shape, X, Y, color, hollow) {
+  const fill = hollow ? "var(--panel)" : color, sw = hollow ? 1.8 : 2, stroke = hollow ? color : "var(--panel)";
+  if (shape === "s") return g.append("rect").attr("x", X - 4.5).attr("y", Y - 4.5).attr("width", 9).attr("height", 9).attr("rx", 1).style("fill", fill).style("stroke", stroke).style("stroke-width", sw);
+  if (shape === "d") return g.append("path").attr("d", `M${X},${Y - 6}L${X + 6},${Y}L${X},${Y + 6}L${X - 6},${Y}Z`).style("fill", fill).style("stroke", stroke).style("stroke-width", sw);
+  if (shape === "t") return g.append("path").attr("d", `M${X},${Y - 6}L${X + 6},${Y + 5}L${X - 6},${Y + 5}Z`).style("fill", fill).style("stroke", stroke).style("stroke-width", sw);
+  return g.append("circle").attr("cx", X).attr("cy", Y).attr("r", 5).style("fill", fill).style("stroke", stroke).style("stroke-width", sw);
+}
+// small multiples of dots over categories (clutter levels or trial levels), one series per interface / pilot
+function dotPanels(id, cats, panels, aria, catLabel = c => c) {
+  chart(id, (host, W) => {
+    const per = W < 640 ? 1 : Math.min(panels.length, W < 1000 ? 2 : panels.length), gap = 22;
+    const pw = (W - (per - 1) * gap) / per, ph = 230, rows = Math.ceil(panels.length / per), top = 34;
+    const svg = svgIn(host, W, rows * (ph + 30) + top, aria);
+    panels.forEach((P, i) => {
+      const ox = (i % per) * (pw + gap), oy = Math.floor(i / per) * (ph + 30) + top, m = { l: 48, r: 8, t: 20, b: 34 };
+      const g = svg.append("g").attr("transform", `translate(${ox},${oy})`);
+      const xs = d3.scaleBand().domain(cats).range([m.l, pw - m.r]).padding(0.15);
+      const vals = P.series.flatMap(s => cats.map(c => { const r = s.row(c); return r && isNum(r.v) ? r.v + (isNum(r.sd) ? r.sd : 0) : null; })).filter(isNum);
+      const y = d3.scaleLinear().domain([P.ymin ?? 0, Math.max(P.ymax ?? 0, (d3.max(vals) || 1) * 1.08)]).nice().range([ph - m.b, m.t]);
+      const fmt = P.fmt || (v => num(v, 1));
+      g.append("text").attr("class", "lab-ink").attr("x", m.l).attr("y", 8).text(P.title);
+      g.append("g").attr("class", "gridl").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickSize(-(pw - m.l - m.r)).tickFormat(""));
+      g.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(4).tickFormat(fmt));
+      g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph - m.b})`).call(d3.axisBottom(xs).tickSize(3).tickFormat(catLabel));
+      if (isNum(P.ref)) g.append("line").attr("x1", m.l).attr("x2", pw - m.r).attr("y1", y(P.ref)).attr("y2", y(P.ref)).style("stroke", "var(--muted)").style("stroke-dasharray", "3 3");
+      const k = P.series.length, step = Math.min(13, xs.bandwidth() / (k + 1));
+      P.series.forEach((s, j) => {
+        const dx = (j - (k - 1) / 2) * step;
+        for (const c of cats) {
+          const r = s.row(c); if (!r || !isNum(r.v)) continue;
+          const X = xs(c) + xs.bandwidth() / 2 + dx, Y = y(r.v);
+          if (isNum(r.sd) && r.sd > 0) g.append("line").attr("x1", X).attr("x2", X).attr("y1", y(Math.max(y.domain()[0], r.v - r.sd))).attr("y2", y(r.v + r.sd)).style("stroke", s.color).style("stroke-width", 1.4).style("opacity", 0.7);
+          mark(g, s.shape, X, Y, s.color, s.hollow);
+          g.append("circle").attr("cx", X).attr("cy", Y).attr("r", 10).style("fill", "transparent")
+            .on("mousemove", ev => showTip(`<b class="mono">${esc(catLabel(c))}</b> · ${esc(s.label)}<br>${esc(P.title)}: <b>${fmt(r.v)}</b>${isNum(r.sd) ? ` <span class="t2">± ${fmt(r.sd)} over the cities</span>` : ""}${r.note ? `<br><span class="t2">${esc(r.note)}</span>` : ""}`, ev)).on("mouseleave", hideTip);
+        }
+      });
+    });
+    const items = [...new Map(panels.flatMap(P => P.series.map(s => [s.label, s]))).values()];
+    const lg = svg.append("g").attr("transform", "translate(6,12)");
+    let lx = 0, ly = 0;
+    for (const s of items) {
+      const t = lg.append("text").attr("class", "lab").attr("x", lx + 15).attr("y", ly + 4).text(s.label);
+      const w = 30 + t.node().getComputedTextLength();
+      if (lx > 0 && lx + w > W - 12) { lx = 0; ly += 16; t.attr("x", 15).attr("y", ly + 4); }
+      mark(lg, s.shape, lx + 6, ly, s.color, s.hollow);
+      lx += w;
+    }
+  });
+}
+INIT.sees = () => {
+  const C = D.capability;
+  if (!C) { $("#p-sees .charts").innerHTML = `<p class="muted">The capability study has not run: <span class="mono">python -B -m citysim.vissim capability</span></p>`; return; }
+  const order = CAP_ORDER.filter(c => C.cities.some(r => r.clutter === c));
+  const city = Object.fromEntries(C.cities.map(r => [r.clutter, r]));
+  const kind = c => city[c].core === "shell" ? "porous" : city[c].alpha < 0.05 ? "open" : "packed";
+  const cat = c => `${c} · ${pct(city[c].alpha, 0)}`;
+  const st = Object.fromEntries(C.static.map(r => [r.clutter, r]));
+  const mv = {}; for (const r of C.moving) mv[`${r.clutter}/${r.pilot}`] = r;
+  const H = Object.fromEntries((C.headline || []).map(r => [r.clutter, r]));
+  const xx = v => isNum(v) ? num(v, 1) + "×" : "—";
+  $("#sees-head").innerHTML = `<thead><tr><th>City</th><th>Built over</th><th>Building encounters per km</th><th>On screen now</th><th>In the headset's view</th><th>Within 1 s</th><th>Sweep width</th><th>… in the headset's view</th><th>Swarm's ground first seen round a corner</th></tr></thead><tbody>` +
+    order.map(c => { const h = H[c] || {}; return `<tr><td class="mono">${c}</td><td>${pct(city[c].alpha, 0)}, ${kind(c)}</td><td>${num(city[c].encounters_per_km, 1)}</td><td>${xx(h.static_any_x)}</td><td>${xx(h.static_head_x)}</td><td>${xx(h.static_1s_x)}</td><td>${xx(h.sweep_any_x)}</td><td>${xx(h.sweep_head_x)}</td><td>${pct(h.behind_corner_frac, 1)}</td></tr>`; }).join("") + `</tbody>`;
+  const S = (col, sdcol) => c => st[c] ? { v: st[c][col], sd: st[c][sdcol || col + "_sd"] } : null;
+  const M = (pilot, col) => c => { const r = mv[`${c}/${pilot}`]; return r ? { v: r[col], sd: r[col + "_sd"] } : null; };
+  const m2 = v => isNum(v) ? d3.format(",.0f")(v) : "—";
+  const SW = { color: "var(--swarm)", shape: "c" }, SG = { color: "var(--single)", shape: "s" };
+  dotPanels("#ch-sees-static", order, [
+    { title: "On screen now (m²)", fmt: m2, series: [
+      { ...SW, label: "swarm, every feed", row: S("A_any_r40") },
+      { color: "var(--swarm)", shape: "t", hollow: true, label: "swarm, in the headset's view", row: S("A_head_r40") },
+      { ...SG, label: "single drone", row: S("A_single_r40") }] },
+    { title: "In view within 1 s (m²)", fmt: m2, series: [
+      { ...SW, label: "swarm, every feed", row: S("V_swarm_1_r40") }, { ...SG, label: "single drone", row: S("V_single_1_r40") }] },
+    { title: "Could be seen at all (m²)", fmt: m2, series: [
+      { ...SW, label: "swarm, every feed", row: S("A_pot_r40") }, { ...SG, label: "single drone", row: S("A_single_pot_r40") }] }
+  ], "What each interface has on screen, by city", cat);
+  const spreadSeries = (col) => [0.4, 1.0, 1.6].map((d, j) => ({ color: seqColor(0.35 + 0.32 * j), shape: "c", label: `swarm, spread ${num(d, 1)}`, row: M(`swarm|pilot|${d === 1 ? "1" : d}`, col) }));
+  dotPanels("#ch-sees-sweep", order, [
+    { title: "Sweep width, every feed (m)", fmt: v => num(v, 0), series: [...spreadSeries("sweep_any_r40_m"),
+      { ...SG, label: "single drone", row: M("single|pilot|", "sweep_any_r40_m") },
+      { color: "var(--single)", shape: "s", hollow: true, label: "single drone, looking round", row: M("single_scan|pilot|", "sweep_any_r40_m") }] },
+    { title: "Sweep width, in the headset's view (m)", fmt: v => num(v, 0), series: [...spreadSeries("sweep_head_r40_m"),
+      { ...SG, label: "single drone", row: M("single|pilot|", "sweep_head_r40_m") },
+      { color: "var(--single)", shape: "s", hollow: true, label: "single drone, looking round", row: M("single_scan|pilot|", "sweep_head_r40_m") }] }
+  ], "Sweep width by city", cat);
+  dotPanels("#ch-sees-behind", order, [
+    { title: "First seen round a corner (% of the swarm's ground)", fmt: v => num(v * 100, 1), series: spreadSeries("behind_corner_r40_frac") },
+    { title: "First seen beyond the centre's reach (%)", fmt: v => num(v * 100, 0), series: spreadSeries("behind_reach_r40_frac") },
+    { title: "How much sooner than the centre (s, median)", fmt: v => num(v, 1), series: spreadSeries("lead_vs_omni_r40_s") }
+  ], "What the swarm saw first round buildings", cat);
+  const ST = { color: "var(--muted)", shape: "d", hollow: false };
+  dotPanels("#ch-sees-paths", order, [
+    { title: "Path flown ÷ straight line", fmt: v => num(v, 2), ymin: 0.9, ref: 1, series: [
+      { ...SW, label: "swarm, pilot path", row: M("swarm|pilot|1", "path_ratio") },
+      { ...SG, label: "single drone, pilot path", row: M("single|pilot|", "path_ratio") },
+      { color: "var(--single)", shape: "s", hollow: true, label: "single drone, looking round", row: M("single_scan|pilot|", "path_ratio") },
+      { ...ST, label: "swarm, street route", row: M("swarm|street|1", "path_ratio") }] },
+    { title: "Stick adjustments per 100 m", fmt: v => num(v, 1), series: [
+      { ...SW, label: "swarm, pilot path", row: M("swarm|pilot|1", "adj_per_100m") },
+      { ...SG, label: "single drone, pilot path", row: M("single|pilot|", "adj_per_100m") },
+      { color: "var(--single)", shape: "s", hollow: true, label: "single drone, looking round", row: M("single_scan|pilot|", "adj_per_100m") },
+      { ...ST, label: "swarm, street route", row: M("swarm|street|1", "adj_per_100m") }] },
+    { title: "Buildings morphed round per km", fmt: v => num(v, 1), series: [
+      { ...SW, label: "swarm, pilot path", row: M("swarm|pilot|1", "morph_per_km") },
+      { ...ST, label: "swarm, street route", row: M("swarm|street|1", "morph_per_km") }] },
+    { title: "Drones lost per crossing", fmt: v => num(v, 2), series: [0.4, 1.0].map((d, j) => ({ color: seqColor(0.35 + 0.32 * j * 1.0), shape: "c", label: `swarm, spread ${num(d, 1)}`, row: M(`swarm|pilot|${d === 1 ? "1" : d}`, "drones_lost") }))
+      .concat([{ ...ST, label: "swarm, street route", row: M("swarm|street|1", "drones_lost") }]) }
+  ], "How each pilot flies a city", cat);
 };
 
 // ================================================================== tab: glossary

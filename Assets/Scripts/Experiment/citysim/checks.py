@@ -1,6 +1,7 @@
 """vissim's checks against data and its gate: validate (replay + predict internal_3), anchor (internal_3's empirical
 occlusion escape), gate1 (the Tier B gate and candidate levels), tierA (the analytic table and its scatter check)
-and envmap (Tier B' envelopment map). Run through `python -B -m citysim.vissim <command>`.
+and envmap (Tier B' envelopment map), roundtrip (a built city against its layout) and transit-gate (the replica against
+Unity on the transit measures, over pilot-path bench flights). Run through `python -B -m citysim.vissim <command>`.
 """
 import sys
 
@@ -401,3 +402,185 @@ def cmd_roundtrip(a):
         print("  PROBLEM:", p)
     print("PASS" if not problems else f"FAIL ({len(problems)} problems)")
     return 1 if problems else 0
+
+
+# ============================================================================= the replica's transit gate (pilot paths)
+
+TRANSIT_GATE_METRICS = ("path_ratio", "progress_ms", "adj_per_100m", "cmd_straightness", "street_frac",
+                        "sweep_any_r40_m", "sweep_head_r40_m", "area_any_r40_per_m", "behind_corner_r40_frac",
+                        "behind_reach_r40_frac", "lead_vs_omni_r40_s", "morph_per_km", "split_frac", "disc_any_r80_s",
+                        "disc_head_r80_s", "lost", "contacts")
+SWARM_ONLY = ("behind_corner_r40_frac", "behind_reach_r40_frac", "lead_vs_omni_r40_s", "morph_per_km", "split_frac")
+TRANSIT_GATE_REL = 0.15        # a metric agrees when within 15 % of Unity's mean or 2 standard errors of the difference
+TRANSIT_GATE_DIR = STUDY_DIR / "replica_validation" / "pilot_paths2"
+
+
+def _gate_city(run):
+    import re
+    m = re.match(r"gate2_([A-Za-z0-9]+?)s\d+_n\d+$", run)
+    return m.group(1) if m else run
+
+
+def _gate_row(meta, s):
+    """One flight's row: the gate's metrics out of a transit.score dict, its legs' discovery times averaged."""
+    row = dict(meta)
+    for k in TRANSIT_GATE_METRICS:
+        if k in s:
+            row[k] = s[k]
+    for basis in ("any", "head"):
+        t = np.array([v for k, v in s.items() if k.startswith("disc_g") and k.endswith(f"_{basis}_r80_s")], float)
+        row[f"disc_{basis}_r80_s"] = float(np.nanmean(t)) if np.isfinite(t).any() else math.nan
+        row[f"disc_{basis}_r80_legs"] = int(np.isfinite(t).sum())
+    return row
+
+
+def _transit_gate_bench(payload):
+    """A Unity gate flight scored as Tier C scores it, at `height` (None: the flight's own median altitude)."""
+    from citysim import layout as lay, tierc
+    run_dir, flight, sc, meta, height = payload
+    L = lay.load(Path(run_dir) / "layout.json")
+    tr = tierc.read_traj(Path(run_dir) / f"traj_{flight['set']}_{int(flight['scenario'])}.csv")
+    s = tierc.score_transit(tr, sc, L, tierc.hold_goals(sc, L), tr["n"] == 1, height=height)
+    row = _gate_row(dict(meta, source="bench", seed=-1, transit_height_m=s.get("transit_height_m")), s)
+    row.update(lost=int(flight["alive_start"]) - int(flight["alive_end"]), contacts=int(flight.get("contacts", 0)))
+    return row
+
+
+def _transit_gate_replica(payload):
+    """The replica flying the Unity flight's layout, goal order, spread and interface on the same pilot paths, scored at
+    the same height and pitch."""
+    from citysim import dynamic, layout as lay, tierc, transit, vissim
+    lpath, meta, goal_dref, seed, height = payload
+    L = lay.load(lpath)
+    order = [g["index"] for g in L.goals()]
+    if meta["order"] == "reverse":
+        order = order[::-1]
+    try:
+        summ, _, rec = dynamic.fly_layout(lpath, meta["d_ref"], goal_dref, seed=seed, routing_="pilot",
+                                          interface=meta["interface"], goal_order=order)
+        fp = Footprints(L.boxes_as_tuples())
+        cells = transit.Cells.around(fp, [rec.centroid[rec.transit_rows()]], max(transit.RANGES) + 4.0)
+        s = transit.score(rec, fp, cells, height, tierc.TRANSIT_PITCH, layout=L.id, goals=vissim.goal_loops(L))
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        print(f"[transit-gate] replica {meta} seed {seed} failed:\n{traceback.format_exc()}", flush=True)
+        return dict(meta, source="replica", seed=seed, error=str(e))
+    row = _gate_row(dict(meta, source="replica", seed=seed, transit_height_m=height), s)
+    row.update(lost=int(summ["drones_lost"]), contacts=int(summ["contacts"]))
+    return row
+
+
+def _transit_height(run_dir, flight, sc):
+    """A Unity flight's median altitude in transit (alive drones, off the hold waypoints): what score_transit scores
+    the flight at by default."""
+    from citysim import tierc
+    tr = tierc.read_traj(Path(run_dir) / f"traj_{flight['set']}_{int(flight['scenario'])}.csv")
+    wps = sc.get("wps") or []
+    n_wp = len(wps) // 4
+    holds = [k for k in range(n_wp) if wps[4 * k + 2] < 0]
+    rows = ~np.isin(tr["wp"], holds) & (tr["wp"] < n_wp)
+    return float(np.nanmedian(np.where(tr["alive"][rows], tr["Y"][rows], np.nan)))
+
+
+def _transit_gate_job(job):
+    kind, payload = job
+    return _transit_gate_bench(payload) if kind == "bench" else _transit_gate_replica(payload)
+
+
+def _gate_compare(xb, xr):
+    xb, xr = np.asarray(xb, float), np.asarray(xr, float)
+    xb, xr = xb[np.isfinite(xb)], xr[np.isfinite(xr)]
+    if not len(xb) or not len(xr):
+        return dict(n_bench=len(xb), n_replica=len(xr))
+    mb, mr = float(xb.mean()), float(xr.mean())
+    se = math.sqrt((xb.var(ddof=1) / len(xb) if len(xb) > 1 else 0.0) +
+                   (xr.var(ddof=1) / len(xr) if len(xr) > 1 else 0.0))
+    rel = (mr - mb) / abs(mb) if abs(mb) > 1e-9 else (0.0 if abs(mr) <= 1e-9 else math.inf)
+    z = (mr - mb) / se if se > 0 else (0.0 if mr == mb else math.inf)
+    return dict(n_bench=len(xb), n_replica=len(xr), bench=round(mb, 4), replica=round(mr, 4), diff=round(mr - mb, 4),
+                rel=round(rel, 3), z=round(z, 2), agree=bool(abs(rel) <= TRANSIT_GATE_REL or abs(z) <= 2.0))
+
+
+def cmd_transit_gate(a):
+    """The replica against Unity on the transit measures the capability study and Tier B' report (path, commands,
+    sweep, look-behind, morph, discovery), over the bench's pilot-path gate flights. Both sides are scored by
+    citysim.transit at one height (the Unity flights' median transit altitude) and the transit pitch, so what differs
+    is the flight alone: positions, headings, shown feeds. Writes transit_gate_flights.csv (every flight),
+    transit_gate.csv (city x interface x spread) and transit_gate_contrast.csv (swarm against single drone on the
+    layouts both flew: the contrast the study's predictions rest on)."""
+    from citysim import tierc
+    from citysim.parallel import run_jobs
+    root = Path(a.bench_root) / "runs"
+    runs = sorted(p for p in root.glob(a.runs) if (p / "results.jsonl").exists() and (p / "layout.json").exists())
+    if not runs:
+        raise SystemExit(f"[transit-gate] no runs match {root / a.runs}")
+    flights = []
+    for run_dir in runs:
+        cfg, _, fl, L = tierc.read_run(run_dir)
+        single = int(cfg.get("droneCount", 10)) == 1
+        for f in fl:
+            sc = cfg["scenarios"][int(f["scenario"])]
+            key = tierc.spread_key(f["kind"])
+            d_ref = float(key) if key.replace(".", "", 1).isdigit() else 1.0
+            meta = dict(city=_gate_city(run_dir.name), run=run_dir.name, layout=L.id,
+                        interface="single" if single else "swarm", d_ref=d_ref, order=sc.get("order", ""),
+                        kind=f["kind"])
+            flights.append((str(run_dir), f, sc, meta))
+    t0 = time.time()
+    height = float(np.nanmedian([_transit_height(r, f, sc) for r, f, sc, _ in flights]))
+    print(f"[transit-gate] {len(flights)} Unity flights in {len(runs)} runs; median transit altitude {height:.2f} m",
+          flush=True)
+    jobs = [("bench", (r, f, sc, m, height)) for r, f, sc, m in flights]
+    jobs += [("replica", (str(Path(r) / "layout.json"), m, float(sc.get("holdSpread", 1.6)), seed, height))
+             for r, f, sc, m in flights for seed in range(a.seeds)]
+    rows = run_jobs(_transit_gate_job, jobs, "transit-gate", a.jobs,
+                    progress=lambda d, n, _: print(f"[transit-gate] {d}/{n}", flush=True) if d % 20 == 0 else None)
+    df = pd.DataFrame(rows)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out / "transit_gate_flights.csv", index=False)
+    cells = []
+    for (city, iface, d_ref), g in df.groupby(["city", "interface", "d_ref"]):
+        b, r = g[g.source == "bench"], g[g.source == "replica"]
+        for m in TRANSIT_GATE_METRICS:
+            if m in g and not (iface == "single" and m in SWARM_ONLY):
+                cells.append(dict(city=city, interface=iface, d_ref=d_ref, metric=m, **_gate_compare(b[m], r[m])))
+    cdf = pd.DataFrame(cells)
+    cdf.to_csv(out / "transit_gate.csv", index=False)
+    con = []                    # swarm against single drone on the layouts a single drone flew, per spread
+    for lay_id, g in df.groupby("layout"):
+        si = g[g.interface == "single"]
+        if not len(si):
+            continue
+        for d_ref in sorted(g[g.interface == "swarm"].d_ref.unique()):
+            sw = g[(g.interface == "swarm") & (g.d_ref == d_ref)]
+            for m in TRANSIT_GATE_METRICS:
+                if m not in g or m in SWARM_ONLY:
+                    continue
+                v = dict(city=g.city.iloc[0], layout=lay_id, d_ref=d_ref, metric=m)
+                for src in ("bench", "replica"):
+                    x = float(sw[sw.source == src][m].astype(float).mean())
+                    y = float(si[si.source == src][m].astype(float).mean())
+                    v.update({f"{src}_swarm": round(x, 4), f"{src}_single": round(y, 4), f"{src}_diff": round(x - y, 4),
+                              f"{src}_ratio": round(x / y, 3) if abs(y) > 1e-9 else math.nan})
+                v["same_sign"] = bool(np.sign(v["bench_diff"]) == np.sign(v["replica_diff"]))
+                # a contrast agrees when the replica has its sign, or misses Unity's by less than the cell tolerance
+                v["agree"] = bool(v["same_sign"] or abs(v["bench_diff"] - v["replica_diff"]) <=
+                                  TRANSIT_GATE_REL * max(abs(v["bench_single"]), abs(v["bench_swarm"]), 1e-9))
+                con.append(v)
+    kdf = pd.DataFrame(con)
+    kdf.to_csv(out / "transit_gate_contrast.csv", index=False)
+    pd.set_option("display.width", 250)
+    shown = cdf.dropna(subset=["bench", "replica"])
+    cell = (shown.bench.round(3).astype(str) + " / " + shown.replica.round(3).astype(str) +
+            np.where(shown.agree.astype(bool), "", " X"))
+    print(shown.assign(cell=cell).pivot_table(index="metric", columns=["city", "interface", "d_ref"], values="cell",
+                                              aggfunc="first")
+          .reindex([m for m in TRANSIT_GATE_METRICS if m in set(shown.metric)]).to_string())
+    if len(kdf):
+        print(kdf[["city", "d_ref", "metric", "bench_diff", "replica_diff", "bench_ratio", "replica_ratio",
+                   "same_sign", "agree"]].to_string(index=False))
+    print(f"[transit-gate] {len(shown)} cells, {int((~shown.agree.astype(bool)).sum())} outside "
+          f"{TRANSIT_GATE_REL:.0%} and 2 SE; {int((~kdf.agree).sum()) if len(kdf) else 0} of {len(kdf)} swarm-single "
+          f"contrasts disagree; {time.time() - t0:.0f} s -> {out}")
+    return 0

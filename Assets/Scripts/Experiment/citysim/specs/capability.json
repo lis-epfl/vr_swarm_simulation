@@ -1,0 +1,17 @@
+{
+ "name": "capability",
+ "description": "The task-independent capability study: what each interface sees, standing and flying, across clutter. C0-C2 are the study's own clutter levels (packed blocks: 4 m facade gaps close the blocks to the avoidance law at C1/C2); C1p/C2p are porous cities at C1/C2's block spacing and street width (citygen core=shell: every two avoidance cylinders at least w_pass(1.0) = 6 m apart, the gate probe's narrowest gap the formation flows through), at the densest coverage that core reaches without jamming. One goal level (today's patch), so C0-C2 are the tierB2 sweep's G0 layouts.",
+ "seeds": [0, 1, 2],
+ "band": "internal_3",
+ "common": {"size": 2.0, "goals": 3, "g": 4.0},
+ "clutter": {
+  "C0": {"p": 90.83, "s": 15.0, "alpha": 0.024},
+  "C1": {"p": 70.0, "s": 12.0, "alpha": 0.12},
+  "C2": {"p": 60.0, "s": 10.0, "alpha": 0.17},
+  "C1p": {"p": 70.0, "s": 12.0, "alpha": 0.08, "core": "shell", "g_shell": 6.0},
+  "C2p": {"p": 60.0, "s": 10.0, "alpha": 0.11, "core": "shell", "g_shell": 6.0}
+ },
+ "goal": {
+  "G0": {"w_c": 7.0, "r_g": 26.0, "n_b": 8, "ring_size": 0.9}
+ }
+}

@@ -1485,6 +1485,16 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
   `citysim/camera.py` (analyse.py, the study) -- 82.1 deg diagonal, 74.4 x 46.2 at 16:9. Change them together.
 - **The levels are a rule's output, not a choice to revisit by hand.** `select_levels` applies the plan's
   section-8 rule to the tiers' tables; rerun it when an input changes and record why the levels moved.
+- **Scripted transits fly pilot paths, not the street route** (`citysim/routing.py`, since 2026-10-13). The street
+  route is 1.35-1.64x the straight line in the trial cities, where internal_3's swarm pilots flew 1.06-1.12x, so it
+  stays only as the comparison. The swarm's pilot steers round WALLS only -- buildings closer than the gate
+  probe's `w_pass` (`vissim gates` -> `citysim/data/w_pass.json`; rerun it after any change to the force law or the
+  formation) -- and keeps a formation's radius off them; a lone building is left to the formation to morph round.
+  The single drone's pilot steers round every building. Tier B' (`dynamic`), Tier C (`bench.py scenarios --goals
+  --routing pilot`) and the capability study fly the same paths, and the replica was validated on them.
+- **A goal's first sight has one definition, `citysim/discovery.py`** (at least one walker expected on a shown
+  feed within `R_GOAL_M`): the simulator and analyse.py's discovery family both call it, so prediction and
+  measurement of the discovery co-primary cannot drift apart. Change it there.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

@@ -892,6 +892,119 @@ def add_study_bases(run, boxes, rows):
             and press >= first_shown else np.nan
 
 
+# ============================================================================= goal discovery
+#
+# When the next goal first came onto a shown feed -- the trials' discovery co-primary -- by citysim.discovery's
+# definition, the one the simulator predicts with: at least one of the goal's walkers EXPECTED on a shown feed (its
+# walker loops rebuilt from the patrolled buildings: a generated layout's ring boxes, a tile goal patch's eight ring
+# buildings at their runtime width, so no walker log is needed), within discovery.R_GOAL_M (80 m) slant range, inside
+# the camera's field of view and the gimbal's vertical band, with a clear 3-D sight line. Per leg (transit [t0, enter)):
+#   discoverySec       leg start -> first sight, 0 when the goal was seen before the leg began (preSeen)
+#   discoveryHeadSec   the same on a feed inside the HMD's +-50 deg of the recorded head yaw
+#   discoveryDistM     the alive drones' centroid's distance from the goal centre at first sight
+#   sightToZoneSec     first sight -> zone entry: the approach once seen (negative: first seen inside the zone)
+#   discovery40Sec / discovery120Sec / discovery200Sec   at the sensitivities of the range
+#   commitSec          leg start -> the start of the final approach: from there to the zone the centroid's track
+#                      stayed within COMMIT_DEG of the bearing to the goal. A pilot with no map cannot commit to a
+#                      goal before seeing it, so on the legs with such a turn (commitSec > 1 s) first sight should
+#                      come before it: discovery_range.csv is that check per range (internal_3: best at ~200 m)
+
+COMMIT_DEG = 45.0
+DISCOVERY_EVERY_S = 0.5
+
+
+def goal_ring_rects(run, g):
+    """The patrolled buildings of goal g as (cx, cz, hx, hz) rectangles."""
+    if is_layout(run.city):
+        from citysim import layout as lay
+        L = lay.load(lay.resolve(run.city))
+        centres = [np.array(x["centre"], float) for x in L.goals()]
+        k = int(np.argmin([math.hypot(c[0] - g["goalX"], c[1] - g["goalZ"]) for c in centres]))
+        gi = L.goals()[k]["index"]
+        return [lay.box_rect(b) for b in L.boxes if b.get("goal", -1) == gi and b.get("role") == "goal_ring"]
+    rects = []
+    for _, c, ax in goal_boxes(g["goalX"], g["goalZ"], run.goal_width)[:8]:        # the eight ring buildings
+        rects.append((float(c[0]), float(c[2]), float(abs(ax[0, 0]) + abs(ax[2, 0])), float(abs(ax[0, 2]) +
+                                                                                          abs(ax[2, 2]))))
+    return rects
+
+
+def commit_time(run, L):
+    """The start of a leg's final approach (see above), or NaN."""
+    sel = (run.ct >= L["t0"]) & (run.ct < L["enter"])
+    t, x, z = run.ct[sel], run.cx[sel], run.cz[sel]
+    if len(t) < 5:
+        return np.nan
+    g = L["goal"]
+    dt = max(float(np.median(np.diff(t))), 1e-3)
+    k = max(int(round(2.0 / dt)), 1)
+    vx, vz = x[k:] - x[:-k], z[k:] - z[:-k]
+    moving = np.hypot(vx, vz) > 1.0 * k * dt          # faster than 1 m/s over the 2 s window
+    course = np.degrees(np.arctan2(vx, vz))
+    brg = np.degrees(np.arctan2(g["goalX"] - x[:-k], g["goalZ"] - z[:-k]))
+    off = np.abs(wrap_deg(course - brg)) > COMMIT_DEG
+    bad = np.flatnonzero(off & moving)
+    return float(t[bad[-1] + k] if len(bad) else t[0])
+
+
+def discovery_family(run, legs, cfg):
+    """(run-level dict, [leg rows], {goalIndex: goal fields})."""
+    from citysim import discovery
+    boxes = scene_boxes(run.goals, run.city, run.goal_width)
+    first = {}
+    for gi, g in enumerate(run.goals):
+        pts, w = discovery.loop_points(goal_ring_rects(run, g))
+        for r in (discovery.R_GOAL_M,) + discovery.R_GOAL_SENSITIVITY:
+            t, e_any, e_head, cen = discovery.run_expected(run, boxes, pts, w, r_goal=r, every_s=DISCOVERY_EVERY_S)
+            ta, ia = discovery.first_sight(t, e_any)
+            th, _ = discovery.first_sight(t, e_head)
+            first[gi, r] = (ta, th, cen[ia] if ia >= 0 else np.array([np.nan, np.nan]))
+    rows, goal_fields = [], {}
+    R0 = discovery.R_GOAL_M
+    for L in legs:
+        gi, g = L["gi"], L["goal"]
+        ta, th, c = first[gi, R0]
+        row = dict(run=run.stem, leg=L["leg"], hat=hat_name(g), phase="transit",
+                   discoverySec=round(max(ta - L["t0"], 0.0), 2) if math.isfinite(ta) else np.nan,
+                   discoveryHeadSec=round(max(th - L["t0"], 0.0), 2) if math.isfinite(th) else np.nan,
+                   preSeen=bool(math.isfinite(ta) and ta < L["t0"]),
+                   discoveryDistM=round(float(math.hypot(c[0] - g["goalX"], c[1] - g["goalZ"])), 1)
+                   if math.isfinite(ta) else np.nan,
+                   sightToZoneSec=round(L["enter"] - ta, 2) if math.isfinite(ta) else np.nan,
+                   commitSec=round(commit_time(run, L) - L["t0"], 2))
+        for r in discovery.R_GOAL_SENSITIVITY:
+            tr_, _, _ = first[gi, r]
+            row[f"discovery{int(r)}Sec"] = round(max(tr_ - L["t0"], 0.0), 2) if math.isfinite(tr_) else np.nan
+        rows.append(row)
+        goal_fields[g.get("goalIndex", gi)] = {k: v for k, v in row.items() if k not in ("run", "leg", "hat", "phase")}
+    df = pd.DataFrame(rows)
+    out = {}
+    if len(df):
+        out = dict(discoverySec=float(df.discoverySec.mean()), discoveryHeadSec=float(df.discoveryHeadSec.mean()),
+                   discoveryDistM=float(df.discoveryDistM.mean()), preSeen=int(df.preSeen.sum()))
+    return out, rows, goal_fields
+
+
+def discovery_range_check(legs_df):
+    """Per discovery range: on the legs with a turn onto the goal (commitSec > 1 s), how often first sight came no
+    later than 2 s after the turn, and the median of (turn - sight)."""
+    from citysim import discovery
+    if not len(legs_df) or "commitSec" not in legs_df:
+        return pd.DataFrame()
+    tl = legs_df[(legs_df.phase == "transit") & (legs_df.commitSec > 1.0)]
+    out = []
+    for r in sorted((discovery.R_GOAL_M,) + discovery.R_GOAL_SENSITIVITY):
+        name = "discoverySec" if r == discovery.R_GOAL_M else f"discovery{int(r)}Sec"
+        if name not in tl:
+            continue
+        ok = tl[[name, "commitSec"]].dropna()
+        lag = ok.commitSec - ok[name]
+        out.append(dict(range_m=r, legs=len(ok), sight_by_commit=round(float((lag >= -2.0).mean()), 3)
+                        if len(ok) else np.nan, median_lag_s=round(float(lag.median()), 1) if len(ok) else np.nan,
+                        median_abs_lag_s=round(float(lag.abs().median()), 1) if len(ok) else np.nan))
+    return pd.DataFrame(out)
+
+
 # ============================================================================= street use
 #
 # Did the pilot follow the streets, or cut across the blocks? Every point of the city is classified from
@@ -1953,7 +2066,7 @@ def add_tuning_args(p):
 def analyse_runs(runs, cfg, log_runs, families):
     """Per-run results of the requested families: dict of {stem: ...} maps."""
     res = {k: {} for k in ("legs", "task", "cmd", "cmd_legs", "dial", "dial_legs", "series", "prox", "hat",
-                           "street", "street_legs", "stitch", "deaths", "crashes")}
+                           "street", "street_legs", "stitch", "deaths", "crashes", "disc", "disc_legs", "disc_goals")}
     for run in runs:
         legs = goal_legs(run, cfg.zone)
         res["legs"][run.stem] = legs
@@ -1982,6 +2095,10 @@ def analyse_runs(runs, cfg, log_runs, families):
             r = attempt("street use", run.stem, street_family, run, legs, cfg)
             if r:
                 res["street"][run.stem], res["street_legs"][run.stem] = r
+        if "disc" in families:
+            r = attempt("goal discovery", run.stem, discovery_family, run, legs, cfg)
+            if r:
+                res["disc"][run.stem], res["disc_legs"][run.stem], res["disc_goals"][run.stem] = r
         if "stitch" in families and run.condition == "Swarm":
             r = attempt("stitch visibility", run.stem, stitch_family, run, log_runs)
             if r:
@@ -2014,6 +2131,7 @@ def build_tables(runs, res):
         row.update(res["cmd"].get(r.stem, {}))
         row.update(res["dial"].get(r.stem, {}))
         row.update(res["street"].get(r.stem, {}))
+        row.update(res["disc"].get(r.stem, {}))
         if r.stem in res["stitch"]:
             row.update(res["stitch"][r.stem][0])
         if r.stem in res["deaths"]:
@@ -2023,7 +2141,7 @@ def build_tables(runs, res):
 
     leg_frames = []
     for stem in res["legs"]:
-        parts = [pd.DataFrame(res[k].get(stem, [])) for k in ("cmd_legs", "dial_legs", "street_legs")]
+        parts = [pd.DataFrame(res[k].get(stem, [])) for k in ("cmd_legs", "dial_legs", "street_legs", "disc_legs")]
         parts = [p for p in parts if len(p)]
         if parts:
             m = parts[0]
@@ -2052,6 +2170,7 @@ def build_tables(runs, res):
                            r_g=g.get("r_g"), w_c=g.get("w_c"), c_g=g.get("c_g"))
             row.update({k: v for k, v in prox.get(idx, {}).items() if k not in ("run", "goalIndex")})
             row.update({k: v for k, v in hat.get(idx, {}).items() if k not in ("run", "goalIndex")})
+            row.update(res["disc_goals"].get(r.stem, {}).get(idx, {}))
             goal_rows.append(row)
     goals_df = pd.DataFrame(goal_rows)
 
@@ -2132,6 +2251,22 @@ def report(runs_df, legs_df, goals_df, deaths_df, cfg):
             print(show(goals_df, ids + ["hat", "firstSightSec", "inViewSec", "nEpisodes", "longestSec", "hatMinDistM",
                                         "meanDronesInView", "levelCamPct", "occludedSec", "episodes"]))
 
+    if "discoverySec" in runs_df and len(legs_df) and "discoverySec" in legs_df:
+        from citysim import discovery as _disc
+        section(f"Goal discovery (leg start -> first sight of the goal on a shown feed: >= {_disc.SEEN_WALKERS:g} "
+                f"walker expected within {_disc.R_GOAL_M:g} m; commit = start of the final approach)")
+        tl = legs_df[legs_df.phase == "transit"]
+        cols = ["leg", "hat", "discoverySec", "discoveryHeadSec", "preSeen", "discoveryDistM", "sightToZoneSec",
+                "discovery40Sec", "discovery120Sec", "discovery200Sec", "commitSec"]
+        print(show(tl, ids + [c for c in cols if c in tl]))
+        print("\nMedian per condition:")
+        print(tl.groupby("condition")[[c for c in cols[2:] if c in tl and c != "preSeen"]].median().round(1)
+              .to_string())
+        cal = discovery_range_check(legs_df)
+        if len(cal):
+            print("\nRange check, legs with a turn onto the goal (first sight should come before the pilot commits):")
+            print(cal.to_string(index=False))
+
     if "street_frac" in runs_df:
         section(f"Street use (shares of the transit path over the city; long street = straight run >= "
                 f"{cfg.long_street:g} m; _search / _all = search phases / whole run)")
@@ -2172,9 +2307,13 @@ def cmd_run(a):
     log_runs = parse_editor_logs(sorted(glob.glob(os.path.join(folder, "*.log"))))
     print(f"[info] {a.test}: {len(runs)} runs, {sum(r.practice for r in runs)} practice; "
           f"zone {a.zone:g} m; {len(log_runs)} run(s) in the editor log(s)")
-    res = analyse_runs(runs, a, log_runs, {"cmd", "dial", "prox", "hat", "street", "stitch", "crash"})
+    res = analyse_runs(runs, a, log_runs, {"cmd", "dial", "prox", "hat", "street", "disc", "stitch", "crash"})
     runs_df, legs_df, goals_df, deaths_df = build_tables(runs, res)
-    write_tables(folder, dict(runs=runs_df, legs=legs_df, goals=goals_df, crashes=deaths_df), a, runs, manifest)
+    tables = dict(runs=runs_df, legs=legs_df, goals=goals_df, crashes=deaths_df)
+    rng_check = discovery_range_check(legs_df)
+    if len(rng_check):
+        tables["discovery_range"] = rng_check
+    write_tables(folder, tables, a, runs, manifest)
 
     keep = (lambda df: df) if a.include_practice else (lambda df: df[~df.practice.astype(bool)] if len(df) else df)
     shown = [r for r in runs if a.include_practice or not r.practice]

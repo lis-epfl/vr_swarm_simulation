@@ -329,49 +329,116 @@ def quick_table(exp, env):
 
 # ============================================================================= Tier B': dynamic flights
 
+def goal_loops(L):
+    """{goal index: (walker-loop points, walkers per point, centre)} of a layout's goals (citysim.discovery)."""
+    from citysim import discovery
+    out = {}
+    for g in L.goals():
+        info = goal_info(L, g)
+        pts, w = discovery.loop_points(info["ring_rects"])
+        out[g["index"]] = (pts, w, np.array(g["centre"], float))
+    return out
+
+
 def _dyn_job(job):
-    from citysim import dynamic
-    path, meta, tdref, gdref, seed = job
+    from citysim import capability, dynamic, transit
+    path, meta, tdref, gdref, seed, routing_, iface, score = job
+    key = dict(meta, routing=routing_, interface=iface)
     try:
-        summ, goals, _ = dynamic.fly_layout(path, tdref, gdref, seed=seed)
+        summ, goals, rec = dynamic.fly_layout(path, tdref, gdref, seed=seed, routing_=routing_, interface=iface)
+        trow = None
+        if score:
+            L = lay.load(path)
+            fp = Footprints(L.boxes_as_tuples())
+            band = capability.band_settings()
+            cells = transit.Cells.around(fp, [rec.centroid[rec.transit_rows()]], max(transit.RANGES) + 4.0)
+            s = transit.score(rec, fp, cells, band["moving_h"], band["moving_p"], layout=L.id, goals=goal_loops(L),
+                              r_goals=transit.DISCOVERY_RANGES)
+            s.pop("firsts", None)
+            trow = dict(key, transit_dref=tdref, **{k: v for k, v in s.items()
+                                                    if k not in ("layout", "routing", "interface", "d_ref", "seed")})
+            trow["layout"] = summ["layout"]
     except Exception as e:  # noqa: BLE001
         import traceback
-        print(f"[vissim] dynamic {path} failed:\n{traceback.format_exc()}", flush=True)
-        return dict(meta, layout=Path(path).stem, transit_dref=tdref, goal_dref=gdref, error=str(e)), []
-    return dict(meta, **summ), [dict(meta, layout=summ["layout"], transit_dref=tdref, goal_dref=gdref, **g)
-                                for g in goals]
+        print(f"[vissim] dynamic {path} {routing_} {iface} failed:\n{traceback.format_exc()}", flush=True)
+        return dict(key, layout=Path(path).stem, transit_dref=tdref, goal_dref=gdref, error=str(e)), [], None
+    return (dict(key, **summ), [dict(key, layout=summ["layout"], transit_dref=tdref, goal_dref=gdref, **g)
+                                for g in goals], trow)
 
 
 def cmd_dynamic(a):
-    spec = load_spec(SPEC_DIR / f"{a.sweep}.json") if (SPEC_DIR / f"{a.sweep}.json").exists() else None
+    from citysim.parallel import run_jobs
     src = STUDY_DIR / "tierB" / a.sweep / "layouts.csv"
     lays = pd.read_csv(src)
     if a.levels and a.levels != ["all"]:
         lays = lays[lays.level.isin(a.levels)]
-    jobs = [(r.path, dict(level=r.level, clutter=r.clutter, goal_level=r.goal_level, seed=int(r.seed)), td,
-             a.goal_spread, int(r.seed)) for r in lays.itertuples() for td in a.transit]
+    jobs = []
+    for r in lays.itertuples():
+        meta = dict(level=r.level, clutter=r.clutter, goal_level=r.goal_level, seed=int(r.seed))
+        for rt in a.routing:
+            for iface in a.interfaces:
+                spreads = a.transit if iface == "swarm" else [1.0]
+                for td in spreads:
+                    jobs.append((r.path, meta, td, a.goal_spread, int(r.seed), rt, iface, not a.no_score))
     t0 = time.time()
-    rows, grows = [], []
-    with Pool(min(a.jobs, len(jobs))) as pool:
-        for k, (r, g) in enumerate(imap_guarded(pool, _dyn_job, jobs, "dynamic"), start=1):
-            rows.append(r)
-            grows += g
-            print(f"[vissim] dynamic {k}/{len(jobs)} {r.get('layout')} transit {r.get('transit_dref')}: "
-                  f"lost {r.get('drones_lost')}, contacts {r.get('contacts')}, nn {r.get('nn_transit_m')} m "
-                  f"({time.time() - t0:.0f} s)", flush=True)
+
+    def tick(done, total, res):
+        r = res[0]
+        print(f"[vissim] dynamic {done}/{total} {r.get('layout')} {r.get('routing')} {r.get('interface')} "
+              f"transit {r.get('transit_dref')}: lost {r.get('drones_lost')}, contacts {r.get('contacts')}, "
+              f"nn {r.get('nn_transit_m')} m ({time.time() - t0:.0f} s)", flush=True)
+
+    res = run_jobs(_dyn_job, jobs, "dynamic", a.jobs, progress=tick)
+    rows = [r[0] for r in res]
+    grows = [g for r in res for g in r[1]]
+    trows = [r[2] for r in res if r[2] is not None]
     out = STUDY_DIR / "tierBprime" / a.sweep
     out.mkdir(parents=True, exist_ok=True)
-    df, gd = pd.DataFrame(rows), pd.DataFrame(grows)
+    df, gd, td_ = pd.DataFrame(rows), pd.DataFrame(grows), pd.DataFrame(trows)
     df.to_csv(out / "dynamic.csv", index=False)
     gd.to_csv(out / "dynamic_goals.csv", index=False)
+    if len(td_):
+        td_.to_csv(out / "transit.csv", index=False)
     (out / "manifest.json").write_text(json.dumps(dict(generated=stamp(), sweep=a.sweep, levels=a.levels,
                                                        transit=a.transit, goal_spread=a.goal_spread,
+                                                       routing=a.routing, interfaces=a.interfaces,
                                                        flights=len(jobs), seconds=round(time.time() - t0)),
                                                   indent=1) + "\n", encoding="utf-8")
     cols = ["drones_lost", "contacts_per_km", "progress_ms", "nn_transit_m", "min_pair_p05_m", "close_frac",
             "useful_transit", "useful_goal", "enveloped_frac", "legs_stuck"]
-    print(df.groupby(["level", "transit_dref"])[cols].mean().round(3).to_string())
+    sw = df[df.interface == "swarm"] if "interface" in df else df
+    print(sw.groupby(["level", "routing", "transit_dref"])[cols].mean().round(3).to_string())
+    if len(td_):
+        tc = ["path_ratio", "street_frac", "adj_per_100m", "morph_per_km", "sweep_any_r40_m", "sweep_head_r40_m",
+              "behind_corner_r40_frac"]
+        print(td_.groupby(["level", "routing", "interface", "transit_dref"])[[c for c in tc if c in td_]]
+              .mean().round(3).to_string())
     print(f"written {out}")
+
+
+# ============================================================================= the pilots' gate probe
+
+def cmd_gates(a):
+    """The gate probe (formation.gate_map): what the formation flows through, written for routing (data/w_pass.json)
+    and in full (experiment_results/density_study/transit/gates.csv)."""
+    from citysim import formation, routing
+    t0 = time.time()
+    df, summary = formation.gate_map(seeds=a.seeds, jobs=a.jobs)
+    out = STUDY_DIR / "transit"
+    out.mkdir(parents=True, exist_ok=True)
+    df.assign(kills=df.kills.map(lambda k: ";".join(k))).to_csv(out / "gates.csv", index=False)
+    summary.update(generated=stamp(), flights=len(df), seconds=round(time.time() - t0))
+    routing.W_PASS_FILE.write_text(json.dumps(summary, indent=1) + "\n", encoding="utf-8", newline="\n")
+    pd.set_option("display.width", 200)
+    g = df[df.kind == "gate"]
+    print(g.groupby(["n", "d_ref", "gap_m"]).agg(passed=("passed", "mean"), t_cross=("t_cross_s", "mean"),
+                                                 stall=("longest_stall_s", "max"), lost=("lost", "mean"))
+          .unstack("gap_m")["passed"].to_string())
+    r = df[df.kind == "ram"]
+    print(r.groupby(["n", "d_ref", "offset_m"]).agg(passed=("passed", "mean"), stall=("longest_stall_s", "max"))
+          .to_string())
+    print(json.dumps({k: summary[k] for k in ("w_pass_m", "ram_ok", "single_w_pass_m", "single_ram_ok")}))
+    print(f"[vissim] {len(df)} probe flights in {time.time() - t0:.0f} s -> {out / 'gates.csv'}, {routing.W_PASS_FILE}")
 
 
 # ============================================================================= command line
@@ -422,17 +489,28 @@ def main():
     p.add_argument("--export", required=True, help="city_obstacles_ProceduralCityWorld.json")
     p.add_argument("--layout", required=True)
     p.set_defaults(func=checks.cmd_roundtrip)
+    p = sub.add_parser("transit-gate", help="the replica against Unity on the transit measures, over the bench's "
+                                            "pilot-path gate flights")
+    p.add_argument("--runs", default="gate2_*", help="bench run directories to compare (a glob under <bench>/runs)")
+    p.add_argument("--bench-root", default="D:/claude_obstacle_bench")
+    p.add_argument("--seeds", type=int, default=2, help="replica flights per Unity flight")
+    p.add_argument("--out", default=str(checks.TRANSIT_GATE_DIR))
+    p.add_argument("--jobs", type=int, default=jobs_default())
+    p.set_defaults(func=checks.cmd_transit_gate)
     from citysim import tierc
     p = sub.add_parser("tierC-plan", help="Tier C: goal flights, configs and a runner for the candidate levels")
-    p.add_argument("--name", default="tierC")
+    p.add_argument("--name", default="tierC_pilot", help="tierC is the street-routed set flown on 2026-10-12/13")
+    p.add_argument("--routing", choices=list(tierc.ROUTINGS), default="pilot",
+                   help="pilot: citysim.routing's pilot paths (swarm and single drone); street: the original route")
     p.add_argument("--sweep", default="tierB2", help="the Tier B sweep whose layouts stand for unpicked levels")
     p.add_argument("--levels", nargs="+", help="levels to fly (default: picks, candidates, clutter neighbours)")
     p.add_argument("--bench-root", default=str(tierc.DEFAULT_BENCH_ROOT))
     p.add_argument("--altitude", type=float, default=tierc.ALTITUDE)
     p.add_argument("--time-scale", type=float, default=20.0)
+    p.add_argument("--record-all", action="store_true", help="record every flight (the replica's validate gate)")
     p.set_defaults(func=tierc.cmd_plan)
     p = sub.add_parser("tierC", help="Tier C: score the flown bench runs of a plan")
-    p.add_argument("--name", default="tierC")
+    p.add_argument("--name", default="tierC_pilot")
     p.add_argument("--jobs", type=int, default=jobs_default())
     p.set_defaults(func=tierc.cmd_score)
     p = sub.add_parser("tierC-alive", help="Tier B's advantage at Tier C's alive-at-goal drone count")
@@ -444,8 +522,40 @@ def main():
     p.add_argument("--levels", nargs="+", default=["all"], help="level names (C0-G0 ...) or all")
     p.add_argument("--transit", type=float, nargs="+", default=[0.4, 1.0], help="transit spreads (d_ref)")
     p.add_argument("--goal-spread", type=float, default=1.6, help="the spread flown at each goal")
+    p.add_argument("--routing", nargs="+", default=["pilot", "street"], choices=["pilot", "street"],
+                   help="transit routings to fly (pilot paths, and the original street route for comparison)")
+    p.add_argument("--interfaces", nargs="+", default=["swarm", "single", "single_direct", "single_scan"],
+                   help="pilots to fly: swarm, single, single_direct, single_scan (singles fly once, at the "
+                        "first transit spread)")
+    p.add_argument("--no-score", action="store_true", help="skip citysim.transit's scoring (B' summary only)")
     p.add_argument("--jobs", type=int, default=jobs_default())
     p.set_defaults(func=cmd_dynamic)
+    p = sub.add_parser("gates", help="the pilots' gate probe: the narrowest gap the formation flows through")
+    p.add_argument("--seeds", type=int, default=3)
+    p.add_argument("--jobs", type=int, default=jobs_default())
+    p.set_defaults(func=cmd_gates)
+    from citysim import capability
+    p = sub.add_parser("capability", help="the task-independent capability study: what each interface sees, "
+                                          "standing and flying, across clutter")
+    p.add_argument("--spec", default=str(SPEC_DIR / "capability.json"))
+    p.add_argument("--name", help="output name (default: the spec's)")
+    p.add_argument("--levels", nargs="+", help="only these levels of the spec (C0-G0 ...)")
+    p.add_argument("--quick", action="store_true", help="one seed, three points, one OD pair, three pilots")
+    p.add_argument("--jobs", type=int, default=jobs_default())
+    p.set_defaults(func=capability.cmd_capability)
+    from citysim import passby
+    p = sub.add_parser("passby", help="goal detection while passing: lateral range curves and W_goal per interface")
+    p.add_argument("--test", default="internal_3", help="the recorded test whose goals calibrate the search model")
+    p.add_argument("--no-internal", action="store_true", help="the trial layouts only")
+    p.add_argument("--jobs", type=int, default=jobs_default())
+    p.set_defaults(func=passby.cmd_passby)
+    p = sub.add_parser("discovery-predict", help="the discovery predictions from W_goal, Tier B' speeds and the "
+                                                 "recorded test's search efficiency")
+    p.add_argument("--sweep", default="tierB2")
+    p.add_argument("--test", default="internal_3")
+    p.add_argument("--speeds-from", help="a scored Tier C plan (tierC_pilot) whose Unity speeds to use instead of "
+                                         "Tier B''s (the replica flies packed cities too fast, README §5.5)")
+    p.set_defaults(func=passby.cmd_predict)
     a = ap.parse_args()
     sys.exit(a.func(a) or 0)
 
