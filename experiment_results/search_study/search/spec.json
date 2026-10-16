@@ -1,0 +1,75 @@
+{
+ "name": "search",
+ "description": "The search study: a pilot who does not know where the goal is searches a generated city for one hidden goal patch (today's G0 patch, the capability study's cities), with the swarm or one drone, until the goal is first seen. Arms: single (plans round every building), single_scan (its view sweeping), swarm (plans round walls only and lets the formation morph round the rest), swarm_steer (the swarm on the single drone's path rule). Pilots: rw, the random walker (run and tumble, runs ~ Exp(120 m)), with 60 and 240 m sensitivities; fit, internal_3's searching pilots (citysim.pilotfit).",
+ "cities": "capability.json",
+ "starts_per_goal": 8,
+ "cap_s": 1500,
+ "ranges": [
+  80,
+  200
+ ],
+ "head_models": [
+  "ahead",
+  "fit"
+ ],
+ "band": "internal_3",
+ "fit": "internal_3",
+ "pilots": [
+  {
+   "name": "rw",
+   "intent": "rw",
+   "run_m": 120,
+   "arms": [
+    "single",
+    "single_scan",
+    "swarm",
+    "swarm_steer"
+   ],
+   "d_ref": [
+    1.0,
+    0.4
+   ]
+  },
+  {
+   "name": "fit",
+   "intent": "fit",
+   "arms": [
+    "single",
+    "swarm",
+    "swarm_steer"
+   ],
+   "d_ref": [
+    1.0,
+    0.4
+   ]
+  },
+  {
+   "name": "rw60",
+   "intent": "rw",
+   "run_m": 60,
+   "arms": [
+    "single",
+    "swarm",
+    "swarm_steer"
+   ],
+   "d_ref": [
+    1.0
+   ],
+   "starts_per_goal": 4
+  },
+  {
+   "name": "rw240",
+   "intent": "rw",
+   "run_m": 240,
+   "arms": [
+    "single",
+    "swarm",
+    "swarm_steer"
+   ],
+   "d_ref": [
+    1.0
+   ],
+   "starts_per_goal": 4
+  }
+ ]
+}

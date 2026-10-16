@@ -15,6 +15,8 @@ matched that turn best at ~200 m (median lag 0.4 s; at 80 m the turn came 19 s b
 flown the same city before, so knowing where goals could be is mixed into it (analyse.py's discovery range check).
 
     loop_points(ring_rects)            the goal's walker loops as weighted points
+    sample_expected(...)               walkers expected at ONE instant of a simulated track, for several ranges and
+                                       head yaws at once (the search study checks every sample as it flies)
     track_expected(...)                walkers expected per sample of a simulated camera track (2-D sight lines)
     run_expected(run, boxes, ...)      the same for a recorded run (3-D sight lines, recorded altitude and pitch)
     first_sight(t, expected)           the first instant at or above SEEN_WALKERS
@@ -58,6 +60,69 @@ def first_sight(t, expected, threshold=SEEN_WALKERS):
     return (float(t[hit[0]]), int(hit[0])) if len(hit) else (math.nan, -1)
 
 
+def horizontal_reach(r_goal, height):
+    """How far (m, horizontally) a camera at `height` can be from a walker and still be within r_goal of slant range."""
+    return math.sqrt(max(r_goal ** 2 - (height - TARGET_H) ** 2, 0.0))
+
+
+def goal_reach(pts, hmax):
+    """(centre, reach): no camera farther than `reach` from the loops' centre can see any loop point within hmax."""
+    centre = pts.mean(0)
+    return centre, float(np.max(np.linalg.norm(pts - centre, axis=1))) + hmax
+
+
+def sample_expected(fp, cams, yaws, body_yaw, height, pitch, pts, w, ranges=(R_GOAL_M,), head_yaws=(0.0,),
+                    single=False, hfov=camera.HFOV_DEG, los=True, geom=None):
+    """Walkers expected at ONE instant on the shown feeds -- cameras `cams` (K, 2) at yaws (K,) deg -- for every range
+    in `ranges` and every head yaw (relative to `body_yaw`) in `head_yaws`: (any (R,), head (R, H)).
+
+    The per-sample core of track_expected, and what the search study calls as it flies. hfov >= 360 makes the cameras
+    ideal all-round ones (a camera on the formation's centre); los=False drops the sight-line test (what a camera
+    would see with no buildings in the way). geom = goal_reach(pts, max hmax), precomputed by callers that loop."""
+    ranges = tuple(ranges)
+    head_yaws = np.atleast_1d(np.asarray(head_yaws, float))
+    out_any = np.zeros(len(ranges))
+    out_head = np.zeros((len(ranges), len(head_yaws)))
+    cams = np.atleast_2d(np.asarray(cams, float)).reshape(-1, 2)
+    yaws = np.atleast_1d(np.asarray(yaws, float))
+    if len(pts) == 0 or len(cams) == 0:
+        return out_any, out_head
+    hmax = np.array([horizontal_reach(r, height) for r in ranges])
+    hmax_max = float(hmax.max())
+    centre, reach = goal_reach(pts, hmax_max) if geom is None else geom
+    if np.min(np.linalg.norm(cams - centre, axis=1)) > reach:
+        return out_any, out_head
+    seen_any = np.zeros((len(ranges), len(pts)), bool)
+    seen_head = np.zeros((len(ranges), len(head_yaws), len(pts)), bool)
+    for cam, cyaw in zip(cams, yaws):
+        d = pts - cam
+        hd = np.hypot(d[:, 0], d[:, 1])
+        off = wrap_deg(np.degrees(np.arctan2(d[:, 0], d[:, 1])) - cyaw)
+        ok = (hd <= hmax_max) & vertical_band(height, pitch, hd)
+        if hfov < 360.0:
+            ok &= np.abs(off) <= hfov / 2
+        idx = np.flatnonzero(ok)
+        if not len(idx):
+            continue
+        vis = np.zeros(len(pts), bool)
+        if los and fp.n:
+            near = fp.subset(fp.near(cam, hmax_max + 1.0))
+            clear = ~near.blocked(np.broadcast_to(cam, (len(idx), 2)), pts[idx]) if near.n else \
+                np.ones(len(idx), bool)
+            vis[idx[clear]] = True
+        else:
+            vis[idx] = True
+        hv = None
+        if not single:
+            az = wrap_deg(cyaw - body_yaw + off * camera.DISPLAY_SCALE)
+            hv = np.abs(wrap_deg(az[None, :] - head_yaws[:, None])) <= camera.HMD_HALF_FOV_DEG     # (H, M)
+        for ri in range(len(ranges)):
+            vr = vis & (hd <= hmax[ri])
+            seen_any[ri] |= vr
+            seen_head[ri] |= vr[None, :] if single else (vr[None, :] & hv)
+    return seen_any @ w, seen_head @ w
+
+
 def track_expected(fp, pos, yaw, valid, body_yaw, height, pitch, pts, w, r_goal=R_GOAL_M, head_yaw=0.0,
                    single=False):
     """Walkers expected per sample of a simulated track, on every shown feed ("any") and on the feeds inside the HMD's
@@ -70,38 +135,14 @@ def track_expected(fp, pos, yaw, valid, body_yaw, height, pitch, pts, w, r_goal=
     out_any, out_head = np.zeros(T), np.zeros(T)
     if len(pts) == 0:
         return out_any, out_head
-    hmax = math.sqrt(max(r_goal ** 2 - (height - TARGET_H) ** 2, 0.0))
-    centre = pts.mean(0)
-    reach = float(np.max(np.linalg.norm(pts - centre, axis=1))) + hmax
+    geom = goal_reach(pts, horizontal_reach(r_goal, height))
     for ti in range(T):
         live = np.flatnonzero(valid[ti])
         if not len(live):
             continue
-        cams = pos[ti, live]
-        if np.min(np.linalg.norm(cams - centre, axis=1)) > reach:
-            continue
-        seen_any = np.zeros(len(pts), bool)
-        seen_head = np.zeros(len(pts), bool)
-        for k, cam in zip(live, cams):
-            d = pts - cam
-            hd = np.hypot(d[:, 0], d[:, 1])
-            off = wrap_deg(np.degrees(np.arctan2(d[:, 0], d[:, 1])) - yaw[ti, k])
-            ok = (hd <= hmax) & (np.abs(off) <= camera.HFOV_DEG / 2) & vertical_band(height, pitch, hd)
-            idx = np.flatnonzero(ok)
-            vis = np.zeros(len(pts), bool)
-            if len(idx):
-                near = fp.subset(fp.near(cam, hmax + 1.0)) if fp.n else fp
-                clear = ~near.blocked(np.broadcast_to(cam, (len(idx), 2)), pts[idx]) if near.n else \
-                    np.ones(len(idx), bool)
-                vis[idx[clear]] = True
-            seen_any |= vis
-            if single:
-                seen_head |= vis
-            else:
-                az = wrap_deg(yaw[ti, k] - body_yaw[ti] + off * camera.DISPLAY_SCALE)
-                seen_head |= vis & (np.abs(wrap_deg(az - head_yaw)) <= camera.HMD_HALF_FOV_DEG)
-        out_any[ti] = float(w[seen_any].sum())
-        out_head[ti] = float(w[seen_head].sum())
+        a, h = sample_expected(fp, pos[ti, live], yaw[ti, live], body_yaw[ti], height, pitch, pts, w, (r_goal,),
+                               (head_yaw,), single=single, geom=geom)
+        out_any[ti], out_head[ti] = float(a[0]), float(h[0, 0])
     return out_any, out_head
 
 

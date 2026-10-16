@@ -1496,6 +1496,32 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
   feed within `R_GOAL_M`): the simulator and analyse.py's discovery family both call it, so prediction and
   measurement of the discovery co-primary cannot drift apart. Change it there.
 
+## The search study
+
+A pilot who does not know where the goal is searches a generated city for it, with the swarm or one drone, and the
+clock stops at first sight: the density study's directed flights and sweep-width model replaced by the search itself.
+**[docs/search_study/README.md](docs/search_study/README.md) is the manual**; the code is `citysim/search.py`,
+`citysim/pilots.py` and `citysim/pilotfit.py`, the outputs `experiment_results/search_study/`. Invariants:
+- **An intent chain is laid target to target and never reads the flight.** Every arm of a scenario flies the same
+  chain from the same seed, which is what makes the arms paired, and the Unity spot check flies the same chain again.
+  A pilot that re-plans from where the formation ended up breaks both.
+- **Consecutive intent targets are at least `pilots.MIN_STEP_M` apart.** A target the mask snapped back onto the last
+  one is "reached" the moment it is set, and the pilot re-plans every tick: that hung the first full run.
+- **`swarm_steer` is the morphing counterfactual**: the swarm on the single drone's path rule (round every building),
+  not a pilot of its own. single -> swarm_steer is the cameras, swarm_steer -> swarm the morphing.
+- **The swarm's feeds come from `display.FeedLatch`** (hull debounce, heading low-pass, 75 deg/s yaw, the ready latch),
+  not the instant rule the density study's dynamic tier used; `--instant-feeds` is the upper bound.
+- **A swarm that falls under four drones has not found the goal** (censored at the cap), the conservative reading.
+- **The fitted pilot is fitted on searching windows only** (leg start -> first sight at 80 m), and course changes under
+  `pilotfit.THETA_MIN` are steering the planner does, not intent; `search-check` flies it in internal_3's city.
+- Each arm is retried on an exception: this machine's CPU throws the odd impossible numpy error under load, and a
+  flight is deterministic in its seed.
+- **A subset of searches is taken by `start_i` from the full scenario list, never by drawing fewer starts.** A goal's
+  start points, headings and seeds come off one random stream, so `scenarios(layouts, 4)` keeps the first four points
+  but gives them different headings and seeds: different searches. The first `--starts` did exactly that
+  (`search_streets_fresh/`, kept as an independent replicate).
+
+
 ## Drone prefab hierarchy (relied on by many scripts)
 
 `Drone N` → child `DroneParent` (has `SwarmAlgorithm`, `AttitudeAlgorithm`, `VelocityControl`, `Rigidbody`)

@@ -1,0 +1,73 @@
+kind,arm,side,basis,r,n,found,rmst_s,median_s,ratio
+arm,single,replica,any,80.0,12,0.5,386.70833333333337,326.5,
+arm,single,replica,head_ahead,80.0,12,0.0,480.0,,
+arm,single,replica,head_fit,80.0,12,0.0,480.0,,
+arm,single,replica,any,200.0,12,0.5,306.25,275.5,
+arm,single,replica,head_ahead,200.0,12,0.0,480.0,,
+arm,single,replica,head_fit,200.0,12,0.0,480.0,,
+arm,single,unity,any,80.0,6,0.5,387.1666666666667,327.5,
+arm,single,unity,head_ahead,80.0,6,0.0,480.0,,
+arm,single,unity,head_fit,80.0,6,0.0,480.0,,
+arm,single,unity,any,200.0,6,0.5,307.08333333333337,277.0,
+arm,single,unity,head_ahead,200.0,6,0.0,480.0,,
+arm,single,unity,head_fit,200.0,6,0.0,480.0,,
+arm,swarm,replica,any,80.0,12,0.5,349.4583333333333,293.5,
+arm,swarm,replica,head_ahead,80.0,12,0.5,349.4583333333333,293.5,
+arm,swarm,replica,head_fit,80.0,12,0.5,359.125,293.5,
+arm,swarm,replica,any,200.0,12,1.0,114.08333333333333,74.0,
+arm,swarm,replica,head_ahead,200.0,12,0.6666666666666666,253.83333333333334,171.0,
+arm,swarm,replica,head_fit,200.0,12,0.8333333333333334,244.99999999999997,171.0,
+arm,swarm,unity,any,80.0,6,0.5,350.8333333333333,295.0,
+arm,swarm,unity,head_ahead,80.0,6,0.5,350.8333333333333,295.0,
+arm,swarm,unity,head_fit,80.0,6,0.5,370.3333333333333,295.0,
+arm,swarm,unity,any,200.0,6,1.0,115.16666666666669,72.5,
+arm,swarm,unity,head_ahead,200.0,6,0.8333333333333334,187.08333333333334,112.5,
+arm,swarm,unity,head_fit,200.0,6,0.8333333333333334,187.33333333333334,112.5,
+arm,swarm_steer,replica,any,80.0,12,0.5833333333333334,348.04166666666663,296.5,
+arm,swarm_steer,replica,head_ahead,80.0,12,0.5833333333333334,348.25,298.0,
+arm,swarm_steer,replica,head_fit,80.0,12,0.5833333333333334,348.125,296.5,
+arm,swarm_steer,replica,any,200.0,12,1.0,118.33333333333336,88.0,
+arm,swarm_steer,replica,head_ahead,200.0,12,0.5833333333333334,286.9166666666667,276.5,
+arm,swarm_steer,replica,head_fit,200.0,12,0.6666666666666666,249.375,176.0,
+arm,swarm_steer,unity,any,80.0,6,0.5,357.33333333333337,298.0,
+arm,swarm_steer,unity,head_ahead,80.0,6,0.5,357.58333333333337,299.0,
+arm,swarm_steer,unity,head_fit,80.0,6,0.5,357.4166666666667,298.0,
+arm,swarm_steer,unity,any,200.0,6,1.0,121.83333333333334,88.0,
+arm,swarm_steer,unity,head_ahead,200.0,6,0.5,310.08333333333337,277.5,
+arm,swarm_steer,unity,head_fit,200.0,6,0.6666666666666666,245.08333333333337,132.5,
+contrast,swarm / single,replica,any,80.0,6,,,,0.9036741730416981
+contrast,swarm / swarm_steer,replica,any,80.0,6,,,,1.0040703938704656
+contrast,swarm_steer / single,replica,any,80.0,6,,,,0.9000107747010021
+contrast,swarm / single,unity,any,80.0,6,,,,0.9061558329746017
+contrast,swarm / swarm_steer,unity,any,80.0,6,,,,0.9818097014925373
+contrast,swarm_steer / single,unity,any,80.0,6,,,,0.9229444683598794
+contrast,swarm / single,replica,head_ahead,80.0,6,,,,0.9036741730416981
+contrast,swarm / swarm_steer,replica,head_ahead,80.0,6,,,,1.0034697296003827
+contrast,swarm_steer / single,replica,head_ahead,80.0,6,,,,0.9005495097511045
+contrast,swarm / single,unity,head_ahead,80.0,6,,,,0.9061558329746017
+contrast,swarm / swarm_steer,unity,head_ahead,80.0,6,,,,0.9811232812864135
+contrast,swarm_steer / single,unity,head_ahead,80.0,6,,,,0.923590185105467
+contrast,swarm / single,replica,head_fit,80.0,6,,,,0.9286714793664477
+contrast,swarm / swarm_steer,replica,head_fit,80.0,6,,,,1.0315978456014363
+contrast,swarm_steer / single,replica,head_fit,80.0,6,,,,0.900226268721043
+contrast,swarm / single,unity,head_fit,80.0,6,,,,0.9565217391304347
+contrast,swarm / swarm_steer,unity,head_fit,80.0,6,,,,1.0361389601305664
+contrast,swarm_steer / single,unity,head_fit,80.0,6,,,,0.9231597072750753
+contrast,swarm / single,replica,any,200.0,6,,,,0.3725170068027211
+contrast,swarm / swarm_steer,replica,any,200.0,6,,,,0.9640845070422536
+contrast,swarm_steer / single,replica,any,200.0,6,,,,0.38639455782312926
+contrast,swarm / single,unity,any,200.0,6,,,,0.37503392130257807
+contrast,swarm / swarm_steer,unity,any,200.0,6,,,,0.9452804377564981
+contrast,swarm_steer / single,unity,any,200.0,6,,,,0.3967435549525102
+contrast,swarm / single,replica,head_ahead,200.0,6,,,,0.828843537414966
+contrast,swarm / swarm_steer,replica,head_ahead,200.0,6,,,,0.8846935811792042
+contrast,swarm_steer / single,replica,head_ahead,200.0,6,,,,0.9368707482993198
+contrast,swarm / single,unity,head_ahead,200.0,6,,,,0.6092265943012213
+contrast,swarm / swarm_steer,unity,head_ahead,200.0,6,,,,0.6033324375167967
+contrast,swarm_steer / single,unity,head_ahead,200.0,6,,,,1.0097693351424695
+contrast,swarm / single,replica,head_fit,200.0,6,,,,0.8
+contrast,swarm / swarm_steer,replica,head_fit,200.0,6,,,,0.9824561403508771
+contrast,swarm_steer / single,replica,head_fit,200.0,6,,,,0.8142857142857143
+contrast,swarm / single,unity,head_fit,200.0,6,,,,0.6100407055630936
+contrast,swarm / swarm_steer,unity,head_fit,200.0,6,,,,0.7643658619517171
+contrast,swarm_steer / single,unity,head_fit,200.0,6,,,,0.798100407055631

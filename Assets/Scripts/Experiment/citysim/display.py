@@ -15,7 +15,9 @@ Ported from the C# (numpy, 2-D):
                                    refresh. A hat at bearing b off a camera's axis appears at a + b * DISPLAY_SCALE.
   single drone                     one feed, always in front; the pilot's view is slaved to the drone's heading
 Static templates take every hull drone as settled onto its target heading (feed ready); the dynamic tier
-recomputes the rule per sample from the replica's positions (no yaw lag: an upper bound on readiness).
+recomputes the rule per sample from the replica's positions (no yaw lag: an upper bound on readiness). FeedLatch is the
+rule with its timing, for the search study: the hull membership debounced, the target heading low-passed, each drone
+turning onto it at the airframe's yaw rate, and a feed shown only once its drone has (BoundaryFeedReady).
 """
 import sys
 
@@ -146,6 +148,91 @@ def swarm_feeds(positions, body_yaw_deg, alive=None, pitch_deg=camera.DIAL_CENTR
         keep = np.setdiff1d(np.arange(len(drones)), near)
         drones, yaw = drones[keep], yaw[keep]
     return Feeds(drones, P[drones] + camera.CAMERA_FORWARD_M * _fwd(yaw), np.asarray(yaw, float), raw, gap)
+
+
+BOUNDARY_HYST_S = 0.5            # AttitudeAlgorithm.BoundaryHysteresisTime (its depth speed-up is not modelled)
+TARGET_FILTER_S = 0.3            # AttitudeAlgorithm.TargetHeadingFilterTime
+FEED_TOLERANCE_DEG = 5.0         # SwarmManager.feedHeadingToleranceDeg: the BoundaryFeedReady latch
+
+
+class FeedLatch:
+    """The swarm's feed ring with AttitudeAlgorithm's timing. step() advances it by dt and returns the shown Feeds:
+
+      boundary   a drone's hull membership flips only after the disagreement has lasted BOUNDARY_HYST_S
+      target     while on the hull, the outward bisector (+ look-gap fill) low-passed at TARGET_FILTER_S; kept while
+                 the debounced flag still holds, released when it drops
+      yaw        each drone turns onto its target at the airframe's DRONE_MAX_YAW_RATE (the heading hold's limit)
+      ready      latched once a boundary drone is within FEED_TOLERANCE_DEG of its target, cleared with the flag
+    The camera is the drone's ACTUAL yaw, so a feed shows where the drone looks, not where it is going to. A lone
+    drone is always shown and turns toward the body yaw (it is handed the yaw stick). The first step seeds a settled
+    ring. instant=True returns swarm_feeds() instead: no lag, the old upper bound."""
+
+    def __init__(self, n, look_gap=True, pitch_deg=camera.DIAL_CENTRE_PITCH_DEG, instant=False,
+                 yaw_rate=camera.DRONE_MAX_YAW_RATE_DEG):
+        self.n, self.look_gap, self.pitch, self.instant, self.yaw_rate = n, look_gap, pitch_deg, instant, yaw_rate
+        self.boundary = np.zeros(n, bool)
+        self.timer = np.zeros(n)
+        self.has_target = np.zeros(n, bool)
+        self.target = np.zeros(n)
+        self.yaw = np.zeros(n)
+        self.ready = np.zeros(n, bool)
+        self.seeded = False
+
+    def _raw(self, P, idx, body_yaw):
+        """(on hull now (n,), raw target heading (n,) deg)."""
+        on = np.zeros(self.n, bool)
+        raw = np.full(self.n, np.nan)
+        if len(idx) >= 3:
+            hull = convex_hull(P[idx])
+            if len(hull) >= 3:
+                yaw = heading_deg(-inward_bisectors(P[idx][hull]))
+                if self.look_gap and self.pitch > NADIR_PITCH_DEG:
+                    shift, _, _ = look_gap_shift(yaw, body_yaw)
+                    yaw = wrap_deg(yaw + shift)
+                on[idx[hull]] = True
+                raw[idx[hull]] = yaw
+        return on, raw
+
+    def step(self, positions, alive, body_yaw, dt):
+        P = np.asarray(positions, float)
+        alive = np.asarray(alive, bool)
+        idx = np.flatnonzero(alive)
+        if self.instant:
+            return swarm_feeds(P, body_yaw, alive, self.pitch, self.look_gap)
+        if len(idx) == 0:
+            return Feeds(np.zeros(0, int), np.zeros((0, 2)), np.zeros(0))
+        if len(idx) == 1:
+            k = idx[0]
+            d = float(wrap_deg(body_yaw - self.yaw[k]))
+            self.yaw[k] = float(wrap_deg(self.yaw[k] + np.clip(d, -self.yaw_rate * dt, self.yaw_rate * dt)))
+            return Feeds(idx, P[idx] + camera.CAMERA_FORWARD_M * _fwd(self.yaw[idx]), self.yaw[idx].copy())
+        on, raw = self._raw(P, idx, body_yaw)
+        if not self.seeded:
+            self.boundary[:] = on
+            self.has_target[:] = on
+            self.target[on] = raw[on]
+            self.yaw[on] = raw[on]
+            self.ready[:] = on
+            self.seeded = True
+        flip = (on != self.boundary) & alive
+        self.timer = np.where(flip, self.timer + dt, 0.0)
+        change = flip & (self.timer >= BOUNDARY_HYST_S)
+        self.boundary = np.where(change, on, self.boundary) & alive
+        self.timer[change] = 0.0
+        a = 1.0 - math.exp(-dt / TARGET_FILTER_S)
+        fresh = on & ~self.has_target
+        self.target[fresh] = raw[fresh]
+        upd = on & self.has_target & ~fresh
+        self.target[upd] = wrap_deg(self.target[upd] + a * wrap_deg(raw[upd] - self.target[upd]))
+        self.has_target = (self.has_target | on) & (on | self.boundary)
+        turn = self.has_target & alive
+        d = wrap_deg(self.target[turn] - self.yaw[turn])
+        self.yaw[turn] = wrap_deg(self.yaw[turn] + np.clip(d, -self.yaw_rate * dt, self.yaw_rate * dt))
+        self.ready &= self.boundary
+        close = np.abs(wrap_deg(self.target - self.yaw)) <= FEED_TOLERANCE_DEG
+        self.ready |= self.boundary & self.has_target & close
+        shown = np.flatnonzero(self.boundary & self.ready & alive)
+        return Feeds(shown, P[shown] + camera.CAMERA_FORWARD_M * _fwd(self.yaw[shown]), self.yaw[shown].copy())
 
 
 def single_feed(position, yaw_deg):

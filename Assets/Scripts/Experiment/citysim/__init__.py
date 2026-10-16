@@ -1,6 +1,7 @@
 """citysim: parameterised cities and the visibility-scaling study that grounds the human trials.
 
-The package behind docs/density_study/ (see its README for the study, its tiers and how to run them):
+The package behind docs/density_study/ (see its README for the study, its tiers and how to run them) and
+docs/search_study/ (a hidden goal searched for without knowing where it is):
 
     camera      the FPV camera and display constants (one place, mirrored by FpvCameraFov.cs)
     geometry    convex polygons, rectangles, blue-noise sampling (numpy only)
@@ -21,9 +22,12 @@ The package behind docs/density_study/ (see its README for the study, its tiers 
     discovery   a goal's first sight: the one definition the simulator and analyse.py share
     capability  the task-independent capability study: standing and flying, across clutter
     passby      goal lateral range curves and W_goal, and the discovery predictions
+    pilotfit    the search study: how internal_3's pilots flew while still searching (runs, turns, pauses, head)
+    pilots      the search study's pilots: intent chains (random walker, fitted), the target mask, heading, head
+    search      the search study (docs/search_study): a hidden goal searched for by each interface, until first seen
     parallel    a process pool that reruns the jobs a dead worker lost
     vissim      the tiers' command line: Tier A/B sweeps, B' dynamic, Tier C scoring, validate, gate1, gates,
-                capability, passby, discovery-predict
+                capability, passby, discovery-predict, pilot-fit, search, search-check, search-bench(-plan)
     report      figures
 
 Everything here is numpy (+ scipy/pandas where noted) and never imports Unity. Run with the `stitching`
