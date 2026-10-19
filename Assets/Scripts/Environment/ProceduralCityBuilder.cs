@@ -29,6 +29,15 @@ using UnityEngine;
 ///
 /// <para>The layout's arena and spawn must stand on the scene's Terrain: past it there is no ground for the altitude
 /// ceiling (<see cref="TerrainHeightSampler"/>), so the build refuses a layout that leaves it.</para>
+///
+/// <para><b>A city can be baked into the scene</b> (<see cref="Bake"/>, edit mode): the buildings and streets are built
+/// and saved with it, so the editor shows the city without pressing Play — VoronoiCityWorld is made this way. The goals
+/// cannot be baked whole: <see cref="GoalSpecialWalker"/> deals its hat in Awake, from state shared across the session,
+/// so a goal root saved active would deal at scene load in no particular order. A bake therefore holds only the goals'
+/// buildings (under <c>Goal buildings</c>), and at Play <see cref="Awake"/> adopts it: the goal roots are made exactly as a
+/// fresh build makes them, with the baked buildings moved under them. The layout FILE stays the truth, because the
+/// analysis tools read it: a bake is adopted only if it is of the layout this Awake would build and every building still
+/// stands on its box; otherwise the city is rebuilt from the file, with a warning.</para>
 /// </summary>
 [DisallowMultipleComponent]
 public class ProceduralCityBuilder : MonoBehaviour
@@ -60,12 +69,37 @@ public class ProceduralCityBuilder : MonoBehaviour
     public float margin = 3f;
     public float cornerRadius = 1f;
 
-    [Header("Streets")]
-    public Material streetMaterial;
-    public float streetHeight = 0.02f;
+    public enum StreetStyle
+    {
+        /// <summary>One flat quad per street in <see cref="streetMaterial"/> (the density study's look).</summary>
+        Flat,
+        /// <summary>Road: lane-marked stretches, plain junctions, zebra crossings (<see cref="StreetSurface"/>).</summary>
+        Textured,
+    }
 
-    private const string BuildingsName = "Buildings", StreetsName = "Streets", GoalsName = "Goals";
+    [Header("Streets")]
+    public StreetStyle streetStyle = StreetStyle.Flat;
+    [Tooltip("Flat: the street colour. Textured: the lane-marked road (MC_Asphalt_Road Texture_M_01, as on ParkRoad).")]
+    public Material streetMaterial;
+    [Tooltip("Textured: junctions and crossings (MC_Asphalt_Cross and Corner). Without it the streets are Flat.")]
+    public Material junctionMaterial;
+    public float streetHeight = 0.02f;
+    [Tooltip("Textured: road texture tiles across a street (ParkRoad lays one per 7 m lane).")]
+    public int streetTilesAcross = 2;
+    [Tooltip("Textured: depth of a zebra crossing along its street (m).")]
+    public float crossingDepth = 3.3f;
+
+    [Tooltip("Written by Bake: the layout (as layoutPath named it) whose buildings and streets this scene holds. Adopted " +
+             "at Play while it is still the layout to build; empty when nothing is baked.")]
+    [SerializeField] private string bakedLayout = "";
+
+    private const string BuildingsName = "Buildings", StreetsName = "Streets", GoalsName = "Goals",
+                         GoalBuildingsName = "Goal buildings";
+    private const float AdoptTolerance = 1e-2f;   // m: how far a baked collider centre may sit from its box
     private readonly List<GameObject> placedGoals = new List<GameObject>();
+
+    /// <summary>The layout whose city is baked into the scene, or "".</summary>
+    public string BakedLayout => bakedLayout;
 
     /// <summary>The goal roots in the layout's goal order. Empty until Build has run.</summary>
     public IReadOnlyList<GameObject> PlacedGoals => placedGoals;
@@ -78,14 +112,33 @@ public class ProceduralCityBuilder : MonoBehaviour
 
     void Awake()
     {
-        if (buildOnAwake && Application.isPlaying)
+        if (!Application.isPlaying) return;
+        bool baked = HasBake;
+        if (!baked && !buildOnAwake) return;
+        string error;
+        if (baked)
         {
-            if (!Build(out string error))
-            {
-                Debug.LogError("ProceduralCityBuilder: " + error, this);
-            }
+            if (Adopt(out error)) return;
+            Debug.LogWarning($"ProceduralCityBuilder: not using the city baked into the scene ({error}); building " +
+                             $"'{LayoutName}' from its file instead.", this);
+        }
+        if (!Build(out error))
+        {
+            Debug.LogError("ProceduralCityBuilder: " + error, this);
         }
     }
+
+    /// <summary>The layout to build: CITY_LAYOUT if set, else <see cref="layoutPath"/>.</summary>
+    public string LayoutName
+    {
+        get
+        {
+            string name = Environment.GetEnvironmentVariable(LayoutEnv);
+            return string.IsNullOrEmpty(name) ? layoutPath : name;
+        }
+    }
+
+    private bool HasBake => !string.IsNullOrEmpty(bakedLayout) && transform.Find(BuildingsName) != null;
 
     // ------------------------------------------------------------------ the file
 
@@ -168,18 +221,139 @@ public class ProceduralCityBuilder : MonoBehaviour
 
     // ------------------------------------------------------------------ build
 
-    /// <summary>Builds the layout under this root, replacing any previous build. False with an error on failure.</summary>
+    private delegate GameObject Obtain(LayoutBox b, Transform parent, out string error);
+
+    /// <summary>Builds the layout under this root, replacing any previous build (a bake included). False with an error
+    /// on failure.</summary>
     public bool Build(out string error)
     {
-        string name = Environment.GetEnvironmentVariable(LayoutEnv);
-        if (string.IsNullOrEmpty(name)) name = layoutPath;
-        string path = Resolve(name);
+        if (!Load(out LayoutFile file, out string path, out error)) return false;
+        Clear();
+        Layout = file;
+        ResolvedPath = path;
+        Transform buildings = Child(BuildingsName);
+        BuildStreets(file.streets, Child(StreetsName));
+        int nCity = PlaceCity(file, buildings, out error);
+        if (nCity < 0) return false;
+        if (!BuildGoals(file, Child(GoalsName), Place, out error)) return false;
+        if (Application.isPlaying)
+        {
+            StaticBatchingUtility.Combine(buildings.gameObject);
+        }
+        Finish(file, path, buildings, nCity, "built");
+        return true;
+    }
+
+#if UNITY_EDITOR
+    /// <summary>Edit mode: builds the layout's buildings and streets into the scene to be saved with it, the goals'
+    /// buildings under <c>Goal buildings</c> without their goal roots (Awake makes those at Play; see the class
+    /// summary). Replaces any previous build. False with an error on failure.</summary>
+    public bool Bake(out string error)
+    {
+        if (Application.isPlaying)
+        {
+            error = "bake in edit mode; at Play the city is built (or the bake adopted) in Awake.";
+            return false;
+        }
+        if (!Load(out LayoutFile file, out string path, out error)) return false;
+        Clear();
+        Layout = file;
+        ResolvedPath = path;
+        Transform buildings = Child(BuildingsName);
+        BuildStreets(file.streets, Child(StreetsName));
+        int nCity = PlaceCity(file, buildings, out error);
+        if (nCity < 0) return false;
+        Transform goalBuildings = Child(GoalBuildingsName);
+        foreach (LayoutGoal g in file.layout.goals ?? new LayoutGoal[0])
+        {
+            var holder = new GameObject($"goal_{g.index}");
+            holder.transform.SetParent(goalBuildings, false);
+            holder.transform.position = new Vector3(g.centre[0], 0f, g.centre[1]);
+            foreach (LayoutBox b in file.boxes)
+            {
+                if (b.goal == g.index && b.role != "city" && Place(b, holder.transform, out error) == null) return false;
+            }
+        }
+        bakedLayout = LayoutName;
+        UnityEditor.EditorUtility.SetDirty(this);
+        Finish(file, path, buildings, nCity, "baked");
+        return true;
+    }
+#endif
+
+    /// <summary>At Play: keeps the baked city and makes the goals round its goal buildings, if the bake is of the
+    /// layout to build and every building still stands on its box. False (nothing changed) with the reason otherwise.</summary>
+    private bool Adopt(out string error)
+    {
+        string want = Resolve(LayoutName), have = Resolve(bakedLayout);
+        if (want == null || have == null || !string.Equals(want, have, StringComparison.OrdinalIgnoreCase))
+        {
+            error = $"it is of '{bakedLayout}', and the layout to build is '{LayoutName}'";
+            return false;
+        }
+        if (!Load(out LayoutFile file, out string path, out error)) return false;
+        Transform buildings = transform.Find(BuildingsName), goalBuildings = transform.Find(GoalBuildingsName);
+        var baked = new Dictionary<string, Transform>();
+        foreach (Transform t in buildings) baked[t.name] = t;
+        if (goalBuildings != null)
+        {
+            foreach (Transform goal in goalBuildings)
+            {
+                foreach (Transform t in goal) baked[t.name] = t;
+            }
+        }
+        foreach (LayoutBox b in file.boxes)
+        {
+            if (!baked.TryGetValue(b.name, out Transform t))
+            {
+                error = $"{b.name} is in {Path.GetFileName(path)} but not in the scene: rebake it";
+                return false;
+            }
+            BoxCollider box = t.GetComponent<BoxCollider>();
+            Vector3 c = new Vector3(b.c[0], b.c[1], b.c[2]);
+            if (box == null || (t.TransformPoint(box.center) - c).sqrMagnitude > AdoptTolerance * AdoptTolerance)
+            {
+                error = $"{b.name} no longer stands where {Path.GetFileName(path)} puts it: rebake it";
+                return false;
+            }
+        }
+        if (baked.Count != file.boxes.Length)
+        {
+            error = $"the scene holds {baked.Count} buildings and {Path.GetFileName(path)} {file.boxes.Length}: rebake it";
+            return false;
+        }
+
+        Layout = file;
+        ResolvedPath = path;
+        placedGoals.Clear();
+        Transform goalsRoot = transform.Find(GoalsName);
+        if (goalsRoot == null) goalsRoot = Child(GoalsName);
+        Obtain move = (LayoutBox b, Transform parent, out string err) =>
+        {
+            Transform t = baked[b.name];
+            t.SetParent(parent, true);
+            err = null;
+            return t.gameObject;
+        };
+        if (!BuildGoals(file, goalsRoot, move, out error)) return false;
+        if (goalBuildings != null) Destroy(goalBuildings.gameObject);      // emptied: every building moved to its goal
+        int nCity = 0;
+        foreach (LayoutBox b in file.boxes) nCity += b.role == "city" ? 1 : 0;
+        Finish(file, path, buildings, nCity, "adopted the baked");
+        return true;
+    }
+
+    /// <summary>Resolves, reads and checks the layout to build (<see cref="LayoutName"/>).</summary>
+    private bool Load(out LayoutFile file, out string path, out string error)
+    {
+        file = null;
+        string name = LayoutName;
+        path = Resolve(name);
         if (path == null)
         {
             error = $"no layout file for '{name}' (looked under Assets/{LayoutFolder} and Assets/).";
             return false;
         }
-        LayoutFile file;
         try
         {
             file = JsonUtility.FromJson<LayoutFile>(File.ReadAllText(path));
@@ -205,7 +379,6 @@ public class ProceduralCityBuilder : MonoBehaviour
             return false;
         }
         if (!OnTerrain(file.layout, out error)) return false;
-        bool walkers = spawnWalkers && Environment.GetEnvironmentVariable(WalkersEnv) != "0";
         foreach (LayoutBox b in file.boxes)
         {
             if (catalogue.Find(b.design) == null)
@@ -214,24 +387,30 @@ public class ProceduralCityBuilder : MonoBehaviour
                 return false;
             }
         }
+        error = null;
+        return true;
+    }
 
-        Clear();
-        Layout = file;
-        ResolvedPath = path;
-        Transform buildings = Child(BuildingsName);
-        Transform streets = Child(StreetsName);
-        Transform goalsRoot = Child(GoalsName);
-
-        int nCity = 0;
+    /// <summary>The city buildings under <paramref name="parent"/>; their number, or -1 with an error.</summary>
+    private int PlaceCity(LayoutFile file, Transform parent, out string error)
+    {
+        int n = 0;
         foreach (LayoutBox b in file.boxes)
         {
             if (b.role != "city") continue;
-            if (Place(b, buildings, out error) == null) return false;
-            nCity++;
+            if (Place(b, parent, out error) == null) return -1;
+            n++;
         }
-        BuildStreets(file.streets, streets);
+        error = null;
+        return n;
+    }
 
-        // Goals: the session's goal seed first (the hats, target walkers and walker starts follow from it).
+    /// <summary>The goals, in layout order, each a <see cref="goalRootPrefab"/> with its buildings (from
+    /// <paramref name="obtain"/>) under it, activated only once complete.</summary>
+    private bool BuildGoals(LayoutFile file, Transform goalsRoot, Obtain obtain, out string error)
+    {
+        bool walkers = spawnWalkers && Environment.GetEnvironmentVariable(WalkersEnv) != "0";
+        // The session's goal seed first (the hats, target walkers and walker starts follow from it).
         GoalSession.Set(file.layout.seed, "layout");
         GameObject holder = new GameObject("goal holder (inactive)");
         holder.SetActive(false);
@@ -255,8 +434,12 @@ public class ProceduralCityBuilder : MonoBehaviour
             foreach (LayoutBox b in file.boxes)
             {
                 if (b.goal != g.index || b.role == "city") continue;
-                GameObject building = Place(b, root.transform, out error);
-                if (building == null) return false;
+                GameObject building = obtain(b, root.transform, out error);
+                if (building == null)
+                {
+                    DestroyNow(holder);
+                    return false;
+                }
                 if (b.role == "goal_ring")
                 {
                     Bounds bb = building.GetComponent<Collider>().bounds;
@@ -274,13 +457,15 @@ public class ProceduralCityBuilder : MonoBehaviour
             placedGoals.Add(root);
         }
         DestroyNow(holder);
+        error = null;
+        return true;
+    }
 
-        if (Application.isPlaying)
-        {
-            StaticBatchingUtility.Combine(buildings.gameObject);
-        }
+    /// <summary>What every path ends with: edit-mode static flags, the spawn, the session record, the log line.</summary>
+    private void Finish(LayoutFile file, string path, Transform buildings, int nCity, string verb)
+    {
 #if UNITY_EDITOR
-        else
+        if (!Application.isPlaying)
         {
             foreach (Transform t in buildings.GetComponentsInChildren<Transform>(true))
             {
@@ -289,7 +474,6 @@ public class ProceduralCityBuilder : MonoBehaviour
             TerrainHeightSampler.Invalidate();
         }
 #endif
-
         if (setSpawn && file.layout.spawn != null && file.layout.spawn.Length >= 3)
         {
             swarmSpawn spawner = FindObjectOfType<swarmSpawn>(true);
@@ -298,6 +482,9 @@ public class ProceduralCityBuilder : MonoBehaviour
                 spawner.start_x = Mathf.RoundToInt(file.layout.spawn[0]);
                 spawner.start_y = Mathf.RoundToInt(file.layout.spawn[1]);
                 spawner.start_z = Mathf.RoundToInt(file.layout.spawn[2]);
+#if UNITY_EDITOR
+                if (!Application.isPlaying) UnityEditor.EditorUtility.SetDirty(spawner);
+#endif
             }
         }
 
@@ -316,23 +503,23 @@ public class ProceduralCityBuilder : MonoBehaviour
             generatorVersion = file.layout.generator_version ?? "",
         });
 
-        error = null;
-        Debug.Log($"ProceduralCityBuilder: built {file.layout.id} ({nCity} city buildings, {placedGoals.Count} goals, " +
+        Debug.Log($"ProceduralCityBuilder: {verb} {file.layout.id} ({nCity} city buildings, " +
+                  $"{file.layout.goals?.Length ?? 0} goals, " +
                   $"{file.streets?.Length ?? 0} streets, alpha {file.layout.alpha_achieved:F3}, goal seed {file.layout.seed}) " +
                   $"from {path}", this);
-        return true;
     }
 
-    /// <summary>Removes the previous build (this root's Buildings, Streets and Goals).</summary>
+    /// <summary>Removes the previous build or bake (this root's Buildings, Streets, Goals and Goal buildings).</summary>
     public void Clear()
     {
         placedGoals.Clear();
-        foreach (string n in new[] { BuildingsName, StreetsName, GoalsName })
+        foreach (string n in new[] { BuildingsName, StreetsName, GoalsName, GoalBuildingsName })
         {
             Transform t = transform.Find(n);
             if (t != null) DestroyNow(t.gameObject);
         }
         Layout = null;
+        bakedLayout = "";
     }
 
     private Transform Child(string n)
@@ -397,6 +584,16 @@ public class ProceduralCityBuilder : MonoBehaviour
     private void BuildStreets(LayoutStreet[] streets, Transform parent)
     {
         if (streets == null || streets.Length == 0) return;
+        if (streetStyle == StreetStyle.Textured)
+        {
+            if (junctionMaterial != null && streetMaterial != null)
+            {
+                BuildRoads(streets, parent);
+                return;
+            }
+            Debug.LogWarning("ProceduralCityBuilder: Textured streets need a street and a junction material " +
+                             "(the Modular City Pack's asphalt); drawing them flat.", this);
+        }
         var verts = new List<Vector3>();
         var tris = new List<int>();
         var uvs = new List<Vector2>();
@@ -434,6 +631,35 @@ public class ProceduralCityBuilder : MonoBehaviour
         go.AddComponent<MeshFilter>().sharedMesh = mesh;
         MeshRenderer r = go.AddComponent<MeshRenderer>();
         r.sharedMaterial = streetMaterial;
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
+
+    /// <summary>The streets as road (<see cref="StreetSurface"/>): one mesh, stretches in the street material and
+    /// junctions and crossings in the junction material. No collider, no shadows.</summary>
+    private void BuildRoads(LayoutStreet[] streets, Transform parent)
+    {
+        var segments = new List<(Vector2, Vector2, float)>();
+        foreach (LayoutStreet s in streets)
+        {
+            if (s.xz == null) continue;
+            for (int k = 0; k + 3 < s.xz.Length; k += 2)
+            {
+                segments.Add((new Vector2(s.xz[k], s.xz[k + 1]), new Vector2(s.xz[k + 2], s.xz[k + 3]), s.width));
+            }
+        }
+        Mesh mesh = StreetSurface.Build(segments, new StreetSurface.Settings
+        {
+            height = streetHeight,
+            tilesAcross = Mathf.Max(streetTilesAcross, 1),
+            crossingDepth = crossingDepth,
+            maxSetback = 1.5f,
+            minStrip = 1f,
+        });
+        var go = new GameObject("Street surface");
+        go.transform.SetParent(parent, false);
+        go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        MeshRenderer r = go.AddComponent<MeshRenderer>();
+        r.sharedMaterials = new[] { streetMaterial, junctionMaterial };
         r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
     }
 

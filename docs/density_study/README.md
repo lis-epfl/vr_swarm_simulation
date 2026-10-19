@@ -533,6 +533,7 @@ python -B -m citysim.vissim envmap                            # Tier B' envelopm
 python -B -m citysim.vissim gate1 --sweep tierB2              # G1 and the candidates
 python -B -m citysim.select_levels --sweep tierB2             # the levels -> levels.json
 python -B -m citysim.citygen trial --seeds 101 102 103 104    # their trial layouts -> layouts/
+python -B -m citysim.citygen mixcity --city DiamondCityWorld  # not the study: DiamondCityWorld's buildings on Voronoi streets (VoronoiCityWorld)
 python -B -m citysim.vissim tierC-plan                        # Tier C configs + runner on the bench root
 powershell -File D:\claude_obstacle_bench\cfg\tierC\tierC\run_tierC.ps1   # fly them (~2.5 h, resumable)
 python -B -m citysim.vissim tierC                             # score them -> tierC/tierC/

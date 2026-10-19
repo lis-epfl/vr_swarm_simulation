@@ -133,6 +133,77 @@ def test_goal_rules():
     assert d == sorted(d)
 
 
+def test_mix_city_draws_every_building_from_the_tile_city():
+    """A building mix (VoronoiCityWorld's layouts): every building a design the tile city has, occluders near
+    their own proportions at a long side of exactly w_c, each goal's clear radius from its own ring, and the
+    layout passes every rule."""
+    from citysim import catalogue
+
+    P = replace(BASE, mix="DiamondCityWorld", size=1.0, alpha=0.0227, p=90.83, s=15.0)
+    L = citygen.generate(P, 3)
+    assert L.verify() == [], L.verify()
+    assert L.boxes == citygen.generate(P, 3).boxes
+    mix = dict((d.design, c) for d, c in catalogue.city_mix("DiamondCityWorld"))
+    assert set(b["design"] for b in L.boxes) <= set(mix)
+    assert len(set(b["design"] for b in L.boxes if b["role"] == "city")) > 20       # a mix, not one design
+    r = L.layout
+    assert r["design"] == "mix:DiamondCityWorld" and r["mix_counts"] == mix and r["params"]["mix"] == "DiamondCityWorld"
+    assert r["id"].endswith("_mixDiamondCityWorld_seed3")
+    designs = {d.design: d for d in catalogue.load()}
+    for g in L.goals():
+        own = [b for b in L.boxes if b["goal"] == g["index"]]
+        occ = designs[own[0]["design"]]
+        assert own[0]["role"] == "goal_centre" and abs(occ.long * own[0]["size"] - g["w_c"]) < 1e-3
+        assert 1 / citygen.OCCLUDER_RATIO <= own[0]["size"] <= citygen.OCCLUDER_RATIO
+        half = max(0.5 * math.hypot(designs[b["design"]].w, designs[b["design"]].d) for b in own[1:])
+        assert abs(g["clear_radius"] - (g["r_g"] + half * g["ring_size"] + P.walk_clear)) < 1e-3
+
+
+def test_even_placement_fills_every_block_alike():
+    """place="even": every block to about the same built fraction (the RSA's round robin gives each the same count,
+    whatever its area), under every rule the RSA keeps, at the same coverage, and deterministic."""
+    P = replace(BASE, mix="DiamondCityWorld", size=1.0, alpha=0.0227, p=90.83, s=15.0)
+
+    def fill_spread(L):
+        cells, _ = geo.voronoi_cells(geo.rsa_points(np.random.default_rng(L.layout["seed"]), P.arena,
+                                                    max(int(round(730.0 ** 2 / P.p ** 2)), 4),
+                                                    citygen.SEED_SPACING_RATIO * P.p), P.arena)
+        rects = L.rects()
+        fills = []
+        for k, c in enumerate(cells):
+            b = geo.offset_convex(c, P.s / 2)
+            own = [i for i, x in enumerate(L.boxes) if x["tile"] == f"B{k:03d}"]
+            if len(b) >= 3 and own and not any(x["role"] != "city" and geo.contains(b, [x["c"][0::2]])[0]
+                                               for x in L.boxes):
+                fills.append(geo.rect_area(rects[own]).sum() / abs(geo.area(b)))
+        return np.percentile(fills, 90) / np.percentile(fills, 10)
+
+    rsa, even = citygen.generate(P, 4), citygen.generate(replace(P, place="even"), 4)
+    assert even.verify() == [], even.verify()
+    assert even.boxes == citygen.generate(replace(P, place="even"), 4).boxes
+    assert abs(even.layout["alpha_achieved"] - rsa.layout["alpha_achieved"]) < 0.002
+    assert even.layout["id"].endswith("_even_seed4") and even.layout["params"]["place"] == "even"
+    assert fill_spread(even) < 0.7 * fill_spread(rsa), (fill_spread(even), fill_spread(rsa))
+
+
+def test_one_design_layouts_are_unchanged_by_the_mix():
+    """The mix costs the one-design path no random number: a committed trial layout regenerates byte for byte."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from citysim import LAYOUT_DIR
+
+    f = sorted(LAYOUT_DIR.glob("L1_*_seed101.json"))[0]
+    rec = json.loads(f.read_text(encoding="utf-8"))["layout"]
+    P = replace(citygen.Params(), **{k: (tuple(v) if isinstance(v, list) else v) for k, v in rec["params"].items()})
+    L = citygen.generate(P, rec["seed"])
+    for k in ("trial_level", "trial_level_name"):
+        L.layout[k] = rec[k]
+    with tempfile.TemporaryDirectory() as d:
+        assert L.save(Path(d) / f.name).read_bytes() == f.read_bytes()
+
+
 def test_infeasible_goal_geometry_raises():
     try:
         citygen.generate(replace(BASE, r_g=12.0, n_b=8), 1)

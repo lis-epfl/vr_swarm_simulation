@@ -1,7 +1,8 @@
 """The ScaledCity building designs (building_catalogue.json, from Tools/Swarm/Export building catalogue) and the
 one design the study builds its cities from.
 
-    python -B -m citysim.catalogue          # the table and the pick
+    python -B -m citysim.catalogue                          # the table and the pick
+    python -B -m citysim.catalogue --mix DiamondCityWorld   # a tile city's building mix (citygen --mix)
 
 A design's w and d are its footprint along the building's local X and Y at the ScaledCity scale (metres), h its
 height (50 m for every design). The study uses ONE design everywhere -- city, goal occluder, goal ring -- at a
@@ -9,6 +10,10 @@ few sizes, so the footprint distribution is one number per level and "building s
 a mixture: the design closest to the median footprint of the 210 buildings in the 48 patches, in log(long side)
 and log(short side) together, among the BnP_Apartment_ and BnP_Small_Building_ designs with at least four
 instances (ordinary mid-rise blocks, well represented in the pack). Ties break by name, so the pick is stable.
+
+A MIX (city_mix) is the other way to build: every building drawn from a tile city's own designs, in proportion to
+how often each stands in that city. It is counted off the city's city_obstacles_<city>.json (Tools/Swarm/Export
+city obstacles), so it is the city as exported, diamonds' copies included -- re-export after restyling it.
 """
 if __name__ == "__main__" and __package__ in (None, ""):
     import os.path as _p
@@ -21,6 +26,8 @@ sys.dont_write_bytecode = True
 
 import json  # noqa: E402
 import math  # noqa: E402
+import re  # noqa: E402
+from collections import Counter  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -85,7 +92,36 @@ def get(name, designs=None):
     raise KeyError(f"no design {name!r} in {CATALOGUE_JSON.name}")
 
 
+def design_of(box_name):
+    """The catalogue design a tile city's building is an instance of: its name less any ' (label)' suffix (the
+    diamonds' copies, e.g. 'Skyscraper_D_003 (plaza A_West)') and its instance number."""
+    return re.sub(r"_\d+$", "", re.sub(r"\s*\(.*\)$", "", box_name))
+
+
+def city_mix(city, designs=None):
+    """[(Design, count)] of a tile city's buildings, by design name: how often each catalogue design stands in
+    city_obstacles_<city>.json. Raises if a building is not a catalogue design (re-export the catalogue)."""
+    path = EXPERIMENT_DIR / f"city_obstacles_{city}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"no {path.name}: Tools/Swarm/Export city obstacles in {city} writes it")
+    by_name = {x.design: x for x in designs or load()}
+    counts = Counter(design_of(b["name"]) for b in json.loads(path.read_text(encoding="utf-8-sig"))["boxes"])
+    unknown = sorted(n for n in counts if n not in by_name)
+    if unknown:
+        raise KeyError(f"{path.name} has buildings of no catalogue design: {', '.join(unknown)}")
+    return [(by_name[n], counts[n]) for n in sorted(counts)]
+
+
 if __name__ == "__main__":
+    if "--mix" in sys.argv:
+        city = sys.argv[sys.argv.index("--mix") + 1]
+        mix = city_mix(city)
+        n = sum(c for _, c in mix)
+        area = sum(x.w * x.d * c for x, c in mix) / n
+        print(f"{city}: {n} buildings in {len(mix)} designs, mean footprint {area:.1f} m^2")
+        for x, c in sorted(mix, key=lambda e: (-e[1], e[0].design)):
+            print(f"  {x.design:24s} {x.w:6.2f} x {x.d:5.2f}  {c:3d}  {c / n:6.1%}")
+        sys.exit(0)
     ds = load()
     ml, ms = median_footprint(ds)
     pick = study_design(ds)

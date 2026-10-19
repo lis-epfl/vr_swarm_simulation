@@ -1192,7 +1192,8 @@ is silent, since neither side fails to compile, it just reads a float from the m
 ## City scenes and the ScaledCity assets
 
 Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
-(generated from ScaledCityWorld, below), `FactoryScene`, `RingChallenge`, `NBackExperiment`, and `DJIScene`
+(generated from ScaledCityWorld, below), `DiamondCityWorld`, `ProceduralCityWorld` and `VoronoiCityWorld`
+(generated cities, below), `FactoryScene`, `RingChallenge`, `NBackExperiment`, and `DJIScene`
 (real drones, no sim swarm). All of them spawn the
 same `Assets/Prefabs/DroneReduced.prefab`, so anything edited there — `maxPitch`, `maxSpeed`,
 `timeConstantAcceleration` — changes every scene at once. Per-scene tuning belongs on the scene's own
@@ -1495,6 +1496,37 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
 - **A goal's first sight has one definition, `citysim/discovery.py`** (at least one walker expected on a shown
   feed within `R_GOAL_M`): the simulator and analyse.py's discovery family both call it, so prediction and
   measurement of the discovery co-primary cannot drift apart. Change it there.
+- **`VoronoiCityWorld` is DiamondCityWorld's buildings on the study's Voronoi streets**, not a study level
+  (2026-10-15). Same scene build as ProceduralCityWorld (`VoronoiCityWorldBuilder`, `Tools/Swarm/Build Voronoi city
+  world`: DiamondCityWorld minus its city), but with the city **baked** in; its layout is `citygen mixcity`'s
+  (`layouts/VoronoiCity__<id>.json`), where every building -- city, occluder, ring -- is drawn from a **building
+  mix**: DiamondCityWorld's 37 designs in the shares they stand there (`catalogue.city_mix`, counted off
+  `city_obstacles_DiamondCityWorld.json`), at size 1, by default to its coverage over its tile grid (α 0.0227) with
+  its tile pitch as p -- 248 buildings vs 239, ℓ 249 m vs 253. After restyling DiamondCityWorld: re-export its city
+  obstacles, regenerate, rebuild. Points worth keeping:
+  - **Density is tuned in `Tools/Swarm/Voronoi city…` (`VoronoiCityWindow`)**, which runs `mixcity` in the stitching
+    env and rebakes the open scene; every generation writes its own layout file (the id names α, p, s, g and the
+    seed), so delete the ones not kept -- but not one a recorded run flew, which analyse.py needs. At a 4 m facade gap
+    the blocks jam near α 0.12; past roughly 0.15 more than 56 buildings stand within 50 m of a point and
+    OlfatiSaber's 64-collider query starts missing some. Both are reported, by the generator and the window.
+  - **A bake is adopted at Play only while it is the layout to build and every building still stands on its box**
+    (`ProceduralCityBuilder.Adopt`); otherwise the city is rebuilt from the file, which stays the record. Goal roots
+    are never baked: `GoalSpecialWalker` deals hats in Awake from session-wide state, so a saved active goal root
+    would deal at scene load. A bake holds the goal *buildings* (`Goal buildings`), and Adopt makes the roots round
+    them exactly as a fresh build does. `Tools/Swarm/Build procedural city from layout…` bakes too, so saving after a
+    preview in ProceduralCityWorld is now safe.
+  - **`place="even"` (mixcity's default) fills every block to the same built fraction** and spreads each block's
+    buildings (best of 16 candidates, farthest from other buildings and, at twice the weight, from the kerb). The
+    study's RSA round robin gives every block the same *count* whatever its area -- uncorrelated with area
+    (r −0.02) -- which left big blocks mostly empty. It packs no denser or looser (both jam at α 0.122).
+  - **The streets are road** (`StreetStyle.Textured`, `StreetSurface`): ParkRoad's lane-marked asphalt on the
+    stretches, the pack's crossing texture for plain junctions and zebra crossings, each street stopped at the setback
+    where its kerb meets its neighbour's, and Voronoi edges too short to draw merged into one junction. The materials
+    are the scene's own `Assets/Materials/VoronoiRoad.mat`/`VoronoiJunction.mat` at tint 0.5 (made if missing): the
+    pack's tint 0.196 renders the paint at ~15% and reads black from a drone. ParkRoad is moved onto the road copy in
+    this scene only. ProceduralCityWorld keeps `Flat`, the study's look.
+  - A mix and even placement draw from the same RNG, so the study's path must draw nothing extra:
+    `test_one_design_layouts_are_unchanged_by_the_mix` regenerates a committed trial layout byte for byte.
 
 ## The search study
 
@@ -1520,7 +1552,6 @@ clock stops at first sight: the density study's directed flights and sweep-width
   start points, headings and seeds come off one random stream, so `scenarios(layouts, 4)` keeps the first four points
   but gives them different headings and seeds: different searches. The first `--starts` did exactly that
   (`search_streets_fresh/`, kept as an independent replicate).
-
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

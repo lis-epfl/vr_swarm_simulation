@@ -25,13 +25,17 @@ using UnityEngine.SceneManagement;
 /// with its hat prefabs set explicitly — the list is normally filled by the editor, so it has to come from a prefab —
 /// and a <see cref="ProceduralGoal"/>) and the street material.</para>
 ///
-/// <para><c>Tools/Swarm/Build procedural city from layout…</c> builds a chosen layout into the open scene in edit mode,
-/// for looking at it. Batch: <c>-executeMethod ProceduralCityWorldBuilder.Run</c> (CITY_LAYOUT names the layout).</para>
+/// <para><c>Tools/Swarm/Build procedural city from layout…</c> bakes a chosen layout into the open scene
+/// (<see cref="ProceduralCityBuilder.Bake"/>), for looking at it; saving that is safe — Play adopts a bake only while it
+/// is of the layout to build. Batch: <c>-executeMethod ProceduralCityWorldBuilder.Run</c> (CITY_LAYOUT names the layout).
+/// <see cref="VoronoiCityWorldBuilder"/> makes a second scene the same way, with its layout baked in.</para>
 /// </summary>
 public static class ProceduralCityWorldBuilder
 {
     private const string SourceScenePath = "Assets/Scenes/DiamondCityWorld.unity";
     public const string ScenePath = "Assets/Scenes/ProceduralCityWorld.unity";
+    /// <summary>The trial layouts, <c>L&lt;n&gt;_&lt;level&gt;__&lt;id&gt;.json</c> (citygen trial).</summary>
+    private const string TrialLayoutPattern = "L?_*.json";
     public const string GoalRootPrefabPath = "Assets/Prefabs/ScaledCity/ProceduralGoalRoot.prefab";
     public const string StreetMaterialPath = "Assets/Materials/ProceduralStreet.mat";
     private const string WalkerPrefabPath = "Assets/Prefabs/SimpleWalker.prefab";
@@ -58,7 +62,7 @@ public static class ProceduralCityWorldBuilder
         {
             return;
         }
-        string layout = DefaultLayout();
+        string layout = DefaultLayout(TrialLayoutPattern);
         if (!Build(layout, out string summary)) Debug.LogError("ProceduralCityWorldBuilder: " + summary);
     }
 
@@ -77,9 +81,9 @@ public static class ProceduralCityWorldBuilder
         string folder = Path.Combine(Application.dataPath, ProceduralCityBuilder.LayoutFolder);
         string file = EditorUtility.OpenFilePanel("Layout to build", folder, "json");
         if (string.IsNullOrEmpty(file)) return;
-        Undo.RecordObject(builder, "Build procedural city");
+        Undo.RecordObject(builder, "Bake procedural city");
         builder.layoutPath = RelativeToLayouts(file);
-        if (builder.Build(out string error))
+        if (builder.Bake(out string error))
         {
             EditorSceneManager.MarkSceneDirty(builder.gameObject.scene);
         }
@@ -96,22 +100,23 @@ public static class ProceduralCityWorldBuilder
     public static void Run()
     {
         string layout = System.Environment.GetEnvironmentVariable(ProceduralCityBuilder.LayoutEnv);
-        if (string.IsNullOrEmpty(layout)) layout = DefaultLayout();
+        if (string.IsNullOrEmpty(layout)) layout = DefaultLayout(TrialLayoutPattern);
         bool ok = Build(layout, out string summary);
         if (!ok) Debug.LogError("ProceduralCityWorldBuilder: " + summary);
         EditorApplication.Exit(ok ? 0 : 1);
     }
 
-    /// <summary>The first trial layout in Assets/Scripts/Experiment/layouts (sorted), or "".</summary>
-    private static string DefaultLayout()
+    /// <summary>The first layout in Assets/Scripts/Experiment/layouts matching <paramref name="pattern"/> (sorted),
+    /// or "".</summary>
+    public static string DefaultLayout(string pattern)
     {
         string folder = Path.Combine(Application.dataPath, ProceduralCityBuilder.LayoutFolder);
         if (!Directory.Exists(folder)) return "";
-        string first = Directory.GetFiles(folder, "*.json").OrderBy(f => f, System.StringComparer.Ordinal).FirstOrDefault();
+        string first = Directory.GetFiles(folder, pattern).OrderBy(f => f, System.StringComparer.Ordinal).FirstOrDefault();
         return first == null ? "" : Path.GetFileName(first);
     }
 
-    private static string RelativeToLayouts(string file)
+    public static string RelativeToLayouts(string file)
     {
         string folder = Path.GetFullPath(Path.Combine(Application.dataPath, ProceduralCityBuilder.LayoutFolder));
         string full = Path.GetFullPath(file);
@@ -119,8 +124,19 @@ public static class ProceduralCityWorldBuilder
     }
 
     /// <summary>Rebuilds the scene and leaves it open. False with the reason in <paramref name="summary"/>.</summary>
-    public static bool Build(string layout, out string summary)
+    public static bool Build(string layout, out string summary) => Build(ScenePath, layout, false, out summary);
+
+    /// <summary>Rebuilds <paramref name="scenePath"/> from DiamondCityWorld around <paramref name="layout"/> and leaves
+    /// it open: saved light (built at Awake), or with the city baked in. False with the reason in
+    /// <paramref name="summary"/>; the previous scene file is then put back.</summary>
+    public static bool Build(string scenePath, string layout, bool bake, out string summary,
+                             System.Action<ProceduralCityBuilder> configure = null)
     {
+        if (string.IsNullOrEmpty(layout))
+        {
+            summary = $"no layout for {scenePath} (none found under Assets/{ProceduralCityBuilder.LayoutFolder}).";
+            return false;
+        }
         // Made (if missing) before any scene is touched, but LOADED only once the scene is open: opening a scene in
         // Single mode unloads every asset no open scene references, which leaves a reference taken earlier dead.
         if (EnsureGoalRootPrefab(out summary) == null) return false;
@@ -136,14 +152,14 @@ public static class ProceduralCityWorldBuilder
             return false;
         }
 
-        byte[] previous = File.Exists(ScenePath) ? File.ReadAllBytes(ScenePath) : null;
+        byte[] previous = File.Exists(scenePath) ? File.ReadAllBytes(scenePath) : null;
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-        File.Copy(SourceScenePath, ScenePath, true);
-        AssetDatabase.ImportAsset(ScenePath, ImportAssetOptions.ForceUpdate);
-        Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+        File.Copy(SourceScenePath, scenePath, true);
+        AssetDatabase.ImportAsset(scenePath, ImportAssetOptions.ForceUpdate);
+        Scene scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
         try
         {
-            summary = Populate(scene, layout);
+            summary = Populate(scene, layout, bake, configure);
             if (summary != null && !EditorSceneManager.SaveScene(scene)) summary = null;
         }
         catch (System.Exception e)
@@ -156,21 +172,21 @@ public static class ProceduralCityWorldBuilder
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             if (previous != null)
             {
-                File.WriteAllBytes(ScenePath, previous);
-                AssetDatabase.ImportAsset(ScenePath, ImportAssetOptions.ForceUpdate);
+                File.WriteAllBytes(scenePath, previous);
+                AssetDatabase.ImportAsset(scenePath, ImportAssetOptions.ForceUpdate);
             }
             else
             {
-                AssetDatabase.DeleteAsset(ScenePath);
+                AssetDatabase.DeleteAsset(scenePath);
             }
             summary = "the build failed (see the log above); the previous scene was put back.";
             return false;
         }
-        Debug.Log($"ProceduralCityWorldBuilder: built {ScenePath} from {SourceScenePath}: {summary}");
+        Debug.Log($"ProceduralCityWorldBuilder: built {scenePath} from {SourceScenePath}: {summary}");
         return true;
     }
 
-    private static string Populate(Scene scene, string layout)
+    private static string Populate(Scene scene, string layout, bool bake, System.Action<ProceduralCityBuilder> configure)
     {
         BuildingCatalogue catalogue = AssetDatabase.LoadAssetAtPath<BuildingCatalogue>(BuildingCatalogueExport.AssetPath);
         GameObject goalRoot = AssetDatabase.LoadAssetAtPath<GameObject>(GoalRootPrefabPath);
@@ -204,23 +220,25 @@ public static class ProceduralCityWorldBuilder
         builder.walkerPrefab = walker;
         builder.streetMaterial = street;
         builder.buildOnAwake = true;
+        configure?.Invoke(builder);
 
-        // Build once to check the layout and set the spawn from it, then clear: the scene is saved light and the
-        // city is built from the layout file on Awake.
+        // Build once to check the layout and set the spawn from it, then either clear (the scene is saved light and the
+        // city is built from the layout file on Awake) or keep it as a bake (adopted at Play).
         TerrainHeightSampler.Invalidate();
-        if (!builder.Build(out string error))
+        bool ok = bake ? builder.Bake(out string error) : builder.Build(out error);
+        if (!ok)
         {
             Debug.LogError("ProceduralCityWorldBuilder: " + error);
             return null;
         }
         string id = builder.Layout.layout.id;
-        int buildings = builder.Layout.boxes.Length, goals = builder.PlacedGoals.Count;
-        builder.Clear();
+        int buildings = builder.Layout.boxes.Length, goals = builder.Layout.layout.goals?.Length ?? 0;
+        if (!bake) builder.Clear();
         swarmSpawn spawner = Object.FindFirstObjectByType<swarmSpawn>(FindObjectsInactive.Include);
         if (spawner != null) EditorUtility.SetDirty(spawner);
         EditorSceneManager.MarkSceneDirty(scene);
         return $"removed {removed} city root(s) and {stripped} tile-city component(s); layout {id} checked " +
-               $"({buildings} buildings, {goals} goals) and left to build on Awake";
+               $"({buildings} buildings, {goals} goals) and " + (bake ? "baked into the scene" : "left to build on Awake");
     }
 
     /// <summary>The goal root prefab, made if missing: GoalSpecialWalker with the three hats, and ProceduralGoal.</summary>
