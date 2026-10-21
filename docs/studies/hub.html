@@ -1,0 +1,210 @@
+<title>Swarm Study Index</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: the study pages' family. A masthead (how to cite a study), then one card per study in date order, the
+   lessons carried forward grouped by kind, and where everything lives. Swarm blue is the one accent; study IDs are
+   set in mono so they read as handles. */
+:root {
+  --bg: #f2f4f5; --panel: #fbfcfc; --ink: #111c25; --ink-2: #44525e; --muted: #7c8893; --line: #d6dde2; --chip: #e6ebee;
+  --accent: #2a78d6; --accent-soft: #dfeaf8; --good: #0b7a0b; --warn: #8a5a00; --warn-soft: #fbefd5; --good-soft: #e3f3e3;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a; --chip: #1f2830;
+    --accent: #3987e5; --accent-soft: #16263a; --good: #6fd36f; --warn: #f2c25a; --warn-soft: #2e2510; --good-soft: #142a14;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a; --chip: #1f2830;
+  --accent: #3987e5; --accent-soft: #16263a; --good: #6fd36f; --warn: #f2c25a; --warn-soft: #2e2510; --good-soft: #142a14;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; display: grid; gap: 34px; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(2rem, 3.6vw, 2.6rem); font-weight: 700; line-height: 1.05; }
+h2 { font-size: 1.45rem; font-weight: 600; margin-bottom: 0.6rem; }
+h3 { font-size: 1.25rem; font-weight: 600; }
+p { margin: 0 0 0.6rem; max-width: 72ch; }
+a { color: var(--accent); }
+.eyebrow { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 0.45rem; }
+.lead { font-size: 1.05rem; color: var(--ink-2); max-width: 70ch; margin-top: 0.6rem; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; overflow-wrap: anywhere; }
+.cite { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cite span { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 0.88rem; color: var(--ink-2); }
+.cite b { font-family: var(--font-mono); color: var(--ink); font-weight: 600; margin-right: 4px; }
+.studies { display: grid; gap: 16px; }
+.study { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 8px 28px; }
+@media (max-width: 820px) { .study { grid-template-columns: minmax(0, 1fr); } }
+.study header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.id { font: 600 1.35rem/1 var(--font-mono); color: var(--accent); }
+.was { color: var(--muted); font-size: 0.9rem; }
+.status { font-size: 0.8rem; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
+.status.done { background: var(--good-soft); color: var(--good); }
+.status.hold { background: var(--warn-soft); color: var(--warn); }
+.q { color: var(--ink-2); }
+.study h4 { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 8px 0 4px; }
+.study ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 4px; }
+.study li { font-size: 0.93rem; }
+.links { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.9rem; margin-top: 6px; }
+.lessons { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.lessons section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.lessons ol { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; }
+.lessons li { font-size: 0.92rem; color: var(--ink-2); }
+.lessons li b { color: var(--ink); font-weight: 600; }
+.tag { font: 500 0.75rem var(--font-mono); color: var(--accent); white-space: nowrap; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+tr:last-child td { border-bottom: 0; }
+.steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; max-width: 80ch; }
+.foot { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
+    <h1>Swarm Study Index</h1>
+    <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span></div>
+  </header>
+
+  <section>
+    <h2>The studies</h2>
+    <div class="studies">
+      <article class="study">
+        <header><span class="id">S1</span><h3>Goal Visibility</h3><span class="was">formerly the density study · 12–19 Oct 2026</span><span class="status hold">Done · L3 on hold</span></header>
+        <div>
+          <p class="q">What each interface sees at a goal, by goal geometry and city clutter; it picked the trial levels by a rule fixed in advance.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted single-drone policies under-predict real pilots about 2.7×, so the small-goal advantage is an upper bound.</li>
+            <li>Its "What each sees" sweep widths saturate for the swarm (found in S3).</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc" target="_blank" rel="noopener">Explorer</a><span class="mono">docs/studies/S1_goal_visibility.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>At a goal, its geometry decides who sees more and clutter barely matters: swarm − single exposure +0.048 at today's 7 m occluder, +0.106 at a 28 m one, −0.047 at a cramped goal the formation cannot surround.</li>
+            <li>Trial levels L1 C0-G0, L2 C0-G10, L3 C2-G7. On pilot paths L3 loses 2.99 drones per run against a bar of 2.5, mostly at spread 0.4.</li>
+            <li>Predicted discovery time of an unannounced goal, swarm ÷ single: 0.58–0.69 on shown feeds.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="study">
+        <header><span class="id">S2</span><h3>Hidden Goal Search</h3><span class="was">formerly the search study · 15–16 Oct 2026</span><span class="status done">Done</span></header>
+        <div>
+          <p class="q">How soon each interface finds a goal patch whose position it does not know, flown by a random walker and by internal_3's fitted pilots.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>People found goals 2.3× (swarm) and 10× (single drone) faster than the fitted pilot, so the human advantage may be smaller.</li>
+            <li>Counting only the head's view, the advantage shrinks to 0.81–1.03.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59" target="_blank" rel="noopener">Results dashboard (light rebuild)</a><span class="mono">docs/studies/S2_hidden_goal_search.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The swarm finds a hidden goal 6–18% sooner (restricted mean time ratio 0.82–0.94, random walker; 0.77–0.92 fitted pilot).</li>
+            <li>It is the cameras, not the morphing: a swarm steered like the single drone does as well, except in the packed city, where steering splits it.</li>
+            <li>At spread 0.4 the swarm is slower than one drone in dense cities (1.12–1.34) and loses half its searches.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="study">
+        <header><span class="id">S3</span><h3>City Roaming</h3><span class="was">formerly the clutter study · 20–21 Oct 2026</span><span class="status done">Done · refined re-run proposed</span></header>
+        <div>
+          <p class="q">What each interface sees on task-free walks across 63 Voronoi city designs (block size × building coverage), at spreads 0.4, 1.0 and 1.6, and where spreading stops helping.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Its sweep width capped at 84 m and understated the swarm; fixed in code, not yet re-flown.</li>
+            <li>Its hidden-target measure saturates and is dominated by the view from the start; refinements proposed.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s" target="_blank" rel="noopener">S3 report (for VoronoiCityWorld)</a><span class="mono">docs/studies/S3_city_roaming.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The swarm is ahead on every measure, in all 63 designs, at every spread (q &lt; 0.05).</li>
+            <li>Its lead in finding a hidden target grows with building coverage: 1.48× at 0.02 to 3.5× at 0.14 (spread 1.0); block size barely matters.</li>
+            <li>Spread 1.6 beats 1.0 (11% faster coverage), 0.4 is worst everywhere and loses 4.8 drones per walk; wider spreads lose screen-to-screen overlap.</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lessons carried forward</h2>
+    <p>The full list, with what to do instead, is <code>docs/studies/lessons.md</code>. A new study should work through it before its design is fixed.</p>
+    <div class="lessons">
+      <section>
+        <h3>Measures</h3>
+        <ol>
+          <li><b>Check every measure for a ceiling.</b> Sweep width capped at 84 m and hid spread 1.6's reach. <span class="tag">S3</span></li>
+          <li><b>Compare rates or times, not a chance within a fixed time</b>, which saturates. <span class="tag">S3</span></li>
+          <li><b>Hide targets out of sight of the start</b>, or the view from the start dominates. <span class="tag">S2 S3</span></li>
+          <li><b>Report range and attention as dimensions</b>: 40, 80 and 200 m; any screen, head ahead, fitted head. <span class="tag">S1 S2 S3</span></li>
+          <li><b>Separate the goal from the transit</b>: geometry rules one, coverage the other. <span class="tag">S1 S3</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Models and statistics</h3>
+        <ol>
+          <li><b>Scripted pilots are not people</b>; calibrate against a pilot block. <span class="tag">S1 S2</span></li>
+          <li><b>Spread 0.4 loses drones in every model</b>; report per spread, consider a dial floor. <span class="tag">S1 S2 S3</span></li>
+          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3</span></li>
+          <li><b>Cities are the statistical units</b>; tests over walks overstate. <span class="tag">S3</span></li>
+          <li><b>Pair every condition</b> on one intent chain from one start. <span class="tag">S2 S3</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Running on this machine</h3>
+        <ol>
+          <li><b>The CPU faults</b>: dead-worker recovery, retries, a bit-for-bit recheck, E-core pinning. <span class="tag">S1 S2 S3</span></li>
+          <li><b>Make long runs resumable</b>, replicate by replicate, under a time budget. <span class="tag">S3</span></li>
+          <li><b>Never edit modules a running pool imports.</b> <span class="tag">S3</span></li>
+          <li><b>Subset scenarios by index</b>, never by drawing fewer. <span class="tag">S2</span></li>
+        </ol>
+      </section>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where everything is</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Study</th><th>Registry entry</th><th>Manual</th><th>Code</th><th>Outputs</th></tr></thead>
+      <tbody>
+        <tr><td><b class="mono">S1</b> Goal Visibility</td><td><code>docs/studies/S1_goal_visibility.md</code></td><td><code>docs/density_study/</code></td><td><code>citysim/vissim.py</code>, <code>capability.py</code></td><td><code>experiment_results/density_study/</code></td></tr>
+        <tr><td><b class="mono">S2</b> Hidden Goal Search</td><td><code>docs/studies/S2_hidden_goal_search.md</code></td><td><code>docs/search_study/</code></td><td><code>citysim/search.py</code>, <code>pilots.py</code></td><td><code>experiment_results/search_study/</code></td></tr>
+        <tr><td><b class="mono">S3</b> City Roaming</td><td><code>docs/studies/S3_city_roaming.md</code></td><td><code>docs/clutter_study/</code></td><td><code>citysim/clutter.py</code>, <code>clutter_stats.py</code></td><td><code>experiment_results/clutter_study/clutter/</code></td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter), so nothing that reads them broke.</p>
+  </section>
+
+  <section>
+    <h2>Starting a new study</h2>
+    <ol class="steps">
+      <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
+      <li>Take the next ID (S4), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S4_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
+      <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>
+    </ol>
+  </section>
+
+  <footer class="foot">Last updated 21 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
+</div>

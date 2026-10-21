@@ -116,6 +116,8 @@ class Params:
         ring = "" if self.ring_size < 0 else f"_rs{self.ring_size:g}"
         mix = f"_mix{self.mix}" if self.mix else ""
         place = "" if self.place == "rsa" else f"_{self.place}"
+        if self.goals <= 0:                    # a goal-free city: no goal geometry to name
+            return f"{core}_x{self.size:g}_nogoals{mix}{place}_seed{seed}"
         return f"{core}_x{self.size:g}_wc{self.w_c:g}_rg{self.r_g:g}_nb{self.n_b}{ring}{mix}{place}_seed{seed}"
 
 
@@ -310,7 +312,10 @@ def clear_radius(P, design, mix=None):
 
 def choose_goal_centres(P, rng, candidates, r_clear):
     """GOALS centres from `candidates` [(block_id, (x, z))]: inside the arena by r_clear, >= 100 m from the
-    spawn, >= 150 m apart, one from each third of the eligible spawn distances. [(block_id, centre)]."""
+    spawn, >= 150 m apart, one from each third of the eligible spawn distances. [(block_id, centre)]; none for a
+    goal-free city (goals 0: the clutter study's), which draws no random number."""
+    if P.goals <= 0:
+        return []
     x0, x1, z0, z1 = P.arena
     sx, sz = P.spawn[0], P.spawn[2]
     elig = [(b, c) for b, c in candidates
@@ -399,7 +404,7 @@ def generate(P, seed):
     # ---- city buildings
     target_area = (P.f * sum(abs(geo.area(b)) for b in blocks if len(b) >= 3) if P.f >= 0 and P.mode == "blocks"
                    else P.alpha * A)
-    built = float(geo.rect_area(np.array(index.rects)).sum())
+    built = float(geo.rect_area(np.array(index.rects)).sum()) if index.rects else 0.0
     one = (design.w * design.d if mix is None else mix.mean_area) * P.size ** 2
     n_city = 0
 

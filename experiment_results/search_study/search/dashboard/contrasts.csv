@@ -1,0 +1,551 @@
+key,pilot,city,city_label,city_order,comparison,comparison_label,spread,basis,range_m,searches,goals,ratio,lo,hi
+fit|C0|cameras|0.4|any|80,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,0.8754,0.7575,1.0191
+fit|C0|cameras|1.0|any|80,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.8203,0.6967,0.9822
+fit|C1p|cameras|0.4|any|80,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.0242,0.8929,1.1551
+fit|C1p|cameras|1.0|any|80,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.8331,0.7195,0.9506
+fit|C2p|cameras|0.4|any|80,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.2403,1.0932,1.4615
+fit|C2p|cameras|1.0|any|80,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.862,0.7598,1.0057
+fit|C1|cameras|0.4|any|80,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.4424,1.2785,1.6284
+fit|C1|cameras|1.0|any|80,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.9186,0.7661,1.1059
+fit|C2|cameras|0.4|any|80,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.3351,1.1654,1.5306
+fit|C2|cameras|1.0|any|80,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.8184,0.6479,1.0067
+fit|C0|cameras|0.4|any|200,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,0.8072,0.6342,0.9707
+fit|C0|cameras|1.0|any|200,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.7968,0.626,0.9587
+fit|C1p|cameras|0.4|any|200,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.1172,0.8929,1.4163
+fit|C1p|cameras|1.0|any|200,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.8468,0.7271,1.0119
+fit|C2p|cameras|0.4|any|200,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.3486,1.0664,1.6718
+fit|C2p|cameras|1.0|any|200,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.7962,0.6666,0.9814
+fit|C1|cameras|0.4|any|200,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.3832,1.0234,1.6379
+fit|C1|cameras|1.0|any|200,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.8005,0.5762,1.0117
+fit|C2|cameras|0.4|any|200,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.6966,1.3184,2.2314
+fit|C2|cameras|1.0|any|200,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.8374,0.6002,1.1204
+fit|C0|cameras|0.4|head_ahead|80,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.0079,0.8559,1.1813
+fit|C0|cameras|1.0|head_ahead|80,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9516,0.7956,1.128
+fit|C1p|cameras|0.4|head_ahead|80,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.0309,0.897,1.1648
+fit|C1p|cameras|1.0|head_ahead|80,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.8549,0.749,0.9675
+fit|C2p|cameras|0.4|head_ahead|80,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.3011,1.139,1.5508
+fit|C2p|cameras|1.0|head_ahead|80,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9312,0.8357,1.0701
+fit|C1|cameras|0.4|head_ahead|80,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.567,1.3412,1.8483
+fit|C1|cameras|1.0|head_ahead|80,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,1.0843,0.9229,1.2593
+fit|C2|cameras|0.4|head_ahead|80,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.4151,1.26,1.6147
+fit|C2|cameras|1.0|head_ahead|80,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9217,0.7821,1.0914
+fit|C0|cameras|0.4|head_ahead|200,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,0.8264,0.6496,0.9861
+fit|C0|cameras|1.0|head_ahead|200,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.822,0.6466,0.9813
+fit|C1p|cameras|0.4|head_ahead|200,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.2249,1.0418,1.495
+fit|C1p|cameras|1.0|head_ahead|200,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9371,0.8152,1.1294
+fit|C2p|cameras|0.4|head_ahead|200,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.4782,1.1676,1.8198
+fit|C2p|cameras|1.0|head_ahead|200,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9218,0.7436,1.2028
+fit|C1|cameras|0.4|head_ahead|200,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.5969,1.303,1.8944
+fit|C1|cameras|1.0|head_ahead|200,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,1.0147,0.7943,1.2476
+fit|C2|cameras|0.4|head_ahead|200,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.7113,1.3285,2.2614
+fit|C2|cameras|1.0|head_ahead|200,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9968,0.7304,1.3322
+fit|C0|cameras|0.4|head_fit|80,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.001,0.8485,1.1817
+fit|C0|cameras|1.0|head_fit|80,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.9679,0.782,1.1678
+fit|C1p|cameras|0.4|head_fit|80,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.0309,0.8968,1.165
+fit|C1p|cameras|1.0|head_fit|80,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.8566,0.7515,0.9688
+fit|C2p|cameras|0.4|head_fit|80,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.3012,1.1392,1.5509
+fit|C2p|cameras|1.0|head_fit|80,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.9217,0.8313,1.0592
+fit|C1|cameras|0.4|head_fit|80,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.5857,1.3486,1.8738
+fit|C1|cameras|1.0|head_fit|80,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,1.0782,0.9175,1.2556
+fit|C2|cameras|0.4|head_fit|80,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.4369,1.2784,1.6308
+fit|C2|cameras|1.0|head_fit|80,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.9474,0.7964,1.1314
+fit|C0|cameras|0.4|head_fit|200,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,0.8244,0.646,0.9854
+fit|C0|cameras|1.0|head_fit|200,fit,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.8217,0.6441,0.9841
+fit|C1p|cameras|0.4|head_fit|200,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.2187,1.0326,1.4929
+fit|C1p|cameras|1.0|head_fit|200,fit,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.9123,0.7823,1.1093
+fit|C2p|cameras|0.4|head_fit|200,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.4535,1.1328,1.8106
+fit|C2p|cameras|1.0|head_fit|200,fit,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.8969,0.7532,1.1077
+fit|C1|cameras|0.4|head_fit|200,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.6673,1.3654,2.0265
+fit|C1|cameras|1.0|head_fit|200,fit,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.975,0.7573,1.2118
+fit|C2|cameras|0.4|head_fit|200,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.6994,1.3204,2.2366
+fit|C2|cameras|1.0|head_fit|200,fit,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.9886,0.7253,1.3168
+fit|C0|morphing|0.4|any|80,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,1.0289,1.004,1.0626
+fit|C0|morphing|1.0|any|80,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,1.0376,0.9742,1.1113
+fit|C1p|morphing|0.4|any|80,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,0.9311,0.8809,0.9833
+fit|C1p|morphing|1.0|any|80,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,0.9538,0.9054,0.9934
+fit|C2p|morphing|0.4|any|80,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,0.8132,0.7545,0.8824
+fit|C2p|morphing|1.0|any|80,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,0.9818,0.9299,1.038
+fit|C1|morphing|0.4|any|80,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,0.9542,0.8492,1.075
+fit|C1|morphing|1.0|any|80,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,1.002,0.8789,1.1515
+fit|C2|morphing|0.4|any|80,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,0.9443,0.861,1.0304
+fit|C2|morphing|1.0|any|80,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,0.9352,0.8684,1.0031
+fit|C0|morphing|0.4|any|200,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.9975,0.9838,1.0074
+fit|C0|morphing|1.0|any|200,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9644,0.894,0.9999
+fit|C1p|morphing|0.4|any|200,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.84,0.775,0.9251
+fit|C1p|morphing|1.0|any|200,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9656,0.9376,0.9869
+fit|C2p|morphing|0.4|any|200,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.9855,0.8229,1.2272
+fit|C2p|morphing|1.0|any|200,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9925,0.9705,1.022
+fit|C1|morphing|0.4|any|200,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.9594,0.8158,1.2031
+fit|C1|morphing|1.0|any|200,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9333,0.8203,1.1398
+fit|C2|morphing|0.4|any|200,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.8566,0.7564,0.978
+fit|C2|morphing|1.0|any|200,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9422,0.8399,1.0867
+fit|C0|morphing|0.4|head_ahead|80,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,1.0064,0.9656,1.0406
+fit|C0|morphing|1.0|head_ahead|80,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,1.0297,0.9824,1.0976
+fit|C1p|morphing|0.4|head_ahead|80,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,0.9403,0.8817,1.0054
+fit|C1p|morphing|1.0|head_ahead|80,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,0.9612,0.9201,0.9941
+fit|C2p|morphing|0.4|head_ahead|80,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,0.811,0.7383,0.8918
+fit|C2p|morphing|1.0|head_ahead|80,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,1.0471,1.0025,1.1072
+fit|C1|morphing|0.4|head_ahead|80,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,0.9101,0.7982,1.0625
+fit|C1|morphing|1.0|head_ahead|80,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,0.9604,0.8578,1.0944
+fit|C2|morphing|0.4|head_ahead|80,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,0.9346,0.8841,0.9859
+fit|C2|morphing|1.0|head_ahead|80,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,0.9163,0.8152,1.0149
+fit|C0|morphing|0.4|head_ahead|200,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,1.0113,1.0003,1.0279
+fit|C0|morphing|1.0|head_ahead|200,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,1.0001,0.9864,1.0153
+fit|C1p|morphing|0.4|head_ahead|200,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.838,0.7783,0.9131
+fit|C1p|morphing|1.0|head_ahead|200,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.9628,0.9174,0.9937
+fit|C2p|morphing|0.4|head_ahead|200,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.98,0.8174,1.2121
+fit|C2p|morphing|1.0|head_ahead|200,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,1.049,0.9705,1.1226
+fit|C1|morphing|0.4|head_ahead|200,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.9658,0.8358,1.1802
+fit|C1|morphing|1.0|head_ahead|200,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.8939,0.8089,1.015
+fit|C2|morphing|0.4|head_ahead|200,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.9264,0.8132,1.0661
+fit|C2|morphing|1.0|head_ahead|200,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.8728,0.7602,1.0212
+fit|C0|morphing|0.4|head_fit|80,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,1.0062,0.9656,1.0406
+fit|C0|morphing|1.0|head_fit|80,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,0.9751,0.8744,1.0701
+fit|C1p|morphing|0.4|head_fit|80,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,0.9269,0.8791,0.9794
+fit|C1p|morphing|1.0|head_fit|80,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,0.943,0.8927,0.9841
+fit|C2p|morphing|0.4|head_fit|80,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,0.8206,0.755,0.8927
+fit|C2p|morphing|1.0|head_fit|80,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,1.0407,0.9941,1.1027
+fit|C1|morphing|0.4|head_fit|80,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,0.8922,0.7798,1.0451
+fit|C1|morphing|1.0|head_fit|80,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,0.9528,0.8504,1.0889
+fit|C2|morphing|0.4|head_fit|80,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,0.935,0.8765,0.996
+fit|C2|morphing|1.0|head_fit|80,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,0.909,0.7988,1.0112
+fit|C0|morphing|0.4|head_fit|200,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,1.004,1.0001,1.0079
+fit|C0|morphing|1.0|head_fit|200,fit,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,1.0081,0.9898,1.0239
+fit|C1p|morphing|0.4|head_fit|200,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,0.8362,0.7651,0.9316
+fit|C1p|morphing|1.0|head_fit|200,fit,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,0.9635,0.9173,0.9943
+fit|C2p|morphing|0.4|head_fit|200,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,0.996,0.8593,1.2155
+fit|C2p|morphing|1.0|head_fit|200,fit,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,1.0284,0.9702,1.0968
+fit|C1|morphing|0.4|head_fit|200,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,0.9136,0.796,1.0641
+fit|C1|morphing|1.0|head_fit|200,fit,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,0.9172,0.8058,1.0931
+fit|C2|morphing|0.4|head_fit|200,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,0.9072,0.7903,1.056
+fit|C2|morphing|1.0|head_fit|200,fit,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,0.8281,0.707,0.9886
+fit|C0|swarm_single|0.4|any|80,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,0.9008,0.7885,1.0308
+fit|C0|swarm_single|1.0|any|80,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.8512,0.7336,0.9896
+fit|C1p|swarm_single|0.4|any|80,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,0.9537,0.8589,1.0462
+fit|C1p|swarm_single|1.0|any|80,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.7946,0.6686,0.9298
+fit|C2p|swarm_single|0.4|any|80,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,1.0085,0.8896,1.1559
+fit|C2p|swarm_single|1.0|any|80,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.8464,0.759,0.9609
+fit|C1|swarm_single|0.4|any|80,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,1.3763,1.1268,1.6689
+fit|C1|swarm_single|1.0|any|80,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.9204,0.7727,1.076
+fit|C2|swarm_single|0.4|any|80,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,1.2607,1.0422,1.5186
+fit|C2|swarm_single|1.0|any|80,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.7654,0.5923,0.9605
+fit|C0|swarm_single|0.4|any|200,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,0.8052,0.6319,0.9735
+fit|C0|swarm_single|1.0|any|200,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.7684,0.5961,0.9464
+fit|C1p|swarm_single|0.4|any|200,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,0.9384,0.8015,1.1181
+fit|C1p|swarm_single|1.0|any|200,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.8177,0.7011,0.9804
+fit|C2p|swarm_single|0.4|any|200,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,1.329,1.1085,1.6617
+fit|C2p|swarm_single|1.0|any|200,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.7902,0.6685,0.9654
+fit|C1|swarm_single|0.4|any|200,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,1.327,1.0197,1.6395
+fit|C1|swarm_single|1.0|any|200,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.7471,0.5834,0.91
+fit|C2|swarm_single|0.4|any|200,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,1.4533,1.2546,1.7216
+fit|C2|swarm_single|1.0|any|200,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.789,0.6067,0.994
+fit|C0|swarm_single|0.4|head_ahead|80,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.0143,0.8706,1.1791
+fit|C0|swarm_single|1.0|head_ahead|80,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9799,0.8434,1.1498
+fit|C1p|swarm_single|0.4|head_ahead|80,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,0.9694,0.8798,1.0537
+fit|C1p|swarm_single|1.0|head_ahead|80,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.8218,0.715,0.9403
+fit|C2p|swarm_single|0.4|head_ahead|80,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.0552,0.9386,1.2135
+fit|C2p|swarm_single|1.0|head_ahead|80,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9751,0.8461,1.1685
+fit|C1|swarm_single|0.4|head_ahead|80,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.4261,1.1485,1.7672
+fit|C1|swarm_single|1.0|head_ahead|80,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,1.0414,0.862,1.2329
+fit|C2|swarm_single|0.4|head_ahead|80,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.3225,1.1444,1.5355
+fit|C2|swarm_single|1.0|head_ahead|80,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.8446,0.6778,1.0283
+fit|C0|swarm_single|0.4|head_ahead|200,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,0.8357,0.654,1.0019
+fit|C0|swarm_single|1.0|head_ahead|200,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.8221,0.644,0.987
+fit|C1p|swarm_single|0.4|head_ahead|200,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.0264,0.889,1.2106
+fit|C1p|swarm_single|1.0|head_ahead|200,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9023,0.8006,1.0528
+fit|C2p|swarm_single|0.4|head_ahead|200,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.4486,1.1948,1.836
+fit|C2p|swarm_single|1.0|head_ahead|200,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9669,0.7524,1.3073
+fit|C1|swarm_single|0.4|head_ahead|200,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.5423,1.2018,1.9914
+fit|C1|swarm_single|1.0|head_ahead|200,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.907,0.7046,1.1851
+fit|C2|swarm_single|0.4|head_ahead|200,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.5854,1.333,1.9364
+fit|C2|swarm_single|1.0|head_ahead|200,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.87,0.6664,1.0892
+fit|C0|swarm_single|0.4|head_fit|80,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.0073,0.8614,1.1784
+fit|C0|swarm_single|1.0|head_fit|80,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.9437,0.7654,1.1506
+fit|C1p|swarm_single|0.4|head_fit|80,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,0.9555,0.8617,1.0477
+fit|C1p|swarm_single|1.0|head_fit|80,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.8078,0.6946,0.936
+fit|C2p|swarm_single|0.4|head_fit|80,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.0677,0.9442,1.2463
+fit|C2p|swarm_single|1.0|head_fit|80,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.9592,0.8378,1.1533
+fit|C1|swarm_single|0.4|head_fit|80,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.4148,1.1425,1.7422
+fit|C1|swarm_single|1.0|head_fit|80,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,1.0274,0.8405,1.2301
+fit|C2|swarm_single|0.4|head_fit|80,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.3435,1.1642,1.5615
+fit|C2|swarm_single|1.0|head_fit|80,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.8612,0.7099,1.0298
+fit|C0|swarm_single|0.4|head_fit|200,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,0.8277,0.6489,0.9908
+fit|C0|swarm_single|1.0|head_fit|200,fit,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.8283,0.6456,0.9993
+fit|C1p|swarm_single|0.4|head_fit|200,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.019,0.8653,1.2254
+fit|C1p|swarm_single|1.0|head_fit|200,fit,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.8789,0.7641,1.0453
+fit|C2p|swarm_single|0.4|head_fit|200,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.4477,1.2304,1.7622
+fit|C2p|swarm_single|1.0|head_fit|200,fit,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.9224,0.7764,1.1192
+fit|C1|swarm_single|0.4|head_fit|200,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.5232,1.157,1.9833
+fit|C1|swarm_single|1.0|head_fit|200,fit,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.8943,0.7027,1.1501
+fit|C2|swarm_single|0.4|head_fit|200,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.5417,1.3046,1.8639
+fit|C2|swarm_single|1.0|head_fit|200,fit,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.8186,0.6342,1.027
+rw|C0|cameras|0.4|any|80,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,0.9203,0.8735,0.9622
+rw|C0|cameras|1.0|any|80,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.8816,0.8169,0.9449
+rw|C1p|cameras|0.4|any|80,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.0316,0.9854,1.0794
+rw|C1p|cameras|1.0|any|80,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.8854,0.8397,0.9339
+rw|C2p|cameras|0.4|any|80,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.2348,1.1429,1.3513
+rw|C2p|cameras|1.0|any|80,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.9397,0.8924,0.982
+rw|C1|cameras|0.4|any|80,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.1018,1.0118,1.2199
+rw|C1|cameras|1.0|any|80,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,0.8395,0.7734,0.9114
+rw|C2|cameras|0.4|any|80,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,any,80,72,9,1.3966,1.285,1.5421
+rw|C2|cameras|1.0|any|80,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,72,9,1.0155,0.8958,1.124
+rw|C0|cameras|0.4|any|200,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,0.8883,0.7973,0.9829
+rw|C0|cameras|1.0|any|200,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.8582,0.7643,0.9481
+rw|C1p|cameras|0.4|any|200,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.0575,0.9261,1.202
+rw|C1p|cameras|1.0|any|200,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.8458,0.766,0.9215
+rw|C2p|cameras|0.4|any|200,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.331,1.1931,1.5194
+rw|C2p|cameras|1.0|any|200,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.8883,0.7982,0.9375
+rw|C1|cameras|0.4|any|200,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.2285,1.032,1.4497
+rw|C1|cameras|1.0|any|200,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.7978,0.6801,0.9085
+rw|C2|cameras|0.4|any|200,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,any,200,72,9,1.401,1.1093,1.6651
+rw|C2|cameras|1.0|any|200,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,72,9,0.7849,0.6461,0.9346
+rw|C0|cameras|0.4|head_ahead|80,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,0.9814,0.9479,1.013
+rw|C0|cameras|1.0|head_ahead|80,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9554,0.9174,0.9951
+rw|C1p|cameras|0.4|head_ahead|80,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.0654,1.031,1.102
+rw|C1p|cameras|1.0|head_ahead|80,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9382,0.8916,0.9799
+rw|C2p|cameras|0.4|head_ahead|80,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.2353,1.1429,1.3519
+rw|C2p|cameras|1.0|head_ahead|80,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9541,0.9109,0.9932
+rw|C1|cameras|0.4|head_ahead|80,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.1658,1.0782,1.2668
+rw|C1|cameras|1.0|head_ahead|80,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,0.932,0.8666,1.0107
+rw|C2|cameras|0.4|head_ahead|80,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,80,72,9,1.4155,1.3023,1.5644
+rw|C2|cameras|1.0|head_ahead|80,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,72,9,1.0587,0.9401,1.1664
+rw|C0|cameras|0.4|head_ahead|200,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,0.9585,0.9091,1.0127
+rw|C0|cameras|1.0|head_ahead|200,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9182,0.8405,0.973
+rw|C1p|cameras|0.4|head_ahead|200,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.1059,0.9774,1.2567
+rw|C1p|cameras|1.0|head_ahead|200,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.8783,0.7928,0.9557
+rw|C2p|cameras|0.4|head_ahead|200,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.4363,1.2733,1.752
+rw|C2p|cameras|1.0|head_ahead|200,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9662,0.935,1.0038
+rw|C1|cameras|0.4|head_ahead|200,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.3717,1.1723,1.5739
+rw|C1|cameras|1.0|head_ahead|200,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9151,0.8566,0.9791
+rw|C2|cameras|0.4|head_ahead|200,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_ahead,200,72,9,1.553,1.3806,1.7386
+rw|C2|cameras|1.0|head_ahead|200,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9034,0.7612,1.056
+rw|C0|cameras|0.4|head_fit|80,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,0.9718,0.9396,1.007
+rw|C0|cameras|1.0|head_fit|80,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.938,0.9074,0.9701
+rw|C1p|cameras|0.4|head_fit|80,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.1054,1.045,1.1764
+rw|C1p|cameras|1.0|head_fit|80,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.9383,0.8918,0.98
+rw|C2p|cameras|0.4|head_fit|80,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.2355,1.1432,1.352
+rw|C2p|cameras|1.0|head_fit|80,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.9415,0.8943,0.9833
+rw|C1|cameras|0.4|head_fit|80,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.1658,1.0782,1.2668
+rw|C1|cameras|1.0|head_fit|80,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,0.921,0.8621,0.9966
+rw|C2|cameras|0.4|head_fit|80,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,80,72,9,1.4155,1.3023,1.5643
+rw|C2|cameras|1.0|head_fit|80,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,72,9,1.0566,0.9362,1.165
+rw|C0|cameras|0.4|head_fit|200,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,0.9374,0.8813,1.0046
+rw|C0|cameras|1.0|head_fit|200,rw,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.9068,0.8487,0.963
+rw|C1p|cameras|0.4|head_fit|200,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.1053,0.9762,1.2564
+rw|C1p|cameras|1.0|head_fit|200,rw,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.8737,0.7898,0.9493
+rw|C2p|cameras|0.4|head_fit|200,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.4062,1.2723,1.6429
+rw|C2p|cameras|1.0|head_fit|200,rw,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.9309,0.8669,0.9797
+rw|C1|cameras|0.4|head_fit|200,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.3191,1.1449,1.5114
+rw|C1|cameras|1.0|head_fit|200,rw,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.8616,0.786,0.9402
+rw|C2|cameras|0.4|head_fit|200,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,0.4,head_fit,200,72,9,1.5485,1.3713,1.7376
+rw|C2|cameras|1.0|head_fit|200,rw,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,72,9,0.9133,0.7788,1.0638
+rw|C0|morphing|0.4|any|80,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,1.0206,0.9801,1.0649
+rw|C0|morphing|1.0|any|80,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,1.0043,0.9921,1.0268
+rw|C1p|morphing|0.4|any|80,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,0.9496,0.8468,1.0476
+rw|C1p|morphing|1.0|any|80,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,1.0084,0.9535,1.0776
+rw|C2p|morphing|0.4|any|80,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,0.9925,0.9105,1.0807
+rw|C2p|morphing|1.0|any|80,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,0.9969,0.9728,1.0226
+rw|C1|morphing|0.4|any|80,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,1.0154,0.9217,1.1002
+rw|C1|morphing|1.0|any|80,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,0.9811,0.8975,1.0721
+rw|C2|morphing|0.4|any|80,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,any,80,72,9,0.9621,0.9089,1.0215
+rw|C2|morphing|1.0|any|80,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,72,9,0.8356,0.7592,0.9107
+rw|C0|morphing|0.4|any|200,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,1.0105,0.9444,1.0913
+rw|C0|morphing|1.0|any|200,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9894,0.9866,0.9919
+rw|C1p|morphing|0.4|any|200,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.898,0.7623,1.0447
+rw|C1p|morphing|1.0|any|200,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9782,0.9633,0.9922
+rw|C2p|morphing|0.4|any|200,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.9442,0.7613,1.1006
+rw|C2p|morphing|1.0|any|200,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9571,0.9142,1.0178
+rw|C1|morphing|0.4|any|200,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.9521,0.8303,1.1061
+rw|C1|morphing|1.0|any|200,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9547,0.8834,1.0294
+rw|C2|morphing|0.4|any|200,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,any,200,72,9,0.8271,0.7364,0.9255
+rw|C2|morphing|1.0|any|200,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,72,9,0.9219,0.7839,1.0726
+rw|C0|morphing|0.4|head_ahead|80,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,1.0097,0.9791,1.0454
+rw|C0|morphing|1.0|head_ahead|80,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,0.9884,0.9628,1.0143
+rw|C1p|morphing|0.4|head_ahead|80,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,0.9754,0.8988,1.0741
+rw|C1p|morphing|1.0|head_ahead|80,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,0.9677,0.9277,0.9993
+rw|C2p|morphing|0.4|head_ahead|80,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,1.0574,0.9907,1.1367
+rw|C2p|morphing|1.0|head_ahead|80,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,0.992,0.9487,1.0247
+rw|C1|morphing|0.4|head_ahead|80,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,0.9691,0.8936,1.0432
+rw|C1|morphing|1.0|head_ahead|80,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,1.0106,0.9185,1.0967
+rw|C2|morphing|0.4|head_ahead|80,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,80,72,9,0.9761,0.9123,1.0347
+rw|C2|morphing|1.0|head_ahead|80,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,72,9,0.8433,0.7619,0.9338
+rw|C0|morphing|0.4|head_ahead|200,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.9925,0.9483,1.0304
+rw|C0|morphing|1.0|head_ahead|200,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.9996,0.9826,1.0284
+rw|C1p|morphing|0.4|head_ahead|200,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.9244,0.7969,1.0609
+rw|C1p|morphing|1.0|head_ahead|200,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.9986,0.9674,1.0438
+rw|C2p|morphing|0.4|head_ahead|200,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.9544,0.824,1.0931
+rw|C2p|morphing|1.0|head_ahead|200,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.9185,0.8294,0.9992
+rw|C1|morphing|0.4|head_ahead|200,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,1.0093,0.8517,1.2351
+rw|C1|morphing|1.0|head_ahead|200,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.8985,0.8373,0.9631
+rw|C2|morphing|0.4|head_ahead|200,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_ahead,200,72,9,0.8907,0.7939,0.9988
+rw|C2|morphing|1.0|head_ahead|200,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,72,9,0.8948,0.8057,1.0136
+rw|C0|morphing|0.4|head_fit|80,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,1.0108,0.9809,1.0442
+rw|C0|morphing|1.0|head_fit|80,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,0.997,0.9776,1.0199
+rw|C1p|morphing|0.4|head_fit|80,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,0.9403,0.8462,1.054
+rw|C1p|morphing|1.0|head_fit|80,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,0.9674,0.9271,0.9993
+rw|C2p|morphing|0.4|head_fit|80,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,1.0574,0.991,1.1365
+rw|C2p|morphing|1.0|head_fit|80,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,1.0016,0.9816,1.0233
+rw|C1|morphing|0.4|head_fit|80,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,0.973,0.8992,1.0446
+rw|C1|morphing|1.0|head_fit|80,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,1.0035,0.9139,1.09
+rw|C2|morphing|0.4|head_fit|80,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,80,72,9,0.976,0.9119,1.0347
+rw|C2|morphing|1.0|head_fit|80,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,72,9,0.8145,0.7477,0.8771
+rw|C0|morphing|0.4|head_fit|200,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,1.0199,0.958,1.078
+rw|C0|morphing|1.0|head_fit|200,rw,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,1.0334,0.9912,1.0855
+rw|C1p|morphing|0.4|head_fit|200,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,0.9224,0.787,1.0602
+rw|C1p|morphing|1.0|head_fit|200,rw,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,0.989,0.9613,1.032
+rw|C2p|morphing|0.4|head_fit|200,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,0.9609,0.831,1.0981
+rw|C2p|morphing|1.0|head_fit|200,rw,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,0.9607,0.9136,1.0121
+rw|C1|morphing|0.4|head_fit|200,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,1.0061,0.8644,1.2218
+rw|C1|morphing|1.0|head_fit|200,rw,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,0.9589,0.8876,1.0464
+rw|C2|morphing|0.4|head_fit|200,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,0.4,head_fit,200,72,9,0.9043,0.8279,0.9881
+rw|C2|morphing|1.0|head_fit|200,rw,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,72,9,0.8677,0.7875,0.9603
+rw|C0|scan|1.0|any|80,rw,C0,C0 open,0,scan,Looking round ÷ single drone,1.0,any,80,72,9,0.985,0.9544,1.0
+rw|C1p|scan|1.0|any|80,rw,C1p,C1p porous,1,scan,Looking round ÷ single drone,1.0,any,80,72,9,0.9926,0.9781,1.0
+rw|C2p|scan|1.0|any|80,rw,C2p,C2p porous,2,scan,Looking round ÷ single drone,1.0,any,80,72,9,0.9889,0.9643,1.0
+rw|C1|scan|1.0|any|80,rw,C1,C1 packed,3,scan,Looking round ÷ single drone,1.0,any,80,72,9,0.9532,0.9183,0.9917
+rw|C2|scan|1.0|any|80,rw,C2,C2 packed,4,scan,Looking round ÷ single drone,1.0,any,80,72,9,0.9797,0.9374,0.9998
+rw|C0|scan|1.0|any|200,rw,C0,C0 open,0,scan,Looking round ÷ single drone,1.0,any,200,72,9,0.9659,0.9293,0.9983
+rw|C1p|scan|1.0|any|200,rw,C1p,C1p porous,1,scan,Looking round ÷ single drone,1.0,any,200,72,9,0.9514,0.9227,0.981
+rw|C2p|scan|1.0|any|200,rw,C2p,C2p porous,2,scan,Looking round ÷ single drone,1.0,any,200,72,9,0.979,0.9489,0.9961
+rw|C1|scan|1.0|any|200,rw,C1,C1 packed,3,scan,Looking round ÷ single drone,1.0,any,200,72,9,0.9502,0.9007,0.995
+rw|C2|scan|1.0|any|200,rw,C2,C2 packed,4,scan,Looking round ÷ single drone,1.0,any,200,72,9,0.9693,0.9359,0.9964
+rw|C0|swarm_single|0.4|any|80,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,0.9392,0.9076,0.9706
+rw|C0|swarm_single|1.0|any|80,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.8853,0.8256,0.9415
+rw|C1p|swarm_single|0.4|any|80,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,0.9796,0.8705,1.1008
+rw|C1p|swarm_single|1.0|any|80,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.8928,0.843,0.9411
+rw|C2p|swarm_single|0.4|any|80,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,1.2255,1.1411,1.3246
+rw|C2p|swarm_single|1.0|any|80,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.9368,0.8715,0.9956
+rw|C1|swarm_single|0.4|any|80,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,1.1188,1.0615,1.1875
+rw|C1|swarm_single|1.0|any|80,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.8236,0.7798,0.8656
+rw|C2|swarm_single|0.4|any|80,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,any,80,72,9,1.3437,1.2338,1.4847
+rw|C2|swarm_single|1.0|any|80,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,80,72,9,0.8486,0.7761,0.9159
+rw|C0|swarm_single|0.4|any|200,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,0.8977,0.8312,0.9533
+rw|C0|swarm_single|1.0|any|200,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.8491,0.7548,0.9389
+rw|C1p|swarm_single|0.4|any|200,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,0.9496,0.8248,1.0872
+rw|C1p|swarm_single|1.0|any|200,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.8274,0.7513,0.9028
+rw|C2p|swarm_single|0.4|any|200,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,1.2568,1.0748,1.4697
+rw|C2p|swarm_single|1.0|any|200,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.8501,0.7709,0.9144
+rw|C1|swarm_single|0.4|any|200,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,1.1697,1.042,1.3186
+rw|C1|swarm_single|1.0|any|200,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.7617,0.654,0.8756
+rw|C2|swarm_single|0.4|any|200,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,any,200,72,9,1.1588,0.93,1.3877
+rw|C2|swarm_single|1.0|any|200,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,200,72,9,0.7236,0.6298,0.8219
+rw|C0|swarm_single|0.4|head_ahead|80,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,0.9909,0.9729,1.0149
+rw|C0|swarm_single|1.0|head_ahead|80,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9443,0.918,0.9707
+rw|C1p|swarm_single|0.4|head_ahead|80,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.0393,0.954,1.1542
+rw|C1p|swarm_single|1.0|head_ahead|80,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9079,0.8591,0.9551
+rw|C2p|swarm_single|0.4|head_ahead|80,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.3062,1.1843,1.4417
+rw|C2p|swarm_single|1.0|head_ahead|80,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9465,0.8877,1.0013
+rw|C1|swarm_single|0.4|head_ahead|80,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.1298,1.067,1.1996
+rw|C1|swarm_single|1.0|head_ahead|80,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.9419,0.9037,0.982
+rw|C2|swarm_single|0.4|head_ahead|80,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_ahead,80,72,9,1.3817,1.2612,1.5301
+rw|C2|swarm_single|1.0|head_ahead|80,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,72,9,0.8928,0.8425,0.9426
+rw|C0|swarm_single|0.4|head_ahead|200,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,0.9513,0.9125,0.9874
+rw|C0|swarm_single|1.0|head_ahead|200,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.9178,0.8568,0.9614
+rw|C1p|swarm_single|0.4|head_ahead|200,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.0223,0.9057,1.1582
+rw|C1p|swarm_single|1.0|head_ahead|200,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.8771,0.7991,0.952
+rw|C2p|swarm_single|0.4|head_ahead|200,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.3708,1.2039,1.6251
+rw|C2p|swarm_single|1.0|head_ahead|200,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.8875,0.8125,0.9604
+rw|C1|swarm_single|0.4|head_ahead|200,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.3844,1.2334,1.5426
+rw|C1|swarm_single|1.0|head_ahead|200,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.8222,0.7489,0.9037
+rw|C2|swarm_single|0.4|head_ahead|200,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_ahead,200,72,9,1.3832,1.2168,1.5991
+rw|C2|swarm_single|1.0|head_ahead|200,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,72,9,0.8084,0.7424,0.8762
+rw|C0|swarm_single|0.4|head_fit|80,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,0.9823,0.9705,0.9924
+rw|C0|swarm_single|1.0|head_fit|80,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.9352,0.9015,0.9684
+rw|C1p|swarm_single|0.4|head_fit|80,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.0394,0.9542,1.1544
+rw|C1p|swarm_single|1.0|head_fit|80,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.9077,0.8587,0.9549
+rw|C2p|swarm_single|0.4|head_fit|80,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.3065,1.1856,1.4409
+rw|C2p|swarm_single|1.0|head_fit|80,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.943,0.8797,0.9994
+rw|C1|swarm_single|0.4|head_fit|80,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.1343,1.0706,1.2029
+rw|C1|swarm_single|1.0|head_fit|80,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.9242,0.8803,0.9738
+rw|C2|swarm_single|0.4|head_fit|80,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_fit,80,72,9,1.3815,1.2606,1.5301
+rw|C2|swarm_single|1.0|head_fit|80,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,72,9,0.8606,0.7847,0.9244
+rw|C0|swarm_single|0.4|head_fit|200,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,0.9561,0.9197,0.9895
+rw|C0|swarm_single|1.0|head_fit|200,rw,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.937,0.8917,0.9797
+rw|C1p|swarm_single|0.4|head_fit|200,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.0194,0.8984,1.1481
+rw|C1p|swarm_single|1.0|head_fit|200,rw,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.8641,0.7916,0.9318
+rw|C2p|swarm_single|0.4|head_fit|200,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.3511,1.1554,1.6255
+rw|C2p|swarm_single|1.0|head_fit|200,rw,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.8944,0.816,0.9705
+rw|C1|swarm_single|0.4|head_fit|200,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.3272,1.1925,1.4733
+rw|C1|swarm_single|1.0|head_fit|200,rw,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.8262,0.7451,0.9185
+rw|C2|swarm_single|0.4|head_fit|200,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,0.4,head_fit,200,72,9,1.4003,1.2206,1.6116
+rw|C2|swarm_single|1.0|head_fit|200,rw,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,72,9,0.7924,0.7155,0.8706
+rw240|C0|cameras|1.0|any|80,rw240,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.8519,0.7519,0.9541
+rw240|C1p|cameras|1.0|any|80,rw240,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.8041,0.6547,0.9326
+rw240|C2p|cameras|1.0|any|80,rw240,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.8194,0.6735,0.9579
+rw240|C1|cameras|1.0|any|80,rw240,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.8637,0.7555,0.9782
+rw240|C2|cameras|1.0|any|80,rw240,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.8025,0.6865,0.9249
+rw240|C0|cameras|1.0|any|200,rw240,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.8062,0.6577,0.9386
+rw240|C1p|cameras|1.0|any|200,rw240,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.6956,0.562,0.8557
+rw240|C2p|cameras|1.0|any|200,rw240,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.7309,0.6231,0.8924
+rw240|C1|cameras|1.0|any|200,rw240,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.8367,0.7033,0.9856
+rw240|C2|cameras|1.0|any|200,rw240,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.7628,0.5793,0.9433
+rw240|C0|cameras|1.0|head_ahead|80,rw240,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9126,0.8223,0.999
+rw240|C1p|cameras|1.0|head_ahead|80,rw240,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.8927,0.7293,1.0071
+rw240|C2p|cameras|1.0|head_ahead|80,rw240,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.8826,0.7374,1.0097
+rw240|C1|cameras|1.0|head_ahead|80,rw240,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,1.0551,0.9104,1.2442
+rw240|C2|cameras|1.0|head_ahead|80,rw240,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9219,0.7772,1.0732
+rw240|C0|cameras|1.0|head_ahead|200,rw240,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8525,0.7016,0.9757
+rw240|C1p|cameras|1.0|head_ahead|200,rw240,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8555,0.7323,0.9523
+rw240|C2p|cameras|1.0|head_ahead|200,rw240,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.948,0.8633,1.078
+rw240|C1|cameras|1.0|head_ahead|200,rw240,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9836,0.8148,1.1952
+rw240|C2|cameras|1.0|head_ahead|200,rw240,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,1.0265,0.8984,1.1768
+rw240|C0|cameras|1.0|head_fit|80,rw240,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.8673,0.7614,0.9946
+rw240|C1p|cameras|1.0|head_fit|80,rw240,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.8975,0.7365,1.0124
+rw240|C2p|cameras|1.0|head_fit|80,rw240,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.8816,0.7371,1.0071
+rw240|C1|cameras|1.0|head_fit|80,rw240,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.9937,0.8162,1.2101
+rw240|C2|cameras|1.0|head_fit|80,rw240,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.9271,0.7797,1.0799
+rw240|C0|cameras|1.0|head_fit|200,rw240,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.8436,0.6964,0.9849
+rw240|C1p|cameras|1.0|head_fit|200,rw240,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.7669,0.6757,0.8731
+rw240|C2p|cameras|1.0|head_fit|200,rw240,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.8725,0.7505,1.0547
+rw240|C1|cameras|1.0|head_fit|200,rw240,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.9536,0.7736,1.1819
+rw240|C2|cameras|1.0|head_fit|200,rw240,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,1.0222,0.8949,1.1752
+rw240|C0|morphing|1.0|any|80,rw240,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,0.9871,0.9634,0.9983
+rw240|C1p|morphing|1.0|any|80,rw240,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,1.004,0.9891,1.0213
+rw240|C2p|morphing|1.0|any|80,rw240,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,0.9104,0.8286,0.984
+rw240|C1|morphing|1.0|any|80,rw240,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,0.9638,0.8036,1.1358
+rw240|C2|morphing|1.0|any|80,rw240,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,0.9625,0.8752,1.0571
+rw240|C0|morphing|1.0|any|200,rw240,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,0.9946,0.9855,1.0006
+rw240|C1p|morphing|1.0|any|200,rw240,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,0.9787,0.9614,1.0014
+rw240|C2p|morphing|1.0|any|200,rw240,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,1.0027,0.9601,1.0801
+rw240|C1|morphing|1.0|any|200,rw240,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,0.9397,0.8793,1.0027
+rw240|C2|morphing|1.0|any|200,rw240,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,0.8542,0.6104,1.229
+rw240|C0|morphing|1.0|head_ahead|80,rw240,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,0.9998,0.9825,1.016
+rw240|C1p|morphing|1.0|head_ahead|80,rw240,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,1.0069,0.9956,1.023
+rw240|C2p|morphing|1.0|head_ahead|80,rw240,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,0.9566,0.9228,0.9885
+rw240|C1|morphing|1.0|head_ahead|80,rw240,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,0.8864,0.706,1.065
+rw240|C2|morphing|1.0|head_ahead|80,rw240,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,0.8919,0.8047,0.9986
+rw240|C0|morphing|1.0|head_ahead|200,rw240,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,1.016,0.9871,1.0556
+rw240|C1p|morphing|1.0|head_ahead|200,rw240,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,0.9223,0.7709,1.0879
+rw240|C2p|morphing|1.0|head_ahead|200,rw240,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,0.9493,0.8105,1.0852
+rw240|C1|morphing|1.0|head_ahead|200,rw240,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,0.8431,0.7216,0.9822
+rw240|C2|morphing|1.0|head_ahead|200,rw240,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,0.8668,0.6882,1.1052
+rw240|C0|morphing|1.0|head_fit|80,rw240,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,1.0474,0.9852,1.1701
+rw240|C1p|morphing|1.0|head_fit|80,rw240,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,1.0013,0.9908,1.0141
+rw240|C2p|morphing|1.0|head_fit|80,rw240,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,0.9589,0.8468,1.1029
+rw240|C1|morphing|1.0|head_fit|80,rw240,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,0.9336,0.7232,1.1795
+rw240|C2|morphing|1.0|head_fit|80,rw240,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,0.8532,0.7306,0.9837
+rw240|C0|morphing|1.0|head_fit|200,rw240,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,0.9976,0.9545,1.0324
+rw240|C1p|morphing|1.0|head_fit|200,rw240,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,0.9827,0.9515,1.0097
+rw240|C2p|morphing|1.0|head_fit|200,rw240,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,0.9584,0.8371,1.0679
+rw240|C1|morphing|1.0|head_fit|200,rw240,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,0.8667,0.7518,0.9759
+rw240|C2|morphing|1.0|head_fit|200,rw240,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,0.771,0.5872,0.9895
+rw240|C0|swarm_single|1.0|any|80,rw240,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.841,0.7364,0.9447
+rw240|C1p|swarm_single|1.0|any|80,rw240,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.8074,0.653,0.9353
+rw240|C2p|swarm_single|1.0|any|80,rw240,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.7459,0.6296,0.8636
+rw240|C1|swarm_single|1.0|any|80,rw240,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.8324,0.6818,0.9555
+rw240|C2|swarm_single|1.0|any|80,rw240,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.7724,0.6426,0.9167
+rw240|C0|swarm_single|1.0|any|200,rw240,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.8018,0.6562,0.9334
+rw240|C1p|swarm_single|1.0|any|200,rw240,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.6807,0.5471,0.8454
+rw240|C2p|swarm_single|1.0|any|200,rw240,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.7329,0.6263,0.8908
+rw240|C1|swarm_single|1.0|any|200,rw240,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.7862,0.6464,0.9377
+rw240|C2|swarm_single|1.0|any|200,rw240,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.6516,0.484,0.8287
+rw240|C0|swarm_single|1.0|head_ahead|80,rw240,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9124,0.8236,0.9945
+rw240|C1p|swarm_single|1.0|head_ahead|80,rw240,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.8988,0.7368,1.0131
+rw240|C2p|swarm_single|1.0|head_ahead|80,rw240,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.8443,0.7146,0.9645
+rw240|C1|swarm_single|1.0|head_ahead|80,rw240,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9353,0.8483,1.0138
+rw240|C2|swarm_single|1.0|head_ahead|80,rw240,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.8223,0.7047,0.9548
+rw240|C0|swarm_single|1.0|head_ahead|200,rw240,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8662,0.7065,0.9702
+rw240|C1p|swarm_single|1.0|head_ahead|200,rw240,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.789,0.6628,0.9291
+rw240|C2p|swarm_single|1.0|head_ahead|200,rw240,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9,0.8375,0.9668
+rw240|C1|swarm_single|1.0|head_ahead|200,rw240,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8293,0.6989,0.9843
+rw240|C2|swarm_single|1.0|head_ahead|200,rw240,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8898,0.7642,1.0658
+rw240|C0|swarm_single|1.0|head_fit|80,rw240,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.9085,0.821,0.9889
+rw240|C1p|swarm_single|1.0|head_fit|80,rw240,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.8987,0.7361,1.0132
+rw240|C2p|swarm_single|1.0|head_fit|80,rw240,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.8453,0.7035,0.9713
+rw240|C1|swarm_single|1.0|head_fit|80,rw240,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.9277,0.8407,1.0105
+rw240|C2|swarm_single|1.0|head_fit|80,rw240,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.791,0.6637,0.932
+rw240|C0|swarm_single|1.0|head_fit|200,rw240,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.8416,0.6934,0.9657
+rw240|C1p|swarm_single|1.0|head_fit|200,rw240,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.7537,0.6489,0.8743
+rw240|C2p|swarm_single|1.0|head_fit|200,rw240,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.8362,0.7208,0.9547
+rw240|C1|swarm_single|1.0|head_fit|200,rw240,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.8265,0.7058,0.9684
+rw240|C2|swarm_single|1.0|head_fit|200,rw240,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.7881,0.5982,0.981
+rw60|C0|cameras|1.0|any|80,rw60,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.8958,0.8193,0.9616
+rw60|C1p|cameras|1.0|any|80,rw60,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.9413,0.8569,0.9925
+rw60|C2p|cameras|1.0|any|80,rw60,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.9724,0.9311,1.0192
+rw60|C1|cameras|1.0|any|80,rw60,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.9551,0.8437,1.0611
+rw60|C2|cameras|1.0|any|80,rw60,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,80,36,9,0.8631,0.7758,0.9432
+rw60|C0|cameras|1.0|any|200,rw60,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.8598,0.7101,0.9825
+rw60|C1p|cameras|1.0|any|200,rw60,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.865,0.7838,0.944
+rw60|C2p|cameras|1.0|any|200,rw60,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.8436,0.7145,0.9655
+rw60|C1|cameras|1.0|any|200,rw60,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.8177,0.6742,0.9297
+rw60|C2|cameras|1.0|any|200,rw60,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,any,200,36,9,0.8883,0.7852,0.9886
+rw60|C0|cameras|1.0|head_ahead|80,rw60,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9439,0.886,0.9881
+rw60|C1p|cameras|1.0|head_ahead|80,rw60,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9579,0.8798,1.0087
+rw60|C2p|cameras|1.0|head_ahead|80,rw60,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.975,0.9324,1.0208
+rw60|C1|cameras|1.0|head_ahead|80,rw60,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9865,0.8824,1.0863
+rw60|C2|cameras|1.0|head_ahead|80,rw60,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,80,36,9,0.896,0.8242,0.9601
+rw60|C0|cameras|1.0|head_ahead|200,rw60,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8627,0.7161,0.9825
+rw60|C1p|cameras|1.0|head_ahead|200,rw60,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9025,0.8163,0.9999
+rw60|C2p|cameras|1.0|head_ahead|200,rw60,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9317,0.826,1.0282
+rw60|C1|cameras|1.0|head_ahead|200,rw60,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8674,0.7345,0.963
+rw60|C2|cameras|1.0|head_ahead|200,rw60,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9595,0.8745,1.0547
+rw60|C0|cameras|1.0|head_fit|80,rw60,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.9459,0.8906,0.9881
+rw60|C1p|cameras|1.0|head_fit|80,rw60,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.9579,0.8798,1.0088
+rw60|C2p|cameras|1.0|head_fit|80,rw60,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.9749,0.9323,1.0206
+rw60|C1|cameras|1.0|head_fit|80,rw60,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.9866,0.8826,1.0864
+rw60|C2|cameras|1.0|head_fit|80,rw60,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,80,36,9,0.8947,0.8221,0.9598
+rw60|C0|cameras|1.0|head_fit|200,rw60,C0,C0 open,0,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.8625,0.7159,0.9825
+rw60|C1p|cameras|1.0|head_fit|200,rw60,C1p,C1p porous,1,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.8971,0.8117,0.994
+rw60|C2p|cameras|1.0|head_fit|200,rw60,C2p,C2p porous,2,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.9144,0.7844,1.0286
+rw60|C1|cameras|1.0|head_fit|200,rw60,C1,C1 packed,3,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.8567,0.7316,0.9481
+rw60|C2|cameras|1.0|head_fit|200,rw60,C2,C2 packed,4,cameras,Cameras: steered swarm ÷ single drone,1.0,head_fit,200,36,9,0.9594,0.8745,1.0547
+rw60|C0|morphing|1.0|any|80,rw60,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,0.9906,0.9574,1.0265
+rw60|C1p|morphing|1.0|any|80,rw60,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,1.0028,0.9679,1.0438
+rw60|C2p|morphing|1.0|any|80,rw60,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,0.9812,0.9144,1.0441
+rw60|C1|morphing|1.0|any|80,rw60,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,0.9228,0.8532,0.9812
+rw60|C2|morphing|1.0|any|80,rw60,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,80,36,9,1.0495,0.9876,1.1297
+rw60|C0|morphing|1.0|any|200,rw60,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,0.992,0.9877,0.9954
+rw60|C1p|morphing|1.0|any|200,rw60,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,1.0107,0.9091,1.1029
+rw60|C2p|morphing|1.0|any|200,rw60,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,0.9098,0.7196,1.1155
+rw60|C1|morphing|1.0|any|200,rw60,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,1.0855,0.9358,1.3062
+rw60|C2|morphing|1.0|any|200,rw60,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,any,200,36,9,1.0599,0.9893,1.1365
+rw60|C0|morphing|1.0|head_ahead|80,rw60,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,1.0469,0.9983,1.1177
+rw60|C1p|morphing|1.0|head_ahead|80,rw60,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,0.9941,0.9681,1.0264
+rw60|C2p|morphing|1.0|head_ahead|80,rw60,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,1.018,0.9366,1.0892
+rw60|C1|morphing|1.0|head_ahead|80,rw60,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,0.9261,0.8589,0.9791
+rw60|C2|morphing|1.0|head_ahead|80,rw60,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,80,36,9,1.0519,0.9937,1.1142
+rw60|C0|morphing|1.0|head_ahead|200,rw60,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,0.9924,0.9878,0.9958
+rw60|C1p|morphing|1.0|head_ahead|200,rw60,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,0.9935,0.8979,1.0727
+rw60|C2p|morphing|1.0|head_ahead|200,rw60,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,1.0118,0.8575,1.2156
+rw60|C1|morphing|1.0|head_ahead|200,rw60,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,1.1373,1.0343,1.3056
+rw60|C2|morphing|1.0|head_ahead|200,rw60,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_ahead,200,36,9,1.0045,0.9332,1.0882
+rw60|C0|morphing|1.0|head_fit|80,rw60,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,1.0248,0.9957,1.0762
+rw60|C1p|morphing|1.0|head_fit|80,rw60,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,0.9934,0.9674,1.0254
+rw60|C2p|morphing|1.0|head_fit|80,rw60,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,0.9919,0.9205,1.0598
+rw60|C1|morphing|1.0|head_fit|80,rw60,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,0.926,0.8589,0.9788
+rw60|C2|morphing|1.0|head_fit|80,rw60,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,80,36,9,1.0477,0.9919,1.1064
+rw60|C0|morphing|1.0|head_fit|200,rw60,C0,C0 open,0,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,1.0016,0.9933,1.0168
+rw60|C1p|morphing|1.0|head_fit|200,rw60,C1p,C1p porous,1,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,0.9995,0.9,1.0801
+rw60|C2p|morphing|1.0|head_fit|200,rw60,C2p,C2p porous,2,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,1.0297,0.8581,1.279
+rw60|C1|morphing|1.0|head_fit|200,rw60,C1,C1 packed,3,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,1.1438,1.0462,1.306
+rw60|C2|morphing|1.0|head_fit|200,rw60,C2,C2 packed,4,morphing,Morphing: swarm ÷ steered swarm,1.0,head_fit,200,36,9,1.0037,0.9325,1.0873
+rw60|C0|swarm_single|1.0|any|80,rw60,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.8874,0.8279,0.9411
+rw60|C1p|swarm_single|1.0|any|80,rw60,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.9439,0.891,0.9839
+rw60|C2p|swarm_single|1.0|any|80,rw60,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.9542,0.9265,0.9792
+rw60|C1|swarm_single|1.0|any|80,rw60,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.8813,0.7737,0.9715
+rw60|C2|swarm_single|1.0|any|80,rw60,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,80,36,9,0.9058,0.8471,0.9561
+rw60|C0|swarm_single|1.0|any|200,rw60,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.8529,0.7045,0.9755
+rw60|C1p|swarm_single|1.0|any|200,rw60,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.8742,0.7748,0.9528
+rw60|C2p|swarm_single|1.0|any|200,rw60,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.7675,0.6248,0.9109
+rw60|C1|swarm_single|1.0|any|200,rw60,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.8875,0.7554,0.9958
+rw60|C2|swarm_single|1.0|any|200,rw60,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,any,200,36,9,0.9414,0.8562,1.0272
+rw60|C0|swarm_single|1.0|head_ahead|80,rw60,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9881,0.9736,1.0008
+rw60|C1p|swarm_single|1.0|head_ahead|80,rw60,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9522,0.9004,0.987
+rw60|C2p|swarm_single|1.0|head_ahead|80,rw60,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9926,0.9472,1.0429
+rw60|C1|swarm_single|1.0|head_ahead|80,rw60,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9136,0.8051,0.9972
+rw60|C2|swarm_single|1.0|head_ahead|80,rw60,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,80,36,9,0.9425,0.9064,0.986
+rw60|C0|swarm_single|1.0|head_ahead|200,rw60,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8562,0.7104,0.9762
+rw60|C1p|swarm_single|1.0|head_ahead|200,rw60,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.8966,0.7972,0.9717
+rw60|C2p|swarm_single|1.0|head_ahead|200,rw60,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9427,0.8615,1.0359
+rw60|C1|swarm_single|1.0|head_ahead|200,rw60,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9865,0.9183,1.0467
+rw60|C2|swarm_single|1.0|head_ahead|200,rw60,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_ahead,200,36,9,0.9638,0.8768,1.0505
+rw60|C0|swarm_single|1.0|head_fit|80,rw60,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.9694,0.9185,1.0008
+rw60|C1p|swarm_single|1.0|head_fit|80,rw60,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.9516,0.8994,0.9868
+rw60|C2p|swarm_single|1.0|head_fit|80,rw60,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.9671,0.9333,1.0003
+rw60|C1|swarm_single|1.0|head_fit|80,rw60,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.9136,0.8051,0.9972
+rw60|C2|swarm_single|1.0|head_fit|80,rw60,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,80,36,9,0.9374,0.8989,0.983
+rw60|C0|swarm_single|1.0|head_fit|200,rw60,C0,C0 open,0,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.8639,0.7163,0.9826
+rw60|C1p|swarm_single|1.0|head_fit|200,rw60,C1p,C1p porous,1,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.8967,0.7972,0.9719
+rw60|C2p|swarm_single|1.0|head_fit|200,rw60,C2p,C2p porous,2,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.9416,0.8601,1.0355
+rw60|C1|swarm_single|1.0|head_fit|200,rw60,C1,C1 packed,3,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.9799,0.9041,1.0437
+rw60|C2|swarm_single|1.0|head_fit|200,rw60,C2,C2 packed,4,swarm_single,Swarm ÷ single drone,1.0,head_fit,200,36,9,0.9629,0.8764,1.0495

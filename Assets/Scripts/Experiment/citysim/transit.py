@@ -158,9 +158,10 @@ class Cells:
         return idx[np.hypot(d[:, 0], d[:, 1]) <= r]
 
 
-def seen_from(fp, cells, cam, yaw, height, pitch, r_max, hfov=camera.HFOV_DEG):
+def seen_from(fp, cells, cam, yaw, height, pitch, r_max, hfov=camera.HFOV_DEG, los=True):
     """Cells one camera recognises: (indices, slant ranges, bearing off its axis), within r_max slant, the horizontal
-    field of view (hfov >= 360 = every direction), the vertical band and a clear 2-D sight line."""
+    field of view (hfov >= 360 = every direction), the vertical band and a clear 2-D sight line (los=False: the
+    buildings ignored, what the camera's frustum alone would cover)."""
     hmax = math.sqrt(max(r_max ** 2 - (height - camera.HAT_HEIGHT_M) ** 2, 0.0))
     idx = cells.within(cam, hmax)
     if not len(idx):
@@ -172,7 +173,7 @@ def seen_from(fp, cells, cam, yaw, height, pitch, r_max, hfov=camera.HFOV_DEG):
     if hfov < 360.0:
         ok &= np.abs(off) <= hfov / 2
     idx, hd, off = idx[ok], hd[ok], off[ok]
-    if len(idx) and fp.n:
+    if los and len(idx) and fp.n:
         near = fp.subset(fp.near(cam, hmax + 1.0))
         if near.n:
             clear = ~near.blocked(np.broadcast_to(np.asarray(cam, float), (len(idx), 2)), cells.pts[idx])
@@ -204,10 +205,12 @@ class Seen:
         return new
 
 
-def visibility(fp, cells, rec, height, pitch, rows=None, omni=False, ranges=RANGES, head_yaw=0.0):
+def visibility(fp, cells, rec, height, pitch, rows=None, omni=False, ranges=RANGES, head_yaw=0.0, on_sample=None):
     """Every sample of `rec` (or `rows`) through its shown feeds: Seen accumulators for the "any" and "head" bases,
     and -- omni -- for an ideal 360-degree camera on the centroid, with the look-behind tally of cells the feeds saw
-    first while that camera could not ({range: dict(corner=..., reach=...)} counts of cells)."""
+    first while that camera could not ({range: dict(corner=..., reach=...)} counts of cells). on_sample(ti, cams),
+    if given, is handed each sample's cameras as [(k, cell indices, slant ranges, bearings off the axis)]
+    (citysim.clutter's ring of feeds)."""
     rows = rec.transit_rows() if rows is None else rows
     r_max = max(ranges)
     acc_any, acc_head = Seen(cells.n, ranges), Seen(cells.n, ranges)
@@ -221,8 +224,11 @@ def visibility(fp, cells, rec, height, pitch, rows=None, omni=False, ranges=RANG
     for ti in rows:
         t = float(rec.t[ti])
         touched = []
+        cams = [] if on_sample is not None else None
         for k in np.flatnonzero(rec.cam_valid[ti]):
             idx, slant, off = seen_from(fp, cells, rec.cam_pos[ti, k], rec.cam_yaw[ti, k], height, pitch, r_max)
+            if cams is not None:
+                cams.append((int(k), idx, slant, off))
             if not len(idx):
                 continue
             np.minimum.at(s_any, idx, slant)
@@ -233,6 +239,8 @@ def visibility(fp, cells, rec, height, pitch, rows=None, omni=False, ranges=RANG
                 hv = np.abs(wrap_deg(az - head_yaw)) <= camera.HMD_HALF_FOV_DEG
                 np.minimum.at(s_head, idx[hv], slant[hv])
             touched.append(idx)
+        if on_sample is not None:
+            on_sample(ti, cams)
         new_any = acc_any.add(t, s_any)
         new_head = acc_head.add(t, s_head)
         if omni and np.isfinite(rec.centroid[ti]).all():
@@ -260,9 +268,11 @@ def visibility(fp, cells, rec, height, pitch, rows=None, omni=False, ranges=RANG
 
 # ============================================================================= geometry of a track
 
-def lateral_offsets(track, pts):
+def lateral_offsets(track, pts, near=None):
     """(signed offset (N,), foot arclength (N,), track length): each point's distance from the polyline `track`
-    (positive to the right of travel), and where along it its foot falls."""
+    (positive to the right of travel), and where along it its foot falls. near: only points within this of the track
+    are measured (NaN elsewhere) -- every one that is, exactly, so a sweep width over a whole city's grid costs what
+    it costs over the corridor (citysim.clutter)."""
     tr = np.asarray(track, float)
     tr = tr[np.isfinite(tr).all(1)]
     if len(tr) < 2:
@@ -273,6 +283,16 @@ def lateral_offsets(track, pts):
     ab = b - a
     L = np.linalg.norm(ab, axis=1)
     cum = np.r_[0.0, np.cumsum(L)]
+    if near is not None:
+        from scipy.spatial import cKDTree
+        # a point within `near` of the polyline is within near + the longest segment of one of its vertices
+        d, _ = cKDTree(tr).query(pts, k=1, distance_upper_bound=near + float(L.max()))
+        sel = np.flatnonzero(np.isfinite(d))
+        off, arc = np.full(len(pts), np.nan), np.full(len(pts), np.nan)
+        if len(sel):
+            o_, a_, _ = lateral_offsets(tr, np.asarray(pts, float)[sel])
+            off[sel], arc[sel] = o_, a_
+        return off, arc, float(cum[-1])
     best = np.full(len(pts), np.inf)
     off = np.full(len(pts), np.nan)
     arc = np.full(len(pts), np.nan)
@@ -410,26 +430,36 @@ def street_share(layout_id, track):
 
 # ============================================================================= one flight
 
-def score(rec, fp, cells, height, pitch, omni=None, layout=None, goals=None, r_goals=(discovery.R_GOAL_M,)):
-    """Every per-flight measure of the module docstring, as one flat dict (keys suffixed _r40 / _r80 by range)."""
+def score(rec, fp, cells, height, pitch, omni=None, layout=None, goals=None, r_goals=(discovery.R_GOAL_M,),
+          ranges=RANGES, on_sample=None, near_only=False, sweep_window=None):
+    """Every per-flight measure of the module docstring, as one flat dict (keys suffixed _r40 / _r80 by range;
+    `ranges` narrows them, on_sample is visibility's per-sample hook, near_only measures lateral offsets only for the
+    cells the sweep width can use -- the same widths, for a grid much larger than the corridor; sweep_window (m) widens
+    the lateral strips the sweep width counts beyond the default +-range (+ one bin), which a formation's outer cameras
+    see past: with the default the swarm's W saturates near 2 x (range + bin), citysim.clutter). The track ends are
+    trimmed by the range either way."""
     rows = rec.transit_rows()
     omni = (not rec.single) if omni is None else omni
     out = dict(rec.meta)
     out.pop("legs", None)
     if not len(rows):
         return out
-    acc_any, acc_head, acc_omni, behind = visibility(fp, cells, rec, height, pitch, rows, omni=omni)
+    acc_any, acc_head, acc_omni, behind = visibility(fp, cells, rec, height, pitch, rows, omni=omni, ranges=ranges,
+                                                     on_sample=on_sample)
     track = rec.centroid[rows]
     flown = path_length(track)
     secs = len(rows) * SAMPLE_S
-    off, arc, length = lateral_offsets(track, cells.pts)
+    off, arc, length = lateral_offsets(track, cells.pts,
+                                       near=(max(max(ranges), sweep_window or 0.0) + LATERAL_BIN_M + 1.0)
+                                       if near_only else None)
     out.update(transit_s=secs, flown_m=round(flown, 1))
-    for r in RANGES:
+    for r in ranges:
         tag = f"_r{int(r)}"
         for basis, acc in (("any", acc_any), ("head", acc_head)):
             seen = np.isfinite(acc.first[r])
             area = float(seen.sum() * cells.area)
-            W, _, _ = sweep_width(acc.first[r], off, arc, length, r)
+            W, _, _ = (sweep_width(acc.first[r], off, arc, length, sweep_window, end_margin=r) if sweep_window
+                       else sweep_width(acc.first[r], off, arc, length, r))
             with np.errstate(invalid="ignore", divide="ignore"):
                 runs = acc.count[r][seen] / np.maximum(acc.runs[r][seen], 1)
             out.update({f"area_{basis}{tag}_m2": round(area, 0),
@@ -454,7 +484,7 @@ def score(rec, fp, cells, height, pitch, omni=None, layout=None, goals=None, r_g
                                                                n_seen), 4)
             out[f"lead_vs_omni{tag}_s"] = round(float(np.median(lead)), 2) if len(lead) else math.nan
             out[f"earlier_than_omni{tag}_frac"] = round(float((lead > 0).mean()), 4) if len(lead) else math.nan
-    out["firsts"] = {f"{b}{int(r)}": acc.first[r] for r in RANGES for b, acc in (("any", acc_any), ("head", acc_head))}
+    out["firsts"] = {f"{b}{int(r)}": acc.first[r] for r in ranges for b, acc in (("any", acc_any), ("head", acc_head))}
     # ---- traversal
     legs = rec.legs or [dict(leg=0, t0=float(rec.t[rows[0]]), t1=float(rec.t[rows[-1]]), start=track[0],
                              goal=track[-1])]

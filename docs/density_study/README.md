@@ -1,5 +1,7 @@
 # The density study
 
+**S1 Goal Visibility** in the study registry ([docs/studies/](../studies/README.md)); "the density study" is its code name.
+
 How much of the swarm's advantage in finding a target depends on the city it flies in, predicted before
 the human trials so the trials can be designed around it. Cities are generated with controlled clutter
 and controlled goal geometry. Four tiers of model, each checked against the next, predict what each

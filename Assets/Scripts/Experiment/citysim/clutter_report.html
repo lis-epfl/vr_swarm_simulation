@@ -1,0 +1,1058 @@
+<title>S3 City Roaming</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: the density explorer's family -- a masthead (name, the run, the findings) over a sticky tab bar; each tab
+   is a workspace of controls and notes beside its figures, stacking on phones. Data colour has three jobs only:
+   swarm blue against single-drone orange for swarm / single (diverging about a warm grey), one green ramp for the
+   swarm's own measures, one blue ramp for the spreads in order. */
+:root {
+  --bg: #f2f4f5; --panel: #fbfcfc; --ink: #111c25; --ink-2: #44525e; --muted: #7c8893; --line: #d6dde2;
+  --grid: #e4e8eb; --chip: #e6ebee; --ink-inv: #fbfcfc;
+  --swarm: #2a78d6; --swarm-deep: #14467f; --single: #eb6834; --single-deep: #a63f14; --div-mid: #e8e7e3;
+  --seq-0: #e3f1ea; --seq-1: #0b5e41; --sp-0: #7aaeea; --sp-1: #1f5fb6; --sp-2: #0b2a52;
+  --con-a: #1a8f84; --con-b: #8a4fb8;
+  --bldg: #a9b3bb; --street: #f6f8f9; --block: #dbe4dd;
+  --good: #0ca30c; --warn: #fab219; --bad: #d03b3b;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+    --grid: #1d262d; --chip: #1f2830; --ink-inv: #0c1216;
+    --swarm: #3987e5; --swarm-deep: #9cc6f5; --single: #d95926; --single-deep: #f2a07c; --div-mid: #383835;
+    --seq-0: #18241f; --seq-1: #6fd3a7; --sp-0: #2d5c9c; --sp-1: #649ff0; --sp-2: #bcd9fb;
+    --con-a: #33b3a6; --con-b: #b07ddb;
+    --bldg: #4a5862; --street: #0e1418; --block: #1c2722;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+  --grid: #1d262d; --chip: #1f2830; --ink-inv: #0c1216;
+  --swarm: #3987e5; --swarm-deep: #9cc6f5; --single: #d95926; --single-deep: #f2a07c; --div-mid: #383835;
+  --seq-0: #18241f; --seq-1: #6fd3a7; --sp-0: #2d5c9c; --sp-1: #649ff0; --sp-2: #bcd9fb;
+  --con-a: #33b3a6; --con-b: #b07ddb;
+  --bldg: #4a5862; --street: #0e1418; --block: #1c2722;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 56px; }
+h1, h2, h3, h4 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 3.6vw, 2.75rem); font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; }
+h2 { font-size: 1.5rem; font-weight: 600; line-height: 1.15; margin-bottom: 0.45rem; }
+h3 { font-size: 1.12rem; font-weight: 600; line-height: 1.25; margin-bottom: 0.35rem; }
+h4 { font-size: 0.98rem; font-weight: 600; margin-bottom: 0.3rem; }
+p { margin: 0 0 0.7rem; max-width: 72ch; }
+p:last-child { margin-bottom: 0; }
+a { color: var(--swarm); }
+.eyebrow { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 0.45rem; }
+.muted { color: var(--muted); }
+.small { font-size: 0.86rem; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.code { font-family: var(--font-mono); font-weight: 500; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; font-size: 0.9em; }
+
+.masthead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 28px; padding-block: 28px 22px; align-items: start; }
+.lead { font-size: 1.04rem; color: var(--ink-2); margin-top: 0.7rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { display: inline-flex; align-items: baseline; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 0.84rem; color: var(--ink-2); }
+.chip b { font: 600 0.92rem var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.chip .dot { width: 9px; height: 9px; border-radius: 50%; align-self: center; }
+.findings { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; }
+.findings ul { margin: 0.2rem 0 0; padding-left: 1.1rem; display: grid; gap: 6px; }
+.findings li { font-size: 0.92rem; color: var(--ink-2); }
+.findings .concl > * + * { margin-top: 0.6rem; }
+.findings .concl p, .findings .concl li { font-size: 0.95rem; }
+@media (max-width: 900px) { .masthead { grid-template-columns: minmax(0, 1fr); } }
+
+.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab-btn { appearance: none; border: 0; background: none; color: var(--ink-2); font: 600 0.98rem/1 var(--font-display); padding: 13px 12px 11px; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.tab-btn:hover { color: var(--ink); }
+.tab-btn[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tab-btn:focus-visible { outline: 2px solid var(--swarm); outline-offset: -3px; }
+.tab { padding-top: 26px; display: grid; gap: 26px; }
+.intro { display: grid; gap: 4px; max-width: 80ch; }
+
+.workspace { display: grid; grid-template-columns: minmax(250px, 310px) minmax(0, 1fr); gap: 22px; align-items: start; }
+.workspace > * { min-width: 0; }
+@media (max-width: 920px) { .workspace { grid-template-columns: minmax(0, 1fr); } }
+.workspace.wide { grid-template-columns: minmax(0, 1fr); }
+.workspace.wide > .side { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); align-items: start; }
+.scrollx { overflow-x: auto; }
+.panels.two-up { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); }
+@media (max-width: 520px) { .panels.two-up { grid-template-columns: minmax(0, 1fr); } }
+.scrollx svg { min-width: 760px; }
+.side { display: grid; gap: 14px; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; min-width: 0; }
+.fig { min-width: 0; display: grid; gap: 14px; }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 10px 6px; min-width: 0; }
+.panel h4 { font-size: 0.95rem; margin: 2px 4px 4px; }
+.panel svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 14px 10px; min-width: 0; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .head p { color: var(--ink-2); font-size: 0.9rem; margin: 0.15rem 0 0.5rem; }
+
+label.lab, .ctl-lab { display: block; font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 6px; }
+select { font: 500 0.92rem/1.2 var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 8px; width: 100%; max-width: 100%; cursor: pointer; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { font: 500 0.9rem/1 var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; cursor: pointer; }
+.seg button:hover { border-color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--swarm); outline-offset: 1px; }
+.cellg:focus { outline: none; }
+.cellg:focus-visible rect.cell, .cellg.sel rect.cell { stroke: var(--ink); stroke-width: 2.2; }
+
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; margin: 0; font-size: 0.88rem; }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; text-align: right; font-family: var(--font-mono); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+.kv .sub { grid-column: 1 / -1; font: 600 0.7rem/1 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 8px; }
+.big { font: 600 1.9rem/1.05 var(--font-display); font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th, td { text-align: left; padding: 6px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+td.n, th.n { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.sig { font-weight: 600; color: var(--ink); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; color: var(--ink-2); align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg { display: inline-block; width: 16px; height: 10px; border-radius: 2px; }
+.lg.line { height: 0; border-top: 2px solid; border-radius: 0; }
+.lg.dash { height: 0; border-top: 2px dashed; border-radius: 0; }
+.ramp { display: grid; gap: 4px; }
+.ramp svg { width: 100%; height: auto; display: block; }
+.axis text { fill: var(--muted); font: 400 11px var(--font-body); }
+.axis path, .axis line { stroke: var(--line); }
+.gridl line { stroke: var(--grid); }
+.gridl path { stroke: none; }
+.note { font-size: 0.86rem; color: var(--ink-2); }
+.about { margin-top: 12px; display: grid; gap: 7px; }
+.about div { display: grid; gap: 1px; }
+.about b { font: 600 0.68rem/1.2 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.about span { font-size: 0.86rem; color: var(--ink-2); line-height: 1.4; }
+.about .what { font-size: 0.92rem; color: var(--ink); font-weight: 500; }
+.gloss { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.gloss dl { margin: 0; display: grid; gap: 8px; }
+.gloss dt { font-weight: 600; }
+.gloss dd { margin: 1px 0 0; color: var(--ink-2); font-size: 0.92rem; }
+@media (max-width: 860px) { .gloss { grid-template-columns: minmax(0, 1fr); } }
+.foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.82rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.tip { position: fixed; z-index: 50; pointer-events: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 0.82rem; line-height: 1.4; max-width: 320px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16); }
+.tip b { font-weight: 600; }
+.tip .t2 { color: var(--ink-2); }
+canvas { display: block; width: 100%; }
+.empty { padding: 30px; text-align: center; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Study S3 · formerly the clutter study · ten-drone swarm against one drone</p>
+      <h1>S3 City Roaming</h1>
+      <p class="lead" id="lead">How much more does the swarm see than one drone, and where does that stop? Random walks with no task through generated Voronoi cities that vary the block size and how much of the ground is built on, flown by the single drone and by the swarm at three spreads, every condition of a walk on the same path of intent from the same start.</p>
+      <p class="note">One of the studies in the <a href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a>: S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming. Its code and output folders keep the name "clutter".</p>
+      <div class="chips" id="chips"></div>
+    </div>
+    <section class="findings" aria-labelledby="f-h">
+      <p class="eyebrow" id="f-h">Findings</p>
+      <div id="findings"></div>
+    </section>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab-btn" role="tab" id="t-ratio" aria-controls="p-ratio">Swarm ÷ single drone</button>
+    <button class="tab-btn" role="tab" id="t-find" aria-controls="p-find">Finding a target</button>
+    <button class="tab-btn" role="tab" id="t-limits" aria-controls="p-limits">Limits of spreading</button>
+    <button class="tab-btn" role="tab" id="t-spreads" aria-controls="p-spreads">Spreads compared</button>
+    <button class="tab-btn" role="tab" id="t-trends" aria-controls="p-trends">Trends</button>
+    <button class="tab-btn" role="tab" id="t-cities" aria-controls="p-cities">Cities</button>
+    <button class="tab-btn" role="tab" id="t-method" aria-controls="p-method">Method and checks</button>
+  </nav>
+
+  <main>
+    <!-- ================================================================ swarm / single -->
+    <section class="tab" id="p-ratio" role="tabpanel" aria-labelledby="t-ratio">
+      <div class="intro">
+        <h2>Swarm ÷ single drone, over the city grid</h2>
+        <p>Each square is one city design: block spacing up the side (the mean size of a Voronoi cell, so small blocks and many streets at the bottom), coverage along the bottom (the share of the ground under buildings). Its colour and number are the swarm's measure divided by the single drone's on the same walks, as a geometric mean over the cities of that design. Blue: the swarm sees more. Orange: the single drone does. Stars give the significance across cities after correcting for the number of squares. Hatched squares could not be built: the blocks fill up before that much ground is covered.</p>
+      </div>
+      <div class="workspace">
+        <div class="side">
+          <div class="box">
+            <label class="lab" for="r-metric">Measure</label>
+            <select id="r-metric"></select>
+            <div class="about" id="r-about"></div>
+          </div>
+          <div class="box">
+            <span class="ctl-lab" id="r-spread-lab">Swarm spread</span>
+            <div class="seg" id="r-spread" role="group" aria-labelledby="r-spread-lab"></div>
+            <span class="ctl-lab" id="r-colour-lab" style="margin-top:12px">Colour</span>
+            <div class="seg" id="r-colour" role="group" aria-labelledby="r-colour-lab"></div>
+          </div>
+          <div class="box ramp" id="r-legend"></div>
+          <div class="box" id="r-detail"><p class="muted small">Hover or select a square for its numbers: the ratio and its 95 % interval, the spread across cities, both interfaces' means and SDs, and the test.</p></div>
+        </div>
+        <div class="fig"><div class="panels" id="r-panels"></div></div>
+      </div>
+    </section>
+
+    <!-- ================================================================ finding -->
+    <section class="tab" id="p-find" role="tabpanel" aria-labelledby="t-find" hidden>
+      <div class="intro">
+        <h2>Finding a target hidden anywhere in the city</h2>
+        <p>The study has no goal patches, because their geometry dominated the density study. The task-free equivalent is a target hidden at a random spot: a point at hat height anywhere on the city's open ground, found the first time a shown feed has it within 200 m with a clear sight line (the distance internal_3's pilots turned onto goals from; recognising a hat still takes 40 m, as on the other tabs). Its chance of having been found by any moment is the share of the city's open ground the walk has seen by then, so every walk gives the whole time-to-find curve. A walk lasts 5 minutes in a 730 m city, so most targets are still hidden at the end; the random-search model fitted to each walk estimates the mean time it would take.</p>
+      </div>
+      <div class="workspace">
+        <div class="side">
+          <div class="box">
+            <label class="lab" for="f-sel">City design</label>
+            <select id="f-sel"></select>
+          </div>
+          <div class="box" id="f-table"></div>
+        </div>
+        <div class="fig">
+          <div class="chart"><div class="head"><h3 id="f-title">Chance the target has been found</h3><p>Mean over the design's cities; the band is ± one SD across cities.</p></div><div id="f-chart"></div><div class="legend" id="f-legend" style="margin-top:6px"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ limits -->
+    <section class="tab" id="p-limits" role="tabpanel" aria-labelledby="t-limits" hidden>
+      <div class="intro">
+        <h2>Where a wide formation stops helping</h2>
+        <p>Spreading the formation pushes its cameras apart and out toward the buildings. Two neighbouring feeds on the ring only make sense together if they share some ground at recognition range (40 m); a building between them, or a drone pressed against a facade, breaks that. These are the swarm's own measures, per spread, on the same grid: how often neighbouring feeds still share ground with the buildings in place and without them, how many feeds show only a wall, how much of the horizon no feed covers, and what the formation pays in drones and splits.</p>
+      </div>
+      <div class="workspace wide">
+        <div class="side">
+          <div class="box">
+            <label class="lab" for="l-metric">Measure</label>
+            <select id="l-metric"></select>
+            <div class="about" id="l-about"></div>
+          </div>
+          <div class="box ramp" id="l-legend"></div>
+          <div class="box" id="l-detail"><p class="muted small">Hover or select a square for its mean, the SD over walks and over cities, and how many there were.</p></div>
+        </div>
+        <div class="fig">
+          <div class="panels" id="l-panels"></div>
+          <div class="chart"><div class="head"><h3>Neighbouring feeds that share ground, by coverage</h3><p>Mean over every city design at that coverage; whiskers: the SD across those designs. Solid: with the buildings. Dashed: the cameras' frustums alone, so the gap between the two lines is what the buildings take.</p></div><div id="l-lines"></div><div class="legend" id="l-lines-legend"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ spreads -->
+    <section class="tab" id="p-spreads" role="tabpanel" aria-labelledby="t-spreads" hidden>
+      <div class="intro">
+        <h2>The spreads against each other</h2>
+        <p>The swarm at spread 1.6 and at 0.4, each divided by the swarm at 1.0 on the same walks (or at the same standing points), with the same statistics as the swarm ÷ single drone comparison. Teal: the named spread does better than 1.0. Purple: 1.0 does better. The last map names the spread with the largest swarm ÷ single drone ratio in each design.</p>
+      </div>
+      <div class="workspace wide">
+        <div class="side">
+          <div class="box">
+            <label class="lab" for="s-metric">Measure</label>
+            <select id="s-metric"></select>
+          </div>
+          <div class="box ramp" id="s-legend"></div>
+          <div class="box" id="s-detail"><p class="muted small">Hover or select a square for its numbers.</p></div>
+        </div>
+        <div class="fig"><div class="panels two-up" id="s-panels"></div></div>
+      </div>
+      <div class="workspace">
+        <div class="side">
+          <div class="box">
+            <label class="lab" for="k-y">Ratio (up the side)</label>
+            <select id="k-y"></select>
+            <label class="lab" for="k-x" style="margin-top:12px">City measure (along the bottom)</label>
+            <select id="k-x"></select>
+          </div>
+          <div class="box" id="k-stats"></div>
+          <div class="box ramp" id="k-legend"></div>
+        </div>
+        <div class="fig">
+          <div class="chart"><div class="head"><h3>Does losing neighbour overlap cost the wide formation?</h3><p>One point per city: the city's mean log ratio over its walks against one of its measures. Pearson r over the cities, and the partial r with coverage and block spacing held fixed, since the design drives both. Colour: coverage.</p></div><div id="k-chart"></div></div>
+          <div class="chart"><div class="head"><h3>Every pairing</h3><p>r and p over cities; partial r with coverage and log2 block spacing held fixed. Bold: p &lt; 0.05.</p></div><div class="tablewrap"><table id="k-table"></table></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ trends -->
+    <section class="tab" id="p-trends" role="tabpanel" aria-labelledby="t-trends" hidden>
+      <div class="intro">
+        <h2>How the advantage moves with coverage and block size</h2>
+        <p>One least-squares fit per measure and spread, over every flown city: the log of swarm ÷ single drone against coverage and the doubling of the block spacing, and their product. A city is one point, so the p values treat the cities, not the walks, as the independent units. The chart shows the measured ratios, one line per block spacing.</p>
+      </div>
+      <div class="chart"><div class="head"><h3>Fitted trends</h3><p>Percentage change of the swarm ÷ single drone ratio per +0.01 of coverage and per doubling of the block spacing, ± one standard error. Bold: p &lt; 0.05.</p></div><div class="tablewrap"><table id="tr-table"></table></div></div>
+      <div class="workspace">
+        <div class="side">
+          <div class="box">
+            <label class="lab" for="tr-metric">Measure</label>
+            <select id="tr-metric"></select>
+          </div>
+          <div class="box">
+            <span class="ctl-lab" id="tr-spread-lab">Swarm spread</span>
+            <div class="seg" id="tr-spread" role="group" aria-labelledby="tr-spread-lab"></div>
+          </div>
+          <div class="box legend" id="tr-legend"></div>
+        </div>
+        <div class="fig"><div class="chart"><div class="head"><h3 id="tr-title">Ratio by coverage</h3><p>Points: the geometric mean over a design's cities; whiskers: its 95 % interval. The dashed line is parity.</p></div><div id="tr-chart"></div></div></div>
+      </div>
+    </section>
+
+    <!-- ================================================================ cities -->
+    <section class="tab" id="p-cities" role="tabpanel" aria-labelledby="t-cities" hidden>
+      <div class="intro">
+        <h2>The cities</h2>
+        <p>One generated city of each flown design, with its first walk: the single drone's track and the swarm's at each spread, all setting off from the same start toward the same chain of targets. The walks part where the path rules part: the single drone plans round every building, the swarm only round the walls its formation cannot flow through.</p>
+      </div>
+      <div class="workspace">
+        <div class="side">
+          <div class="box">
+            <label class="lab" for="c-sel">City design</label>
+            <select id="c-sel"></select>
+          </div>
+          <div class="box"><dl class="kv" id="c-stats"></dl></div>
+        </div>
+        <div class="fig">
+          <div class="chart"><canvas id="c-canvas" aria-label="Map of the selected city with the walks"></canvas><div class="legend" id="c-legend" style="margin-top:8px"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================ method -->
+    <section class="tab" id="p-method" role="tabpanel" aria-labelledby="t-method" hidden>
+      <div class="intro">
+        <h2>How it was run, and how it was checked</h2>
+      </div>
+      <div class="gloss" id="method"></div>
+      <div class="chart"><div class="head"><h3>The run</h3></div><dl class="kv" id="m-run"></dl></div>
+      <div class="chart"><div class="head"><h3>Every measure</h3><p>What each measure is and how to read it; the first tabs show the same text for the measure selected.</p></div><div class="gloss" id="m-gloss"></div></div>
+      <div class="chart"><div class="head"><h3>Design grid</h3><p>Buildable cities per design (of those asked for) and their measured descriptors. A design is flown when at least 70 % of its cities could be built.</p></div><div class="tablewrap"><table id="m-cells"></table></div></div>
+    </section>
+  </main>
+  <footer class="foot" id="foot"></footer>
+</div>
+<div class="tip" id="tip" role="tooltip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function () {
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = (v, d = 2) => (v == null || !isFinite(v)) ? "–" : (+v).toFixed(d);
+const fmtP = (p) => (p == null || !isFinite(p)) ? "–" : (p < 0.0001 ? "< 0.0001" : p < 0.001 ? p.toExponential(1) : p.toFixed(p < 0.01 ? 4 : 3));
+const stars = (q) => (q == null || !isFinite(q)) ? "" : q < 0.001 ? "***" : q < 0.01 ? "**" : q < 0.05 ? "*" : "";
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const SPREADS = [...new Set((D.ratio_cells || []).map((r) => r.d_ref))].sort((a, b) => a - b);
+const P = (D.grid.p || []).slice().sort((a, b) => a - b);
+const A = (D.grid.alpha || []).slice().sort((a, b) => a - b);
+const CELLS = new Map((D.grid.cells || []).map((c) => [c.cell, c]));
+const cellAt = (p, a) => (D.grid.cells || []).find((c) => c.p === p && c.alpha === a);
+const RM = new Map((D.metrics.ratio || []).map((m) => [m.key, m]));
+const LM = new Map((D.metrics.level || []).map((m) => [m.key, m]));
+const tip = $("tip");
+let selected = null;
+
+// ---------------------------------------------------------------- tooltip
+function showTip(html, ev, el) {
+  tip.innerHTML = html; tip.hidden = false;
+  const r = tip.getBoundingClientRect();
+  let x, y;
+  if (ev && ev.clientX != null) { x = ev.clientX + 14; y = ev.clientY + 14; }
+  else { const b = (el || (ev && ev.target) || document.body).getBoundingClientRect(); x = b.right + 8; y = b.top; }
+  if (x + r.width > innerWidth - 8) x = Math.max(8, (ev && ev.clientX != null ? ev.clientX : innerWidth) - r.width - 14);
+  if (y + r.height > innerHeight - 8) y = Math.max(8, innerHeight - r.height - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+const hideTip = () => { tip.hidden = true; };
+
+// ---------------------------------------------------------------- colour
+function divScale(lim) {
+  const lo = css("--single"), mid = css("--div-mid"), hi = css("--swarm");
+  const loD = css("--single-deep"), hiD = css("--swarm-deep");
+  const s = d3.scaleLinear().domain([-lim, -lim / 2, 0, lim / 2, lim]).range([loD, lo, mid, hi, hiD]).interpolate(d3.interpolateLab).clamp(true);
+  return s;
+}
+function conScale(lim) {
+  return d3.scaleLinear().domain([-lim, 0, lim]).range([css("--con-b"), css("--div-mid"), css("--con-a")]).interpolate(d3.interpolateLab).clamp(true);
+}
+function seqScale(lo, hi) {
+  return d3.scaleLinear().domain([lo, hi === lo ? lo + 1e-9 : hi]).range([css("--seq-0"), css("--seq-1")]).interpolate(d3.interpolateLab).clamp(true);
+}
+function inkOn(fill) {
+  const c = d3.lab(fill);
+  return c.l < 58 ? "#f6f8f9" : "#111c25";
+}
+
+// ---------------------------------------------------------------- the heatmap
+// cfg: {title, value(cellRow) -> {v, text, sub, q}|null, color(v), tip(cell, val), onSelect(cell)}
+function heatmap(root, cfg) {
+  const panel = d3.select(root).append("div").attr("class", "panel");
+  panel.append("h4").text(cfg.title);
+  const cw = 58, ch = 34, ml = 52, mt = 6, mb = 40, mr = 6;
+  const W = ml + A.length * cw + mr, H = mt + P.length * ch + mb;
+  const svg = panel.append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", cfg.title);
+  const defs = svg.append("defs");
+  const pid = "hatch" + Math.random().toString(36).slice(2, 8);
+  const pat = defs.append("pattern").attr("id", pid).attr("patternUnits", "userSpaceOnUse").attr("width", 6).attr("height", 6).attr("patternTransform", "rotate(45)");
+  pat.append("rect").attr("width", 6).attr("height", 6).attr("fill", css("--panel"));
+  pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 6).attr("stroke", css("--line")).attr("stroke-width", 2);
+  const x = (a) => ml + A.indexOf(a) * cw, y = (p) => mt + (P.length - 1 - P.indexOf(p)) * ch;
+  const g = svg.append("g");
+  for (const p of P) for (const a of A) {
+    const c = cellAt(p, a);
+    const val = c && c.flown ? cfg.value(c) : null;
+    const gg = g.append("g").attr("class", "cellg").attr("transform", `translate(${x(a)},${y(p)})`);
+    const has = val && val.v != null && isFinite(val.v);
+    const fill = has ? cfg.color(val.v) : (c && c.flown ? css("--chip") : `url(#${pid})`);
+    gg.append("rect").attr("class", "cell").attr("x", 1).attr("y", 1).attr("width", cw - 2).attr("height", ch - 2).attr("rx", 3).attr("fill", fill).attr("stroke", css("--panel")).attr("stroke-width", 1);
+    if (has) {
+      const ink = inkOn(fill);
+      gg.append("text").attr("x", cw / 2).attr("y", ch / 2 + (val.sub ? -2 : 4)).attr("text-anchor", "middle").attr("fill", ink).style("font", "600 12px var(--font-mono)").text(val.text);
+      if (val.sub) gg.append("text").attr("x", cw / 2).attr("y", ch / 2 + 11).attr("text-anchor", "middle").attr("fill", ink).style("font", "600 10px var(--font-mono)").text(val.sub);
+    }
+    if (c) {
+      gg.attr("tabindex", 0).attr("data-cell", c.cell).attr("aria-label", `${cfg.title}: block spacing ${c.p} m, coverage ${c.alpha}` + (has ? `, ${val.text}` : ", not flown"));
+      const html = () => cfg.tip(c, val);
+      gg.on("mouseenter mousemove", (ev) => showTip(html(), ev)).on("mouseleave", hideTip)
+        .on("focus", (ev) => showTip(html(), null, ev.currentTarget)).on("blur", hideTip)
+        .on("click", () => { selected = c.cell; cfg.onSelect && cfg.onSelect(c, val); markSel(); })
+        .on("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); selected = c.cell; cfg.onSelect && cfg.onSelect(c, val); markSel(); } });
+    }
+  }
+  const ax = svg.append("g").attr("class", "axis");
+  for (const a of A) ax.append("text").attr("x", x(a) + cw / 2).attr("y", mt + P.length * ch + 15).attr("text-anchor", "middle").text(a);
+  for (const p of P) ax.append("text").attr("x", ml - 6).attr("y", y(p) + ch / 2 + 4).attr("text-anchor", "end").text(p);
+  ax.append("text").attr("x", ml + (A.length * cw) / 2).attr("y", H - 6).attr("text-anchor", "middle").style("fill", css("--ink-2")).text("coverage α (share of ground built on)");
+  ax.append("text").attr("transform", `translate(11,${mt + (P.length * ch) / 2}) rotate(-90)`).attr("text-anchor", "middle").style("fill", css("--ink-2")).text("block spacing p (m)");
+  return panel;
+}
+// several conditions side by side inside each design's square (the spreads, or the single drone and the spreads), at
+// full width: one map to compare across designs and, within a square, across conditions.
+// cfg: {title, keys: [{id, label}], value(c, id) -> {v, text, sub}|null, color(v), tip(c, id, val), onSelect(c, id, val)}
+function heatmapGroups(root, cfg) {
+  const panel = d3.select(root).append("div").attr("class", "panel");
+  panel.append("h4").text(cfg.title);
+  const nk = cfg.keys.length, sw = nk > 3 ? 40 : 46, ch = 42, gap = 12, ml = 60, mt = 26, mb = 44, mr = 6;
+  const gw = nk * sw + gap;
+  const W = ml + A.length * gw - gap + mr, H = mt + P.length * ch + mb;
+  const svg = panel.append("div").attr("class", "scrollx").append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", cfg.title);
+  const pid = "hatch" + Math.random().toString(36).slice(2, 8);
+  const pat = svg.append("defs").append("pattern").attr("id", pid).attr("patternUnits", "userSpaceOnUse").attr("width", 6).attr("height", 6).attr("patternTransform", "rotate(45)");
+  pat.append("rect").attr("width", 6).attr("height", 6).attr("fill", css("--panel"));
+  pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 6).attr("stroke", css("--line")).attr("stroke-width", 2);
+  const gx = (a) => ml + A.indexOf(a) * gw, y = (p) => mt + (P.length - 1 - P.indexOf(p)) * ch;
+  const ax = svg.append("g").attr("class", "axis");
+  for (const a of A) cfg.keys.forEach((k, i) => ax.append("text").attr("x", gx(a) + i * sw + sw / 2).attr("y", mt - 8).attr("text-anchor", "middle").style("font", "500 10px var(--font-mono)").style("fill", css("--ink-2")).text(k.label));
+  for (const p of P) for (const a of A) {
+    const c = cellAt(p, a);
+    if (!c || !c.flown) {
+      svg.append("rect").attr("x", gx(a) + 1).attr("y", y(p) + 1).attr("width", nk * sw - 2).attr("height", ch - 2).attr("rx", 3).attr("fill", `url(#${pid})`)
+        .on("mouseenter mousemove", (ev) => showTip(`<b>Block spacing ${p} m, coverage ${a}</b><br><span class="t2">not flown: ${esc((c && c.why) || "the generator jammed before reaching this coverage")}</span>`, ev)).on("mouseleave", hideTip);
+      continue;
+    }
+    cfg.keys.forEach((k, i) => {
+      const val = cfg.value(c, k.id);
+      const has = val && val.v != null && isFinite(val.v);
+      const fill = has ? cfg.color(val.v) : css("--chip");
+      const g = svg.append("g").attr("class", "cellg").attr("transform", `translate(${gx(a) + i * sw},${y(p)})`).attr("tabindex", 0)
+        .attr("data-cell", `${c.cell}|${k.id}`).attr("aria-label", `${cfg.title}: block spacing ${c.p} m, coverage ${c.alpha}, ${k.label}` + (has ? `, ${val.text}` : ""));
+      g.append("rect").attr("class", "cell").attr("x", 0.5).attr("y", 1).attr("width", sw - 1).attr("height", ch - 2).attr("rx", 2).attr("fill", fill).attr("stroke", css("--panel")).attr("stroke-width", 1);
+      if (has) {
+        const ink = inkOn(fill);
+        g.append("text").attr("x", sw / 2).attr("y", ch / 2 + (val.sub ? -1 : 4)).attr("text-anchor", "middle").attr("fill", ink).style("font", "600 12px var(--font-mono)").text(val.text);
+        if (val.sub) g.append("text").attr("x", sw / 2).attr("y", ch / 2 + 12).attr("text-anchor", "middle").attr("fill", ink).style("font", "600 10px var(--font-mono)").text(val.sub);
+      }
+      const html = () => cfg.tip(c, k.id, val);
+      const pick = () => { selected = `${c.cell}|${k.id}`; cfg.onSelect && cfg.onSelect(c, k.id, val); markSel(); };
+      g.on("mouseenter mousemove", (ev) => showTip(html(), ev)).on("mouseleave", hideTip)
+        .on("focus", (ev) => showTip(html(), null, ev.currentTarget)).on("blur", hideTip)
+        .on("click", pick).on("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } });
+    });
+    svg.append("rect").attr("x", gx(a)).attr("y", y(p) + 0.5).attr("width", nk * sw).attr("height", ch - 1).attr("rx", 3).attr("fill", "none").attr("stroke", css("--line")).attr("stroke-width", 1).style("pointer-events", "none");
+  }
+  for (const a of A) ax.append("text").attr("x", gx(a) + (nk * sw) / 2).attr("y", mt + P.length * ch + 16).attr("text-anchor", "middle").text(a);
+  for (const p of P) ax.append("text").attr("x", ml - 8).attr("y", y(p) + ch / 2 + 4).attr("text-anchor", "end").text(p);
+  ax.append("text").attr("x", ml + (A.length * gw - gap) / 2).attr("y", H - 6).attr("text-anchor", "middle").style("fill", css("--ink-2")).text("coverage α (share of ground built on)");
+  ax.append("text").attr("transform", `translate(12,${mt + (P.length * ch) / 2}) rotate(-90)`).attr("text-anchor", "middle").style("fill", css("--ink-2")).text("block spacing p (m)");
+  return panel;
+}
+function markSel() {
+  document.querySelectorAll(".cellg").forEach((n) => n.classList.toggle("sel", n.getAttribute("data-cell") === selected));
+}
+function rampLegend(root, scale, ticks, labels, title) {
+  const el = d3.select(root).html("");
+  el.append("span").attr("class", "ctl-lab").text(title);
+  const W = 260, H = 40;
+  const svg = el.append("svg").attr("viewBox", `0 0 ${W} ${H}`);
+  const id = "g" + Math.random().toString(36).slice(2, 8);
+  const lg = svg.append("defs").append("linearGradient").attr("id", id);
+  const [d0, d1] = [scale.domain()[0], scale.domain()[scale.domain().length - 1]];
+  for (let i = 0; i <= 20; i++) lg.append("stop").attr("offset", i / 20).attr("stop-color", scale(d0 + (d1 - d0) * i / 20));
+  svg.append("rect").attr("x", 6).attr("y", 4).attr("width", W - 12).attr("height", 12).attr("rx", 2).attr("fill", `url(#${id})`);
+  const xs = d3.scaleLinear().domain([d0, d1]).range([6, W - 6]);
+  ticks.forEach((t, i) => {
+    svg.append("line").attr("x1", xs(t)).attr("x2", xs(t)).attr("y1", 16).attr("y2", 20).attr("stroke", css("--muted"));
+    svg.append("text").attr("x", xs(t)).attr("y", 32).attr("text-anchor", i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle").style("font", "400 11px var(--font-mono)").style("fill", css("--ink-2")).text(labels[i]);
+  });
+  return el;
+}
+
+// ---------------------------------------------------------------- masthead
+function masthead() {
+  const m = D.meta, run = m.run || {};
+  const cells = D.grid.cells || [];
+  const chips = [
+    [`${cells.filter((c) => c.flown).length}`, `of ${cells.length} city designs flown`],
+    [`${m.cities_flown || 0}`, "cities"],
+    [`${(m.walks || 0).toLocaleString()}`, "walks"],
+    [m.flight_hours != null ? m.flight_hours.toFixed(0) : "–", "hours of flight simulated"],
+  ];
+  const rc = m.recheck || {};
+  $("chips").innerHTML = chips.map(([b, t]) => `<span class="chip"><b>${esc(b)}</b>${esc(t)}</span>`).join("") +
+    (rc.n ? `<span class="chip"><span class="dot" style="background:var(${rc.identical === rc.n ? "--good" : "--bad"})"></span><b>${rc.identical}/${rc.n}</b>re-flown walks identical</span>` : "") +
+    `<span class="chip"><span class="dot" style="background:var(${m.failed ? "--warn" : "--good"})"></span><b>${m.failed || 0}</b>jobs failed</span>`;
+  const f = $("findings");
+  if (m.conclusions || D.conclusions) {
+    f.innerHTML = `<div class="concl">${D.conclusions}</div>`;
+    if ((D.findings || []).length) f.insertAdjacentHTML("beforeend", `<details style="margin-top:12px"><summary class="small muted" style="cursor:pointer">The numbers, as the tables give them</summary><ul>${D.findings.map((x) => `<li>${esc(x.text)}</li>`).join("")}</ul></details>`);
+  } else if ((D.findings || []).length) {
+    f.innerHTML = `<ul>${D.findings.map((x) => `<li>${esc(x.text)}</li>`).join("")}</ul>`;
+  } else f.innerHTML = `<p class="muted">No results yet.</p>`;
+  $("foot").innerHTML = `<span>Run <span class="mono">${esc(m.name)}</span></span><span>built ${esc(m.generated)}</span>${m.commit ? `<span>commit <span class="mono">${esc(m.commit)}</span></span>` : ""}<span>recognition range ${m.range_m} m · overlap needs ${m.overlap_min_m2} m²</span>`;
+}
+
+// ---------------------------------------------------------------- tab 1: swarm / single
+const st = { rColour: "ahead", rMetric: D.metrics.primary || "sweep", rSpread: "all", lMetric: "ring_conn", sMetric: D.metrics.primary || "sweep", trMetric: D.metrics.primary || "sweep", trSpread: 1.0 };
+function rcRow(metric, d, cell) { return (D.ratio_cells || []).find((r) => r.metric === metric && r.d_ref === d && r.cell === cell); }
+function ratioTip(r, c, m, label) {
+  if (!r) return `<b>Block spacing ${c.p} m, coverage ${c.alpha}</b><br><span class="t2">${c.flown ? "no paired result" : "not flown: " + esc(c.why || "the generator jammed")}</span>`;
+  const u = m ? m.unit : "";
+  return `<b>${esc(label)}</b> · block spacing ${c.p} m, coverage ${c.alpha}<br>` +
+    `swarm ÷ single <b>${fmt(r.ratio)}×</b> (95 % CI ${fmt(r.lo)}–${fmt(r.hi)})<br>` +
+    `<span class="t2">SD across cities ${fmt(r.sd_city_ratio)} · p ${fmtP(r.p)} · q ${fmtP(r.q)} ${stars(r.q)}</span><br>` +
+    `<span class="t2">swarm ${fmt(r.sw_mean, 1)} ± ${fmt(r.sw_sd, 1)} ${esc(u)} · single ${fmt(r.sg_mean, 1)} ± ${fmt(r.sg_sd, 1)}</span><br>` +
+    `<span class="t2">${r.n_cities} cities, ${r.n_units} paired units</span>`;
+}
+function ratioDetail(el, r, c, m, title) {
+  const cd = CELLS.get(c.cell) || {};
+  if (!r) { el.innerHTML = `<h3>Block spacing ${c.p} m · coverage ${c.alpha}</h3><p class="muted small">${c.flown ? "No paired result in this design." : "Not flown: " + esc(c.why || "the generator jammed before reaching this coverage") + "."}</p>`; return; }
+  el.innerHTML = `<p class="eyebrow">${esc(title)}</p><h3>Block spacing ${c.p} m · coverage ${c.alpha}</h3>
+    <div class="big">${fmt(r.ratio)}× <span class="small muted">${stars(r.q)}</span></div>
+    <dl class="kv">
+      <dt>95 % interval (over cities)</dt><dd>${fmt(r.lo)}–${fmt(r.hi)}</dd>
+      <dt>SD of the city ratios</dt><dd>${fmt(r.sd_city_ratio, 3)}</dd>
+      <dt>SD of the walk log ratios</dt><dd>${fmt(r.sd_log_unit, 3)}</dd>
+      <dt>t test over cities, p</dt><dd>${fmtP(r.p)}</dd>
+      <dt>Corrected (BH) q</dt><dd>${fmtP(r.q)}</dd>
+      <dt>Effect size d<sub>z</sub></dt><dd>${fmt(r.d_z)}</dd>
+      <dt>Units where the swarm is ahead</dt><dd>${fmt(100 * r.swarm_better_units, 0)} %</dd>
+      <dt>Wilcoxon over units (not clustered)</dt><dd>${fmtP(r.p_wilcoxon_units)}</dd>
+      <dt class="sub">Means ± SD over units (${esc(m ? m.unit : "")})</dt>
+      <dt>Swarm</dt><dd>${fmt(r.sw_mean, 1)} ± ${fmt(r.sw_sd, 1)}</dd>
+      <dt>Single drone</dt><dd>${fmt(r.sg_mean, 1)} ± ${fmt(r.sg_sd, 1)}</dd>
+      <dt>Cities · units</dt><dd>${r.n_cities} · ${r.n_units}</dd>
+      <dt class="sub">The design</dt>
+      <dt>Coverage achieved</dt><dd>${fmt(cd.alpha_achieved, 3)}</dd>
+      <dt>Block fill</dt><dd>${fmt(cd.block_fill, 3)}</dd>
+      <dt>Free sight length ℓ</dt><dd>${fmt(cd.ell_m, 0)} m</dd>
+      <dt>Buildings · blocks</dt><dd>${fmt(cd.n_buildings, 0)} · ${fmt(cd.n_blocks, 0)}</dd>
+      <dt>Buildings in walls (w<sub>pass</sub> 1.0)</dt><dd>${fmt(100 * (cd.wall_share ?? NaN), 0)} %</dd>
+    </dl>`;
+}
+function aboutBox(el, key) {
+  const d = (D.descriptions || {})[key] || (D.descriptions || {})[String(key).replace(/^st_/, "")];
+  el.innerHTML = d ? `<div><span class="what">${esc(d.what)}</span></div><div><b>How it is measured</b><span>${esc(d.how)}</span></div><div><b>How to read it</b><span>${esc(d.read)}</span></div>` : "";
+}
+function buildRatio() {
+  const cseg = $("r-colour");
+  cseg.innerHTML = [["ahead", "Who is ahead"], ["range", "Differences between designs"]].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${v === st.rColour}">${t}</button>`).join("");
+  cseg.onclick = (ev) => { const b = ev.target.closest("button"); if (!b) return; st.rColour = b.dataset.v; cseg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawRatio(); };
+  const sel = $("r-metric");
+  sel.innerHTML = (D.metrics.ratio || []).map((m) => `<option value="${m.key}">${esc(m.label)}${m.kind === "static" ? "" : ""}</option>`).join("");
+  sel.value = st.rMetric;
+  sel.onchange = () => { st.rMetric = sel.value; drawRatio(); };
+  const seg = $("r-spread");
+  const opts = [["all", "All three"], ...SPREADS.map((d) => [d, String(d)])];
+  seg.innerHTML = opts.map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${String(v) === String(st.rSpread)}">${t}</button>`).join("");
+  seg.onclick = (ev) => { const b = ev.target.closest("button"); if (!b) return; st.rSpread = b.dataset.v === "all" ? "all" : +b.dataset.v; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawRatio(); };
+}
+function rangeScale(lo, hi) {
+  // stretched to the values shown: blue shades when the swarm is ahead everywhere, orange when the single drone is,
+  // both about parity when the range crosses it
+  const mid = css("--div-mid"), sw = css("--swarm-deep"), sg = css("--single-deep");
+  const lightSw = d3.interpolateLab(mid, css("--swarm"))(0.35), lightSg = d3.interpolateLab(mid, css("--single"))(0.35);
+  if (hi - lo < 1e-9) { lo -= 0.01; hi += 0.01; }
+  if (lo >= 0) return d3.scaleLinear().domain([lo, hi]).range([lightSw, sw]).interpolate(d3.interpolateLab).clamp(true);
+  if (hi <= 0) return d3.scaleLinear().domain([lo, hi]).range([sg, lightSg]).interpolate(d3.interpolateLab).clamp(true);
+  return d3.scaleLinear().domain([lo, 0, hi]).range([sg, mid, sw]).interpolate(d3.interpolateLab).clamp(true);
+}
+function drawRatio() {
+  const m = RM.get(st.rMetric);
+  aboutBox($("r-about"), st.rMetric);
+  const rows = (D.ratio_cells || []).filter((r) => r.metric === st.rMetric);
+  const spreads = st.rSpread === "all" ? SPREADS : [st.rSpread];
+  let sc, ticks;
+  if (st.rColour === "range") {
+    const shown = rows.filter((r) => spreads.includes(r.d_ref) && r.ratio > 0);
+    const lo = d3.min(shown, (r) => Math.log2(r.ratio)) ?? -0.5, hi = d3.max(shown, (r) => Math.log2(r.ratio)) ?? 0.5;
+    sc = rangeScale(lo, hi);
+    ticks = lo < 0 && hi > 0 ? [lo, 0, hi] : [lo, (lo + hi) / 2, hi];
+  } else {
+    const L = Math.max(0.5, d3.max(rows, (r) => Math.abs(Math.log2(r.ratio || 1))) || 1);
+    const lim = Math.min(Math.ceil(L * 4) / 4, 2.5);
+    sc = divScale(lim);
+    ticks = [-lim, -lim / 2, 0, lim / 2, lim];
+  }
+  rampLegend("#r-legend", sc, ticks, ticks.map((t) => (2 ** t).toFixed(2) + "×"), "Swarm ÷ single drone");
+  d3.select("#r-legend").append("p").attr("class", "note").html((st.rColour === "range" ? "Colours stretched to the ratios on show, to bring out differences between designs; " : "Colours centred on 1×: ") + "orange, the single drone does better · blue, the swarm does.<br>* q &lt; 0.05 · ** q &lt; 0.01 · *** q &lt; 0.001 (Benjamini–Hochberg over the squares of one map).<br>Numbers turn white on dark squares only so they stay readable.");
+  const root = $("r-panels"); root.innerHTML = "";
+  $("p-ratio").querySelector(".workspace").classList.toggle("wide", st.rSpread === "all");
+  if (!rows.length) { root.innerHTML = `<div class="empty">No results for this measure yet.</div>`; return; }
+  if (st.rSpread === "all") {
+    heatmapGroups(root, {
+      title: "Swarm ÷ single drone; each square holds the swarm at spreads 0.4, 1.0 and 1.6, left to right",
+      keys: SPREADS.map((d) => ({ id: d, label: String(d) })),
+      value: (c, d) => { const r = rcRow(st.rMetric, d, c.cell); return r ? { v: Math.log2(r.ratio), text: fmt(r.ratio), sub: stars(r.q) } : null; },
+      color: sc,
+      tip: (c, d) => ratioTip(rcRow(st.rMetric, d, c.cell), c, m, `${m ? m.label : st.rMetric}, spread ${d}`),
+      onSelect: (c, d) => ratioDetail($("r-detail"), rcRow(st.rMetric, d, c.cell), c, m, `${m ? m.label : st.rMetric} · spread ${d}`),
+    });
+    markSel();
+    return;
+  }
+  for (const d of spreads) {
+    heatmap(root, {
+      title: `Swarm at spread ${d}`,
+      value: (c) => { const r = rcRow(st.rMetric, d, c.cell); return r ? { v: Math.log2(r.ratio), text: fmt(r.ratio), sub: stars(r.q) } : null; },
+      color: sc,
+      tip: (c) => ratioTip(rcRow(st.rMetric, d, c.cell), c, m, `${m ? m.label : st.rMetric}, spread ${d}`),
+      onSelect: (c) => ratioDetail($("r-detail"), rcRow(st.rMetric, d, c.cell), c, m, `${m ? m.label : st.rMetric} · spread ${d}`),
+    });
+  }
+  markSel();
+}
+
+// ---------------------------------------------------------------- tab 1b: finding a hidden target
+const CONDS = [["single_1", "Single drone", "--single"], ["swarm_0.4", "Swarm, spread 0.4", "--sp-0"], ["swarm_1", "Swarm, spread 1.0", "--sp-1"], ["swarm_1.6", "Swarm, spread 1.6", "--sp-2"]];
+function buildFind() {
+  const sel = $("f-sel");
+  const cells = (D.grid.cells || []).filter((c) => c.flown && (D.find_curves || {})[c.cell]).sort((a, b) => a.p - b.p || a.alpha - b.alpha);
+  sel.innerHTML = cells.map((c) => `<option value="${c.cell}">blocks ${c.p} m · coverage ${c.alpha}</option>`).join("");
+  const def = cells.find((c) => c.p === 90.83 && c.alpha === 0.06) || cells[Math.floor(cells.length / 2)];
+  if (def) sel.value = def.cell;
+  sel.onchange = drawFind;
+}
+function drawFind() {
+  const cell = $("f-sel").value, fc = (D.find_curves || {})[cell], c = CELLS.get(cell);
+  const root = d3.select("#f-chart").html("");
+  if (!fc) { root.append("div").attr("class", "empty").text("No walks in this design yet."); $("f-table").innerHTML = ""; return; }
+  $("f-title").textContent = `Chance the target has been found: blocks ${c ? c.p : ""} m, coverage ${c ? c.alpha : ""}`;
+  const W = 700, H = 340, ml = 50, mr = 16, mt = 10, mb = 40;
+  const svg = root.append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", "Chance a hidden target has been found against time, per condition");
+  const tmax = d3.max(Object.values(fc), (v) => d3.max(v.t)) || 300;
+  const ymax = d3.max(Object.values(fc), (v) => d3.max(v.m.map((m, i) => m + (v.s[i] || 0)))) || 0.1;
+  const xs = d3.scaleLinear().domain([0, tmax]).range([ml, W - mr]);
+  const ys = d3.scaleLinear().domain([0, Math.max(0.02, ymax * 1.08)]).nice().range([H - mb, mt]);
+  svg.append("g").attr("class", "gridl").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ys).ticks(6).tickSize(-(W - ml - mr)).tickFormat(""));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - mb})`).call(d3.axisBottom(xs).ticks(7).tickFormat((v) => (v / 60).toFixed(v % 60 ? 1 : 0) + " min"));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ys).ticks(6).tickFormat(d3.format(".0%")));
+  svg.append("text").attr("x", (ml + W - mr) / 2).attr("y", H - 4).attr("text-anchor", "middle").style("font", "500 11px var(--font-body)").style("fill", css("--ink-2")).text("time into the walk");
+  const leg = [];
+  for (const [k, name, tok] of CONDS) {
+    const v = fc[k];
+    if (!v) continue;
+    const col = css(tok);
+    const pts = v.t.map((t, i) => ({ t, m: v.m[i], s: v.s[i] || 0 }));
+    svg.append("path").attr("d", d3.area().x((p) => xs(p.t)).y0((p) => ys(Math.max(0, p.m - p.s))).y1((p) => ys(p.m + p.s))(pts)).attr("fill", col).attr("opacity", 0.14);
+    svg.append("path").attr("d", d3.line().x((p) => xs(p.t)).y((p) => ys(p.m))(pts)).attr("fill", "none").attr("stroke", col).attr("stroke-width", 2.2);
+    const last = pts[pts.length - 1];
+    svg.append("circle").attr("cx", xs(last.t)).attr("cy", ys(last.m)).attr("r", 4.5).attr("fill", col).attr("stroke", css("--panel")).attr("stroke-width", 2);
+    leg.push(`<span><i class="lg line" style="border-color:${col}"></i>${name}</span>`);
+  }
+  // hover: the values at the nearest step
+  const guide = svg.append("line").attr("y1", mt).attr("y2", H - mb).attr("stroke", css("--muted")).attr("stroke-dasharray", "3 3").attr("opacity", 0);
+  svg.append("rect").attr("x", ml).attr("y", mt).attr("width", W - ml - mr).attr("height", H - mt - mb).attr("fill", "transparent")
+    .on("mousemove", (ev) => {
+      const [mx] = d3.pointer(ev);
+      const t = xs.invert(mx);
+      const any = Object.values(fc)[0];
+      const i = d3.minIndex(any.t, (x) => Math.abs(x - t));
+      guide.attr("x1", xs(any.t[i])).attr("x2", xs(any.t[i])).attr("opacity", 1);
+      showTip(`<b>${(any.t[i] / 60).toFixed(2)} min</b><br>` + CONDS.filter(([k]) => fc[k]).map(([k, name]) => `${name}: <b>${fmt(100 * fc[k].m[i], 1)} %</b> <span class="t2">± ${fmt(100 * (fc[k].s[i] || 0), 1)}</span>`).join("<br>"), ev);
+    })
+    .on("mouseleave", () => { guide.attr("opacity", 0); hideTip(); });
+  $("f-legend").innerHTML = leg.join("") + `<span class="muted">band: ± 1 SD across cities</span>`;
+  // the numbers: chance in the walk, estimated mean time, and the swarm against the single drone
+  const lv = (key, arm, d) => lvRow(key, arm, d, cell);
+  const rows = CONDS.map(([k, name]) => {
+    const arm = k.startsWith("single") ? "single" : "swarm", d = arm === "single" ? 1.0 : +k.split("_")[1];
+    const p = lv("find_p", arm, d), t = lv("find_time", arm, d);
+    const r = arm === "swarm" ? rcRow("find_speed", d, cell) : null;
+    return `<tr><td>${name}</td><td class="n">${p ? fmt(100 * p.mean, 1) + " %" : "–"}<span class="muted"> ± ${p ? fmt(100 * p.sd_city, 1) : "–"}</span></td><td class="n">${t ? fmt(t.mean, 0) : "–"}<span class="muted"> ± ${t ? fmt(t.sd_city, 0) : "–"}</span></td><td class="n">${r ? `${fmt(r.ratio)}× <span class="muted">${stars(r.q)}</span>` : "–"}</td></tr>`;
+  });
+  $("f-table").innerHTML = `<p class="eyebrow">This design</p><div class="tablewrap"><table><thead><tr><th>Condition</th><th class="n">Found in 5 min</th><th class="n">Mean time (min)</th><th class="n">Sooner than single</th></tr></thead><tbody>${rows.join("")}</tbody></table></div><p class="note" style="margin-top:8px">± SD across cities. Mean time is the random-search estimate (1/λ, fitted to the share found in 5 minutes). Stars: q as on the first tab.</p>`;
+}
+
+// ---------------------------------------------------------------- tab 2: limits
+function lvRow(metric, arm, d, cell) { return (D.levels || []).find((r) => r.metric === metric && r.arm === arm && r.d_ref === d && r.cell === cell); }
+function buildLimits() {
+  const sel = $("l-metric");
+  const keys = (D.metrics.level || []).filter((m) => (D.levels || []).some((r) => r.metric === m.key));
+  sel.innerHTML = keys.map((m) => `<option value="${m.key}">${esc(m.label)}</option>`).join("");
+  if (!keys.some((m) => m.key === st.lMetric) && keys.length) st.lMetric = keys[0].key;
+  sel.value = st.lMetric;
+  sel.onchange = () => { st.lMetric = sel.value; drawLimits(); };
+}
+function drawLimits() {
+  const m = LM.get(st.lMetric);
+  aboutBox($("l-about"), st.lMetric);
+  const rows = (D.levels || []).filter((r) => r.metric === st.lMetric);
+  const root = $("l-panels"); root.innerHTML = "";
+  if (!rows.length) { root.innerHTML = `<div class="empty">No results for this measure yet.</div>`; return; }
+  const lo = d3.min(rows, (r) => r.mean), hi = d3.max(rows, (r) => r.mean);
+  const sc = seqScale(lo, hi);
+  const t = [lo, (lo + hi) / 2, hi];
+  rampLegend("#l-legend", sc, t, t.map((v) => fmt(v, Math.abs(hi) < 10 ? 2 : 0)), `${m ? m.label : st.lMetric} (${m ? m.unit : ""})`);
+  const arms = [...SPREADS.map((d) => ["swarm", d])];
+  if (rows.some((r) => r.arm === "single")) arms.unshift(["single", 1.0]);
+  const lab = ([arm, d]) => (arm === "single" ? "single" : String(d));
+  heatmapGroups(root, {
+    title: arms.length > SPREADS.length ? "Each square holds the single drone, then the swarm at spreads 0.4, 1.0 and 1.6" : "Each square holds the swarm at spreads 0.4, 1.0 and 1.6, left to right",
+    keys: arms.map((x) => ({ id: x.join(":"), label: lab(x) })),
+    value: (c, id) => { const [arm, d] = id.split(":"); const r = lvRow(st.lMetric, arm, +d, c.cell); return r ? { v: r.mean, text: fmt(r.mean, Math.abs(r.mean) < 10 ? 2 : 0) } : null; },
+    color: sc,
+    tip: (c, id) => { const [arm, d] = id.split(":"); const r = lvRow(st.lMetric, arm, +d, c.cell); return r ? `<b>${esc(m ? m.label : st.lMetric)}</b> · ${arm === "single" ? "single drone" : "spread " + d}<br>block spacing ${c.p} m, coverage ${c.alpha}<br>mean <b>${fmt(r.mean, 3)}</b> ${esc(m ? m.unit : "")}<br><span class="t2">SD over units ${fmt(r.sd_unit, 3)} · SD over cities ${fmt(r.sd_city, 3)}<br>${r.n_cities} cities, ${r.n_units} units</span>` : `<b>Block spacing ${c.p} m, coverage ${c.alpha}</b><br><span class="t2">no result</span>`; },
+    onSelect: (c, id) => { const [arm, d] = id.split(":"); const r = lvRow(st.lMetric, arm, +d, c.cell); $("l-detail").innerHTML = r ? `<p class="eyebrow">${esc(m ? m.label : "")} · ${arm === "single" ? "single drone" : "spread " + d}</p><h3>Block spacing ${c.p} m · coverage ${c.alpha}</h3><div class="big">${fmt(r.mean, 3)}</div><dl class="kv"><dt>95 % interval over cities</dt><dd>${fmt(r.lo, 3)}–${fmt(r.hi, 3)}</dd><dt>SD over units</dt><dd>${fmt(r.sd_unit, 3)}</dd><dt>SD over cities</dt><dd>${fmt(r.sd_city, 3)}</dd><dt>Cities · units</dt><dd>${r.n_cities} · ${r.n_units}</dd></dl>` : `<p class="muted small">No result in this design.</p>`; },
+  });
+  markSel();
+  drawLimitLines();
+}
+function drawLimitLines() {
+  const root = d3.select("#l-lines").html("");
+  const key = st.lMetric.startsWith("st_") ? ["st_ring_conn", "st_ring_geo_conn"] : ["ring_conn", "ring_geo_conn"];
+  const rows = (D.levels || []).filter((r) => r.arm === "swarm" && key.includes(r.metric));
+  if (!rows.length) return;
+  const W = 640, H = 260, ml = 46, mr = 14, mt = 10, mb = 38;
+  const svg = root.append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", "Neighbouring feeds that share ground against coverage, per spread");
+  const xs = d3.scalePoint().domain(A).range([ml + 10, W - mr - 10]);
+  const ys = d3.scaleLinear().domain([0, 1]).range([H - mb, mt]);
+  svg.append("g").attr("class", "gridl").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ys).ticks(5).tickSize(-(W - ml - mr)).tickFormat(""));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - mb})`).call(d3.axisBottom(xs));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ys).ticks(5).tickFormat(d3.format(".0%")));
+  svg.append("text").attr("x", (ml + W - mr) / 2).attr("y", H - 4).attr("text-anchor", "middle").style("font", "500 11px var(--font-body)").style("fill", css("--ink-2")).text("coverage α");
+  const col = (i) => [css("--sp-0"), css("--sp-1"), css("--sp-2")][i] || css("--swarm");
+  const leg = [];
+  SPREADS.forEach((d, i) => {
+    key.forEach((k, j) => {
+      const pts = A.map((a) => { const v = rows.filter((r) => r.metric === k && r.d_ref === d && r.alpha === a).map((r) => r.mean); return v.length ? { a, m: d3.mean(v), s: v.length > 1 ? d3.deviation(v) : 0 } : null; }).filter(Boolean);
+      const line = d3.line().x((p) => xs(p.a)).y((p) => ys(p.m));
+      svg.append("path").attr("d", line(pts)).attr("fill", "none").attr("stroke", col(i)).attr("stroke-width", 2).attr("stroke-dasharray", j ? "5 4" : null);
+      if (!j) {
+        for (const p of pts) {
+          svg.append("line").attr("x1", xs(p.a)).attr("x2", xs(p.a)).attr("y1", ys(Math.max(0, p.m - p.s))).attr("y2", ys(Math.min(1, p.m + p.s))).attr("stroke", col(i)).attr("stroke-width", 1.2).attr("opacity", 0.7);
+          svg.append("circle").attr("cx", xs(p.a)).attr("cy", ys(p.m)).attr("r", 4).attr("fill", col(i)).attr("stroke", css("--panel")).attr("stroke-width", 2)
+            .on("mouseenter mousemove", (ev) => showTip(`<b>Spread ${d}</b>, coverage ${p.a}<br>neighbouring feeds sharing ground: <b>${fmt(100 * p.m, 0)} %</b><br><span class="t2">SD across block spacings ${fmt(100 * p.s, 0)} points</span>`, ev)).on("mouseleave", hideTip);
+        }
+      }
+    });
+    leg.push(`<span><i class="lg line" style="border-color:${col(i)}"></i>spread ${d}</span>`);
+  });
+  leg.push(`<span><i class="lg line" style="border-color:${css("--muted")}"></i>with the buildings</span><span><i class="lg dash" style="border-color:${css("--muted")}"></i>frustums alone</span>`);
+  $("l-lines-legend").innerHTML = leg.join("");
+}
+
+// ---------------------------------------------------------------- tab 3: spreads
+function conRow(metric, contrast, cell) { return (D.contrasts || []).find((r) => r.metric === metric && r.contrast === contrast && r.cell === cell); }
+function buildSpreads() {
+  const sel = $("s-metric");
+  sel.innerHTML = (D.metrics.ratio || []).map((m) => `<option value="${m.key}">${esc(m.label)}</option>`).join("");
+  sel.value = st.sMetric;
+  sel.onchange = () => { st.sMetric = sel.value; drawSpreads(); };
+}
+function drawSpreads() {
+  const m = RM.get(st.sMetric);
+  const root = $("s-panels"); root.innerHTML = "";
+  const rows = (D.contrasts || []).filter((r) => r.metric === st.sMetric);
+  const L = Math.max(0.25, d3.max(rows, (r) => Math.abs(Math.log2(r.ratio || 1))) || 0.5);
+  const lim = Math.min(Math.ceil(L * 8) / 8, 2);
+  const sc = conScale(lim);
+  const ticks = [-lim, 0, lim];
+  rampLegend("#s-legend", sc, ticks, ticks.map((t) => (2 ** t).toFixed(2) + "×"), "Spread ÷ spread 1.0");
+  d3.select("#s-legend").append("p").attr("class", "note").html("Purple: 1.0 does better · teal: the named spread does.<br>Stars as on the first tab.");
+  for (const con of [...new Set(rows.map((r) => r.contrast))].sort().reverse()) {
+    heatmap(root, {
+      title: `Spread ${con.replace(" / ", " ÷ ")}`,
+      value: (c) => { const r = conRow(st.sMetric, con, c.cell); return r ? { v: Math.log2(r.ratio), text: fmt(r.ratio), sub: stars(r.q) } : null; },
+      color: sc,
+      tip: (c) => ratioTip(conRow(st.sMetric, con, c.cell), c, m, `${m ? m.label : ""}: spread ${con.replace(" / ", " ÷ ")}`).replace("swarm ÷ single", "ratio").replace("swarm ", "first ").replace("single ", "spread 1.0 "),
+      onSelect: (c) => ratioDetail($("s-detail"), conRow(st.sMetric, con, c.cell), c, m, `${m ? m.label : ""} · spread ${con.replace(" / ", " ÷ ")}`),
+    });
+  }
+  // the best spread for swarm / single
+  const spc = [css("--sp-0"), css("--sp-1"), css("--sp-2")];
+  heatmap(root, {
+    title: "Spread with the largest swarm ÷ single drone ratio",
+    value: (c) => {
+      const rs = SPREADS.map((d) => rcRow(st.sMetric, d, c.cell)).filter(Boolean);
+      if (!rs.length) return null;
+      const best = rs.reduce((a, b) => (b.ratio > a.ratio ? b : a));
+      return { v: SPREADS.indexOf(best.d_ref), text: String(best.d_ref), sub: fmt(best.ratio) + "×" };
+    },
+    color: (i) => spc[i] || spc[1],
+    tip: (c) => { const rs = SPREADS.map((d) => rcRow(st.sMetric, d, c.cell)).filter(Boolean); return `<b>Block spacing ${c.p} m, coverage ${c.alpha}</b><br>` + (rs.length ? rs.map((r) => `spread ${r.d_ref}: ${fmt(r.ratio)}× (${fmt(r.lo)}–${fmt(r.hi)})`).join("<br>") : "not flown"); },
+    onSelect: null,
+  });
+  markSel();
+}
+
+// ---------------------------------------------------------------- tab 3b: what the wide formation's losses cost
+const LX = new Map(((D.link_axes || {}).x || []).map((a) => [a.key, a.label]));
+const LY = new Map(((D.link_axes || {}).y || []).map((a) => [a.key, a.label]));
+function buildLinks() {
+  const xs = $("k-x"), ys = $("k-y");
+  xs.innerHTML = [...LX].map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("");
+  ys.innerHTML = [...LY].map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("");
+  if (LX.has("ring_conn_drop")) xs.value = "ring_conn_drop";
+  if (LY.has("sweep_16_10")) ys.value = "sweep_16_10";
+  xs.onchange = ys.onchange = drawLinks;
+  const tab = d3.select("#k-table").html("");
+  const hr = tab.append("thead").append("tr");
+  ["Ratio", "City measure", "r", "p", "Partial r", "p", "Cities"].forEach((h, i) => hr.append("th").attr("class", i > 1 ? "n" : null).text(h));
+  const body = tab.append("tbody");
+  for (const r of D.links || []) {
+    const tr = body.append("tr");
+    tr.append("td").text(LY.get(r.y) || r.y);
+    tr.append("td").text(LX.get(r.x) || r.x);
+    tr.append("td").attr("class", "n" + (r.p < 0.05 ? " sig" : "")).text(fmt(r.r));
+    tr.append("td").attr("class", "n" + (r.p < 0.05 ? " sig" : "")).text(fmtP(r.p));
+    tr.append("td").attr("class", "n" + (r.p_partial < 0.05 ? " sig" : "")).text(r.r_partial != null ? fmt(r.r_partial) : "–");
+    tr.append("td").attr("class", "n" + (r.p_partial < 0.05 ? " sig" : "")).text(r.p_partial != null ? fmtP(r.p_partial) : "–");
+    tr.append("td").attr("class", "n").text(r.n_cities);
+  }
+  if (!(D.links || []).length) body.append("tr").append("td").attr("colspan", 7).attr("class", "muted").text("No cities yet.");
+}
+function drawLinks() {
+  const xk = $("k-x").value, yk = $("k-y").value;
+  const root = d3.select("#k-chart").html("");
+  const pts = (D.city_summary || []).filter((c) => c[xk] != null && c[yk] != null && isFinite(c[xk]) && isFinite(c[yk]));
+  const L = (D.links || []).find((r) => r.x === xk && r.y === yk);
+  $("k-stats").innerHTML = L ? `<dl class="kv"><dt>Pearson r</dt><dd>${fmt(L.r)}</dd><dt>p</dt><dd>${fmtP(L.p)}</dd><dt>Partial r (design held fixed)</dt><dd>${L.r_partial != null ? fmt(L.r_partial) : "–"}</dd><dt>p</dt><dd>${L.p_partial != null ? fmtP(L.p_partial) : "–"}</dd><dt>Cities</dt><dd>${L.n_cities}</dd></dl>` : `<p class="muted small">Not enough cities for this pairing.</p>`;
+  if (!pts.length) { root.append("div").attr("class", "empty").text("No cities yet."); return; }
+  const W = 700, H = 360, ml = 56, mr = 16, mt = 10, mb = 42;
+  const svg = root.append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", `${LY.get(yk)} against ${LX.get(xk)}, one point per city`);
+  const xsc = d3.scaleLinear().domain(d3.extent(pts, (c) => c[xk])).nice().range([ml, W - mr]);
+  const ysc = d3.scaleLinear().domain(d3.extent(pts, (c) => c[yk])).nice().range([H - mb, mt]);
+  svg.append("g").attr("class", "gridl").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ysc).ticks(6).tickSize(-(W - ml - mr)).tickFormat(""));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - mb})`).call(d3.axisBottom(xsc).ticks(7));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ysc).ticks(6).tickFormat((v) => (Math.exp(v)).toFixed(2) + "×"));
+  if (ysc.domain()[0] < 0 && ysc.domain()[1] > 0) svg.append("line").attr("x1", ml).attr("x2", W - mr).attr("y1", ysc(0)).attr("y2", ysc(0)).attr("stroke", css("--muted")).attr("stroke-dasharray", "4 4");
+  svg.append("text").attr("x", (ml + W - mr) / 2).attr("y", H - 4).attr("text-anchor", "middle").style("font", "500 11px var(--font-body)").style("fill", css("--ink-2")).text(LX.get(xk));
+  const col = seqScale(d3.min(A), d3.max(A));
+  rampLegend("#k-legend", col, [d3.min(A), d3.max(A)], [String(d3.min(A)), String(d3.max(A))], "Coverage α");
+  for (const c of pts) svg.append("circle").attr("cx", xsc(c[xk])).attr("cy", ysc(c[yk])).attr("r", 3.6).attr("fill", col(c.alpha)).attr("stroke", css("--ink-2")).attr("stroke-width", 0.6).attr("opacity", 0.9)
+    .on("mouseenter mousemove", (ev) => showTip(`<b>City in design p ${c.p} m, α ${c.alpha}</b><br>${esc(LY.get(yk))}: <b>${Math.exp(c[yk]).toFixed(3)}×</b><br>${esc(LX.get(xk))}: ${fmt(c[xk], 3)}`, ev)).on("mouseleave", hideTip);
+  if (pts.length > 2) {
+    const xm = d3.mean(pts, (c) => c[xk]), ym = d3.mean(pts, (c) => c[yk]);
+    const b = d3.sum(pts, (c) => (c[xk] - xm) * (c[yk] - ym)) / Math.max(d3.sum(pts, (c) => (c[xk] - xm) ** 2), 1e-12);
+    const [x0, x1] = xsc.domain();
+    svg.append("line").attr("x1", xsc(x0)).attr("x2", xsc(x1)).attr("y1", ysc(ym + b * (x0 - xm))).attr("y2", ysc(ym + b * (x1 - xm))).attr("stroke", css("--ink")).attr("stroke-width", 1.5);
+  }
+}
+
+// ---------------------------------------------------------------- tab 4: trends
+function buildTrends() {
+  const T = D.trends || [];
+  const tab = d3.select("#tr-table").html("");
+  const head = tab.append("thead").append("tr");
+  ["Measure", "Spread", "Per +0.01 coverage", "p", "Per doubling of block spacing", "p", "Interaction p", "R²", "Cities"].forEach((h, i) => head.append("th").attr("class", i > 1 ? "n" : null).text(h));
+  const body = tab.append("tbody");
+  const keys = [...new Set(T.map((r) => r.metric))];
+  for (const k of keys) for (const d of SPREADS) {
+    const g = (term) => T.find((r) => r.metric === k && r.d_ref === d && r.term === term);
+    const a = g("alpha_per_0.01"), p = g("log2_p"), x = g("alpha_x_log2_p");
+    if (!a) continue;
+    const pc = (r, scale) => `${r.pct >= 0 ? "+" : ""}${fmt(r.pct, 1)} % ± ${fmt(100 * r.se * scale, 1)}`;
+    const tr = body.append("tr");
+    tr.append("td").text(RM.get(k) ? RM.get(k).label : k);
+    tr.append("td").attr("class", "n").text(d);
+    tr.append("td").attr("class", "n" + (a.p < 0.05 ? " sig" : "")).text(pc(a, 0.01));
+    tr.append("td").attr("class", "n" + (a.p < 0.05 ? " sig" : "")).text(fmtP(a.p));
+    tr.append("td").attr("class", "n" + (p.p < 0.05 ? " sig" : "")).text(pc(p, 1));
+    tr.append("td").attr("class", "n" + (p.p < 0.05 ? " sig" : "")).text(fmtP(p.p));
+    tr.append("td").attr("class", "n" + (x && x.p < 0.05 ? " sig" : "")).text(x ? fmtP(x.p) : "–");
+    tr.append("td").attr("class", "n").text(fmt(a.r2));
+    tr.append("td").attr("class", "n").text(a.n_cities);
+  }
+  if (!T.length) body.append("tr").append("td").attr("colspan", 9).attr("class", "muted").text("No trends yet (they need at least eight cities).");
+  const sel = $("tr-metric");
+  sel.innerHTML = (D.metrics.ratio || []).map((m) => `<option value="${m.key}">${esc(m.label)}</option>`).join("");
+  sel.value = st.trMetric;
+  sel.onchange = () => { st.trMetric = sel.value; drawTrend(); };
+  const seg = $("tr-spread");
+  seg.innerHTML = SPREADS.map((d) => `<button type="button" data-v="${d}" aria-pressed="${d === st.trSpread}">${d}</button>`).join("");
+  seg.onclick = (ev) => { const b = ev.target.closest("button"); if (!b) return; st.trSpread = +b.dataset.v; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawTrend(); };
+}
+function drawTrend() {
+  const m = RM.get(st.trMetric);
+  $("tr-title").textContent = `${m ? m.label : st.trMetric}: swarm ÷ single drone by coverage, spread ${st.trSpread}`;
+  const rows = (D.ratio_cells || []).filter((r) => r.metric === st.trMetric && r.d_ref === st.trSpread);
+  const root = d3.select("#tr-chart").html("");
+  if (!rows.length) { root.append("div").attr("class", "empty").text("No results yet."); return; }
+  const W = 700, H = 340, ml = 50, mr = 16, mt = 10, mb = 40;
+  const svg = root.append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img").attr("aria-label", "Swarm over single drone against coverage, one line per block spacing");
+  const xs = d3.scaleLinear().domain(d3.extent(A)).nice().range([ml, W - mr]);
+  const lo = d3.min(rows, (r) => r.lo ?? r.ratio), hi = d3.max(rows, (r) => r.hi ?? r.ratio);
+  const ys = d3.scaleLog().domain([Math.min(0.8, lo * 0.95), Math.max(1.25, hi * 1.05)]).range([H - mb, mt]);
+  svg.append("g").attr("class", "gridl").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ys).ticks(6, "~g").tickSize(-(W - ml - mr)).tickFormat(""));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - mb})`).call(d3.axisBottom(xs).ticks(7));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(${ml},0)`).call(d3.axisLeft(ys).ticks(6, "~g").tickFormat((v) => v + "×"));
+  svg.append("line").attr("x1", ml).attr("x2", W - mr).attr("y1", ys(1)).attr("y2", ys(1)).attr("stroke", css("--muted")).attr("stroke-dasharray", "4 4");
+  svg.append("text").attr("x", (ml + W - mr) / 2).attr("y", H - 4).attr("text-anchor", "middle").style("font", "500 11px var(--font-body)").style("fill", css("--ink-2")).text("coverage α");
+  const ramp = d3.scaleLinear().domain([0, Math.max(1, P.length - 1)]).range([css("--sp-0"), css("--sp-2")]).interpolate(d3.interpolateLab);
+  const leg = [];
+  P.forEach((p, i) => {
+    const pts = rows.filter((r) => r.p_m === p).sort((a, b) => a.alpha - b.alpha);
+    if (!pts.length) return;
+    const c = ramp(i);
+    const off = (i - (P.length - 1) / 2) * 0.0009;
+    svg.append("path").attr("d", d3.line().x((r) => xs(r.alpha + off)).y((r) => ys(r.ratio))(pts)).attr("fill", "none").attr("stroke", c).attr("stroke-width", 2);
+    for (const r of pts) {
+      if (r.lo != null && r.hi != null) svg.append("line").attr("x1", xs(r.alpha + off)).attr("x2", xs(r.alpha + off)).attr("y1", ys(Math.max(r.lo, ys.domain()[0]))).attr("y2", ys(Math.min(r.hi, ys.domain()[1]))).attr("stroke", c).attr("stroke-width", 1.2).attr("opacity", 0.7);
+      svg.append("circle").attr("cx", xs(r.alpha + off)).attr("cy", ys(r.ratio)).attr("r", 4).attr("fill", c).attr("stroke", css("--panel")).attr("stroke-width", 2)
+        .on("mouseenter mousemove", (ev) => showTip(ratioTip(r, { p: r.p_m, alpha: r.alpha, flown: true }, m, `${m ? m.label : ""}, spread ${st.trSpread}`), ev)).on("mouseleave", hideTip);
+    }
+    leg.push(`<span><i class="lg line" style="border-color:${c}"></i>${p} m blocks</span>`);
+  });
+  $("tr-legend").innerHTML = leg.join("");
+}
+
+// ---------------------------------------------------------------- tab 5: cities
+function buildCities() {
+  const sel = $("c-sel");
+  const flown = (D.grid.cells || []).filter((c) => c.flown && D.maps && D.maps[c.cell]).sort((a, b) => a.p - b.p || a.alpha - b.alpha);
+  sel.innerHTML = flown.map((c) => `<option value="${c.cell}">blocks ${c.p} m · coverage ${c.alpha}</option>`).join("");
+  sel.onchange = drawCity;
+  if (!flown.length) { $("c-stats").innerHTML = `<dt>No maps yet</dt><dd></dd>`; return; }
+  const def = flown.find((c) => c.p === 90.83 && c.alpha === 0.06) || flown[Math.floor(flown.length / 2)];
+  sel.value = def.cell;
+  new ResizeObserver(() => drawCity()).observe($("c-canvas").parentElement);
+}
+function drawCity() {
+  const cell = $("c-sel").value, mp = D.maps && D.maps[cell], c = CELLS.get(cell);
+  const cv = $("c-canvas");
+  if (!mp) return;
+  const w = cv.parentElement.clientWidth - 28, h = Math.min(w, 640);
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.height = h + "px";
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = css("--panel"); ctx.fillRect(0, 0, w, h);
+  const [x0, x1, z0, z1] = mp.arena;
+  const s = Math.min(w / (x1 - x0), h / (z1 - z0));
+  const ox = (w - s * (x1 - x0)) / 2, oz = (h - s * (z1 - z0)) / 2;
+  const X = (x) => ox + (x - x0) * s, Z = (z) => h - oz - (z - z0) * s;
+  // the Voronoi cells: the arena is block, and every cell edge a street of the city's width over it
+  ctx.fillStyle = css("--block"); ctx.fillRect(X(x0), Z(z1), (x1 - x0) * s, (z1 - z0) * s);
+  ctx.strokeStyle = css("--street"); ctx.lineCap = "round"; ctx.lineWidth = Math.max(1, (mp.street_w || 15) * s);
+  ctx.beginPath();
+  for (const [ax, az, bx, bz] of mp.streets || []) { ctx.moveTo(X(ax), Z(az)); ctx.lineTo(X(bx), Z(bz)); }
+  ctx.stroke();
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 0.8; ctx.setLineDash([3, 4]);
+  ctx.beginPath();
+  for (const [ax, az, bx, bz] of mp.streets || []) { ctx.moveTo(X(ax), Z(az)); ctx.lineTo(X(bx), Z(bz)); }
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.save(); ctx.beginPath(); ctx.rect(X(x0), Z(z1), (x1 - x0) * s, (z1 - z0) * s); ctx.strokeStyle = css("--muted"); ctx.lineWidth = 1; ctx.stroke(); ctx.restore();
+  ctx.fillStyle = css("--bldg");
+  for (const [x, z, hx, hz] of mp.rects) ctx.fillRect(X(x - hx), Z(z + hz), 2 * hx * s, 2 * hz * s);
+  const cols = { single_1: css("--single"), "swarm_0.4": css("--sp-0"), swarm_1: css("--sp-1"), "swarm_1.6": css("--sp-2") };
+  const names = { single_1: "single drone", "swarm_0.4": "swarm, spread 0.4", swarm_1: "swarm, spread 1.0", "swarm_1.6": "swarm, spread 1.6" };
+  const leg = [];
+  for (const [k, pts] of Object.entries(mp.tracks || {})) {
+    if (!pts.length) continue;
+    ctx.strokeStyle = cols[k] || css("--ink"); ctx.lineWidth = 2; ctx.lineJoin = "round";
+    ctx.beginPath(); pts.forEach(([x, z], i) => (i ? ctx.lineTo(X(x), Z(z)) : ctx.moveTo(X(x), Z(z)))); ctx.stroke();
+    leg.push(`<span><i class="lg line" style="border-color:${cols[k] || css("--ink")}"></i>${names[k] || k}</span>`);
+  }
+  const first = Object.values(mp.tracks || {}).find((t) => t.length);
+  if (first) { ctx.fillStyle = css("--ink"); ctx.beginPath(); ctx.arc(X(first[0][0]), Z(first[0][1]), 5, 0, 2 * Math.PI); ctx.fill(); leg.push(`<span><i class="lg" style="background:${css("--ink")};width:10px;height:10px;border-radius:50%"></i>start</span>`); }
+  leg.push(`<span><i class="lg" style="background:${css("--bldg")}"></i>buildings</span><span><i class="lg" style="background:${css("--block")};outline:1px solid ${css("--line")}"></i>blocks (Voronoi cells)</span><span><i class="lg line" style="border-color:${css("--line")};border-top-style:dashed"></i>street centreline (${fmt(mp.street_w, 0)} m streets)</span><span class="muted">north up; ${Math.round(x1 - x0)} m across</span>`);
+  $("c-legend").innerHTML = leg.join("");
+  $("c-stats").innerHTML = c ? `<dt class="sub">The design</dt><dt>Block spacing p</dt><dd>${c.p} m</dd><dt>Coverage asked · achieved</dt><dd>${c.alpha} · ${fmt(c.alpha_achieved, 3)}</dd><dt>Block fill</dt><dd>${fmt(c.block_fill, 3)}</dd><dt>Buildings · blocks</dt><dd>${fmt(c.n_buildings, 0)} · ${fmt(c.n_blocks, 0)}</dd><dt>Free sight length ℓ</dt><dd>${fmt(c.ell_m, 0)} m</dd><dt>Buildings in walls</dt><dd>${fmt(100 * (c.wall_share ?? NaN), 0)} %</dd><dt>Cylinder encounters per km</dt><dd>${fmt(c.encounters_per_km, 1)}</dd><dt>Most buildings within 50 m</dt><dd>${fmt(c.max_within_50m, 0)}</dd><dt>Cities built</dt><dd>${c.buildable} of ${c.asked}</dd><dt>Map</dt><dd>seed ${mp.seed}</dd>` : "";
+}
+
+// ---------------------------------------------------------------- tab 6: method
+function buildMethod() {
+  const m = D.meta, run = m.run || {}, spec = m.spec || {}, opts = run.opts || {};
+  const items = [
+    ["Cities", `Voronoi blocks round blue-noise seed points at a mean spacing p, 12 m streets between them, every block filled evenly with DiamondCityWorld's building mix at its own size (the way VoronoiCityWorld is built), 4 m between facades, no goal patches. Coverage α is the built share of the 730 m arena. ${spec.cities_per_cell || "–"} cities (seeds) per design; a city whose blocks fill up before α is reached is not used.`],
+    ["Conditions", "The single drone, planning round every building with its view along its heading, and the ten-drone swarm at spreads (d_ref) 0.4, 1.0 and 1.6, planning round only the walls its formation cannot pass and flowing round the rest, its feeds the hull drones whose feed is ready (the scenes' timing: boundary debounce, heading filter, yaw rate)."],
+    ["Walks", `A run-and-tumble random walker: straight runs of 20 m plus an exponential (mean ${spec.run_m || 120} m), each at a random new heading, targets snapped to open ground. Every condition of a walk flies the same chain of targets from the same start and heading for ${spec.T_s || "–"} s, or until a swarm is down to fewer than four drones. The 2-D replica of the flight controller flies them, with contact physics.`],
+    ["Seeing", "A point on the ground at hat height is seen when a shown feed's camera has it within 40 m slant range (the hat's recognition range), in its 74.4° × 46.2° field of view at internal_3's median altitude and gimbal pitch, with a clear sight line. Flying at 19.5 m and −15°, each camera sees the ground from about 23 m to 36 m out. The single drone is compared at the swarm's altitude and pitch."],
+    ["The headset", D.head_model || ""],
+    ["Streets", "Every city has 12 m streets (today's tile cities have 15 m); the formation is about 6 m across at spread 0.4, 14 m at 1.0 and 24 m at 1.6, so only spread 0.4 fits a street without squeezing. Street width is held fixed here and can be revisited once VoronoiCityWorld's design is settled."],
+    ["Finding", "A hidden target counts as found within 200 m of a shown feed with a clear sight line, on a 4 m grid of the arena, through rays every 0.5° from each camera to the first facade, checked every second. Everything else on the page is at the hat's 40 m."],
+    ["Standing", "The formation flown in from the most open side of a random free point and held there by the centring pilot for 60 s; the single drone on its centre facing the same way; four body yaws per point."],
+    ["Statistics", "Each walk (or standing point) pairs the swarm with the single drone: the log of their ratio. These are averaged per city, and the cities are the independent units: the ratio is the geometric mean over them, with a 95 % t interval, the SD of the city ratios, and a one-sample t test. q values correct each map's squares for multiple testing (Benjamini–Hochberg). The Wilcoxon test over walks is shown for comparison only; it treats walks in one city as independent and so overstates significance. Trends are least-squares fits over cities."],
+    ["Run", "Jobs ran replicate by replicate (every design's k-th walk before any (k+1)-th), so stopping at the time budget leaves every design equally covered. Results were written as they arrived; a worker that died was detected by a stall timer and its job re-run. A sample of walks was flown a second time and compared field by field, because every job is deterministic in its seed and a difference would mean silent corruption on this machine's CPU."],
+    ["Limits", "The replica is 2-D: buildings are taller than the drones and block every sight line; street furniture, wind and the pilot's attention are not modelled. The walker is a task-free model of moving through a city, not a search; how real pilots fly changes the absolute numbers, and the paired design is what makes the ratios comparable."],
+  ];
+  const half = Math.ceil(items.length / 2);
+  $("method").innerHTML = `<dl>${items.slice(0, half).map(([t, d]) => `<dt>${t}</dt><dd>${esc(d)}</dd>`).join("")}</dl><dl>${items.slice(half).map(([t, d]) => `<dt>${t}</dt><dd>${esc(d)}</dd>`).join("")}</dl>`;
+  const all = [...(D.metrics.ratio || []).map((x) => [x, "Swarm ÷ single drone"]), ...(D.metrics.level || []).map((x) => [x, "Each condition"])];
+  const seen = new Set();
+  const gl = all.filter(([x]) => (D.descriptions || {})[x.key] && !seen.has(x.key) && seen.add(x.key)).map(([x, kind]) => { const d = D.descriptions[x.key]; return `<dt>${esc(x.label)} <span class="muted small">· ${kind}${x.unit ? " · " + esc(x.unit) : ""}</span></dt><dd>${esc(d.how)} ${esc(d.read)}</dd>`; });
+  const gh = Math.ceil(gl.length / 2);
+  $("m-gloss").innerHTML = `<dl>${gl.slice(0, gh).join("")}</dl><dl>${gl.slice(gh).join("")}</dl>`;
+  const rc = m.recheck || {};
+  const kv = [
+    ["Started from spec", spec.name || "–"], ["Time budget", run.hours_budget != null ? run.hours_budget + " h" : "–"],
+    ["Rounds planned · stopped at", `${run.rounds_planned ?? "–"} · ${run.rounds_stopped_at ?? "none"}`],
+    ["Round times (min)", (run.round_minutes || []).join(", ") || "–"],
+    ["Wall time", run.seconds != null ? (run.seconds / 3600).toFixed(2) + " h" : "–"],
+    ["Cities asked · buildable", `${run.cities ?? "–"} · ${run.cities_buildable ?? "–"}`],
+    ["Designs flown", run.cells_flown ?? "–"], ["Walks · standing points", `${run.walks ?? "–"} · ${run.points ?? "–"}`],
+    ["Walk length", opts.T_s ? opts.T_s + " s" : "–"],
+    ["Altitude · pitch (walks)", opts.band ? `${fmt(opts.band.moving_h, 1)} m · ${fmt(opts.band.moving_p, 1)}°` : "–"],
+    ["Altitude · pitch (standing)", opts.band ? `${fmt(opts.band.static_h, 1)} m · ${fmt(opts.band.static_p, 1)}°` : "–"],
+    ["Re-flown walks identical", rc.n ? `${rc.identical} of ${rc.n}` : "–"], ["Jobs failed", m.failed ?? 0],
+  ];
+  $("m-run").innerHTML = kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+  const tab = d3.select("#m-cells").html("");
+  const cols = [["Block spacing", (c) => c.p], ["Coverage", (c) => c.alpha], ["Built", (c) => `${c.buildable}/${c.asked}`], ["Flown", (c) => (c.flown ? "yes" : "no")], ["α achieved", (c) => fmt(c.alpha_achieved, 3)], ["Block fill", (c) => fmt(c.block_fill, 3)], ["ℓ (m)", (c) => fmt(c.ell_m, 0)], ["Buildings", (c) => fmt(c.n_buildings, 0)], ["In walls", (c) => c.wall_share != null ? fmt(100 * c.wall_share, 0) + " %" : "–"]];
+  const hr = tab.append("thead").append("tr");
+  cols.forEach(([h], i) => hr.append("th").attr("class", i !== 3 ? "n" : null).text(h));
+  const body = tab.append("tbody");
+  for (const c of (D.grid.cells || []).slice().sort((a, b) => a.p - b.p || a.alpha - b.alpha)) {
+    const tr = body.append("tr");
+    cols.forEach(([, f], i) => tr.append("td").attr("class", i !== 3 ? "n" : null).text(f(c)));
+  }
+}
+
+// ---------------------------------------------------------------- tabs, theme
+const TABS = ["ratio", "find", "limits", "spreads", "trends", "cities", "method"];
+function showTab(name) {
+  for (const t of TABS) { $("t-" + t).setAttribute("aria-selected", String(t === name)); $("p-" + t).hidden = t !== name; }
+  if (name === "cities") drawCity();
+  if (name === "find") drawFind();
+}
+TABS.forEach((t) => { $("t-" + t).onclick = () => { showTab(t); try { history.replaceState(null, "", "#" + t); } catch (e) {} }; });
+function drawAll() { drawRatio(); drawFind(); drawLimits(); drawSpreads(); drawLinks(); buildTrends(); drawTrend(); if (!$("p-cities").hidden) drawCity(); }
+masthead(); buildRatio(); buildFind(); buildLimits(); buildSpreads(); buildLinks(); buildCities(); buildMethod(); drawAll();
+showTab(TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "ratio");
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
+new MutationObserver(drawAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+})();
+</script>

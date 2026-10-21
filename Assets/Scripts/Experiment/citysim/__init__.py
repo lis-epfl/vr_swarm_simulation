@@ -25,6 +25,8 @@ docs/search_study/ (a hidden goal searched for without knowing where it is):
     pilotfit    the search study: how internal_3's pilots flew while still searching (runs, turns, pauses, head)
     pilots      the search study's pilots: intent chains (random walker, fitted), the target mask, heading, head
     search      the search study (docs/search_study): a hidden goal searched for by each interface, until first seen
+    clutter     the clutter study (docs/clutter_study): random walks over a grid of Voronoi city designs, swarm at
+                three spreads against one drone; clutter_stats its statistics, clutter_report its page
     parallel    a process pool that reruns the jobs a dead worker lost
     vissim      the tiers' command line: Tier A/B sweeps, B' dynamic, Tier C scoring, validate, gate1, gates,
                 capability, passby, discovery-predict, pilot-fit, search, search-check, search-bench(-plan)

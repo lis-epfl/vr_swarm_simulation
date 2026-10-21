@@ -1,0 +1,48 @@
+{
+ "name": "clutter",
+ "description": "The clutter study: the swarm against one drone, standing and roaming a city with no task, over a grid of Voronoi city designs -- block spacing p (the cells' mean pitch) x coverage alpha (the arena's built share) -- built as VoronoiCityWorld is (DiamondCityWorld's building mix at size 1, blocks filled evenly, 12 m streets, 4 m facade gaps), with no goal patches. Conditions: the single drone and the swarm at spreads 0.4, 1.0 and 1.6, every one of a walk on the same random-walk intent chain (citysim.pilots rw, mean run 120 m) from the same start. A cell the generator jams in is reported, not flown.",
+ "city": {
+  "mode": "blocks",
+  "mix": "DiamondCityWorld",
+  "size": 1.0,
+  "place": "even",
+  "s": 12.0,
+  "g": 4.0,
+  "goals": 0
+ },
+ "p": [
+  40,
+  50,
+  60,
+  75,
+  90.83,
+  110,
+  135,
+  165,
+  200
+ ],
+ "alpha": [
+  0.02,
+  0.03,
+  0.04,
+  0.06,
+  0.08,
+  0.1,
+  0.12,
+  0.14
+ ],
+ "cities_per_cell": 10,
+ "walks_per_city": 16,
+ "points_per_city": 6,
+ "T_s": 300,
+ "spreads": [
+  0.4,
+  1.0,
+  1.6
+ ],
+ "run_m": 120,
+ "band": "internal_3",
+ "hours": 12.5,
+ "find_range_m": 200.0,
+ "sweep_window_m": 80.0
+}

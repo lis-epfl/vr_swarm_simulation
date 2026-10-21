@@ -1,5 +1,7 @@
 # The search study
 
+**S2 Hidden Goal Search** in the study registry ([docs/studies/](../studies/README.md)); "the search study" is its code name.
+
 Does the swarm find a goal it has not been told about sooner than a single drone does, and is the swarm's habit of
 **morphing round buildings** (the pilot holds the stick, the formation flows round whatever stands in its way) part of
 the reason? The density study ([../density_study/README.md](../density_study/README.md)) predicts what each interface
@@ -320,6 +322,18 @@ python -B citysim/tests/run_tests.py -k test_search          # tests
 | `…/figures/` | `km_<pilot>_<basis>.png` (survival curves per city), `contrasts.png`, `mechanism.png` |
 | `search_study/check/internal_3/` | `check_runs.csv`, `check_summary.csv` |
 | `search_study/bench/spot/` | `plan.json`, `bench_flights.csv`, `bench_summary.csv` |
+| `search_study/search/dashboard/` | the results dashboard's four data files (below) |
+
+**The results dashboard is a light rebuild** (2026-10-21, https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59). The
+first one (2026-10-16) was a Dashboard-type artifact whose data was built by scratchpad scripts and lived only in its
+own store; it was found gone on 2026-10-21. The rebuild is deliberately less in depth: headline ratios, swarm ÷ single
+drone and the cameras-or-morphing split per city with 95% intervals, every condition's searches, and the two checks,
+under filters for pilot, screens counted and range. It leaves out the first one's city maps, the replay of one search
+per city in every condition, the pilots' target chains and the method tab; this manual has the method. It is built
+from the repo now, so it can be rebuilt: `python -B -m citysim.search_dashboard` writes
+`search/dashboard/{contrasts,conditions,unity_check,pilot_check}.csv` from the tables above; upload each as the
+dashboard's file, point its `datasets/<name>` at it, and set its `files/index.html` to
+`citysim/search_dashboard.html` (the Dashboard type's own instructions say how, when the artifact is read).
 
 ## 6. Limits
 

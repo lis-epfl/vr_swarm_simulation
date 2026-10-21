@@ -1,4 +1,4 @@
-<title>Swarm Density Study</title>
+<title>S1 Goal Visibility</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -203,15 +203,19 @@ tr:last-child td { border-bottom: 0; }
 .tip b { font-weight: 600; }
 .tip .mono { font-size: 0.8rem; }
 .tip .t2 { color: var(--ink-2); }
+.note { font-size: 0.86rem; color: var(--ink-2); margin-top: 0.5rem; }
+.notice { border-left: 3px solid var(--warn); background: var(--panel); border-radius: 0 var(--r) var(--r) 0; padding: 8px 12px; font-size: 0.92rem; color: var(--ink-2); }
+.notice b { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
 
 <div class="wrap">
   <header class="masthead">
     <div>
-      <p class="eyebrow">Visibility study · ten-drone swarm against one drone</p>
-      <h1>Swarm Density Study</h1>
+      <p class="eyebrow">Study S1 · formerly the density study · ten-drone swarm against one drone</p>
+      <h1>S1 Goal Visibility</h1>
       <p class="lead">Which cities make the swarm better, or worse, than a single drone at spotting one person in a hat among sixty-four walkers? The study generated cities with controlled clutter and goal layouts, predicted what each interface sees with four tiers of model, and picked three trial levels with a rule fixed in advance. These are the three it picked.</p>
+      <p class="note">One of the studies in the <a href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a>: S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming. Its code and output folders keep the name "density".</p>
     </div>
     <div class="picks" id="picks"></div>
     <div class="gates" id="gates"></div>
@@ -362,6 +366,7 @@ tr:last-child td { border-bottom: 0; }
       <div class="intro">
         <h2>What each interface sees, and how it flies a city</h2>
         <p>Task-independent: no goals, no walkers. Generated cities from today's sparse one to dense ones, the packed blocks the study first used and porous ones the formation can flow through. Standing anywhere in them, and flying across them on the path each interface's pilot would fly: the swarm's pilot steers round only the walls the formation cannot flow through and lets it morph round everything else; the single drone's pilot steers round every building. Recognition is the hat's 40 m throughout.</p>
+        <p class="notice"><b>Superseded by <a href="https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J" target="_blank" rel="noopener">S3 City Roaming</a></b>, which measures this on random walks over 63 Voronoi city designs at spreads 0.4, 1.0 and 1.6, with statistics over cities. One correction found there applies here too: the sweep widths below count only ground within 42 m of the track, which the swarm nearly fills, so its sweep ratio is understated (about 6–7% at spread 1.0, more at wider spreads). The standing measures are unaffected.</p>
       </div>
       <div class="charts">
         <div class="chart"><div class="head"><div><h3>Swarm ÷ single drone, by city</h3><p>Standing: the ground on the pilot's screens now, in the headset's view, and what the pilot can bring into view within a second. Flying: the sweep width (the width of city cleared per metre flown) and the share of the swarm's ground it saw first round a corner. The swarm at spread 1.0.</p></div></div><div class="tablewrap"><table id="sees-head"></table></div></div>

@@ -1461,7 +1461,31 @@ confirm it on the bench. Invariants:
   contacts against fixed limits. Run it before trusting the replica in a kind of city it has not been checked
   in.
 
-## The density study and ProceduralCityWorld
+## Studies: the registry (S1, S2, S3, …)
+
+Every simulation study has a permanent ID and name, and that is how the user refers to one in a chat that has no
+context ("see S3 City Roaming"). **Start at [docs/studies/README.md](docs/studies/README.md)**: the index (question,
+status, dates), each study's page links, the code names, how to rebuild each page and how to start the next study.
+**[docs/studies/lessons.md](docs/studies/lessons.md)** lists the refinements the studies identified, tagged by study;
+work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
+output folders keep the code names, and so do the sections below.
+
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming |
+|---|---|---|---|
+| code name | the density study | the search study | the clutter study |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) |
+
+All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
+(source `docs/studies/hub.html`). The pages are private claude.ai artifacts: read one with the Artifact tool, never by
+web fetch, and update it by its URL, which keeps the link the user has. Every page is built from the repo, so a lost
+one can be rebuilt (the commands are in the index); the S2 dashboard had to be, and its rebuild is deliberately less
+in depth than the original.
+
+## S1 Goal Visibility: the density study and ProceduralCityWorld
 
 The study that chooses the human trials' city levels: generated cities with controlled clutter and goal
 geometry, the swarm's and the single drone's view of a goal predicted by four tiers of model, and three
@@ -1528,7 +1552,7 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
   - A mix and even placement draw from the same RNG, so the study's path must draw nothing extra:
     `test_one_design_layouts_are_unchanged_by_the_mix` regenerates a committed trial layout byte for byte.
 
-## The search study
+## S2 Hidden Goal Search: the search study
 
 A pilot who does not know where the goal is searches a generated city for it, with the swarm or one drone, and the
 clock stops at first sight: the density study's directed flights and sweep-width model replaced by the search itself.
@@ -1552,6 +1576,29 @@ clock stops at first sight: the density study's directed flights and sweep-width
   start points, headings and seeds come off one random stream, so `scenarios(layouts, 4)` keeps the first four points
   but gives them different headings and seeds: different searches. The first `--starts` did exactly that
   (`search_streets_fresh/`, kept as an independent replicate).
+
+## S3 City Roaming: the clutter study
+
+The task-independent "what each sees" question on random walks with no goal, over a grid of Voronoi city designs
+(block spacing p x coverage alpha, built as VoronoiCityWorld is: DiamondCityWorld's mix, even fill, goal-free, 12 m
+streets), the
+single drone against the swarm at spreads 0.4 / 1.0 / 1.6, with the limit of a wide formation (neighbouring feeds that
+no longer share ground among buildings) measured. **[docs/clutter_study/README.md](docs/clutter_study/README.md) is the
+manual**; the code is `citysim/clutter.py`, `clutter_stats.py`, `clutter_report.py` (+ `.html`), the outputs
+`experiment_results/clutter_study/<name>/`. Invariants:
+- **The cities are the statistical units.** Walks in one city share its buildings, so every p value is a t test over
+  city means of the paired log ratio; the Wilcoxon over walks is kept only to show how much it overstates.
+- **Rounds are replicates and results are appended as they arrive**: a run stopped by its time budget covers every
+  design equally, and `--resume` skips every finished job. Never redraw scenarios with fewer walks; take rounds.
+- **Do not edit `clutter.py` or anything it imports while a run is going**: each round's pool re-imports them from
+  disk. `clutter_stats.py`, `clutter_report.py` and the page template are parent-only and safe to revise mid-run.
+- `citygen` `goals=0` is a goal-free city (id `..._nogoals_...`); it draws no random number for goals, so every goal
+  layout is unchanged. `transit.score`'s `ranges` / `on_sample` / `near_only` and `seen_from(los=False)` are the hooks
+  it uses; `near_only` is opt-in so the capability and Tier C paths stay byte-identical.
+- **Time to find has no goal on purpose**: the target is a point hidden at random, so P(found by t) is the share of the
+  arena's open ground seen by t, discovered at 200 m (`clutter.discovery_first`, a ray-cast isovist on a 4 m grid;
+  the other measures stay at the hat's 40 m). Whole-arena grids are built with `clutter.arena_cells` (footprint by
+  footprint), never `transit.Cells` (its all-pairs inside test is gigabytes there).
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

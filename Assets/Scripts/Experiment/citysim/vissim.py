@@ -607,6 +607,25 @@ def main():
     p.add_argument("--seeds", type=int, default=search.BENCH_REPLICA_SEEDS, help="replica flights per Unity flight")
     p.add_argument("--jobs", type=int, default=jobs_default())
     p.set_defaults(func=search.cmd_bench_score)
+    from citysim import clutter
+    p = sub.add_parser("clutter-feasibility", help="the clutter study: which cells of its city grid can be built")
+    p.add_argument("--spec", default=str(clutter.SPEC))
+    p.add_argument("--name", help="layout folder name (default: the spec's)")
+    p.add_argument("--jobs", type=int, default=jobs_default())
+    p.set_defaults(func=clutter.cmd_feasibility)
+    p = sub.add_parser("clutter", help="the clutter study: the swarm against one drone, standing and on random "
+                                       "walks, over a grid of Voronoi city designs")
+    p.add_argument("--spec", default=str(clutter.SPEC))
+    p.add_argument("--name", help="output name (default: the spec's)")
+    p.add_argument("--quick", action="store_true", help="four cells, three cities each, one short walk and one point")
+    p.add_argument("--hours", type=float, help="time budget (default: the spec's); rounds that would overrun it are "
+                                               "not started")
+    p.add_argument("--resume", action="store_true", help="keep the run's results.jsonl and skip the jobs it holds")
+    p.add_argument("--jobs", type=int, default=jobs_default())
+    p.set_defaults(func=clutter.cmd_clutter)
+    p = sub.add_parser("clutter-tables", help="the clutter study's statistics, figures and page from a run's rows")
+    p.add_argument("--name", default="clutter")
+    p.set_defaults(func=clutter.cmd_tables)
     a = ap.parse_args()
     sys.exit(a.func(a) or 0)
 
