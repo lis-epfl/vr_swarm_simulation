@@ -118,12 +118,18 @@ public class InputManager : MonoBehaviour
         if (inputMode == InputMode.JOYSTICK || (inputMode == InputMode.ANY && !Input.anyKeyDown))
         {
             JoystickData joystickData = UDPReceiverManager.sharedJoystickData;
-            if (joystickData != null)
+            // The sender stopped (RC dropped, bridge stopped). In ANY mode that is no joystick at all,
+            // so the keyboard keeps control instead of being overwritten.
+            bool stale = UDPReceiverManager.IsStale;
+            if (joystickData != null && !(stale && inputMode == InputMode.ANY))
             {
-                inputStatus["throttle"]   = joystickData.linear.z;
-                inputStatus["yaw"]        = joystickData.angular.z;
-                inputStatus["pitch"]      = joystickData.linear.x;
-                inputStatus["roll"]       = joystickData.linear.y;
+                // Stale in JOYSTICK mode: neutral sticks, so the swarm holds instead of flying the last
+                // command. Spread, switch and gimbal keep their last values: they are knob positions,
+                // and resetting them would snap d_ref and toggle the panorama.
+                inputStatus["throttle"]   = stale ? 0.0f : joystickData.linear.z;
+                inputStatus["yaw"]        = stale ? 0.0f : joystickData.angular.z;
+                inputStatus["pitch"]      = stale ? 0.0f : joystickData.linear.x;
+                inputStatus["roll"]       = stale ? 0.0f : joystickData.linear.y;
                 inputStatus["spread"]     = joystickData.angular.x;
                 inputStatus["userSwitch"] = joystickData.switches.s1;
                 inputStatuRaw = new Dictionary<string, float>(inputStatus);
