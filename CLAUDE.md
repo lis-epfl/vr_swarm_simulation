@@ -275,7 +275,8 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - The value belongs to the scene's geometry, so it is per scene: `ScaledCityWorld` 50, exactly its
     uniform skyline, so the swarm must fly *around* a building rather than over it; `CityWorld` and
     `CrowdWorld` 150, because the pack's unscaled buildings reach ~136; `RingChallenge` and
-    `NBackExperiment` 80, comfortably above their content (~47 and ~56).
+    `NBackExperiment` 80, comfortably above their content (~47 and ~56); `VoronoiCityWorld` 45, under its
+    uniform 50 m roofs, because its coverage levels only mean something while the cameras cannot see over them.
 - **The heading loop is a cascade, and `AttitudeAlgorithm` is the PC, not the flight controller.**
   On the real fleet the PC sends a yaw *rate* (`YawControlMode.ANGULAR_VELOCITY`) and the DJI FC holds
   heading off its own IMU whenever that rate is zero. `AttitudeAlgorithm` is the analogue of the PC's
@@ -1551,6 +1552,17 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
     this scene only. ProceduralCityWorld keeps `Flat`, the study's look.
   - A mix and even placement draw from the same RNG, so the study's path must draw nothing extra:
     `test_one_design_layouts_are_unchanged_by_the_mix` regenerates a committed trial layout byte for byte.
+  - **Its coverage levels are S3 City Roaming's** (2026-10-21): 0.0227 (DiamondCityWorld's), 0.06 and 0.10, where S3's
+    swarm found a hidden target 1.48x, 1.92x and 2.58x as fast as one drone, on today's 90.83 m blocks and S3's
+    **12 m streets** (`mixcity`'s default now; the scene was 15 m, which S3's spec wrongly described as 12). The three
+    are **one seed**, so they share their streets and goals and differ only in clutter: the generator draws both
+    before the city (`test_coverage_levels_share_streets_and_goals`). The scene bakes 0.0227; the window's *Layouts*
+    picks the level Play flies, which is built from its file when it is not the bake (1,296 buildings at 0.10).
+    `VoronoiCityWorldBuilder.Rebake` bakes `CITY_LAYOUT` into the scene as it stands, from batchmode.
+  - **Every goal keeps its ring 22 m clear** (`citygen` `c_min`, `mixcity`'s default): a ring phase whose nearest
+    face comes closer to the centre is rejected and a mix redraws the ring. S1 saw the formation surround the occluder
+    at 22 m and above and never at 16 m or below, and a ring drawn from the mix varies in depth: seed 1's third goal
+    had 21.0 m before the floor. `c_min` 0 (every other layout) draws exactly as before.
 
 ## S2 Hidden Goal Search: the search study
 

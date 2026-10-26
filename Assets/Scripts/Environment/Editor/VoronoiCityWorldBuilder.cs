@@ -2,6 +2,7 @@ using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// <c>Tools/Swarm/Build Voronoi city world</c>: makes <c>VoronoiCityWorld.unity</c>, DiamondCityWorld's own buildings on
@@ -61,6 +62,39 @@ public static class VoronoiCityWorldBuilder
         if (string.IsNullOrEmpty(layout)) layout = ProceduralCityWorldBuilder.DefaultLayout(LayoutPattern);
         bool ok = ProceduralCityWorldBuilder.Build(ScenePath, layout, true, out string summary, Configure);
         if (!ok) Debug.LogError("VoronoiCityWorldBuilder: " + summary + NoLayoutHint(layout));
+        EditorApplication.Exit(ok ? 0 : 1);
+    }
+
+    /// <summary>Batchmode: bakes CITY_LAYOUT (else the first mixcity layout) into the scene as it stands, without
+    /// rebuilding it from DiamondCityWorld, so the scene's own settings are kept -- the Voronoi city window's Bake,
+    /// from the command line (<c>-executeMethod VoronoiCityWorldBuilder.Rebake</c>). Saves and exits 0 / 1.</summary>
+    public static void Rebake()
+    {
+        string layout = System.Environment.GetEnvironmentVariable(ProceduralCityBuilder.LayoutEnv);
+        if (string.IsNullOrEmpty(layout)) layout = ProceduralCityWorldBuilder.DefaultLayout(LayoutPattern);
+        bool ok = false;
+        string error = "no layout." + NoLayoutHint(layout);
+        if (!string.IsNullOrEmpty(layout))
+        {
+            Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            var builder = Object.FindFirstObjectByType<ProceduralCityBuilder>(FindObjectsInactive.Include);
+            if (builder == null)
+            {
+                error = $"{ScenePath} has no ProceduralCityBuilder.";
+            }
+            else
+            {
+                builder.layoutPath = layout;
+                ok = builder.Bake(out error);
+                if (ok && !EditorSceneManager.SaveScene(scene))
+                {
+                    ok = false;
+                    error = $"could not save {ScenePath}.";
+                }
+            }
+        }
+        if (ok) Debug.Log($"VoronoiCityWorldBuilder: baked {layout} into {ScenePath}.");
+        else Debug.LogError("VoronoiCityWorldBuilder: " + error);
         EditorApplication.Exit(ok ? 0 : 1);
     }
 

@@ -186,6 +186,29 @@ def test_even_placement_fills_every_block_alike():
     assert fill_spread(even) < 0.7 * fill_spread(rsa), (fill_spread(even), fill_spread(rsa))
 
 
+def test_goal_clearance_floor():
+    """c_min (mixcity's 22 m, S1's surround threshold): every goal's measured clearance c_g is at least c_min, and the
+    floor is named in the id and recorded in the params; off, it is neither."""
+    P = replace(BASE, mix="DiamondCityWorld", size=1.0, alpha=0.0227, p=90.83, s=12.0, place="even", c_min=22.0)
+    L = citygen.generate(P, 1)
+    assert L.verify() == [], L.verify()
+    assert all(g["c_g"] >= 22.0 - 1e-3 for g in L.goals()), [g["c_g"] for g in L.goals()]
+    assert "_cm22_" in L.layout["id"] and L.layout["params"]["c_min"] == 22.0
+    off = citygen.generate(replace(P, c_min=0.0), 1).layout
+    assert "_cm" not in off["id"] and "c_min" not in off["params"]
+
+
+def test_coverage_levels_share_streets_and_goals():
+    """VoronoiCityWorld's levels: one seed at several coverages draws the same streets and the same goals (both come
+    off the random stream before the city), so only the city buildings differ."""
+    P = replace(BASE, mix="DiamondCityWorld", size=1.0, p=90.83, s=12.0, place="even", c_min=22.0)
+    low, high = citygen.generate(replace(P, alpha=0.0227), 1), citygen.generate(replace(P, alpha=0.06), 1)
+    assert low.streets == high.streets
+    assert [b for b in low.boxes if b["role"] != "city"] == [b for b in high.boxes if b["role"] != "city"]
+    assert low.layout["goals"][0]["centre"] == high.layout["goals"][0]["centre"]
+    assert high.layout["n_city_buildings"] > 2 * low.layout["n_city_buildings"]
+
+
 def test_one_design_layouts_are_unchanged_by_the_mix():
     """The mix costs the one-design path no random number: a committed trial layout regenerates byte for byte."""
     import json

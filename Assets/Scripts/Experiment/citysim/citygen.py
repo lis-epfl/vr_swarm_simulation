@@ -4,6 +4,7 @@
     python -B -m citysim.citygen sweep --spec sweep.json --seeds 0 1 2 --jobs 16                # -> layouts/sweep~/
     python -B -m citysim.citygen trial --seeds 101 102 103 104    # the trial levels (levels.json) -> layouts/
     python -B -m citysim.citygen mixcity --city DiamondCityWorld --seed 1   # VoronoiCityWorld's layout -> layouts/
+    python -B -m citysim.citygen mixcity --seed 1 --alpha 0.06              # ... at another coverage, same streets
 
 Blocks mode (the study's cities):
   1. Block seeds: random sequential adsorption over the arena, round(A / p^2) points no two closer than 0.8 p --
@@ -15,7 +16,8 @@ Blocks mode (the study's cities):
      spawn, one from each third of the eligible spawn distances (near / mid / far), each rebuilt to the goal
      geometry G: a central occluder (the study design scaled to a long side of w_c) and n_b patrolled
      buildings (the design at the ring size) centred on a circle of radius r_g, long side tangential. Nothing
-     else may stand within the patch's clear radius r_g + ring half-diagonal + walk_clear of its centre.
+     else may stand within the patch's clear radius r_g + ring half-diagonal + walk_clear of its centre. c_min > 0
+     also keeps every ring building's nearest face that far from the centre (a mix redraws a ring that cannot).
   4. City buildings: the study design at `size`, yaw 0 / 90, dropped by random sequential adsorption into the
      blocks round-robin, wholly inside a block, at least g (the facade gap) from every other building and
      outside every patch, until the coverage reaches alpha (or block fill f) or every block has jammed.
@@ -76,8 +78,10 @@ FALLBACK_DIAMETERS = {0.4: 6.5, 0.7: 10.5, 1.0: 14.5, 1.3: 18.5, 1.6: 22.5}
 STANDOFF_M = 4.0                              # d_obs * scaleFactor: the obstacle repulsion's reach
 # Params fields added after generator version 2, with the value that reproduces it: recorded in a layout's params only
 # when set otherwise, so a version-2 layout regenerated today is byte-identical to the committed one.
-LATER_FIELDS = {"core": "facade", "g_shell": 0.0, "mix": "", "place": "rsa"}
+LATER_FIELDS = {"core": "facade", "g_shell": 0.0, "mix": "", "place": "rsa", "c_min": 0.0}
 MIXCITY_PREFIX = "VoronoiCity__"            # mixcity's file names: <prefix><id>.json (layout.resolve finds the id)
+MIXCITY_STREET_M = 12.0                     # mixcity's street width: S3 City Roaming's, so its coverage results apply
+MIXCITY_C_MIN = 22.0                        # mixcity's goal clearance: S1 saw the swarm surround an occluder at 22 m+
 
 
 @dataclass
@@ -104,6 +108,7 @@ class Params:
     g_shell: float = 0.0      # least gap between two avoidance cylinders under core="shell" (m)
     mix: str = ""             # a tile city whose building mix replaces the one design ("" = one design)
     place: str = "rsa"        # city buildings in blocks: "rsa" (the study's) or "even" (fill_even)
+    c_min: float = 0.0        # least distance from a goal's centre to its ring's nearest face (m); 0 = no floor
 
     def ident(self, seed):
         if self.mode == "scatter":
@@ -114,6 +119,7 @@ class Params:
             if self.core == "shell":
                 core += f"_gs{self.g_shell:g}"
         ring = "" if self.ring_size < 0 else f"_rs{self.ring_size:g}"
+        ring += f"_cm{self.c_min:g}" if self.c_min > 0 else ""
         mix = f"_mix{self.mix}" if self.mix else ""
         place = "" if self.place == "rsa" else f"_{self.place}"
         if self.goals <= 0:                    # a goal-free city: no goal geometry to name
@@ -250,7 +256,7 @@ def goal_buildings_mix(P, mix, centre, rng):
         out, clash = fit_ring(P, base, ring, centre, ring_size, rng)
         if out is not None:
             return [o + (d,) for o, d in zip(out, [occ] + ring)]
-        worst = clash if worst is None or clash[0] > worst[0] else worst
+        worst = clash if worst is None or clash[0] < worst[0] else worst
     raise infeasible(P, worst)
 
 
@@ -263,8 +269,10 @@ def occluder_design(mix, w_c, rng):
 
 
 def fit_ring(P, base, designs, centre, ring_size, rng):
-    """(base + the ring of `designs` at the first random phase that keeps every two goal buildings goal_gap apart,
-    None), or (None, the least-bad clash)."""
+    """(base + the ring of `designs` at the first random phase that keeps every two goal buildings goal_gap apart and,
+    under c_min, every ring building's nearest face c_min from the centre, None), or (None, the least-bad clash):
+    (shortfall in metres, what fell short). A ring that fails c_min at one phase may pass at another, since an
+    axis-aligned building on the circle shows the centre a face or a corner depending on where it stands."""
     phases = rng.uniform(0, 2 * math.pi) + 2 * math.pi / max(P.n_b, 1) * rng.permutation(RING_ROTATIONS) / RING_ROTATIONS
     worst = None
     for theta0 in phases:
@@ -274,18 +282,24 @@ def fit_ring(P, base, designs, centre, ring_size, rng):
         for i in range(len(rects)):
             gap = geo.rect_gap(rects[i], rects[i + 1:])
             if len(gap) and gap.min() < P.goal_gap - 1e-9:
-                clash = (float(gap.min()), out[i][3], i, out[i + 1 + int(np.argmin(gap))][3], i + 1 + int(np.argmin(gap)))
+                j = i + 1 + int(np.argmin(gap))
+                clash = (P.goal_gap - float(gap.min()), f"two goal buildings come closer than goal_gap {P.goal_gap:g} m "
+                                                        f"(best {gap.min():.1f} m, {out[i][3]} {i} / {out[j][3]} {j})")
                 break
+        if clash is None and P.c_min > 0:
+            c = geo.rect_point_distance(rects[1:], [centre])[:, 0]
+            if c.min() < P.c_min - 1e-9:
+                clash = (P.c_min - float(c.min()), f"a ring building comes closer than c_min {P.c_min:g} m to the centre "
+                                                   f"(best {c.min():.1f} m, goal_ring {1 + int(np.argmin(c))})")
         if clash is None:
             return out, None
-        worst = clash if worst is None or clash[0] > worst[0] else worst
+        worst = clash if worst is None or clash[0] < worst[0] else worst
     return None, worst
 
 
 def infeasible(P, worst):
-    gmin, ra, i, rb, j = worst
-    return ValueError(f"goal geometry infeasible: at every ring phase two goal buildings come closer than goal_gap "
-                      f"{P.goal_gap:g} m (best {gmin:.1f} m, {ra} {i} / {rb} {j}); raise r_g or lower n_b / w_c")
+    return ValueError(f"goal geometry infeasible: at every ring phase {worst[1]}; raise r_g or lower n_b / w_c"
+                      + (" / c_min" if P.c_min > 0 else ""))
 
 
 def ring_buildings(P, designs, centre, theta0, ring_size):
@@ -660,7 +674,7 @@ def street_stats(L, rects, diameters, goal_recs, step=5.0):
 def params_from(a):
     return Params(mode=a.mode, p=a.p, s=a.s, alpha=a.alpha, f=a.f, g=a.g, size=a.size, design=a.design or "",
                   w_c=a.wc, r_g=a.rg, n_b=a.nb, ring_size=a.ring_size, goals=a.goals, core=a.core,
-                  g_shell=a.g_shell, mix=a.mix or "", place=a.place)
+                  g_shell=a.g_shell, mix=a.mix or "", place=a.place, c_min=a.c_min)
 
 
 def cmd_one(a):
@@ -688,7 +702,9 @@ def report(L, out):
 def cmd_mixcity(a):
     """A tile city rebuilt as a Voronoi city: its own buildings (its mix, at size 1, the ScaledCity scale) at its
     own coverage over its tile grid (coverage.city_report), with its tile pitch as the block spacing -- the same
-    city in everything but its streets. Any --param overrides the preset; --alpha overrides the measured one."""
+    city in everything but its streets, which are S3's 12 m, round goals kept 22 m clear (MIXCITY_C_MIN). Any
+    --param overrides the preset; --alpha overrides the measured one, which is how VoronoiCityWorld's coverage levels
+    are made: one seed at several alphas shares its streets and goals, since both are drawn before the city."""
     P = replace(params_from(a), mix=a.city)
     if a.alpha is None:
         P = replace(P, alpha=round(coverage.city_report(a.city)["tile_grid"]["alpha"], 4))
@@ -781,6 +797,8 @@ def add_params(p):
                                              "(city_obstacles_<city>.json)")
     p.add_argument("--place", choices=["rsa", "even"], default=d.place,
                    help="city buildings: rsa (the study's round robin) or even (every block to the same fill, spread)")
+    p.add_argument("--c-min", type=float, default=d.c_min,
+                   help="least distance from a goal's centre to its ring's nearest face (m); 0 = no floor")
 
 
 def main():
@@ -807,7 +825,7 @@ def main():
     p.add_argument("--city", default="DiamondCityWorld", help="the tile city (its city_obstacles_<city>.json)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--out", help=f"default {LAYOUT_DIR}/{MIXCITY_PREFIX}<id>.json")
-    p.set_defaults(func=cmd_mixcity, size=1.0, alpha=None, place="even")
+    p.set_defaults(func=cmd_mixcity, size=1.0, alpha=None, place="even", s=MIXCITY_STREET_M, c_min=MIXCITY_C_MIN)
     a = ap.parse_args()
     try:
         sys.exit(a.func(a) or 0)
