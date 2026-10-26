@@ -1552,12 +1552,14 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
     this scene only. ProceduralCityWorld keeps `Flat`, the study's look.
   - A mix and even placement draw from the same RNG, so the study's path must draw nothing extra:
     `test_one_design_layouts_are_unchanged_by_the_mix` regenerates a committed trial layout byte for byte.
-  - **Its coverage levels are S3 City Roaming's** (2026-10-21): 0.0227 (DiamondCityWorld's), 0.06 and 0.10, where S3's
-    swarm found a hidden target 1.48x, 1.92x and 2.58x as fast as one drone, on today's 90.83 m blocks and S3's
-    **12 m streets** (`mixcity`'s default now; the scene was 15 m, which S3's spec wrongly described as 12). The three
-    are **one seed**, so they share their streets and goals and differ only in clutter: the generator draws both
-    before the city (`test_coverage_levels_share_streets_and_goals`). The scene bakes 0.0227; the window's *Layouts*
-    picks the level Play flies, which is built from its file when it is not the bake (1,296 buildings at 0.10).
+  - **Its coverage levels are S3 City Roaming's** (2026-10-21): 0.0227 (DiamondCityWorld's), **0.04**, 0.06 and 0.10,
+    where S3's swarm found a hidden target 1.48x, 1.67x, 1.92x and 2.58x as fast as one drone, on today's 90.83 m
+    blocks and S3's **12 m streets** (`mixcity`'s default now; the scene was 15 m, which S3's spec wrongly described as
+    12). 0.04 was added on 2026-10-26, at the user's request, because the step from 0.0227 to 0.06 was too large to fly
+    as one (246 / 438 / 688 / 1,296 buildings, at most 13 / 16 / 22 / 38 within 50 m). The four are **one seed**, so
+    they share their streets and goals and differ only in clutter: the generator draws both before the city
+    (`test_coverage_levels_share_streets_and_goals`). The scene bakes 0.0227; the window's *Layouts* picks the level
+    Play flies, which is built from its file when it is not the bake.
     `VoronoiCityWorldBuilder.Rebake` bakes `CITY_LAYOUT` into the scene as it stands, from batchmode.
   - **Every goal keeps its ring 22 m clear** (`citygen` `c_min`, `mixcity`'s default): a ring phase whose nearest
     face comes closer to the centre is rejected and a mix redraws the ring. S1 saw the formation surround the occluder

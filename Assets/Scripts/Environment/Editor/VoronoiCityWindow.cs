@@ -29,10 +29,11 @@ using Debug = UnityEngine.Debug;
 /// OlfatiSaber's obstacle query holds 64: the swarm would not see them all. The generator reports it, and so does this
 /// window.</para>
 ///
-/// <para><b>The coverage levels are S3 City Roaming's</b> (docs/studies/S3_city_roaming.md): today's 0.0227, 0.06 and
-/// 0.10 on today's 90.83 m blocks, 12 m streets, goals kept 22 m clear. One seed at the three coverages shares its
-/// streets and goals (the generator draws both before the city), so the levels differ only in clutter. The scene holds
-/// one bake; Layouts picks the one Play flies, which is built from its file when it is not the bake.</para>
+/// <para><b>The coverage levels are S3 City Roaming's</b> (docs/studies/S3_city_roaming.md): today's 0.0227, 0.04, 0.06
+/// and 0.10 on today's 90.83 m blocks, 12 m streets, goals kept 22 m clear. 0.04 splits the step from 0.0227 to 0.06,
+/// which was too large to fly as one. One seed at every coverage shares its streets and goals (the generator draws both
+/// before the city), so the levels differ only in clutter. The scene holds one bake; Layouts picks the one Play flies,
+/// which is built from its file when it is not the bake.</para>
 /// </summary>
 public class VoronoiCityWindow : EditorWindow
 {
@@ -41,8 +42,8 @@ public class VoronoiCityWindow : EditorWindow
     private const float ArenaArea = 730f * 730f;
     private const float MeanFootprint = 50.1f;            // m^2, DiamondCityWorld's buildings (catalogue --mix)
     private const int TimeoutSec = 600;
-    /// <summary>S3's levels: the swarm finds a hidden target 1.48x, 1.92x and 2.58x as fast as one drone there.</summary>
-    private static readonly float[] Levels = { DiamondAlpha, 0.06f, 0.10f };
+    /// <summary>S3's levels: the swarm finds a hidden target 1.48x, 1.67x, 1.92x and 2.58x as fast as one drone there.</summary>
+    private static readonly float[] Levels = { DiamondAlpha, 0.04f, 0.06f, 0.10f };
     private const float MaxAlpha = 0.12f;                 // S3: all 10 cities build at 0.12 on 90.83 m blocks, 2 at 0.14
 
     [SerializeField] private float alpha = DiamondAlpha;
@@ -155,7 +156,7 @@ public class VoronoiCityWindow : EditorWindow
         }
         using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))
         {
-            if (GUILayout.Button(new GUIContent("Generate the three levels (no bake)",
+            if (GUILayout.Button(new GUIContent($"Generate the {Levels.Length} levels (no bake)",
                     $"This seed at coverage {string.Join(", ", Levels.Select(k => k.ToString("0.00##", CultureInfo.InvariantCulture)))}: " +
                     "the same streets and goals, more buildings. Pick one under Layouts.")))
             {

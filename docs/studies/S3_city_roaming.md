@@ -44,13 +44,17 @@ re-flown walks identical.
 - Replica only, not yet flown in Unity in these cities; random walker, not people.
 
 **Open decisions.** Whether to run the refined S3 (about 12 h, which would also correct the sweep widths), and the
-Unity spot check of VoronoiCityWorld at coverage 0.02 / 0.06 / 0.10.
+Unity spot check of VoronoiCityWorld at coverage 0.02 / 0.04 / 0.06 / 0.10.
 
 **Applied to VoronoiCityWorld (2026-10-21).** Three layouts of one seed at coverage 0.0227 / 0.06 / 0.10 (same
 streets and goals, 246 / 688 / 1,296 buildings, at most 13 / 22 / 38 within 50 m), 90.83 m blocks, S3's 12 m streets
 (the scene had 15 m), every goal's ring at least 22 m from its centre (24.5 / 23.4 / 22.2 m), altitude ceiling 45 m
 under the 50 m roofs. The spread dial stays 0.4–1.6 for now, by the user's choice. Panorama quality was already logged
-(`_stitch.csv`). Next: the user flies the three levels; the bench spot check is still open.
+(`_stitch.csv`). Next: the user flies the levels; the bench spot check is still open.
+
+**A fourth level, 0.04 (2026-10-26).** The user found the step from 0.0227 to 0.06 too large to fly as one. 0.04 is an
+S3 grid level (1.67×, mean over block spacings; 1.66× at 90.83 m) and splits it: 246 / 438 / 688 / 1,296 buildings, at
+most 13 / 16 / 22 / 38 within 50 m, same seed, streets and goals (goal rings 24.5 / 23.4 / 22.2 m clear).
 
 **Where.** Manual [docs/clutter_study/README.md](../clutter_study/README.md); code `citysim/clutter.py`,
 `clutter_stats.py`, `clutter_report.py` (+ `.html`); spec `specs/clutter.json`; outputs
