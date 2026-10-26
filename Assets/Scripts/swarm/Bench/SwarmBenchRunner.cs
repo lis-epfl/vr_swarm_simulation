@@ -167,6 +167,7 @@ public class SwarmBenchRunner : MonoBehaviour
         foreach (var c in FindObjectsOfType<UDPReceiverManager>(true)) c.enabled = false;
         foreach (var c in FindObjectsOfType<ImageSharing>(true)) c.enabled = false;
         foreach (var c in FindObjectsOfType<ExperimentRecorder>(true)) c.enabled = false;
+        foreach (var c in FindObjectsOfType<StartLine>(true)) c.enabled = false;
         if (!ConfigureGoalPatches()) return;
         if (!ConfigureLayout()) return;
         ConfigureDroneCount();

@@ -1655,6 +1655,31 @@ logic. Run it with the `stitching` miniconda env (see above): the default `pytho
 against a compatible ABI here, and this project's convention is to keep every analysis interpreter the one
 used for the stitcher.
 
+**The task clock starts at a start line, not at Play** (since 2026-10-26; `StartLine`, added automatically to
+every scene with a recorder, and by `PracticeWorldBuilder` to the practice world). It stands 30 m ahead of the spawn
+(east, into the city), and the first live drone to cross it starts the timed task and makes it disappear, so take-off
+and looking round are not timed: pilots used to spend a median ~25 s there (internal_2/3). Points worth keeping:
+- **The visual is a uniform translucent tint over everything beyond the line, and it has to stay that shape.** The
+  eye cameras draw only the screens, so anything the pilot sees in the world is in the FPV feeds and therefore in
+  the stitch input; an "eye cameras only" layer would make it invisible to everyone. A flat-colour sheet with no
+  edge in any view cannot cause a seam: for a camera behind it, whether a pixel is tinted depends only on the
+  world point it shows, so the tint is paint on the scenery. A finite screen across the road would put free edges
+  in every view, a different place in each, which is what stitching cannot align. So: untextured, unlit, ±2 km
+  wide, 1 km tall. Its one cost is that StabStitch's overlap PSNR reads ~3 dB high until the start (both views'
+  contrast drops by the same 1 − α). A ground stripe just short of the line marks where it is.
+- **No collider, anywhere.** On `Obstacle` it would repel the drones (OlfatiSaber's overlap query hits triggers),
+  and a solid one is hit by the scene-plane raycast. Crossing is a signed distance tested every frame, before the
+  FPV renders (`DefaultExecutionOrder(-50)`), so the crossing frame is drawn without the line.
+- **The first drone, not the centroid, is the user's choice**, and it costs a swarm ~1 s against a single drone:
+  its front drone leads the centroid by 0.4–1.5 s (median ~1 s) at the line in recorded flights. The centroid's
+  crossing is logged beside it (`start_line_centroid`, `startCentroidSec`) for checking that.
+- **Every file's `t` stays on the session clock.** `crash_family` matches deaths to `DroneHealthMonitor.elapsedTime`,
+  which only lines up while t = 0 is Play. The recorder logs `start_line` / `startLineSec` and leaves `totalTaskTime`
+  as Play → last identify; analyse.py subtracts the start (`--start auto`, runs.csv `startSec` / `startSource`) and
+  starts transit leg 1 there. Runs from before the line keep their numbers under `auto`; `--start line` derives the
+  same crossing from their drone logs (analyse.py's `START_LINE_*` mirror `StartLine`'s defaults — change them
+  together) to compare series on one definition.
+
 **A test is not created automatically. Runs sit ungrouped at the root until someone decides which ones
 belong to a series**, because that decision (which runs count as one comparable series, which were false
 starts or bench tests) is the experimenter's, not something inferable from the data. The process, every

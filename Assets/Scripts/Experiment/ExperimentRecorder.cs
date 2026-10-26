@@ -30,6 +30,12 @@ using UnityEngine;
 /// key (correct / incorrect / skip) gives its outcome; a key with no press waiting is the identify itself; an
 /// identify answers the nearest unanswered goal; the session finishes once every goal has an outcome.</para>
 ///
+/// <para><b>The task clock starts at the <see cref="StartLine"/>, not at Play.</b> Every file's <c>t</c> stays on the
+/// session clock (t = 0 at Play; crash matching against the editor log needs that), and the first live drone's
+/// crossing is logged as a <c>start_line</c> event and <c>startLineSec</c>, with the alive centroid's crossing beside
+/// it (<c>start_line_centroid</c>, <c>startCentroidSec</c>). <c>totalTaskTime</c> keeps its old meaning, Play → last
+/// identify; <c>taskTimeFromStartLine</c> is the timed task. analyse.py times from the line when there is one.</para>
+///
 /// Condition is a recorded label only: this component does not change the drone count — the
 /// experimenter still configures <see cref="swarmSpawn"/> as usual.
 ///
@@ -88,6 +94,8 @@ public class ExperimentRecorder : MonoBehaviour
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
     private ScreenSpawn screenSpawn;   // which drones' feeds are on screen, and where the quads hang
+    private StartLine startLine;       // null in a scene without one (or with it removed)
+    private bool startLineLogged, startCentroidLogged;
     private Transform headTransform;   // OVRCameraRig.centerEyeAnchor (fallback Camera.main)
     private int obstacleMask;
 
@@ -181,11 +189,13 @@ public class ExperimentRecorder : MonoBehaviour
         if (!referencesResolved)
         {
             ResolveGoalsAndWalkers();
+            startLine = FindObjectOfType<StartLine>();
             referencesResolved = true;
         }
 
         // Every frame, not at sampleHz, so transitions are timed to the frame.
         UpdateStitchState();
+        LogStartLine();
 
         float dt = Time.unscaledDeltaTime;
         perfFrames++;
@@ -910,6 +920,29 @@ public class ExperimentRecorder : MonoBehaviour
         return n > 0 ? sum / n : Vector3.zero;
     }
 
+    /// <summary>
+    /// Logs the start line's crossings, each at the frame <see cref="StartLine"/> detected it rather than this one's
+    /// (the two components' Updates are not ordered). The first live drone's is the clock; the centroid's is kept
+    /// beside it because a swarm's front drone leads its centroid by ~1 s, which a single drone does not.
+    /// </summary>
+    private void LogStartLine()
+    {
+        if (startLine == null) return;
+        if (!startLineLogged && startLine.Crossed)
+        {
+            startLineLogged = true;
+            Vector3 p = startLine.CrossedPosition;
+            WriteEventAt(startLine.CrossedTime, "start_line", -1, "", -1f,
+                $"drone={startLine.CrossedDrone} x={F(p.x)} z={F(p.z)} centroidBehindM={F(startLine.CentroidBehindAtCross)}");
+        }
+        if (!startCentroidLogged && startLine.CentroidCrossed)
+        {
+            startCentroidLogged = true;
+            Vector3 p = startLine.CentroidCrossedPosition;
+            WriteEventAt(startLine.CentroidCrossedTime, "start_line_centroid", -1, "", -1f, $"x={F(p.x)} z={F(p.z)}");
+        }
+    }
+
     // ------------------------------------------------------------------ finalize
 
     private void Finalize(string reason)
@@ -1000,17 +1033,37 @@ public class ExperimentRecorder : MonoBehaviour
         // key (0 if nothing was answered).
         data.totalTaskTime = lastIdentifyT;
 
+        // The start line, on the session clock; -1 = no line in the scene, or never crossed.
+        if (startLine != null && startLine.Placed)
+        {
+            data.startLineX = startLine.Point.x;
+            data.startLineZ = startLine.Point.z;
+            data.startLineHeadingDeg = startLine.PlacedHeadingDeg;
+            data.startLineDistanceM = startLine.PlacedDistance;
+            if (startLine.Crossed)
+            {
+                data.startLineSec = startLine.CrossedTime - sessionStartTime;
+                data.startLineDrone = startLine.CrossedDrone;
+                if (lastIdentifyT > 0f) data.taskTimeFromStartLine = lastIdentifyT - data.startLineSec;
+            }
+            if (startLine.CentroidCrossed) data.startCentroidSec = startLine.CentroidCrossedTime - sessionStartTime;
+        }
+
         string json = JsonUtility.ToJson(data, true);
         File.WriteAllText(Path.Combine(dirPath, $"{fileStem}_session.json"), json, new UTF8Encoding(false));
     }
 
     // ------------------------------------------------------------------ helpers
 
-    private void WriteEvent(string type, int goalIndex, string outcome, float swarmToWalkerDist, string note)
+    private void WriteEvent(string type, int goalIndex, string outcome, float swarmToWalkerDist, string note) =>
+        WriteEventAt(Time.time, type, goalIndex, outcome, swarmToWalkerDist, note);
+
+    /// <summary>An event that happened at <paramref name="time"/> (<c>Time.time</c>), not necessarily this frame.</summary>
+    private void WriteEventAt(float time, string type, int goalIndex, string outcome, float swarmToWalkerDist, string note)
     {
         if (eventsWriter == null) return;
         eventsWriter.WriteLine(
-            $"{F(Time.time - sessionStartTime)};{UnixMs()};{type};{goalIndex};{outcome};{F(swarmToWalkerDist)};{note}");
+            $"{F(time - sessionStartTime)};{UnixMs()};{type};{goalIndex};{outcome};{F(swarmToWalkerDist)};{note}");
         eventsWriter.Flush();
     }
 
@@ -1047,7 +1100,13 @@ public class ExperimentRecorder : MonoBehaviour
         public string wallStartIso;
         public string wallEndIso;
         public float durationSec;
-        public float totalTaskTime;
+        public float totalTaskTime;        // Play -> last identify
+        // The start line (StartLine): the first live drone's crossing starts the timed task. -1 = none / not crossed.
+        public float startLineSec = -1f;
+        public int startLineDrone = -1;
+        public float startCentroidSec = -1f;   // the alive centroid's crossing (a swarm's ~1 s after its front drone)
+        public float taskTimeFromStartLine = -1f;   // start line -> last identify
+        public float startLineX, startLineZ, startLineHeadingDeg, startLineDistanceM;
         public float stitchFunctionalSec;  // panorama on screen and live (UpdateStitchState)
         public int stitchOnCount;          // times it came on
         // GoalSession's seed: the goal tiles, hat deal, target walkers and walker starts all follow from it, and

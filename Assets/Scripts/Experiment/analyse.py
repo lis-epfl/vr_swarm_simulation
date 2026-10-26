@@ -43,10 +43,17 @@ by `zone` metres, so 15 m takes in the whole street around the patch, up to the 
 goal's patch is a disc of its patchRadius instead (ring radius plus a ring building's half-diagonal), grown
 the same way -- the zone ExperimentRecorder's auto-scored identify uses (IGoalZone). Position is
 the centroid of the alive drones (the drone itself in SingleDrone runs). Goals are ordered by first entry
-into their zone. *Transit* leg k runs from the last exit of zone k-1 before that entry (the session start
-for k = 1, so it includes take-off) to the first entry of zone k; *search* k runs from that entry to the
+into their zone. *Transit* leg k runs from the last exit of zone k-1 before that entry (the task start
+for k = 1, see below) to the first entry of zone k; *search* k runs from that entry to the
 last exit of zone k before zone k+1 is entered (for the last goal, its last exit). Leaving a zone and coming
 back is still searching it. A goal whose zone is never entered has no phases and is reported as unreached.
+
+Task start -- --start, default auto. Runs recorded since 2026-10-26 carry a start line (StartLine, 30 m ahead of
+the spawn): the task starts when the first live drone crosses it (session JSON startLineSec), so take-off and
+looking round are not timed, and the task time and transit leg 1 run from there. Every file's t stays on the
+session clock (t = 0 at Play). Older runs have no line and start at the first sample, as before; `--start line`
+derives the same crossing from their drone logs (startSource "derived") to compare series on one definition, and
+`--start session` ignores the line. runs.csv's startSec is the start on the session clock (the time before it).
 
 Each metric family is documented in its own section below. Subcommands: status, group, archive, answers,
 run, maps, quicklook -- `python analyse.py <command> -h` for each.
@@ -94,7 +101,12 @@ SPREAD_RANGE = (0.4, 1.6)       # joystick dial -> d_ref
 PITCH_RANGE = (-90.0, 60.0)     # FPVCameraScript.MinPitch / MaxPitch
 
 DEFAULTS = dict(zone=15.0, deadband=0.1, tol=0.2, settle=0.5, spread_tol=0.1, pitch_tol=10.0, down=-30.0,
-                range=40.0, dists=[0.0, 10.0, 15.0, 20.0, 30.0, 40.0], arrow_s=4.0, long_street=136.0)
+                range=40.0, dists=[0.0, 10.0, 15.0, 20.0, 30.0, 40.0], arrow_s=4.0, long_street=136.0, start="auto")
+
+# The start line as StartLine.cs lays it (headingDeg, distanceFromSpawn): keep in step. Only `--start line` uses them,
+# to derive a crossing for runs recorded before the line existed; a recorded run carries its own.
+START_LINE_HEADING_DEG = 90.0
+START_LINE_DISTANCE_M = 30.0
 
 WARNINGS = []
 
@@ -226,6 +238,19 @@ class Run:
         self.cx, self.cz = self.centroid.gtX.to_numpy(), self.centroid.gtZ.to_numpy()
         self.cy = self.centroid.gtY.to_numpy()
         self.cdt = np.minimum(np.diff(np.append(self.ct, self.duration)), 0.5)
+        self.set_start("auto")
+
+    def set_start(self, mode):
+        """The task start for --start (see Task start): `start` on the session clock, or None for none (the task
+        time then runs from Play and transit leg 1 from the first sample, as before the line), and its source."""
+        line = float(self.session.get("startLineSec", -1.0))
+        derived = derived_start(self) if mode == "line" and line < 0 else None
+        if mode != "session" and line >= 0:
+            self.start, self.start_source = line, "line"
+        elif derived is not None:
+            self.start, self.start_source = derived, "derived"
+        else:
+            self.start, self.start_source = None, "session"
 
     def path(self, suffix):
         return os.path.join(self.folder, f"{self.stem}_{suffix}")
@@ -286,19 +311,39 @@ def patch_half(g):
 
 
 def goal_legs(run, zone):
-    """Legs in zone order, dict(leg, gi, goal, t0, enter, exit): transit is [t0, enter), search [enter, exit)."""
+    """Legs in zone order, dict(leg, gi, goal, t0, enter, exit): transit is [t0, enter), search [enter, exit).
+    Leg 1 starts at the task start (run.start) where there is one, else at the first sample."""
     inside = [tile_distance(run.cx, run.cz, g) <= zone for g in run.goals]
     entry = [int(np.argmax(zn)) if zn.any() else None for zn in inside]
     order = sorted((k for k, e in enumerate(entry) if e is not None), key=lambda k: entry[k])
-    legs, start = [], float(run.ct[0])
+    legs, start = [], float(run.ct[0]) if run.start is None else run.start
     for pos, k in enumerate(order):
         stop = entry[order[pos + 1]] if pos + 1 < len(order) else len(run.ct)
         j = np.flatnonzero(inside[k][:stop])[-1]
         exit_ = float(run.ct[j] + run.cdt[j])
-        legs.append(dict(leg=pos + 1, gi=k, goal=run.goals[k], t0=start, enter=float(run.ct[entry[k]]),
-                         exit=exit_))
+        enter = float(run.ct[entry[k]])
+        legs.append(dict(leg=pos + 1, gi=k, goal=run.goals[k], t0=min(start, enter), enter=enter, exit=exit_))
         start = exit_
     return legs
+
+
+def derived_start(run, heading_deg=START_LINE_HEADING_DEG, distance=START_LINE_DISTANCE_M):
+    """When the first live drone crossed a start line laid as StartLine lays one -- `distance` m from the first
+    sample's alive centroid along `heading_deg` -- for a run recorded before the line existed (`--start line`).
+    Interpolated between the 10 Hz samples; the recorder times a real crossing to the frame. None if never crossed."""
+    h = np.radians(heading_deg)
+    nx, nz = np.sin(h), np.cos(h)
+    px, pz = run.cx[0] + nx * distance, run.cz[0] + nz * distance
+    s = (run.alive.gtX.to_numpy() - px) * nx + (run.alive.gtZ.to_numpy() - pz) * nz
+    lead = pd.Series(s).groupby(run.alive.t.to_numpy()).max()     # the leading drone at each sample
+    t, s = lead.index.to_numpy(), lead.to_numpy()
+    hit = np.flatnonzero(s >= 0)
+    if not len(hit):
+        return None
+    i = hit[0]
+    if i == 0:
+        return float(t[0])
+    return float(t[i - 1] + (t[i] - t[i - 1]) * -s[i - 1] / (s[i] - s[i - 1]))
 
 
 def pos_at(c, t):
@@ -308,16 +353,19 @@ def pos_at(c, t):
 
 # ============================================================================= task time
 #
-# totalTaskTime is set by ExperimentRecorder at Finalize as start -> last identify: the pilot's RC press
+# totalTaskTime is set by ExperimentRecorder at Finalize as Play -> last identify: the pilot's RC press
 # (C2) where there was one, else the experimenter's keypress. So it only means something when one of those
 # was pressed live. A run whose answers were only back-filled by `answers apply` never gets one (it stays 0,
 # as does an aborted run), so each run uses totalTaskTime when it is > 0 and falls back to durationSec
-# (start -> Finalize); time_source says which.
+# (Play -> Finalize); time_source says which. Either is then timed from the task start (see Task start):
+# startSec is subtracted, and startSource says where it came from.
 
 def task_family(run):
     total = float(run.session.get("totalTaskTime", 0.0) or 0.0)
-    time_s, source = (total, "identify") if total > 0 else (run.duration, "duration")
-    return dict(time_s=time_s, time_source=source, totalTaskTime=total)
+    end, source = (total, "identify") if total > 0 else (run.duration, "duration")
+    start = 0.0 if run.start is None else run.start
+    return dict(time_s=end - start, time_source=source, totalTaskTime=total, startSec=start,
+                startSource=run.start_source)
 
 
 # ============================================================================= pilot commands
@@ -1463,7 +1511,7 @@ class Figures:
         self.test = test
         self.dir = os.path.join(root, PLOTS, test, *(["with_practice"] if cfg.include_practice else []),
                                 *([sub] if sub else []))
-        self.footer = (f"{test} · zone {cfg.zone:g} m · "
+        self.footer = (f"{test} · zone {cfg.zone:g} m · start {cfg.start} · "
                        f"{'practice included' if cfg.include_practice else 'practice excluded'}")
         self.written = []
 
@@ -2061,6 +2109,20 @@ def add_tuning_args(p):
                    help="straight run (m) from which a street counts as long (default %(default)g)")
     p.add_argument("--include-practice", action="store_true",
                    help="put the practice runs back into the figures and summaries (figures go to with_practice/)")
+    p.add_argument("--start", choices=["auto", "line", "session"], default=d["start"],
+                   help="task start: the recorded start line, else the first sample (auto); the same, deriving a "
+                        "line crossing for runs recorded before the line (line); Play, ignoring the line (session)")
+
+
+def apply_start(runs, mode):
+    """Sets every run's task start for --start and says where the starts came from."""
+    for r in runs:
+        r.set_start(mode)
+    counts = {s: sum(r.start_source == s for r in runs) for s in ("line", "derived", "session")}
+    print(f"[info] task start ({mode}): " + ", ".join(f"{n} {s}" for s, n in counts.items() if n))
+    for r in runs:
+        if r.start_source == "session" and r.session.get("startLineDistanceM", 0) > 0 and mode != "session":
+            warn(f"{r.stem}: the start line was never crossed; timed from Play")
 
 
 def analyse_runs(runs, cfg, log_runs, families):
@@ -2304,6 +2366,7 @@ def cmd_run(a):
     folder, manifest, runs = load_test(a.root, a.test)
     if not runs:
         raise SystemExit(f"no finalized runs in {folder}")
+    apply_start(runs, a.start)
     log_runs = parse_editor_logs(sorted(glob.glob(os.path.join(folder, "*.log"))))
     print(f"[info] {a.test}: {len(runs)} runs, {sum(r.practice for r in runs)} practice; "
           f"zone {a.zone:g} m; {len(log_runs)} run(s) in the editor log(s)")
@@ -2355,6 +2418,7 @@ def cmd_run(a):
 
 def cmd_maps(a):
     folder, manifest, runs = load_test(a.root, a.test)
+    apply_start(runs, a.start)
     if not a.include_practice and not a.stem:
         runs = [r for r in runs if not r.practice]
     if a.stem:
@@ -2424,6 +2488,11 @@ def cmd_quicklook(a):
                 ax.annotate(f"goal {g['goalIndex']}", (g["goalX"] - ox, g["goalZ"] - oz),
                             textcoords="offset points", xytext=(6, 6))
                 ax.scatter(g["specialSpawnX"] - ox, g["specialSpawnZ"] - oz, s=60, marker="X", color="red", zorder=6)
+            if (session or {}).get("startLineDistanceM", 0) > 0:     # the start line, ±40 m of it
+                h = np.radians(session["startLineHeadingDeg"])
+                ex, ez = 40 * np.cos(h), -40 * np.sin(h)
+                lx, lz = session["startLineX"] - ox, session["startLineZ"] - oz
+                ax.plot([lx - ex, lx + ex], [lz - ez, lz + ez], color="c", lw=2.5, zorder=6, label="start line")
             ax.set_xlabel("X (m)")
             ax.set_ylabel("Z (m)")
             ax.set_title("Top-down trajectories (XZ)")
@@ -2435,6 +2504,8 @@ def cmd_quicklook(a):
             if events is not None and not events.empty:
                 for _, e in events[events["eventType"] == "identify"].iterrows():
                     ax2.axvline(e["t"], color="blue", ls=":", alpha=0.6)
+                for _, e in events[events["eventType"] == "start_line"].iterrows():
+                    ax2.axvline(e["t"], color="c", lw=2)
             ax2.set_xlabel("Time (s)")
             ax2.set_ylabel("altitude Y (m)")
             ax2.set_title("Altitude vs time")
