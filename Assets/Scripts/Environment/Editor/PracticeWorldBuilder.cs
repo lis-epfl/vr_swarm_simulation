@@ -311,6 +311,11 @@ public static class PracticeWorldBuilder
             }
         }
 
+        // StartLine's bootstrap only fires in a scene with a recorder, and the recorder has just gone; the
+        // participants practise crossing the line all the same. It stands short of the walker row.
+        new GameObject("StartLine").AddComponent<StartLine>().headingDeg =
+            Mathf.Atan2(DownRange.x, DownRange.z) * Mathf.Rad2Deg;
+
         // The walkers stand on the surface the altitude ceiling is measured from. Its cache follows runtime scene
         // loads, not an editor OpenScene, so it is dropped first.
         TerrainHeightSampler.Invalidate();

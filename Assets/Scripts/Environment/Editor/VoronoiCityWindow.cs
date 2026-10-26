@@ -34,6 +34,11 @@ using Debug = UnityEngine.Debug;
 /// which was too large to fly as one. One seed at every coverage shares its streets and goals (the generator draws both
 /// before the city), so the levels differ only in clutter. The scene holds one bake; Layouts picks the one Play flies,
 /// which is built from its file when it is not the bake.</para>
+///
+/// <para>Every bake also dresses the streets (<see cref="CityDressing"/>, which
+/// <see cref="VoronoiCityWorldBuilder.EnsureDressing"/> adds): footpaths, medians with trees and street furniture,
+/// redrawn from the layout so they follow any change to it. <i>Redress the streets</i> redoes only that, after a change to
+/// the dressing's rules in its inspector.</para>
 /// </summary>
 public class VoronoiCityWindow : EditorWindow
 {
@@ -153,6 +158,12 @@ public class VoronoiCityWindow : EditorWindow
         {
             if (GUILayout.Button("Generate and bake into the scene", GUILayout.Height(28))) Generate(builder);
             if (builder != null && GUILayout.Button("Rebake the layout in the builder")) Bake(builder, "");
+            if (builder != null && GUILayout.Button(new GUIContent("Redress the streets",
+                    "Footpaths, medians and street furniture (CityDressing, on the builder) made again from the baked " +
+                    "layout, after a change to their rules. Every bake dresses too.")))
+            {
+                Redress(builder);
+            }
         }
         using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))
         {
@@ -318,6 +329,7 @@ public class VoronoiCityWindow : EditorWindow
             Undo.RecordObject(builder, "Voronoi city layout");
             builder.layoutPath = layoutName;
         }
+        VoronoiCityWorldBuilder.EnsureDressing(builder);
         if (!builder.Bake(out string error))
         {
             report = (generated != null ? generated + "\n" : "") + "Bake failed: " + error;
@@ -328,6 +340,16 @@ public class VoronoiCityWindow : EditorWindow
         report = $"Baked {builder.layoutPath} into {builder.gameObject.scene.name} — save the scene to keep it." +
                  (string.IsNullOrEmpty(generated) ? "" : "\n" + generated);
         Debug.Log("VoronoiCityWindow: " + report);
+    }
+
+    private void Redress(ProceduralCityBuilder builder)
+    {
+        VoronoiCityWorldBuilder.EnsureDressing(builder);
+        bool ok = builder.Redress(out string summary);
+        report = ok ? $"Redressed the streets of {builder.gameObject.scene.name} — save the scene to keep it.\n{summary}"
+                    : "Redress failed: " + summary;
+        if (ok) Debug.Log("VoronoiCityWindow: " + report);
+        else Debug.LogError("VoronoiCityWindow: " + summary);
     }
 
     /// <summary>Runs the generator, collecting stdout and stderr; its exit code. Cancelable from the progress bar.</summary>

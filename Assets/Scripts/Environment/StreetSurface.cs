@@ -54,85 +54,71 @@ public static class StreetSurface
         public float angle;
     }
 
-    public static Mesh Build(IEnumerable<(Vector2 a, Vector2 b, float width)> segments, Settings s)
+    /// <summary>One street as the road draws it (<see cref="Stretches"/>): the plain road runs from <see cref="start"/> to
+    /// <see cref="end"/> metres along a -> b, past the setback and any crossing at each end; what lies outside that is
+    /// junction or crossing.</summary>
+    public struct Stretch
     {
-        // ---- the graph: nodes keyed on position (Voronoi vertices are shared exactly; 1 cm grid)
-        var nodes = new List<Vector2>();
-        var key = new Dictionary<(long, long), int>();
-        int Node(Vector2 p)
-        {
-            var k = ((long)Mathf.Round(p.x * 100f), (long)Mathf.Round(p.y * 100f));
-            if (!key.TryGetValue(k, out int i))
-            {
-                i = nodes.Count;
-                nodes.Add(p);
-                key[k] = i;
-            }
-            return i;
-        }
-        var edges = new List<Edge>();
-        foreach (var (pa, pb, w) in segments)
-        {
-            if ((pb - pa).sqrMagnitude < 1e-6f) continue;
-            edges.Add(new Edge { a = Node(pa), b = Node(pb), width = w });
-        }
-        var inc = new List<Incident>[nodes.Count];
-        for (int i = 0; i < nodes.Count; i++) inc[i] = new List<Incident>();
-        for (int e = 0; e < edges.Count; e++)
-        {
-            Vector2 d = (nodes[edges[e].b] - nodes[edges[e].a]).normalized;
-            inc[edges[e].a].Add(new Incident { edge = e, end = 0, dir = d, angle = Mathf.Atan2(d.y, d.x) });
-            inc[edges[e].b].Add(new Incident { edge = e, end = 1, dir = -d, angle = Mathf.Atan2(-d.y, -d.x) });
-        }
+        public Vector2 a, b;
+        public float width;
+        public bool absorbed;          // not drawn: too short (merged into one junction), or of zero length
+        public float start, end;
+        public bool crossingA, crossingB;
 
-        // ---- setbacks and crossings
-        for (int n = 0; n < nodes.Count; n++)
-        {
-            List<Incident> list = inc[n];
-            list.Sort((x, y) => x.angle.CompareTo(y.angle));
-            int deg = list.Count;
-            for (int k = 0; k < deg; k++)
-            {
-                Edge e = edges[list[k].edge];
-                float t = 0f;
-                if (deg >= 2)
-                {
-                    foreach (int j in new[] { (k + deg - 1) % deg, (k + 1) % deg })
-                    {
-                        float theta = Mathf.Abs(Mathf.DeltaAngle(list[k].angle * Mathf.Rad2Deg, list[j].angle * Mathf.Rad2Deg))
-                                      * Mathf.Deg2Rad;
-                        float half = 0.5f * Mathf.Max(e.width, edges[list[j].edge].width);
-                        if (theta < Mathf.PI - 1e-3f) t = Mathf.Max(t, half / Mathf.Tan(Mathf.Max(theta, 1e-3f) / 2f));
-                    }
-                }
-                e.setback[list[k].end] = Mathf.Min(t, s.maxSetback * e.width);
-                e.crossing[list[k].end] = deg >= 3;
-            }
-        }
+        public float Length => (b - a).magnitude;
+        public Vector2 Dir => (b - a).normalized;
+        /// <summary>Unit, to the left of a -> b seen from above (the +side).</summary>
+        public Vector2 Left => new Vector2(-Dir.y, Dir.x);
+        public Vector2 At(float along, float across) => a + Dir * along + Left * across;
+    }
 
-        // ---- streets too short to draw merge their junctions
-        var parent = new int[nodes.Count];
-        for (int i = 0; i < parent.Length; i++) parent[i] = i;
-        int Find(int i)
+    private sealed class Graph
+    {
+        public readonly List<Vector2> nodes = new List<Vector2>();
+        public readonly List<Edge> edges = new List<Edge>();
+        public readonly List<(Vector2 a, Vector2 b, float width)> segments = new List<(Vector2, Vector2, float)>();
+        public readonly List<int> edgeOf = new List<int>();      // per segment: its edge, or -1 (zero length)
+        public List<Incident>[] inc;
+        public int[] parent;
+
+        public int Find(int i)
         {
             while (parent[i] != i) i = parent[i] = parent[parent[i]];
             return i;
         }
-        foreach (Edge e in edges)
+    }
+
+    /// <summary>Every segment as the road draws it, in the order given: the same setbacks, crossings and merged junctions
+    /// as <see cref="Build"/>, so whatever stands beside a street (CityDressing) keeps off its junctions and crossings.</summary>
+    public static List<Stretch> Stretches(IEnumerable<(Vector2 a, Vector2 b, float width)> segments, Settings s)
+    {
+        Graph g = Analyse(segments, s);
+        var list = new List<Stretch>();
+        for (int k = 0; k < g.segments.Count; k++)
         {
-            float len = (nodes[e.b] - nodes[e.a]).magnitude;
-            float used = e.setback[0] + e.setback[1] + (e.crossing[0] ? s.crossingDepth : 0f) +
-                         (e.crossing[1] ? s.crossingDepth : 0f);
-            if (len - used < s.minStrip)
+            var (pa, pb, w) = g.segments[k];
+            var st = new Stretch { a = pa, b = pb, width = w, absorbed = true };
+            if (g.edgeOf[k] >= 0)
             {
-                e.absorbed = true;
-                parent[Find(e.a)] = Find(e.b);
+                Edge e = g.edges[g.edgeOf[k]];
+                st.absorbed = e.absorbed;
+                st.crossingA = e.crossing[0];
+                st.crossingB = e.crossing[1];
+                st.start = e.setback[0] + (e.crossing[0] ? s.crossingDepth : 0f);
+                st.end = (pb - pa).magnitude - e.setback[1] - (e.crossing[1] ? s.crossingDepth : 0f);
             }
+            list.Add(st);
         }
-        foreach (Edge e in edges)
-        {
-            if (Find(e.a) == Find(e.b)) e.absorbed = true;     // both ends in one merged junction
-        }
+        return list;
+    }
+
+    public static Mesh Build(IEnumerable<(Vector2 a, Vector2 b, float width)> segments, Settings s)
+    {
+        Graph g = Analyse(segments, s);
+        List<Vector2> nodes = g.nodes;
+        List<Edge> edges = g.edges;
+        List<Incident>[] inc = g.inc;
+        int Find(int i) => g.Find(i);
 
         var verts = new List<Vector3>();
         var uvs = new List<Vector2>();
@@ -187,6 +173,93 @@ public static class StreetSurface
         mesh.RecalculateTangents();
         mesh.RecalculateBounds();
         return mesh;
+    }
+
+    /// <summary>The street graph with every street's setbacks and crossings, and the streets too short to draw merged
+    /// into one junction (<see cref="Graph.Find"/> names it).</summary>
+    private static Graph Analyse(IEnumerable<(Vector2 a, Vector2 b, float width)> segments, Settings s)
+    {
+        // ---- the graph: nodes keyed on position (Voronoi vertices are shared exactly; 1 cm grid)
+        var g = new Graph();
+        List<Vector2> nodes = g.nodes;
+        var key = new Dictionary<(long, long), int>();
+        int Node(Vector2 p)
+        {
+            var k = ((long)Mathf.Round(p.x * 100f), (long)Mathf.Round(p.y * 100f));
+            if (!key.TryGetValue(k, out int i))
+            {
+                i = nodes.Count;
+                nodes.Add(p);
+                key[k] = i;
+            }
+            return i;
+        }
+        List<Edge> edges = g.edges;
+        foreach (var (pa, pb, w) in segments)
+        {
+            g.segments.Add((pa, pb, w));
+            if ((pb - pa).sqrMagnitude < 1e-6f)
+            {
+                g.edgeOf.Add(-1);
+                continue;
+            }
+            g.edgeOf.Add(edges.Count);
+            edges.Add(new Edge { a = Node(pa), b = Node(pb), width = w });
+        }
+        var inc = g.inc = new List<Incident>[nodes.Count];
+        for (int i = 0; i < nodes.Count; i++) inc[i] = new List<Incident>();
+        for (int e = 0; e < edges.Count; e++)
+        {
+            Vector2 d = (nodes[edges[e].b] - nodes[edges[e].a]).normalized;
+            inc[edges[e].a].Add(new Incident { edge = e, end = 0, dir = d, angle = Mathf.Atan2(d.y, d.x) });
+            inc[edges[e].b].Add(new Incident { edge = e, end = 1, dir = -d, angle = Mathf.Atan2(-d.y, -d.x) });
+        }
+
+        // ---- setbacks and crossings
+        for (int n = 0; n < nodes.Count; n++)
+        {
+            List<Incident> list = inc[n];
+            list.Sort((x, y) => x.angle.CompareTo(y.angle));
+            int deg = list.Count;
+            for (int k = 0; k < deg; k++)
+            {
+                Edge e = edges[list[k].edge];
+                float t = 0f;
+                if (deg >= 2)
+                {
+                    foreach (int j in new[] { (k + deg - 1) % deg, (k + 1) % deg })
+                    {
+                        float theta = Mathf.Abs(Mathf.DeltaAngle(list[k].angle * Mathf.Rad2Deg, list[j].angle * Mathf.Rad2Deg))
+                                      * Mathf.Deg2Rad;
+                        float half = 0.5f * Mathf.Max(e.width, edges[list[j].edge].width);
+                        if (theta < Mathf.PI - 1e-3f) t = Mathf.Max(t, half / Mathf.Tan(Mathf.Max(theta, 1e-3f) / 2f));
+                    }
+                }
+                e.setback[list[k].end] = Mathf.Min(t, s.maxSetback * e.width);
+                e.crossing[list[k].end] = deg >= 3;
+            }
+        }
+
+        // ---- streets too short to draw merge their junctions
+        var parent = g.parent = new int[nodes.Count];
+        for (int i = 0; i < parent.Length; i++) parent[i] = i;
+        int Find(int i) => g.Find(i);
+        foreach (Edge e in edges)
+        {
+            float len = (nodes[e.b] - nodes[e.a]).magnitude;
+            float used = e.setback[0] + e.setback[1] + (e.crossing[0] ? s.crossingDepth : 0f) +
+                         (e.crossing[1] ? s.crossingDepth : 0f);
+            if (len - used < s.minStrip)
+            {
+                e.absorbed = true;
+                parent[Find(e.a)] = Find(e.b);
+            }
+        }
+        foreach (Edge e in edges)
+        {
+            if (Find(e.a) == Find(e.b)) e.absorbed = true;     // both ends in one merged junction
+        }
+        return g;
     }
 
     /// <summary>One junction: its streets' end corners and the kerb corners between them, in angular order, fanned

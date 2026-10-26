@@ -1565,6 +1565,148 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
     face comes closer to the centre is rejected and a mix redraws the ring. S1 saw the formation surround the occluder
     at 22 m and above and never at 16 m or below, and a ring drawn from the mix varies in depth: seed 1's third goal
     had 21.0 m before the floor. `c_min` 0 (every other layout) draws exactly as before.
+  - **The streets are dressed by `CityDressing`, which is redrawn from the layout file every time the builder runs**
+    (2026-10-26). That means every Bake, every Build at Play (a level that is not the bake), and every Adopt whose
+    dressing signature no longer matches. It adds:
+    - a 3.5 m footpath round every block's kerb;
+    - grass medians planted with MC_Tree down ~20% of the long streets;
+    - street lights, tree-lined streets, hydrants, bus stops, benches with bins, and corner furniture;
+    - on each block's lawn (the kerb polygon less the footpath):
+      - groves of one species and single trees, drawn from the pack's seven green-belt models (bark+leaves pairs out
+        of City_Pack_01_Scaled) at 1.1–1.6×, larger than the street trees;
+      - hedges laid along the fronts of 15% of the buildings;
+      - sitting areas in 40% of the blocks (`sittingShare`, the user's choice). Each is a paved round with a bed and
+        a tree, three benches facing it, a bin and a park lamp. Its path to the footpath is lined as an avenue. Round
+        it stands one formal planting of one species:
+        - a ring of trees;
+        - a round hedge with two entrances on the path's axis, inside a ring of trees;
+        - a grid of trees (a bosque, 3×4 down to 2×3) behind or beside it.
+
+        Where no grid fits, it falls back to the hedged round. Half the placement draws are deep in the lawn, so the
+        paths are long enough to carry an avenue.
+
+    About 700 street props at every level, plus the lawns:
+
+    | α | lawn trees | sitting areas (hedged / bosque / ringed) |
+    |---|---|---|
+    | 0.0227 | ~1,100 | 25 (8 / 5 / 12) |
+    | 0.10 | ~470 | 2 |
+
+    Fewer sitting areas fit at 0.10 because the buildings take the room.
+    The blocks are rebuilt from the streets' `blocks` ids, and the street extents are `StreetSurface.Stretches`, the
+    road's own analysis, so nothing stands on a crossing. Every decision has its own random stream, keyed on its
+    street or block, with a fixed number of draws, so the levels share their dressing and lose only the spots their
+    extra buildings take. ProceduralCityWorld has no `CityDressing` and is unchanged. Points worth keeping:
+    - **Nothing in it has a collider and nothing is on `Obstacle`.** Meshes are copied onto fresh objects, never
+      instantiated, so a source's colliders cannot come along. A pole the force law cannot see is internal_3's lost
+      drone, and the probe asserts the Obstacle collider count equals the layout's boxes.
+    - **None of it is in the layout file, so the studies' line-of-sight models (citysim, analyse.py) do not see the
+      trees or lamps.** Goal patches are kept clear (each goal's clear radius + 3 m), because a goal's ring stands up
+      to 4.8 m into a street and its walkers patrol there. The footpath runs on through, so a gap cannot mark a goal.
+    - **At Play the props are merged** (`MergeForPlay`) into one mesh per 120 m cell per material: about 110
+      renderers for about 3,400 prop meshes.
+      - Measured headless on 60 drone views at 1152×648, main-thread time per FPV render, with the landmarks in the
+        scene: the bare city costs 0.36 ms at α 0.0227 and 0.51 ms at 0.10. The dressing adds 0.045–0.06 ms merged,
+        and 0.16–0.28 ms as separate static-batched props, with or without a LODGroup each.
+      - The bake is saved unmerged and **not batching-static**. Unity's load-time static batching would replace the
+        meshes the merge reads. Each mesh is its own object, with no root per tree, to keep the scene file down: it
+        is about 10 MB with the dressing baked.
+    - **The trees' leaves are swapped for `VoronoiLeaves.mat`** (`Swarm/Double-sided Cutout`,
+      `Assets/Shaders/DoubleSidedCutout.shader`), for any prop material in the transparent queue. The pack's leaf
+      shader blends without writing depth. That is only correct while each tree is its own renderer, sorted by Unity;
+      merged, leaves draw in index order, and overlapping trees show through each other.
+    - **`MC_Bush` is a hedge segment, a long low block, not a shrub.** Scattered at random yaws on a lawn it reads as
+      litter, which is why it is only laid end to end along building fronts.
+    - Rules (shares, spacings, widths) are on the component. *Redress the streets* in `Tools/Swarm/Voronoi city…`
+      remakes only the dressing; a bake always redresses too.
+    - **Changing a default in `CityDressing.Rules` means bumping `RulesVersion`.** A scene keeps the rules it was
+      saved with, so a new default never reaches it otherwise. `EnsureDressing` resets older rules to the defaults
+      and logs that it did, at the cost of any rule set by hand.
+  - **Landmarks stand round it, one per side, for orientation** (2026-10-26; `LandmarkBuilder`,
+    `Tools/Swarm/Landmarks/…`, all of it in `Assets/Landmarks/Landmarks.prefab`): a snow-capped mountain range S
+    (main peak ~370 m, 1.45 km out), a ~1.4 km lake from ~110–200 m beyond the city's north edge to the foot of
+    wooded hills (~200 m) N,
+    eight turbines turning on a ridge E, and a
+    red-and-white TV mast with a blinking beacon W, in line with ParkRoad behind the spawn (fly towards it to get
+    home). **Runs recorded before then had none**, so they are an orientation aid that differs between test series;
+    deactivate the `Landmarks` root to fly without them. `VoronoiCityWorldBuilder.Configure` adds the prefab, so a
+    rebuild keeps them. Points worth keeping:
+    - **Sized to the feeds, and *Check* says whether they still are.** A level gimbal sees ±23° and clips at
+      2000 m, and the drones fly under the 50 m roofs, so a landmark's top has to stand ≥ 8° up from the far edge of
+      the city (to clear the roofs) and ≤ 23° from the near edge (or the frame crops it), with its skyline inside
+      the far clip from every corner. That is why each feature lies on an **arc round the city's centre** at
+      1.25–1.45 km, its relief falling away behind 1.5 km: laid along straight lines into the corner tiles, ~25° of
+      each side's skyline was past the far clip from the opposite corner and showed sliced. As built (far → near
+      edge, from a 51 m eye, so slightly low): S 10.2° → 16.9°, N 8.2° → 15.0°, E 10.0° → 17.2°, W 12.0° → 21.3°,
+      no skyline past the clip. **The hills now sit below the 8° floor on purpose** (2026-10-26, the user's call:
+      `HillsHeight` 290 → 210), so *Check* warns on N; the N figures above are from before. The mountain is south
+      because the sun stands in the north-west: placed north, it faced the city unlit.
+    - **The mountain's near face is broken up on purpose** (`MountainCover`): rock starts at a height that wanders
+      between ~50 and ~250 m and on slopes from ~20° to ~40°, meadows break it up to ~300 m, and woods sit in
+      patches on the lower, gentler slopes: ~1,000 terrain trees (`Tree9_3`) at the city tiles' own size and
+      density, on grass only (never where the paint is rock or snow), with plain grass under them as round the city.
+      The user asked for that over 18 m trees on dark forest paint, which read as tall trees on shadow. As one sheet
+      of rock, its texture's tiling was plain from the city. The generated rock and forest textures are version 2 (256 px, five octaves, the rock with
+      strata and a normal map, tiled at 70 and 40 m); a layer still on a generated texture is upgraded when the
+      builder runs, and one retextured by hand is left alone.
+    - **The ground is twelve new 1000 m Terrain tiles round the city's four**, out to ±2000 m, each with its own
+      TerrainData (`Assets/Landmarks/Terrain`). The city's four are shared with five other scenes and are never
+      sculpted. The ring is grouping ID 1 (a Terrain Tools brush cannot spill onto the shared tiles) and rises from
+      exactly 0 at the joint. Inside ±1000 m nothing changes; past it the altitude ceiling follows this ground and
+      its TerrainColliders are solid (on Default, like the city's ground; the brushes need them). Nothing else in
+      the set has a collider, so no landmark is an obstacle, a raycast target or part of the analysis.
+    - **The hills and the ridge are wooded, not rocky, and that is forced.** To clear the roofs from across the city
+      and stay inside the far clip they rise ~300 m within ~350 m of the joint, so their faces are ~40°: painted by
+      slope they came out as rock. Rock and snow are painted on the mountain side only.
+    - **Hand edits are never overwritten**: TerrainData, terrain layers and materials are made only if missing, and
+      *Regenerate ground* is the one command that overwrites the ground (it asks). Sculpt and paint with the
+      ordinary Terrain tools; the lake's shoreline is a spline (`LakeOutline`) whose mesh follows its knots (delete the
+      lake and run *Add to open scene* to start it over: either way the prefab's lake is replaced by a freshly
+      generated one, so this *does* discard hand-moved knots, and the city tiles' trees are re-cleared round it).
+      **The prefab is the lake's and the ground's record, so a generator change reaches neither by itself**: deleting
+      the whole set and adding it back re-instantiates the prefab's old lake. Hence `LakeGeneratorVersion` /
+      `GroundGeneratorVersion`, stamped on `LakeOutline` / `LandmarkSet`: *Add to open scene* asks to replace an older
+      lake and regenerate older ground (declining stamps the version). **Bump them whenever the generated lake or
+      ground changes.** The mast
+      and the turbines take Asset Store models through `LandmarkSet`'s slots and *Place models*, which unpacks the
+      model, removes its colliders, puts it on Default and turns its shadows off. Edits belong in the prefab (or
+      applied to it): a rebuild re-instantiates it. **On a scene instance *Place models* applies *every* override
+      to the prefab first** (the editor asks; batchmode does not): a test that had swapped the lake's material on
+      the instance shipped the prefab with an invisible lake once.
+    - **The lake is not RingChallenge's AQUAS water**, though it uses its wave normal map. That shader fades with
+      the camera depth texture, which RingChallenge gets from its realtime shadows; with shadows off it rendered
+      fully transparent from a drone, leaving only the shore. A depth pass per FPV render is the cost the feeds
+      cannot take, so `LakeWater.mat` is glossy Standard, reflects the sky and costs the same as no lake.
+    - **The water stands 1 m above the ground on a narrow damp bank that slopes into it** (`LakeOutline.waterLevel`,
+      `shoreDepth`, `bankWidth`; the lake object sits on the ground and the mesh lifts the water). The city tiles under it are
+      flat and already at their lowest height, so no hollow can be dug, and water 0.1 m over flat grass showed as
+      grass in the editor. Nothing in the mesh lies flat on the ground, so nothing can fight it. **A scene override
+      on the lake's position wins over the prefab** (the live scene once carried y −26 and showed no lake through
+      every prefab fix): *Check* warns when the water stands under the ground or far above it, and *Add to open
+      scene* offers to revert such an override.
+    - **The beaches are terrain paint, not mesh** (2026-10-26, the user's call): a 12 m sand band in the mesh was one
+      solid colour of one width tracing the shoreline exactly. Now a Sand layer is painted into the tile copies below,
+      over roughly `beachShare` of the shore, each beach widening smoothly to `beachWidth` and back to nothing, with a
+      ragged, feathered outer edge; elsewhere the grass runs down to the bank, whose own width wanders ±35%. Both widths
+      are noise along the shore (`LandmarkBuilder.Profile`), so they move with the lake; `beachSeed` reshuffles them.
+      Editing any `LakeOutline` field in the inspector rebuilds it, as dragging a knot does. **No beach where the
+      ground beyond the shore rises**: the north shore runs along the hills' foot (the joint at z 1000, which the
+      generator cuts the lake off at, `LakeNorthGap`), only the city tiles take paint, and a beach there would end
+      in a straight line at the joint.
+    - **VoronoiCityWorld's northern city tiles are its own copies** (`Landmarks/Terrain/City_<GUID>.asset`):
+      the shared tiles carry ~30,000 painted terrain trees right out to ±1000 m, and trees stood in the lake. The
+      copies' trees and paint are rewritten from the shared tiles, minus every tree within the lake's reach (its
+      bank, its beaches and 6 m beyond) and plus its beaches' sand, every time the lake changes
+      (`ClearTreesUnderLakes`); heights are untouched. Neither is rewritten when it would not change. A tile no
+      lake reaches goes back to its shared data (a copy used to be kept for good once made, which is how the two
+      southern tiles got 2 MB copies they never needed); the copy file stays, since the saved scene may still name it. The editor
+      hook (`LakeOutlineHook`) redoes this 0.4 s after the last knot drag, field edit or undo, after the lake (or a
+      parent) is moved, and after any deletion in a scene with tile copies, so a deleted lake's trees come back.
+    - **Cost: ~0.07–0.1 ms of main thread per FPV render, all of it the terrain ring** (its tiles and the
+      mountain's trees), measured the same way as the dressing above (headless `Camera.Render` timing, noisy at
+      this size; the meshes do not register). The ring's heightmap is 257, not the city tiles' 513: at 513 the tiles alone cost ~0.12 ms,
+      and 3.9 m spacing is ~3 px at that range. Not yet measured in Play over Link: check `_perf.csv` on the first
+      flight.
 
 ## S2 Hidden Goal Search: the search study
 

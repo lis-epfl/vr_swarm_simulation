@@ -1982,6 +1982,28 @@ public static class DiamondParkBuilder
         return new UvMap(pu, pv);
     }
 
+    /// <summary>
+    /// The pack footpath the plazas are paved from: its material, and how many metres of ground one repeat of its texture
+    /// covers, so <see cref="CityDressing"/> paves VoronoiCityWorld's footpaths at the pack's own scale. 0, with
+    /// <paramref name="error"/> set, if it cannot be read.
+    /// </summary>
+    internal static float FootpathRepeatMetres(out Material material, out string error)
+    {
+        material = null;
+        Renderer footpath = LoadFootpath(PlazaFootpathSource, out error);
+        if (footpath == null)
+        {
+            return 0f;
+        }
+        material = footpath.sharedMaterial;
+        UvMap uv = FitUv(footpath, out _);
+        Vector2 origin = uv.At(0f, 0f);
+        Vector2 alongX = uv.At(1f, 0f) - origin;
+        Vector2 alongZ = uv.At(0f, 1f) - origin;
+        float perMetre = new Vector2(alongX.x, alongZ.x).magnitude; // repeats of u per metre of ground
+        return perMetre > 1e-6f ? 1f / perMetre : 0f;
+    }
+
     private static Vector3 Solve3(double[,] a, double[] b)
     {
         double Det(double[,] m) =>

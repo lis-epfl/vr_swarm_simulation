@@ -17,8 +17,10 @@ using UnityEngine;
 /// (citysim/layout.py), so CityObstacleExport of the built scene reproduces the layout's boxes.</para>
 ///
 /// <para><b>Nothing here may collide unless the swarm can see it</b>: buildings stay on <c>Obstacle</c>, streets have no
-/// collider, and there is no street furniture — in the tile cities, lamps and hydrants on Default killed drones the
-/// avoidance law cannot see (internal_3's one non-pair crash).</para>
+/// collider, and the only street furniture is a <see cref="CityDressing"/>'s, which copies meshes and never colliders — in
+/// the tile cities, lamps and hydrants on Default killed drones the avoidance law cannot see (internal_3's one non-pair
+/// crash). A root with a CityDressing is dressed after every build, bake and adopt (an adopt redresses only a stale
+/// dressing); one without (ProceduralCityWorld, the density study's look) is not.</para>
 ///
 /// <para><b>The goals' order and randomness come from the layout.</b> <see cref="PlacedGoals"/> is in the layout's goal
 /// order (the recorder's goal index). The session's goal seed (<see cref="GoalSession"/>) is the layout's seed, set
@@ -94,7 +96,7 @@ public class ProceduralCityBuilder : MonoBehaviour
     [SerializeField] private string bakedLayout = "";
 
     private const string BuildingsName = "Buildings", StreetsName = "Streets", GoalsName = "Goals",
-                         GoalBuildingsName = "Goal buildings";
+                         GoalBuildingsName = "Goal buildings", DressingName = CityDressing.RootName;
     private const float AdoptTolerance = 1e-2f;   // m: how far a baked collider centre may sit from its box
     private readonly List<GameObject> placedGoals = new List<GameObject>();
 
@@ -109,6 +111,17 @@ public class ProceduralCityBuilder : MonoBehaviour
 
     /// <summary>The layout file the last build read.</summary>
     public string ResolvedPath { get; private set; } = "";
+
+    /// <summary>How the Textured road is drawn: its setbacks, crossings and merged junctions, which a
+    /// <see cref="CityDressing"/> keeps its props off (<see cref="StreetSurface.Stretches"/>).</summary>
+    public StreetSurface.Settings RoadSettings => new StreetSurface.Settings
+    {
+        height = streetHeight,
+        tilesAcross = Mathf.Max(streetTilesAcross, 1),
+        crossingDepth = crossingDepth,
+        maxSetback = 1.5f,
+        minStrip = 1f,
+    };
 
     void Awake()
     {
@@ -171,6 +184,7 @@ public class ProceduralCityBuilder : MonoBehaviour
         public float[] xz;           // flattened polyline
         public float width;
         public bool edge;
+        public int[] blocks;         // the blocks either side (citygen's cell ids; -1 beyond the arena's edge)
     }
 
     [Serializable]
@@ -240,9 +254,35 @@ public class ProceduralCityBuilder : MonoBehaviour
         {
             StaticBatchingUtility.Combine(buildings.gameObject);
         }
-        Finish(file, path, buildings, nCity, "built");
+        Finish(file, path, buildings, nCity, "built", Dress(file));
         return true;
     }
+
+    /// <summary>The street dressing, if this root has a <see cref="CityDressing"/>: its summary for the log line, or "".</summary>
+    private string Dress(LayoutFile file)
+    {
+        CityDressing dressing = GetComponent<CityDressing>();
+        return dressing == null ? "" : dressing.Dress(this, file);
+    }
+
+#if UNITY_EDITOR
+    /// <summary>Edit mode: dresses the baked city again (its <see cref="CityDressing"/>, after a change to its rules),
+    /// leaving the buildings and streets as they are. False with the reason in <paramref name="summary"/>.</summary>
+    public bool Redress(out string summary)
+    {
+        CityDressing dressing = GetComponent<CityDressing>();
+        if (Application.isPlaying || dressing == null || !HasBake)
+        {
+            summary = Application.isPlaying ? "redress in edit mode." : dressing == null ? "no CityDressing on this root."
+                    : "nothing is baked to dress.";
+            return false;
+        }
+        if (!Load(bakedLayout, out LayoutFile file, out string path, out summary)) return false;
+        summary = $"dressed {file.layout.id}: {dressing.Dress(this, file)}";
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gameObject.scene);
+        return true;
+    }
+#endif
 
 #if UNITY_EDITOR
     /// <summary>Edit mode: builds the layout's buildings and streets into the scene to be saved with it, the goals'
@@ -276,7 +316,7 @@ public class ProceduralCityBuilder : MonoBehaviour
         }
         bakedLayout = LayoutName;
         UnityEditor.EditorUtility.SetDirty(this);
-        Finish(file, path, buildings, nCity, "baked");
+        Finish(file, path, buildings, nCity, "baked", Dress(file));
         return true;
     }
 #endif
@@ -339,15 +379,22 @@ public class ProceduralCityBuilder : MonoBehaviour
         if (goalBuildings != null) Destroy(goalBuildings.gameObject);      // emptied: every building moved to its goal
         int nCity = 0;
         foreach (LayoutBox b in file.boxes) nCity += b.role == "city" ? 1 : 0;
-        Finish(file, path, buildings, nCity, "adopted the baked");
+        CityDressing dressing = GetComponent<CityDressing>();
+        string dressed = dressing == null ? ""
+            : dressing.IsCurrent(file, RoadSettings) ? "kept the baked dressing; " + dressing.MergeForPlay()
+            : "the bake's dressing is stale or missing, so it was dressed at Play (rebake to see it in the editor): " +
+              dressing.Dress(this, file);
+        Finish(file, path, buildings, nCity, "adopted the baked", dressed);
         return true;
     }
 
     /// <summary>Resolves, reads and checks the layout to build (<see cref="LayoutName"/>).</summary>
-    private bool Load(out LayoutFile file, out string path, out string error)
+    private bool Load(out LayoutFile file, out string path, out string error) => Load(LayoutName, out file, out path, out error);
+
+    /// <summary>Resolves, reads and checks the layout <paramref name="name"/>.</summary>
+    private bool Load(string name, out LayoutFile file, out string path, out string error)
     {
         file = null;
-        string name = LayoutName;
         path = Resolve(name);
         if (path == null)
         {
@@ -461,8 +508,9 @@ public class ProceduralCityBuilder : MonoBehaviour
         return true;
     }
 
-    /// <summary>What every path ends with: edit-mode static flags, the spawn, the session record, the log line.</summary>
-    private void Finish(LayoutFile file, string path, Transform buildings, int nCity, string verb)
+    /// <summary>What every path ends with: edit-mode static flags, the spawn, the session record, the log line (with the
+    /// dressing's summary, if any).</summary>
+    private void Finish(LayoutFile file, string path, Transform buildings, int nCity, string verb, string dressing)
     {
 #if UNITY_EDITOR
         if (!Application.isPlaying)
@@ -506,14 +554,14 @@ public class ProceduralCityBuilder : MonoBehaviour
         Debug.Log($"ProceduralCityBuilder: {verb} {file.layout.id} ({nCity} city buildings, " +
                   $"{file.layout.goals?.Length ?? 0} goals, " +
                   $"{file.streets?.Length ?? 0} streets, alpha {file.layout.alpha_achieved:F3}, goal seed {file.layout.seed}) " +
-                  $"from {path}", this);
+                  $"from {path}" + (string.IsNullOrEmpty(dressing) ? "" : $"; dressing: {dressing}"), this);
     }
 
-    /// <summary>Removes the previous build or bake (this root's Buildings, Streets, Goals and Goal buildings).</summary>
+    /// <summary>Removes the previous build or bake (this root's Buildings, Streets, Goals, Goal buildings and Dressing).</summary>
     public void Clear()
     {
         placedGoals.Clear();
-        foreach (string n in new[] { BuildingsName, StreetsName, GoalsName, GoalBuildingsName })
+        foreach (string n in new[] { BuildingsName, StreetsName, GoalsName, GoalBuildingsName, DressingName })
         {
             Transform t = transform.Find(n);
             if (t != null) DestroyNow(t.gameObject);
@@ -647,14 +695,7 @@ public class ProceduralCityBuilder : MonoBehaviour
                 segments.Add((new Vector2(s.xz[k], s.xz[k + 1]), new Vector2(s.xz[k + 2], s.xz[k + 3]), s.width));
             }
         }
-        Mesh mesh = StreetSurface.Build(segments, new StreetSurface.Settings
-        {
-            height = streetHeight,
-            tilesAcross = Mathf.Max(streetTilesAcross, 1),
-            crossingDepth = crossingDepth,
-            maxSetback = 1.5f,
-            minStrip = 1f,
-        });
+        Mesh mesh = StreetSurface.Build(segments, RoadSettings);
         var go = new GameObject("Street surface");
         go.transform.SetParent(parent, false);
         go.AddComponent<MeshFilter>().sharedMesh = mesh;

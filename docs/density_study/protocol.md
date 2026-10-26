@@ -103,6 +103,9 @@ two minutes.
 **Run cap.** A run ends when all three goals have a correct press, or on the experimenter's end key at
 12 min; goals not found by then are right-censored at that time.
 
+**Task start.** The pilot takes off and looks round untimed; the task clock starts when the first drone crosses the
+start line 30 m ahead of the spawn (a tinted sheet over the view ahead that disappears as it is crossed).
+
 ## 5. Task and identification (auto-scored)
 
 At each goal the pilot looks for the one walker wearing a hat (bucket, cap or cowboy; 64 walkers per goal at
@@ -139,7 +142,7 @@ identified in internal_3 whose closest approach was 27–34 m.
 
 - **Co-primary (two):**
   1. **Search time** per goal: zone entry → correct press.
-  2. **Discovery time** per goal: leg start (leaving the previous goal's zone, or the run start for the first goal)
+  2. **Discovery time** per goal: leg start (leaving the previous goal's zone, or the start line for the first goal)
      → the first instant the goal is on a shown feed. "On a shown feed" is `citysim.discovery`'s definition, the one
      the predictions use: at least one of the goal's walkers expected on a shown feed, within 80 m slant range,
      inside the camera's field of view and the gimbal's vertical band, with a clear sight line. analyse.py computes it
