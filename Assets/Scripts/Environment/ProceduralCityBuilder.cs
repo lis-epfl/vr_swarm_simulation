@@ -191,6 +191,7 @@ public class ProceduralCityBuilder : MonoBehaviour
     public class LayoutGoal
     {
         public int index;
+        public int block_id = -1;    // the block (citygen's cell id) it stands in
         public float[] centre;
         public string centre_box;
         public string[] ring_boxes;

@@ -200,13 +200,58 @@ def test_goal_clearance_floor():
 
 def test_coverage_levels_share_streets_and_goals():
     """VoronoiCityWorld's levels: one seed at several coverages draws the same streets and the same goals (both come
-    off the random stream before the city), so only the city buildings differ."""
-    P = replace(BASE, mix="DiamondCityWorld", size=1.0, p=90.83, s=12.0, place="even", c_min=22.0)
-    low, high = citygen.generate(replace(P, alpha=0.0227), 1), citygen.generate(replace(P, alpha=0.06), 1)
-    assert low.streets == high.streets
-    assert [b for b in low.boxes if b["role"] != "city"] == [b for b in high.boxes if b["role"] != "city"]
-    assert low.layout["goals"][0]["centre"] == high.layout["goals"][0]["centre"]
-    assert high.layout["n_city_buildings"] > 2 * low.layout["n_city_buildings"]
+    off the random stream before the city), so only the city buildings differ -- with the goals in blocks of their
+    own too, where the streets are drawn round the goals."""
+    for goal_cell in (False, True):
+        P = replace(BASE, mix="DiamondCityWorld", size=1.0, p=90.83, s=12.0, place="even", c_min=22.0,
+                    goal_cell=goal_cell)
+        low, high = citygen.generate(replace(P, alpha=0.0227), 1), citygen.generate(replace(P, alpha=0.06), 1)
+        assert low.streets == high.streets
+        assert [b for b in low.boxes if b["role"] != "city"] == [b for b in high.boxes if b["role"] != "city"]
+        assert low.layout["goals"] == high.layout["goals"]
+        assert high.layout["n_city_buildings"] > 2 * low.layout["n_city_buildings"]
+
+
+def _block_areas(L):
+    """{block id: area} of every block, rebuilt from the streets as CityDressing builds them: the half-planes its
+    streets leave it, each street's line moved half its width towards the block."""
+    out = {}
+    for k in sorted({i for s in L.streets for i in s["blocks"] if i >= 0}):
+        ends = [np.asarray(s["polyline"][j], float) for s in L.streets if k in s["blocks"] for j in (0, -1)]
+        inside = np.mean(ends, axis=0)
+        poly = np.array([[-2e3, -2e3], [2e3, -2e3], [2e3, 2e3], [-2e3, 2e3]])
+        for s in L.streets:
+            if k in s["blocks"]:
+                a, b = np.asarray(s["polyline"][0], float), np.asarray(s["polyline"][-1], float)
+                n = np.array([b[1] - a[1], a[0] - b[0]]) / np.linalg.norm(b - a)
+                n = -n if n @ (inside - a) > 0 else n
+                poly = geo.clip_halfplane(poly, n, float(n @ a) - 0.5 * s["width"])
+        out[k] = abs(geo.area(poly))
+    return out
+
+
+def test_goal_cells_hold_their_patches():
+    """goal_cell (mixcity's default): every goal's block holds its whole patch -- the disc of its clear radius, its
+    ring and the room its walkers patrol -- where a goal on its block's centroid spills into the streets; the goal's
+    block is about the size of the city's others, not its largest; the city keeps its count of blocks; the option is
+    named in the id and recorded in the params, and verify() holds a goal_cell layout to it."""
+    P = replace(BASE, mix="DiamondCityWorld", size=1.0, alpha=0.0227, p=90.83, s=12.0, place="even", c_min=22.0)
+    old, new = citygen.generate(P, 1), citygen.generate(replace(P, goal_cell=True), 1)
+    assert new.verify() == [], new.verify()
+    assert min(lay.goal_kerb_margin(old.streets, g) for g in old.goals()) < -1.0     # the spill goal_cell removes
+    assert all(lay.goal_kerb_margin(new.streets, g) > 0 for g in new.goals())
+    for g in new.goals():
+        assert g["block_id"] == g["index"] and g["c_g"] >= 22.0 - 1e-3
+    assert new.layout["n_blocks"] == old.layout["n_blocks"]
+    areas = _block_areas(new)
+    median = float(np.median(list(areas.values())))
+    assert all(areas[g["block_id"]] < 1.6 * median for g in new.goals()), [areas[g["block_id"]] / median
+                                                                            for g in new.goals()]
+    assert "_gcell_" in new.layout["id"] and new.layout["params"]["goal_cell"] is True
+    assert "_gcell" not in old.layout["id"] and "goal_cell" not in old.layout["params"]
+    assert new.boxes == citygen.generate(replace(P, goal_cell=True), 1).boxes
+    old.layout["params"]["goal_cell"] = True                   # the rule verify() keeps
+    assert any("past its block's kerb" in p for p in old.verify())
 
 
 def test_one_design_layouts_are_unchanged_by_the_mix():
@@ -224,7 +269,8 @@ def test_one_design_layouts_are_unchanged_by_the_mix():
     for k in ("trial_level", "trial_level_name"):
         L.layout[k] = rec[k]
     with tempfile.TemporaryDirectory() as d:
-        assert L.save(Path(d) / f.name).read_bytes() == f.read_bytes()
+        # citygen writes LF; a checkout under core.autocrlf has the committed file in CRLF
+        assert L.save(Path(d) / f.name).read_bytes() == f.read_bytes().replace(b"\r\n", b"\n")
 
 
 def test_infeasible_goal_geometry_raises():

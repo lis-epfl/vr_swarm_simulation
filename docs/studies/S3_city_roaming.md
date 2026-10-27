@@ -56,6 +56,12 @@ under the 50 m roofs. The spread dial stays 0.4–1.6 for now, by the user's cho
 S3 grid level (1.67×, mean over block spacings; 1.66× at 90.83 m) and splits it: 246 / 438 / 688 / 1,296 buildings, at
 most 13 / 16 / 22 / 38 within 50 m, same seed, streets and goals (goal rings 24.5 / 23.4 / 22.2 m clear).
 
+**Goals in blocks of their own (2026-10-26).** The goals' rings stood up to 4.8 m into the streets (a goal's patch is
+wider than a 90.83 m block). The levels are regenerated with `citygen` `goal_cell` (`_gcell` in the id): the goals are
+placed before the streets, so each stands in a block that holds its whole patch and is about the size of the others.
+Same goals and clearances; 238 / 419 / 686 / 1,259 buildings, at most 12 / 16 / 22 / 44 within 50 m. S3's cities had
+no goals, so its results stand as they are; the CLAUDE.md VoronoiCityWorld section has the details.
+
 **Where.** Manual [docs/clutter_study/README.md](../clutter_study/README.md); code `citysim/clutter.py`,
 `clutter_stats.py`, `clutter_report.py` (+ `.html`); spec `specs/clutter.json`; outputs
 `experiment_results/clutter_study/clutter/` (the raw per-walk files, 360 MB, are gitignored and only on the PC that ran

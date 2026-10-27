@@ -189,6 +189,25 @@ def rsa_points(rng, bounds, n, rmin, max_tries=200000):
     return np.array(pts).reshape(-1, 2)
 
 
+def rsa_extend(rng, bounds, pts, n, rmin, keep_out=(), max_tries=20000):
+    """rsa_points carried on from `pts` (kept, in order) up to n points in all: new points uniform in bounds, none
+    within rmin of another and none within d of a keep-out centre c, for every (c, d) in keep_out. Returns (k, 2)."""
+    x0, x1, z0, z1 = bounds
+    have = np.asarray(pts, float).reshape(-1, 2)
+    out = [p for p in have]
+    tries = 0
+    while len(out) < n and tries < max_tries:
+        tries += 1
+        p = np.array([rng.uniform(x0, x1), rng.uniform(z0, z1)])
+        if any(math.hypot(p[0] - c[0], p[1] - c[1]) < d for c, d in keep_out):
+            continue
+        if len(have) and np.hypot(have[:, 0] - p[0], have[:, 1] - p[1]).min() < rmin:
+            continue
+        out.append(p)
+        have = np.vstack([have, p])
+    return np.array(out).reshape(-1, 2)
+
+
 # ============================================================================= Voronoi
 
 def voronoi_cells(seeds, bounds):

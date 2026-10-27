@@ -24,9 +24,21 @@ using UnityEngine.Rendering;
 /// with it. None of it is in the layout file either, so the studies' line-of-sight models (citysim, analyse.py) do not
 /// see the trees or the lamps.</para>
 ///
-/// <para><b>Goal patches are kept clear</b>: no prop or median within a goal's clear radius plus
-/// <see cref="Rules.goalMargin"/>, because a goal's ring stands across streets and its walkers patrol them. The footpath
-/// runs through, so a gap in it cannot give a goal away from the air.</para>
+/// <para><b>Border trees</b> are DiamondCityWorld's verge trees (<see cref="VergeTreePlanter"/>: a row 4 m apart round a
+/// third of its tiles and round every goal): a row on the footpath all round <see cref="Rules.borderShare"/> of the blocks
+/// and every goal's block, which screens a goal's walkers -- the hat among them -- from a drone low in the street. Only
+/// low: trees 4 m tall hide what stands behind them from a camera level with their tops, and the swarm flies at about
+/// 20 m (in VoronoiCityWorld at 0.0227, 12% of the walkers a drone at 8 m sees from the goal's streets, 2% at 19.5 m).
+/// About 1,200 trees there, +0.05 ms of GPU per FPV render once merged. Planted after the street furniture, so a lamp or
+/// a bus stop keeps its place. Since every goal has a row and only some blocks do, a row is a goal cue unless borderShare
+/// is 1, as in DiamondCityWorld.</para>
+///
+/// <para><b>Goals are kept clear</b>, by what their patches need. On the lawns, nothing stands within a goal's clear radius
+/// plus <see cref="Rules.goalMargin"/>, so its ring and the ground round it are as the studies modelled them. On the
+/// streets it depends on the layout: a goal whose block holds its patch (citygen's <c>goal_cell</c>, VoronoiCityWorld's
+/// layouts since 2026-10-26) keeps the street props off its walkers' loops only, so its streets are lit, furnished and
+/// planted like any others and a bare stretch cannot give it away; a goal whose ring stands across the streets (the layouts
+/// made before) keeps them out of that whole disc, as it always did. The footpath runs through either way.</para>
 ///
 /// <para><b>Placement</b>. The street network is <see cref="StreetSurface.Stretches"/>' -- the road's own setbacks,
 /// crossings and merged junctions -- so nothing stands on a crossing or in a junction. A block's kerb is the intersection
@@ -50,7 +62,12 @@ public class CityDressing : MonoBehaviour
 {
     public const string RootName = "Dressing";
     /// <summary>Bump when the rules change what a layout is dressed with, so a bake dressed before is redressed at Play.</summary>
-    private const int DressingVersion = 3;
+    private const int DressingVersion = 4;
+    /// <summary>A border tree counts against the other props as this share of its canopy, so a row's canopies may close up
+    /// while its trunks keep off each other and off the furniture.</summary>
+    private const float BorderTreeShrink = 0.25f;
+    /// <summary>m beyond a walker's loop kept free of street props: about a walker's half-width and a step.</summary>
+    private const float WalkerBody = 0.6f;
     /// <summary>Bump when the defaults in <see cref="Rules"/> change. A scene keeps the rules it was saved with, so without
     /// this a changed default never reaches it: <c>VoronoiCityWorldBuilder.EnsureDressing</c> resets older rules to the
     /// current defaults, and says so (a rule set by hand is lost).</summary>
@@ -66,6 +83,11 @@ public class CityDressing : MonoBehaviour
     public GameObject streetLight;
     [Tooltip("MC_Tree: 537 triangles. Not Tree9 (8.7k), the largest single cost of an FPV render in the tile cities.")]
     public GameObject tree;
+    [Tooltip("The border rows' tree; empty: the street tree above (MC_Tree, 4.0 m, a 3 m canopy). DiamondCityWorld's " +
+             "verges plant Tree9_2 (4.6 m): as rows here it hid 23% of a goal's walkers from a drone at 8 m against MC_Tree's " +
+             "12% (5% and 2% at 19.5 m), but its 16x the triangles cost about 1.3 ms of GPU per FPV render against 0.05 ms " +
+             "(2026-10-26, 60 street views at 1152x648, merged as at Play).")]
+    public GameObject borderTree;
     public GameObject hydrant;
     [Tooltip("Faces the road, its back to the block.")]
     public GameObject bench;
@@ -162,6 +184,25 @@ public class CityDressing : MonoBehaviour
         public float benchMinStreet = 25f;
         [Tooltip("Of each street end, each side: one of the corner props.")]
         [Range(0f, 1f)] public float cornerShare = 0.06f;
+
+        [Header("Border trees: DiamondCityWorld's verge rows, on the footpath all round a block")]
+        [Tooltip("Of the blocks: a row round the whole block. DiamondCityWorld plants 0.328 of its tiles " +
+                 "(VergeTreePlanter.tileFraction). 1: every block, and a row is no longer a goal cue.")]
+        [Range(0f, 1f)] public float borderShare = 0.33f;
+        [Tooltip("Every goal's block gets a row, whatever borderShare draws: it screens the walkers, the hat among them, " +
+                 "from the streets round the goal, as DiamondCityWorld's goal verges do.")]
+        public bool borderAtGoals = true;
+        [Tooltip("m between the trees of a row: DiamondCityWorld's 4.")]
+        public float borderSpacing = 4f;
+        [Tooltip("Random shift along the kerb, as a fraction of the spacing either way: DiamondCityWorld's 0.23.")]
+        [Range(0f, 0.5f)] public float borderJitter = 0.23f;
+        [Tooltip("Random size change, as a fraction either way: DiamondCityWorld's 0.23.")]
+        [Range(0f, 0.5f)] public float borderScaleJitter = 0.23f;
+        [Tooltip("m from the kerb to a row tree's trunk, as for the street trees.")]
+        public float borderInset = 1.4f;
+        [Tooltip("m a row stops short of each end of its street's plain road, so the junctions stay open: " +
+                 "DiamondCityWorld's 5 short of each corner.")]
+        public float borderCornerClearance = 5f;
 
         [Header("Lawns: groves, single trees, hedges and sitting areas inside the footpaths")]
         [Tooltip("m² of lawn per grove drawn: a block draws round(lawn / this) groves, whatever stands on it.")]
@@ -356,7 +397,7 @@ public class CityDressing : MonoBehaviour
         Add(grassUvMetres);
         foreach (UnityEngine.Object o in new UnityEngine.Object[] { streetLight, tree, hydrant, bench, bin, busStop,
                                                                    pavementMaterial, grassMaterial, hedge, parkLamp,
-                                                                   flowerBed, cutoutLeaves })
+                                                                   flowerBed, cutoutLeaves, borderTree })
         {
             Add(o != null ? o.name : "-");
         }
@@ -520,6 +561,19 @@ public class CityDressing : MonoBehaviour
     /// <summary>The yaw that turns <paramref name="from"/> onto <paramref name="to"/> (both (x, z)).</summary>
     private static float YawFromTo(Vector2 from, Vector2 to) => -Vector2.SignedAngle(from, to);
 
+    /// <summary>A goal as the dressing keeps clear of it: its disc (the clear radius plus <see cref="Rules.goalMargin"/>),
+    /// its block, its buildings and its walkers' loops, and whether that block holds them all (set once the blocks are
+    /// built; see the class summary).</summary>
+    private sealed class GoalZone
+    {
+        public Vector2 c;
+        public float radius;
+        public int block;
+        public readonly List<Obb> parts = new List<Obb>();
+        public readonly List<Obb> walks = new List<Obb>();
+        public bool held;
+    }
+
     private sealed class Work
     {
         private readonly CityDressing d;
@@ -531,7 +585,7 @@ public class CityDressing : MonoBehaviour
         private readonly Grid buildings = new Grid();
         private readonly List<(Obb box, bool city, string name)> boxes = new List<(Obb, bool, string)>();
         private readonly Grid props = new Grid();
-        private readonly List<(Vector2 c, float r)> goals = new List<(Vector2, float)>();
+        private readonly List<GoalZone> goals = new List<GoalZone>();
         private readonly Dictionary<string, Transform> folders = new Dictionary<string, Transform>();
         private readonly Dictionary<string, int> placed = new Dictionary<string, int>();
         private readonly List<string> kinds = new List<string>();
@@ -558,6 +612,16 @@ public class CityDressing : MonoBehaviour
                                 : (Vector2.zero, Vector2.zero, s.width));
             }
             stretches = StreetSurface.Stretches(segments, road);
+            var byIndex = new Dictionary<int, GoalZone>();
+            foreach (ProceduralCityBuilder.LayoutGoal g in file.layout.goals ?? new ProceduralCityBuilder.LayoutGoal[0])
+            {
+                var zone = new GoalZone { c = new Vector2(g.centre[0], g.centre[1]), radius = g.clear_radius + r.goalMargin,
+                                          block = g.block_id };
+                goals.Add(zone);
+                byIndex[g.index] = zone;
+            }
+            // How far out a walker's loop runs: WalkerPatrol walks baseOffset + U(0, margin) / 2 off its building.
+            float walk = builder.baseOffset + 0.5f * builder.margin + WalkerBody;
             foreach (ProceduralCityBuilder.LayoutBox b in file.boxes)
             {
                 BuildingCatalogue.Entry e = builder.catalogue != null ? builder.catalogue.Find(b.design) : null;
@@ -568,16 +632,33 @@ public class CityDressing : MonoBehaviour
                 var box = new Obb(new Vector2(b.c[0], b.c[2]), new Vector2(u.x, u.z), new Vector2(v.x, v.z));
                 buildings.Add(box);
                 boxes.Add((box, b.role == "city", b.name ?? ""));
-            }
-            foreach (ProceduralCityBuilder.LayoutGoal g in file.layout.goals ?? new ProceduralCityBuilder.LayoutGoal[0])
-            {
-                goals.Add((new Vector2(g.centre[0], g.centre[1]), g.clear_radius + r.goalMargin));
+                if (b.role == "city" || !byIndex.TryGetValue(b.goal, out GoalZone zone)) continue;
+                zone.parts.Add(box);
+                if (!b.patrol) continue;
+                var loops = new Obb(box.c, box.u + box.u.normalized * walk, box.v + box.v.normalized * walk);
+                zone.walks.Add(loops);
+                zone.parts.Add(loops);
             }
         }
 
         public string Run()
         {
             BuildBlocks();
+            int held = 0;
+            foreach (GoalZone g in goals)
+            {
+                if (g.parts.Count > 0 && blocks.TryGetValue(g.block, out Block b))
+                {
+                    g.held = g.parts.TrueForAll(o => Within(b, o));
+                }
+                held += g.held ? 1 : 0;
+            }
+            if (goals.Count > 0)
+            {
+                notes.Add(held == goals.Count ? "every goal stands in a block of its own"
+                          : held == 0 ? "the goals' rings stand across the streets, which are left bare round them"
+                          : $"{held} of {goals.Count} goals stand in a block of their own");
+            }
             Pave();
             Medians();
             Proto light = Measure(d.streetLight, Facing.Arm), tree = Measure(d.tree, Facing.Any),
@@ -596,6 +677,7 @@ public class CityDressing : MonoBehaviour
             Benches(bench, bin);
             EndProps("Hydrants", 1, r.hydrantShare, 1.5f, hydrant == null ? null : new List<Proto> { hydrant }, false);
             EndProps("Corner props", 2, r.cornerShare, 4f, corner, true);
+            BorderTrees(d.borderTree != null ? Measure(d.borderTree, Facing.Any) : tree);
             var lawnTrees = new List<Proto>();
             foreach (PropModel m in d.lawnTrees ?? new PropModel[0])
             {
@@ -1341,17 +1423,56 @@ public class CityDressing : MonoBehaviour
             float across = side * (0.5f * s.width + inset(towardsRoad, towardsBlock));
             float lo = s.start + r.junctionGap, hi = s.end - r.junctionGap;
             return Try(kind, p, s.At(t, across), yaw, r.pavementHeight, k, s.Dir, slide,
-                       bas => FootpathFits(bas, s, side, block, lo, hi), out body);
+                       bas => FootpathFits(bas, s, side, block, lo, hi), out body, street: true);
         }
 
-        /// <summary>A tree, at a random yaw and size, its trunk where <paramref name="fits"/> allows (any canopy may
-        /// overhang the road).</summary>
+        /// <summary>A tree in a street (a median's, or a footpath's), at a random yaw and size, its trunk where
+        /// <paramref name="fits"/> allows (any canopy may overhang the road).</summary>
         private void TreeAt(string kind, Proto tree, Vector2 at, float y, System.Random rng, float slide, Vector2 dir,
                             Func<Obb, bool> fits)
         {
             float yaw = (float)rng.NextDouble() * 360f;
             float k = Mathf.Lerp(r.treeScale.x, r.treeScale.y, (float)rng.NextDouble());
-            Try(kind, tree, at, yaw, y, k, dir, slide, fits, out _);
+            Try(kind, tree, at, yaw, y, k, dir, slide, fits, out _, street: true);
+        }
+
+        /// <summary>DiamondCityWorld's verge rows: a tree every borderSpacing (borderJitter of it either way) borderInset
+        /// from the kerb, all round every goal's block (borderAtGoals) and borderShare of the others, stopping
+        /// borderCornerClearance short of each end of the plain road so the junctions stay open. Planted after the street
+        /// furniture, which keeps its places; a tree that would stand on a prop, at a building or on a goal's walkers is
+        /// left out. A block is drawn once, so a row runs all the way round it.</summary>
+        private void BorderTrees(Proto tree)
+        {
+            if (tree == null || (r.borderShare <= 0f && !r.borderAtGoals)) return;
+            var goalBlocks = new HashSet<int>();
+            foreach (GoalZone g in goals) goalBlocks.Add(g.block);
+            float spacing = Mathf.Max(r.borderSpacing, 0.5f);
+            for (int k = 0; k < stretches.Count; k++)
+            {
+                StreetSurface.Stretch s = stretches[k];
+                foreach (var (side, block) in Sides(k))
+                {
+                    bool picked = (r.borderAtGoals && goalBlocks.Contains(block.id)) ||
+                                  Rng(70, block.id, 0).NextDouble() < r.borderShare;
+                    float lo = s.start + r.junctionGap + r.borderCornerClearance;
+                    float hi = s.end - r.junctionGap - r.borderCornerClearance;
+                    if (!picked || hi < lo) continue;
+                    var rng = Rng(71, k, side);
+                    int n = Mathf.FloorToInt((hi - lo) / spacing) + 1;
+                    float first = 0.5f * (lo + hi - (n - 1) * spacing);
+                    for (int i = 0; i < n; i++)
+                    {
+                        float shift = (2f * (float)rng.NextDouble() - 1f) * r.borderJitter * spacing;
+                        float yaw = (float)rng.NextDouble() * 360f;
+                        float size = 1f + (2f * (float)rng.NextDouble() - 1f) * r.borderScaleJitter;
+                        float t = Mathf.Clamp(first + i * spacing + shift, lo, hi);
+                        Try("Border trees", tree, s.At(t, side * (0.5f * s.width + r.borderInset)), yaw, r.pavementHeight,
+                            size, Vector2.zero, 0f,
+                            bas => FootpathFits(bas, s, side, block, s.start + r.junctionGap, s.end - r.junctionGap),
+                            out _, shrink: BorderTreeShrink, street: true);
+                    }
+                }
+            }
         }
 
         /// <summary>Whether a base stands on this street's footpath: inside the block's kerb, within the footpath's width of
@@ -1376,9 +1497,11 @@ public class CityDressing : MonoBehaviour
         /// <paramref name="dir"/>; false, counted by reason, if no spot fits. Against the other props it counts as its body
         /// times <paramref name="shrink"/> (a tree's canopy may overlap its neighbours'), or not at all when
         /// <paramref name="overlap"/> (the pieces of one sitting area, a hedge's segments); <paramref name="clearance"/> overrides the building
-        /// clearance (a hedge along a facade).</summary>
+        /// clearance (a hedge along a facade). A <paramref name="street"/> prop keeps off the goals as
+        /// <see cref="InGoalWay"/> says, any other out of their discs.</summary>
         private bool Try(string kind, Proto p, Vector2 at, float yaw, float y, float k, Vector2 dir, float slide,
-                         Func<Obb, bool> fits, out Obb body, float shrink = 1f, float clearance = -1f, bool overlap = false)
+                         Func<Obb, bool> fits, out Obb body, float shrink = 1f, float clearance = -1f, bool overlap = false,
+                         bool street = false)
         {
             string why = null;
             body = default;
@@ -1388,7 +1511,7 @@ public class CityDressing : MonoBehaviour
                 Obb b = p.Body(q, yaw, k), mine = new Obb(b.c, b.u * shrink, b.v * shrink);
                 string reason = !fits(p.Base(q, yaw, k)) ? "off its footpath or lawn"
                               : buildings.Near(b, clearance >= 0f ? clearance : r.buildingClearance) ? "at a building"
-                              : InGoal(b.c, b.Extent.magnitude) ? "in a goal patch"
+                              : (street ? InGoalWay(b) : InGoal(b.c, b.Extent.magnitude)) ? "in a goal patch"
                               : !overlap && props.Near(mine, r.propGap) ? "at another prop"
                               : null;
                 if (reason == null)
@@ -1406,11 +1529,42 @@ public class CityDressing : MonoBehaviour
 
         private bool InGoal(Vector2 p, float pad)
         {
-            foreach (var (c, radius) in goals)
+            foreach (GoalZone g in goals)
             {
-                if ((p - c).sqrMagnitude < (radius + pad) * (radius + pad)) return true;
+                if ((p - g.c).sqrMagnitude < (g.radius + pad) * (g.radius + pad)) return true;
             }
             return false;
+        }
+
+        /// <summary>Whether a street prop's body stands in a goal's way: on its walkers' loops where its block holds the
+        /// goal, so its streets are dressed like any others; anywhere in its disc where the goal's ring stands across the
+        /// streets (the layouts made before citygen's goal_cell), as every prop always was.</summary>
+        private bool InGoalWay(Obb body)
+        {
+            foreach (GoalZone g in goals)
+            {
+                if (!g.held)
+                {
+                    float reach = g.radius + body.Extent.magnitude;
+                    if ((body.c - g.c).sqrMagnitude < reach * reach) return true;
+                    continue;
+                }
+                foreach (Obb w in g.walks)
+                {
+                    if (Obb.Near(w, body, 0f)) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Whether every corner of <paramref name="o"/> stands inside the block's kerb.</summary>
+        private static bool Within(Block b, Obb o)
+        {
+            for (int k = 0; k < 4; k++)
+            {
+                if (!b.Contains(o.Corner(k), 0f)) return false;
+            }
+            return true;
         }
 
         /// <summary>The prop's meshes on fresh objects (one, or a root with one per mesh), its anchor on

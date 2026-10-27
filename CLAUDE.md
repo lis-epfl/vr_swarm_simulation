@@ -1565,12 +1565,64 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
     face comes closer to the centre is rejected and a mix redraws the ring. S1 saw the formation surround the occluder
     at 22 m and above and never at 16 m or below, and a ring drawn from the mix varies in depth: seed 1's third goal
     had 21.0 m before the floor. `c_min` 0 (every other layout) draws exactly as before.
+  - **Every goal stands in a block of its own** (2026-10-26, `citygen` `goal_cell`, `mixcity`'s default and the
+    window's *Goal in its own block*; `_gcell` in the id). A goal used to stand on its block's centroid, and its patch
+    (a 42–45 m clear radius) is wider than a 90.83 m block (30–33 m from centroid to kerb), so the ring stood up to
+    4.8 m into the 12 m streets and the walkers' loops up to 7.6 m. Now the goals are placed before the streets
+    (`goal_cells`): each on a block seed, every other seed kept 2 (clear radius + s/2) off it, since a Voronoi cell
+    holds a disc exactly when every other seed is twice its radius away. Points worth keeping:
+    - **The ring of seeds is what keeps the goal's block ordinary.** Dropping the seeds within reach alone grew it to
+      wherever the next seeds happened to be: 1.3–2.2× the median block, and at seed 1 the city's three largest, a
+      cue a pilot could learn. So the band round the reach is cleared and six seeds are set just outside it, which
+      makes the block roughly the hexagon round the patch: seed 1's are 1.04 / 1.04 / 1.47× the median block (seeds
+      1–20: 1.11× median, 1.75× at most). The dropped seeds are redrawn elsewhere, so the city keeps its count of
+      blocks.
+    - **The patch does not shrink with the blocks**, so at a smaller spacing a goal's block stands out again: 1.7×
+      the median at p 75, 3.1× at p 60. Shrinking the goal instead takes it into S1's cramped regime (G6/G7, under
+      22 m clear), where the swarm loses its advantage at the goal.
+    - Goal buildings stand ≥ 6.4 m inside the kerb and walker loops ≥ 3.6 m, so the loops stay off the footpath's
+      outer half. `Layout.verify()` holds a `goal_cell` layout to it (`layout.goal_kerb_margin`), and the generator
+      prints each goal's margin.
+    - The four levels are regenerated as `..._cm22_gcell_...`: 238 / 419 / 686 / 1,259 buildings, at most 12 / 16 /
+      22 / 44 within 50 m. At 0.10 that count averages ~2 more than before (12 seeds), because the patch now takes
+      block area rather than street. The goals, their rings and their clearances (24.5 / 23.4 / 22.2 m) are unchanged.
+    - **The files without `_gcell` stay**: BBCC flew three of them on 2026-10-26, and analyse.py needs a run's own
+      layout. Off, the generator draws exactly as before (the trial and Voronoi layouts regenerate byte for byte).
+  - **A layout fixes its goals, so trials randomise them by flying another seed** (2026-10-27). Where the goals
+    stand, which hat each gets and which walker wears it all come from the layout's seed (`GoalSession`, source
+    `layout`), so every Play of a layout searches for the same targets, bake or no bake, and the four levels of one
+    seed share them. Unlike a tile city, where `GoalPatchReplacer` can draw fresh goal tiles each session, they
+    cannot be reshuffled at Play inside a fixed city: under `goal_cell` the streets are built round them. Points
+    worth keeping:
+    - **Every trial gets its own seed, and no participant flies a seed twice, not even at another level**: someone
+      who has flown seed 3 at 0.0227 knows where seed 3's goals are at 0.10. Rotate the seeds across levels rather
+      than drawing them at random (participant 1 flies the four levels on seeds 2 / 3 / 4 / 5, participant 2 on
+      3 / 4 / 5 / 2, …), so every seed is flown at every level and a hard seed cannot pass for a hard level. That is
+      S1's design ("every trial is a fresh layout", [protocol.md](docs/density_study/protocol.md) §3). **Seed 1 is
+      out of the trial pool**: it was flown about ten times in testing (BBCC, 2026-10-15 → 10-27).
+    - **Seeds 1–13 all build at all four levels** (`_gcell`, checked 2026-10-27; all 52 in ~30 s): 210–254
+      buildings at 0.0227 and 1,184–1,322 at 0.10, at most 44 within 50 m, none jammed, every goal 22.1–25.8 m clear
+      and inside its block's kerb.
+    - **Every seed spreads its three goals the same way**: one 180–400 m from the spawn, one 395–570 m, one
+      576–822 m. A pilot can learn that pattern, but not the places.
+    - **No bake is needed per trial.** In `Tools/Swarm/Voronoi city…`: set Seed, *Generate the 4 levels (no bake)*,
+      pick the level under Layouts, *Fly at Play*. Play builds a layout that is not the bake from its file, dressing
+      included, at the cost of a longer start (not timed), and the session records the layout for analyse.py. A bake
+      only puts the city in the editor and shortens the start; rebake after regenerating a layout or changing the
+      dressing (a stale bake is rebuilt or redressed at Play anyway, with a console warning). Before each run check
+      that Layouts marks the intended level *flown at Play*: the saved scene's `layoutPath` is what Play flies.
+    - Not built yet: a pool committed to `layouts/` with its rotation schedule, a level × seed picker (the popup
+      sorts by file name, so seed10 comes before seed2), or a random-at-Play mode that skips the seeds a participant
+      has flown (closer to the tile cities, but it cannot balance seeds across levels).
   - **The streets are dressed by `CityDressing`, which is redrawn from the layout file every time the builder runs**
     (2026-10-26). That means every Bake, every Build at Play (a level that is not the bake), and every Adopt whose
     dressing signature no longer matches. It adds:
     - a 3.5 m footpath round every block's kerb;
     - grass medians planted with MC_Tree down ~20% of the long streets;
     - street lights, tree-lined streets, hydrants, bus stops, benches with bins, and corner furniture;
+    - **border trees** (2026-10-26, the user's request): DiamondCityWorld's verge rows, a tree every 4 m on the
+      footpath all round a third of the blocks (`borderShare`) and every goal's block (`borderAtGoals`), after the
+      furniture so a lamp keeps its place;
     - on each block's lawn (the kerb polygon less the footpath):
       - groves of one species and single trees, drawn from the pack's seven green-belt models (bark+leaves pairs out
         of City_Pack_01_Scaled) at 1.1–1.6×, larger than the street trees;
@@ -1601,8 +1653,20 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
       instantiated, so a source's colliders cannot come along. A pole the force law cannot see is internal_3's lost
       drone, and the probe asserts the Obstacle collider count equals the layout's boxes.
     - **None of it is in the layout file, so the studies' line-of-sight models (citysim, analyse.py) do not see the
-      trees or lamps.** Goal patches are kept clear (each goal's clear radius + 3 m), because a goal's ring stands up
-      to 4.8 m into a street and its walkers patrol there. The footpath runs on through, so a gap cannot mark a goal.
+      trees or lamps**, and nor does the recorder's identify scoring (it raycasts buildings).
+    - **Goals are kept clear by what their patches need.** On the lawns nothing stands within a goal's clear radius
+      + 3 m, so the ring and the ground round it stay as the studies modelled them. On the streets it depends on the
+      layout: a goal whose block holds its patch (every goal-cell layout) keeps street props off its walkers' loops
+      only, so its streets are lit, furnished and lined with trees like any others; a goal whose ring stands across
+      the streets (the layouts before) keeps them out of the whole disc, which left a bare stretch round each goal
+      that could give it away. `CityDressing` decides per goal from the geometry (the layout's `block_id`), not from
+      a flag. The footpath runs on through either way.
+    - **The border rows screen walkers only from low drones.** Trees 4 m tall hide little from a camera well above
+      their tops. Measured round seed 1's goals (stand-ins on the walkers' loops, drones on the goal's streets 40–80 m
+      off, looking at it): the rows hide 12% of what a drone at 8 m sees, 2% at 19.5 m (the swarm's transit median),
+      0% at 30 m. DiamondCityWorld's Tree9_2 hides 23% / 5% / 1% but costs ~1.3 ms of GPU per FPV render as rows
+      against MC_Tree's 0.05 ms (merged, 60 street views at 1152×648), so it is a `borderTree` slot, not the
+      default. As in DiamondCityWorld, a row is a goal cue unless `borderShare` is 1.
     - **At Play the props are merged** (`MergeForPlay`) into one mesh per 120 m cell per material: about 110
       renderers for about 3,400 prop meshes.
       - Measured headless on 60 drone views at 1152×648, main-thread time per FPV render, with the landmarks in the

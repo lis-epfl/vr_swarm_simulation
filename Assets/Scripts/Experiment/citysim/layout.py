@@ -201,7 +201,32 @@ class Layout:
             cg = geo.rect_point_distance(rects[nonocc], [g["centre"]]).min()
             if abs(cg - g["c_g"]) > 0.05:
                 problems.append(f"goal {g['index']}: clear radius {cg:.2f} m, recorded c_g {g['c_g']}")
+            if L.get("params", {}).get("goal_cell"):
+                m = goal_kerb_margin(self.streets, g)
+                if m is None or m < -tol:
+                    problems.append(f"goal {g['index']}: its patch reaches past its block's kerb "
+                                    f"({'no street names the block' if m is None else f'{-m:.2f} m'})")
         return problems
+
+
+def goal_kerb_margin(streets, g):
+    """How far inside its block's kerb a goal's patch (the disc of its clear radius) stands: the least, over the streets
+    round its block, of the distance from its centre to the street's line less half the street's width, less the clear
+    radius. Negative: the patch reaches into a street by that much. None when no street names the goal's block. A block
+    is its cell shrunk by half a street, and a cell is convex with every edge on a street's line, so this is exact."""
+    c = np.asarray(g["centre"], float)
+    best = None
+    for s in streets:
+        if g.get("block_id", -1) not in s.get("blocks", ()):
+            continue
+        a, b = np.asarray(s["polyline"][0], float), np.asarray(s["polyline"][-1], float)
+        d = b - a
+        n = float(np.hypot(d[0], d[1]))
+        if n < 1e-9:
+            continue
+        m = abs(d[0] * (c[1] - a[1]) - d[1] * (c[0] - a[0])) / n - 0.5 * s["width"] - g["clear_radius"]
+        best = m if best is None else min(best, m)
+    return best
 
 
 def street_clearance(streets, rects, step=5.0, skip_edges=True):

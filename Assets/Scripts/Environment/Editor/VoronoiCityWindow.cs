@@ -35,6 +35,12 @@ using Debug = UnityEngine.Debug;
 /// before the city), so the levels differ only in clutter. The scene holds one bake; Layouts picks the one Play flies,
 /// which is built from its file when it is not the bake.</para>
 ///
+/// <para><b>Each goal stands in a block of its own</b> (Goals, <i>Goal in its own block</i>; citygen's
+/// <c>goal_cell</c>, since 2026-10-26): the goals are placed before the streets, which then run round each goal's
+/// patch instead of through it, and the goal's block is about the size of the others. Off reproduces the layouts made
+/// before, whose rings stand up to ~5 m into the streets and whose walkers patrol them; their files carry no
+/// <c>_gcell</c> in the id.</para>
+///
 /// <para>Every bake also dresses the streets (<see cref="CityDressing"/>, which
 /// <see cref="VoronoiCityWorldBuilder.EnsureDressing"/> adds): footpaths, medians with trees and street furniture,
 /// redrawn from the layout so they follow any change to it. <i>Redress the streets</i> redoes only that, after a change to
@@ -62,6 +68,7 @@ public class VoronoiCityWindow : EditorWindow
     [SerializeField] private float ringRadius = 30f;
     [SerializeField] private int ringBuildings = 8;
     [SerializeField] private float minClearance = 22f;
+    [SerializeField] private bool goalCell = true;
     [SerializeField] private int layoutIndex;
     [SerializeField] private string report = "";
     private string[] layoutFiles = new string[0];
@@ -139,6 +146,10 @@ public class VoronoiCityWindow : EditorWindow
                 minClearance = EditorGUILayout.FloatField(new GUIContent("Least clearance (m)",
                     "Goal centre to the nearest ring face. S1 saw the swarm surround the occluder at 22 m and above, " +
                     "never at 16 m or below. 0: no floor."), minClearance);
+                goalCell = EditorGUILayout.Toggle(new GUIContent("Goal in its own block",
+                    "Place the goals before the streets, each in a block that holds its whole patch, ring and walkers " +
+                    "(citygen goal_cell). Off: a goal on its block's centroid, its ring and walkers across the streets " +
+                    "(the layouts made before 2026-10-26)."), goalCell);
             }
         }
 
@@ -218,7 +229,8 @@ public class VoronoiCityWindow : EditorWindow
     {
         Match m = Regex.Match(file, @"_p([\d.]+)_s([\d.]+)_a([\d.]+)_.*_seed(\d+)\.json$");
         string label = m.Success
-            ? $"α {m.Groups[3].Value}  ·  p {m.Groups[1].Value}  ·  s {m.Groups[2].Value}  ·  seed {m.Groups[4].Value}"
+            ? $"α {m.Groups[3].Value}  ·  p {m.Groups[1].Value}  ·  s {m.Groups[2].Value}  ·  seed {m.Groups[4].Value}" +
+              (file.Contains("_gcell_") ? "  ·  goals in own blocks" : "")
             : file;
         if (builder == null) return label;
         if (string.Equals(file, builder.BakedLayout, StringComparison.OrdinalIgnoreCase)) label += "  ·  baked";
@@ -276,7 +288,8 @@ public class VoronoiCityWindow : EditorWindow
         string F(float v) => v.ToString("0.#####", CultureInfo.InvariantCulture);
         string args = $"-B -m citysim.citygen mixcity --city DiamondCityWorld --seed {seed} --alpha {F(a)} " +
                       $"--p {F(blockSpacing)} --s {F(streetWidth)} --g {F(facadeGap)} --place {(even ? "even" : "rsa")} " +
-                      $"--wc {F(occluderWidth)} --rg {F(ringRadius)} --nb {ringBuildings} --c-min {F(minClearance)}";
+                      $"--wc {F(occluderWidth)} --rg {F(ringRadius)} --nb {ringBuildings} --c-min {F(minClearance)} " +
+                      $"--goal-cell {(goalCell ? 1 : 0)}";
         string cwd = Path.Combine(Application.dataPath, "Scripts", "Experiment");
         var lines = new List<string>();
         int code;

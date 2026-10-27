@@ -18,6 +18,12 @@ Blocks mode (the study's cities):
      buildings (the design at the ring size) centred on a circle of radius r_g, long side tangential. Nothing
      else may stand within the patch's clear radius r_g + ring half-diagonal + walk_clear of its centre. c_min > 0
      also keeps every ring building's nearest face that far from the centre (a mix redraws a ring that cannot).
+     A goal stands on its block's centroid, and a patch is wider than most blocks (a 45 m clear radius against
+     30-33 m from a 90.83 m block's centroid to its kerb), so its ring spills up to ~5 m into the streets and its
+     walkers' loops ~8 m. goal_cell=True (mixcity's default) places the goals BEFORE the streets instead: each on a
+     block seed, with every other seed moved at least 2 (clear radius + s/2) off it and a ring of seeds set just past
+     that (goal_cells), so the goal's Voronoi cell -- every edge a bisector -- holds its whole patch, walkers
+     included, its streets run round it, and its block is about the size of the city's others.
   4. City buildings: the study design at `size`, yaw 0 / 90, dropped by random sequential adsorption into the
      blocks round-robin, wholly inside a block, at least g (the facade gap) from every other building and
      outside every patch, until the coverage reaches alpha (or block fill f) or every block has jammed.
@@ -78,10 +84,16 @@ FALLBACK_DIAMETERS = {0.4: 6.5, 0.7: 10.5, 1.0: 14.5, 1.3: 18.5, 1.6: 22.5}
 STANDOFF_M = 4.0                              # d_obs * scaleFactor: the obstacle repulsion's reach
 # Params fields added after generator version 2, with the value that reproduces it: recorded in a layout's params only
 # when set otherwise, so a version-2 layout regenerated today is byte-identical to the committed one.
-LATER_FIELDS = {"core": "facade", "g_shell": 0.0, "mix": "", "place": "rsa", "c_min": 0.0}
+LATER_FIELDS = {"core": "facade", "g_shell": 0.0, "mix": "", "place": "rsa", "c_min": 0.0, "goal_cell": False}
 MIXCITY_PREFIX = "VoronoiCity__"            # mixcity's file names: <prefix><id>.json (layout.resolve finds the id)
 MIXCITY_STREET_M = 12.0                     # mixcity's street width: S3 City Roaming's, so its coverage results apply
 MIXCITY_C_MIN = 22.0                        # mixcity's goal clearance: S1 saw the swarm surround an occluder at 22 m+
+MIXCITY_GOAL_CELL = True                    # mixcity's goals stand in blocks of their own, not across the streets
+GOAL_CELL_RING = 6                          # goal_cell: seeds set round each goal's reach, so its block is a hexagon...
+GOAL_CELL_RING_SLACK = 0.05                 # ... their distance up to this fraction past the reach ...
+GOAL_CELL_RING_JITTER = 0.1                 # ... and their bearings up to this fraction of the 60 deg step either way
+GOAL_CELL_SPARE_M = 0.5                     # goal_cell: what the ring adds to the reach, so the kerb clears the patch
+GOAL_CELL_REFILL_TRIES = 20000              # goal_cell: draws spent putting back the seeds moved off the goals
 
 
 @dataclass
@@ -109,6 +121,7 @@ class Params:
     mix: str = ""             # a tile city whose building mix replaces the one design ("" = one design)
     place: str = "rsa"        # city buildings in blocks: "rsa" (the study's) or "even" (fill_even)
     c_min: float = 0.0        # least distance from a goal's centre to its ring's nearest face (m); 0 = no floor
+    goal_cell: bool = False   # blocks mode: the goals placed before the streets, each in a block holding its patch
 
     def ident(self, seed):
         if self.mode == "scatter":
@@ -120,6 +133,7 @@ class Params:
                 core += f"_gs{self.g_shell:g}"
         ring = "" if self.ring_size < 0 else f"_rs{self.ring_size:g}"
         ring += f"_cm{self.c_min:g}" if self.c_min > 0 else ""
+        ring += "_gcell" if self.goal_cell else ""
         mix = f"_mix{self.mix}" if self.mix else ""
         place = "" if self.place == "rsa" else f"_{self.place}"
         if self.goals <= 0:                    # a goal-free city: no goal geometry to name
@@ -355,6 +369,62 @@ def choose_goal_centres(P, rng, candidates, r_clear):
     raise ValueError(f"no {P.goals} goal blocks {lay.GOAL_MIN_SEPARATION_M:g} m apart")
 
 
+def draw_goal(P, design, mix, centre, rng):
+    """One goal patch at `centre`: ([(rect, yaw, size, role, design)], its clear radius). Under a mix the clear radius
+    follows the goal's own ring; with one design it is clear_radius's."""
+    if mix is None:
+        return [b + (design,) for b in goal_buildings(P, design, centre, rng)], clear_radius(P, design)
+    ring_size = P.size if P.ring_size < 0 else P.ring_size
+    bld = goal_buildings_mix(P, mix, centre, rng)
+    half = max(0.5 * math.hypot(b[4].w, b[4].d) for b in bld if b[3] == "goal_ring")
+    return bld, P.r_g + half * ring_size + P.walk_clear
+
+
+def goal_cells(P, rng, seeds, design, mix):
+    """goal_cell: the goals placed before the streets, each in a block that holds its whole patch.
+
+    The goals are chosen among the block seeds (choose_goal_centres' rules, kept far enough inside the arena for the
+    patch and its half street), and their buildings drawn. A Voronoi cell holds the disc of radius rho about its seed
+    exactly when every other seed is at least 2 rho away, its edges being the bisectors, so no other seed may stand
+    within a goal's reach, 2 (clear radius + s/2): the goal's block, its cell shrunk by s/2, then holds the disc of its
+    clear radius -- the ring and the room its walkers patrol. Dropping the seeds inside the reach alone grows the
+    goal's block to wherever the next seeds happen to be: 1.3-2.2x the median block, and at seed 1 the city's three
+    largest, which a pilot could learn. So the band a ring needs is cleared too (the reach plus 0.8 p), and
+    GOAL_CELL_RING seeds are set just outside the reach, evenly round it with a little jitter: the goal's block is
+    then close to the hexagon round its patch (at 90.83 m blocks, seeds 1-20: 1.11x the median block, 1.75x at most).
+    The patch does not shrink with the blocks, so smaller blocks make it stand out again (1.7x at p 75, 3.1x at p 60).
+    The seeds dropped are drawn again where the city has room (rsa_extend: 0.8 p apart, outside every goal's reach),
+    so the city keeps its count of blocks. Returns (the seeds, the goals' first; [(block id, centre, buildings, clear
+    radius)])."""
+    candidates = [(k, (float(x), float(z))) for k, (x, z) in enumerate(seeds)]
+    picks = choose_goal_centres(P, rng, candidates, clear_radius(P, design, mix) + P.s / 2)
+    goals = [(c,) + draw_goal(P, design, mix, c, rng) for _, c in picks]
+    reach = [(np.array(c), 2 * r + P.s) for c, _, r in goals]
+    for i in range(len(goals)):
+        for j in range(i + 1, len(goals)):
+            gap = float(np.linalg.norm(reach[i][0] - reach[j][0]))
+            if gap < goals[i][2] + goals[j][2] + P.s:
+                raise ValueError(f"goal_cell: goals {i} and {j} are {gap:.0f} m apart, too close for a block each "
+                                 f"({goals[i][2] + goals[j][2] + P.s:.0f} m needed); lower r_g")
+    rmin = SEED_SPACING_RATIO * P.p
+    taken = {k for k, _ in picks}
+    pts = [c for c, _ in reach] + [s for k, s in enumerate(seeds) if k not in taken and
+                                   all(math.hypot(s[0] - c[0], s[1] - c[1]) >= d + rmin for c, d in reach)]
+    x0, x1, z0, z1 = P.arena
+    for c, d in reach:
+        phase = rng.uniform(0, 2 * math.pi)
+        for i in range(GOAL_CELL_RING):              # every seed draws its numbers, set or not
+            th = phase + 2 * math.pi * (i + rng.uniform(-GOAL_CELL_RING_JITTER, GOAL_CELL_RING_JITTER)) / GOAL_CELL_RING
+            rr = (d + GOAL_CELL_SPARE_M) * (1 + rng.uniform(0, GOAL_CELL_RING_SLACK))
+            q = c + rr * np.array([math.cos(th), math.sin(th)])
+            if (x0 < q[0] < x1 and z0 < q[1] < z1 and
+                    all(math.hypot(q[0] - c2[0], q[1] - c2[1]) >= d2 for c2, d2 in reach) and
+                    min(math.hypot(q[0] - s[0], q[1] - s[1]) for s in pts) >= rmin):
+                pts.append(q)
+    pts = geo.rsa_extend(rng, P.arena, pts, len(seeds), rmin, reach, GOAL_CELL_REFILL_TRIES)
+    return pts, [(i, c, bld, r) for i, (c, bld, r) in enumerate(goals)]
+
+
 # ============================================================================= generation
 
 def generate(P, seed):
@@ -364,17 +434,21 @@ def generate(P, seed):
         raise ValueError("give a design or a mix, not both")
     if P.place not in ("rsa", "even") or (P.place == "even" and P.mode != "blocks"):
         raise ValueError(f"place {P.place!r}: 'rsa', or 'even' in blocks mode")
+    if P.goal_cell and P.mode != "blocks":
+        raise ValueError("goal_cell needs blocks mode")
     design = catalogue.get(P.design) if P.design else catalogue.study_design()
     mix = Mix.of(P.mix) if P.mix else None
     ring_size = P.size if P.ring_size < 0 else P.ring_size
     x0, x1, z0, z1 = P.arena
     A = (x1 - x0) * (z1 - z0)
 
-    # ---- blocks and streets
-    blocks, streets = [], []
+    # ---- blocks and streets (under goal_cell the goals come first: goal_cells)
+    blocks, streets, planned = [], [], []
     if P.mode == "blocks":
         n_seeds = max(int(round(A / P.p ** 2)), 4)
         seeds = geo.rsa_points(rng, P.arena, n_seeds, SEED_SPACING_RATIO * P.p)
+        if P.goal_cell and P.goals > 0:
+            seeds, planned = goal_cells(P, rng, seeds, design, mix)
         cells, edges = geo.voronoi_cells(seeds, P.arena)
         blocks = [geo.offset_convex(c, P.s / 2) for c in cells]
         for k, (i, j, a, b) in enumerate(edges):
@@ -390,16 +464,12 @@ def generate(P, seed):
 
     # ---- goals: reserved before the city is filled
     index, boxes = RectIndex(), []
-    r_clear = clear_radius(P, design, mix)      # under a mix, the most any goal could need: which blocks can hold one
+    if not planned:
+        r_clear = clear_radius(P, design, mix)  # under a mix, the most any goal could need: which blocks can hold one
+        planned = [(block_id, centre) + draw_goal(P, design, mix, centre, rng)
+                   for block_id, centre in choose_goal_centres(P, rng, candidates, r_clear)]
     goal_recs, radii = [], []
-    for gi, (block_id, centre) in enumerate(choose_goal_centres(P, rng, candidates, r_clear)):
-        if mix is None:
-            bld = [b + (design,) for b in goal_buildings(P, design, centre, rng)]
-            r_goal = r_clear
-        else:
-            bld = goal_buildings_mix(P, mix, centre, rng)
-            half = max(0.5 * math.hypot(b[4].w, b[4].d) for b in bld if b[3] == "goal_ring")
-            r_goal = P.r_g + half * ring_size + P.walk_clear
+    for gi, (block_id, centre, bld, r_goal) in enumerate(planned):
         names = []
         for rect, yaw, size, role, dsg in bld:
             k = index.add(rect)
@@ -674,7 +744,7 @@ def street_stats(L, rects, diameters, goal_recs, step=5.0):
 def params_from(a):
     return Params(mode=a.mode, p=a.p, s=a.s, alpha=a.alpha, f=a.f, g=a.g, size=a.size, design=a.design or "",
                   w_c=a.wc, r_g=a.rg, n_b=a.nb, ring_size=a.ring_size, goals=a.goals, core=a.core,
-                  g_shell=a.g_shell, mix=a.mix or "", place=a.place, c_min=a.c_min)
+                  g_shell=a.g_shell, mix=a.mix or "", place=a.place, c_min=a.c_min, goal_cell=bool(a.goal_cell))
 
 
 def cmd_one(a):
@@ -692,8 +762,11 @@ def report(L, out):
           f"{', JAMMED' if r['jammed'] else ''}), ell {r['ell_mean']:.0f} m, max within 50 m {r['max_within_50m']}, "
           f"min street {r['min_street_width']} m")
     for g in r["goals"]:
+        kerb = lay.goal_kerb_margin(L.streets, g)
         print(f"  goal {g['index']}: ({g['centre'][0]:.0f}, {g['centre'][1]:.0f}) {g['spawn_dist']:.0f} m from the "
-              f"spawn, w_c {g['w_c']} R_c {g['R_c']}, r_g {g['r_g']}, c_g {g['c_g']}")
+              f"spawn, w_c {g['w_c']} R_c {g['R_c']}, r_g {g['r_g']}, c_g {g['c_g']}" +
+              ("" if kerb is None else f", patch {kerb:.1f} m inside its kerb" if kerb >= 0 else
+               f", patch {-kerb:.1f} m into the streets"))
     for p in problems:
         print("  PROBLEM:", p)
     return 1 if problems else 0
@@ -702,9 +775,10 @@ def report(L, out):
 def cmd_mixcity(a):
     """A tile city rebuilt as a Voronoi city: its own buildings (its mix, at size 1, the ScaledCity scale) at its
     own coverage over its tile grid (coverage.city_report), with its tile pitch as the block spacing -- the same
-    city in everything but its streets, which are S3's 12 m, round goals kept 22 m clear (MIXCITY_C_MIN). Any
-    --param overrides the preset; --alpha overrides the measured one, which is how VoronoiCityWorld's coverage levels
-    are made: one seed at several alphas shares its streets and goals, since both are drawn before the city."""
+    city in everything but its streets, which are S3's 12 m, round goals kept 22 m clear (MIXCITY_C_MIN), each in a
+    block of its own (MIXCITY_GOAL_CELL; --goal-cell 0 for the layouts made before). Any --param overrides the
+    preset; --alpha overrides the measured one, which is how VoronoiCityWorld's coverage levels are made: one seed at
+    several alphas shares its streets and goals, since both are drawn before the city."""
     P = replace(params_from(a), mix=a.city)
     if a.alpha is None:
         P = replace(P, alpha=round(coverage.city_report(a.city)["tile_grid"]["alpha"], 4))
@@ -799,6 +873,8 @@ def add_params(p):
                    help="city buildings: rsa (the study's round robin) or even (every block to the same fill, spread)")
     p.add_argument("--c-min", type=float, default=d.c_min,
                    help="least distance from a goal's centre to its ring's nearest face (m); 0 = no floor")
+    p.add_argument("--goal-cell", type=int, choices=[0, 1], default=int(d.goal_cell),
+                   help="1: the goals placed before the streets, each in a block that holds its whole patch")
 
 
 def main():
@@ -825,7 +901,8 @@ def main():
     p.add_argument("--city", default="DiamondCityWorld", help="the tile city (its city_obstacles_<city>.json)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--out", help=f"default {LAYOUT_DIR}/{MIXCITY_PREFIX}<id>.json")
-    p.set_defaults(func=cmd_mixcity, size=1.0, alpha=None, place="even", s=MIXCITY_STREET_M, c_min=MIXCITY_C_MIN)
+    p.set_defaults(func=cmd_mixcity, size=1.0, alpha=None, place="even", s=MIXCITY_STREET_M, c_min=MIXCITY_C_MIN,
+                   goal_cell=int(MIXCITY_GOAL_CELL))
     a = ap.parse_args()
     try:
         sys.exit(a.func(a) or 0)
