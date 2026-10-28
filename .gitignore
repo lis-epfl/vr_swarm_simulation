@@ -96,3 +96,10 @@ experiment_results/clutter_study/*/units.csv
 experiment_results/clutter_study/*/static.csv
 experiment_results/clutter_study/*/compare.csv
 experiment_results/clutter_study/*/clutter_study_bare.html
+# S4 Split and Surround's raw per-flight results are kept on disk, not in git (about 100 MB, as S3's): every table,
+# spec, log and the published page (the bare page and replay/) is committed. split_phase1.html is the bare page with
+# replay/ inlined, a 14 MB duplicate; results_*.jsonl are a run's set-aside earlier results.
+experiment_results/split_study/**/results.jsonl
+experiment_results/split_study/**/results_*.jsonl
+experiment_results/split_study/split/hops.csv
+experiment_results/split_study/phase1/split_phase1.html

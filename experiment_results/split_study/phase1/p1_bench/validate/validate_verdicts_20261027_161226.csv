@@ -1,0 +1,13 @@
+run,flights,buildings,friction,lost_bench,lost_replica,contacts_bench,contacts_replica,track_frac_median,nn_rel_median,lost_diff_per10,t90_diff_median,verdict
+s4_p1_bench_bbR_p40_s18_seed0,40,contact,0.6,0,0,2,1,0.007,0.007,0.0,,PASS
+s4_p1_bench_bbR_p40_s18_seed1,40,contact,0.6,0,0,3,0,0.007,0.007,0.0,,PASS
+s4_p1_bench_bbR_p40_s18_seed2,40,contact,0.6,2,2,2,1,0.007,0.008,0.0,,PASS
+s4_p1_bench_bbR_p50_s12_seed0,40,contact,0.6,0,0,1,2,0.007,0.013,0.0,,PASS
+s4_p1_bench_bbR_p50_s12_seed1,40,contact,0.6,2,0,5,3,0.008,0.017,0.5,,PASS
+s4_p1_bench_bbR_p50_s12_seed2,40,contact,0.6,0,0,0,1,0.008,0.013,0.0,,PASS
+s4_p1_bench_bbR_p50_s24_seed0,40,contact,0.6,0,0,0,0,0.004,0.004,0.0,,PASS
+s4_p1_bench_bbR_p50_s24_seed1,40,contact,0.6,0,0,0,1,0.005,0.004,0.0,,PASS
+s4_p1_bench_bbR_p50_s24_seed2,40,contact,0.6,0,0,1,0,0.005,0.006,0.0,,PASS
+s4_p1_bench_bbR_p75_s18_seed0,40,contact,0.6,0,0,0,0,0.004,0.009,0.0,,PASS
+s4_p1_bench_bbR_p75_s18_seed1,40,contact,0.6,0,0,0,0,0.004,0.008,0.0,,PASS
+s4_p1_bench_bbR_p75_s18_seed2,40,contact,0.6,0,0,0,0,0.004,0.005,0.0,,PASS

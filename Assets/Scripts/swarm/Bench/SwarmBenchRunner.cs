@@ -42,6 +42,10 @@ public class SwarmBenchRunner : MonoBehaviour
         public float holdSpread;
         public float holdGain;
         public float holdYawRate;
+        // Spread per waypoint (citysim.split_probe, S4): while waypoint i is being flown, a positive wpSpread[i]
+        // sets the spread stick, over holdSpread and the schedule; zero or a short array leaves them in charge.
+        // swarm_replica.replay_flight flies the same rule.
+        public float[] wpSpread;
         // End the flight once its last waypoint is done rather than at T (which is then only the cap), so a route
         // budgeted for the slowest case does not hover out the difference.
         public bool endOnDone;
@@ -729,8 +733,10 @@ public class SwarmBenchRunner : MonoBehaviour
                 }
             }
             if (cfg.pilotHeading) SetPilotYaw(pilotYaw);
-            SetStick(cx, cz, holding && sc.holdSpread > 0f ? sc.holdSpread : SpreadAt(sc.spread, t),
-                     LoneYawStick(holding, sc.holdYawRate, cx, cz));
+            float spreadNow = holding && sc.holdSpread > 0f ? sc.holdSpread : SpreadAt(sc.spread, t);
+            if (sc.wpSpread != null && wp < sc.wpSpread.Length && sc.wpSpread[wp] > 0f)
+                spreadNow = sc.wpSpread[wp];
+            SetStick(cx, cz, spreadNow, LoneYawStick(holding, sc.holdYawRate, cx, cz));
             float cm = Mathf.Sqrt(cx * cx + cz * cz);
             if (cm > 1e-6f && t > 0f)
             {

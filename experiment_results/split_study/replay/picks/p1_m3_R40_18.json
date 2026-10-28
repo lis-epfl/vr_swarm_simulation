@@ -1,0 +1,20 @@
+{
+ "pick": {
+  "key": "p1_m3_R40_18",
+  "run": "p1_confirm",
+  "kind": "M3",
+  "v": "R",
+  "p": 40,
+  "s": 18,
+  "rule": "clean",
+  "title": "Pass round, R, p 40 \u00b7 s 18",
+  "about": "Aimed at full stick through the block at the street opposite, the formation flows round both sides of the building and is one group again before the next junction. This design passed every criterion."
+ },
+ "identical": true,
+ "flights": [
+  "p1_m3_R40_18"
+ ],
+ "chain": null,
+ "target": null,
+ "wall_s": 5.1
+}

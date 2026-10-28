@@ -1,0 +1,39 @@
+{
+ "H1": {
+  "hypothesis": "H1",
+  "measure": "share of radiating streets previewed at the commit (search band)",
+  "contrast": "swarm_hop - swarm_hold at the profile's separation",
+  "n_cities": 48,
+  "mean_diff": 0.0715,
+  "t": 32.97658000932664,
+  "p_one_sided": 1.8973927189452635e-34,
+  "p_holm": 3.794785437890527e-34
+ },
+ "H2": {
+  "hypothesis": "H2",
+  "measure": "informed search: RMST of the time to find at 80 m (any feed), capped",
+  "contrast": "log(swarm_hop / swarm_street) at the profile's separation, city means",
+  "n_cities": 48,
+  "mean_log_ratio": 0.0153,
+  "ratio": 1.0154,
+  "t": 0.3099833860725057,
+  "p_one_sided": 0.6210280373618855,
+  "equivalence": {
+   "p40_s18": {
+    "n_cities": 24,
+    "ratio": 1.0701,
+    "margin": 1.1,
+    "p_tost": 0.33963039866251676,
+    "equivalent": false
+   },
+   "p40_s24": {
+    "n_cities": 24,
+    "ratio": 0.9636,
+    "margin": 1.1,
+    "p_tost": 0.21829516783012243,
+    "equivalent": false
+   }
+  },
+  "p_holm": 0.6210280373618855
+ }
+}

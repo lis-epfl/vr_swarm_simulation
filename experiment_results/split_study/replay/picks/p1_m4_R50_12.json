@@ -1,0 +1,20 @@
+{
+ "pick": {
+  "key": "p1_m4_R50_12",
+  "run": "p1_coupling",
+  "kind": "M4",
+  "v": "R",
+  "p": 50,
+  "s": 12,
+  "rule": "enveloped",
+  "title": "Surround hold (45 s), R, p 50 \u00b7 s 12",
+  "about": "S1's centring hold on the block's centre at the design's matched spread d*: the formation spreads into a ring round the building, every drone on its edge facing outward, and holds it. Phase 1's surround map is made of these."
+ },
+ "identical": true,
+ "flights": [
+  "p1_m4_R50_12"
+ ],
+ "chain": null,
+ "target": null,
+ "wall_s": 6.6
+}

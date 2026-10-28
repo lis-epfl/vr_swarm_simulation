@@ -1,0 +1,41 @@
+<p class="eyebrow">Findings · 28 Oct 2026</p>
+<ul>
+  <li><b>Phase 3: surrounding is what looks down a block's streets, and d_ref sets how far, but it still finds a goal
+    more slowly.</b> Scored on looking down each exit to the building at its end, the swarm in the streets knows 41%
+    of a block's exits at p 40 and 9% at p 75; a 12 s surround at d_ref 1.8 looks down 93% and 17%. The wider the
+    spread, the more it sees, until its drones touch the building it surrounds (above 1.8; 2.2 at p 75), which is
+    wider than the trials' dial. Searching for a goal at a building, the surround took ×1.48 (1.18–1.87) the time of
+    the swarm in the streets: it saved a few decisions, and each block took longer. See the Look down tab.</li>
+  <li><b>Surrounding a block shows more of its streets, but finds targets no sooner.</b> A 6 s surround previews 95.5% of a block's
+    streets when the pilot commits, 7.1 points more than a pause of the same length at the corner (H1 holds: 48
+    cities, p ≈ 2×10⁻³⁴). An informed pilot using that knowledge finds a hidden target in the same time as the swarm
+    kept in the streets (H2 is not supported: ×1.02, 0.92–1.12). It takes 10% fewer blocks, but each block takes 21%
+    longer.</li>
+  <li><b>The swarm's cameras are the effect.</b> Kept in the streets, the swarm finds a target in 62% of one drone's
+    time, and 90% of targets within 20 minutes against one drone's 80%. A single drone that stops to look down each
+    street gains nothing (×1.05).</li>
+  <li><b>The pass round gives the preview for free, on Phase 2's measure.</b> Flowing round the block on the way
+    through previews 98% of its streets at no cost in time (×0.97 in the search), with more contacts than staying in
+    the streets. Phase 3 qualifies it: the pass decides at the corner, so at its decision it has seen only what the
+    swarm in the streets has, and by the next junction it has looked down about as much.</li>
+  <li><b>The surround is the costly way to take a block:</b> about ten times the drones lost (0.29 against 0.03 per
+    10-minute walk, nearly all drone-drone collisions), and a quarter of its screens with no linked neighbour, against
+    7% in the streets.</li>
+  <li><b>Phase 1 chose variant R, and only p 40.</b> One catalogue building per block, with Phase 2 on 40 m blocks with
+    18 and 24 m streets, the only designs where both manoeuvres passed every criterion fixed in advance. At larger
+    blocks the surround needs 9–20 s or more and the pass round strands a drone. With block-shaped buildings (B) the
+    drones were pressed into the building they flowed round (not, as first reported, the buildings across the
+    street).</li>
+  <li><b>The coupling holds:</b> the separation that surrounds a block is its ring perimeter ÷ 100. Cohesion's range is
+    best at 30: at 40 the pull across a block drags drones into the building.</li>
+  <li><b>For you to decide:</b> which screen-linkage measure stands for "the pilot can relate the screens" (the Screens
+    tab gives all of them), and whether another full study is worth running. Phase 3 flew surrounds matched to the
+    block in spread and length, and they looked down far more but still found a goal more slowly. A full study would
+    need the look-down measure, d_ref as a factor beyond the dial, more cities, and probably a task where seeing down
+    every exit before choosing matters more than it does in a search.</li>
+</ul>
+<p class="small muted"><b>Checked in Unity:</b> Phase 1's 480 bench flights agree with the replica on track, spacing,
+  losses, preview, reform and envelopment. Phase 2's walks flown in Unity reproduce every contrast the hypotheses rest on
+  (H1 +6.6 points against the replica's +6.8; the time-to-find ratios within 0.3%), and the 40 search routes found
+  their targets within 5 s of the replica. Unity lost more drones (29 against 9 in 128 swarm walks) and touched
+  buildings more, so the replica understates the costs.</p>

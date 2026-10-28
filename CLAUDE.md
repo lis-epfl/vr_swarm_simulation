@@ -1193,8 +1193,8 @@ is silent, since neither side fails to compile, it just reads a float from the m
 ## City scenes and the ScaledCity assets
 
 Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
-(generated from ScaledCityWorld, below), `DiamondCityWorld`, `ProceduralCityWorld` and `VoronoiCityWorld`
-(generated cities, below), `FactoryScene`, `RingChallenge`, `NBackExperiment`, and `DJIScene`
+(generated from ScaledCityWorld, below), `DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld` and
+`BlockCityWorld` (generated cities, below), `FactoryScene`, `RingChallenge`, `NBackExperiment`, and `DJIScene`
 (real drones, no sim swarm). All of them spawn the
 same `Assets/Prefabs/DroneReduced.prefab`, so anything edited there — `maxPitch`, `maxSpeed`,
 `timeConstantAcceleration` — changes every scene at once. Per-scene tuning belongs on the scene's own
@@ -1471,20 +1471,39 @@ status, dates), each study's page links, the code names, how to rebuild each pag
 work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
 output folders keep the code names, and so do the sections below.
 
-| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming |
-|---|---|---|---|
-| code name | the density study | the search study | the clutter study |
-| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) |
-| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) |
-| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` |
-| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` |
-| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) |
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround |
+|---|---|---|---|---|
+| code name | the density study | the search study | the clutter study | the split study |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) |
 
 All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
-(source `docs/studies/hub.html`). The pages are private claude.ai artifacts: read one with the Artifact tool, never by
+(source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
+(`← Swarm Study Index`, the user's requirement since 2026-10-28; a new page needs it too). The pages are private claude.ai artifacts: read one with the Artifact tool, never by
 web fetch, and update it by its URL, which keeps the link the user has. Every page is built from the repo, so a lost
 one can be rebuilt (the commands are in the index); the S2 dashboard had to be, and its rebuild is deliberately less
 in depth than the original.
+
+**Every study's page has a Cities tab and a key to its codes. This is the user's standing requirement (2026-10-28,
+lessons.md 30–31).**
+- **The cities:** every design at one scale, any city whole, and one block or goal drawn with what the design codes mean.
+- **The flights:** representative flights of every condition, played back with each drone, its feed, the streets seen,
+  the decisions, losses and contacts. Unity's flights of the same walks go beside them where the bench flew them.
+- **The tooling:** `citysim/playback.py` records a flight with a `Tape` wrapped round `sim.step` (it only reads, so a
+  taped flight is the flight bit for bit) and encodes cities and flights compactly. `citysim/replay_view.js` is the
+  player, which the page inlines.
+- **The worked example:** S4's `split_replays.py`, and the Cities and Terms tabs of `split_report.html`.
+- **The page opens on the study's purpose and its answer** (S4's redesign at the user's request, 2026-10-28, lesson
+  36): every study serves the human trials (swarm against one drone on a visual search), so the masthead says what the
+  study tests for them and answers in three lines, the first tab argues it in a few charts against one drone, read
+  from the runs (`split_report.answer_data`), with the author's reading of what it settles and what it cannot, and the
+  detail tabs sit behind one "All results" tab.
+- **The picks:** re-fly every pick from its job and keep it only if the job's rows come out identical to the stored
+  ones. Choose the picks when the study is designed, and check each caption against its flight: S4's first B caption
+  repeated a wrong finding that the replay disproved.
 
 ## S1 Goal Visibility: the density study and ProceduralCityWorld
 
@@ -1819,6 +1838,90 @@ manual**; the code is `citysim/clutter.py`, `clutter_stats.py`, `clutter_report.
   arena's open ground seen by t, discovered at 200 m (`clutter.discovery_first`, a ray-cast isovist on a 4 m grid;
   the other measures stay at the hat's 40 m). Whole-arena grids are built with `clutter.arena_cells` (footprint by
   footprint), never `transit.Cells` (its all-pairs inside test is gigabytes there).
+
+## S4 Split and Surround: the split study
+
+Small Voronoi blocks with one large building each: can the swarm surround a block (S1's goal envelopment, repeated),
+show the pilot every street round it, and reform down the one chosen quickly enough to explore block by block?
+**[docs/split_study/README.md](docs/split_study/README.md) is the manual** (sections 6 and 7 are Phase 1's and Phase 2's
+results: surrounding shows the pilot more of a block's streets but finds a hidden target no sooner than the swarm kept
+in the streets, and the swarm's lead over one drone is its cameras; section 9 is Phase 3's short pilot: scored on
+looking *down* each street to the building at its end, the street-bound swarm knows far less than the old preview
+said, surrounding looks down most of a block's exits, and the more so the wider d_ref, up to about 1.8 at 18 m
+streets, where drones start touching the building they surround, yet in a search for a goal at a building the
+surround still takes ×1.48 the street-bound swarm's time); the code is
+`citysim/blockcity.py`, `polyfoot.py`, `streetnet.py`, `split_probe.py` / `split_tables.py` / `split_bench.py` (Phase 1),
+`split.py` / `split_stats.py` (Phase 2), `lookdown.py` / `lookdown_search.py` / `lookdown_contacts.py` (Phase 3, a
+short pilot on looking down the streets and on d_ref: manual section 9), `correspondence.py`, `split_replays.py` (the
+Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experiment_results/split_study/`. Invariants:
+- **Block cities are `bb{R|B}_p{p}_s{s}_seed{n}` layouts in `layouts/sweep~/split/`, and both variants of a seed share
+  every street** with each other and with citygen's goal-free city of the same p, s and seed (`streets_and_blocks`
+  draws citygen's stream; `test_split.py` asserts it). R's building is a catalogue box (`BnP_Large_Building_B`) scaled
+  so its avoidance cylinder fits the block's inscribed circle less 1 m, so every existing consumer reads it as it is;
+  B's is a `ConvexPrism` record (flat `poly_xz`, CCW) that only S4's accessors read (`blockcity.footprints`,
+  `replica_city`). A layout also carries a top-level `blocks` list, which JsonUtility ignores.
+- **The closest-point obstacle model is replica-only and opt-in** (`Model(extras=dict(obstacle_model="closest",
+  face_bend=κ))` with a `PolyCity`). It never reached the C#: in every setting B's drones were pressed into the
+  building they flowed round (87–97% of its contacts; not the buildings across the street, as first written), and the
+  face bend made it worse. With the option off the replica is the old law bit for bit.
+- **S4's profile is a scene value, not a law change**: `r0_coh` 30 on BlockCityWorld's SwarmManager. The plan raised it
+  to 40 so far-apart drones would stop repelling, and that dragged drones across a block into the building; 20 slows a
+  straggler's return. Phase 1's settings are `split_probe --setting` overrides, recorded with every job.
+- **Phase 1 flies the bench's own pilot**: `split_probe.Flight` is `SwarmBenchRunner`'s waypoint rule (10 m capture, a
+  negative stick is a centring hold at `holdGain`, the spread per waypoint via `wpSpread`, mirrored in
+  `swarm_replica.replay_flight`), so every replica trial is a bench scenario (`split_bench plan`) whose replica twin can
+  be re-flown from Unity's recorded start (`split_bench gate`).
+- **One cluster metric**, `streetnet.Network.clusters` (free-space path ≤ 30 m, round buildings by a visibility graph),
+  for replica samples and bench trajectories alike; a straight-line test calls every corner a split. Reform is one
+  cluster before the next junction, censored there.
+- **A confirmation flies fresh trials in fresh cities** (`split_probe --trial0 1000 --city-seeds 3 4 5`: new random
+  streams), and a run writes every missing layout before its pool starts, since workers would race on the file.
+- **The chain walk never reads the flight** (S2's invariant) and may cross a plaza by the streets, the same way in
+  every condition; per-block measures skip plazas. A chain ends where it reaches the arena's edge, and a flight that
+  has ended sees nothing more, so time outcomes charge a condition that finishes sooner (12% of walks; at most 0.3% on
+  the ratios). The informed pilot decides where its condition decides, from that flight's own knowledge.
+- **The informed pilot needs its fallback** (`split.fallback_exits`: a street at the entrance corner, then back the way
+  it came) for when the chain's exit rule leaves no move. Without it 12 of the first 40 routes stopped early, mostly at
+  p 40 s 24 where half the blocks are plazas, and each would have counted as unfound at the cap. The chain walks never
+  use it, so they lay exactly as before.
+- **Do not edit `split.py`, `split_probe.py` or anything they import while a run goes**: every round's pool re-imports
+  them. `split_stats.py`, `split_tables.py` and `split_report.py` are parent-only.
+- **The page's replays are the study's own flights** (`split_replays`, two stages):
+  - **`refly`** runs each pick's job (`split_probe.run_job`, `split.walk_job`, `split.search_job`) with
+    `split_probe.Flight` swapped for a taped subclass. For searches it also logs every `choose_exit` (read-only, beside
+    the real call). A pick is kept only if the job's rows come out identical to the stored ones. Rows map to tapes in
+    creation order; a walk's `same_as` rows fly nothing.
+  - **`assemble`** adds Unity's trajectories from the bench copy's `runs/`, the cities and `index.json`. The captions
+    come from the pick tables at this stage, so re-run `--stage assemble` after editing one, and check each against its
+    flight's numbers.
+  - The page fetches `replay/cities` and `replay/flights` beside itself. `split_phase1_files.json` lists what to
+    publish with it; the local `split_phase1.html` inlines them all.
+- **Phase 3 scores looking down a street, not entering it** (`citysim/lookdown.py`, manual section 9). An exit is
+  *looked down* once a shown feed has seen, within the run's sight range, half the footpath in front of the building
+  where it ends (2 m outside the footprint, within 12 m of its point nearest the far junction; a plaza's lawn when the
+  block ahead is one). Phases 1 and 2's preview (60% of the street's first 80 m) is the weakest of the three levels
+  and overstates what a pilot knows. **The pass is aimed by its decision, so it decides on arrival**: Part A's `look_c`
+  for the pass is at its aim point, after the decision. Compare the pass by the next junction (`look_F`), as the page
+  does.
+- **The sight range is a recorded run setting, and the page uses 250 m** (the user's call, 2026-10-28: the 80 m every
+  S4 run was first scored at, inherited from the goal's recognition distance, is too short to mean anything for
+  looking down a street). `sight_m` in a search spec (`lookdown_search choose --sight`, `split search --sight`) and
+  `look_range` in a Part A job (`lookdown manoeuvres|single --sight`) set what counts as seen, the first sight that
+  stops a search, and the radius within which a target starts out of sight; absent, 80 m, so every earlier run
+  reproduces bit for bit. The 250 m runs carry `_r250`; `split_report.SIGHT_M` and `sight_run` pick the runs the
+  answer, the Look down tab and the Phase 3 replays use. Phase 1 and Phase 2's walks were not re-run, and Phase 2's
+  own tabs stay its pre-registered 80 m record (manual 9.7). The answer did not change with the range.
+- **Every S4 flight reports both its spreads** (`d_block` round the block, `d_street` in the streets), in its row and
+  on the page. That is the user's requirement (2026-10-28): d_ref is a factor to study, not a setting to leave out.
+- **Part B's frontier rule is Phase 2's 20 m.** `blind_decisions` (`lookdown_search`) counts every decision with no
+  exit scored, which includes the moves towards the nearest junction with 20 m unseen. It is **not** a count of
+  random choices. Read as random walking, it had the rule changed mid-run to one footpath point (`lookdown_B_v2`,
+  stopped, not analysed). A per-decision log then showed no random choice at all, and the run resumed on the rule
+  fixed in advance. Log a pilot's decisions before redesigning it on a counter (lessons.md 32).
+- **`BlockCityWorld`** (`Tools/Swarm/Build block city world`, `BlockCityWorldBuilder`) is DiamondCityWorld's rig with
+  the R p 40 s 18 seed 1 city baked in (`layouts/BlockCity__bbR_p40_s18_seed1.json`, byte for byte the city Phase 1
+  flew), the landmarks, the dressing, `r0_coh` 30 and a 45 m ceiling. It has no goals, so it is for flying the
+  manoeuvres, not the identify task. Built in batchmode on the bench copy.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

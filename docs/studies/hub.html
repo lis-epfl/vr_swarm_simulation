@@ -76,7 +76,7 @@ tr:last-child td { border-bottom: 0; }
     <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span></div>
   </header>
 
   <section>
@@ -144,6 +144,29 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+
+      <article class="study">
+        <header><span class="id">S4</span><h3>Split and Surround</h3><span class="was">the split study · 27–28 Oct 2026</span><span class="status done">Done</span></header>
+        <div>
+          <p class="q">In a city of small blocks with one large building each, can the swarm surround a block, show the pilot every street round it, and reform down the one chosen quickly enough to explore block by block?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Only the smallest blocks (40 m, buildings about 13 m across) passed Phase 1, so Phase 2 measured the regime S2 did; at larger blocks the surround needs 9–20 s or more and the pass round strands a drone.</li>
+            <li>Scripted pilots and one 6 s surround; on head-ahead knowledge alone the surround leaned slower (×1.16).</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD#cities" target="_blank" rel="noopener">Cities and flights</a><a href="https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD#lookdown" target="_blank" rel="noopener">Look down (Phase 3)</a><span class="mono">docs/studies/S4_split_and_surround.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Surrounding a block shows the pilot more of its streets: 95.5% at the decision, 7.1 points more than a pause of the same length (H1).</li>
+            <li>It finds a hidden target no sooner than the swarm kept in the streets (×1.02, 0.92–1.12; H2 not supported): it saves 10% of the blocks searched, and each block takes 21% longer.</li>
+            <li>The cameras are the effect, as in S2: the swarm in the streets finds a target in 62% of one drone's time. Surrounding costs about ten times the drones lost, and a quarter of its screens share nothing with a neighbour.</li>
+            <li>Phase 3, a short pilot: scored on looking down each street to the building at its end, the swarm in the streets knows 41% of a block's exits at 40 m blocks (the old preview said 71%), and a 12 s surround looks down 93%, more the wider d_ref, up to where its drones touch the building (1.8, past the trials' dial). Searching for a goal at a building, the surround still took ×1.48 the street-bound swarm's time.</li>
+            <li>Its page shows every design's city and replays 73 of its flights, Unity's beside the replica's.</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -159,6 +182,9 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Hide targets out of sight of the start</b>, or the view from the start dominates. <span class="tag">S2 S3</span></li>
           <li><b>Report range and attention as dimensions</b>: 40, 80 and 200 m; any screen, head ahead, fitted head. <span class="tag">S1 S2 S3</span></li>
           <li><b>Separate the goal from the transit</b>: geometry rules one, coverage the other. <span class="tag">S1 S3</span></li>
+          <li><b>Seeing more is not finding sooner</b> until a pilot acts on it; split the result into decisions × time per decision. <span class="tag">S4</span></li>
+          <li><b>Score a view by the decision it informs</b>: seeing the start of a street is not seeing down it to the building at its end. <span class="tag">S4</span></li>
+          <li><b>Score each condition at its own decision</b>: a pass decides at the corner, before it goes round. <span class="tag">S4</span></li>
         </ol>
       </section>
       <section>
@@ -166,9 +192,22 @@ tr:last-child td { border-bottom: 0; }
         <ol>
           <li><b>Scripted pilots are not people</b>; calibrate against a pilot block. <span class="tag">S1 S2</span></li>
           <li><b>Spread 0.4 loses drones in every model</b>; report per spread, consider a dial floor. <span class="tag">S1 S2 S3</span></li>
-          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3</span></li>
+          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3 S4</span></li>
           <li><b>Cities are the statistical units</b>; tests over walks overstate. <span class="tag">S3</span></li>
           <li><b>Pair every condition</b> on one intent chain from one start. <span class="tag">S2 S3</span></li>
+          <li><b>Size a pass/fail run to its bar</b>, then confirm on fresh trials in fresh cities. <span class="tag">S4</span></li>
+          <li><b>Read the full run, not the first rounds</b>: S4's H2 read ×1.12–1.39 early and ×1.02 in the end. <span class="tag">S4</span></li>
+          <li><b>Check an adaptive pilot for dead ends</b>, and a walk for early ends, before the run. <span class="tag">S4</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Manoeuvres and tuning</h3>
+        <ol>
+          <li><b>A stronger long-range attraction can raise building contacts</b>: it drags drones across a block. <span class="tag">S4</span></li>
+          <li><b>A manoeuvre's timing scales with its geometry</b>; one length for every design fits only the small blocks. <span class="tag">S4</span></li>
+          <li><b>Look past a censored recovery measure</b> before reading it. <span class="tag">S4</span></li>
+          <li><b>Screen a mitigation against the failure it might cause.</b> <span class="tag">S4</span></li>
+          <li><b>Treat the separation (d_ref) as a factor</b>, sized to the task: looking down a block paid for spreads past d* and past the trials' dial. <span class="tag">S4</span></li>
         </ol>
       </section>
       <section>
@@ -178,6 +217,15 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Make long runs resumable</b>, replicate by replicate, under a time budget. <span class="tag">S3</span></li>
           <li><b>Never edit modules a running pool imports.</b> <span class="tag">S3</span></li>
           <li><b>Subset scenarios by index</b>, never by drawing fewer. <span class="tag">S2</span></li>
+          <li><b>Never rewrite a script a stopped process may still be reading.</b> <span class="tag">S4</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Reporting</h3>
+        <ol>
+          <li><b>Every study's page has a Cities tab</b>: its cities drawn, and its own flights to replay, each re-flown and checked identical to the run. A standing requirement. <span class="tag">S4</span></li>
+          <li><b>Define every code in plain words</b> where a reader first meets it: a key under the masthead, hover definitions, a Terms tab. <span class="tag">S4</span></li>
+          <li><b>Check a claim about why something happens against the events it is about</b>: S4's replays showed B's contacts were with the building being passed, not across the street. Know what a counter counts, too. <span class="tag">S4</span></li>
         </ol>
       </section>
     </div>
@@ -191,20 +239,22 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S1</b> Goal Visibility</td><td><code>docs/studies/S1_goal_visibility.md</code></td><td><code>docs/density_study/</code></td><td><code>citysim/vissim.py</code>, <code>capability.py</code></td><td><code>experiment_results/density_study/</code></td></tr>
         <tr><td><b class="mono">S2</b> Hidden Goal Search</td><td><code>docs/studies/S2_hidden_goal_search.md</code></td><td><code>docs/search_study/</code></td><td><code>citysim/search.py</code>, <code>pilots.py</code></td><td><code>experiment_results/search_study/</code></td></tr>
         <tr><td><b class="mono">S3</b> City Roaming</td><td><code>docs/studies/S3_city_roaming.md</code></td><td><code>docs/clutter_study/</code></td><td><code>citysim/clutter.py</code>, <code>clutter_stats.py</code></td><td><code>experiment_results/clutter_study/clutter/</code></td></tr>
+        <tr><td><b class="mono">S4</b> Split and Surround</td><td><code>docs/studies/S4_split_and_surround.md</code></td><td><code>docs/split_study/</code></td><td><code>citysim/split_probe.py</code>, <code>split.py</code></td><td><code>experiment_results/split_study/</code></td></tr>
       </tbody>
     </table></div>
-    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter), so nothing that reads them broke.</p>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split), so nothing that reads them broke.</p>
   </section>
 
   <section>
     <h2>Starting a new study</h2>
     <ol class="steps">
       <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
-      <li>Take the next ID (S4), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S4_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Take the next ID (S5), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S5_&lt;slug&gt;.md</code> and add it to the table there.</li>
       <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
+      <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
       <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>
     </ol>
   </section>
 
-  <footer class="foot">Last updated 21 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
+  <footer class="foot">Last updated 28 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
 </div>

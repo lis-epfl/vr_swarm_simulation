@@ -1,0 +1,20 @@
+{
+ "pick": {
+  "key": "p1_m3b_R75_18",
+  "run": "p1_confirm",
+  "kind": "M3b",
+  "v": "R",
+  "p": 75,
+  "s": 18,
+  "rule": "short",
+  "title": "Surround and exit, R, p 75 \u00b7 s 18",
+  "about": "The same 6 s surround round a block twice as wide: when the pilot turns off, only 3 of the block's 6 streets have been previewed, and 2 are never seen. A useful surround here needs 20 s or more."
+ },
+ "identical": true,
+ "flights": [
+  "p1_m3b_R75_18"
+ ],
+ "chain": null,
+ "target": null,
+ "wall_s": 7.9
+}

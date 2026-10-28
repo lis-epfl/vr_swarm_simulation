@@ -1,0 +1,20 @@
+{
+ "pick": {
+  "key": "p1_m3b_R40_18",
+  "run": "p1_confirm",
+  "kind": "M3b",
+  "v": "R",
+  "p": 40,
+  "s": 18,
+  "rule": "clean",
+  "title": "Surround and exit, R, p 40 \u00b7 s 18",
+  "about": "The surround Phase 2 flew: 6 s aimed through the block at the opposite street, so the formation wraps the building, then off down a side street. Watch the block's streets turn from dashed to solid as a feed previews each one: 8 of its 9 by the time the pilot turns off."
+ },
+ "identical": true,
+ "flights": [
+  "p1_m3b_R40_18"
+ ],
+ "chain": null,
+ "target": null,
+ "wall_s": 7.6
+}

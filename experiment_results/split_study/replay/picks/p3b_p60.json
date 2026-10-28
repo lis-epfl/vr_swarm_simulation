@@ -1,0 +1,27 @@
+{
+ "pick": {
+  "key": "p3b_p60",
+  "p": 60.0,
+  "s": 18.0,
+  "city_seed": 206,
+  "i": 0,
+  "title": "Search for a goal at a building, p 60 \u00b7 s 18",
+  "ratio": 1.3055555555555556,
+  "median_ratio": 1.3021239171164531
+ },
+ "identical": true,
+ "flights": [
+  "p3b_p60_single_replica",
+  "p3b_p60_swarm_street_replica",
+  "p3b_p60_swarm_hold_replica",
+  "p3b_p60_swarm_pass_replica",
+  "p3b_p60_swarm_hop_replica",
+  "p3b_p60_swarm_hop_p2_replica"
+ ],
+ "chain": null,
+ "target": [
+  256.14,
+  -68.09
+ ],
+ "wall_s": 82.9
+}

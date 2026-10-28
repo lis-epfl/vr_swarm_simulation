@@ -81,6 +81,10 @@ for its timeout, never captured, the spread stick at `holdSpread` meanwhile (0 =
 waypoint before a hold is captured within `arrive` m (0 = `capture`), and `endOnDone` ends the flight when the
 last waypoint is done, so `T` is only a cap. `swarm_replica.py validate` flies the same rule.
 
+**Spread per waypoint** (S4's manoeuvres, `citysim/split_bench.py`): a positive `wpSpread[i]` sets the spread stick
+while waypoint `i` is being flown, over `holdSpread` and the schedule; zero or a short array leaves those in charge.
+`citysim/split_probe.py`'s `Flight` is the replica side of the same pilot, so every S4 replica trial has a bench twin.
+
 ### Flight sets (`scenarios/`)
 
 - `ScaledCityWorld_heldout.json` / `_spread.json` are **frozen** from the September obstacle retune's configs:

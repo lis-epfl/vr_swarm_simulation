@@ -35,6 +35,10 @@ goes stale the next time the C# changes. sim, forces and step check git for chan
 FORCE_LAW_COMMIT and refuse (exit 3) unless --allow-stale (params just reports it): review the diff, bring
 this file into line, then bump the constant.
 
+AHEAD OF THE C# (the split study, S4, Phase 1): PolyCity (convex prism buildings) and the Model extras obstacle_model
+"closest" / face_bend. Both are off by default, so everything above flies exactly as before; the C# has neither until
+S4 chooses its block-shaped variant (docs/studies/S4_split_and_surround.md).
+
 WHAT IT DOES NOT MODEL -- check before trusting a result that depends on one of these:
   - Heading/yaw. No hull heading rule, no look-direction gap fill, no FPV view. Heading does not feed
     translation, so kills and spacing are unaffected; anything about what the pilot sees is out of reach.
@@ -166,12 +170,27 @@ def cohesion(r, dref, r0, a, b, delta):
     return drho / r0 * psi + rho * phi
 
 
+OBSTACLE_MODELS = ("cylinder", "closest")
+
+
 class Model:
     """The resolved constants under the names of the C# fields they come from, plus what
-    SwarmAlgorithm.UpdateOlfatiSaberParameters derives from them."""
+    SwarmAlgorithm.UpdateOlfatiSaberParameters derives from them.
 
-    def __init__(self, swarm, air):
+    `extras` holds options the replica has and the C# does not (yet), so they are not SwarmManager fields and
+    swarm_params cannot validate them: obstacle_model "cylinder" (OlfatiSaber's, the default) or "closest" (the split
+    study's Phase 1: the beta-agent at the true closest point of the footprint, with face_bend tilting a face's normal
+    away from the building's centre so an off-centre approach still slides, as on a cylinder)."""
+
+    def __init__(self, swarm, air, extras=None):
         self.swarm, self.air = swarm, air
+        extras = dict(extras or {})
+        self.obstacle_model = extras.pop("obstacle_model", "cylinder")
+        self.face_bend = float(extras.pop("face_bend", 0.0))
+        if self.obstacle_model not in OBSTACLE_MODELS:
+            raise ValueError(f"obstacle_model {self.obstacle_model!r}: one of {OBSTACLE_MODELS}")
+        if extras:
+            raise ValueError(f"unknown replica extras {sorted(extras)}")
         if swarm["swarmAlgorithm"] != 2:
             raise ValueError(f"swarmAlgorithm is {swarm['swarmAlgorithm']}; the replica models OLFATI_SABER (2) only")
         if swarm["is3D"]:
@@ -279,6 +298,104 @@ class City:
         return self.distance(P, np.arange(self.n), alt).min(1)
 
 
+class PolyCity:
+    """Buildings that are convex prisms (the split study's block-shaped buildings, citysim.blockcity variant B): every
+    one taller than the drones, so only the footprint counts. c and R are what OlfatiSaber's cylinder would take
+    from the collider's bounds (the AABB centre and circumradius), for the "cylinder" obstacle model and the
+    candidate query; distance, footprint_hit and push_out use the true polygon, as PhysX does, and closest() gives
+    the "closest" model its beta-agents. Replica only: the C# builds no prism yet."""
+
+    def __init__(self, polys):
+        polys = [np.asarray(p, float) for p in polys]
+        polys = [p if _signed_area(p) >= 0 else p[::-1].copy() for p in polys]
+        self.n = len(polys)
+        K = max((len(p) for p in polys), default=3)
+        self.N = np.zeros((self.n, K, 2))
+        self.Cn = np.full((self.n, K), 1e18)
+        self.V = np.zeros((self.n, K, 2))
+        self.W = np.zeros((self.n, K, 2))
+        self.c = np.zeros((self.n, 2))
+        self.R = np.zeros(self.n)
+        for i, p in enumerate(polys):
+            k = len(p)
+            e = np.roll(p, -1, axis=0) - p
+            nrm = np.stack([e[:, 1], -e[:, 0]], 1)
+            nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
+            self.N[i, :k], self.Cn[i, :k] = nrm, (nrm * p).sum(1)
+            self.V[i, :k], self.W[i, :k] = p, np.roll(p, -1, axis=0)
+            self.V[i, k:] = self.W[i, k:] = p[-1]
+            lo, hi = p.min(0), p.max(0)
+            self.c[i], self.R[i] = (lo + hi) / 2, 0.5 * float(np.hypot(*(hi - lo)))
+
+    def closest(self, P, B):
+        """(q (n, len(B), 2) the closest point of each building's footprint to each point, d (n, len(B)) the distance;
+        a point inside a footprint is its own closest point, at distance 0)."""
+        P = np.atleast_2d(np.asarray(P, float))
+        V, W, N, Cn = self.V[B], self.W[B], self.N[B], self.Cn[B]
+        e = W - V
+        ee = np.maximum((e * e).sum(-1), 1e-18)
+        rel = P[:, None, None, :] - V[None]
+        t = np.clip((rel * e[None]).sum(-1) / ee[None], 0.0, 1.0)
+        q = V[None] + t[..., None] * e[None]
+        dk = np.linalg.norm(P[:, None, None, :] - q, axis=-1)
+        j = dk.argmin(axis=2)
+        qq = np.take_along_axis(q, j[..., None, None].repeat(2, -1), axis=2)[:, :, 0]
+        d = np.take_along_axis(dk, j[..., None], axis=2)[..., 0]
+        ins = ((np.einsum("nk,bjk->nbj", P, N) - Cn[None]) <= 0).all(axis=2)
+        return np.where(ins[..., None], P[:, None, :], qq), np.where(ins, 0.0, d)
+
+    def distance(self, P, B, alt=None):
+        if len(B) == 0:
+            return np.zeros((len(P), 0))
+        return self.closest(P, B)[1]
+
+    def footprint_hit(self, P, B, margin):
+        if len(B) == 0:
+            return np.zeros(len(P), bool)
+        s = np.einsum("nk,bjk->nbj", np.atleast_2d(np.asarray(P, float)), self.N[B]) - self.Cn[B][None]
+        return (s <= margin).all(axis=2).any(axis=1)
+
+    def near(self, P, reach):
+        if self.n == 0:
+            return np.arange(0)
+        d = np.linalg.norm(self.c[None] - P[:, None], axis=-1).min(0) - self.R
+        return np.flatnonzero(d < reach)
+
+    def min_distance(self, P, alt):
+        if self.n == 0:
+            return np.full(len(P), np.inf)
+        return self.distance(P, np.arange(self.n), alt).min(1)
+
+    def push_out(self, cand, p, v, margin, friction):
+        """push_out() for prisms: out through the nearest face of any footprint (grown by margin) holding p."""
+        for _ in range(4):
+            inside = False
+            for b in cand:
+                s = self.N[b] @ p - self.Cn[b]                  # padded faces read -1e18: never the way out
+                if not (s <= margin).all():
+                    continue
+                inside = True
+                k = int(np.argmax(s))                           # the face nearest p
+                nrm = self.N[b, k]
+                p = p + (margin - s[k] + 1e-3) * nrm
+                vn = float(v @ nrm)
+                if vn < 0:
+                    v = v - vn * nrm
+                    if friction > 0:
+                        vt = v - float(v @ nrm) * nrm
+                        st = float(np.linalg.norm(vt))
+                        if st > 1e-9:
+                            v = v - vt * min(1.0, friction * -vn / st)
+            if not inside:
+                break
+        return p, v
+
+
+def _signed_area(p):
+    x, z = p[:, 0], p[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(z, -1)) - np.dot(z, np.roll(x, -1)))
+
+
 def remove_inward(v, shield):
     """OlfatiSaber.RemoveInwardComponent, for the pilot's command and the damper: fade out the part of v
     heading into each obstacle within d_shield, frame by frame in query order."""
@@ -318,7 +435,29 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
 
     # ---- obstacles: beta-agents on each building's cylinder, and the shield's frames
     obs, prox, shield = zero, np.zeros(n), []
-    if len(cand):
+    if len(cand) and m.obstacle_model == "closest":
+        # Replica only (the split study, Phase 1): the beta-agent on the footprint's true closest point. Distance is
+        # to the facade, mu = 1 (a wall's beta-agent moves with the drone's tangential velocity), and face_bend tilts
+        # the normal away from the building's centre in proportion to the drone's offset along the face over the
+        # bounds radius -- a cylinder of that radius at face_bend 1 -- so an off-centre approach still slides.
+        if not isinstance(city, PolyCity):
+            raise ValueError("obstacle_model 'closest' is implemented for PolyCity only")
+        q, d = city.closest(Pm, cand)
+        rel = Pm[:, None, :] - q
+        from_c = Pm[:, None, :] - city.c[cand][None]
+        from_c_dir = from_c / np.maximum(np.linalg.norm(from_c, axis=-1), 1e-9)[..., None]
+        out = np.where((d > 1e-4)[..., None], rel / np.maximum(d, 1e-9)[..., None], from_c_dir)
+        if m.face_bend > 0:
+            t0 = np.stack([out[..., 1], -out[..., 0]], -1)
+            off = (from_c * t0).sum(-1) / np.maximum(city.R[cand][None], 1e-9)
+            out = out + (m.face_bend * off)[..., None] * t0
+            out = out / np.maximum(np.linalg.norm(out, axis=-1), 1e-9)[..., None]
+        tan = np.stack([out[..., 1], -out[..., 0]], -1)
+        mu = np.ones_like(d)
+        dd = d / S
+        found = d < m.r0_obs * S
+        bo = bump(dd, m.d_obs, dl) * found
+    elif len(cand):
         rel = Pm[:, None, :] - city.c[cand][None]
         rho = np.linalg.norm(rel, axis=-1)
         R = city.R[cand][None]
@@ -328,6 +467,7 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
         mu = np.minimum(R / np.maximum(rho, 1e-4), 1.0)
         dd = np.maximum(rho - R, 0.0) / S
         bo = bump(dd, m.d_obs, dl) * found
+    if len(cand):
         prox = bo.max(1)
         rep = (bo * (sigma1(dd - m.d_obs) - 1.0))[..., None] * (-out)
         vel_obs = (mu * (Vm[:, None, :] * tan).sum(-1))[..., None] * tan
@@ -509,6 +649,8 @@ class ContactSim(Sim):
 def push_out(city, cand, p, v, margin=DRONE_HALF_M + 0.05, friction=0.0):
     """The nearest point outside every candidate footprint (grown by margin), and v without its inward part (and,
     with friction, with its part along the face reduced by up to friction x the inward part removed)."""
+    if isinstance(city, PolyCity):
+        return city.push_out(cand, p, v, margin, friction)
     for _ in range(4):
         inside = False
         for b in cand:
@@ -900,6 +1042,9 @@ def replay_flight(job, keep_positions=False):
         spread = spread_at(sc.get("spread"), sim.t)
         if holding and (sc.get("holdSpread") or 0) > 0:
             spread = float(sc["holdSpread"])
+        wp_spread = sc.get("wpSpread") or []
+        if wp < len(wp_spread) and wp_spread[wp] > 0:      # the bench's per-waypoint spread (S4's split_probe)
+            spread = float(wp_spread[wp])
         if sim.tick % 5 == 0:
             Pa = sim.P[sim.alive]
             nn = np.nan
