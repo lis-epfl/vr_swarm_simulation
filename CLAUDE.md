@@ -1922,6 +1922,29 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
   the R p 40 s 18 seed 1 city baked in (`layouts/BlockCity__bbR_p40_s18_seed1.json`, byte for byte the city Phase 1
   flew), the landmarks, the dressing, `r0_coh` 30 and a 45 m ceiling. It has no goals, so it is for flying the
   manoeuvres, not the identify task. Built in batchmode on the bench copy.
+- **`BlockShapedCityWorld`** (`Tools/Swarm/Build block-shaped city world`, `BlockShapedCityWorldBuilder`; the design is
+  changed in `Tools/Swarm/Block-shaped city…`) is variant B to fly: every block built over to the back of a 3.5 m
+  footpath, one simple prism each (`PrismBuilding`: windows, 10 colours dealt so neighbours differ, 3 patterns), on
+  BlockCityWorld's configuration (`ConfigureS4`) and by default S4's own `bbB_p40_s18_seed1` file, so it shares
+  BlockCityWorld's streets (2026-10-28). Points worth keeping:
+  - **Unity flies B through today's cylinder law, not the replica's closest-point model.** OlfatiSaber wraps each
+    prism in the circumradius of its axis-aligned bounds, which encloses the footprint, so the law keeps drones off the
+    facade (S4's B failed on facade contacts under the closest-point model). It bulges past it instead: at p 40 s 18 it
+    closes 8 and narrows below 6 m 71 of the 824 interior streets between two buildings (`blockcity one` prints it).
+    The footprint's enclosing circle would close 2 and narrow 19, but a declared radius is a force-law change: replica
+    and bench with it.
+  - **`blockcity`'s defaults are S4's, byte for byte**, and the id names any setting that is not (`_in5`, `_hex0.15`,
+    `_lloyd2`). `--inset` is the footpath; `--seeds hex --jitter J` and `--relax N` place the block seeds more evenly.
+  - **A Voronoi block has about six sides, but a side shorter than its junctions' setbacks is not a street**
+    (StreetSurface and streetnet merge its junctions at about one street width). At p 40 s 18 S4's seeds keep 4.3
+    sides as streets with 8.2 streets leaving the corners; hex at jitter 0.15 keeps 5.7 with 6.3 leaving. Even blocks
+    give more corners to go round, merged junctions more streets to choose from at each.
+  - **p − s − 2 × footpath decides whether a block is built.** Under 8 m across it is a plaza: at p 35 s 20 only 32% of
+    S4's interior blocks keep a building.
+  - **The dressing measures the footpath off the prisms** and paves out to the facades, leaves a block they cover no
+    lawn, and lets a prop stand against a facade (`CityDressing.FacadeClearance`); a catalogue layout is unchanged.
+  - **analyse.py and the bench's `Footprints` read box axes, which a prism lacks**: a run recorded here cannot be
+    analysed until they read `blockcity.footprints`.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

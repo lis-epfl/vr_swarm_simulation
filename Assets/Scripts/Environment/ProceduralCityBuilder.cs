@@ -32,6 +32,10 @@ using UnityEngine;
 /// <para>The layout's arena and spawn must stand on the scene's Terrain: past it there is no ground for the altitude
 /// ceiling (<see cref="TerrainHeightSampler"/>), so the build refuses a layout that leaves it.</para>
 ///
+/// <para><b>A building may instead be a block-shaped prism</b> (<c>type: ConvexPrism</c>, S4's variant B from
+/// citysim/blockcity.py): a footprint and a height with no catalogue design, built by <see cref="PrismBuilding"/> in
+/// <see cref="prismStyle"/>'s materials, standing on its footprint's centroid. A layout of prisms needs no catalogue.</para>
+///
 /// <para><b>A city can be baked into the scene</b> (<see cref="Bake"/>, edit mode): the buildings and streets are built
 /// and saved with it, so the editor shows the city without pressing Play — VoronoiCityWorld is made this way. The goals
 /// cannot be baked whole: <see cref="GoalSpecialWalker"/> deals its hat in Awake, from state shared across the session,
@@ -91,6 +95,10 @@ public class ProceduralCityBuilder : MonoBehaviour
     [Tooltip("Textured: depth of a zebra crossing along its street (m).")]
     public float crossingDepth = 3.3f;
 
+    [Header("Block-shaped buildings (ConvexPrism: S4's variant B)")]
+    [Tooltip("Their materials and facade grid (BlockShapedCityWorldBuilder fills it). Unused by catalogue layouts.")]
+    public PrismBuilding.Style prismStyle = new PrismBuilding.Style();
+
     [Tooltip("Written by Bake: the layout (as layoutPath named it) whose buildings and streets this scene holds. Adopted " +
              "at Play while it is still the layout to build; empty when nothing is baked.")]
     [SerializeField] private string bakedLayout = "";
@@ -99,6 +107,8 @@ public class ProceduralCityBuilder : MonoBehaviour
                          GoalBuildingsName = "Goal buildings", DressingName = CityDressing.RootName;
     private const float AdoptTolerance = 1e-2f;   // m: how far a baked collider centre may sit from its box
     private readonly List<GameObject> placedGoals = new List<GameObject>();
+    private Dictionary<string, PrismBuilding.Look> prismLooks = new Dictionary<string, PrismBuilding.Look>();
+    private string prismNote = "";
 
     /// <summary>The layout whose city is baked into the scene, or "".</summary>
     public string BakedLayout => bakedLayout;
@@ -175,6 +185,9 @@ public class ProceduralCityBuilder : MonoBehaviour
         public string role;          // city, goal_centre, goal_ring
         public int goal;             // -1 for city buildings
         public bool patrol;
+        public string type;          // "ConvexPrism" (PrismBuilding), else a catalogue box
+        public float[] poly_xz;      // ConvexPrism: the footprint, flat (x, z), counter-clockwise
+        public float height;         // ConvexPrism
     }
 
     [Serializable]
@@ -350,9 +363,20 @@ public class ProceduralCityBuilder : MonoBehaviour
                 error = $"{b.name} is in {Path.GetFileName(path)} but not in the scene: rebake it";
                 return false;
             }
-            BoxCollider box = t.GetComponent<BoxCollider>();
-            Vector3 c = new Vector3(b.c[0], b.c[1], b.c[2]);
-            if (box == null || (t.TransformPoint(box.center) - c).sqrMagnitude > AdoptTolerance * AdoptTolerance)
+            bool stands;
+            if (PrismBuilding.IsPrism(b))
+            {
+                MeshCollider mesh = t.GetComponent<MeshCollider>();
+                stands = mesh != null && mesh.sharedMesh != null &&
+                         (t.position - PrismBuilding.Origin(b)).sqrMagnitude <= AdoptTolerance * AdoptTolerance;
+            }
+            else
+            {
+                BoxCollider box = t.GetComponent<BoxCollider>();
+                Vector3 c = new Vector3(b.c[0], b.c[1], b.c[2]);
+                stands = box != null && (t.TransformPoint(box.center) - c).sqrMagnitude <= AdoptTolerance * AdoptTolerance;
+            }
+            if (!stands)
             {
                 error = $"{b.name} no longer stands where {Path.GetFileName(path)} puts it: rebake it";
                 return false;
@@ -416,7 +440,7 @@ public class ProceduralCityBuilder : MonoBehaviour
             error = $"{path} is not a layout file (no boxes / layout record).";
             return false;
         }
-        if (catalogue == null)
+        if (catalogue == null && Array.Exists(file.boxes, b => !PrismBuilding.IsPrism(b)))
         {
             error = "no BuildingCatalogue assigned (Tools/Swarm/Export building catalogue writes one).";
             return false;
@@ -429,6 +453,11 @@ public class ProceduralCityBuilder : MonoBehaviour
         if (!OnTerrain(file.layout, out error)) return false;
         foreach (LayoutBox b in file.boxes)
         {
+            if (PrismBuilding.IsPrism(b))
+            {
+                if (!PrismBuilding.Valid(b, out error)) return false;
+                continue;
+            }
             if (catalogue.Find(b.design) == null)
             {
                 error = $"design '{b.design}' (box {b.name}) is not in the catalogue.";
@@ -442,6 +471,7 @@ public class ProceduralCityBuilder : MonoBehaviour
     /// <summary>The city buildings under <paramref name="parent"/>; their number, or -1 with an error.</summary>
     private int PlaceCity(LayoutFile file, Transform parent, out string error)
     {
+        DealPrisms(file);
         int n = 0;
         foreach (LayoutBox b in file.boxes)
         {
@@ -451,6 +481,16 @@ public class ProceduralCityBuilder : MonoBehaviour
         }
         error = null;
         return n;
+    }
+
+    /// <summary>Every prism's colour and window pattern, before any is placed (<see cref="PrismBuilding.Deal"/>: from the
+    /// layout's seed, so a layout always looks the same).</summary>
+    private void DealPrisms(LayoutFile file)
+    {
+        prismLooks = PrismBuilding.Deal(file.boxes, prismStyle, file.layout.seed, file.layout.p, out int clashes);
+        prismNote = prismLooks.Count == 0 ? ""
+            : $", {prismLooks.Count} block-shaped in {Mathf.Max(prismStyle.Colours, 1)} colours" +
+              (clashes > 0 ? $" ({clashes} beside a building of their own colour)" : "");
     }
 
     /// <summary>The goals, in layout order, each a <see cref="goalRootPrefab"/> with its buildings (from
@@ -552,7 +592,7 @@ public class ProceduralCityBuilder : MonoBehaviour
             generatorVersion = file.layout.generator_version ?? "",
         });
 
-        Debug.Log($"ProceduralCityBuilder: {verb} {file.layout.id} ({nCity} city buildings, " +
+        Debug.Log($"ProceduralCityBuilder: {verb} {file.layout.id} ({nCity} city buildings{prismNote}, " +
                   $"{file.layout.goals?.Length ?? 0} goals, " +
                   $"{file.streets?.Length ?? 0} streets, alpha {file.layout.alpha_achieved:F3}, goal seed {file.layout.seed}) " +
                   $"from {path}" + (string.IsNullOrEmpty(dressing) ? "" : $"; dressing: {dressing}"), this);
@@ -562,6 +602,7 @@ public class ProceduralCityBuilder : MonoBehaviour
     public void Clear()
     {
         placedGoals.Clear();
+        prismNote = "";
         foreach (string n in new[] { BuildingsName, StreetsName, GoalsName, GoalBuildingsName, DressingName })
         {
             Transform t = transform.Find(n);
@@ -587,6 +628,12 @@ public class ProceduralCityBuilder : MonoBehaviour
     /// <summary>One building, its collider centred on the box centre. Null with an error if that fails.</summary>
     private GameObject Place(LayoutBox b, Transform parent, out string error)
     {
+        if (PrismBuilding.IsPrism(b))
+        {
+            error = null;
+            prismLooks.TryGetValue(b.name, out PrismBuilding.Look look);
+            return PrismBuilding.Create(b, parent, prismStyle, look);
+        }
         BuildingCatalogue.Entry e = catalogue.Find(b.design);
         GameObject go = Instantiate(e.source, parent);
         go.name = b.name;

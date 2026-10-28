@@ -81,7 +81,7 @@ public class VoronoiCityWindow : EditorWindow
 
     private void OnFocus() => RefreshLayouts();
 
-    private static string Python
+    internal static string Python
     {
         get => EditorPrefs.GetString(PythonPref, Path.Combine(
             Environment.GetEnvironmentVariable("LOCALAPPDATA") ?? "", "miniconda3", "envs", "stitching", "python.exe"));
@@ -366,7 +366,7 @@ public class VoronoiCityWindow : EditorWindow
     }
 
     /// <summary>Runs the generator, collecting stdout and stderr; its exit code. Cancelable from the progress bar.</summary>
-    private static int RunPython(string args, string cwd, List<string> lines)
+    internal static int RunPython(string args, string cwd, List<string> lines, string title = "Voronoi city")
     {
         var psi = new ProcessStartInfo(Python, args)
         {
@@ -391,7 +391,7 @@ public class VoronoiCityWindow : EditorWindow
             {
                 while (!p.WaitForExit(200))
                 {
-                    if (EditorUtility.DisplayCancelableProgressBar("Voronoi city", $"Generating the layout… {clock.Elapsed.TotalSeconds:0} s",
+                    if (EditorUtility.DisplayCancelableProgressBar(title, $"Generating the layout… {clock.Elapsed.TotalSeconds:0} s",
                                                                    (float)(clock.Elapsed.TotalSeconds / 30.0 % 1.0)) ||
                         clock.Elapsed.TotalSeconds > TimeoutSec)
                     {

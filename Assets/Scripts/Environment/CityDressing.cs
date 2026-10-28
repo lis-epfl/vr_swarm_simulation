@@ -47,6 +47,13 @@ using UnityEngine.Rendering;
 /// building box (from the catalogue, as the builder places them) and of the props before it; a spot that fails slides a
 /// little along the street and is otherwise skipped, and counted by reason in the summary.</para>
 ///
+/// <para><b>Block-shaped buildings</b> (<see cref="PrismBuilding"/>, S4's variant B) stand at the back of the footpath,
+/// their footprint the kerb inset by the layout's footpath width. So the footpath is paved out to the facades whatever
+/// that width (the layout's, measured off the buildings, overrides <see cref="Rules.pavementWidth"/> for that layout
+/// only), a block a building covers has no lawn, and props keep off the true footprint rather than a box round it, by
+/// only <see cref="FacadeClearance"/>: a bench at the back of the footpath stands against the wall. A layout without
+/// them is dressed exactly as before.</para>
+///
 /// <para><b>Cost</b>. An FPV render is CPU culling and submission (CLAUDE.md), so the props are the pack's cheap ones
 /// (MC_Tree is 537 triangles, against Tree9's 8.7k; every other prop shares one material) and cast no shadows; the
 /// footpath and the medians are one mesh each; and at Play the props are merged (<see cref="MergeForPlay"/>) into one
@@ -68,6 +75,8 @@ public class CityDressing : MonoBehaviour
     private const float BorderTreeShrink = 0.25f;
     /// <summary>m beyond a walker's loop kept free of street props: about a walker's half-width and a step.</summary>
     private const float WalkerBody = 0.6f;
+    /// <summary>m a prop keeps off a block-shaped building's facade, which is the back of its footpath.</summary>
+    private const float FacadeClearance = 0.05f;
     /// <summary>Bump when the defaults in <see cref="Rules"/> change. A scene keeps the rules it was saved with, so without
     /// this a changed default never reaches it: <c>VoronoiCityWorldBuilder.EnsureDressing</c> resets older rules to the
     /// current defaults, and says so (a rule set by hand is lost).</summary>
@@ -501,6 +510,71 @@ public class CityDressing : MonoBehaviour
         private static int Key(float v) => Mathf.FloorToInt(v / Cell);
     }
 
+    /// <summary>Convex footprints (block-shaped buildings), for "is anything within this gap" against a rectangle.</summary>
+    private sealed class Footprints
+    {
+        private readonly List<Vector2[]> polys = new List<Vector2[]>();
+        private readonly List<Rect> bounds = new List<Rect>();
+
+        public int Count => polys.Count;
+        public IReadOnlyList<Vector2[]> Polys => polys;
+
+        public void Add(Vector2[] poly)
+        {
+            Vector2 lo = poly[0], hi = poly[0];
+            foreach (Vector2 p in poly)
+            {
+                lo = Vector2.Min(lo, p);
+                hi = Vector2.Max(hi, p);
+            }
+            polys.Add(poly);
+            bounds.Add(Rect.MinMaxRect(lo.x, lo.y, hi.x, hi.y));
+        }
+
+        /// <summary>Whether <paramref name="o"/> comes within <paramref name="gap"/> of any footprint (separating axes:
+        /// the footprint's edge normals and the rectangle's two axes).</summary>
+        public bool Near(Obb o, float gap)
+        {
+            Vector2 e = o.Extent + Vector2.one * gap;
+            var box = Rect.MinMaxRect(o.c.x - e.x, o.c.y - e.y, o.c.x + e.x, o.c.y + e.y);
+            for (int i = 0; i < polys.Count; i++)
+            {
+                if (bounds[i].Overlaps(box) && !Separated(polys[i], o, gap)) return true;
+            }
+            return false;
+        }
+
+        private static bool Separated(Vector2[] poly, Obb o, float gap)
+        {
+            for (int i = 0; i < poly.Length + 2; i++)
+            {
+                Vector2 n;
+                if (i < poly.Length)
+                {
+                    Vector2 d = poly[(i + 1) % poly.Length] - poly[i];
+                    n = new Vector2(-d.y, d.x);
+                }
+                else
+                {
+                    n = i == poly.Length ? o.u : o.v;
+                }
+                float len = n.magnitude;
+                if (len < 1e-6f) continue;
+                n /= len;
+                float lo = float.PositiveInfinity, hi = float.NegativeInfinity;
+                foreach (Vector2 p in poly)
+                {
+                    float t = Vector2.Dot(p, n);
+                    lo = Mathf.Min(lo, t);
+                    hi = Mathf.Max(hi, t);
+                }
+                float c = Vector2.Dot(o.c, n), r = Mathf.Abs(Vector2.Dot(o.u, n)) + Mathf.Abs(Vector2.Dot(o.v, n));
+                if (c - r > hi + gap || c + r < lo - gap) return true;
+            }
+            return false;
+        }
+    }
+
     /// <summary>A block: its kerb, a convex polygon counter-clockwise seen from above, and its lawn, the kerb polygon less
     /// the footpath (empty where the footpath covers the block).</summary>
     private sealed class Block
@@ -577,12 +651,13 @@ public class CityDressing : MonoBehaviour
     private sealed class Work
     {
         private readonly CityDressing d;
-        private readonly Rules r;
+        private Rules r;
         private readonly ProceduralCityBuilder.LayoutFile file;
         private readonly Transform root;
         private readonly List<StreetSurface.Stretch> stretches;
         private readonly Dictionary<int, Block> blocks = new Dictionary<int, Block>();
         private readonly Grid buildings = new Grid();
+        private readonly Footprints prisms = new Footprints();
         private readonly List<(Obb box, bool city, string name)> boxes = new List<(Obb, bool, string)>();
         private readonly Grid props = new Grid();
         private readonly List<GoalZone> goals = new List<GoalZone>();
@@ -624,6 +699,11 @@ public class CityDressing : MonoBehaviour
             float walk = builder.baseOffset + 0.5f * builder.margin + WalkerBody;
             foreach (ProceduralCityBuilder.LayoutBox b in file.boxes)
             {
+                if (PrismBuilding.IsPrism(b))
+                {
+                    if (PrismBuilding.Valid(b, out _)) prisms.Add(PrismBuilding.Footprint(b));
+                    continue;
+                }
                 BuildingCatalogue.Entry e = builder.catalogue != null ? builder.catalogue.Find(b.design) : null;
                 if (e == null) continue;
                 Quaternion rot = Quaternion.Euler(-90f, b.yaw, 0f);   // as ProceduralCityBuilder.Place stands it
@@ -644,6 +724,7 @@ public class CityDressing : MonoBehaviour
         public string Run()
         {
             BuildBlocks();
+            FitToPrisms();
             int held = 0;
             foreach (GoalZone g in goals)
             {
@@ -759,6 +840,68 @@ public class CityDressing : MonoBehaviour
             }
         }
 
+        /// <summary>For block-shaped buildings: the footpath runs to their facades (its width the median over them of how
+        /// far each stands inside its kerb, replacing <see cref="Rules.pavementWidth"/> for this layout when they differ,
+        /// and the blocks rebuilt), and a block whose lawn a building covers, to within half a metre, has none.</summary>
+        private void FitToPrisms()
+        {
+            if (prisms.Count == 0) return;
+            var insets = new List<float>();
+            foreach (Vector2[] poly in prisms.Polys)
+            {
+                Block b = BlockAt(Centroid(poly));
+                if (b == null) continue;
+                float inset = float.PositiveInfinity;
+                foreach (Vector2 p in poly)
+                {
+                    for (int i = 0; i < b.poly.Count; i++)
+                    {
+                        Vector2 a = b.poly[i], e = (b.poly[(i + 1) % b.poly.Count] - a).normalized;
+                        inset = Mathf.Min(inset, Vector2.Dot(new Vector2(-e.y, e.x), p - a));
+                    }
+                }
+                insets.Add(inset);
+            }
+            if (insets.Count > 0)
+            {
+                insets.Sort();
+                float width = insets[insets.Count / 2];
+                if (width > 0.5f && Mathf.Abs(width - r.pavementWidth) > 0.01f)
+                {
+                    r = JsonUtility.FromJson<Rules>(JsonUtility.ToJson(r));
+                    r.pavementWidth = width;
+                    blocks.Clear();
+                    BuildBlocks();
+                    notes.Add($"footpaths {width:0.##} m wide, out to the block-shaped buildings' facades");
+                }
+            }
+            int covered = 0;
+            foreach (Vector2[] poly in prisms.Polys)
+            {
+                Block b = BlockAt(Centroid(poly));
+                if (b == null || b.lawn.Count < 3) continue;
+                var footprint = new List<Vector2>(poly);
+                if (!b.lawn.TrueForAll(p => Inside(footprint, p, -0.5f))) continue;
+                b.lawn = new List<Vector2>();
+                b.lawnArea = 0f;
+                covered++;
+            }
+            notes.Add($"{covered} of {prisms.Count} block-shaped buildings fill their block to the footpath, which leaves " +
+                      "it no lawn");
+        }
+
+        private static Vector2 Centroid(Vector2[] poly)
+        {
+            Vector2 c = Vector2.zero;
+            foreach (Vector2 p in poly) c += p;
+            return c / Mathf.Max(poly.Length, 1);
+        }
+
+        /// <summary>Whether a rectangle comes within <paramref name="gap"/> of a building: a catalogue box, or a
+        /// block-shaped building's footprint, which a prop may stand against (<see cref="FacadeClearance"/>).</summary>
+        private bool AtBuilding(Obb o, float gap) =>
+            buildings.Near(o, gap) || (prisms.Count > 0 && prisms.Near(o, Mathf.Min(gap, FacadeClearance)));
+
         /// <summary>One mesh: each block's footpath, the part of its kerb polygon within the footpath's width of an edge --
         /// for a convex polygon exactly the union over its edges of the polygon clipped to that edge's band, each piece
         /// convex. Where pieces overlap they are coplanar and mapped alike, so nothing shows. A kerb face along the road,
@@ -860,7 +1003,7 @@ public class CityDressing : MonoBehaviour
             {
                 Vector2 p = s.At(Mathf.Min(t, t1), 0f);
                 bool ok = !InGoal(p, half) &&
-                          !buildings.Near(new Obb(p, s.Dir * 0.25f, s.Left * 0.01f), half);
+                          !AtBuilding(new Obb(p, s.Dir * 0.25f, s.Left * 0.01f), half);
                 if (ok && float.IsNaN(start)) start = t;
                 if (!ok && !float.IsNaN(start))
                 {
@@ -1148,7 +1291,7 @@ public class CityDressing : MonoBehaviour
             {
                 if (!OnLawnAt(b, rng, R + (tries < 15 ? 12f : 3f), out Vector2 c)) continue;
                 var round = new Obb(c, new Vector2(R + 2f, 0f), new Vector2(0f, R + 2f));
-                if (buildings.Near(round, 1f) || InGoal(c, R + 4f) || props.Near(round, 0f)) continue;
+                if (AtBuilding(round, 1f) || InGoal(c, R + 4f) || props.Near(round, 0f)) continue;
                 if (!PathOut(b, c, R, out Obb path, out Vector2 dir)) continue;
                 Furnish(b, c, dir, path, paving, trees[rng.Next(trees.Count)], rng, bench, bin, lamp, bed, hedge);
                 return;
@@ -1173,7 +1316,7 @@ public class CityDressing : MonoBehaviour
                 Vector2 from = c + dir * (radius - 0.5f), to = q + dir * 0.5f;
                 float len = (to - from).magnitude;
                 path = new Obb(0.5f * (from + to), dir * 0.5f * len, new Vector2(-dir.y, dir.x) * 0.5f * r.pathWidth);
-                if (!buildings.Near(path, 0.5f) && !InGoal(path.c, 0.5f * len + r.pathWidth) && !props.Near(path, 0.2f))
+                if (!AtBuilding(path, 0.5f) && !InGoal(path.c, 0.5f * len + r.pathWidth) && !props.Near(path, 0.2f))
                 {
                     return true;
                 }
@@ -1291,7 +1434,7 @@ public class CityDressing : MonoBehaviour
                     float deep = 0.5f * (rows - 1) * s, wide = 0.5f * (cols - 1) * s;
                     Vector2 across = new Vector2(-away.y, away.x), middle = c + away * (near + deep);
                     var area = new Obb(middle, away * (deep + 2f), across * (wide + 2f));
-                    bool fits = !buildings.Near(area, 0.5f) && !InGoal(middle, area.Extent.magnitude) &&
+                    bool fits = !AtBuilding(area, 0.5f) && !InGoal(middle, area.Extent.magnitude) &&
                                 !props.Near(new Obb(middle, away * deep, across * wide), 0.2f);
                     for (int k = 0; fits && k < 4; k++) fits = b.OnLawn(area.Corner(k), 0.5f);
                     if (!fits) continue;
@@ -1510,7 +1653,7 @@ public class CityDressing : MonoBehaviour
                 Vector2 q = at + dir * shift;
                 Obb b = p.Body(q, yaw, k), mine = new Obb(b.c, b.u * shrink, b.v * shrink);
                 string reason = !fits(p.Base(q, yaw, k)) ? "off its footpath or lawn"
-                              : buildings.Near(b, clearance >= 0f ? clearance : r.buildingClearance) ? "at a building"
+                              : AtBuilding(b, clearance >= 0f ? clearance : r.buildingClearance) ? "at a building"
                               : (street ? InGoalWay(b) : InGoal(b.c, b.Extent.magnitude)) ? "in a goal patch"
                               : !overlap && props.Near(mine, r.propGap) ? "at another prop"
                               : null;
