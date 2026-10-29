@@ -114,6 +114,9 @@ public class ExperimentRecorder : MonoBehaviour
         public string zoneShape = "tile";
         public float patchRadius = GoalZones.TileHalf;
         public float ringRadius = -1f, occluderWidth = -1f, clearance = -1f;
+        // A procedural goal's buildings (ProceduralGoal): the record of a goal drawn at Play, which no layout file holds.
+        public string centreBox = "";
+        public string[] ringBoxes = new string[0];
         public bool answered;
         // Filled in when the goal is answered:
         public string source = "";         // rc (the pilot's C2) / key (the experimenter's key)
@@ -377,6 +380,13 @@ public class ExperimentRecorder : MonoBehaviour
                 info.ringRadius = zone.RingRadius;
                 info.occluderWidth = zone.OccluderWidth;
                 info.clearance = zone.Clearance;
+            }
+            ProceduralGoal pg = g.GetComponent<ProceduralGoal>();
+            if (pg != null)
+            {
+                GoalInfo info = goals[goals.Count - 1];
+                info.centreBox = pg.centreBox ?? "";
+                info.ringBoxes = pg.ringBoxes ?? new string[0];
             }
         }
 
@@ -1012,6 +1022,8 @@ public class ExperimentRecorder : MonoBehaviour
                 r_g = g.ringRadius,
                 w_c = g.occluderWidth,
                 c_g = g.clearance,
+                centreBox = g.centreBox,
+                ringBoxes = g.ringBoxes,
                 answered = g.answered,
                 identifySource = g.source,
                 outcome = g.outcome,
@@ -1135,6 +1147,8 @@ public class ExperimentRecorder : MonoBehaviour
         public string zoneShape;           // "tile" (analyse.py's square) or "disc" (a procedural goal)
         public float patchRadius;          // the tile's half-width, or the disc's radius
         public float r_g, w_c, c_g;        // a procedural goal's ring radius, occluder width and clearance (-1 tile)
+        public string centreBox;           // a procedural goal's occluder and ring buildings, by layout name ("" / [] tile)
+        public string[] ringBoxes;
         public bool answered;
         public string identifySource;   // rc: decisionTimeSec is the pilot's press; key: the experimenter's key
         public string outcome;

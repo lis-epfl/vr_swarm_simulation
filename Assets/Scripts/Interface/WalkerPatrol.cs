@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEditor;
 #endif
 
-// Moves a set of walker prefabs around the object they're attached to. Two path
+// Moves a set of walker prefabs around the object they're attached to. Three path
 // shapes are available:
 //   - Rectangle: a rounded rectangle sized from the Collider on the same
 //     GameObject, expanded by a random amount in [0, margin], so side lengths
@@ -13,9 +13,13 @@ using UnityEditor;
 //     rounded so walkers can smoothly make the turns.
 //   - Circle:    the original behaviour — each walker orbits at a random radius
 //     in [minRadius, maxRadius] around the centre.
+//   - Polygon:   the building's own outline (`polygon`, convex: a block-shaped
+//     building's footprint, set by ProceduralCityBuilder), each walker keeping
+//     its gap off every face and rounding each corner at that gap, so it follows
+//     the footpath round a block of any shape. The gap is drawn as Rectangle's.
 public class WalkerPatrol : MonoBehaviour
 {
-    public enum PathShape { Rectangle, Circle }
+    public enum PathShape { Rectangle, Circle, Polygon }
 
     [Header("General")]
     public PathShape shape = PathShape.Rectangle;
@@ -26,7 +30,7 @@ public class WalkerPatrol : MonoBehaviour
     public int numWalkers = 12;
     public float speedMetersPerSec = 2.0f;
 
-    [Header("Rectangle Parameters")]
+    [Header("Rectangle and Polygon Parameters")]
     [Tooltip("Fixed gap (metres) between the collider edge and the nearest path.")]
     public float baseOffset = 0.5f;
     [Tooltip("Extra distance (metres) added on top of the base offset. " +
@@ -38,6 +42,11 @@ public class WalkerPatrol : MonoBehaviour
     [Header("Circle Parameters")]
     public float minRadius = 1.5f;
     public float maxRadius = 3.0f;
+
+    [Header("Polygon Parameters")]
+    [Tooltip("The outline walked round, world (x, z), convex, either winding. Each corner is rounded at the walker's " +
+             "gap, so the path keeps that gap off the whole building.")]
+    public Vector2[] polygon;
 
     // Set via RequestSpecial() by GoalSpecialWalker before Start runs: one of this
     // patrol's walkers is spawned from this prefab instead of walkerPrefab and
@@ -74,6 +83,13 @@ public class WalkerPatrol : MonoBehaviour
     private List<WalkerInfo> walkers = new List<WalkerInfo>();
     private GameObject walkersContainer;
     private Collider footprint;
+
+    // Polygon path: the outline counter-clockwise, each edge's length, direction and outward normal, and the turn
+    // from each edge onto the next (the arc a walker rounds that corner by, at its own gap).
+    private Vector2[] corners;
+    private Vector2[] edgeDirs, edgeNormals;
+    private float[] edgeLengths, turns;
+    private float outlineLength, totalTurn;
 
 #if UNITY_EDITOR
     // Auto-assign the SimpleWalker prefab so it doesn't have to be dragged onto
@@ -140,6 +156,11 @@ public class WalkerPatrol : MonoBehaviour
             Debug.LogError("WalkerPatrol Rectangle mode requires a Collider on the same GameObject to size the rectangle!");
             return;
         }
+        if (shape == PathShape.Polygon && !PrepareOutline())
+        {
+            Debug.LogError("WalkerPatrol Polygon mode requires a polygon of three or more distinct points!");
+            return;
+        }
 
         // Base half-extents come from the collider's world-axis-aligned bounds.
         Vector3 baseExtents = footprint != null ? footprint.bounds.extents : Vector3.zero;
@@ -178,6 +199,13 @@ public class WalkerPatrol : MonoBehaviour
                 // Random start position along the perimeter.
                 info.distance = Rand(0f, Perimeter(info));
                 position = center + GetLocalXZ(info, info.distance);
+            }
+            else if (shape == PathShape.Polygon)
+            {
+                // As the rectangle: a gap off the facade in [baseOffset, baseOffset + margin / 2], then a start.
+                info.expand = baseOffset + Rand(0f, margin) * 0.5f;
+                info.distance = Rand(0f, OutlinePerimeter(info.expand));
+                position = GetOutlinePoint(info.expand, info.distance, center.y);
             }
             else
             {
@@ -234,6 +262,12 @@ public class WalkerPatrol : MonoBehaviour
                 float step = info.speed * Time.deltaTime;
                 info.distance += info.clockwise ? -step : step;
                 newPosition = center + GetLocalXZ(info, info.distance);
+            }
+            else if (shape == PathShape.Polygon)
+            {
+                float step = info.speed * Time.deltaTime;
+                info.distance += info.clockwise ? -step : step;
+                newPosition = GetOutlinePoint(info.expand, info.distance, center.y);
             }
             else
             {
@@ -385,5 +419,82 @@ public class WalkerPatrol : MonoBehaviour
             z = -(halfD - r) + r * Mathf.Sin(a);
             return new Vector3(x, 0f, z);
         }
+    }
+
+    // The polygon without repeated points, made counter-clockwise, and its edges and turns. False if fewer than
+    // three distinct points remain. A reflex corner (a turn to the right) is taken as no turn: the outline is
+    // meant to be convex, and there the path would have to jump.
+    private bool PrepareOutline()
+    {
+        var pts = new List<Vector2>();
+        foreach (Vector2 p in polygon ?? new Vector2[0])
+        {
+            if (pts.Count == 0 || (p - pts[pts.Count - 1]).sqrMagnitude > 1e-6f) pts.Add(p);
+        }
+        while (pts.Count > 1 && (pts[0] - pts[pts.Count - 1]).sqrMagnitude <= 1e-6f) pts.RemoveAt(pts.Count - 1);
+        if (pts.Count < 3) return false;
+        float area = 0f;
+        for (int i = 0; i < pts.Count; i++)
+        {
+            Vector2 a = pts[i], b = pts[(i + 1) % pts.Count];
+            area += a.x * b.y - b.x * a.y;
+        }
+        if (area < 0f) pts.Reverse();
+
+        int n = pts.Count;
+        corners = pts.ToArray();
+        edgeDirs = new Vector2[n];
+        edgeNormals = new Vector2[n];
+        edgeLengths = new float[n];
+        turns = new float[n];
+        outlineLength = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            Vector2 e = corners[(i + 1) % n] - corners[i];
+            edgeLengths[i] = e.magnitude;
+            edgeDirs[i] = e / edgeLengths[i];
+            edgeNormals[i] = new Vector2(edgeDirs[i].y, -edgeDirs[i].x);   // right of the edge: outside, counter-clockwise
+            outlineLength += edgeLengths[i];
+        }
+        totalTurn = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            Vector2 d0 = edgeDirs[i], d1 = edgeDirs[(i + 1) % n];
+            turns[i] = Mathf.Max(Mathf.Atan2(d0.x * d1.y - d0.y * d1.x, Vector2.Dot(d0, d1)), 0f);
+            totalTurn += turns[i];
+        }
+        return true;
+    }
+
+    // Length of the outline kept `gap` off the polygon: its edges, plus an arc of radius `gap` at every corner
+    // (2 pi gap round a convex polygon).
+    private float OutlinePerimeter(float gap) => outlineLength + gap * totalTurn;
+
+    // The point at arc length s along the outline kept `gap` off the polygon, counter-clockwise from the start of
+    // edge 0, in world (x, z) at height y: each edge moved out along its normal, then the arc round the corner at
+    // its end onto the next edge's.
+    private Vector3 GetOutlinePoint(float gap, float s, float y)
+    {
+        int n = corners.Length;
+        s = Mathf.Repeat(s, OutlinePerimeter(gap));
+        for (int i = 0; i < n; i++)
+        {
+            if (s < edgeLengths[i])
+            {
+                Vector2 p = corners[i] + edgeDirs[i] * s + edgeNormals[i] * gap;
+                return new Vector3(p.x, y, p.y);
+            }
+            s -= edgeLengths[i];
+            float arc = gap * turns[i];
+            if (s < arc)
+            {
+                float a = Mathf.Atan2(edgeNormals[i].y, edgeNormals[i].x) + s / gap;
+                Vector2 p = corners[(i + 1) % n] + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * gap;
+                return new Vector3(p.x, y, p.y);
+            }
+            s -= arc;
+        }
+        Vector2 q = corners[0] + edgeNormals[0] * gap;                   // s rounded onto the very end
+        return new Vector3(q.x, y, q.y);
     }
 }

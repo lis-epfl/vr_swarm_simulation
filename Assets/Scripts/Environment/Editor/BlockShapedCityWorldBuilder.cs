@@ -21,7 +21,9 @@ using UnityEngine.SceneManagement;
 /// <para>The rest of the scene is BlockCityWorld's (<see cref="BlockCityWorldBuilder.ConfigureS4"/>): DiamondCityWorld's
 /// rig, the landmarks, the street dressing on VoronoiCityWorld's road surfaces (here the footpath runs out to the
 /// facades, and its props stand on it), S4's cohesion cutoff of 30 and the ceiling at 45 m under the 50 m roofs. The
-/// layout has no goals. Batch: <c>-executeMethod BlockShapedCityWorldBuilder.Run</c> builds the scene,
+/// layout has no goals: at every Play the builder draws three from its buildings (<see cref="BlockGoals"/>), each a
+/// building with pedestrians on the footpaths round its neighbours, so nothing about them is baked. Batch:
+/// <c>-executeMethod BlockShapedCityWorldBuilder.Run</c> builds the scene,
 /// <c>.Rebake</c> bakes another layout into it (CITY_LAYOUT names either's layout).</para>
 /// </summary>
 public static class BlockShapedCityWorldBuilder

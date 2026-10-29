@@ -34,7 +34,11 @@ using UnityEngine;
 ///
 /// <para><b>A building may instead be a block-shaped prism</b> (<c>type: ConvexPrism</c>, S4's variant B from
 /// citysim/blockcity.py): a footprint and a height with no catalogue design, built by <see cref="PrismBuilding"/> in
-/// <see cref="prismStyle"/>'s materials, standing on its footprint's centroid. A layout of prisms needs no catalogue.</para>
+/// <see cref="prismStyle"/>'s materials, standing on its footprint's centroid. A layout of prisms needs no catalogue.
+/// Such a layout carries no goals (blockcity writes none), so at Play it takes <see cref="goalsAtPlay"/> drawn from its
+/// own buildings (<see cref="BlockGoals"/>): a building, and pedestrians on the footpath round every building across a
+/// street from it. They are drawn from a fresh session seed every Play (or <see cref="goalSeed"/>), not the layout's, so
+/// the goals change from session to session while the layout file, the bake and the dressing stay as they are.</para>
 ///
 /// <para><b>A city can be baked into the scene</b> (<see cref="Bake"/>, edit mode): the buildings and streets are built
 /// and saved with it, so the editor shows the city without pressing Play — VoronoiCityWorld is made this way. The goals
@@ -98,6 +102,20 @@ public class ProceduralCityBuilder : MonoBehaviour
     [Header("Block-shaped buildings (ConvexPrism: S4's variant B)")]
     [Tooltip("Their materials and facade grid (BlockShapedCityWorldBuilder fills it). Unused by catalogue layouts.")]
     public PrismBuilding.Style prismStyle = new PrismBuilding.Style();
+    [Tooltip("Goals drawn at Play from the city's own buildings, when the layout has none and its buildings are prisms " +
+             "(BlockGoals): a building, and pedestrians round every building across a street from it. Not with the " +
+             "pedestrians off (the headless bench). 0: none.")]
+    public int goalsAtPlay = 3;
+    [Tooltip("Draw them from goalSeed instead of a fresh seed: a session's recorded goalSeed puts its goals, hats and " +
+             "target walkers back.")]
+    public bool useFixedGoalSeed;
+    public int goalSeed;
+    [Tooltip("Pedestrians walking each patrolled prism's footpath.")]
+    public int prismWalkers = 16;
+    [Tooltip("m from the facade: each pedestrian walks at a distance drawn in this range, round every corner, in the lane " +
+             "the dressing leaves on a 3.5 m footpath -- benches, bins and corner props stand within 0.9 m of the wall, " +
+             "border-tree trunks from 1.6 m at a walker's height (1.4 m at their foot), hydrants by the kerb.")]
+    public Vector2 prismWalkOffset = new Vector2(1.1f, 1.5f);
 
     [Tooltip("Written by Bake: the layout (as layoutPath named it) whose buildings and streets this scene holds. Adopted " +
              "at Play while it is still the layout to build; empty when nothing is baked.")]
@@ -109,6 +127,7 @@ public class ProceduralCityBuilder : MonoBehaviour
     private readonly List<GameObject> placedGoals = new List<GameObject>();
     private Dictionary<string, PrismBuilding.Look> prismLooks = new Dictionary<string, PrismBuilding.Look>();
     private string prismNote = "";
+    private bool goalsDrawn;                      // this build's goals came from DrawGoals, which set the session seed
 
     /// <summary>The layout whose city is baked into the scene, or "".</summary>
     public string BakedLayout => bakedLayout;
@@ -163,6 +182,8 @@ public class ProceduralCityBuilder : MonoBehaviour
 
     private bool HasBake => !string.IsNullOrEmpty(bakedLayout) && transform.Find(BuildingsName) != null;
 
+    private bool WalkersOn => spawnWalkers && Environment.GetEnvironmentVariable(WalkersEnv) != "0";
+
     // ------------------------------------------------------------------ the file
 
     [Serializable]
@@ -170,6 +191,7 @@ public class ProceduralCityBuilder : MonoBehaviour
     {
         public LayoutBox[] boxes;
         public LayoutStreet[] streets;
+        public LayoutBlock[] blocks; // blockcity's layouts only
         public LayoutRecord layout;
     }
 
@@ -201,15 +223,25 @@ public class ProceduralCityBuilder : MonoBehaviour
     }
 
     [Serializable]
+    public class LayoutBlock
+    {
+        public int id;               // citygen's cell id, as the streets name it
+        public bool interior;        // no street on the arena's boundary
+        public int building = -1;    // its building's index in boxes, -1 for a plaza
+    }
+
+    [Serializable]
     public class LayoutGoal
     {
         public int index;
+        public string kind = "";     // "": the generator's; BlockGoals.Kind: drawn at Play from a block-shaped city
         public int block_id = -1;    // the block (citygen's cell id) it stands in
         public float[] centre;
         public string centre_box;
         public string[] ring_boxes;
         public float w_c, R_c, r_g, c_g, clear_radius, ring_size;
         public int n_b;
+        public float patch_radius;   // the patch's radius if set (BlockGoals), else r_g plus the ring's half-diagonal
     }
 
     [Serializable]
@@ -257,6 +289,7 @@ public class ProceduralCityBuilder : MonoBehaviour
     {
         if (!Load(out LayoutFile file, out string path, out error)) return false;
         Clear();
+        DrawGoals(file);
         Layout = file;
         ResolvedPath = path;
         Transform buildings = Child(BuildingsName);
@@ -388,6 +421,7 @@ public class ProceduralCityBuilder : MonoBehaviour
             return false;
         }
 
+        DrawGoals(file);           // after the checks: a drawn goal's buildings are baked under Buildings, as city
         Layout = file;
         ResolvedPath = path;
         placedGoals.Clear();
@@ -493,13 +527,40 @@ public class ProceduralCityBuilder : MonoBehaviour
               (clashes > 0 ? $" ({clashes} beside a building of their own colour)" : "");
     }
 
+    /// <summary>At Play, a block-shaped layout with no goals of its own (<see cref="BlockGoals.Applies"/>) takes
+    /// <see cref="goalsAtPlay"/> drawn from its buildings, from a fresh session seed or <see cref="goalSeed"/>: the
+    /// goals go into <paramref name="file"/>'s record and their buildings' roles are set, in memory only. If none can be
+    /// drawn the city is built without goals, with an error.</summary>
+    private void DrawGoals(LayoutFile file)
+    {
+        goalsDrawn = false;
+        if (!Application.isPlaying || goalsAtPlay <= 0 || !WalkersOn || !BlockGoals.Applies(file)) return;
+        if (goalRootPrefab == null)
+        {
+            Debug.LogError("ProceduralCityBuilder: no goalRootPrefab is assigned, so no goals are drawn.", this);
+            return;
+        }
+        GoalSession.Set(useFixedGoalSeed ? goalSeed : GoalSession.FreshSeed(), useFixedGoalSeed ? "inspector" : "fresh");
+        LayoutGoal[] goals = BlockGoals.Draw(file, GoalSession.Rng(BlockGoals.SeedKey), goalsAtPlay, out string error);
+        if (goals == null)
+        {
+            Debug.LogError($"ProceduralCityBuilder: no goals drawn from {file.layout.id}: {error}", this);
+            return;
+        }
+        file.layout.goals = goals;
+        goalsDrawn = true;
+        Debug.Log($"ProceduralCityBuilder: drew {goals.Length} goals from {file.layout.id} (goal seed {GoalSession.Seed}): " +
+                  string.Join("; ", Array.ConvertAll(goals, g => $"{g.centre_box}, {g.n_b} round it")), this);
+    }
+
     /// <summary>The goals, in layout order, each a <see cref="goalRootPrefab"/> with its buildings (from
     /// <paramref name="obtain"/>) under it, activated only once complete.</summary>
     private bool BuildGoals(LayoutFile file, Transform goalsRoot, Obtain obtain, out string error)
     {
-        bool walkers = spawnWalkers && Environment.GetEnvironmentVariable(WalkersEnv) != "0";
-        // The session's goal seed first (the hats, target walkers and walker starts follow from it).
-        GoalSession.Set(file.layout.seed, "layout");
+        bool walkers = WalkersOn;
+        // The session's goal seed first (the hats, target walkers and walker starts follow from it): the layout's,
+        // unless DrawGoals drew the goals and set its own.
+        if (!goalsDrawn) GoalSession.Set(file.layout.seed, "layout");
         GameObject holder = new GameObject("goal holder (inactive)");
         holder.SetActive(false);
         holder.transform.SetParent(goalsRoot, false);
@@ -532,10 +593,10 @@ public class ProceduralCityBuilder : MonoBehaviour
                 {
                     Bounds bb = building.GetComponent<Collider>().bounds;
                     ringHalfDiag = Mathf.Max(ringHalfDiag, new Vector2(bb.extents.x, bb.extents.z).magnitude);
-                    if (walkers && b.patrol) AddPatrol(building);
+                    if (walkers && b.patrol) AddPatrol(building, b);
                 }
             }
-            pg.patchRadius = g.r_g + ringHalfDiag;
+            pg.patchRadius = g.patch_radius > 0f ? g.patch_radius : g.r_g + ringHalfDiag;
             roots.Add(root);
         }
         // Activating in layout order: each GoalSpecialWalker.Awake deals its hat in that order.
@@ -594,7 +655,8 @@ public class ProceduralCityBuilder : MonoBehaviour
 
         Debug.Log($"ProceduralCityBuilder: {verb} {file.layout.id} ({nCity} city buildings{prismNote}, " +
                   $"{file.layout.goals?.Length ?? 0} goals, " +
-                  $"{file.streets?.Length ?? 0} streets, alpha {file.layout.alpha_achieved:F3}, goal seed {file.layout.seed}) " +
+                  $"{file.streets?.Length ?? 0} streets, alpha {file.layout.alpha_achieved:F3}, goal seed " +
+                  $"{(goalsDrawn ? $"{GoalSession.Seed} ({GoalSession.Source})" : file.layout.seed.ToString())}) " +
                   $"from {path}" + (string.IsNullOrEmpty(dressing) ? "" : $"; dressing: {dressing}"), this);
     }
 
@@ -662,7 +724,9 @@ public class ProceduralCityBuilder : MonoBehaviour
         return go;
     }
 
-    private void AddPatrol(GameObject building)
+    /// <summary>The building's patrol: a rounded rectangle round a catalogue box, or round a prism its footprint's own
+    /// outline at <see cref="prismWalkOffset"/> (WalkerPatrol walks baseOffset + U(0, margin) / 2 off the facade).</summary>
+    private void AddPatrol(GameObject building, LayoutBox b)
     {
         WalkerPatrol p = building.GetComponent<WalkerPatrol>();
         if (p == null) p = building.AddComponent<WalkerPatrol>();
@@ -674,6 +738,14 @@ public class ProceduralCityBuilder : MonoBehaviour
         p.margin = margin;
         p.cornerRadius = cornerRadius;
         p.verticalOffset = 0f;
+        if (PrismBuilding.IsPrism(b))
+        {
+            p.shape = WalkerPatrol.PathShape.Polygon;
+            p.polygon = PrismBuilding.Footprint(b);
+            p.numWalkers = prismWalkers;
+            p.baseOffset = prismWalkOffset.x;
+            p.margin = 2f * Mathf.Max(prismWalkOffset.y - prismWalkOffset.x, 0f);
+        }
     }
 
     /// <summary>One mesh of flat quads along every street centreline (no collider).</summary>

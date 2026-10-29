@@ -38,7 +38,9 @@ using UnityEngine.Rendering;
 /// streets it depends on the layout: a goal whose block holds its patch (citygen's <c>goal_cell</c>, VoronoiCityWorld's
 /// layouts since 2026-10-26) keeps the street props off its walkers' loops only, so its streets are lit, furnished and
 /// planted like any others and a bare stretch cannot give it away; a goal whose ring stands across the streets (the layouts
-/// made before) keeps them out of that whole disc, as it always did. The footpath runs through either way.</para>
+/// made before) keeps them out of that whole disc, as it always did. The footpath runs through either way. A goal drawn
+/// at Play from a block-shaped city (<see cref="BlockGoals"/>) keeps nothing clear: it changes every session, so a
+/// dressing shaped round it would mark it, and its walkers take the lane the props leave free.</para>
 ///
 /// <para><b>Placement</b>. The street network is <see cref="StreetSurface.Stretches"/>' -- the road's own setbacks,
 /// crossings and merged junctions -- so nothing stands on a crossing or in a junction. A block's kerb is the intersection
@@ -690,6 +692,7 @@ public class CityDressing : MonoBehaviour
             var byIndex = new Dictionary<int, GoalZone>();
             foreach (ProceduralCityBuilder.LayoutGoal g in file.layout.goals ?? new ProceduralCityBuilder.LayoutGoal[0])
             {
+                if (g.kind == BlockGoals.Kind) continue;     // drawn at Play from the city as it stands: it clears nothing
                 var zone = new GoalZone { c = new Vector2(g.centre[0], g.centre[1]), radius = g.clear_radius + r.goalMargin,
                                           block = g.block_id };
                 goals.Add(zone);

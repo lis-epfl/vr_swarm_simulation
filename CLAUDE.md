@@ -1945,6 +1945,36 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     lawn, and lets a prop stand against a facade (`CityDressing.FacadeClearance`); a catalogue layout is unchanged.
   - **analyse.py and the bench's `Footprints` read box axes, which a prism lacks**: a run recorded here cannot be
     analysed until they read `blockcity.footprints`.
+  - **Its goals are drawn from its own buildings at every Play** (`BlockGoals`, 2026-10-29; `ProceduralCityBuilder.
+    goalsAtPlay` 3), because blockcity writes no goals and the user wanted no city change and no new buildings. A goal
+    is one building; its ring is every building across a street from it (`streets[].blocks`, so corner neighbours too:
+    4–8, mean 6). Each ring building carries `prismWalkers` (16) pedestrians on its footpath. That is citygen's
+    occluder plus a patrolled ring, made of buildings that were already there. Points worth keeping:
+    - **Which buildings qualify.** The goal and its whole ring must be interior and built (194 of 333 blocks at p 40
+      s 18 seed 1). The three are spread by citygen's rule (≥ 100 m from the spawn, ≥ 150 m apart, one per third of the
+      spawn distances), and no ring building is shared with another goal.
+    - **Fresh at every Play, the user's call.** The goals, hats and target walkers are drawn from a fresh `GoalSession`
+      seed (source `fresh`; `useFixedGoalSeed` + `goalSeed` give `inspector`), as the tile cities draw theirs, not from
+      the layout's seed. The layout file therefore never says where the goals were. The session JSON does: its
+      `goalSeed`, and `centreBox` / `ringBoxes` per goal. Copying a session's `goalSeed` into the builder puts all of it
+      back.
+    - **Nothing else changes.** The draw is in memory only: roles change and buildings are reparented under the goal
+      roots. The bake is still adopted, and the dressing is skipped for these goals (`kind: "block"`) and stays exactly
+      the bake's. A dressing shaped round a goal that moves every session would mark it.
+    - **The draw is skipped with the pedestrians off**, i.e. on the headless bench.
+    - **The walkers follow the polygon** (`WalkerPatrol` `Polygon`). Each walks the footprint offset by its own gap,
+      with each corner rounded at that gap, so the footpath contains the path. The gap is `prismWalkOffset`, 1.1–1.5 m
+      from the facade: the lane the dressing leaves on a 3.5 m footpath. Measured over the whole city: benches, bins and
+      corner props stand within 0.9 m of the wall (at torso height, 0.7 m), border-tree trunks start 1.6 m out (1.4 m
+      at their foot), and hydrants stand by the kerb; at p 40 s 18 there are no street lights or street trees on these
+      short streets. In that lane a walker grazes the inner edge of some border-tree trunks (rows on a third of the
+      blocks) and walks through the 11 bus shelters. Opposite walkers in so narrow a lane also pass through each other.
+    - **The recorder's zone is the patch disc plus 15 m, as for citygen's goals.** The patch disc is the circle round
+      the ring's footprints (`patch_radius`, 58–72 m), so a block goal's zone is wider than a VoronoiCityWorld goal's
+      (~40 m patch).
+    - `ProceduralCityProbe` checks all of this headless with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/
+      BlockShapedCityWorld.unity`: the spread, the rings, the redraw from the seed, the walker counts, and walkers on a
+      footpath. The Python side (`walkers.py`, `discovery`, analyse.py) has no polygon loop and cannot read prisms yet.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 
