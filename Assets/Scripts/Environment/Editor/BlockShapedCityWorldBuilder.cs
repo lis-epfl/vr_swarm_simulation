@@ -144,23 +144,33 @@ public static class BlockShapedCityWorldBuilder
             ? S4Layout
             : ProceduralCityWorldBuilder.DefaultLayout(LayoutPattern);
 
-    /// <summary>BlockCityWorld's S4 configuration, the dressing's short-street rules, then the prisms' materials.</summary>
+    /// <summary>BlockCityWorld's S4 configuration, the dressing's short-street rules and furniture, then the prisms'
+    /// materials.</summary>
     private static void Configure(ProceduralCityBuilder builder)
     {
         BlockCityWorldBuilder.ConfigureS4(builder);
         CityDressing d = builder.GetComponent<CityDressing>();
-        if (d != null) ShortStreetRules(d.rules);
+        if (d != null)
+        {
+            ShortStreetRules(d.rules);
+            Furniture(d.extras);
+        }
         EnsureStyle(builder);
     }
 
     /// <summary>The builder's dressing (<see cref="VoronoiCityWorldBuilder.EnsureDressing"/>), with
-    /// <see cref="ShortStreetRules"/> whenever its rules are new or were reset to the defaults (a RulesVersion bump).</summary>
+    /// <see cref="ShortStreetRules"/> and <see cref="Furniture"/> whenever its rules are new or were reset to the
+    /// defaults (a RulesVersion bump: the window's Redress then brings a saved scene up to date).</summary>
     public static CityDressing EnsureDressing(ProceduralCityBuilder builder)
     {
         CityDressing existing = builder.GetComponent<CityDressing>();
         bool fresh = existing == null || !existing.RulesCurrent;
         CityDressing d = VoronoiCityWorldBuilder.EnsureDressing(builder);
-        if (fresh) ShortStreetRules(d.rules);
+        if (fresh)
+        {
+            ShortStreetRules(d.rules);
+            Furniture(d.extras);
+        }
         return d;
     }
 
@@ -176,6 +186,18 @@ public static class BlockShapedCityWorldBuilder
         r.busStopMinStreet = 18f;
         r.cornerShare = 0.15f;
         r.hydrantShare = 0.1f;
+    }
+
+    /// <summary>The dressing's extra furniture (<see cref="CityDressing.Extras"/>), which only this scene turns on: the
+    /// buildings stand on the footpath, so planters and seats go against their shopfronts, and the junctions get
+    /// signals, bollards and signs.</summary>
+    private static void Furniture(CityDressing.Extras e)
+    {
+        e.signalShare = 0.35f;
+        e.planterShare = 0.3f;
+        e.planterSeatShare = 0.5f;
+        e.bollardShare = 0.15f;
+        e.kerbShare = 0.15f;
     }
 
     /// <summary>Gives the builder its prism materials (<see cref="ProceduralCityBuilder.prismStyle"/>), making the

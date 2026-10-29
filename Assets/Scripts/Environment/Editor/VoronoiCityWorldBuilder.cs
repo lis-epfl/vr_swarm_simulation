@@ -170,6 +170,18 @@ public static class VoronoiCityWorldBuilder
             d.cornerProps = new[] { "MC_Mail_Box", "MC_Newspaper_Machine", "MC_Telephone_Booth" }
                             .Select(Prop).Where(p => p != null).ToArray();
         }
+        // The extras' props (placed only where CityDressing.Extras turns them on: BlockShapedCityWorld).
+        if (d.trafficSignal == null) d.trafficSignal = Prop("MC_Traffic_Signal");
+        if (d.frontageBench == null) d.frontageBench = Prop("MC_Bench_Single");
+        if (d.bollard == null) d.bollard = Prop("MC_Street_Lamp_Small");
+        if (d.planters == null || d.planters.Length == 0 || d.planters.Any(p => p == null))
+        {
+            d.planters = new[] { "MC_Plant", "MC_Plant2", "MC_Plant3" }.Select(Prop).Where(p => p != null).ToArray();
+        }
+        if (d.kerbProps == null || d.kerbProps.Length == 0 || d.kerbProps.Any(p => p == null))
+        {
+            d.kerbProps = new[] { "MC_Speed_Limit_Sign", "MC_Taxi_Pole" }.Select(Prop).Where(p => p != null).ToArray();
+        }
         if (d.streetLight == null) d.streetLight = StreetLight();
         if (d.pavementMaterial == null)
         {

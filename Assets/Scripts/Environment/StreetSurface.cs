@@ -64,6 +64,9 @@ public static class StreetSurface
         public bool absorbed;          // not drawn: too short (merged into one junction), or of zero length
         public float start, end;
         public bool crossingA, crossingB;
+        /// <summary>The junction at each end, after short streets have merged theirs: two ends with one id meet at one
+        /// junction. -1 for a segment of zero length.</summary>
+        public int junctionA, junctionB;
 
         public float Length => (b - a).magnitude;
         public Vector2 Dir => (b - a).normalized;
@@ -97,13 +100,15 @@ public static class StreetSurface
         for (int k = 0; k < g.segments.Count; k++)
         {
             var (pa, pb, w) = g.segments[k];
-            var st = new Stretch { a = pa, b = pb, width = w, absorbed = true };
+            var st = new Stretch { a = pa, b = pb, width = w, absorbed = true, junctionA = -1, junctionB = -1 };
             if (g.edgeOf[k] >= 0)
             {
                 Edge e = g.edges[g.edgeOf[k]];
                 st.absorbed = e.absorbed;
                 st.crossingA = e.crossing[0];
                 st.crossingB = e.crossing[1];
+                st.junctionA = g.Find(e.a);
+                st.junctionB = g.Find(e.b);
                 st.start = e.setback[0] + (e.crossing[0] ? s.crossingDepth : 0f);
                 st.end = (pb - pa).magnitude - e.setback[1] - (e.crossing[1] ? s.crossingDepth : 0f);
             }

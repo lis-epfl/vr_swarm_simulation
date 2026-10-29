@@ -1943,6 +1943,19 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     S4's interior blocks keep a building.
   - **The dressing measures the footpath off the prisms** and paves out to the facades, leaves a block they cover no
     lawn, and lets a prop stand against a facade (`CityDressing.FacadeClearance`); a catalogue layout is unchanged.
+  - **It has more street furniture than any other dressed scene** (2026-10-29, `CityDressing.Extras`, set by
+    `BlockShapedCityWorldBuilder.Furniture`): the pack's unused props. That is traffic signals on every approach of 35%
+    of the junctions (arm over the road), rows of potted topiary along the shopfronts on 30% of the street sides (half
+    with backless benches between them), bollards along the kerb by 15% of the crossings, and a speed-limit sign or taxi
+    pole at 15% of the street ends. At p 40 s 18 that is 1,541 → 3,800 props. Points worth keeping:
+    - Every one stands at the kerb or within 0.8 m of the facade (`FrontageReach`), out of the lane `BlockGoals`'
+      walkers take; near a corner the back of the footpath runs past the facade's end, which is why planters test their
+      distance to the building and not just the footpath.
+    - **The extras are off by default and left out of the dressing's signature while off**, so VoronoiCityWorld and
+      BlockCityWorld are dressed exactly as before (checked object for object) and their bakes stay current.
+    - `RulesVersion` 4 is what carries the extras into a saved scene: the block-shaped window's *Redress the streets*
+      resets the rules and applies them.
+    - Merged, they cost about 0.05–0.09 ms of main thread per FPV render (60 views at 1152×648, headless).
   - **analyse.py and the bench's `Footprints` read box axes, which a prism lacks**: a run recorded here cannot be
     analysed until they read `blockcity.footprints`.
   - **Its goals are drawn from its own buildings at every Play** (`BlockGoals`, 2026-10-29; `ProceduralCityBuilder.

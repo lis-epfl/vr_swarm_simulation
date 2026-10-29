@@ -56,6 +56,11 @@ using UnityEngine.Rendering;
 /// only <see cref="FacadeClearance"/>: a bench at the back of the footpath stands against the wall. A layout without
 /// them is dressed exactly as before.</para>
 ///
+/// <para><b>More furniture</b> (<see cref="Extras"/>, off unless a scene turns it on; BlockShapedCityWorld does): traffic
+/// signals on every approach of some junctions, rows of potted plants (some with backless benches) along the building
+/// line, bollards at the kerb by the crossings, and speed-limit signs and taxi poles. Placed after the furniture above,
+/// which keeps its places, and before the border trees.</para>
+///
 /// <para><b>Cost</b>. An FPV render is CPU culling and submission (CLAUDE.md), so the props are the pack's cheap ones
 /// (MC_Tree is 537 triangles, against Tree9's 8.7k; every other prop shares one material) and cast no shadows; the
 /// footpath and the medians are one mesh each; and at Play the props are merged (<see cref="MergeForPlay"/>) into one
@@ -79,10 +84,14 @@ public class CityDressing : MonoBehaviour
     private const float WalkerBody = 0.6f;
     /// <summary>m a prop keeps off a block-shaped building's facade, which is the back of its footpath.</summary>
     private const float FacadeClearance = 0.05f;
+    /// <summary>m off a block-shaped building's facade a planter or a frontage bench may reach: a goal's walkers take the
+    /// lane 1.1-1.5 m off it (<c>ProceduralCityBuilder.prismWalkOffset</c>), less a walker's half-width.</summary>
+    private const float FrontageReach = 0.8f;
     /// <summary>Bump when the defaults in <see cref="Rules"/> change. A scene keeps the rules it was saved with, so without
     /// this a changed default never reaches it: <c>VoronoiCityWorldBuilder.EnsureDressing</c> resets older rules to the
-    /// current defaults, and says so (a rule set by hand is lost).</summary>
-    public const int RulesVersion = 3;
+    /// current defaults, and says so (a rule set by hand is lost). 4: <see cref="Extras"/>, so BlockShapedCityWorld's
+    /// builder sets them on the scene's next redress.</summary>
+    public const int RulesVersion = 4;
 
     [Tooltip("Off: no footpaths, medians or props -- the bare city the studies modelled.")]
     public bool dress = true;
@@ -107,6 +116,18 @@ public class CityDressing : MonoBehaviour
     public GameObject busStop;
     [Tooltip("Mail boxes, newspaper machines, phone booths: one near some corners, at the back of the footpath.")]
     public GameObject[] cornerProps = new GameObject[0];
+
+    [Header("More street furniture (placed only where Extras turns it on)")]
+    [Tooltip("MC_Traffic_Signal: a 5.9 m pole with its arm and lights over the road, a pedestrian signal and a street sign.")]
+    public GameObject trafficSignal;
+    [Tooltip("MC_Plant, MC_Plant2, MC_Plant3: topiary in pots, in rows along the building line, one kind to a row.")]
+    public GameObject[] planters = new GameObject[0];
+    [Tooltip("MC_Bench_Single: a backless bench, between the planters of some rows.")]
+    public GameObject frontageBench;
+    [Tooltip("MC_Street_Lamp_Small: a bollard light (0.95 m), in short rows along the kerb by the crossings.")]
+    public GameObject bollard;
+    [Tooltip("MC_Speed_Limit_Sign, MC_Taxi_Pole: one near some street ends, at the kerb, facing along the street.")]
+    public GameObject[] kerbProps = new GameObject[0];
 
     [Header("Lawns (inside the footpaths)")]
     [Tooltip("The trees planted on the lawns, a grove of one species at a time: the pack's green-belt models, each a bark " +
@@ -141,6 +162,7 @@ public class CityDressing : MonoBehaviour
     public float grassUvMetres = 76f;
 
     public Rules rules = new Rules();
+    public Extras extras = new Extras();
 
     [Tooltip("Written by Dress: what the dressing in the scene was made for. Play redresses when it no longer matches.")]
     [SerializeField] private string dressedFor = "";
@@ -154,7 +176,39 @@ public class CityDressing : MonoBehaviour
     public void ResetRules()
     {
         rules = new Rules();
+        extras = new Extras();
         rulesVersion = RulesVersion;
+    }
+
+    /// <summary>Street furniture beyond <see cref="Rules"/>, all of it off by default and left out of the dressing's
+    /// signature while it is, so a scene dressed before it existed (VoronoiCityWorld, BlockCityWorld) is dressed exactly as
+    /// it was and its bake stays current. BlockShapedCityWorld turns it on (<c>BlockShapedCityWorldBuilder</c>). Every
+    /// piece keeps out of the lane a goal's walkers take round a block-shaped building (1.1-1.5 m off the facade, so
+    /// 0.8-1.8 m with a walker's half-width): signals, bollards and kerb props stand at the kerb, planters and their
+    /// benches against the facade.</summary>
+    [Serializable]
+    public class Extras
+    {
+        [Tooltip("Of the junctions where three or more streets meet (a merged junction counts once): a traffic signal on " +
+                 "every street with a crossing there, at the kerb on the right of the traffic arriving, just short of the " +
+                 "crossing, its arm over the road.")]
+        [Range(0f, 1f)] public float signalShare;
+        [Tooltip("Of each street side: a row of planters along the back of the footpath (the building line), one kind to a row.")]
+        [Range(0f, 1f)] public float planterShare;
+        [Tooltip("m between the planters of a row: 3, a facade bay (PrismBuilding.Style.bayWidth).")]
+        public float planterSpacing = 3f;
+        [Tooltip("Of the planter rows: backless benches in every other place, so a row reads planter, bench, planter.")]
+        [Range(0f, 1f)] public float planterSeatShare = 0.5f;
+        [Tooltip("Of each street end, each side: a short row of bollards along the kerb, from just past the crossing.")]
+        [Range(0f, 1f)] public float bollardShare;
+        public int bollards = 3;
+        public float bollardSpacing = 1.2f;
+        [Tooltip("Of each street end, each side: one of the kerb props (a speed-limit sign, a taxi pole), facing along " +
+                 "the street.")]
+        [Range(0f, 1f)] public float kerbShare;
+
+        /// <summary>Whether any of it is placed.</summary>
+        public bool Any => signalShare > 0f || planterShare > 0f || bollardShare > 0f || kerbShare > 0f;
     }
 
     [Serializable]
@@ -417,6 +471,13 @@ public class CityDressing : MonoBehaviour
         {
             foreach (GameObject o in m?.parts ?? new GameObject[0]) Add(o != null ? o.name : "-");
         }
+        if (extras != null && extras.Any)     // off, it places nothing: a bake made before it existed stays current
+        {
+            Add(JsonUtility.ToJson(extras));
+            foreach (GameObject o in new[] { trafficSignal, frontageBench, bollard }) Add(o != null ? o.name : "-");
+            foreach (GameObject o in planters ?? new GameObject[0]) Add(o != null ? o.name : "-");
+            foreach (GameObject o in kerbProps ?? new GameObject[0]) Add(o != null ? o.name : "-");
+        }
         uint h = 2166136261;
         foreach (char ch in sb.ToString())
         {
@@ -432,6 +493,7 @@ public class CityDressing : MonoBehaviour
     {
         Any,        // a random yaw (trees)
         Along,      // its longer side along the street, either way round
+        Across,     // its longer side across the street, either way round (a sign facing the traffic)
         Arm,        // its arm over the road (lights): the top's centroid off the pole's
         Back,       // facing the road, its back to the block: away from its tallest part (a bench's backrest)
         Open,       // facing the road: towards its seat, the bulk of its mid-height vertices (a shelter, whose back panel is flat)
@@ -587,6 +649,8 @@ public class CityDressing : MonoBehaviour
         public List<Vector2> lawn = new List<Vector2>();
         public float lawnArea;
         public Vector2 lawnMin, lawnMax;
+        /// <summary>Its block-shaped building's footprint, or null.</summary>
+        public Vector2[] building;
 
         public bool Contains(Vector2 p, float margin) => Inside(poly, p, margin);
         public bool OnLawn(Vector2 p, float margin) => lawn.Count >= 3 && Inside(lawn, p, margin);
@@ -602,6 +666,21 @@ public class CityDressing : MonoBehaviour
             if (Vector2.Dot(new Vector2(-d.y, d.x), p - a) < margin) return false;
         }
         return true;
+    }
+
+    /// <summary>How far <paramref name="p"/> stands from a convex polygon: 0 inside, else the distance to its nearest edge.</summary>
+    private static float Outside(Vector2[] poly, Vector2 p)
+    {
+        bool inside = true;
+        float d = float.PositiveInfinity;
+        for (int i = 0; i < poly.Length; i++)
+        {
+            Vector2 a = poly[i], ab = poly[(i + 1) % poly.Length] - a;
+            if (ab.x * (p.y - a.y) - ab.y * (p.x - a.x) < 0f) inside = false;
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-9f));
+            d = Mathf.Min(d, (a + ab * t - p).magnitude);
+        }
+        return inside ? 0f : d;
     }
 
     /// <summary>A prop as measured once: its meshes relative to its source's position (world rotation and scale, as it
@@ -654,6 +733,7 @@ public class CityDressing : MonoBehaviour
     {
         private readonly CityDressing d;
         private Rules r;
+        private readonly Extras x;
         private readonly ProceduralCityBuilder.LayoutFile file;
         private readonly Transform root;
         private readonly List<StreetSurface.Stretch> stretches;
@@ -678,6 +758,7 @@ public class CityDressing : MonoBehaviour
         {
             this.d = d;
             r = d.rules;
+            x = d.extras ?? new Extras();
             this.file = file;
             this.root = root;
             seed = unchecked(file.layout.seed ^ (d.seedSalt * 486187739));
@@ -748,19 +829,21 @@ public class CityDressing : MonoBehaviour
             Proto light = Measure(d.streetLight, Facing.Arm), tree = Measure(d.tree, Facing.Any),
                   hydrant = Measure(d.hydrant, Facing.Along), bench = Measure(d.bench, Facing.Back),
                   bin = Measure(d.bin, Facing.Along), shelter = Measure(d.busStop, Facing.Open);
-            var corner = new List<Proto>();
-            foreach (GameObject g in d.cornerProps ?? new GameObject[0])
-            {
-                Proto p = Measure(g, Facing.Along);
-                if (p != null) corner.Add(p);
-            }
+            List<Proto> corner = Measure(d.cornerProps, Facing.Along);
             MedianTrees(tree);
             BusStops(shelter, bin);
             Lights(light);
+            Signals();
             StreetTrees(tree);
             Benches(bench, bin);
             EndProps("Hydrants", 1, r.hydrantShare, 1.5f, hydrant == null ? null : new List<Proto> { hydrant }, false);
             EndProps("Corner props", 2, r.cornerShare, 4f, corner, true);
+            Planters();
+            if (x.kerbShare > 0f)
+            {
+                EndProps("Kerb props", 3, x.kerbShare, 3.5f, Measure(d.kerbProps, Facing.Across), false, Facing.Across);
+            }
+            Bollards();
             BorderTrees(d.borderTree != null ? Measure(d.borderTree, Facing.Any) : tree);
             var lawnTrees = new List<Proto>();
             foreach (PropModel m in d.lawnTrees ?? new PropModel[0])
@@ -882,6 +965,7 @@ public class CityDressing : MonoBehaviour
             foreach (Vector2[] poly in prisms.Polys)
             {
                 Block b = BlockAt(Centroid(poly));
+                if (b != null) b.building = poly;
                 if (b == null || b.lawn.Count < 3) continue;
                 var footprint = new List<Vector2>(poly);
                 if (!b.lawn.TrueForAll(p => Inside(footprint, p, -0.5f))) continue;
@@ -1136,7 +1220,8 @@ public class CityDressing : MonoBehaviour
 
         /// <summary>At each end of each street side, with chance <paramref name="share"/>, one of <paramref name="protos"/>
         /// <paramref name="fromEnd"/> metres past the crossing, at the kerb or at the back of the footpath.</summary>
-        private void EndProps(string kind, int stream, float share, float fromEnd, List<Proto> protos, bool back)
+        private void EndProps(string kind, int stream, float share, float fromEnd, List<Proto> protos, bool back,
+                              Facing facing = Facing.Along)
         {
             if (protos == null || protos.Count == 0) return;
             for (int k = 0; k < stretches.Count; k++)
@@ -1151,7 +1236,140 @@ public class CityDressing : MonoBehaviour
                         Proto p = protos[rng.Next(protos.Count)];
                         if (!pick || Usable(s) < 2f * fromEnd) continue;
                         float t = end == 0 ? s.start + r.junctionGap + fromEnd : s.end - r.junctionGap - fromEnd;
-                        OnFootpath(kind, p, s, side, block, t, back ? (Inset)Back : (Inset)Kerb, 1.5f, Facing.Along, rng, 1f);
+                        OnFootpath(kind, p, s, side, block, t, back ? (Inset)Back : (Inset)Kerb, 1.5f, facing, rng, 1f);
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------- more furniture (Extras)
+
+        /// <summary>Traffic signals at extras.signalShare of the junctions where three or more streets meet. A junction is
+        /// drawn once, so all its approaches are signalled or none: one signal on every street with a crossing there, at
+        /// the kerb on the right of the traffic arriving, half a metre short of the crossing's junction gap, its arm over
+        /// the road as a street light's is.</summary>
+        private void Signals()
+        {
+            if (x.signalShare <= 0f) return;
+            Proto signal = Measure(d.trafficSignal, Facing.Arm);
+            if (signal == null) return;
+            var streets = new Dictionary<int, int>();      // junction -> the streets drawn into it
+            foreach (StreetSurface.Stretch s in stretches)
+            {
+                if (s.absorbed) continue;
+                foreach (int j in new[] { s.junctionA, s.junctionB }) streets[j] = (streets.TryGetValue(j, out int n) ? n : 0) + 1;
+            }
+            for (int k = 0; k < stretches.Count; k++)
+            {
+                StreetSurface.Stretch s = stretches[k];
+                if (s.absorbed || Usable(s) < 2f) continue;
+                List<(int side, Block block)> sides = Sides(k);
+                for (int end = 0; end < 2; end++)
+                {
+                    int j = end == 0 ? s.junctionA : s.junctionB;
+                    bool crossing = end == 0 ? s.crossingA : s.crossingB;
+                    if (!crossing || streets[j] < 3 || Rng(100, j, 0).NextDouble() >= x.signalShare) continue;
+                    int right = end == 0 ? 1 : -1;      // arriving at a (along b -> a) the right is +Left; at b, -Left
+                    int i = sides.FindIndex(p => p.side == right);
+                    if (i < 0) continue;
+                    float t = end == 0 ? s.start + r.junctionGap + 0.5f : s.end - r.junctionGap - 0.5f;
+                    OnFootpath("Traffic signals", signal, s, right, sides[i].block, t, Kerb, 1f, Facing.Arm, Rng(101, k, end),
+                               1f);
+                }
+            }
+        }
+
+        /// <summary>On extras.planterShare of the street sides, a row of planters at the back of the footpath along the
+        /// plain road, one every planterSpacing, one kind to a row. On planterSeatShare of the rows every other place holds a
+        /// backless bench instead (an odd count, so the row starts and ends with a planter). A place another prop already
+        /// holds -- a bench and its bin, a corner prop -- is left to it. Beside a block-shaped building each stands against
+        /// the facade, within <see cref="FrontageReach"/> of it: near a corner the back of the footpath runs on past the
+        /// facade's end, into the walkers' lane round the corner.</summary>
+        private void Planters()
+        {
+            if (x.planterShare <= 0f) return;
+            List<Proto> kinds = Measure(d.planters, Facing.Any);
+            Proto seat = Measure(d.frontageBench, Facing.Along);
+            if (kinds.Count == 0) return;
+            float spacing = Mathf.Max(x.planterSpacing, 1f);
+            for (int k = 0; k < stretches.Count; k++)
+            {
+                StreetSurface.Stretch s = stretches[k];
+                foreach (var (side, block) in Sides(k))
+                {
+                    var rng = Rng(102, k, side);
+                    bool pick = rng.NextDouble() < x.planterShare;
+                    bool seated = rng.NextDouble() < x.planterSeatShare && seat != null;
+                    Proto kind = kinds[rng.Next(kinds.Count)];
+                    float lo = s.start + r.junctionGap + 0.5f, hi = s.end - r.junctionGap - 0.5f;
+                    if (!pick || hi - lo < spacing) continue;
+                    int n = Mathf.FloorToInt((hi - lo) / spacing) + 1;
+                    if (seated && n % 2 == 0) n--;
+                    seated &= n >= 3;
+                    float t = 0.5f * (lo + hi - (n - 1) * spacing);
+                    for (int i = 0; i < n; i++, t += spacing)
+                    {
+                        if (seated && i % 2 == 1)
+                        {
+                            OnFootpath("Frontage benches", seat, s, side, block, t, Back, 0f, Facing.Along, rng, 1f, out _,
+                                       Against(block, seat));
+                        }
+                        else
+                        {
+                            OnFootpath("Planters", kind, s, side, block, t, Back, 0f, Facing.Any, rng, 1f, out _,
+                                       Against(block, kind));
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>A test that a prop's base stands with its body within <see cref="FrontageReach"/> of the block's
+        /// building (the base less however far the body overhangs it: a topiary's foliage, a bench's seat), or null when
+        /// the block has none.</summary>
+        private static Func<Obb, bool> Against(Block block, Proto p)
+        {
+            Vector2[] building = block.building;
+            if (building == null) return null;
+            float overhang = Mathf.Max(0f, Mathf.Max(Mathf.Max(p.bodyMax.x - p.baseMax.x, p.bodyMax.y - p.baseMax.y),
+                                                     Mathf.Max(p.baseMin.x - p.bodyMin.x, p.baseMin.y - p.bodyMin.y)));
+            float reach = FrontageReach - overhang;
+            return bas =>
+            {
+                for (int c = 0; c < 4; c++)
+                {
+                    if (Outside(building, bas.Corner(c)) > reach) return false;
+                }
+                return true;
+            };
+        }
+
+        /// <summary>At extras.bollardShare of the street ends, each side: a row of extras.bollards bollards along the kerb
+        /// from just past the crossing, bollardSpacing apart, never past the middle of the street (so two rows cannot
+        /// interleave). A bollard that would stand on a signal, a hydrant or a light is left out, so a row may be short.</summary>
+        private void Bollards()
+        {
+            if (x.bollardShare <= 0f || x.bollards < 1) return;
+            Proto bollard = Measure(d.bollard, Facing.Any);
+            if (bollard == null) return;
+            float spacing = Mathf.Max(x.bollardSpacing, 0.5f);
+            for (int k = 0; k < stretches.Count; k++)
+            {
+                StreetSurface.Stretch s = stretches[k];
+                float half = 0.5f * (s.end - s.start) - 0.3f;
+                foreach (var (side, block) in Sides(k))
+                {
+                    for (int end = 0; end < 2; end++)
+                    {
+                        var rng = Rng(103, k, 2 * side + end);
+                        if (rng.NextDouble() >= x.bollardShare) continue;
+                        for (int i = 0; i < x.bollards; i++)
+                        {
+                            float from = r.junctionGap + 0.4f + i * spacing;
+                            if (from > half) break;
+                            OnFootpath("Bollards", bollard, s, side, block, end == 0 ? s.start + from : s.end - from, Kerb, 0f,
+                                       Facing.Any, rng, 1f);
+                        }
                     }
                 }
             }
@@ -1552,12 +1770,14 @@ public class CityDressing : MonoBehaviour
                                 float slide, Facing facing, System.Random rng, float k) =>
             OnFootpath(kind, p, s, side, block, t, inset, slide, facing, rng, k, out _);
 
+        /// <param name="also">A further test of the base, beside standing on the street's footpath.</param>
         private bool OnFootpath(string kind, Proto p, StreetSurface.Stretch s, int side, Block block, float t, Inset inset,
-                                float slide, Facing facing, System.Random rng, float k, out Obb body)
+                                float slide, Facing facing, System.Random rng, float k, out Obb body,
+                                Func<Obb, bool> also = null)
         {
             Vector2 road = -s.Left * side;                       // from the footpath towards the street
-            float yaw = facing == Facing.Along
-                ? YawFromTo(p.front, s.Dir) + (rng.NextDouble() < 0.5 ? 0f : 180f)
+            float yaw = facing == Facing.Along || facing == Facing.Across
+                ? YawFromTo(p.front, facing == Facing.Along ? s.Dir : s.Left) + (rng.NextDouble() < 0.5 ? 0f : 180f)
                 : YawFromTo(p.front, road);
             Obb b0 = p.Base(Vector2.zero, yaw, k);
             float towardsRoad = 0f, towardsBlock = 0f;
@@ -1569,7 +1789,7 @@ public class CityDressing : MonoBehaviour
             float across = side * (0.5f * s.width + inset(towardsRoad, towardsBlock));
             float lo = s.start + r.junctionGap, hi = s.end - r.junctionGap;
             return Try(kind, p, s.At(t, across), yaw, r.pavementHeight, k, s.Dir, slide,
-                       bas => FootpathFits(bas, s, side, block, lo, hi), out body, street: true);
+                       bas => FootpathFits(bas, s, side, block, lo, hi) && (also == null || also(bas)), out body, street: true);
         }
 
         /// <summary>A tree in a street (a median's, or a footpath's), at a random yaw and size, its trunk where
@@ -1760,6 +1980,18 @@ public class CityDressing : MonoBehaviour
         private Proto Measure(GameObject src, Facing facing) =>
             src == null ? null : Measure(src.name, new[] { src }, facing);
 
+        /// <summary>Each of <paramref name="sources"/> that has a mesh, in order.</summary>
+        private List<Proto> Measure(GameObject[] sources, Facing facing)
+        {
+            var list = new List<Proto>();
+            foreach (GameObject g in sources ?? new GameObject[0])
+            {
+                Proto p = Measure(g, facing);
+                if (p != null) list.Add(p);
+            }
+            return list;
+        }
+
         /// <summary>A prop made of several objects (a green-belt tree's bark and leaves), as they stand relative to the first.</summary>
         private Proto Measure(PropModel model, Facing facing)
         {
@@ -1832,6 +2064,7 @@ public class CityDressing : MonoBehaviour
                     f2 = Centroid(0.2f, 0.6f, out _, out _) - centre;
                     break;
                 case Facing.Along:
+                case Facing.Across:
                     f2 = bodyHi.x - bodyLo.x >= bodyHi.y - bodyLo.y ? Vector2.right : Vector2.up;
                     break;
                 default:
