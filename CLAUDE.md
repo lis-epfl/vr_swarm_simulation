@@ -1193,8 +1193,9 @@ is silent, since neither side fails to compile, it just reads a float from the m
 ## City scenes and the ScaledCity assets
 
 Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
-(generated from ScaledCityWorld, below), `DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld` and
-`BlockCityWorld` (generated cities, below), `FactoryScene`, `RingChallenge`, `NBackExperiment`, and `DJIScene`
+(generated from ScaledCityWorld, below), `DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld`,
+`BlockCityWorld`, `BlockShapedCityWorld` and `BlockShapedPatchCityWorld` (generated cities, below), `FactoryScene`,
+`RingChallenge`, `NBackExperiment`, and `DJIScene`
 (real drones, no sim swarm). All of them spawn the
 same `Assets/Prefabs/DroneReduced.prefab`, so anything edited there — `maxPitch`, `maxSpeed`,
 `timeConstantAcceleration` — changes every scene at once. Per-scene tuning belongs on the scene's own
@@ -1934,7 +1935,8 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     The footprint's enclosing circle would close 2 and narrow 19, but a declared radius is a force-law change: replica
     and bench with it.
   - **`blockcity`'s defaults are S4's, byte for byte**, and the id names any setting that is not (`_in5`, `_hex0.15`,
-    `_lloyd2`). `--inset` is the footpath; `--seeds hex --jitter J` and `--relax N` place the block seeds more evenly.
+    `_lloyd2`). `--inset` is the footpath; `--seeds hex --jitter J` and `--relax N` place the block seeds more evenly;
+    `--seeds patch` and `--sight-tries N` break up the long views hex leaves (`BlockShapedPatchCityWorld`, below).
   - **A Voronoi block has about six sides, but a side shorter than its junctions' setbacks is not a street**
     (StreetSurface and streetnet merge its junctions at about one street width). At p 40 s 18 S4's seeds keep 4.3
     sides as streets with 8.2 streets leaving the corners; hex at jitter 0.15 keeps 5.7 with 6.3 leaving. Even blocks
@@ -1988,6 +1990,32 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     - `ProceduralCityProbe` checks all of this headless with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/
       BlockShapedCityWorld.unity`: the spread, the rings, the redraw from the seed, the walker counts, and walkers on a
       footpath. The Python side (`walkers.py`, `discovery`, analyse.py) has no polygon loop and cannot read prisms yet.
+- **`BlockShapedPatchCityWorld`** (`Tools/Swarm/Build block-shaped patch city world`, `BlockShapedPatchCityWorldBuilder`,
+  2026-10-29) is BlockShapedCityWorld on streets without its long sight lines: the same configuration
+  (`BlockShapedCityWorldBuilder.Configure`), prisms, dressing and furniture, and goals and pedestrians drawn at Play, on
+  `layouts/BlockShaped__bbB_p40_s18_patch150_j0.15_sight487_seed1.json`. Points worth keeping:
+  - **Hex seeding trades sides for sight lines.** Its zigzag streets swing only ~12 m between two rows of blocks, while
+    the facades stand ~29 m apart across them, so a straight channel ~16 m wide runs across the whole city in each of
+    the lattice's three directions: from 98% of street midpoints the longest clear view is over 400 m (S4's RSA seeds:
+    3%). `citysim.sightline` measures it: rays every 2° from each interior street midpoint against the footprints, in
+    2D, which is right while the drones fly under the roofs; the dressing is not in it.
+  - **`--seeds patch` keeps the lattice inside ~150 m patches, each turned at random**, so every channel ends at its
+    patch's edge: 5.06 sides as streets (RSA 4.40, hex 5.68) with RSA's views (median 278 m, 7% over 400 m; seeds
+    1–3). 100 m patches shorten the views a little more but lose sides and close 17 streets to the cylinders.
+  - **`--sight-tries N` then nudges block seeds into the views that are left**, 3–8 m towards the line of sight, keeping
+    a move only if no sides, plazas or cylinder clearance are lost. 487 tries take the median to 251 m and the share
+    over 400 m to 1% (seeds 1–3). It is deterministic in the seed and the count but slow (~1.5–4 s a try; the scene's
+    layout took ~24 min), and the block-shaped window gives the generator 10 minutes, so it runs only short passes:
+    generate longer ones from the command line, then pick the file under *Layouts* and Bake.
+  - At seed 1 the scene has 289 buildings (19 plazas), 5.04 sides as streets, a median view of 253 m with
+    1% over 400 m, and its cylinders close 3 and narrow 72 interior streets (BlockShapedCityWorld: 300,
+    33, 4.31, 272 m, 3%, 8 and 71).
+  - Chosen from twelve options compared on maps on 2026-10-29. Worth knowing from the others: hex jitter 0.3 loses
+    most of hex's sides and keeps 41% of views over 400 m; Lloyd (full or half steps) changes RSA's views by
+    nothing; a smooth shear warp of the lattice either leaves channels or loses sides; 8 m islands on the junctions
+    the channels cross bring the median under 200 m but need one in nearly every junction and narrow almost all of
+    them below 6 m for the cylinders; building the boundary blocks out to the arena edge only removes the straight
+    730 m strip along its sides.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

@@ -145,8 +145,8 @@ public static class BlockShapedCityWorldBuilder
             : ProceduralCityWorldBuilder.DefaultLayout(LayoutPattern);
 
     /// <summary>BlockCityWorld's S4 configuration, the dressing's short-street rules and furniture, then the prisms'
-    /// materials.</summary>
-    private static void Configure(ProceduralCityBuilder builder)
+    /// materials. <see cref="BlockShapedPatchCityWorldBuilder"/> builds its scene with it too.</summary>
+    internal static void Configure(ProceduralCityBuilder builder)
     {
         BlockCityWorldBuilder.ConfigureS4(builder);
         CityDressing d = builder.GetComponent<CityDressing>();

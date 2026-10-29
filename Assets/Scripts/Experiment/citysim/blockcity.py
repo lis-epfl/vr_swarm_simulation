@@ -17,7 +17,12 @@ names any option that is not the default):
              drawn as a street (StreetSurface merges its junctions; streetnet does the same at one street width): at
              p 40 s 18 S4's seeds keep 4.3 of the six as streets, with 8.4 streets leaving the corners, and hex at
              jitter 0.15 keeps 5.6, with 6.4 leaving. Regular blocks have more sides, merged junctions more exits.
-`one` prints both counts (street_stats) beside the layout's summary.
+             But a hex lattice's streets zigzag only ~12 m between two rows of blocks, which leaves a straight channel
+             ~16 m wide right across the city in each of its three directions (98% of street midpoints see over
+             400 m). `patch` keeps the lattice inside patches about --patch m across, each turned at random, so a
+             channel ends at its patch's edge: 5.06 sides, and views like RSA's (sightline's notes).
+  --sight-tries  then that many tries of sightline.optimise, which nudges block seeds into the long views.
+`one` prints the sides and exits (street_stats) and the views (sightline.stats) beside the layout's summary.
 
   R  "cylinder-fit": one catalogue design (R_DESIGN, the near-square BnP_Large_Building_B) per block at yaw 0 or 90,
      uniformly scaled to the largest size whose avoidance cylinder -- OlfatiSaber's, the circumradius of the collider's
@@ -75,8 +80,9 @@ SCENE_PREFIX = "BlockShaped__"        # layouts/BlockShaped__<id>.json: BlockSha
 P_LEVELS = (40, 50, 60, 75)
 S_LEVELS = (12, 18, 24)
 VARIANTS = ("R", "B")
-SEEDINGS = ("rsa", "hex")
-HEX_JITTER = 0.15                     # --seeds hex: the default move, a fraction of the lattice spacing
+SEEDINGS = ("rsa", "hex", "patch")
+HEX_JITTER = 0.15                     # --seeds hex / patch: the default move, a fraction of the lattice spacing
+PATCH_M = 150.0                       # --seeds patch: the patches' size
 
 
 @dataclass
@@ -86,9 +92,11 @@ class Params:
     s: float = 12.0
     seed: int = 0
     inset: float = INSET_M            # B: kerb to facade
-    seeds: str = "rsa"                # block seeds: S4's RSA, or a jittered triangular lattice
-    jitter: float = HEX_JITTER        # hex only
-    relax: int = 0                    # Lloyd iterations after either
+    seeds: str = "rsa"                # block seeds: S4's RSA, a jittered triangular lattice, or patches of one
+    jitter: float = HEX_JITTER        # hex and patch only
+    relax: int = 0                    # Lloyd iterations after any seeding
+    patch: float = PATCH_M            # patch only
+    sight_tries: int = 0              # tries of sightline.optimise after the seeding
 
     def ident(self):
         out = f"bb{self.variant}_p{self.p:g}_s{self.s:g}"
@@ -96,13 +104,17 @@ class Params:
             out += f"_in{self.inset:g}"
         if self.seeds == "hex":
             out += f"_hex{self.jitter:g}"
+        if self.seeds == "patch":
+            out += f"_patch{self.patch:g}_j{self.jitter:g}"
         if self.relax:
             out += f"_lloyd{self.relax}"
+        if self.sight_tries:
+            out += f"_sight{self.sight_tries}"
         return out + f"_seed{self.seed}"
 
     @property
     def default_streets(self):
-        return self.seeds == "rsa" and not self.relax
+        return self.seeds == "rsa" and not self.relax and not self.sight_tries
 
 
 # ============================================================================= geometry
@@ -147,6 +159,39 @@ def hex_seeds(rng, p, arena, jitter):
     return pts[keep]
 
 
+def patch_seeds(rng, p, arena, jitter, size):
+    """hex_seeds' lattice in patches about `size` across: RSA patch centres (0.8 size apart), each patch the cell of
+    its centre, its lattice at a random offset and turned by a random angle in [0, 60) deg, each seed moved as
+    hex_seeds moves it. Where two patches meet, seeds closer than 0.6 lattice spacings are thinned (random order)."""
+    x0, x1, z0, z1 = arena
+    n = max(int((x1 - x0) * (z1 - z0) / size ** 2), 2)
+    centres = geo.rsa_points(rng, arena, n, 0.8 * size)
+    a = p * math.sqrt(2 / math.sqrt(3))
+    h = a * math.sqrt(3) / 2
+    m = int(math.hypot(x1 - x0, z1 - z0) / a) + 2
+    ii, jj = np.meshgrid(np.arange(-m, m + 1), np.arange(-m, m + 1))
+    base = np.c_[((ii + 0.5 * (jj % 2)) * a).ravel(), (jj * h).ravel()]
+    out = []
+    for ci, c in enumerate(centres):
+        th = rng.uniform(0, math.pi / 3)
+        rot = np.array([[math.cos(th), -math.sin(th)], [math.sin(th), math.cos(th)]])
+        lp = (base + rng.uniform(0, a, 2)) @ rot.T + c
+        lp = lp[np.abs(lp - c).max(1) < 1.5 * size + a]
+        if jitter > 0:
+            rr = jitter * a * np.sqrt(rng.uniform(0, 1, len(lp)))
+            tt = rng.uniform(0, 2 * math.pi, len(lp))
+            lp = lp + np.c_[rr * np.cos(tt), rr * np.sin(tt)]
+        near = np.linalg.norm(lp[:, None, :] - centres[None], axis=2).argmin(1)
+        out.append(lp[near == ci])
+    pts = np.vstack(out)
+    pts = pts[(pts[:, 0] > x0 + .5) & (pts[:, 0] < x1 - .5) & (pts[:, 1] > z0 + .5) & (pts[:, 1] < z1 - .5)]
+    kept = []
+    for q in pts[rng.permutation(len(pts))]:
+        if not kept or np.min(np.linalg.norm(np.asarray(kept) - q, axis=1)) > 0.6 * a:
+            kept.append(q)
+    return np.asarray(kept)
+
+
 def lloyd(seeds, arena, n):
     """n Lloyd iterations: every seed moved to the centroid of its (arena-clipped) cell."""
     for _ in range(n):
@@ -155,9 +200,9 @@ def lloyd(seeds, arena, n):
     return seeds
 
 
-def streets_and_blocks(p, s, seed, arena=ARENA, seeds="rsa", jitter=HEX_JITTER, relax=0):
-    """(cells, kerbs, streets) drawn as citygen.generate draws a goal-free blocks city: the same random stream, so
-    the same streets as its `bl_` layout of this p, s and seed. Other seedings (see the module notes) draw their own."""
+def seed_points(p, seed, arena=ARENA, seeds="rsa", jitter=HEX_JITTER, relax=0, patch=PATCH_M):
+    """The block seeds, drawn as citygen.generate draws a goal-free blocks city's: the same random stream, so `rsa`
+    gives the same streets as its `bl_` layout of this p and seed. Other seedings draw their own."""
     rng = np.random.default_rng(seed)
     x0, x1, z0, z1 = arena
     if seeds == "rsa":
@@ -165,10 +210,22 @@ def streets_and_blocks(p, s, seed, arena=ARENA, seeds="rsa", jitter=HEX_JITTER, 
         pts = geo.rsa_points(rng, arena, n_seeds, citygen.SEED_SPACING_RATIO * p)
     elif seeds == "hex":
         pts = hex_seeds(rng, p, arena, jitter)
+    elif seeds == "patch":
+        pts = patch_seeds(rng, p, arena, jitter, patch)
     else:
         raise ValueError(f"seeds {seeds!r}: one of {SEEDINGS}")
     if relax:
         pts = lloyd(pts, arena, relax)
+    return pts
+
+
+def streets_and_blocks(p, s, seed, arena=ARENA, seeds="rsa", jitter=HEX_JITTER, relax=0, patch=PATCH_M):
+    """(cells, kerbs, streets) of the seeds seed_points draws (see there)."""
+    return voronoi_streets(seed_points(p, seed, arena, seeds, jitter, relax, patch), s, arena)
+
+
+def voronoi_streets(pts, s, arena=ARENA):
+    """(cells, kerbs, streets) of these block seeds: the Voronoi cells, each kerb s/2 inside its cell."""
     cells, edges = geo.voronoi_cells(pts, arena)
     kerbs = [geo.offset_convex(c, s / 2) for c in cells]
     streets = []
@@ -233,17 +290,47 @@ def cylinder_radius(b):
 
 # ============================================================================= generation
 
-def generate(P):
+def generate(P, log=None):
     """The layout of one variant / design / seed: (lay.Layout, blocks list)."""
     if P.variant not in VARIANTS:
         raise ValueError(f"variant {P.variant!r}: one of {VARIANTS}")
     if P.seeds not in SEEDINGS:
         raise ValueError(f"seeds {P.seeds!r}: one of {SEEDINGS}")
     design = catalogue.get(R_DESIGN)
-    cells, kerbs, streets = streets_and_blocks(P.p, P.s, P.seed, seeds=P.seeds, jitter=P.jitter, relax=P.relax)
+    pts = seed_points(P.p, P.seed, seeds=P.seeds, jitter=P.jitter, relax=P.relax, patch=P.patch)
+    if P.sight_tries:
+        pts = sight_pass(P, pts, design, log)
+    cells, kerbs, streets = voronoi_streets(pts, P.s)
+    L, blocks = place_buildings(P, kerbs, streets, design)
+    L.layout = record(P, L, blocks, cells, kerbs, design)
+    return L, blocks
+
+
+def sight_pass(P, pts, design, log=None):
+    """P.sight_tries tries of sightline.optimise on these seeds (its own random stream, 1000 + the seed), holding the
+    sides drawn as streets, the plazas and the cylinder-closed / -narrowed streets at no worse than they start."""
+    from citysim import sightline
+
+    def build(sd):
+        _, kerbs, streets = voronoi_streets(sd, P.s)
+        L, blocks = place_buildings(P, kerbs, streets, design)
+        return streets, [building_poly(b) for b in L.boxes], (L, blocks)
+
+    def constraints(state):
+        L, blocks = state
+        st = street_stats(L, blocks)
+        return dict(sides=st["sides_mean"], plazas=int(sum(1 for r in blocks if r["kerb_xz"] and r["building"] < 0)),
+                    closed=int(st.get("cyl_closed", 0)), narrow=int(st.get("cyl_narrow", 0)))
+
+    return sightline.optimise(pts, build, constraints, ARENA, P.sight_tries, np.random.default_rng(1000 + P.seed),
+                              log)
+
+
+def place_buildings(P, kerbs, streets, design):
+    """(lay.Layout without its record, blocks list): each block's building, R's box or B's prism, or a plaza."""
     edge_blocks = {i for st in streets if st["edge"] for i in st["blocks"] if i >= 0}
     boxes, blocks = [], []
-    for k, (cell, kerb) in enumerate(zip(cells, kerbs)):
+    for k, kerb in enumerate(kerbs):
         rec = dict(id=k, kerb_xz=flat(geo.ccw(kerb)) if len(kerb) >= 3 else [], interior=k not in edge_blocks,
                    building=-1)
         if len(kerb) >= 3:
@@ -252,9 +339,7 @@ def generate(P):
                 rec["building"] = len(boxes)
                 boxes.append(b)
         blocks.append(rec)
-    L = lay.Layout(boxes=boxes, streets=streets)
-    L.layout = record(P, L, blocks, cells, kerbs, design)
-    return L, blocks
+    return lay.Layout(boxes=boxes, streets=streets), blocks
 
 
 def record(P, L, blocks, cells, kerbs, design):
@@ -282,8 +367,12 @@ def record(P, L, blocks, cells, kerbs, design):
         params=dict(variant=P.variant, p=float(P.p), s=float(P.s)))
     if not P.default_streets:                     # S4's layouts carry no such keys: written only when asked for
         rec["params"].update(seeds=P.seeds, relax=int(P.relax))
-        if P.seeds == "hex":
+        if P.seeds in ("hex", "patch"):
             rec["params"]["jitter"] = float(P.jitter)
+        if P.seeds == "patch":
+            rec["params"]["patch"] = float(P.patch)
+        if P.sight_tries:
+            rec["params"]["sight_tries"] = int(P.sight_tries)
     rec.update(gap_stats(L, blocks))
     rec.update(ring_stats(L, blocks))
     rec["max_within_50m"] = max_within(L)
@@ -501,8 +590,11 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--inset", type=float, default=INSET_M, help="B: kerb to facade, m (S4: %(default)s)")
     p.add_argument("--seeds", choices=SEEDINGS, default="rsa", help="block seeds (S4: rsa)")
-    p.add_argument("--jitter", type=float, default=HEX_JITTER, help="hex: move, x the lattice spacing")
+    p.add_argument("--jitter", type=float, default=HEX_JITTER, help="hex, patch: move, x the lattice spacing")
     p.add_argument("--relax", type=int, default=0, help="Lloyd iterations after the seeding")
+    p.add_argument("--patch", type=float, default=PATCH_M, help="patch: the patches' size, m")
+    p.add_argument("--sight-tries", type=int, default=0,
+                   help="tries of sightline.optimise after the seeding (~1.5-4 s each)")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--out", help="file (default layouts/sweep~/split/<id>.json)")
     g.add_argument("--scene", action="store_true", help=f"write layouts/{SCENE_PREFIX}<id>.json (BlockShapedCityWorld)")
@@ -512,8 +604,8 @@ def main():
     p.add_argument("--out")
     a = ap.parse_args()
     if a.cmd == "one":
-        P = Params(a.variant, a.p, a.s, a.seed, a.inset, a.seeds, a.jitter, a.relax)
-        L, blocks = generate(P)
+        P = Params(a.variant, a.p, a.s, a.seed, a.inset, a.seeds, a.jitter, a.relax, a.patch, a.sight_tries)
+        L, blocks = generate(P, log=lambda m: print(f"[blockcity] {m}", flush=True))
         path = save(L, blocks, Path(a.out) if a.out else scene_path_for(P) if a.scene else path_for(P))
         r = L.layout
         print(f"[blockcity] {path.name}: {r['n_buildings']} buildings ({r['n_plazas']} plazas), alpha "
@@ -529,6 +621,12 @@ def main():
         if "cyl_pairs" in st:
             print(f"[blockcity] avoidance: Unity's cylinders close {st['cyl_closed']} and narrow below 6 m "
                   f"{st['cyl_narrow']} of {st['cyl_pairs']} interior streets between two buildings")
+        if L.boxes:
+            from citysim import sightline
+            v = sightline.stats(L.streets, [building_poly(b) for b in L.boxes], ARENA)
+            print(f"[blockcity] views: from {v['n_views']} street midpoints the longest clear view is "
+                  f"{v['view_median']:.0f} m (median), {v['view_p90']:.0f} m (p90); over 200 m "
+                  f"{100 * v['view_gt200']:.0f}%, over 400 m {100 * v['view_gt400']:.0f}%")
         print(f"LAYOUT_PATH={path}")
     else:
         cmd_feasibility(a)

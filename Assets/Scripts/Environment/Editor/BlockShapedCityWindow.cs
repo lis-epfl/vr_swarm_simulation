@@ -25,6 +25,12 @@ using UnityEngine;
 /// streets round it and 8.2 leaving its corners; seeds on a jittered triangular lattice (<i>Hex</i>) give 5.7 and 6.3.
 /// More sides means more corners to go round, more merged junctions more streets to choose from at each. The generator
 /// prints both for every layout.</para>
+///
+/// <para><b>How far a street lets you see.</b> Hex's zigzag streets leave a straight channel across the whole city in
+/// each of the lattice's three directions (98% of street midpoints see over 400 m, against 3% on S4's seeds).
+/// <i>Patches</i> keeps the lattice inside patches about the patch size across, each turned at random, so a channel ends
+/// at its patch's edge (5.06 sides, RSA's views); <i>Sight-line tries</i> then nudge block seeds into the views that are
+/// left (citysim.sightline). The generator prints the views too.</para>
 /// </summary>
 public class BlockShapedCityWindow : EditorWindow
 {
@@ -32,6 +38,7 @@ public class BlockShapedCityWindow : EditorWindow
     {
         RSA,
         Hex,
+        Patches,
     }
 
     private const float MinBuilding = 8f;                 // blockcity.MIN_BUILDING_M
@@ -42,6 +49,8 @@ public class BlockShapedCityWindow : EditorWindow
     [SerializeField] private Seeding seeding = Seeding.RSA;
     [SerializeField] private float jitter = 0.15f;
     [SerializeField] private int relax;
+    [SerializeField] private float patchSize = 150f;
+    [SerializeField] private int sightTries;
     [SerializeField] private int seed = 1;
     [SerializeField] private int layoutIndex;
     [SerializeField] private string report = "";
@@ -110,13 +119,29 @@ public class BlockShapedCityWindow : EditorWindow
         seeding = (Seeding)EditorGUILayout.EnumPopup(new GUIContent("Block seeds",
             "RSA: S4's (random, no two closer than 0.8 p), so p 40 s 18 seed 1 is S4's city and BlockCityWorld's streets. " +
             "Hex: a triangular lattice, each seed moved by up to the jitter: more of each block's sides are long enough to be " +
-            "streets, fewer streets leave each corner."), seeding);
-        if (seeding == Seeding.Hex)
+            "streets, fewer streets leave each corner, but straight channels run across the city. Patches: the lattice in " +
+            "patches turned against each other, so the channels end at each patch's edge."), seeding);
+        if (seeding != Seeding.RSA)
         {
             jitter = EditorGUILayout.Slider(new GUIContent("Jitter", "x the lattice spacing. 0: regular hexagons."), jitter, 0f, 0.5f);
         }
+        if (seeding == Seeding.Patches)
+        {
+            patchSize = EditorGUILayout.FloatField(new GUIContent("Patch size (m)",
+                "About how far across each patch of lattice is: the longest straight view the lattice allows. 150 measured " +
+                "best (100 shortens the views a little but loses sides and closes more streets to the cylinders)."), patchSize);
+        }
         relax = EditorGUILayout.IntSlider(new GUIContent("Relax (Lloyd)",
             "Times every seed is moved to its block's centroid: blocks grow more even, still irregular."), relax, 0, 6);
+        sightTries = EditorGUILayout.IntField(new GUIContent("Sight-line tries",
+            "Tries of citysim.sightline's pass, which moves block seeds a few metres into the long views it finds, keeping a " +
+            "move only if no sides, plazas or street clearance are lost. ~1.5-4 s a try; 0 is off."), Mathf.Max(0, sightTries));
+        if (sightTries > 150)
+        {
+            EditorGUILayout.HelpBox("The window gives the generator 10 minutes, about 150-300 tries. For more, run it from " +
+                                    "Assets/Scripts/Experiment: python -B -m citysim.blockcity one --variant B ... --sight-tries N " +
+                                    "--scene, then pick the file under Layouts and Bake.", MessageType.Info);
+        }
         using (new EditorGUILayout.HorizontalScope())
         {
             seed = EditorGUILayout.IntField("Seed", seed);
@@ -205,8 +230,8 @@ public class BlockShapedCityWindow : EditorWindow
         }
         string F(float v) => v.ToString("0.#####", CultureInfo.InvariantCulture);
         string args = $"-B -m citysim.blockcity one --variant B --p {F(blockSpacing)} --s {F(streetWidth)} --seed {seed} " +
-                      $"--inset {F(footpath)} --seeds {(seeding == Seeding.Hex ? "hex" : "rsa")} --jitter {F(jitter)} " +
-                      $"--relax {relax} --scene";
+                      $"--inset {F(footpath)} --seeds {SeedsArg(seeding)} --jitter {F(jitter)} --patch {F(patchSize)} " +
+                      $"--relax {relax} --sight-tries {Mathf.Max(0, sightTries)} --scene";
         var lines = new List<string>();
         int code;
         try
@@ -237,6 +262,8 @@ public class BlockShapedCityWindow : EditorWindow
         }
         Bake(builder, Path.GetFileName(layoutPath), summary.ToString().TrimEnd());
     }
+
+    private static string SeedsArg(Seeding s) => s == Seeding.Hex ? "hex" : s == Seeding.Patches ? "patch" : "rsa";
 
     private void Bake(ProceduralCityBuilder builder, string layoutName, string generated = null)
     {
