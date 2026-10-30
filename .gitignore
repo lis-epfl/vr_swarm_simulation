@@ -107,3 +107,8 @@ experiment_results/split_study/phase1/split_phase1.html
 # full page is the bare page with replay/ inlined.
 experiment_results/shaped_study/**/results.jsonl
 experiment_results/shaped_study/shaped_study.html
+# S6 Patch City Tuning: raw per-flight results and gate rows on disk (about 25 MB); every run's candidate table
+# (table.csv), the rule, the candidate files, the logs, steps.csv, chosen.json and the bench gate tables are committed.
+experiment_results/swarm_tune/**/results.jsonl
+experiment_results/swarm_tune/**/gate.jsonl
+experiment_results/swarm_tune/swarm_tune.html

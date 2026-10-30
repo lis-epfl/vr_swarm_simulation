@@ -76,10 +76,22 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     - S4's Phase 2 walks flown in Unity reproduced H1 (+6.6 points against +6.8) and every time-to-find ratio within
       0.3%. Unity lost three times the drones (29 against 9 in 128 swarm walks): agreement on what is seen does not
       carry over to the costs.
+    - In BlockShapedPatchCityWorld (S6), twins flown from Unity's settled starts matched Unity's speed, cohesion,
+      surrounding and hull share within a few percent, and T3's contacts and losses exactly; at d_ref 1.2–1.6 under
+      the old gains the replica lost more drones than Unity (22 against 10 in 52 flights). The direction of the
+      collision error differs from city to city.
 
-    Run a Unity spot check of the cities a decision rests on, and read its costs separately. (S1, S3, S4)
+    Run a Unity spot check of the cities a decision rests on, and read its costs separately. (S1, S3, S4, S6)
 12. **The replica is 2-D**: every building blocks every sight line and nothing is lower than the drones; there is no
     street furniture, wind or attention. (S1, S2, S3)
+39. **Start a replica flight from a settled formation, as the bench does.** S6's first screens placed the open-sky
+    hover formation straight onto a city junction. Drones overlapping a building were pushed out to its far side, and
+    cohesion dragged them back through the facade in the first seconds: about 70% of the contacts at d_ref 1.8
+    (0.87 → 0.25 per km once fixed), more the bigger the formation. So those screens favoured narrow spreads and any
+    gain that shrinks the formation, and an apparent effect of the core's size was entirely the artifact. The bench
+    settles 15 s at zero stick and counts from there; `swarmtune.fly` now does too, from a formation shrunk to fit the
+    junction's streets. Before trusting a harness's contact or loss counts, locate the events in time (lesson 32): a
+    cluster in the first seconds is the start, not the flight. (S6)
 
 ## Statistics
 

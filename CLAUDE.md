@@ -1472,14 +1472,14 @@ status, dates), each study's page links, the code names, how to rebuild each pag
 work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
 output folders keep the code names, and so do the sections below.
 
-| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround |
-|---|---|---|---|---|---|
-| code name | the density study | the search study | the clutter study | the split study | the block-shaped study |
-| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) |
-| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) |
-| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` |
-| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` |
-| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) |
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning |
+|---|---|---|---|---|---|---|
+| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) |
 
 All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
 (source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
@@ -2016,6 +2016,8 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     the channels cross bring the median under 200 m but need one in nearly every junction and narrow almost all of
     them below 6 m for the cylinders; building the boundary blocks out to the arena edge only removes the straight
     730 m strip along its sides.
+  - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6, `d_obs` 0.16; below), unlike
+    BlockShapedCityWorld's, which keeps BlockCityWorld's profile.
 
 ## S5 Block-Shaped Surround: the block-shaped study
 
@@ -2036,6 +2038,42 @@ Invariants:
   streets). Step 1's first rule found nothing safe; its fallback pick is kept in `chosen.json` and not used (lesson 38).
 - **A footpath narrower than 3.5 m lets the circles close streets** (12% at 1.5 m, 33% with none), so S5's footpath
   arms measure that as much as the footpath itself; p 30 uses a 1.5 m footpath, since at 3.5 m almost no block is built.
+
+## S6 Patch City Tuning: BlockShapedPatchCityWorld's gains
+
+The spread and the swarm and obstacle gains for flying the swarm through BlockShapedPatchCityWorld by surrounding each
+building it meets and re-forming beyond it, with metrics for that. **[docs/swarm_tune/README.md](docs/swarm_tune/README.md)
+is the manual**; the code is `citysim/swarmtune.py`, the outputs `experiment_results/swarm_tune/`. Invariants:
+- **The scene's SwarmManager is S6's pick (T3): d_ref 2.0, `d_shield` 1.6 (was 2.5), `d_obs` 0.16 (was 0.4)**, every
+  other value as BlockCityWorld's profile left it (`a` 0.8, `r0_coh` 30). So in swarmtune, the replica and the bench a
+  candidate with no overrides is now T3: re-create the scene as it was with `d_shield=2.5,d_obs=0.4,d_ref=1.08`.
+  `swarmtune apply --cand <file> --label <L>` writes a candidate into the scene, those fields of that one component only.
+- **Why 2.0**: the formation's ring at hover is then 31 m across, as wide as a typical building's avoidance cylinder
+  (radius 15.4 m), so it closes round a building without stretching the lattice (94–98% of the buildings met are
+  surrounded). Below ~1.4 the formation is squeezed between the cylinders and drones collide: the scene's old 1.08 lost
+  1.7–1.9 drones per km (Unity: 32 in 64 flights). Wider than ~2.2 it no longer fits the 25 m between facades and spends
+  more of each flight in pieces.
+- **The RC's spread dial overrides `SwarmManager.d_ref` every frame** (input mode ANY; `rcjoy bridge --profile sim` maps
+  it to 0.4–1.6), so 2.0 is reachable only with `launch_sim_scripts.ps1 -SpreadRange 1.4,2.6` (the bridge's
+  `--ax-range`: the old sensitivity, centred on 2.0). The scene's value applies on the keyboard until A/D is pressed.
+- **The speed lever is `d_shield`, and its floor is ~1.6**: flown straight at a building a drone stalls (the shield
+  removes the stick into it and leaves nothing to slide it round), so the old 2.5 held even one drone to 4.0 m/s (its
+  longest stall 9–10 s a flight). 1.6 brakes later; below it drones arrive too fast and collide at the building (1.4: 0.2–0.5 lost
+  per km; 1.25: 2.2). The thinner `d_obs` keeps the two halves of the formation closer round a building and in the
+  streets the cylinders narrow. Both are shared with the single-drone condition, which gains more (4.0 → 5.0 m/s).
+- **The cost is building contacts, and they are the force law's, not a gain's**: every remaining contact is a straggler
+  on the far side of a building pulled through the facade by cohesion, which `RemoveInwardComponent` does not shield
+  (the stick and the damper only). T3 touches ~0.5 per km in Unity against the old 0.2, none fatal (DroneHealthMonitor
+  has no contact rule). `a` 0.72 (T4) brings them back to ~0.1 for ~4% of cohesive speed and more flights ending split;
+  it is the dial if contacts matter. Shielding cohesion would be the law change to try.
+- **Measured on settled starts only**: swarmtune shrinks the hover formation to fit the start junction and settles 15 s
+  at zero stick before counting, as the bench does. The first screens did not, and drones pushed out beyond a building
+  at the start were dragged back through it, biasing every count against wide spreads (lesson 39; `sweep1`, `search1`,
+  `grid1` and `baseline` are kept as a record, not used).
+- **The rule found no candidate safe** (all above 0.1 contacts per km) and picked T3 by its fallback, the penalised
+  score (`rule.json`, fixed before the sweep's results were read). Confirmation: ~104 km per candidate on fresh routes in
+  the scene's city and three held-out ones (seeds 2–4 of the same design, `layouts/sweep~/split/`); Unity: 64 flights per
+  set, the replica's twins matching it on every measure.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

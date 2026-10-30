@@ -1,0 +1,122 @@
+{
+ "404385359d": {
+  "over": {},
+  "d": 1.08,
+  "label": "scene gains @ 1.08 (the scene's d_ref)"
+ },
+ "single-1a08c05a10": {
+  "over": {},
+  "d": 1.08,
+  "label": "one drone, scene gains @ 1.08 (the scene's d_ref) gains"
+ },
+ "110c44ba9d": {
+  "over": {},
+  "d": 1.2,
+  "label": "scene gains @ 1.2 (S5's)"
+ },
+ "fde8c8a70d": {
+  "over": {},
+  "d": 1.6,
+  "label": "scene gains @ 1.6"
+ },
+ "aa45fac091": {
+  "over": {},
+  "d": 1.8,
+  "label": "scene gains @ 1.8"
+ },
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "scene gains @ 2.0"
+ },
+ "9d9eeaf697": {
+  "over": {
+   "d_shield": 1.8,
+   "d_obs": 0.16,
+   "a": 0.65
+  },
+  "d": 1.8,
+  "label": "T1: 1.8, shield 1.8, standoff 0.16, a 0.65"
+ },
+ "single-72781d71fe": {
+  "over": {
+   "d_shield": 1.8,
+   "d_obs": 0.16,
+   "a": 0.65
+  },
+  "d": 1.8,
+  "label": "one drone, T1: 1.8, shield 1.8, standoff 0.16, a 0.65 gains"
+ },
+ "98e755d1b9": {
+  "over": {
+   "d_shield": 1.8,
+   "d_obs": 0.2,
+   "a": 0.72
+  },
+  "d": 1.8,
+  "label": "T2: 1.8, shield 1.8, standoff 0.2, a 0.72"
+ },
+ "single-a6792aacd6": {
+  "over": {
+   "d_shield": 1.8,
+   "d_obs": 0.2,
+   "a": 0.72
+  },
+  "d": 1.8,
+  "label": "one drone, T2: 1.8, shield 1.8, standoff 0.2, a 0.72 gains"
+ },
+ "8ab0a00227": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "a": 0.8
+  },
+  "d": 2.0,
+  "label": "T3: 2.0, shield 1.6, standoff 0.16, a 0.8"
+ },
+ "single-16aafb239b": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "a": 0.8
+  },
+  "d": 2.0,
+  "label": "one drone, T3: 2.0, shield 1.6, standoff 0.16, a 0.8 gains"
+ },
+ "6a432c6f85": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "a": 0.72
+  },
+  "d": 2.0,
+  "label": "T4: 2.0, shield 1.6, standoff 0.16, a 0.72"
+ },
+ "single-de6d5e0124": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "a": 0.72
+  },
+  "d": 2.0,
+  "label": "one drone, T4: 2.0, shield 1.6, standoff 0.16, a 0.72 gains"
+ },
+ "4a9843444a": {
+  "over": {
+   "d_shield": 1.8,
+   "d_obs": 0.16,
+   "a": 0.72
+  },
+  "d": 1.6,
+  "label": "T5: 1.6, shield 1.8, standoff 0.16, a 0.72"
+ },
+ "single-13877f22df": {
+  "over": {
+   "d_shield": 1.8,
+   "d_obs": 0.16,
+   "a": 0.72
+  },
+  "d": 1.6,
+  "label": "one drone, T5: 1.6, shield 1.8, standoff 0.16, a 0.72 gains"
+ }
+}

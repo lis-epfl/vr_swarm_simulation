@@ -7,9 +7,11 @@
 # Usage:  .\launch_sim_scripts.ps1                        # finds the RC by itself
 #         .\launch_sim_scripts.ps1 -RcIP 192.168.100.50   # once, if it keeps "searching"
 #         .\launch_sim_scripts.ps1 -Asw Auto              # leave Oculus ASW on (see below)
+#         .\launch_sim_scripts.ps1 -SpreadRange 1.4,2.6   # the spread dial's d_ref range (see below)
 param(
     [string]$RcIP = '',
-    [ValidateSet('Off', 'Auto', 'Keep')][string]$Asw = 'Off'
+    [ValidateSet('Off', 'Auto', 'Keep')][string]$Asw = 'Off',
+    [ValidateCount(2, 2)][double[]]$SpreadRange
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,6 +58,10 @@ $EnvName   = 'stitching'
 
 # Without --rc the bridge tries the last RC this PC used, plus a broadcast on the switch.
 $rcArg = if ($RcIP) { " --rc $RcIP" } else { '' }
+# The right dial is the spread: Unity takes it as d_ref every frame (over SwarmManager.d_ref), linearly over the
+# sim profile's 0.4-1.6, centre 1.0. BlockShapedPatchCityWorld is tuned for 2.0 (S6), which that range cannot reach;
+# -SpreadRange 1.4,2.6 keeps the dial's sensitivity and puts its centre there.
+if ($SpreadRange) { $rcArg += " --ax-range $($SpreadRange[0]),$($SpreadRange[1])" }
 
 # Single Windows Terminal window, two vertical panes. `;` separates wt.exe
 # sub-commands, so the `;` INSIDE each PowerShell -Command is escaped as `\;`.

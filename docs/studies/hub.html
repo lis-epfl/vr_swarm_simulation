@@ -76,7 +76,7 @@ tr:last-child td { border-bottom: 0; }
     <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span></div>
   </header>
 
   <section>
@@ -189,6 +189,28 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+      <article class="study">
+        <header><span class="id">S6</span><h3>Patch City Tuning</h3><span class="was">the patch-city tuning · 30 Oct 2026</span><span class="status done">Done · applied to the scene</span></header>
+        <div>
+          <p class="q">How should the swarm be set up to move through BlockShapedPatchCityWorld: the spread that suits its buildings, and the obstacle-avoidance and swarm gains that let it surround each building it meets and close up again beyond it without breaking up? With measures for that, the headline being the speed made with the swarm together.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots flying straight lines and street routes at full stick; real pilots steer round buildings and stop to look.</li>
+            <li>The tuned swarm touches buildings 2.5 times as often (about once every 2 km in Unity). The simulation forgives contacts; what they would mean on real aircraft, and the force-law change that would remove them (shielding cohesion as the stick is shielded), are untested.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF#cities" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S6_patch_city_tuning.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The scene as it was lost drones at its own spread: 32 in 64 Unity flights at d_ref 1.08, drone-drone collisions in streets the avoidance circles narrow, and it surrounded only 67% of the buildings it met.</li>
+            <li>d_ref 2.0 fits these buildings: the formation's ring (31 m) is as wide as a building's avoidance circle, and it surrounds 98% of the buildings it meets.</li>
+            <li>Speed through the city was held back by the obstacle shield, for one drone too (4.0 m/s, stalling head-on against buildings). A shorter shield (1.6) and a thinner standoff (0.16) make the swarm 27% quicker while together in Unity, with the same losses as the old gains at that spread.</li>
+            <li>One drone shares the obstacle gains and gains as much (25%), so on these routes the two are now equally quick: the swarm's edge in the trials stays its cameras.</li>
+            <li>The new values are saved in the scene; fly it with the RC's spread dial centred on 2.0 (<code>launch_sim_scripts.ps1 -SpreadRange 1.4,2.6</code>). Its page replays 50 flights, Unity's beside the replica's.</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -215,7 +237,8 @@ tr:last-child td { border-bottom: 0; }
         <ol>
           <li><b>Scripted pilots are not people</b>; calibrate against a pilot block. <span class="tag">S1 S2</span></li>
           <li><b>Spread 0.4 loses drones in every model</b>; report per spread, consider a dial floor. <span class="tag">S1 S2 S3</span></li>
-          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3 S4</span></li>
+          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3 S4 S6</span></li>
+          <li><b>Start a replica flight from a settled formation</b>, as the bench does: S6's first screens counted start-up contacts as flight contacts and favoured narrow spreads. <span class="tag">S6</span></li>
           <li><b>Cities are the statistical units</b>; tests over walks overstate. <span class="tag">S3</span></li>
           <li><b>Pair every condition</b> on one intent chain from one start. <span class="tag">S2 S3</span></li>
           <li><b>Size a pass/fail run to its bar</b>, then confirm on fresh trials in fresh cities. <span class="tag">S4</span></li>
@@ -266,21 +289,22 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S3</b> City Roaming</td><td><code>docs/studies/S3_city_roaming.md</code></td><td><code>docs/clutter_study/</code></td><td><code>citysim/clutter.py</code>, <code>clutter_stats.py</code></td><td><code>experiment_results/clutter_study/clutter/</code></td></tr>
         <tr><td><b class="mono">S4</b> Split and Surround</td><td><code>docs/studies/S4_split_and_surround.md</code></td><td><code>docs/split_study/</code></td><td><code>citysim/split_probe.py</code>, <code>split.py</code></td><td><code>experiment_results/split_study/</code></td></tr>
         <tr><td><b class="mono">S5</b> Block-Shaped Surround</td><td><code>docs/studies/S5_block_shaped_surround.md</code></td><td><code>docs/shaped_study/</code></td><td><code>citysim/shaped.py</code></td><td><code>experiment_results/shaped_study/</code></td></tr>
+        <tr><td><b class="mono">S6</b> Patch City Tuning</td><td><code>docs/studies/S6_patch_city_tuning.md</code></td><td><code>docs/swarm_tune/</code></td><td><code>citysim/swarmtune.py</code></td><td><code>experiment_results/swarm_tune/</code></td></tr>
       </tbody>
     </table></div>
-    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped), so nothing that reads them broke.</p>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning), so nothing that reads them broke.</p>
   </section>
 
   <section>
     <h2>Starting a new study</h2>
     <ol class="steps">
       <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
-      <li>Take the next ID (S6), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S6_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Take the next ID (S7), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S7_&lt;slug&gt;.md</code> and add it to the table there.</li>
       <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
       <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
       <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>
     </ol>
   </section>
 
-  <footer class="foot">Last updated 29 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
+  <footer class="foot">Last updated 30 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
 </div>

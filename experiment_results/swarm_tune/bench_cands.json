@@ -1,0 +1,8 @@
+[
+ {"label": "scene_d1.08", "d": 1.08, "over": {}},
+ {"label": "scene_d1.8", "d": 1.8, "over": {}},
+ {"label": "scene_d2.0", "d": 2.0, "over": {}},
+ {"label": "T1_d1.8", "d": 1.8, "over": {"d_shield": 1.8, "d_obs": 0.16, "a": 0.65}},
+ {"label": "T2_d1.8", "d": 1.8, "over": {"d_shield": 1.8, "d_obs": 0.2, "a": 0.72}},
+ {"label": "T3_d2.0", "d": 2.0, "over": {"d_shield": 1.6, "d_obs": 0.16, "a": 0.8}}
+]

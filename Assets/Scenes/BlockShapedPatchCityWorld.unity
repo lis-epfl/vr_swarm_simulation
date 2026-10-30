@@ -353033,20 +353033,20 @@ MonoBehaviour:
   cohesionWeight: 0.8
   separationWeight: 16
   alignmentWeight: 0.5
-  d_ref: 1.08
+  d_ref: 2
   r0_coh: 30
   delta: 0.08
   a: 0.8
   b: 2.6
   gamma: 1
   c_vm: 0
-  d_obs: 0.4
+  d_obs: 0.16
   r0_obs: 5
   lambda_obs: 1
   c_obs: 14
   c2_beta: 1.6
   maxObstacleAccel: 4.57
-  d_shield: 2.5
+  d_shield: 1.6
   scaleFactor: 10
   hollowSwarmCore: 1
   coreRadiusFraction: 0.5

@@ -1,0 +1,12 @@
+[
+ {"label": "scene gains @ 1.08 (the scene's d_ref)", "d": 1.08, "over": {}},
+ {"label": "scene gains @ 1.2 (S5's)", "d": 1.2, "over": {}},
+ {"label": "scene gains @ 1.6", "d": 1.6, "over": {}},
+ {"label": "scene gains @ 1.8", "d": 1.8, "over": {}},
+ {"label": "scene gains @ 2.0", "d": 2.0, "over": {}},
+ {"label": "T1: 1.8, shield 1.8, standoff 0.16, a 0.65", "d": 1.8, "over": {"d_shield": 1.8, "d_obs": 0.16, "a": 0.65}},
+ {"label": "T2: 1.8, shield 1.8, standoff 0.2, a 0.72", "d": 1.8, "over": {"d_shield": 1.8, "d_obs": 0.2, "a": 0.72}},
+ {"label": "T3: 2.0, shield 1.6, standoff 0.16, a 0.8", "d": 2.0, "over": {"d_shield": 1.6, "d_obs": 0.16, "a": 0.8}},
+ {"label": "T4: 2.0, shield 1.6, standoff 0.16, a 0.72", "d": 2.0, "over": {"d_shield": 1.6, "d_obs": 0.16, "a": 0.72}},
+ {"label": "T5: 1.6, shield 1.8, standoff 0.16, a 0.72", "d": 1.6, "over": {"d_shield": 1.8, "d_obs": 0.16, "a": 0.72}}
+]

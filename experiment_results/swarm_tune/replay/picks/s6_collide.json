@@ -1,0 +1,35 @@
+{
+ "pick": {
+  "key": "s6_collide",
+  "kind": "cross",
+  "k": 2005,
+  "title": "Failure: drones collide at the old spread",
+  "first": "old108",
+  "met": 5,
+  "why": "the route where the swarm as it was lost the most drones in Unity (6)"
+ },
+ "flights": {
+  "single_new": [
+   "s6_collide_single_new_replica",
+   "s6_collide_single_new_unity"
+  ],
+  "single_old": [
+   "s6_collide_single_old_replica",
+   "s6_collide_single_old_unity"
+  ],
+  "tuned": [
+   "s6_collide_tuned_replica",
+   "s6_collide_tuned_unity"
+  ],
+  "old108": [
+   "s6_collide_old108_replica",
+   "s6_collide_old108_unity"
+  ],
+  "old20": [
+   "s6_collide_old20_replica",
+   "s6_collide_old20_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

@@ -1,0 +1,16 @@
+[
+ {
+  "label": "scene_gains",
+  "d": 1.08,
+  "over": {}
+ },
+ {
+  "label": "T3_gains",
+  "d": 2.0,
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "a": 0.8
+  }
+ }
+]

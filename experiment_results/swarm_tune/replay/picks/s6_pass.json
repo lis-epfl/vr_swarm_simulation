@@ -1,0 +1,35 @@
+{
+ "pick": {
+  "key": "s6_pass",
+  "kind": "pass",
+  "k": 2011,
+  "title": "Through one block",
+  "first": "tuned",
+  "why": "the typical block (of those where a building is met): its tuned-minus-old difference (1.01 m/s) is the nearest to the median of its kind (1.03 m/s, 20 routes)",
+  "met": 1
+ },
+ "flights": {
+  "single_new": [
+   "s6_pass_single_new_replica",
+   "s6_pass_single_new_unity"
+  ],
+  "single_old": [
+   "s6_pass_single_old_replica",
+   "s6_pass_single_old_unity"
+  ],
+  "tuned": [
+   "s6_pass_tuned_replica",
+   "s6_pass_tuned_unity"
+  ],
+  "old108": [
+   "s6_pass_old108_replica",
+   "s6_pass_old108_unity"
+  ],
+  "old20": [
+   "s6_pass_old20_replica",
+   "s6_pass_old20_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

@@ -1,0 +1,35 @@
+{
+ "pick": {
+  "key": "s6_street",
+  "kind": "street",
+  "k": 2000,
+  "title": "Along the streets",
+  "first": "tuned",
+  "why": "the typical street route: its tuned-minus-old difference (1.00 m/s) is the nearest to the median of its kind (0.82 m/s, 14 routes)",
+  "met": 0
+ },
+ "flights": {
+  "single_new": [
+   "s6_street_single_new_replica",
+   "s6_street_single_new_unity"
+  ],
+  "single_old": [
+   "s6_street_single_old_replica",
+   "s6_street_single_old_unity"
+  ],
+  "old108": [
+   "s6_street_old108_replica",
+   "s6_street_old108_unity"
+  ],
+  "tuned": [
+   "s6_street_tuned_replica",
+   "s6_street_tuned_unity"
+  ],
+  "old20": [
+   "s6_street_old20_replica",
+   "s6_street_old20_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

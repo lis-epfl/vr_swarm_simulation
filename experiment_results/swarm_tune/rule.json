@@ -1,0 +1,9 @@
+{
+ "fixed": "2026-10-30 11:10, before the sensitivity sweep's results were read (the random search's first 26 candidates had been seen)",
+ "applied_to": "the confirmation run: fresh routes (k from 1000) in the scene's city (seed 1) and three held-out cities of the same design (seeds 2-4)",
+ "safe": {"lost_per_km_max": 0.05, "contacts_per_km_max": 0.1, "open_end_share_max": 0.05, "hull_share_min": 0.5,
+          "over": "cross, pass and street flights together"},
+ "pick": "among safe candidates, the highest mean cohesive speed (v_coh = progress speed x share of the flight as one group) over cross and pass flights",
+ "fallback": "none safe: the highest penalised score, v_coh - 2.0 x lost/km - 0.5 x contacts/km - 4.0 x open-end share",
+ "also_reported": ["spread steps about the pick's d_ref (expand/contract t90, overshoot)", "Unity bench of the pick against the scene's gains"]
+}

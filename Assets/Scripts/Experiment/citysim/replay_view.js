@@ -323,7 +323,7 @@ const RV = (() => {
           ${hasUnity ? `<div class="seg rv-src" style="margin-top:6px"><button type="button" aria-pressed="true" data-s="replica">The replica</button><button type="button" aria-pressed="false" data-s="unity">Unity (headless bench)</button></div>` : ""}`;
         picks.querySelectorAll(".rv-conds button").forEach(b => b.addEventListener("click", () => pickCond(b.dataset.c, entry ? entry.source : "replica")));
         picks.querySelectorAll(".rv-src button").forEach(b => b.addEventListener("click", () => pickCond(entry ? entry.cond : conds[0], b.dataset.s)));
-        pickCond(keep ? keep.cond : (conds.includes("swarm_hop") ? "swarm_hop" : conds[0]), keep ? keep.source : "replica");
+        pickCond(keep ? keep.cond : (G.first && conds.includes(G.first) ? G.first : conds.includes("swarm_hop") ? "swarm_hop" : conds[0]), keep ? keep.source : "replica");
       }
     }
     function pickCond(cond, source) {
@@ -383,7 +383,7 @@ const RV = (() => {
         `<span><b style="color:var(--bad);margin-right:5px">×</b>drone lost</span>`,
         F.contacts.length ? `<span><span class="sw" style="background:var(--warn);width:7px;height:7px;transform:rotate(45deg)"></span>building contact</span>` : "",
         F.target ? `<span>★ the target (dashed: ${findM(F)} m)</span>` : "",
-        OTHER ? `<span><span class="sw" style="background:transparent;border:1.5px solid var(--ink-2);width:9px;height:9px"></span>${OTHER.source === "unity" ? "Unity's" : "the replica's"} flight of the same ${F.kind === "search" ? "route" : "walk"}</span>` : ""];
+        OTHER ? `<span><span class="sw" style="background:transparent;border:1.5px solid var(--ink-2);width:9px;height:9px"></span>${OTHER.source === "unity" ? "Unity's" : "the replica's"} flight of the same ${F.unit || (F.kind === "search" ? "route" : "walk")}</span>` : ""];
       $(".rv-legend").innerHTML = items.filter(Boolean).join("");
     }
 
