@@ -57,6 +57,9 @@ a { color: var(--swarm); }
 /* masthead */
 .masthead { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 28px; padding-block: 28px 22px; align-items: start; }
 .lead { font-size: 1.04rem; color: var(--ink-2); margin-top: 0.7rem; }
+.back { display: inline-block; margin: 0 0 12px; font: 500 0.88rem/1.2 var(--font-body); color: var(--ink-2); text-decoration: none; }
+.back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.back:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
 .picks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .pick { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 12px 10px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 4px; min-width: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
 .pick:hover { border-color: var(--muted); }
@@ -212,10 +215,11 @@ tr:last-child td { border-bottom: 0; }
 <div class="wrap">
   <header class="masthead">
     <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
       <p class="eyebrow">Study S1 · formerly the density study · ten-drone swarm against one drone</p>
       <h1>S1 Goal Visibility</h1>
       <p class="lead">Which cities make the swarm better, or worse, than a single drone at spotting one person in a hat among sixty-four walkers? The study generated cities with controlled clutter and goal layouts, predicted what each interface sees with four tiers of model, and picked three trial levels with a rule fixed in advance. These are the three it picked.</p>
-      <p class="note">One of the studies in the <a href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a>: S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming. Its code and output folders keep the name "density".</p>
+      <p class="note">One of the studies in the <a href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a>: S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming, S4 Split and Surround. Its code and output folders keep the name "density".</p>
     </div>
     <div class="picks" id="picks"></div>
     <div class="gates" id="gates"></div>

@@ -61,6 +61,9 @@ a { color: var(--swarm); }
 
 .masthead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 28px; padding-block: 28px 22px; align-items: start; }
 .lead { font-size: 1.04rem; color: var(--ink-2); margin-top: 0.7rem; }
+.back { display: inline-block; margin: 0 0 12px; font: 500 0.88rem/1.2 var(--font-body); color: var(--ink-2); text-decoration: none; }
+.back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.back:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .chip { display: inline-flex; align-items: baseline; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 0.84rem; color: var(--ink-2); }
 .chip b { font: 600 0.92rem var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -158,10 +161,11 @@ canvas { display: block; width: 100%; }
 <div class="wrap">
   <header class="masthead">
     <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
       <p class="eyebrow">Study S3 · formerly the clutter study · ten-drone swarm against one drone</p>
       <h1>S3 City Roaming</h1>
       <p class="lead" id="lead">How much more does the swarm see than one drone, and where does that stop? Random walks with no task through generated Voronoi cities that vary the block size and how much of the ground is built on, flown by the single drone and by the swarm at three spreads, every condition of a walk on the same path of intent from the same start.</p>
-      <p class="note">One of the studies in the <a href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a>: S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming. Its code and output folders keep the name "clutter".</p>
+      <p class="note">One of the studies in the <a href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a>: S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming, S4 Split and Surround. Its code and output folders keep the name "clutter".</p>
       <div class="chips" id="chips"></div>
     </div>
     <section class="findings" aria-labelledby="f-h">

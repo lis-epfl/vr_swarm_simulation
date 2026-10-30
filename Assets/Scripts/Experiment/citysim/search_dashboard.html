@@ -4,6 +4,8 @@
   .s2 h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
   .s2 p { margin: 0; max-width: 72ch; }
   .s2-head { display: grid; gap: var(--cds-gap-sm); }
+  .s2-back { justify-self: start; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); text-decoration: none; }
+  .s2-back:hover { color: var(--color-fg); text-decoration: underline; text-underline-offset: 3px; }
   .s2-take { color: var(--color-fg-muted); font-size: var(--cds-font-size-body); line-height: 1.5; }
   .s2-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--cds-gap-md); }
   .s2-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-sm); align-content: start; min-width: 0; }
@@ -39,6 +41,7 @@
 
 <div class="s2">
   <header class="s2-head" id="top">
+    <a class="s2-back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
     <h1>S2 Hidden Goal Search</h1>
     <p class="s2-take" id="takeaway">With its formation at spread 1.0, the swarm needed <span class="dash-skeleton" data-source="headline" data-field="value" data-where="item=rw_min">—</span>–<span class="dash-skeleton" data-source="headline" data-field="value" data-where="item=rw_max">—</span> of the single drone's time to find a goal whose position it did not know (random walker, any screen, first sight within 80 m). A swarm steered like one drone did as well, except in the packed C2 city, so the gain is its cameras, not its morphing round buildings.</p>
   </header>
