@@ -1,0 +1,202 @@
+{
+ "078d79ab88": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16
+  },
+  "d": 2.0,
+  "label": "T3"
+ },
+ "4704e5445b": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_mode": "lookahead"
+  },
+  "d": 2.0,
+  "label": "look-ahead shield"
+ },
+ "d591b9b5a1": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_slide": 1.0
+  },
+  "d": 2.0,
+  "label": "slide 1.0"
+ },
+ "2017a47903": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_slide": 0.5
+  },
+  "d": 2.0,
+  "label": "slide 0.5"
+ },
+ "e5ffb32099": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_mode": "lookahead",
+   "x:shield_slide": 0.5
+  },
+  "d": 2.0,
+  "label": "look-ahead + slide 0.5"
+ },
+ "395b28c0be": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:cohesion_shield": true
+  },
+  "d": 2.0,
+  "label": "cohesion shield"
+ },
+ "2c2de55b56": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:cohesion_shield": true,
+   "a": 1.0
+  },
+  "d": 2.0,
+  "label": "cohesion shield + a 1.0"
+ },
+ "e4f8a7aaff": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:aniso": 1.3
+  },
+  "d": 2.0,
+  "label": "stretched 1.3"
+ },
+ "2d460c0a82": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:aniso": 1.6
+  },
+  "d": 2.0,
+  "label": "stretched 1.6"
+ },
+ "11e0c5c7ba": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_mode": "lookahead",
+   "x:cohesion_shield": true,
+   "a": 1.0
+  },
+  "d": 2.0,
+  "label": "look-ahead + cohesion shield + a 1.0"
+ },
+ "b343f649a7": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_mode": "lookahead",
+   "x:shield_slide": 0.5,
+   "x:cohesion_shield": true,
+   "a": 1.0
+  },
+  "d": 2.0,
+  "label": "look-ahead + slide 0.5 + cohesion shield + a 1.0"
+ },
+ "d5fdc8341f": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:aniso": 1.2
+  },
+  "d": 2.0,
+  "label": "stretched 1.2"
+ },
+ "4ad8007145": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_slide": 0.25
+  },
+  "d": 2.0,
+  "label": "slide 0.25"
+ },
+ "648bfd3053": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:shield_mode": "lookahead",
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "look-ahead + damper"
+ },
+ "3a2e9c2915": {
+  "over": {
+   "d_shield": 2.0,
+   "d_obs": 0.16,
+   "x:shield_mode": "lookahead"
+  },
+  "d": 2.0,
+  "label": "look-ahead, shield 2.0"
+ },
+ "90b198c9eb": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:aniso": 1.3,
+   "x:shield_mode": "lookahead"
+  },
+  "d": 2.0,
+  "label": "stretched 1.3 + look-ahead"
+ },
+ "3706291faf": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:aniso": 1.3,
+   "x:shield_mode": "lookahead",
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "stretched 1.3 + look-ahead + damper"
+ },
+ "c4a3f787da": {
+  "over": {
+   "d_shield": 2.0,
+   "d_obs": 0.16,
+   "x:aniso": 1.3,
+   "x:shield_mode": "lookahead"
+  },
+  "d": 2.0,
+  "label": "stretched 1.3 + look-ahead, shield 2.0"
+ },
+ "aa80e02e9b": {
+  "over": {
+   "d_shield": 2.0,
+   "d_obs": 0.16,
+   "x:aniso": 1.3,
+   "x:shield_mode": "lookahead",
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "stretched 1.3 + look-ahead + damper, shield 2.0"
+ },
+ "2e2fd08963": {
+  "over": {
+   "d_shield": 1.6,
+   "d_obs": 0.16,
+   "x:aniso": 1.3,
+   "x:shield_mode": "lookahead",
+   "c_damp": 4.0,
+   "d_damp": 0.5,
+   "x:shield_slide": 0.25
+  },
+  "d": 2.0,
+  "label": "stretched 1.3 + look-ahead + damper + slide 0.25"
+ }
+}

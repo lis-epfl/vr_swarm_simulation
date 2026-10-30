@@ -88,6 +88,7 @@ FORCE_LAW_FILES = [
 SMALL_DREF = 0.45      # "the tightest spread": the stick's minimum is 0.4
 PAIR_KILL_M = 0.5      # centre distance at which two drones are lost together
 DRONE_HALF_M = 0.25    # added to a building footprint for the building-kill test
+LOOKAHEAD_MARGIN_M = 1.0   # S6's look-ahead shield: a stick line passing this close to a cylinder counts as a hit
 QUERY_EVERY = 10       # ticks between refreshes of the buildings worth querying
 QUERY_MARGIN_M = 60.0  # how far beyond OverlapSphere's reach those are taken from
 
@@ -180,15 +181,31 @@ class Model:
     `extras` holds options the replica has and the C# does not (yet), so they are not SwarmManager fields and
     swarm_params cannot validate them: obstacle_model "cylinder" (OlfatiSaber's, the default) or "closest" (the split
     study's Phase 1: the beta-agent at the true closest point of the footprint, with face_bend tilting a face's normal
-    away from the building's centre so an off-centre approach still slides, as on a cylinder)."""
+    away from the building's centre so an off-centre approach still slides, as on a cylinder).
+
+    S6's prototypes (citysim.swarmtune, replica only; each off by default, and off the law is unchanged bit for bit):
+      shield_mode      "proximity" (OlfatiSaber's: the stick's inward part is faded out for every building within
+                       d_shield) or "lookahead" (only for a building the stick's line would hit, faded in by the distance
+                       to that hit, so passing beside a building costs nothing)
+      shield_slide     0..1: that share of the stick the shield removes is turned sideways instead, away from the
+                       building's centre (on the formation's side of it when head on), so a drone flows round
+      cohesion_shield  cohesion's part pointing into a building within d_shield removed, as the stick's is
+      aniso            k >= 1: cohesion measures the across-track part of each separation k times longer (the track is
+                       the pilot's stick), so the formation settles narrower across the street by k"""
 
     def __init__(self, swarm, air, extras=None):
         self.swarm, self.air = swarm, air
         extras = dict(extras or {})
         self.obstacle_model = extras.pop("obstacle_model", "cylinder")
         self.face_bend = float(extras.pop("face_bend", 0.0))
+        self.shield_mode = extras.pop("shield_mode", "proximity")
+        self.shield_slide = float(extras.pop("shield_slide", 0.0))
+        self.cohesion_shield = bool(extras.pop("cohesion_shield", False))
+        self.aniso = float(extras.pop("aniso", 1.0))
         if self.obstacle_model not in OBSTACLE_MODELS:
             raise ValueError(f"obstacle_model {self.obstacle_model!r}: one of {OBSTACLE_MODELS}")
+        if self.shield_mode not in ("proximity", "lookahead"):
+            raise ValueError(f"shield_mode {self.shield_mode!r}: proximity or lookahead")
         if extras:
             raise ValueError(f"unknown replica extras {sorted(extras)}")
         if swarm["swarmAlgorithm"] != 2:
@@ -427,7 +444,22 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
     pair = ~np.eye(n, dtype=bool) & (dist > 0)
     unit = np.where(pair[..., None], D / np.where(pair, dist, 1.0)[..., None], 0.0)
     r = dist / S
-    coh = (np.where(pair, cohesion(r, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)[..., None] * unit).sum(1)
+    cmdv = np.asarray(cmd, float)
+    cn = float(np.linalg.norm(cmdv))
+    if m.aniso > 1.0 and cn > 1e-9:
+        # S6 prototype: the across-track part of each separation counts k times (the track is the stick's), so the
+        # lattice settles k times narrower across the street; the pull acts along that metric's gradient
+        u = cmdv / cn
+        nv = np.array([-u[1], u[0]])
+        al, cr = D @ u, D @ nv
+        k2 = m.aniso * m.aniso
+        g = al[..., None] * u + (k2 * cr)[..., None] * nv
+        gn = np.linalg.norm(g, axis=-1)
+        gdir = np.where(pair[..., None], g / np.where(gn > 1e-12, gn, 1.0)[..., None], 0.0)
+        reff = np.sqrt(al * al + k2 * cr * cr) / S
+        coh = (np.where(pair, cohesion(reff, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)[..., None] * gdir).sum(1)
+    else:
+        coh = (np.where(pair, cohesion(r, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)[..., None] * unit).sum(1)
     vc = m.c_vm * (Vm[None, :, :] - Vm[:, None, :]).sum(1)
     damp = zero
     if m.c_damp > 0:
@@ -436,7 +468,7 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
         damp = (w[..., None] * unit).sum(1)
 
     # ---- obstacles: beta-agents on each building's cylinder, and the shield's frames
-    obs, prox, shield = zero, np.zeros(n), []
+    obs, prox, shield, shield_cmd = zero, np.zeros(n), [], None
     if len(cand) and m.obstacle_model == "closest":
         # Replica only (the split study, Phase 1): the beta-agent on the footprint's true closest point. Distance is
         # to the facade, mu = 1 (a wall's beta-agent moves with the drone's tangential velocity), and face_bend tilts
@@ -479,6 +511,19 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
             ws = bump(dd, m.d_shield, dl) * (found & (dd < m.d_shield))
             for k in np.flatnonzero(ws.max(0) > 0):
                 shield.append((ws[:, k], out[:, k]))
+            if m.shield_mode == "lookahead" and m.obstacle_model == "cylinder" and cn > 1e-9:
+                # S6 prototype: the stick is shielded only from a building its line would hit, faded in by the
+                # distance to that hit, so a drone passing beside a building keeps its whole stick
+                u = cmdv / cn
+                wv = -rel                                                     # drone to building centre
+                along = (wv * u).sum(-1)
+                lat2 = np.maximum((wv * wv).sum(-1) - along * along, 0.0)
+                Rm = R + LOOKAHEAD_MARGIN_M
+                inside = rho < Rm
+                hit = inside | ((along > 0) & (lat2 < Rm * Rm))
+                d_hit = np.where(inside, 0.0, np.maximum(along - np.sqrt(np.maximum(Rm * Rm - lat2, 0.0)), 0.0))
+                wl = bump(d_hit / S, m.d_shield, dl) * (found & hit)
+                shield_cmd = [(wl[:, k], out[:, k]) for k in np.flatnonzero(wl.max(0) > 0)]
 
     # ---- hollow core: a virtual beta-agent cylinder on the centroid, moving with the swarm
     core = zero
@@ -500,7 +545,25 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
 
     damp_raw = damp
     damp = remove_inward(sat(damp, m.max_damp), shield)
-    shielded = remove_inward(np.broadcast_to(np.asarray(cmd, float), (n, 2)).copy(), shield)
+    frames = shield if shield_cmd is None else shield_cmd
+    shielded = remove_inward(np.broadcast_to(cmdv, (n, 2)).copy(), frames)
+    if m.shield_slide > 0 and frames and cn > 1e-9:
+        # S6 prototype: the removed part turned sideways, away from the building's centre across the track (on the
+        # drone's side of the formation when head on), and the result held to the stick's length
+        u = cmdv / cn
+        nv = np.array([-u[1], u[0]])
+        side = np.sign(((Pm - cen) @ nv))
+        side = np.where(side == 0, 1.0, side)
+        add = np.zeros((n, 2))
+        for w, out in frames:
+            inward = np.maximum(-(out @ cmdv), 0.0)
+            perp = out - (out @ u)[:, None] * u
+            pn = np.linalg.norm(perp, axis=1)
+            pdir = np.where((pn > 0.15)[:, None], perp / np.maximum(pn, 1e-9)[:, None], side[:, None] * nv)
+            add += (m.shield_slide * w * inward)[:, None] * pdir
+        shielded = clamp_norm(shielded + add, cn)
+    if m.cohesion_shield:
+        coh = remove_inward(coh, shield)
     return dict(vc=vc, coh=coh, damp=damp, damp_raw=damp_raw, obs=obs, core=core, cmd=shielded, prox=prox)
 
 

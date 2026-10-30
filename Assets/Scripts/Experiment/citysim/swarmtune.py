@@ -141,18 +141,27 @@ def city(seed):
     return _CITY[P.ident()]
 
 
+def split_over(over):
+    """(SwarmManager overrides, replica extras): a key `x:<name>` is a swarm_replica.Model extra, a prototype the C#
+    does not have (shield_mode, shield_slide, cohesion_shield, aniso); the bench cannot fly those."""
+    return ({k: v for k, v in over.items() if not k.startswith("x:")},
+            {k[2:]: v for k, v in over.items() if k.startswith("x:")})
+
+
 def model(over):
     key = json.dumps(over, sort_keys=True)
     if key not in _MODEL:
         formation.check()
-        _MODEL[key] = rep.Model(dict(sp.resolve_swarm(SCENE, overrides=over)), dict(sp.resolve_airframe()))
+        swarm, extras = split_over(over)
+        _MODEL[key] = rep.Model(dict(sp.resolve_swarm(SCENE, overrides=swarm)), dict(sp.resolve_airframe()), extras)
     return _MODEL[key]
 
 
 def template(d, seed, over):
-    key = (round(d, 3), seed % 5, json.dumps(over, sort_keys=True))
+    swarm, _ = split_over(over)
+    key = (round(d, 3), seed % 5, json.dumps(swarm, sort_keys=True))
     if key not in _TEMPLATE:
-        _TEMPLATE[key] = formation.hover_template(d, N_DRONES, seed % 5, SCENE, overrides=over)[0]
+        _TEMPLATE[key] = formation.hover_template(d, N_DRONES, seed % 5, SCENE, overrides=swarm)[0]
     return _TEMPLATE[key]
 
 
