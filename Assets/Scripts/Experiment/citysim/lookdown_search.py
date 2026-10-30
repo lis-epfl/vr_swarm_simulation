@@ -40,6 +40,7 @@ import json  # noqa: E402
 import math  # noqa: E402
 import time  # noqa: E402
 import traceback  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -83,11 +84,13 @@ def set_sight(spec):
 _CTX = {}
 
 
-def context(p, s, seed):
-    key = (p, s, seed)
+def context(p, s, seed, city=None):
+    """The search's city: S4's variant R, or the blockcity design a spec names under "city" (S5)."""
+    P = blockcity.Params(**dict(city, p=p, s=s, seed=seed)) if city else blockcity.Params("R", p, s, seed)
+    key = P.ident()
     if key not in _CTX:
         _CTX.clear()
-        C = dict(LD.city_targets(S.city("R", p, s, seed)))
+        C = dict(LD.city_targets(S.city_from(P)))
         net = C["net"]
         rings = C["ld_rings"]
         C["fp_pts"] = np.vstack(rings) if rings else np.zeros((0, 2))
@@ -189,6 +192,9 @@ def place_target(C, start_j, rng, tries=400):
 def settings_for(cond, spec, p, s):
     """(split condition, setting, block spread) of one Part B condition at one design."""
     base = dict(S.DEFAULT_SETTING, **LD.BASE)
+    ds = spec.get("d_street")                     # S5: one spread for the streets and the block
+    if ds:
+        base["d_street"] = float(ds)
     ch = spec["chosen"][f"{p:g}|{s:g}"]
     if cond == "single":
         return "single", base, base["d_street"]
@@ -199,7 +205,7 @@ def settings_for(cond, spec, p, s):
     if cond == "swarm_pass":
         return "swarm_pass", base, ch["d"]
     if cond == "swarm_hop":
-        return "swarm_hop", LD.setting("hop", ch["mode"], ch["T"]), ch["d"]
+        return "swarm_hop", LD.setting("hop", ch["mode"], ch["T"], ds), ch["d"]
     if cond == "swarm_hop_p2":
         return "swarm_hop", LD.setting("hop", "aim", 6.0), P2_DSTAR[(p, s)]
     raise ValueError(cond)
@@ -278,7 +284,7 @@ def run_job(j):
                 T_s=float(j["T_s"]))
     try:
         set_sight(j["spec"])
-        C = context(j["p"], j["s"], j["city_seed"])
+        C = context(j["p"], j["s"], j["city_seed"], j["spec"].get("city"))
         rng = np.random.default_rng(job_seed(j["p"], j["s"], j["city_seed"], j["target_i"]))
         seed = int(rng.integers(1 << 30))
         start = S.pick(C["net"], rng)
@@ -288,7 +294,7 @@ def run_job(j):
         if target is None:
             return dict(base, skipped=True, why="no target")
         rows = [search_flight(c, C, start, target, j["spec"], j["p"], j["s"], seed, float(j["T_s"]))
-                for c in CONDITIONS]
+                for c in j["spec"].get("conditions", CONDITIONS)]
         return dict(base, rows=rows, target=[round(float(x), 2) for x in target], wall_s=round(time.time() - t0, 1))
     except Exception as e:
         return dict(base, error=repr(e), trace=traceback.format_exc()[-2500:], wall_s=round(time.time() - t0, 1))
@@ -385,10 +391,10 @@ def cmd_search(a):
     LD._log(run_dir, f"search finished in {(time.time() - t0) / 60:.1f} min")
 
 
-def read(name):
+def read(name, root=None):
     import pandas as pd
     by = {}
-    for line in (OUT_ROOT / name / "results.jsonl").read_text(encoding="utf-8").splitlines():
+    for line in (Path(root or OUT_ROOT) / name / "results.jsonl").read_text(encoding="utf-8").splitlines():
         try:
             r = json.loads(line)
         except json.JSONDecodeError:

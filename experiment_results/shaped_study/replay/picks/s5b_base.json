@@ -1,0 +1,26 @@
+{
+ "pick": {
+  "key": "s5b_base",
+  "design": "base",
+  "p": 40.0,
+  "s": 18.0,
+  "city_seed": 205,
+  "i": 0,
+  "title": "Search for a goal at a building: the scene's city",
+  "ratio": 1.457070707070707,
+  "median_ratio": 1.4523452585152574
+ },
+ "identical": true,
+ "flights": [
+  "s5b_base_single_replica",
+  "s5b_base_swarm_street_replica",
+  "s5b_base_swarm_hold_replica",
+  "s5b_base_swarm_pass_replica",
+  "s5b_base_swarm_hop_replica"
+ ],
+ "target": [
+  -295.53,
+  -110.1
+ ],
+ "wall_s": 266.3
+}

@@ -303,7 +303,9 @@ class PolyCity:
     one taller than the drones, so only the footprint counts. c and R are what OlfatiSaber's cylinder would take
     from the collider's bounds (the AABB centre and circumradius), for the "cylinder" obstacle model and the
     candidate query; distance, footprint_hit and push_out use the true polygon, as PhysX does, and closest() gives
-    the "closest" model its beta-agents. Replica only: the C# builds no prism yet."""
+    the "closest" model its beta-agents. BlockShapedCityWorld (2026-10-28) builds prisms as convex MeshColliders, which
+    OlfatiSaber avoids through the same AABB cylinder, so the default "cylinder" model here is Unity's (S5 flies it);
+    "closest" exists in the replica only."""
 
     def __init__(self, polys):
         polys = [np.asarray(p, float) for p in polys]

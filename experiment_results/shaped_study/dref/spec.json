@@ -1,0 +1,31 @@
+{
+ "step": "d_ref",
+ "design": "base",
+ "d_grid": [
+  0.8,
+  1.0,
+  1.2,
+  1.4,
+  1.6,
+  1.8,
+  2.2
+ ],
+ "T_grid": [
+  6.0,
+  12.0,
+  20.0
+ ],
+ "trials": 30,
+ "city_seeds": [
+  0,
+  1,
+  2
+ ],
+ "sight_m": 250.0,
+ "rule": {
+  "lost": 0.03,
+  "contacts": 0.1,
+  "reform": 0.9,
+  "enclose": 0.7
+ }
+}

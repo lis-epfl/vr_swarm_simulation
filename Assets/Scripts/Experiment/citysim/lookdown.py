@@ -45,6 +45,7 @@ import json  # noqa: E402
 import math  # noqa: E402
 import time  # noqa: E402
 import traceback  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -200,8 +201,10 @@ def conditions(T_grid=T_GRID):
     return out
 
 
-def setting(cond, mode, T):
+def setting(cond, mode, T, d_street=None):
     st = dict(S.DEFAULT_SETTING, **BASE)
+    if d_street:                                   # S5: one spread for the whole flight, the streets too
+        st["d_street"] = float(d_street)
     if T is not None:
         st["t_hop"] = float(T)
     if cond == "hop":
@@ -224,8 +227,8 @@ def flight_wps(cond, C, tr, st, db):
     return wps, dict(arrive=arrive, commit=commit, next=len(wps) - 1)
 
 
-def fly_condition(C, tr, cond, mode, T, db, seed):
-    st = setting(cond, mode, T)
+def fly_condition(C, tr, cond, mode, T, db, seed, d_street=None):
+    st = setting(cond, mode, T, d_street)
     wps, idx = flight_wps(cond, C, tr, st, db)
     m = S.model(st, "R")
     if cond in ("single", "single_look"):
@@ -280,7 +283,22 @@ def trial_seed(p, s, city_seed, trial):
     return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "little")
 
 
+def job_params(j):
+    """The job's city: S4's variant R at its p and s, or any blockcity design a job names under "city" (S5: its
+    variant, footpath width, tessellation; p, s and the seed are the job's own)."""
+    from citysim import blockcity
+    c = j.get("city")
+    if not c:
+        return blockcity.Params("R", j["p"], j["s"], j["city_seed"])
+    return blockcity.Params(**dict(c, p=j["p"], s=j["s"], seed=j["city_seed"]))
+
+
 def job_id(j):
+    if j.get("city"):                                 # S5: the design's id names footpath and tessellation
+        tag = job_params(j).ident().rsplit("_seed", 1)[0]
+        if j.get("single"):
+            return f"A1|{tag}|seed{j['city_seed']}|{j['trial']}"
+        return f"A|{tag}|seed{j['city_seed']}|{j['trial']}|d{j['d']:g}"
     if j.get("single"):
         return f"A1|p{j['p']:g}_s{j['s']:g}|seed{j['city_seed']}|{j['trial']}"
     return f"A|p{j['p']:g}_s{j['s']:g}|seed{j['city_seed']}|{j['trial']}|d{j['d']:g}"
@@ -291,8 +309,10 @@ def run_job(j):
     the lone drone's two conditions over that trial instead (no spread: d is None)."""
     t0 = time.time()
     base = dict(job_id=job_id(j), p=j["p"], s=j["s"], city_seed=j["city_seed"], trial=j["trial"], d=j.get("d"))
+    if j.get("city"):
+        base["design"] = j.get("design") or job_params(j).ident().rsplit("_seed", 1)[0]
     try:
-        C = city_targets(S.city("R", j["p"], j["s"], j["city_seed"]))
+        C = city_targets(S.city_from(job_params(j)))
         rng = np.random.default_rng(trial_seed(j["p"], j["s"], j["city_seed"], j["trial"]))
         seed = int(rng.integers(1 << 30))
         tr = trial_geometry(C, rng)
@@ -301,9 +321,10 @@ def run_job(j):
         cands = S.candidates(C["net"], tr)
         info, pts = street_points(C, cands)
         rows = []
-        conds = SINGLE_CONDS if j.get("single") else conditions(j.get("T_grid", T_GRID))
+        conds = SINGLE_CONDS if j.get("single") else (
+            [tuple(c) for c in j["conds"]] if j.get("conds") else conditions(j.get("T_grid", T_GRID)))
         for cond, mode, T in conds:
-            f, idx, st, n0 = fly_condition(C, tr, cond, mode, T, j.get("d", 1.0), seed)
+            f, idx, st, n0 = fly_condition(C, tr, cond, mode, T, j.get("d", 1.0), seed, j.get("d_street"))
             r = score_condition(C, tr, f, idx, n0, info, pts, cond, float(j.get("look_range", LOOK_RANGE_M)))
             rows.append(dict(cond=cond, mode=mode, T=T,
                              d_block=float(j["d"]) if cond not in ("street", "single", "single_look") else None,
@@ -395,11 +416,12 @@ def _log(out, msg):
 
 # ============================================================================= tables
 
-def read(name):
-    """(flights DataFrame, jobs) of a run: one row per flight, the job's keys beside each."""
+def read(name, root=None):
+    """(flights DataFrame, jobs) of a run: one row per flight, the job's keys beside each (root: another study's
+    output folder, S5's)."""
     import pandas as pd
     by = {}
-    for line in (OUT_ROOT / name / "results.jsonl").read_text(encoding="utf-8").splitlines():
+    for line in (Path(root or OUT_ROOT) / name / "results.jsonl").read_text(encoding="utf-8").splitlines():
         try:
             r = json.loads(line)
         except json.JSONDecodeError:
@@ -410,7 +432,7 @@ def read(name):
     rows = []
     for r in by.values():
         for x in r["rows"]:
-            rows.append(dict({k: r[k] for k in ("p", "s", "city_seed", "trial", "d")},
+            rows.append(dict({k: r[k] for k in ("p", "s", "city_seed", "trial", "d")}, design=r.get("design"),
                              **{k: v for k, v in x.items() if k != "exits"}))
     df = pd.DataFrame(rows)
     df["label"] = [label(c, m, t) for c, m, t in zip(df.cond, df["mode"], df["T"])]

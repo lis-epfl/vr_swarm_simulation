@@ -1,0 +1,553 @@
+<title>S5 Block-Shaped Surround</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (shaped_report.s4_style), then S5's few additions. */
+/*__S4_STYLE__*/
+/* S5: a design table whose first column names the design, and the row the step-1 rule chose */
+table.dt td.l { white-space: normal; min-width: 150px; }
+table.dt tr.pick td { background: color-mix(in srgb, var(--c-hop) 12%, transparent); font-weight: 600; }
+table.dt td.bar { min-width: 120px; }
+.cell-bar { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; width: 100%; }
+.cell-bar i { display: inline-block; height: 8px; border-radius: 2px; background: currentColor; opacity: 0.85; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S5 · Block-Shaped Surround · for the human trials</p>
+      <h1>Among block-shaped buildings, does surrounding a block give the swarm its edge?</h1>
+      <p class="lead">S4 asked whether flowing round a block, to look down every street leaving it before choosing,
+        helps a pilot flying the swarm beat a pilot flying one drone on a visual search. It used small catalogue
+        buildings. S5 asks again in BlockShapedCityWorld's city, where each building fills its block to the back of a
+        footpath, so far less can be seen past it from a corner.</p>
+      <p class="lead">It first finds the spread (d_ref) that gets the formation round a block quickly and safely, then
+        flies every way of taking a block at that spread on nine designs: footpath widths, block sizes, a wider street
+        and four ways of laying out the blocks. Simulation, scripted pilots, a camera counting as seeing within
+        <span id="sight-m">250</span> m.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const fmt = (x, nd = 2) => x === null || x === undefined || Number.isNaN(x) ? "–" : Number(x).toFixed(nd);
+const pc = x => x === null || x === undefined || Number.isNaN(x) ? "–" : `${Math.round(100 * x)}%`;
+const pct = pc;
+const f1 = (x, nd = 1) => fmt(x, nd);
+const times = x => x === null || x === undefined ? "–" : `×${fmt(x, 2)}`;
+const SIGHT = D.sight || 250;
+$("#sight-m").textContent = SIGHT;
+const A = D.a || {}, G = D.geometry || {}, R = D.dref, BB = D.b || {};
+const NAME = {base: "the scene's city", foot15: "1.5 m footpath", foot0: "no footpath", p35: "blocks 35 m apart",
+              p30: "blocks 30 m apart", s20: "20 m streets", lloyd2: "relaxed seeds (Lloyd)", hex15: "jittered hexagons",
+              hex0: "exact hexagons"};
+const COND = [["single", "one drone", "--c-single"], ["single_look", "one drone, stopping to look", "--c-look"],
+              ["street", "swarm in the streets", "--c-street"], ["hold", "swarm holding at the corner", "--c-hold"],
+              ["pass", "swarm passing round", "--c-pass"], ["hop", "swarm surrounding", "--c-hop"]];
+const SCOND = {single: "single", swarm_street: "street", swarm_hold: "hold", swarm_pass: "pass", swarm_hop: "hop"};
+const cLabel = c => (COND.find(x => x[0] === (SCOND[c] || c)) || [c, c])[1];
+const cCol = c => `var(${(COND.find(x => x[0] === (SCOND[c] || c)) || [0, 0, "--m-other"])[2]})`;
+const lineKey = c => `<span class="ln" style="border-color:${cCol(c)}"></span>`;
+const ch = R ? R.chosen : null;
+const surrName = ch ? `${ch.mode === "aim" ? "aim-and-turn" : "firm-hold"} surround of ${fmt(ch.T, 0)} s` : "the surround";
+const dl = (p, s) => `p ${p} · s ${s}`;
+const dname = n => `${NAME[n] || n}`;
+const geo = n => G[n] || {};
+const look = (n, c) => A[n] && A[n][c] ? A[n][c].look : null;
+
+// ---------------------------------------------------------------- the tooltip (S4's)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 280, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (W, H, label, g) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// grouped horizontal bars: groups [{label, sub, bars: [{key, value, tip}]}], value 0..1
+function groupBars(el, groups, legend) {
+  const keys = [...new Set(groups.flatMap(g => g.bars.map(b => b.key)))];
+  const W = cw(el), narrow = W < 520, bh = 11, gap = 3, ggap = 18, m = {l: narrow ? 96 : 150, r: 40, t: 4, b: 30};
+  const gh = g => g.bars.length * (bh + gap) - gap;
+  const H = m.t + m.b + groups.reduce((a, g) => a + gh(g), 0) + ggap * (groups.length - 1);
+  const x = v => m.l + (W - m.l - m.r) * Math.max(0, Math.min(1, v));
+  let g = "", y = m.t;
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) g += `<line class="gridl" x1="${x(t)}" x2="${x(t)}" y1="${m.t}" y2="${H - m.b}"/><text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${Math.round(100 * t)}%</text>`;
+  const marks = [];
+  for (const grp of groups) {
+    const h = gh(grp);
+    g += `<text class="lbl" x="${m.l - 10}" y="${y + h / 2 - (grp.sub ? 4 : -4)}" text-anchor="end" style="font-weight:600">${esc(grp.label)}</text>`;
+    if (grp.sub) g += `<text x="${m.l - 10}" y="${y + h / 2 + 10}" text-anchor="end">${esc(grp.sub)}</text>`;
+    grp.bars.forEach((b, j) => {
+      const yb = y + j * (bh + gap);
+      if (b.value === null || b.value === undefined) return;
+      g += `<rect x="${m.l}" y="${yb}" width="${Math.max(1.5, x(b.value) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${cCol(b.key)}"/>
+        <text class="val" x="${(x(b.value) + 5).toFixed(1)}" y="${yb + bh - 1.5}">${pc(b.value)}</text>
+        <rect class="hit" data-i="${marks.length}" tabindex="0" x="0" y="${yb - 1.5}" width="${W}" height="${bh + 3}"/>`;
+      marks.push([grp, b]);
+    });
+    y += h + ggap;
+  }
+  el.innerHTML = svgOf(W, H, "Exits looked down", g) + (legend === false ? "" :
+    `<div class="legend" style="margin-top:4px">${keys.map(k => `<span><span class="sw" style="background:${cCol(k)}"></span>${esc(cLabel(k))}</span>`).join("")}</div>`);
+  hoverMarks(el, i => { const [grp, b] = marks[i]; return [`${grp.label}: ${cLabel(b.key)}`, b.tip || [[cCol(b.key), pc(b.value), "looked down"]]]; });
+}
+
+// dots with intervals: rows [{label, key, ratio, lo, hi, tip}], x 0..xmax as a share of one drone's time
+function ratioDots(el, rows, xmax = 1.3) {
+  const W = cw(el, 280, 620), narrow = W < 460, m = {l: narrow ? 120 : 190, r: 16, t: 18, b: 30}, rh = 26, H = m.t + m.b + rh * rows.length;
+  const x = v => m.l + (W - m.l - m.r) * Math.max(0, Math.min(v, xmax)) / xmax;
+  let g = "";
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) g += `<line class="gridl" x1="${x(t)}" x2="${x(t)}" y1="${m.t}" y2="${H - m.b}"/><text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${Math.round(100 * t)}%</text>`;
+  g += `<line x1="${x(1)}" x2="${x(1)}" y1="${m.t - 6}" y2="${H - m.b}" stroke="var(--c-single)" stroke-width="2"/><text x="${x(1)}" y="${m.t - 9}" text-anchor="middle" style="fill:var(--c-single);font-weight:600">one drone</text>`;
+  rows.forEach((r, i) => {
+    const y = m.t + rh * i + rh / 2, col = cCol(r.key);
+    if (r.label) g += `<text class="lbl" x="${m.l - 8}" y="${y + 4}" text-anchor="end">${esc(r.label)}</text>`;
+    g += `<line x1="${x(r.lo)}" x2="${x(r.hi)}" y1="${y}" y2="${y}" stroke="${col}" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="${x(r.ratio)}" cy="${y}" r="5.5" fill="${col}" stroke="var(--panel)" stroke-width="1.5"/>
+      <text class="val" x="${Math.min(x(r.hi) + 6, W - m.r - 26)}" y="${y + 4}">${pc(r.ratio)}</text>
+      <rect class="hit" data-i="${i}" tabindex="0" x="0" y="${y - rh / 2}" width="${W}" height="${rh}"/>`;
+  });
+  el.innerHTML = svgOf(W, H, "Time to find, as a share of one drone's", g);
+  hoverMarks(el, i => [rows[i].title || cLabel(rows[i].key), rows[i].tip]);
+}
+
+// ---------------------------------------------------------------- masthead
+function masthead() {        // called at the end, once every constant below exists
+  const el = $("#answer-box");
+  if (!R || !A.base) { el.innerHTML = '<p class="eyebrow">The short answer</p><p class="notrun">Running.</p>'; return; }
+  el.innerHTML = ANSWER_BOX();
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["cities", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "cities" && PLAYER && id !== "cities") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "cities" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "cities") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s5tab", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (h === "flights") { show("cities", "flights"); return true; }
+  if (h === "reading" || /^q\d$/.test(h)) { show("answer", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("cities", "flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? D.replay.groups[gi].flights.find(f => f.cond === cond) : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (h !== "flights" && !h.startsWith("watch:") && h !== "reading" && !/^q\d$/.test(h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+
+// ---------------------------------------------------------------- the answer
+const S4R = D.s4;
+const bRatio = (n, a, b = "single") => ((BB[n] || {}).ratios || []).find(r => r.a === a && r.b === b) || null;
+const rng = (vals, f) => { const v = vals.filter(x => x !== null && x !== undefined && !Number.isNaN(x)); return v.length ? `${f(Math.min(...v))}–${f(Math.max(...v))}` : "–"; };
+const dRow = (cond, mode, T, d) => R ? R.table.find(r => r.cond === cond && (r.mode || null) === (mode || null) && (r.T || null) === (T || null) && r.d === d) : null;
+const hidden = n => geo(n).exits && look(n, "single") !== null ? geo(n).exits * (1 - look(n, "single")) : null;
+
+function ANSWER_BOX() {
+  const hs = D.part_b_designs.map(n => bRatio(n, "swarm_hop", "swarm_street")).filter(Boolean).map(r => r.ratio);
+  const st1 = R.step1 && R.step1.street ? R.step1.street.lost : null;
+  return `<p class="eyebrow">The short answer</p><ol>
+    <li><b>These buildings hide more, and surrounding shows more of it.</b> When it chooses, one drone has looked down
+      ${pc(look("base", "single"))} of a block's exits and the swarm in the streets ${pc(look("base", "street"))}
+      (S4's catalogue city: ${pc(S4R && S4R.single)} and ${pc(S4R && S4R.street)}); surrounding the block raises that to
+      ${pc(look("base", "hop"))}.</li>
+    <li><b>But surrounding still finds nothing sooner.</b> The swarm in the streets finds a goal in
+      ${pc(bRatio("base", "swarm_street").ratio)} of one drone's time; surrounding every block takes
+      ${times(bRatio("base", "swarm_hop", "swarm_street").ratio)} as long as that, and ${rng(hs, times)} across the six designs
+      searched. Getting round a block here takes a 20 s hold.</li>
+    <li><b>And the scene needs a wider spread.</b> At the usual 1.0 the swarm loses drones in these streets
+      (${fmt(st1, 2)} per block); at ${fmt(ch.d, 1)} it keeps them on the block and loses far fewer in the streets.
+      A footpath narrower than 3.5 m lets the avoidance circles close streets.</li></ol>
+    <p class="bottom"><b>My reading:</b> the swarm's edge over one drone is as large here as in S4, and it is still its
+      cameras, not surrounding. Fly the trials in the scene's city with its 3.5 m footpath, at a spread of at least
+      ${fmt(ch.d, 1)}. <a href="#reading">The full reading</a>.</p>`;
+}
+
+RENDER.answer = el => {
+  if (!R || !A.base) { el.innerHTML = '<div class="intro"><h2>The answer</h2><p class="notrun">Running.</p></div>'; return; }
+  const ds = R.grid, chosen = d => d === ch.d;
+  const stepRows = ds.map(d => {
+    const s = dRow("street", null, null, d), f = dRow("hop", "firm", 20, d), a = dRow("hop", "aim", 20, d), a12 = dRow("hop", "aim", 12, d);
+    return `<tr${chosen(d) ? ' class="pick"' : ""}><td>${fmt(d, 1)}</td><td>${fmt(s && s.lost, 2)}</td><td>${pc(f && f.enclosed)}</td><td>${fmt(f && f.lost, 2)}</td>
+      <td>${pc(a && a.enclosed)}</td><td>${pc(a12 && a12.enclosed)}</td><td>${fmt(f && f.hop_s, 0)} s <span class="muted small">vs ${fmt(s && s.hop_s, 0)} s</span></td></tr>`;
+  }).join("");
+  const sBase = A.base.street, fBase = A.base.hop;
+  const tab = (names, cols, head) => `<div class="tablewrap"><table class="dt"><thead><tr><th>design</th>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${designRows(names, cols)}</tbody></table></div>`;
+  const lk = c => n => pc(look(n, c));
+  const B = BB.base || {}, dec = (B.decomp || {}).swarm_hop || {}, dec1 = (B.decomp || {}).single || {};
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>What spread gets the swarm round a block efficiently?</h2>
+      <p class="qa"><span class="vp part">d_ref ${fmt(ch.d, 1)}</span>With a ${fmt(ch.T, 0)} s hold on the block's centre: nothing quicker gets round reliably.</p></div></div>
+    <div class="tablewrap"><table class="dt"><thead><tr><th>d_ref (streets and block)</th><th>drones lost per block, swarm in the streets</th>
+      <th>${fmt(ch.T, 0)} s firm hold: encloses the block</th><th>… drones lost</th><th>20 s aim and turn: encloses</th><th>12 s aim and turn: encloses</th>
+      <th>block to next junction: firm hold vs streets</th></tr></thead><tbody>${stepRows}</tbody></table></div>
+    <div class="qtext"><ul>
+      <li><b>The swarm loses drones in these streets unless it spreads out.</b> Each building's avoidance circle bulges past
+        its facade into the street, squeezing the formation until drones collide: ${fmt(dRow("street", null, null, ds[0]).lost, 2)}
+        drones per block at ${fmt(ds[0], 1)}, ${fmt(dRow("street", null, null, 1.0) && dRow("street", null, null, 1.0).lost, 2)} at the usual 1.0, none
+        from ${fmt(ds.find(d => dRow("street", null, null, d) && dRow("street", null, null, d).lost === 0), 1)}. On the same streets S4's
+        catalogue buildings lost ${fmt(S4R && S4R.street_lost, 2)}.</li>
+      <li><b>Flowing round is not enough here.</b> An aim-and-turn surround of 12 s never encloses these blocks, and one of
+        20 s does so at most ${pc(Math.max(...ds.map(d => (dRow("hop", "aim", 20, d) || {}).enclosed || 0)))} of the time. A firm hold on the block's centre
+        for ${fmt(ch.T, 0)} s encloses ${pc(R.row.enclosed)} at ${fmt(ch.d, 1)}, at a cost of ${fmt(R.row.hop_s - (dRow("street", null, null, ch.d) || {}).hop_s, 0)} s per block.</li>
+      <li>The rule, fixed before the run: among surrounds that enclose the block in at least ${pc(R.rule.enclose)} of trials,
+        the one that loses the fewest drones, then the quickest. It is used for every design below, in the streets too.
+        A first run that kept the streets at 1.0 found nothing safe; see All results.</li></ul></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Do block-shaped buildings hide more from one drone?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>From everyone, and surrounding shows more of what is hidden.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-look"></div>
+      <div class="qtext"><ul>
+        <li><b>One drone</b> has looked down ${pc(look("base", "single"))} of a block's exits when it chooses
+          (${pc(S4R && S4R.single)} among S4's catalogue buildings), ${pc(look("base", "single_look"))} if it stops to look.</li>
+        <li><b>The swarm in the streets</b> ${pc(look("base", "street"))} (S4: ${pc(S4R && S4R.street)}): still
+          ${fmt(look("base", "street") / look("base", "single"), 1)} times one drone's.</li>
+        <li><b>Surrounding</b> raises it to ${pc(look("base", "hop"))}, ${Math.round(100 * (look("base", "hop") - look("base", "street")))} points over the
+          streets (S4: ${S4R ? Math.round(100 * (S4R.hop - S4R.street)) : "–"}). By the next junction everyone but one drone has seen nearly all
+          (${pc(sBase.look_F)} in the streets, ${pc(A.base.single.look_F)} for one drone).</li></ul>
+        <p class="small muted">Part A on the scene's city: ${D.trials} trials, each one block flown every way from the same start
+          with the same exit; spread ${fmt(ch.d, 1)}. S4: the same streets with its catalogue buildings, the street at 1.0, a 12 s aim-and-turn surround at 1.8.</p>
+        <div class="watches"><a class="watch" href="#watch:s5a_base:swarm_hop">One block flown five ways</a></div></div></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>Do footpaths make streets visible to one drone?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>But under today's force law a narrower footpath closes streets to the swarm.</p></div></div>
+    ${tab(["base", "foot15", "foot0"], [lk("single"), lk("single_look"), lk("street"), lk("hop"), n => pc(geo(n).closed_share), n => fmt(A[n] && A[n].street.lost, 2)],
+      ["one drone", "one drone, looking", "swarm in the streets", "swarm surrounding", "streets the avoidance circles close", "drones lost per block, streets"])}
+    <div class="qtext"><ul>
+      <li><b>The concern is borne out:</b> the footpath lets one drone see further round the corner. Without it one drone looks
+        down ${pc(look("foot0", "single"))} of the exits; with the scene's 3.5 m, ${pc(look("base", "single"))}.</li>
+      <li><b>But the avoidance circles grow with the building</b>, and two that overlap across a street close it to the force
+        law: ${pc(geo("foot15").closed_share)} of streets at 1.5 m and ${pc(geo("foot0").closed_share)} with none, against
+        ${pc(geo("base").closed_share)} at 3.5 m. The swarm then loses ${fmt(A.foot15.street.lost, 1)}–${fmt(A.foot0.street.lost, 1)} drones per block and
+        cannot surround. A narrower footpath would need a tighter avoidance shape in the force law first.</li></ul>
+      <div class="watches"><a class="watch" href="#watch:s5a_foot0:swarm_street">The same block with no footpath</a></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>Which layout puts more streets round each building?</h2>
+      <p class="qa"><span class="vp part">Hexagons</span>Six streets round every building and fewer losses, but fewer exits, so fewer stay hidden from one drone.</p></div></div>
+    ${tab(["base", "lloyd2", "hex15", "hex0"], [n => fmt(geo(n).sides, 1), n => fmt(geo(n).exits, 1), n => fmt(hidden(n), 1), lk("single"), lk("street"), lk("hop"), n => fmt(A[n] && A[n].street.lost, 2)],
+      ["sides that are streets", "streets leaving its corners", "of them hidden from one drone", "one drone", "swarm in the streets", "swarm surrounding", "drones lost per block, streets"])}
+    <div class="qtext"><ul>
+      <li><b>Even blocks have more streets round them</b> (${fmt(geo("hex0").sides, 1)} sides against ${fmt(geo("base").sides, 1)}) because none of
+        their sides is too short to be a street, but for the same reason fewer junctions merge, so fewer streets leave them
+        (${fmt(geo("hex0").exits, 1)} against ${fmt(geo("base").exits, 1)}).</li>
+      <li><b>One drone sees about the same share on every layout</b> (${rng(["base", "lloyd2", "hex15", "hex0"].map(n => look(n, "single")), pc)}), so the
+        random layout leaves the most options hidden from it: ${fmt(hidden("base"), 1)} exits a block against ${fmt(hidden("hex0"), 1)}.</li>
+      <li><b>The hexagons fly more cleanly:</b> almost no street narrows below 6 m, no drone was lost in Part A's blocks
+        (${fmt(A.base.street.lost, 2)} per block on the scene's layout), and the surround encloses every block. The swarm in the streets sees less there (${pc(look("hex0", "street"))}), so surrounding adds more.</li></ul>
+      <div class="watches"><a class="watch" href="#watch:s5a_hex0:swarm_hop">A block on the exact hexagonal lattice</a></div></div>
+  </section>
+
+  <section class="q" id="q5">
+    <div class="qhead"><span class="qn">5</span><div><h2>Do smaller blocks or wider streets hide more?</h2>
+      <p class="qa"><span class="vp no">No</span>They show one drone more. The scene's p 40 · s 18 hides the most.</p></div></div>
+    ${tab(["base", "p35", "p30", "s20"], [n => pc(geo(n).plaza_share), lk("single"), lk("street"), lk("hop"), n => `${fmt(A[n] && A[n].street.hop_s, 0)} / ${fmt(A[n] && A[n].hop.hop_s, 0)} s`],
+      ["blocks left green", "one drone", "swarm in the streets", "swarm surrounding", "block to next junction: streets / surround"])}
+    <div class="qtext"><ul>
+      <li>At p 35 and p 30 a block is too small for an 8 m building behind its footpath in ${pc(geo("p35").plaza_share)} and
+        ${pc(geo("p30").plaza_share)} of cases (p 30 has a 1.5 m footpath; at 3.5 m almost none would be built), and across a green one drone sees
+        far: ${pc(look("p35", "single"))} and ${pc(look("p30", "single"))}. Wider streets do the same (${pc(look("s20", "single"))} at s 20).</li></ul></div>
+  </section>
+
+  <section class="q" id="q6">
+    <div class="qhead"><span class="qn">6</span><div><h2>Does surrounding find a goal at a building sooner?</h2>
+      <p class="qa"><span class="vp no">No</span>The swarm beats one drone in the streets; surrounding every block is slower on every design.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-search"></div>
+      <div class="qtext"><ul>
+        <li><b>The swarm in the streets</b> finds the goal in ${pc(bRatio("base", "swarm_street").ratio)} of one drone's time on the scene's city
+          (${rng(D.part_b_designs.map(n => (bRatio(n, "swarm_street") || {}).ratio), pc)} across the designs), and finds more of them within 20 minutes
+          (${pc(B.found && B.found.swarm_street)} against ${pc(B.found && B.found.single)}).</li>
+        <li><b>Surrounding every block</b> takes ${times(bRatio("base", "swarm_hop", "swarm_street").ratio)} the streets' time there
+          (${rng(D.part_b_designs.map(n => (bRatio(n, "swarm_hop", "swarm_street") || {}).ratio), times)} across the designs).</li>
+        <li><b>Why:</b> what it sees saves ${pc(1 - dec.decisions)} of the decisions, twice S4's share, but each takes
+          ${pc(dec.per_decision - 1)} longer (the ${fmt(ch.T, 0)} s hold). One drone needs ${fmt(dec1.decisions, 1)} times the swarm's decisions.</li>
+        <li><b>The losses:</b> at ${fmt(ch.d, 1)} the swarm in the streets still loses ${fmt(B.lost && B.lost.swarm_street, 1)} drones per search on the scene's city.
+          With a 1.5 m footpath ${fmt(BB.foot15 && BB.foot15.lost.swarm_street, 1)}, and it finds only ${pc(BB.foot15 && BB.foot15.found.swarm_street)} of the goals.</li></ul>
+        <p class="small muted">Part B: ${B.n_cities} cities per design, ${B.n_targets / B.n_cities} targets each, the goal on the footpath in front of a
+          building, found at the first sight within ${SIGHT} m. Dots are city means of the time, a search not done in 20 minutes counted at 20; lines 95% intervals.</p>
+        <div class="watches"><a class="watch" href="#watch:s5b_base:swarm_hop">A search on the scene's city, every way</a></div></div></div>
+  </section>
+
+  <section class="q reading" id="reading">
+    <div><h2>Does S5 answer the question? My reading</h2>
+      <p class="qa"><b>For this city, yes.</b> Block-shaped buildings make the case for surrounding as strong as it gets in
+      these studies: they hide more, and surrounding uncovers more. It still loses to flying the streets, because getting
+      round a block that fills its plot takes a 20 s hold.</p></div>
+    <div class="grid2">
+      <div><h3>What S5 settles</h3><ol>
+        <li><b>The swarm's edge over one drone holds in the scene's city</b>: ${pc(bRatio("base", "swarm_street").ratio)} of one drone's time
+          in the streets, as in S4 (51–53% at the same range). It is the cameras: one drone needs ${fmt(dec1.decisions, 1)} times as many decisions.</li>
+        <li><b>Surrounding is not how to use it.</b> It is slower on all six designs searched.</li>
+        <li><b>The scene, as the force law sees it, needs a spread of at least ${fmt(ch.d, 1)}</b>, and the 3.5 m footpath: anything
+          narrower or tighter makes the swarm lose drones in the streets.</li>
+        <li><b>The scene's random layout at p 40 · s 18 hides the most from one drone</b> of everything flown here; smaller
+          blocks, wider streets and even layouts all hide less, in count of exits.</li></ol></div>
+      <div><h3>What S5 cannot settle</h3><ol>
+        <li><b>People</b>, as in S4: the scripted pilot reads every screen at once.</li>
+        <li><b>A force law that sees the building's real shape.</b> The losses and the closed streets come from the circle
+          the law draws round each building, not from the city. With a tighter shape, a narrower footpath (more hidden from
+          one drone) and a quicker surround might both become possible. That is a force-law change, flown in neither Unity nor here.</li>
+        <li><b>The Unity bench</b> has not flown S5's settings; one smoke test of the scene lost a pair in 16 flights,
+          in line with the replica.</li></ol></div></div>
+    <div><h3>What I would take into the trial design</h3><ol>
+      <li><b>Use BlockShapedCityWorld as built</b> (p 40 · s 18, random layout, 3.5 m footpath): it hides the most from one
+        drone and still flies.</li>
+      <li><b>Raise the spread dial's starting point to ${fmt(ch.d, 1)} or more</b> in that scene (from step 1b: no losses in the
+        streets from ${fmt(ds.find(d => dRow("street", null, null, d) && dRow("street", null, null, d).lost === 0), 1)}), and keep pilots from dialling it below 1.0 there.</li>
+      <li><b>Compare the swarm with one drone flying the streets</b>, as S4 recommended; don't ask pilots to surround blocks.</li>
+      <li>If losses matter more than hidden exits, a hexagonal layout loses fewer (none in Part A's blocks; ${fmt(BB.hex15 && BB.hex15.lost.swarm_street, 1)} against ${fmt(B.lost && B.lost.swarm_street, 1)} per search in the streets), at the cost of fewer exits per block.</li></ol></div>
+    <div><h3>What this rests on</h3><ul class="small">
+      <li>The 2-D replica under today's force law on prism buildings (the circle round each footprint's bounds, contacts on
+        the true shape), which is how Unity flies the scene. Scripted pilots; a camera counts as seeing within ${SIGHT} m.</li>
+      <li>Part A: ${D.trials} trials per design in three cities; Part B: eight cities per design. Read the size and direction,
+        not significance. Every table is under <a href="#details">All results</a>.</li></ul></div>
+  </section></div>`;
+  const lookEl = $("#ans-look", el);
+  observe(lookEl, () => groupBars(lookEl, [
+    {label: "S5: the scene's city", sub: "block-shaped buildings", bars: ["single", "single_look", "street", "hold", "hop"].map(k => ({key: k, value: look("base", k),
+      tip: [[cCol(k), pc(look("base", k)), "looked down when choosing"], [cCol(k), pc(A.base[k].look_F), "by the next junction"], [cCol(k), `${fmt(A.base[k].hop_s, 1)} s`, "block to the next junction"]]}))},
+    ...(S4R ? [{label: "S4: catalogue buildings", sub: "the same streets", bars: [["single", S4R.single], ["single_look", S4R.single_look], ["street", S4R.street], ["hop", S4R.hop]].map(([k, v]) => ({key: k, value: v}))}] : [])]));
+  const sEl = $("#ans-search", el);
+  const rows = [];
+  for (const n of D.part_b_designs) {
+    for (const [a, short] of [["swarm_street", "in the streets"], ["swarm_hop", "surrounding"]]) {
+      const r = bRatio(n, a);
+      if (r) rows.push({label: a === "swarm_street" ? dname(n) : "", key: a, ratio: r.ratio, lo: r.lo, hi: r.hi, title: `${dname(n)}: ${short}`,
+        tip: [[cCol(a), pc(r.ratio), `of one drone's time (95%: ${pc(r.lo)}–${pc(r.hi)})`], [cCol(a), pc((BB[n].found || {})[a]), "found within 20 min"], ["var(--c-single)", pc((BB[n].found || {}).single), "one drone's"]]});
+    }
+  }
+  observe(sEl, () => { ratioDots(sEl, rows, 1.5); sEl.insertAdjacentHTML("beforeend", `<div class="legend" style="margin-top:4px"><span>${lineKey("swarm_street")}swarm in the streets</span><span>${lineKey("swarm_hop")}swarm surrounding</span></div>`); });
+};
+
+// ---------------------------------------------------------------- all results
+function designRows(names, cols) {
+  return names.filter(n => A[n] || G[n]).map(n => `<tr><td class="l"><b>${esc(dname(n))}</b><br><span class="muted small">${esc(dl(D.designs[n].p, D.designs[n].s))}${D.designs[n].city.inset !== undefined ? `, footpath ${D.designs[n].city.inset} m` : ""}</span></td>${cols.map(c => `<td>${c(n)}</td>`).join("")}</tr>`).join("");
+}
+RENDER.details = el => {
+  const names = Object.keys(D.designs);
+  const conds = ["single", "single_look", "street", "hold", "pass", "hop"];
+  const aRows = names.filter(n => A[n]).map(n => conds.filter(c => A[n][c]).map((c, i) => {
+    const x = A[n][c];
+    return `<tr${i === 0 ? ' class="sep"' : ""}><td class="l">${i === 0 ? `<b>${esc(dname(n))}</b>` : ""}</td><td class="l">${lineKey(c)}${esc(cLabel(c))}</td>
+      <td>${pc(x.look)}</td><td>${pc(x.look_F)}</td><td>${fmt(x.hop_s, 1)}</td><td>${pc(x.enclosed)}</td><td>${pc(x.reform)}</td><td>${fmt(x.lost, 2)}</td><td>${fmt(x.contacts, 2)}</td></tr>`;
+  }).join("")).join("");
+  const dRows = R ? R.table.slice().sort((a, b) => (a.cond > b.cond ? 1 : a.cond < b.cond ? -1 : 0) || ((a.mode || "") > (b.mode || "") ? 1 : -1) || (a.T || 0) - (b.T || 0) || a.d - b.d).map(r => {
+    const pick = r.cond === "hop" && r.d === ch.d && r.T === ch.T && r.mode === ch.mode;
+    return `<tr${pick ? ' class="pick"' : ""}><td class="l">${esc(r.cond === "hop" ? `surround (${r.mode === "aim" ? "aim and turn" : "firm hold"}) ${fmt(r.T, 0)} s` : r.cond === "hold" ? `hold ${fmt(r.T, 0)} s` : r.cond)}</td>
+      <td>${fmt(r.d, 1)}</td><td>${pc(r.enclosed)}</td><td>${fmt(r.hop_s, 1)}</td><td>${fmt(r.price, 2)}</td><td>${pc(r.reform)}</td><td>${fmt(r.lost, 2)}</td><td>${fmt(r.contacts, 2)}</td><td>${pc(r.look_c)}</td><td>${pc(r.look_F)}</td></tr>`;
+  }).join("") : "";
+  const bRows = Object.keys(BB).map(n => {
+    const B = BB[n], rr = a => (B.ratios || []).find(r => r.a === a && r.b === "single"), hs = (B.ratios || []).find(r => r.a === "swarm_hop" && r.b === "swarm_street");
+    return `<tr><td class="l"><b>${esc(dname(n))}</b></td>${["swarm_street", "swarm_pass", "swarm_hop", "swarm_hold"].map(a => `<td>${rr(a) ? `${pc(rr(a).ratio)} <span class="muted small">(${pc(rr(a).lo)}–${pc(rr(a).hi)})</span>` : "–"}</td>`).join("")}
+      <td>${hs ? `${times(hs.ratio)} <span class="muted small">(${fmt(hs.lo, 2)}–${fmt(hs.hi, 2)})</span>` : "–"}</td><td>${pc(B.found.single)} / ${pc(B.found.swarm_street)} / ${pc(B.found.swarm_hop)}</td>
+      <td>${fmt(B.lost.swarm_hop, 2)} / ${fmt(B.contacts.swarm_hop, 2)}</td></tr>`;
+  }).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every number the answer uses, by step. Part A: ${D.trials} trials per
+    design, each one block in one of three cities (seeds 0–2, the scene's is 1), every way flown from the same start with the
+    same exit. Part B: ${Object.values(BB)[0] ? Object.values(BB)[0].n_cities : 8} cities per design, four targets each.</p></div>
+    <div class="box"><h3>The cities</h3><div class="tablewrap"><table class="dt"><thead><tr><th>design</th><th>blocks with a building</th><th>greens (no building)</th>
+      <th>block sides that are streets</th><th>streets leaving its corners</th><th>streets the avoidance circles close</th><th>… narrow below 6 m</th></tr></thead>
+      <tbody>${designRows(names, [n => fmt(geo(n).buildings, 0), n => pc(geo(n).plaza_share), n => fmt(geo(n).sides, 2), n => fmt(geo(n).exits, 2),
+        n => `${pc(geo(n).closed_share)} <span class="muted small">(${fmt(geo(n).closed, 0)} of ${fmt(geo(n).pairs, 0)})</span>`, n => fmt(geo(n).narrow, 0)])}</tbody></table></div>
+      <p class="small muted">Means over Part A's cities and Part B's (11 seeds). The avoidance circle is what Unity's force law steers
+      round for each building: the circle round its footprint's bounding box. Interior streets between two buildings.</p></div>
+    <div class="box"><h3>Step 1: every setting flown on the scene's city</h3><div class="tablewrap"><table class="dt"><thead><tr><th style="text-align:left">way</th><th>d_ref</th><th>encloses the block</th>
+      <th>block to next junction (s)</th><th>time price</th><th>one group again</th><th>lost</th><th>contacts</th><th>looked down at the decision</th><th>by the next junction</th></tr></thead>
+      <tbody>${dRows}</tbody></table></div>
+      <p class="small muted">Highlighted: the rule's pick. Swarm in the streets: ${R ? fmt(R.street.hop_s, 1) : "–"} s from the block to the next junction, ${R ? pc(R.street.look_c) : "–"} looked down. Time price: that time over the street-bound swarm's in the same trial (median). Lost and contacts: per block.</p></div>
+    <div class="box"><h3>Part A: every design, every way, at d_ref ${ch ? fmt(ch.d, 1) : "–"}</h3><div class="tablewrap"><table class="dt"><thead><tr><th>design</th><th style="text-align:left">way</th><th>looked down at the decision</th>
+      <th>by the next junction</th><th>block to next junction (s)</th><th>encloses</th><th>one group again</th><th>lost</th><th>contacts</th></tr></thead>
+      <tbody>${aRows}</tbody></table></div></div>
+    <div class="box"><h3>Part B: time to find a goal at a building, as a share of one drone's</h3><div class="tablewrap"><table class="dt"><thead><tr><th>design</th><th>in the streets</th><th>passing round</th><th>surrounding</th><th>holding</th>
+      <th>surrounding ÷ streets</th><th>found in 20 min: one drone / streets / surround</th><th>surround: lost / contacts per search</th></tr></thead>
+      <tbody>${bRows}</tbody></table></div>
+      <p class="small muted">City means of the restricted mean time to the first sight within ${SIGHT} m (a search not done by 20 minutes counts at 20), 95% intervals over cities.</p></div>`;
+};
+
+// ---------------------------------------------------------------- the cities and the flights
+const RP = D.replay;
+const RPATH = {city: id => `replay/cities/${id}.json`, flight: id => `replay/flights/${id}.json`};
+RENDER.cities = el => {
+  if (!RP || typeof RV === "undefined") { el.innerHTML = '<div class="intro"><h2>The cities</h2><p class="notrun">The replays have not been built.</p></div>'; return; }
+  el.innerHTML = `<div class="intro"><h2>The cities</h2><p>Every design at the scene's seed (BlockShapedCityWorld is the first). Streets
+    grey, blocks pale, greens green, buildings slate; the dashed circles are what Unity's force law steers round for each
+    building. Pick one to see it whole. <a href="#flights">The flights are below.</a></p></div>
+    <div class="box"><div class="gal" id="gal"></div></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3><label class="small"><input type="checkbox" id="c-cyl" checked> show the avoidance circles</label></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div></div>
+    <div class="intro" id="flights"><h2>Flights</h2><p>Re-flown from the study's own jobs and kept only because they came out identical
+      to the runs. Drones are dots in the way's colour, filled while their feed is on the pilot's ring. Space plays or pauses,
+      ← and → step 5 s.</p></div>
+    <div id="c-player"></div>`;
+  const gal = $("#gal", el), thumbs = [];
+  gal.innerHTML = RP.gallery.map((g, i) => `<button type="button" class="thumb" data-i="${i}" aria-pressed="${i === 0}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span>${esc(dname(g.design))}</span></button>`).join("");
+  const CM = new RV.MapView($("#c-map", el), {aspect: 0.8, minH: 320, maxH: 760});
+  let city = null, sel = 0;
+  CM.draw = (c, v) => { if (city) { RV.drawCity(c, v, city, {cylinders: $("#c-cyl").checked}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => { if (b.dataset.z === "in") CM.zoomBy(1.5); else if (b.dataset.z === "out") CM.zoomBy(1 / 1.5); else if (city) CM.fit(city.arena, 10); }));
+  $("#c-cyl", el).addEventListener("change", () => CM.request());
+  const pick = i => {
+    sel = i; const g = RP.gallery[i];
+    gal.querySelectorAll(".thumb").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i)));
+    $("#c-title").textContent = `${dname(g.design)}: ${g.what}`;
+    const st = g.stats || {};
+    $("#c-stats").innerHTML = [["block spacing p, street width s", `${g.p} m, ${g.s} m`], ["blocks with a building", st.buildings],
+      ["greens (interior)", pc(st.plaza_share_interior)], ["block across (median)", `${fmt(st.block_m, 0)} m`],
+      ["block sides that are streets", fmt(st.sides, 2)], ["streets leaving its corners", fmt(st.exits, 2)],
+      ["streets the circles close", st.pairs ? `${st.closed} of ${st.pairs}` : "–"], ["avoidance circle radius (median)", `${fmt(st.cyl_r, 1)} m`]]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v === undefined ? "–" : v}</dd>`).join("");
+    RV.load(RPATH.city(g.city)).then(RV.city).then(C => { if (sel !== i) return; city = C; CM.fit(C.arena, 10); });
+  };
+  gal.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 400, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); };
+    thumbs.push(v);
+    RV.load(RPATH.city(RP.gallery[+b.dataset.i].city)).then(RV.city).then(C => { v.city = C; v.fit([-120, 120, -120, 120], 0); }).catch(() => {});
+    b.addEventListener("click", () => pick(+b.dataset.i));
+  });
+  RV.onTheme(() => { thumbs.forEach(v => v.request()); CM.request(); });
+  pick(0);
+  const labels = {}, colors = {};
+  for (const [k, l, c] of COND) { labels[k] = l; colors[k] = `var(${c})`; }
+  for (const [k, v] of Object.entries(SCOND)) { labels[k] = cLabel(v); colors[k] = cCol(v); }
+  PLAYER = RV.Player($("#c-player", el), RP.groups.map(g => Object.assign({short: g.title.replace(/^Looking down a block: /, "Look down · ").replace(/^Search for a goal at a building: /, "Search · ")}, g)),
+    {labels, colors, path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function flightSummaryRows(F, s) {
+  const r = [], n = x => x === null || x === undefined ? "–" : String(x);
+  if (F.kind === "A") {
+    r.push(["spread at the block (d_ref)", s.d_block === null || s.d_block === undefined ? (F.cond === "single" ? "one drone" : `${f1(s.d_street, 1)}: stays in the street`) : f1(s.d_block, 1)]);
+    if (s.T !== null && s.T !== undefined) r.push([F.cond === "swarm_hold" ? "the hold" : "the surround", `${f1(s.T, 0)} s${s.mode ? `, ${s.mode === "aim" ? "aim and turn" : "firm hold"}` : ""}`]);
+    r.push(["exits looked down at the decision", pc(s.look_c)], ["… by the next junction", pc(s.look_F)], ["arrival to the next junction", `${f1(s.hop_s)} s`]);
+    if (s.enveloped !== null && s.enveloped !== undefined) r.push(["encloses the block (S1's test)", s.enveloped ? "yes" : "no"]);
+    r.push(["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  } else {
+    const fv = s.found;
+    r.push([`target first seen within ${s.find_m || SIGHT} m`, fv === null || fv === undefined ? `not by ${RV.fmtT(s.t_end)}` : RV.fmtT(fv)]);
+    if (F.n > 1) r.push(["spread at the block (d_ref)", f1(s.d_block, 1)]);
+    r.push(["decisions", n(s.decisions)], ["path flown", `${f1((s.path_m || 0) / 1000, 2)} km`], ["footpath seen, interior buildings", pc(s.footpath)],
+      ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  }
+  return r;
+}
+function flightSummaryNote(F) {
+  return F.kind === "A" ? `An exit is looked down once a shown feed has seen, within ${SIGHT} m, half the footpath in front of the building at its far end.`
+    : `The pilot stops at the first sight within ${SIGHT} m; a swarm that falls under four drones has not found it. The dots are the footpath its feeds have seen.`;
+}
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The cities", [
+    ["Block-shaped building", "One convex building per block, filling it to the back of the footpath (S4's variant B), as BlockShapedCityWorld builds it."],
+    ["Footpath", "The strip between the kerb and the facade: 3.5 m in the scene, 1.5 m or none in two designs here."],
+    ["Block spacing p, street width s", "p is about the distance between neighbouring blocks' centres; s is kerb to kerb. A block is about p − s across, its building that less two footpaths."],
+    ["Green", "A block too small for an 8 m building, left empty."],
+    ["Tessellation", "How the block seeds are laid out before each becomes a Voronoi block: random (RSA, the scene's), random then evened out twice (Lloyd), a hexagonal lattice moved by up to 15% of its spacing, or an exact hexagonal lattice."],
+    ["Block sides that are streets, streets leaving its corners", "What a formation meets round a building. A side shorter than its junctions' setback is not drawn as a street; its two junctions merge, which adds exits."],
+    ["Avoidance circle", "What Unity's force law (and the replica's) steers round for a building: the circle round its footprint's axis-aligned bounding box. On a block-shaped building it bulges past the facade, and where two meet across a street the street is closed to the law."]]],
+  ["The flights", [
+    ["One drone", "A single drone along the streets, round each block by the shorter side to the exit it has chosen; its one camera faces the way it flies."],
+    ["One drone, stopping to look", "The same, stopping at each corner to turn and look down every street there."],
+    ["Swarm in the streets", "Ten drones on the one drone's path, at spread 1.0. It chooses on arrival at the corner."],
+    ["Swarm surrounding", "Aimed through the block (aim and turn) or held on its centre (firm hold) for a set time at the block spread, so the formation flows round both sides of the building; then off down the chosen street."],
+    ["Swarm passing round", "Aimed through the block at the street already chosen: it flows round on its way, without stopping."],
+    ["Swarm holding at the corner", "Waits at the corner for the surround's time: the control for time spent at a block."],
+    ["Spread (d_ref)", "The swarm's spread dial: neighbouring drones about 10 × d_ref m apart. The trials' dial runs from 0.4 to 1.6."],
+    ["Encloses the block", "S1's test over the surround's last seconds: the block's centre inside the formation, no gap in bearing over 150°, most drones close to the block."]]],
+  ["The measures", [
+    ["Looked down", `A street leaving the block is looked down once a shown camera has seen, within ${SIGHT} m and through a clear line of sight, half the footpath in front of the building at its far end. Counted when the pilot chooses, or by the next junction.`],
+    ["Safe", "At most 0.03 drones lost and 0.1 building contacts per block."],
+    ["Time to find", `From the start to the first sight of the target on a shown camera within ${SIGHT} m. Not found in 20 minutes counts as 20; a swarm under four drones has not found it.`]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2><p>Every term the page uses, in plain words. The manual (docs/shaped_study/README.md) has the method.</p></div>
+    <div class="terms">${TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join("")}</dl></div>`).join("")}</div>`;
+};
+
+masthead();
+if (!route(location.hash.slice(1))) {
+  let first = "answer";
+  try { const s = localStorage.getItem("s5tab"); if (TABS.some(t => t[0] === s)) first = s; } catch (e) { /* storage blocked */ }
+  show(first);
+}
+</script>

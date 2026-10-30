@@ -11,6 +11,7 @@ Roaming"); this folder is where an agent finds it.
 | [S2](S2_hidden_goal_search.md) | **Hidden Goal Search** | search study | 2026-10-15 → 10-16 | How soon each finds a goal patch it does not know the position of | Done |
 | [S3](S3_city_roaming.md) | **City Roaming** | clutter study | 2026-10-20 → 10-21 | What each sees on task-free walks across 63 Voronoi city designs, at three spreads | Done; refined re-run proposed |
 | [S4](S4_split_and_surround.md) | **Split and Surround** | split study | 2026-10-27 | Can the swarm surround each block of a city of large buildings and reform quickly enough to explore it block by block, and does that pay? | Done: surrounding shows more but finds nothing sooner; Phase 3 pilot (looking down, d_ref): it looks down far more, still finds a goal more slowly |
+| [S5](S5_block_shaped_surround.md) | **Block-Shaped Surround** | block-shaped study | 2026-10-28 → 10-29 | S4's question in BlockShapedCityWorld's city (buildings filling their blocks): the spread that gets round a block, footpaths, block size, street width and block layouts | Done |
 
 **[lessons.md](lessons.md)** lists every refinement these studies identified (measures that saturate, assumptions
 that set effect sizes, validation gaps, engineering traps), each with the study it came from. A new study should
@@ -26,6 +27,7 @@ Pages for people (private claude.ai artifacts; open them with the Artifact tool,
 | S3 results page | https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J |
 | S3 report (with S1's goal findings, for VoronoiCityWorld's design) | https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s |
 | S4 results page (Phases 1–3) | https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD (a copy published from another account on 2026-10-28, HG2M1DLjWKUdaMWzqutY5q, is not kept up to date) |
+| S5 results page | https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9 |
 
 Do not cite https://claude.ai/artifact/6QyLDyzucn1rN3RqauCkie ("Swarm Density Study"): it is a stale 2026-10-13 build of
 S1's explorer, from the street-route results, left up because it was shared.
@@ -40,7 +42,7 @@ the dashboard's store as its type describes, S3 `python -B -m citysim.clutter_re
 (then publish `<run>/clutter_study_bare.html`), S4 `python -B -m citysim.split_replays` (the Cities tab's replays,
 ~10 min) and `python -B -m citysim.split_report phase1`, then publish
 `experiment_results/split_study/phase1/split_phase1_bare.html` with the files `split_phase1_files.json` lists beside
-it (the Cities tab fetches them), the hub from `docs/studies/hub.html` as it stands.
+it (the Cities tab fetches them), S5 `python -B -m citysim.shaped_replays` and `python -B -m citysim.shaped_report`, then publish `experiment_results/shaped_study/shaped_study_bare.html` with the files `shaped_study_files.json` lists, the hub from `docs/studies/hub.html` as it stands.
 
 ## Names in code
 
@@ -52,6 +54,7 @@ The code, specs and output folders keep the names the studies had when they ran,
 | S2 | [docs/search_study/](../search_study/README.md) | `citysim/search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` (+ `.html`) | `specs/search.json` | `experiment_results/search_study/` |
 | S3 | [docs/clutter_study/](../clutter_study/README.md) | `citysim/clutter.py`, `clutter_stats.py`, `clutter_report.py` | `specs/clutter.json` | `experiment_results/clutter_study/clutter/` |
 | S4 | [docs/split_study/](../split_study/README.md) | `citysim/blockcity.py`, `polyfoot.py`, `streetnet.py`, `split_probe.py`, `split_tables.py`, `split_bench.py`, `split.py`, `split_stats.py`, `correspondence.py`, `split_replays.py`, `split_report.py` (+ `.html`); the replays' `playback.py` and `replay_view.js` are shared | `specs/split.json` (Phase 1's settings are command-line, recorded per run) | `experiment_results/split_study/` |
+| S5 | [docs/shaped_study/](../shaped_study/README.md) | `citysim/shaped.py`, `shaped_replays.py`, `shaped_report.py` (+ `.html`); S4's `lookdown.py`, `lookdown_search.py` and `split_replays`' workers fly its designs | none: the designs and rules are in `shaped.py`, recorded per run | `experiment_results/shaped_study/` |
 
 All Python runs in the `stitching` env from `Assets/Scripts/Experiment` (`python -B -m citysim.vissim <command>`).
 

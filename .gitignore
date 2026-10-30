@@ -103,3 +103,7 @@ experiment_results/split_study/**/results.jsonl
 experiment_results/split_study/**/results_*.jsonl
 experiment_results/split_study/split/hops.csv
 experiment_results/split_study/phase1/split_phase1.html
+# S5 Block-Shaped Surround: raw per-flight results on disk, every table and the published page committed; the
+# full page is the bare page with replay/ inlined.
+experiment_results/shaped_study/**/results.jsonl
+experiment_results/shaped_study/shaped_study.html

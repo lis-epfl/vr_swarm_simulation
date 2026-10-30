@@ -210,3 +210,10 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     - **The detail tabs move under one "All results" tab**, grouped by the question each phase asked, with the key to
       the codes beside them (lesson 31's key belongs where the codes are used). The Cities tab and Terms stay.
     **Applied** in S4's page. (S4)
+38. **Check what a rule's fallback would pick before the run, and when nothing qualifies, look for the missing
+    factor.** S5's step 1 picked the spread and surround by a rule fixed in advance, with a fallback ("the least unsafe")
+    for when nothing met the safety bar. Nothing did, because the swarm lost drones in the streets themselves, and the
+    fallback picked a surround that never enclosed the block. The cause was a factor the step held fixed (the street
+    spread, at S4's 1.0): flown with one spread for streets and block, losses fell to none from 1.6. Write the fallback so
+    it names a setting the later steps can use, and when the first run finds nothing, keep it and its pick on record, name
+    the factor it missed, and fix the rule for the next run before reading that run. (S5)

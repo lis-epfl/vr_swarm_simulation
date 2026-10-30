@@ -774,14 +774,16 @@ def p3_worker(args):
     t0 = time.time()
     try:
         p, s, c, t = pick["p"], pick["s"], pick["city_seed"], pick["trial"]
-        C = LD.city_targets(S.city("R", p, s, c))
+        jb = dict(pick.get("job") or {})               # S5: the job's city, conditions and sight range
+        P = LD.job_params(dict(jb, p=p, s=s, city_seed=c))
+        C = LD.city_targets(S.city_from(P))
         net = C["net"]
         rng = np.random.default_rng(LD.trial_seed(p, s, c, t))
         rng.integers(1 << 30)
         tr = LD.trial_geometry(C, rng)
         cands = S.candidates(net, tr)
-        conds = LD.conditions(LD.T_GRID)
-        city = Path(blockcity.path_for(blockcity.Params("R", p, s, c))).stem
+        conds = [tuple(x) for x in jb["conds"]] if jb.get("conds") else LD.conditions(LD.T_GRID)
+        city = Path(blockcity.path_for(P)).stem
         flights, same = [], True
 
         def export(f, tape, row, res, cond, mode, T, d, title, vcond):
@@ -820,14 +822,15 @@ def p3_worker(args):
                 summary=playback.rounded(summary, 3)))
 
         for d in sorted({x[3] for x in fl}):
-            j = dict(p=p, s=s, city_seed=c, trial=t, d=float(d), T_grid=list(LD.T_GRID), look_range=SIGHT_M)
+            j = dict(dict(look_range=SIGHT_M, T_grid=list(LD.T_GRID)), **jb, p=p, s=s, city_seed=c, trial=t, d=float(d))
             res, made = taped(lambda: LD.run_job(j), DT_MANOEUVRE)
             same = same and _strip(res) == _strip(stored[float(d)])
             for cond, mode, T, _, title, vcond in [x for x in fl if x[3] == d]:
                 k = conds.index((cond, mode, T))
                 export(*made[k], res["rows"][k], res, cond, mode, T, d, title, vcond)
         if "single" in stored:                    # the lone drone over the same block (lookdown_A1), first in the list
-            j1 = dict(p=p, s=s, city_seed=c, trial=t, single=True, look_range=SIGHT_M)
+            j1 = dict(dict(look_range=SIGHT_M), **{k: v for k, v in jb.items() if k not in ("conds", "d_street")}, p=p, s=s,
+                      city_seed=c, trial=t, single=True)
             res1, made1 = taped(lambda: LD.run_job(j1), DT_MANOEUVRE)
             same = same and _strip(res1) == _strip(stored["single"])
             k = [x[0] for x in LD.SINGLE_CONDS].index("single")
@@ -902,9 +905,12 @@ def p3b_worker(args):
             S.Flight, LS.choose_exit, LS.FootKnowledge = base, orig_choose, orig_know
         same = _strip(res) == _strip(stored)
         p, s = job["p"], job["s"]
-        C = LS.context(p, s, job["city_seed"])
+        cdef = job["spec"].get("city")                   # S5 names its design in the spec; S4 is variant R
+        C = LS.context(p, s, job["city_seed"], cdef)
         net = C["net"]
-        city = Path(blockcity.path_for(blockcity.Params("R", p, s, job["city_seed"]))).stem
+        P = blockcity.Params(**dict(cdef, p=p, s=s, seed=job["city_seed"])) if cdef else \
+            blockcity.Params("R", p, s, job["city_seed"])
+        city = Path(blockcity.path_for(P)).stem
         seen_xz = playback.b64(playback.dm16(C["fp_pts"].reshape(-1)), "<i2")
         flights = []
         for fi, (row, (f, tape), know) in enumerate(zip(res["rows"], made, knows)):

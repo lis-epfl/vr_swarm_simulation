@@ -94,11 +94,16 @@ _CITY, _MODEL, _TEMPLATE = {}, {}, {}
 
 
 def city(variant, p, s, seed):
-    key = (variant, p, s, seed)
+    return city_from(blockcity.Params(variant, p, s, seed))
+
+
+def city_from(P):
+    """The city context of any blockcity design (S5 flies footpath widths and tessellations S4's four numbers cannot
+    name): the layout, its footprints, the street network and the replica's city."""
+    key = P.ident()
     if key not in _CITY:
         if len(_CITY) > 8:
             _CITY.clear()
-        P = blockcity.Params(variant, p, s, seed)
         L, blocks = blockcity.load(blockcity.ensure(P))
         fp = blockcity.footprints(L)
         _CITY[key] = dict(L=L, blocks=blocks, fp=fp, net=streetnet.Network(L, blocks, fp),
