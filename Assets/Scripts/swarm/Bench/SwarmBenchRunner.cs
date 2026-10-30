@@ -252,13 +252,13 @@ public class SwarmBenchRunner : MonoBehaviour
         return true;
     }
 
-    // Before swarmSpawn.Start, which spawns the drones: the Circle pattern takes a count, the Grid a row.
+    // Before swarmSpawn.Start, which spawns the drones: the circle patterns take a count, the Grid a row.
     static void ConfigureDroneCount()
     {
         if (cfg.droneCount <= 0) return;
         foreach (swarmSpawn sp in FindObjectsOfType<swarmSpawn>(true))
         {
-            if (sp.spawnPattern == SpawnPattern.Circle)
+            if (sp.IsCirclePattern)
             {
                 sp.circleDroneCount = cfg.droneCount;
             }

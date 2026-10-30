@@ -4,10 +4,13 @@ using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
 
+// Values are spelled out because Unity serialises enum fields by integer: every scene that stores 1 spawns the
+// circle with a centre drone, which is what "Circle" meant before the hollow variant was added.
 public enum SpawnPattern
 {
-    Grid,
-    Circle
+    Grid = 0,
+    CircleWithCentre = 1,   // one drone at the start position, the rest evenly spaced on the ring
+    HollowCircle = 2        // every drone on the ring, none at the centre
 }
 
 public class swarmSpawn : MonoBehaviour
@@ -19,7 +22,8 @@ public class swarmSpawn : MonoBehaviour
     public int dronesAlongZ = 3;
     public float droneSpacing = 3.0f;
 
-    [Header("Circle pattern")]
+    [Header("Circle patterns")]
+    [Tooltip("Total drones, centre drone included under CircleWithCentre.")]
     public int circleDroneCount = 10;
     public float circleRadius = 5.0f;
     public int start_x = 0;
@@ -113,18 +117,22 @@ public class swarmSpawn : MonoBehaviour
     /// <summary>
     /// Computes the spawn positions for the configured pattern.
     /// Grid: dronesAlongX × dronesAlongZ lattice anchored at (start_x, start_y, start_z).
-    /// Circle: circleDroneCount drones evenly spaced on a ring of circleRadius around the start position.
+    /// CircleWithCentre: one drone at the start position and the other circleDroneCount - 1 evenly spaced
+    /// on a ring of circleRadius around it. HollowCircle: all circleDroneCount drones on the ring.
     /// </summary>
     private IEnumerable<Vector3> GetSpawnPositions()
     {
-        if (spawnPattern == SpawnPattern.Circle)
+        if (IsCirclePattern)
         {
             int count = Mathf.Max(1, circleDroneCount);
 
-            // One drone at the centre, the remaining (count - 1) evenly spaced on the ring.
-            yield return new Vector3(start_x, start_y, start_z);
+            int ringCount = count;
+            if (spawnPattern == SpawnPattern.CircleWithCentre)
+            {
+                yield return new Vector3(start_x, start_y, start_z);
+                ringCount = count - 1;
+            }
 
-            int ringCount = count - 1;
             for (int i = 0; i < ringCount; i++)
             {
                 float angle = i * Mathf.PI * 2f / ringCount;
@@ -148,6 +156,9 @@ public class swarmSpawn : MonoBehaviour
             }
         }
     }
+
+    public bool IsCirclePattern =>
+        spawnPattern == SpawnPattern.CircleWithCentre || spawnPattern == SpawnPattern.HollowCircle;
 
     /// <summary>
     /// Instantiates a single drone at the given position, applies yaw, and registers it in the swarm.
@@ -238,7 +249,7 @@ public class swarmSpawn : MonoBehaviour
             return;
 
         uint index = 0;
-        float armSpacing = spawnPattern == SpawnPattern.Circle ? circleRadius : droneSpacing;
+        float armSpacing = IsCirclePattern ? circleRadius : droneSpacing;
 
         foreach (Vector3 pos in GetSpawnPositions())
         {
@@ -259,7 +270,7 @@ public class swarmSpawn : MonoBehaviour
             index++;
         }
 
-        if (spawnPattern == SpawnPattern.Circle)
+        if (IsCirclePattern)
         {
             // Ring outline around the start position
             Vector3 ringCenter = new Vector3(start_x, start_y, start_z);
