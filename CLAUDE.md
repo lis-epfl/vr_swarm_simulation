@@ -2103,8 +2103,9 @@ the manual**; the harness is `citysim/swarmflow.py` on S6's flights and measures
   as `spreadScale` in shape.csv. **At 0.8 it loses drones in this city** (pairs squeezed in tight gaps, mostly while it
   narrows or widens; lesson 42), so it stays off until the avoidance circles are tightened.
 - **The replica mirrors all three** (`swarm_replica.slide_round`, `route_round`, `aim_miss`, `spread_target`), with the
-  screens' alternatives as `Model` extras (`slide_side`, `route_side`). **`FORCE_LAW_COMMIT` must be bumped to the commit
-  that carries this C#**; until then `SWARM_REPLICA_ALLOW_STALE=1` lets citysim's harnesses fly the working tree.
+  screens' alternatives as `Model` extras (`slide_side`, `route_side`). citysim's harnesses have no `--allow-stale`
+  flag, so `SWARM_REPLICA_ALLOW_STALE=1` is theirs, for flying a change to the law before it is committed and
+  `FORCE_LAW_COMMIT` bumped.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

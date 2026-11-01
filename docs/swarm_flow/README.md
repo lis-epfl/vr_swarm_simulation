@@ -297,9 +297,9 @@ narrowed streets is the cause, and a gentler setting only dilutes it.
 
 ## 8. Running it
 
-From `Assets/Scripts/Experiment`, the `stitching` env. While the C# change and its mirror in `swarm_replica.py` are
-uncommitted, the replica's force-law guard refuses to fly; `SWARM_REPLICA_ALLOW_STALE=1` is its `--allow-stale` for
-these harnesses. Once committed, bump `swarm_replica.FORCE_LAW_COMMIT` to that commit.
+From `Assets/Scripts/Experiment`, the `stitching` env. The replica's force-law guard refuses to fly while the C# it
+mirrors has changed since `swarm_replica.FORCE_LAW_COMMIT` (S7 set it to its own commit, 7bf41e8c);
+`SWARM_REPLICA_ALLOW_STALE=1` is its `--allow-stale` for these harnesses, for flying a change before it is committed.
 
 ```
 python -B -m citysim.swarmflow screen --name screen4 --cand ../../../experiment_results/swarm_flow/screen4_cands.json --cross 48 --pass 32 --street 24

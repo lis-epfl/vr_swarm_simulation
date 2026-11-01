@@ -77,7 +77,7 @@ import swarm_params as sp  # noqa: E402
 sys.path.insert(0, str(sp.EXPERIMENT_DIR))
 import analyse  # noqa: E402  (scene_boxes: the city as a run saw it, goal tiles swapped in)
 
-FORCE_LAW_COMMIT = "fe3a448b"
+FORCE_LAW_COMMIT = "7bf41e8c"
 FORCE_LAW_FILES = [
     "Assets/Scripts/swarm/OlfatiSaber.cs",
     "Assets/Scripts/swarm/SwarmAlgorithm.cs",

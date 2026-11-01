@@ -48,7 +48,7 @@ circles round each building's bounds squeeze the streets; first set's 3).
 
 **Limits and refinements.** Scripted pilots at full stick, not people; losses are rare events and differences of a
 tenth of a drone per km sit near the noise of ~100 km per setting; S7 measures movement and surrounding, not what the
-screens show. The replica's force-law guard (`FORCE_LAW_COMMIT`) needs bumping once the C# is committed. Lessons 40–42.
+screens show. Lessons 40–42.
 
 **Where.**
 - Unity: `swarm/SwarmManager.cs` (the switches), `OlfatiSaber.cs` (`SlideRoundObstacles`, `FirstBlockingFrame`,
