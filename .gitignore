@@ -112,3 +112,8 @@ experiment_results/shaped_study/shaped_study.html
 experiment_results/swarm_tune/**/results.jsonl
 experiment_results/swarm_tune/**/gate.jsonl
 experiment_results/swarm_tune/swarm_tune.html
+# S7 Building Flow: raw per-flight results and gate rows on disk; tables, the rule, candidate files, verdicts and the
+# bench gate tables committed. The run logs stay on disk too, under *.log above (S6's say "committed" but are not).
+experiment_results/swarm_flow/**/results.jsonl
+experiment_results/swarm_flow/**/gate.jsonl
+experiment_results/swarm_flow/swarm_flow.html

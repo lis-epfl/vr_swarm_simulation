@@ -95,6 +95,17 @@ public class SwarmPlaneController : MonoBehaviour
     private float coreRadiusMetres = 0.0f;
     private bool coreRadiusSeeded = false;
 
+    // S7 adaptive spread: the swarm-wide scale on d_ref, filtered; see UpdateSpreadScale.
+    private float spreadScale = 1.0f;
+    private bool spreadScaleSeeded = false;
+    private int obstacleLayerMask = -1;
+    private static readonly Collider[] spreadQueryBuffer = new Collider[64];
+    private bool hasWarnedSpreadBufferFull = false;
+    // How far beyond the look-ahead the building query reaches. A collider is found by its bounds, which
+    // stand less than R inside its avoidance cylinder and contain its centre, so this finds every
+    // building that matters to the rule as long as its avoidance radius is under 40 m.
+    private const float SpreadQueryMargin = 40.0f;
+
     // Swarm roster. swarmSpawn owns the live list that every drone's SwarmAlgorithm and
     // AttitudeAlgorithm already share, so holding that reference tracks joins and losses for free.
     // Scenes with hand-placed drones fall back to a tag search, rate-limited because
@@ -160,6 +171,14 @@ public class SwarmPlaneController : MonoBehaviour
     /// slightly different ones — the same argument as <see cref="PlaneOrigin"/>.
     /// </summary>
     public float CoreRadiusMetres => coreRadiusMetres;
+
+    /// <summary>
+    /// The S7 adaptive spread's scale on d_ref (SwarmManager.adaptiveSpread): streetSpreadFactor among
+    /// buildings, 1 while the swarm flies at one or has none near, low-passed. 1 whenever the feature is
+    /// off. One number for every drone, pushed by SwarmAlgorithm.ApplyPlaneConstraint, for the same
+    /// reason as <see cref="CoreRadiusMetres"/>: one formation, one spread.
+    /// </summary>
+    public float SpreadScale => spreadScale;
 
     /// <summary>
     /// Altitude the wall's vertical leash is measured against
@@ -322,6 +341,9 @@ public class SwarmPlaneController : MonoBehaviour
         // aggregates, no EnsureRoster, and therefore no new per-tick cost in horizontal mode or in
         // a real-drone scene, where this component exists but there is no swarm to measure.
         bool wantCore = SwarmManager.Instance != null && SwarmManager.Instance.GetHollowSwarmCore();
+        // S7 Building Flow reads the same aggregates (centroid, mean velocity), so any of its switches
+        // keeps them computed too.
+        bool wantFlow = SwarmManager.Instance != null && SwarmManager.Instance.GetBuildingFlowActive();
         if (!wantCore)
         {
             // Cleared here rather than only inside UpdateCoreRadius, which the return below skips:
@@ -330,10 +352,12 @@ public class SwarmPlaneController : MonoBehaviour
             // later reader believes.
             ClearCoreRadius();
         }
-        if (!wantCore && !planeModeActive) return;
+        if (!wantFlow) ClearSpreadScale();
+        if (!wantCore && !wantFlow && !planeModeActive) return;
 
         hasSwarmAggregates = UpdateSwarmAggregates();
         UpdateCoreRadius(wantCore);
+        UpdateSpreadScale();
 
         if (!planeModeActive) return;
 
@@ -413,6 +437,80 @@ public class SwarmPlaneController : MonoBehaviour
         coreRadiusFiltered = 0.0f;
         coreRadiusMetres = 0.0f;
         coreRadiusSeeded = false;
+    }
+
+    /// <summary>
+    /// S7 adaptive spread: narrows the formation among buildings and widens it back when the swarm
+    /// flies at one. The target is 1 while the stick's line from the centroid, surroundLookAhead long,
+    /// passes within surroundAimFraction of a building's avoidance radius of its centre (with no
+    /// stick, the centroid itself), or while no building stands within that look-ahead at all; and
+    /// streetSpreadFactor otherwise, i.e. in the streets. Seeded, then low-passed at spreadFilterTime,
+    /// as the core radius is. The lattice itself takes ~5 s to follow, which is why the look-ahead
+    /// starts widening before the formation reaches the building. Mirrored by
+    /// swarm_replica.spread_target.
+    /// </summary>
+    private void UpdateSpreadScale()
+    {
+        SwarmManager manager = SwarmManager.Instance;
+        if (manager == null || !manager.GetAdaptiveSpread() || planeModeActive || !hasSwarmAggregates)
+        {
+            ClearSpreadScale();
+            return;
+        }
+
+        float target = SpreadTarget(manager);
+        float filterTime = manager.GetSpreadFilterTime();
+        if (!spreadScaleSeeded || filterTime <= 0.0f)
+        {
+            spreadScale = target;
+            spreadScaleSeeded = true;
+        }
+        else
+        {
+            spreadScale += (1.0f - Mathf.Exp(-Time.fixedDeltaTime / filterTime)) * (target - spreadScale);
+        }
+    }
+
+    private float SpreadTarget(SwarmManager manager)
+    {
+        float lookAhead = manager.GetSurroundLookAhead() * manager.GetScaleFactor();
+        if (obstacleLayerMask < 0) obstacleLayerMask = LayerMask.GetMask("Obstacle");
+        int count = Physics.OverlapSphereNonAlloc(swarmCentroid, lookAhead + SpreadQueryMargin,
+                                                  spreadQueryBuffer, obstacleLayerMask);
+        if (count == spreadQueryBuffer.Length && !hasWarnedSpreadBufferFull)
+        {
+            hasWarnedSpreadBufferFull = true;
+            Debug.LogWarning("[SwarmPlaneController] adaptive spread: building query buffer full; some buildings " +
+                             "are being ignored. Shorten surroundLookAhead or grow the buffer.");
+        }
+
+        Vector3 stick = SwarmAlgorithm.SharedWorldStick();
+        float stickMagnitude = stick.magnitude;
+        float segment = stickMagnitude > 0.1f ? lookAhead : 0.0f;
+        Vector3 along = stickMagnitude > 1e-9f ? stick / stickMagnitude : Vector3.zero;
+        Vector3 centroid = new Vector3(swarmCentroid.x, 0.0f, swarmCentroid.z);
+        float aim = manager.GetSurroundAimFraction();
+
+        bool amongBuildings = false;
+        for (int i = 0; i < count; i++)
+        {
+            // The cylinder OlfatiSaber flies round, about world up as every scene's cylinderAxis is.
+            OlfatiSaber.GetObstacleCylinder(spreadQueryBuffer[i], Vector3.up,
+                                            out Vector3 centre, out _, out float radius, out _);
+            Vector3 rel = new Vector3(centre.x, 0.0f, centre.z) - centroid;
+            if (rel.magnitude - radius < lookAhead)
+                amongBuildings = true;
+            float t = Mathf.Clamp(Vector3.Dot(rel, along), 0.0f, segment);
+            if ((rel - t * along).magnitude < aim * radius)
+                return 1.0f;
+        }
+        return amongBuildings ? manager.GetStreetSpreadFactor() : 1.0f;
+    }
+
+    private void ClearSpreadScale()
+    {
+        spreadScale = 1.0f;
+        spreadScaleSeeded = false;
     }
 
     public void TogglePlaneMode() => SetPlaneMode(!planeModeActive);

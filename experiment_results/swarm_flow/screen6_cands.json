@@ -1,0 +1,147 @@
+[
+ {
+  "label": "T3",
+  "d": 2.0,
+  "over": {}
+ },
+ {
+  "label": "slide hidden",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden"
+  }
+ },
+ {
+  "label": "slide hidden + route",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  }
+ },
+ {
+  "label": "adaptive 0.8 x1.1",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundSpreadFactor": 1.1,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ },
+ {
+  "label": "adaptive 0.8 x1.2",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundSpreadFactor": 1.2,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ },
+ {
+  "label": "slide hidden + adaptive 0.8",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundSpreadFactor": 1.0,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ },
+ {
+  "label": "slide hidden + adaptive 0.8 x1.1",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundSpreadFactor": 1.1,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ },
+ {
+  "label": "slide hidden + adaptive 0.8 x1.2",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundSpreadFactor": 1.2,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ },
+ {
+  "label": "slide hidden + route + adaptive 0.8",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundSpreadFactor": 1.0,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ },
+ {
+  "label": "slide hidden + route + adaptive 0.8 x1.1",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundSpreadFactor": 1.1,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ },
+ {
+  "label": "slide hidden + route + adaptive 0.7 x1.1",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundSpreadFactor": 1.1,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  }
+ }
+]

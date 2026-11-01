@@ -1,0 +1,73 @@
+{
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "T3"
+ },
+ "f451e730d5": {
+  "over": {
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "adaptive"
+ },
+ "7288526e45": {
+  "over": {
+   "routeStragglers": true
+  },
+  "d": 2.0,
+  "label": "route"
+ },
+ "da0ddb1451": {
+  "over": {
+   "routeStragglers": true,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "route + adaptive"
+ },
+ "006dd3cc37": {
+  "over": {
+   "slideRoundBuildings": true
+  },
+  "d": 2.0,
+  "label": "slide"
+ },
+ "7377e0daa3": {
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "slide + adaptive"
+ },
+ "a84543b186": {
+  "over": {
+   "slideRoundBuildings": true,
+   "routeStragglers": true
+  },
+  "d": 2.0,
+  "label": "slide + route"
+ },
+ "be5168d673": {
+  "over": {
+   "slideRoundBuildings": true,
+   "routeStragglers": true,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "slide + route + adaptive"
+ },
+ "single-1a08c05a10": {
+  "over": {},
+  "d": 2.0,
+  "label": "one drone, T3"
+ },
+ "single-68f4dfc327": {
+  "over": {
+   "slideRoundBuildings": true
+  },
+  "d": 2.0,
+  "label": "one drone, slide"
+ }
+}

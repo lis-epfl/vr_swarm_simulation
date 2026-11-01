@@ -129,6 +129,17 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.CoreVelocity = coreOn && swarmManager.GetCoreRelativeVelocity()
                 ? plane.SwarmMeanVelocity
                 : Vector3.zero;
+
+            // S7 Building Flow, from the same aggregates. Horizontal swarming only, like the core: a wall
+            // is a different formation, and its spread is mostly vertical.
+            bool flowOn = swarmManager.GetBuildingFlowActive()
+                       && !planeMode
+                       && plane != null && plane.HasSwarmAggregates;
+
+            olfatiSaberAlgorithm.FlowActive = flowOn;
+            olfatiSaberAlgorithm.SwarmCentre = flowOn ? plane.SwarmCentroid : Vector3.zero;
+            olfatiSaberAlgorithm.SwarmVelocity = flowOn ? plane.SwarmMeanVelocity : Vector3.zero;
+            olfatiSaberAlgorithm.SpreadScale = flowOn && swarmManager.GetAdaptiveSpread() ? plane.SpreadScale : 1.0f;
         }
 
         // A vertical plane puts the formation's spread on the vertical axis, which the altitude-hold
@@ -250,21 +261,7 @@ public class SwarmAlgorithm : MonoBehaviour
 
             // Forward the command frame. Body rotates by each drone's heading; World uses fixed axes;
             // VR rotates by the pilot body heading (OVRCameraRig yaw integrated in PyUniSharingFast).
-            InputManager.CommandFrame frame = InputManager.Instance.ActiveCommandFrame;
-
-            // In the convex-hull attitude modes the controller yaw command steers the pilot's body
-            // (the OVRCameraRig, rotated in PyUniSharingFast.UpdateBodyYaw) instead of the drones, so
-            // the velocity stick must follow that body heading — forward on the stick always matches
-            // where the rig faces. Force the VR frame here regardless of the inspector setting.
-            if (swarmManager != null)
-            {
-                SwarmManager.AttitudeAlgorithm attitude = swarmManager.GetSelectedAttitudeAlgorithm();
-                if (attitude == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
-                 || attitude == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL)
-                {
-                    frame = InputManager.CommandFrame.VR;
-                }
-            }
+            InputManager.CommandFrame frame = ResolveCommandFrame();
 
             bool worldFrame = frame != InputManager.CommandFrame.Body;
             float referenceYaw = frame == InputManager.CommandFrame.VR ? PyUniSharingFast.BodyYawDegrees : 0f;
@@ -273,6 +270,54 @@ public class SwarmAlgorithm : MonoBehaviour
             if (inputStatus["spread"] > 0 && isSwarmSpreadEnabled)
                 SetSwarmSpread(inputStatus["spread"]);
         }
+    }
+
+    /// <summary>
+    /// The frame the velocity stick is resolved in. In the convex-hull attitude modes the controller
+    /// yaw command steers the pilot's body (the OVRCameraRig, rotated in
+    /// PyUniSharingFast.UpdateBodyYaw) instead of the drones, so the velocity stick must follow that
+    /// body heading — forward on the stick always matches where the rig faces — and the VR frame is
+    /// forced regardless of the inspector setting. Static so SwarmPlaneController can read the same
+    /// command for the whole swarm (<see cref="SharedWorldStick"/>).
+    /// </summary>
+    public static InputManager.CommandFrame ResolveCommandFrame()
+    {
+        InputManager.CommandFrame frame = InputManager.Instance.ActiveCommandFrame;
+        SwarmManager manager = SwarmManager.Instance;
+        if (manager != null)
+        {
+            SwarmManager.AttitudeAlgorithm attitude = manager.GetSelectedAttitudeAlgorithm();
+            if (attitude == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+             || attitude == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL)
+            {
+                frame = InputManager.CommandFrame.VR;
+            }
+        }
+        return frame;
+    }
+
+    /// <summary>
+    /// The pilot's velocity stick in world axes, magnitude-limited to 1 as
+    /// VelocityControl.SetNormalisedVelocity limits it: the direction every drone is commanded in
+    /// (times maxSpeed). Zero without an InputManager, and in the Body frame, where each drone's
+    /// command turns with its own heading and there is no one direction for the swarm.
+    /// </summary>
+    public static Vector3 SharedWorldStick()
+    {
+        if (InputManager.Instance == null)
+            return Vector3.zero;
+
+        Dictionary<string, float> status = InputManager.Instance.InputStatus;
+        Vector2 stick = new Vector2(status["roll"], status["pitch"]);
+        if (stick.magnitude > 1f)
+            stick.Normalize();
+
+        InputManager.CommandFrame frame = ResolveCommandFrame();
+        if (frame == InputManager.CommandFrame.Body)
+            return Vector3.zero;
+
+        float referenceYaw = frame == InputManager.CommandFrame.VR ? PyUniSharingFast.BodyYawDegrees : 0f;
+        return Quaternion.Euler(0f, referenceYaw, 0f) * new Vector3(stick.x, 0f, stick.y);
     }
 
     // Update the Reynolds parameters
@@ -322,6 +367,14 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.c_core = swarmManager.GetCCore();
             olfatiSaberAlgorithm.c2_core = swarmManager.GetC2Core();
             olfatiSaberAlgorithm.coreStandoffRatio = swarmManager.GetCoreStandoffRatio();
+
+            // S7 Building Flow settings; the per-tick state rides ApplyPlaneConstraint.
+            olfatiSaberAlgorithm.SlideRoundBuildings = swarmManager.GetSlideRoundBuildings();
+            olfatiSaberAlgorithm.SlideHeadOnFraction = swarmManager.GetSlideHeadOnFraction();
+            olfatiSaberAlgorithm.SlideSplitAimFraction = swarmManager.GetSlideSplitAimFraction();
+            olfatiSaberAlgorithm.SurroundLookAhead = swarmManager.GetSurroundLookAhead();
+            olfatiSaberAlgorithm.RouteStragglers = swarmManager.GetRouteStragglers();
+            olfatiSaberAlgorithm.StragglerPressShare = swarmManager.GetStragglerPressShare();
 
             // Bound the obstacle force by what this drone can actually produce. Beyond the tilt
             // budget the extra demand does not move the drone any faster -- VelocityControl clamps

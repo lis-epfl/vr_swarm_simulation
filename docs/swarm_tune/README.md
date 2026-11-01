@@ -242,7 +242,8 @@ live scene's: since S6 the live scene is T3, and a twin built from it would fly 
 - **The remaining contacts are a force-law limit, not a gain to tune**: cohesion is not shielded, so a straggler is pulled
   through a facade whenever the rest of the swarm is on the other side (`OlfatiSaber.RemoveInwardComponent` is applied to
   the stick and the damper only). Projecting cohesion the same way would be the change to try; it needs the C#, the
-  replica and the bench.
+  replica and the bench. [S7 Building Flow](../swarm_flow/README.md) tried it (routing stragglers), with a slide round
+  buildings and an adaptive spread.
 - **The swarm and one drone are now equally quick through the city on straight lines** (4.8 and 5.0 m/s); the swarm's
   edge in the trials stays its cameras, as S4 and S5 found.
 
@@ -255,7 +256,8 @@ and one group 94% of the time at 1.6, against 3.4–4.4 and 69–85% at 2.0. So 
 streets and widens to about 2.0 when flying at a building would beat any constant one**, by roughly a fifth in the
 streets, if it did not reintroduce collisions: at 1.6 the confirmation still lost 0.43 drones per km in the streets
 (T5). Worth trying as a pilot technique (the dial) once the collision problem at small spreads is solved, or as an
-automatic rule; not tested here.
+automatic rule; not tested here. [S7](../swarm_flow/README.md) tried it as a switch: faster in the streets, at a cost in
+drones.
 
 ## 10. Running it
 

@@ -1,0 +1,518 @@
+<title>S7 Building Flow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (swarmflow_report via swarmtune_report.s4_style),
+   then S7's additions. */
+/*__S4_STYLE__*/
+/* S7: the seven ways a route is flown, on the family's validated slots */
+:root { --k-single_off: var(--c-single); --k-single_slide: var(--c-look); --k-t3: var(--m-other); --k-slide: var(--c-hop);
+        --k-route: var(--c-street); --k-adaptive: var(--c-pass); --k-all: var(--c-hop2); --k-slide_route: var(--c-hold);
+        --k-other: var(--m-firm); }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 150px; font-family: var(--font-body); }
+table.dt tr.pick td { background: color-mix(in srgb, var(--c-hop2) 12%, transparent); font-weight: 600; }
+table.dt tr.sep td { background: var(--panel-2, transparent); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.chart svg text.ax { font: 500 11px var(--font-body); fill: var(--muted); }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+.sw { display: inline-block; font: 600 0.72rem/1 var(--font-body); border-radius: 4px; padding: 3px 6px; margin-right: 4px;
+      color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.sw.on { color: var(--good); background: var(--good-bg); }
+.pair figure svg text { font: 500 11px var(--font-body); fill: var(--ink-2); }
+.pair figure svg text.h { font: 600 12.5px var(--font-body); fill: var(--ink); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S7 · Building Flow · for the human trials</p>
+      <h1>Can the swarm flow round the city's buildings instead of stalling at them?</h1>
+      <p class="lead">The trials have pilots search BlockShapedPatchCityWorld with a swarm of ten drones or with one drone,
+        and the swarm earns its place by showing the pilot several sides of the streets and buildings at once while keeping up.
+        S6 tuned its gains; three limits of how the force law treats buildings remained. Flown at a building, a drone stalls. A
+        drone left behind one is dragged through its facade. And one spread cannot suit both the narrow streets and the
+        buildings the swarm should surround.</p>
+      <p class="lead">S7 adds one Inspector switch on <code>SwarmManager</code> for each, staying with the Olfati-Saber law
+        (no path finding): <b>slide round buildings</b>, <b>route stragglers</b> and <b>adaptive spread</b>. It tunes them in the
+        replica, confirms them in the scene's city and three held out, and flies them in Unity. Scripted pilots at full stick.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const rel = (a, b) => ok(a) && ok(b) && b ? `${a >= b ? "+" : "−"}${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+const pts = (a, b) => ok(a) && ok(b) ? `${a >= b ? "+" : "−"}${Math.round(100 * Math.abs(a - b))} points` : "–";
+// "15% fewer" / "20% more": a change in a count, in words; by(a, b): the size of a change, "22%"
+const less = (a, b) => ok(a) && ok(b) && b ? `${Math.round(100 * Math.abs(a / b - 1))}% ${a <= b ? "fewer" : "more"}` : "–";
+const by = (a, b) => ok(a) && ok(b) && b ? `${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+
+// ---------------------------------------------------------------- the ways, the runs
+const WAYS = [["single_off", "one drone, switches off", "one drone"], ["single_slide", "one drone, slide on", "one drone + slide"],
+              ["t3", "the swarm, switches off (T3)", "swarm, off (T3)"], ["slide", "slide round buildings", "slide"],
+              ["route", "route stragglers", "route"], ["adaptive", "adaptive spread (0.8, 1 s)", "adaptive"], ["all", "all three on (adaptive 0.8, 1 s)", "all three"],
+              ["slide_route", "slide + route", "slide + route"]];
+const kCol = c => `var(--k-${WAYS.some(x => x[0] === c) ? c : "other"})`;
+const kLab = c => (WAYS.find(x => x[0] === c) || [c, c])[1];
+const kShort = c => (WAYS.find(x => x[0] === c) || [c, c, c])[2];
+const lineKey = c => `<span class="ln" style="border-color:${kCol(c)}"></span>`;
+// confirmation labels (replica) and Unity set labels for each combination
+const COMBOS = [["T3", "T3", "t3"], ["slide", "slide", "slide"], ["route", "route", "route"], ["adaptive", "adaptive", "adaptive"],
+                ["slide + route", "slide_route", null], ["slide + adaptive", "slide_adaptive", null], ["route + adaptive", "route_adaptive", null],
+                ["slide + route + adaptive", "all_three", "all"]];
+const CF = D.confirm || [];
+const conf = lab => CF.find(r => r.label === lab);
+const confSingle = lab => CF.find(r => r.label === `one drone, ${lab}`);
+const unity = (set, src = "unity") => (D.unity || []).find(r => r.set === set && r.src === src);
+const unitySingle = (set, src = "unity") => (D.unity_single || []).find(r => r.set === set && r.src === src);
+const WAY = {single_off: [confSingle("T3"), unitySingle("T3")], single_slide: [confSingle("slide"), unitySingle("slide")],
+             t3: [conf("T3"), unity("T3")], slide: [conf("slide"), unity("slide")], route: [conf("route"), unity("route")],
+             adaptive: [conf("adaptive"), unity("adaptive")], all: [conf("slide + route + adaptive"), unity("all_three")],
+             slide_route: [conf("slide + route"), unity("slide_route")]};
+const T2 = D.tune2 || [], t2 = lab => T2.find(r => r.label === lab);
+const U2 = set => (D.unity_tune2 || []).find(r => r.set === set && r.src === "unity");
+const C2 = set => D.counts && D.counts.tune2 ? D.counts.tune2[set] : null;
+const R = c => WAY[c] ? WAY[c][0] : null, U = c => WAY[c] ? WAY[c][1] : null;
+const kind = (r, k, m) => r && r.kinds && r.kinds[k] ? r.kinds[k][m] : null;
+const V = D.verdicts || {}, PICK = D.pick, P = D.params;
+const CNT = (set, single) => { const c = single ? D.counts && D.counts.single : D.counts && D.counts.flow; return c ? c[set] : null; };
+
+// ---------------------------------------------------------------- the tooltip and chart helpers (S5's)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (W, H, label, g) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// Small-multiple horizontal bars: one panel per measure, one bar per way. rows [{c, r}], panels [{title, get, f, unit}]
+function barPanels(el, rows, panels) {
+  const W = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 16, gap = 7, m = {l: 112, r: 46, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x.r)), vmax = Math.max(1e-9, ...vals.filter(ok)) * 1.05;
+    const xx = v => m.l + (W - m.l - m.r) * v / vmax;
+    let g = "";
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(kShort(x.c))}</text>`;
+      if (ok(v)) g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${kCol(x.c)}"/>
+        <text class="val" x="${(xx(v) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${W}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(W, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100]; return [kLab(x.c), [[kCol(x.c), p.f(p.get(x.r)), p.title]]]; });
+}
+const rowsOf = (cs, src = "replica") => cs.map(c => ({c, r: src === "unity" ? U(c) : R(c)})).filter(x => x.r);
+
+// ---------------------------------------------------------------- the masthead
+function ANSWER_BOX() {
+  const t = R("t3"), s = R("slide"), ro = R("route"), a = R("adaptive"), al = R("all"), s0 = R("single_off"), s1 = R("single_slide");
+  const ut = U("t3"), us = U("slide"), ua = U("adaptive"), usr = U("slide_route") || unity("slide_route");
+  const sr = conf("slide + route"), cnt = (set, single) => CNT(set, single);
+  return `<p class="eyebrow">The short answer</p><ol>
+    <li><b>Slide round buildings: yes, switch it on.</b> The swarm moves ${by(s && s.v_coh, t && t.v_coh)} faster while together${ut && us ? ` (${by(us.v_coh, ut.v_coh)} in Unity)` : ""}
+      and gets past a building in ${fmt(kind(s, "cross", "bld_pass"), 1)} s instead of ${fmt(kind(t, "cross", "bld_pass"), 1)}, with ${less(s && s.contact_km, t && t.contact_km)} building contacts
+      and drones lost as rarely as before. One drone shares it and gets ${by(s1 && s1.v_prog, s0 && s0.v_prog)} faster too.</li>
+    <li><b>Route stragglers: fewer contacts, nothing else.</b> ${less(ro && ro.contact_km, t && t.contact_km)} building contacts on its own, and with the slide
+      ${less(sr && sr.contact_km, s && s.contact_km)} than the slide alone${usr && cnt("slide_route") ? ` (Unity: ${cnt("slide_route").contacts} contact${cnt("slide_route").contacts === 1 ? "" : "s"} in ${cnt("slide_route").flights} flights)` : ""}.
+      It does not make the swarm faster.</li>
+    <li><b>Adaptive spread: faster in the streets, at a cost in drones.</b> ${by(kind(a, "street", "v_coh"), kind(t, "street", "v_coh"))} faster in the streets${ua && ut ? ` (${by(kind(ua, "street", "v_coh"), kind(ut, "street", "v_coh"))} in Unity)` : ""},
+      but a narrower formation collides in tight gaps: ${fmt(a && a.lost_km, 2)} drones lost per km against ${fmt(t && t.lost_km, 2)}${cnt("adaptive") && cnt("T3") ? ` (Unity: ${cnt("adaptive").lost} against ${cnt("T3").lost} in 64 flights)` : ""}.</li></ol>
+    <p class="bottom"><b>My reading:</b> switch on the slide${PICK ? " (the rule's pick)" : ""} for both trial conditions; add route if building contacts matter; leave the
+      adaptive spread off until the avoidance circles are tightened. <a href="#reading">The full reading</a>.</p>`;
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["flights", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s7tab", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (h === "reading" || h === "others" || /^q\d$/.test(h)) { show("answer", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? D.replay.groups[gi].flights.find(f => f.cond === cond && f.source === "unity") : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (gid, cond, text) => D.replay && D.replay.groups.some(g => g.id === gid) ? `<a class="watch" href="#watch:${gid}:${cond}">${esc(text)}</a>` : "";
+
+// ---------------------------------------------------------------- the answer
+function comboTable() {
+  const head = ["switches on", "cohesive speed (m/s)", "progress (m/s)", "one group", "in the streets (m/s)", "buildings surrounded", "lost /km", "contacts /km", "ended in pieces", "Unity: cohesive speed", "Unity: lost / contacts per km", "rule"];
+  const sw = lab => ["slide", "route", "adaptive"].map(s => `<span class="sw${lab.includes(s) ? " on" : ""}">${s}</span>`).join("");
+  const rows = COMBOS.map(([lab, uset]) => {
+    const r = conf(lab), u = unity(uset), v = V[lab] || {};
+    if (!r) return "";
+    const verdict = lab === "T3" ? "baseline" : `${v.safe ? "safe" : "not safe"} · ${v.helps ? "helps" : "does not help"}`;
+    return `<tr${lab === PICK ? ' class="pick"' : ""}><td class="l">${lab === "T3" ? "none (T3)" : sw(lab)}</td><td>${fmt(r.v_coh, 2)}</td><td>${fmt(r.v_prog, 2)}</td><td>${pc(r.one)}</td>
+      <td>${fmt(kind(r, "street", "v_coh"), 2)}</td><td>${pc(kind(r, "cross", "wrapped"))}</td><td>${fmt(r.lost_km, 2)}</td><td>${fmt(r.contact_km, 2)}</td><td>${pc(r.open)}</td>
+      <td>${u ? fmt(u.v_coh, 2) : "–"}</td><td>${u ? `${fmt(u.lost_km, 2)} / ${fmt(u.contact_km, 2)}` : "–"}</td><td class="l small">${esc(verdict)}</td></tr>`;
+  }).join("");
+  const n = conf("T3");
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 || i === head.length - 1 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="small muted">The confirmation (replica): ${n ? n.n : "–"} fresh flights per row, about ${n ? fmt(n.km, 0) : "–"} km, in the scene's city and three held out;
+      the first seven columns are over the straight lines and the blocks, "in the streets" over the street routes. The adaptive spread's rows flew 0.8 of d_ref with a
+      1 s filter; it now ships at ${fmt(P.streetSpreadFactor, 2)} and ${fmt(P.spreadFilterTime, 0)} s (question 3). Unity: 64 flights per row in the scene's city
+      (${(D.unity || []).length ? "the flights tab replays some" : "not yet flown"}). The rule (fixed before the confirmation): safe = losses at most T3's + ${D.rule_numbers.lost_margin} per km,
+      contacts at most T3's, ending in pieces at most ${Math.round(100 * D.rule_numbers.open_margin)} points more; helps = cohesive speed ${Math.round(100 * D.rule_numbers.gain)}% above T3's,
+      the streets no slower than ${Math.round(100 * D.rule_numbers.street_floor)}% of T3's, surrounding within ${Math.round(100 * D.rule_numbers.wrap_margin)} points of T3's.</p>`;
+}
+RENDER.answer = el => {
+  const t = R("t3"), s = R("slide"), ro = R("route"), a = R("adaptive"), al = R("all"), s0 = R("single_off"), s1 = R("single_slide");
+  const sr = conf("slide + route"), sa = conf("slide + adaptive"), ra = conf("route + adaptive");
+  const ut = U("t3"), us = U("slide"), uro = U("route"), ua = U("adaptive"), ual = U("all"), us0 = U("single_off"), us1 = U("single_slide");
+  const vs = V.slide || {}, vr = V.route || {}, va = V.adaptive || {};
+  const tag = v => v.safe && v.helps ? '<span class="vp yes">Yes</span>' : v.safe || v.helps ? '<span class="vp part">Partly</span>' : '<span class="vp no">No</span>';
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>Does sliding round a building get the swarm past it sooner?</h2>
+      <p class="qa">${tag(vs)}Turning the part of the stick the shield removes along the building, instead of deleting it, keeps the drones moving.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-slide"></div>
+      <div class="qtext"><ul>
+        <li><b>Past a building in ${fmt(kind(s, "cross", "bld_pass"), 1)} s instead of ${fmt(kind(t, "cross", "bld_pass"), 1)}</b> on the straight lines, and
+          ${by(s && s.v_coh, t && t.v_coh)} faster while together overall (${fmt(s && s.v_coh, 2)} against ${fmt(t && t.v_coh, 2)} m/s cohesive speed), the swarm as one group
+          ${pc(s && s.one)} of the time (${pc(t && t.one)}) and ${pc(s && s.open)} of flights ending in pieces (${pc(t && t.open)}).</li>
+        <li><b>It still surrounds what it flies at</b>: ${pc(kind(s, "cross", "wrapped"))} of the buildings on the straight lines (${pc(kind(t, "cross", "wrapped"))}).
+          The formation splits in halves round a building the swarm flies squarely at; elsewhere each drone takes its own, shorter side. Splitting in
+          halves everywhere, as first suggested, sent the trailing half round the far side of corner buildings and broke up the street flights.</li>
+        <li><b>Fewer contacts</b> (${fmt(s && s.contact_km, 2)} per km against ${fmt(t && t.contact_km, 2)}): a drone that keeps moving round a building is not pinned to it.</li>
+        <li><b>One drone shares the shield, so it slides too</b>: ${fmt(s1 && s1.v_prog, 2)} m/s against ${fmt(s0 && s0.v_prog, 2)}, its longest stall in a flight
+          ${fmt(kind(s1, "cross", "stall"), 1)} s against ${fmt(kind(s0, "cross", "stall"), 1)} on the straight lines.</li>
+        ${ut && us ? `<li><b>Unity agrees</b>: cohesive speed ${fmt(us.v_coh, 2)} against ${fmt(ut.v_coh, 2)} m/s (${by(us.v_coh, ut.v_coh)} faster), a building passed in
+          ${fmt(kind(us, "cross", "bld_pass"), 1)} s against ${fmt(kind(ut, "cross", "bld_pass"), 1)}, ${CNT("slide").contacts} contacts against ${CNT("T3").contacts} in 64 flights,
+          and ${CNT("slide").lost / 2} colliding pair${CNT("slide").lost === 2 ? "" : "s"} against ${CNT("T3").lost / 2}${us0 && us1 ? `; one drone ${fmt(us1.v_prog, 2)} against ${fmt(us0.v_prog, 2)} m/s,
+          a block passed in ${fmt(kind(us1, "pass", "bld_pass"), 1)} s against ${fmt(kind(us0, "pass", "bld_pass"), 1)}` : ""}.</li>` : ""}</ul>
+        <div class="watches">${watch("s7_stall", "single_off", "One drone stalling at a building, and sliding")}${watch("s7_cross", "slide", "The swarm on a straight line")}</div></div></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Does routing stragglers stop drones being dragged into facades?</h2>
+      <p class="qa">${tag(vr)}Fewer contacts, with nothing else changed.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-route"></div>
+      <div class="qtext"><ul>
+        <li><b>${less(ro && ro.contact_km, t && t.contact_km)} building contacts</b> (${fmt(ro && ro.contact_km, 2)} per km against ${fmt(t && t.contact_km, 2)}), with cohesive speed
+          ${fmt(ro && ro.v_coh, 2)} against ${fmt(t && t.v_coh, 2)} m/s and ${pc(kind(ro, "cross", "wrapped"))} of buildings surrounded (${pc(kind(t, "cross", "wrapped"))}).</li>
+        <li><b>Only the pull towards neighbours a building hides is turned</b>, and only what exceeds ${fmt(P.stragglerPressShare, 1)} of the obstacle field's ceiling.
+          Turning all of cohesion's push into the building also turned the drones' repulsion of each other, and they collided; turning all of the hidden pull
+          left nothing holding a surround's two halves together, and the swarm broke up.</li>
+        <li><b>With the slide on, contacts nearly go</b>: ${fmt(sr && sr.contact_km, 2)} per km against ${fmt(s && s.contact_km, 2)} with the slide alone
+          (Unity: ${CNT("slide_route") ? CNT("slide_route").contacts : "–"} contact${CNT("slide_route") && CNT("slide_route").contacts === 1 ? "" : "s"} in 64 flights, against ${CNT("slide") ? CNT("slide").contacts : "–"} and T3's ${CNT("T3") ? CNT("T3").contacts : "–"}), for cohesive speed
+          ${fmt(sr && sr.v_coh, 2)} against ${fmt(s && s.v_coh, 2)} m/s.</li>
+        <li><b>Why the rule did not take it with the slide</b>: the replica lost ${fmt(sr && sr.lost_km, 2)} drones per km with both against ${fmt(s && s.lost_km, 2)} with the slide alone
+          (${Math.round((sr && sr.lost_km || 0) * (sr && sr.km || 0) / 2)} colliding pairs against ${Math.round((s && s.lost_km || 0) * (s && s.km || 0) / 2)} in about ${fmt(s && s.km, 0)} km), past its bar;
+          Unity lost ${CNT("slide_route") ? CNT("slide_route").lost / 2 : "–"} pairs with each. A difference that size could be chance.</li>
+        ${ut && uro ? `<li><b>Unity</b>: route alone ${CNT("route").contacts} contacts and no drone lost in 64 flights, against T3's ${CNT("T3").contacts} and ${CNT("T3").lost}.</li>` : ""}</ul>
+        <div class="watches">${watch("s7_contact", "t3", "A drone pulled into a facade, and routed round")}</div></div></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>Does a spread that narrows in the streets help?</h2>
+      <p class="qa">${tag(va)}Quicker and more together in the streets; more drones lost.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-adaptive"></div>
+      <div class="qtext"><ul>
+        <li><b>${by(kind(a, "street", "v_coh"), kind(t, "street", "v_coh"))} faster in the streets</b> (${fmt(kind(a, "street", "v_coh"), 2)} against ${fmt(kind(t, "street", "v_coh"), 2)} m/s), one group
+          ${pc(kind(a, "street", "one"))} of the time (${pc(kind(t, "street", "one"))}). In the confirmation it narrowed to 0.8 of d_ref among buildings, with a 1 s filter,
+          and widened back when the swarm's track ran into one within ${fmt(P.surroundLookAhead * 10, 0)} m; it now ships at ${fmt(P.streetSpreadFactor, 2)} and ${fmt(P.spreadFilterTime, 0)} s (below).</li>
+        <li><b>The formation takes about 5 s to widen</b>, so it reaches some buildings still narrow: it surrounds ${pc(kind(a, "cross", "wrapped"))} of those on the straight lines
+          (${pc(kind(t, "cross", "wrapped"))}).</li>
+        <li><b>Narrower costs drones</b>: ${fmt(a && a.lost_km, 2)} per km against ${fmt(t && t.lost_km, 2)}, pairs squeezed together by the fields of two buildings in a
+          tight gap (the same collisions S5 and S6 found below a spread of about 1.4–1.6). A stronger close-range damper did not stop them.</li>
+        ${ut && ua ? `<li><b>Unity, at 0.8</b>: ${fmt(kind(ua, "street", "v_coh"), 2)} against ${fmt(kind(ut, "street", "v_coh"), 2)} m/s in the streets, ${CNT("adaptive").lost} drones lost
+          against ${CNT("T3").lost} in 64 flights (with the slide ${CNT("slide_adaptive") ? CNT("slide_adaptive").lost : "–"}, all three ${CNT("all_three") ? CNT("all_three").lost : "–"}).</li>` : ""}
+        ${t2("adaptive 0.85, filter 3 s") ? `<li><b>A gentler setting cut the losses in Unity but did not remove them</b>, so it now ships that way. Narrowing only to 0.85 with a 3 s filter, on fresh
+          routes: the streets ${by(kind(t2("adaptive 0.85, filter 3 s"), "street", "v_coh"), kind(t2("T3"), "street", "v_coh"))} faster, ${fmt(t2("adaptive 0.85, filter 3 s").lost_km, 2)} drones lost per km alone
+          (T3 ${fmt(t2("T3").lost_km, 2)}) but ${fmt(t2("slide + adaptive 0.85, filter 3 s").lost_km, 2)} with the slide (slide alone ${fmt(t2("slide").lost_km, 2)})${C2("adaptive_085_3s") ? `. In Unity it lost
+          ${C2("adaptive_085_3s").lost} drones alone (${CNT("adaptive") ? CNT("adaptive").lost : "–"} at 0.8) and ${C2("slide_adaptive_085_3s") ? C2("slide_adaptive_085_3s").lost : "–"} with the slide (${CNT("slide_adaptive") ? CNT("slide_adaptive").lost : "–"} at 0.8), against T3's ${CNT("T3") ? CNT("T3").lost : "–"},
+          in 64 flights` : ""}. The squeeze, not the setting, is the problem: the avoidance circles narrow these streets.</li>` : ""}</ul>
+        <div class="watches">${watch("s7_street", "adaptive", "Along the streets")}</div></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>Which switches to turn on?</h2>
+      <p class="qa"><span class="vp ${PICK ? "yes" : "part"}">${PICK ? esc(PICK) : "None by the rule"}</span>Every combination against T3, by a rule fixed before the confirmation.</p></div></div>
+    <div id="ans-table">${comboTable()}</div>
+  </section>
+
+  <section class="q reading" id="reading">
+    <div><h2>My reading</h2>
+      <p class="qa"><b>The slide is the change worth having.</b> It removes the stall that capped the swarm's and the single drone's speed among these buildings,
+      keeps the swarm together and still lets it surround nine in ten of the buildings it flies at. Routing stragglers takes most of the remaining contacts away, at a
+      possible small cost in collisions that ~100 km per setting cannot resolve. The adaptive spread does what it promised in the streets but brings back the
+      collisions a narrower formation suffers between these buildings, and a gentler setting did not cure that; leave it off for the trials.</p></div>
+    <div class="grid2">
+      <div><h3>What S7 settles</h3><ol>
+        <li><b>The stall at a building was the speed limit</b>, and turning the stick along the building instead of deleting it lifts it, for the swarm and one drone alike.</li>
+        <li><b>The way round matters more than the push.</b> Splitting the formation in halves only round a building the swarm flies at, each drone its own way elsewhere, is what kept the streets intact.</li>
+        <li><b>Cohesion through a facade can be capped rather than removed</b>: keeping part of the pull holds a surround together, turning the rest stops the drag.</li></ol></div>
+      <div><h3>What it cannot settle</h3><ol>
+        <li><b>People.</b> Scripted straight lines and street routes at full stick; real pilots steer round buildings, stop to look and turn the spread dial.</li>
+        <li><b>Rare losses</b>: differences of a tenth of a drone per km sit near the noise of ~100 km per setting.</li>
+        <li><b>What the pilot sees</b>: S7 measures movement and surrounding, not what the screens show.</li></ol></div></div>
+    <div id="others"><h3>The other recommendations</h3><ul>
+      <li><b>Tighter avoidance shape (first set, 3): include next.</b> The circles round each building's bounds bulge into the streets, and that squeeze is what kills drones
+        whenever the formation narrows; it is also why the adaptive spread costs drones here. Declaring each building's own radius is the likely fix, and would let the adaptive spread pay.</li>
+      <li><b>Realistic pilots (first set, 5) and a view measure (first set, 6): include before the trials.</b> Fly the switches on S1's pilot paths or recorded inputs, and score
+        what the screens show (S4's look-down), since the slide changes which drones lead round a building.</li>
+      <li><b>More Unity checks (first set, 7): partly done here</b> (64 flights per setting); losses still need a larger run, and a headset flight should check the frame-rate log.</li>
+      <li><b>Look-ahead shield and the stronger damper (second set, 1 and 3): not now.</b> The slide removes the head-on stall the look-ahead was after (its other
+        effect, not braking for buildings beside the street, raised street collisions in S6's prototype), and the damper did not stop the collisions it was meant for.</li>
+      <li><b>A stretched formation (second set, 2): the alternative to the adaptive spread</b> if street cohesion matters; it reshapes the lattice itself, a larger departure from Olfati-Saber.</li></ul></div>
+  </section></div>`;
+  const pairs = [["#ans-slide", () => barPanels($("#ans-slide", el), rowsOf(["single_off", "single_slide", "t3", "slide"]),
+      [{title: "Seconds past a building", get: r => kind(r, "cross", "bld_pass"), f: v => fmt(v, 1), unit: "straight lines, buildings aimed at"},
+       {title: "Progress speed (m/s)", get: r => r.v_prog, f: v => fmt(v, 2), unit: "straight lines and blocks"}])],
+    ["#ans-route", () => barPanels($("#ans-route", el), rowsOf(["t3", "route", "slide", "slide_route"]),
+      [{title: "Building contacts per km", get: r => r.contact_km, f: v => fmt(v, 2), unit: "every flight"},
+       {title: "Cohesive speed (m/s)", get: r => r.v_coh, f: v => fmt(v, 2), unit: "straight lines and blocks"}])],
+    ["#ans-adaptive", () => barPanels($("#ans-adaptive", el), rowsOf(["t3", "adaptive", "slide", "all"]),
+      [{title: "In the streets (m/s)", get: r => kind(r, "street", "v_coh"), f: v => fmt(v, 2), unit: "cohesive speed, street routes"},
+       {title: "Buildings surrounded", get: r => kind(r, "cross", "wrapped"), f: v => pc(v), unit: "straight lines"},
+       {title: "Drones lost per km", get: r => r.lost_km, f: v => fmt(v, 2), unit: "every flight"}])]];
+  for (const [sel, draw] of pairs) { const c = $(sel, el); observe(c, draw); }
+};
+
+// ---------------------------------------------------------------- flights
+const RP = D.replay;
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+// What each switch does, on one building (a schematic, not to scale)
+function switchDiagrams() {
+  const W = 260, H = 230, cx = 130, cy = 120, Rb = 46;
+  const bld = `<circle cx="${cx}" cy="${cy}" r="${Rb}" fill="var(--map-bldg)"/><circle cx="${cx}" cy="${cy}" r="${Rb + 26}" fill="none" stroke="var(--ink-2)" stroke-width="1.1" stroke-dasharray="2 4"/>`;
+  const arrow = (x1, y1, x2, y2, col, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="2.4"${dash ? ' stroke-dasharray="5 4"' : ""} marker-end="url(#ah-${col.replace(/[^a-z0-9]/gi, "")})"/>`;
+  const marker = col => `<marker id="ah-${col.replace(/[^a-z0-9]/gi, "")}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${col}"/></marker>`;
+  const dot = (x, y, col) => `<circle cx="${x}" cy="${y}" r="5" fill="${col}" stroke="var(--panel)" stroke-width="1.5"/>`;
+  const sl = "var(--k-slide)", ro = "var(--k-route)", ad = "var(--k-adaptive)", ink = "var(--ink-2)";
+  const defs = `<defs>${[sl, ro, ad, ink].map(marker).join("")}</defs>`;
+  const slide = `${defs}${bld}${dot(cx - 10, cy + Rb + 34, sl)}${arrow(cx - 10, cy + Rb + 34, cx - 10, cy + Rb + 6, ink, true)}${arrow(cx - 10, cy + Rb + 34, cx - 50, cy + Rb + 30, sl)}
+    ${dot(cx + 22, cy + Rb + 40, sl)}${arrow(cx + 22, cy + Rb + 40, cx + 62, cy + Rb + 34, sl)}
+    <text x="8" y="16" class="h">Slide round buildings</text><text x="${cx + 8}" y="${cy + Rb + 4}">stick into it: removed…</text><text x="8" y="${H - 8}">…and turned along it, each half its own way</text>`;
+  const route = `${defs}${bld}${dot(cx, cy + Rb + 30, ro)}${[[-26, -86], [10, -96], [40, -82]].map(([dx, dy]) => dot(cx + dx, cy + dy, "var(--k-t3)")).join("")}
+    <line x1="${cx}" y1="${cy + Rb + 30}" x2="${cx}" y2="${cy - 70}" stroke="${ink}" stroke-width="1.6" stroke-dasharray="3 4"/>
+    ${arrow(cx, cy + Rb + 30, cx + 44, cy + Rb + 12, ro)}
+    <text x="8" y="16" class="h">Route stragglers</text><text x="${cx + 6}" y="${cy - 54}">the swarm</text><text x="8" y="${H - 8}">the pull through the facade, turned round it</text>`;
+  const ring = (x, y, r, col) => `<circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${col}" stroke-width="2"/>` + Array.from({length: 8}, (_, i) => dot(x + r * Math.cos(i * Math.PI / 4), y + r * Math.sin(i * Math.PI / 4), col)).join("");
+  const adapt = `<rect x="0" y="36" width="${W}" height="44" fill="var(--map-bldg)"/><rect x="0" y="146" width="96" height="60" fill="var(--map-bldg)"/>
+    <circle cx="214" cy="176" r="38" fill="var(--map-bldg)"/>${ring(48, 112, 18, ad)}${ring(150, 150, 30, ad)}
+    ${arrow(78, 112, 112, 130, ink)}<text x="8" y="16" class="h">Adaptive spread</text><text x="8" y="${H - 8}">narrow in the street, wide at a building ahead</text>`;
+  const svg = (g, label) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+  return `<div class="pair">${[[slide, "Slide round buildings"], [route, "Route stragglers"], [adapt, "Adaptive spread"]].map(([g, l]) => `<figure style="margin:0">${svg(g, l)}</figure>`).join("")}</div>
+    <p class="small muted">Schematics, not to scale. Grey disc: a building as the force law sees it (the circle round its bounds); dotted: the shield's range
+      (${fmt(1.6 * 10, 0)} m), inside which the part of the stick pointing at the building is removed.</p>`;
+}
+
+RENDER.flights = el => {
+  if (!RP || !RP.groups || !RP.groups.length) { el.innerHTML = '<div class="intro"><h2>Cities and flights</h2><p class="notrun">The Unity flights have not been replayed yet.</p></div>'; return; }
+  el.innerHTML = `<div class="intro"><h2>Cities and flights</h2><p>The scene's city, where the screens, Unity and the replays fly, and the three cities of the same design held
+      out for the confirmation (S6's). Click one to see it whole.</p></div>
+    <div class="gal" id="gal"></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3><label class="small"><input type="checkbox" id="c-cyl" checked> show the avoidance circles</label></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div></div>
+    <div class="box"><h3>What each switch does</h3>${switchDiagrams()}</div>
+    <div class="intro" id="flightsx"><h2>Flights</h2><p>Routes from the Unity bench's set in the scene's city, each flown seven ways: one drone with the switches off and
+      with the slide on, and the swarm with all three off (T3), each switch alone, and all three. Unity's own trajectories, and the replica's twins flown from Unity's
+      recorded start, kept only because they scored identically to the gate's rows. Drones are dots in the way's colour, filled while their feed is on the pilot's ring;
+      a ring round a dot marks a drone apart from the main group. Space plays or pauses, ← and → step 5 s.</p></div><div id="c-player"></div>`;
+  const gal = $("#gal", el), thumbs = [];
+  gal.innerHTML = RP.gallery.map((g, i) => `<button type="button" class="thumb" data-i="${i}" aria-pressed="${i === 0}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span>${esc(g.seed === 1 ? "the scene's city" : `held out, seed ${g.seed}`)}</span></button>`).join("");
+  const CM = new RV.MapView($("#c-map", el), {aspect: 0.8, minH: 320, maxH: 760});
+  let city = null, sel = 0;
+  CM.draw = (c, v) => { if (city) { RV.drawCity(c, v, city, {cylinders: $("#c-cyl").checked}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => { if (b.dataset.z === "in") CM.zoomBy(1.5); else if (b.dataset.z === "out") CM.zoomBy(1 / 1.5); else if (city) CM.fit(city.arena, 10); }));
+  $("#c-cyl", el).addEventListener("change", () => CM.request());
+  const pick = i => {
+    sel = i; const g = RP.gallery[i], st = g.stats || {};
+    gal.querySelectorAll(".thumb").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i)));
+    $("#c-title").textContent = g.what.charAt(0).toUpperCase() + g.what.slice(1);
+    $("#c-stats").innerHTML = [["buildings", st.buildings], ["block across (median)", `${fmt(st.block_m, 0)} m`], ["avoidance circle radius (median)", `${fmt(st.cyl_r, 1)} m`],
+      ["streets the circles close", st.pairs ? `${st.closed} of ${st.pairs}` : "–"], ["… narrow below 6 m", st.narrow]].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v === undefined ? "–" : v}</dd>`).join("");
+    RV.load(RPATH.city(g.city)).then(RV.city).then(C => { if (sel !== i) return; city = C; CM.fit(C.arena, 10); });
+  };
+  gal.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 400, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); };
+    thumbs.push(v);
+    RV.load(RPATH.city(RP.gallery[+b.dataset.i].city)).then(RV.city).then(C => { v.city = C; v.fit([-150, 150, -150, 150], 0); }).catch(() => {});
+    b.addEventListener("click", () => pick(+b.dataset.i));
+  });
+  RV.onTheme(() => { thumbs.forEach(v => v.request()); CM.request(); });
+  pick(0);
+  const labels = {}, colors = {};
+  for (const [k, l] of WAYS) { labels[k] = l; colors[k] = kCol(k); }
+  PLAYER = RV.Player($("#c-player", el), RP.groups.map(g => Object.assign({short: g.title.replace(/^Problem: /, "Problem · ")}, g)),
+    {labels, colors, path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function flightSummaryRows(F, s) {
+  const n = x => ok(x) ? String(x) : "–", r = [];
+  r.push(["switches on", s.switches || "off"]);
+  r.push(["route", F.route ? `${F.route.kind === "cross" ? "a straight line" : F.route.kind === "pass" ? "through a block" : "along the streets"}, ${fmt(F.route.L, 0)} m` : "–"]);
+  r.push(["progress speed", `${fmt(s.v_prog, 2)} m/s`]);
+  if (F.n > 1) r.push(["flight as one group", pc(s.one_frac)], ["cohesive speed", `${fmt(s.v_coh, 2)} m/s`], ["ended in pieces", s.open_end ? "yes" : "no"]);
+  if (s.met) r.push(["buildings met / surrounded", F.n > 1 ? `${s.met} / ${n(s.wrapped)}` : String(s.met)], ["seconds past each, on average", fmt(s.bld_pass, 1)]);
+  r.push(["longest stall (under 1 m/s)", `${fmt(s.stall_s, 1)} s`], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  return r;
+}
+function flightSummaryNote(F) {
+  return F.source === "unity" ? "Unity records contacts as a count, so they are not drawn on the map; a cross marks each drone lost."
+    : "The replica draws each building contact where it happened and a cross where each drone was lost.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const cols = ["v_coh", "v_prog", "one", "lost_km", "contact_km", "open", "hull"];
+  const head = ["", "cohesive speed", "progress", "one group", "lost /km", "contacts /km", "ended in pieces", "hull share", "streets", "surrounded", "past a building (s)", "spread in force"];
+  const line = (lab, r, extra = "") => {
+    if (!r) return "";
+    const one = lab.startsWith("one drone"), sw = x => one ? "–" : x;   // a lone drone has no group, hull or surround
+    return `<tr${extra}><td class="l">${esc(lab)}</td><td>${fmt(r.v_coh, 2)}</td><td>${fmt(r.v_prog, 2)}</td><td>${sw(pc(r.one))}</td><td>${fmt(r.lost_km, 3)}</td>
+    <td>${fmt(r.contact_km, 3)}</td><td>${sw(pc(r.open))}</td><td>${sw(pc(r.hull))}</td><td>${fmt(kind(r, "street", "v_coh"), 2)}</td><td>${sw(pc(kind(r, "cross", "wrapped")))}</td>
+    <td>${fmt(kind(r, "cross", "bld_pass"), 1)}</td><td>${ok(r.sigma) ? fmt(r.sigma, 2) : "–"}</td></tr>`;
+  };
+  const confRows = COMBOS.map(([lab]) => line(lab === "T3" ? "T3 (all off)" : lab, conf(lab), lab === PICK ? ' class="pick"' : "")).join("") +
+    line("one drone, all off", confSingle("T3")) + line("one drone, slide on", confSingle("slide"));
+  const uRows = src => COMBOS.map(([lab, uset]) => line(lab === "T3" ? "T3 (all off)" : lab, unity(uset, src))).join("") +
+    line("one drone, all off", unitySingle("T3", src)) + line("one drone, slide on", unitySingle("slide", src));
+  const tbl = (title, body) => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div></div>`;
+  const seeds = D.confirm_seed || {};
+  const seedHead = (D.flights.seeds || []).map(s => s === 1 ? "the scene's city" : `held out, seed ${s}`);
+  const seedRows = COMBOS.map(([lab]) => { const x = seeds[lab]; return x ? `<tr><td class="l">${esc(lab === "T3" ? "T3 (all off)" : lab)}</td>${(D.flights.seeds || []).map(s => `<td>${fmt(x[String(s)] && x[String(s)].v_coh, 2)}</td>`).join("")}</tr>` : ""; }).join("");
+  const sc = (D.screens || []).map(x => {
+    const d = (k, f = 2) => ok(x.row[k]) && ok(x.t3[k]) ? `${fmt(x.row[k], f)} <span class="muted small">(${fmt(x.t3[k], f)})</span>` : "–";
+    return `<tr><td class="l">${esc(x.what)}</td><td>${esc(x.run)}</td><td>${d("v_coh")}</td><td>${d("one")}</td><td>${d("street_v_coh")}</td><td>${d("cross_wrapped")}</td><td>${d("lost_km")}</td><td>${d("contact_km")}</td><td class="l small">${esc(x.why)}</td></tr>`;
+  }).join("");
+  const pr = Object.entries(P).map(([k, v]) => `<tr><td class="l"><code>${esc(k)}</code></td><td>${esc(String(v))}</td></tr>`).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every table behind the answer. The confirmation and the screens are the replica (S6's model of Unity on these prism buildings);
+      Unity is the headless bench in BlockShapedPatchCityWorld as baked, with the replica's twins of the same flights beside it.</p></div>
+    ${tbl(`The confirmation (replica): fresh routes in the scene's city and three held out, ${D.flights.confirm.cross} straight lines, ${D.flights.confirm.pass_} blocks and ${D.flights.confirm.street} street routes in each`, confRows)}
+    <div class="box"><h3>Cohesive speed by city (the confirmation)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>${seedHead.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${seedRows}</tbody></table></div></div>
+    ${(D.unity || []).length ? tbl("Unity: 64 flights per row in the scene's city", uRows("unity")) + tbl("The replica's twins of those flights, from Unity's recorded starts", uRows("replica")) : '<div class="box"><p class="notrun">Unity not flown yet.</p></div>'}
+    ${T2.length ? tbl("Tuning the adaptive spread after the confirmation (replica): fresh routes from 6000 in the same four cities, 208 flights per row",
+        T2.map(r => line(r.label === "T3" ? "T3 (all off)" : r.label, r)).join("")) : ""}
+    ${(D.unity_tune2 || []).length ? tbl("… the gentler setting in Unity (street factor 0.85, filter 3 s): the same 64 routes as the Unity rows above",
+        ["adaptive_085_3s", "slide_adaptive_085_3s"].map(s => line(s === "adaptive_085_3s" ? "adaptive 0.85, filter 3 s" : "slide + adaptive 0.85, filter 3 s", U2(s))).join("")) : ""}
+    <div class="box"><h3>What the screens tried</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l">variant</th><th>screen</th><th>cohesive speed</th><th>one group</th><th>streets</th><th>surrounded</th><th>lost /km</th><th>contacts /km</th><th class="l">outcome</th></tr></thead><tbody>${sc}</tbody></table></div>
+      <p class="small muted">In the scene's city, the same routes for every variant of a screen; T3 of the same screen in brackets. 52 flights per variant in screens 1–3, 104 in 4–6.</p></div>
+    <div class="box"><h3>The settings as shipped (SwarmManager.cs)</h3><div class="tablewrap"><table class="dt"><tbody>${pr}</tbody></table></div>
+      <p class="small muted">The scene saves none of these, so Unity flies these defaults until someone ticks a switch and saves the scene.</p></div>`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The switches", [
+    ["Slide round buildings (slideRoundBuildings)", "Near a building the obstacle shield removes the part of the pilot's stick that points into it. With the slide on, that part is turned along the building instead, for approaches that would hit it near the middle (slideHeadOnFraction), so the drone flows round rather than stopping. Round a building the swarm flies squarely at (slideSplitAimFraction) the formation splits in halves; a drone that cannot see the swarm's centre past the building goes round on the swarm's side; any other drone goes round its own side."],
+    ["Route stragglers (routeStragglers)", "The pull between drones is never shielded, so a drone left behind a building was dragged into its facade by the rest. With routing on, the pull towards neighbours a building hides may press a drone towards that building by at most a share of what the obstacle field can resist (stragglerPressShare); the rest is turned along the building, towards those neighbours."],
+    ["Adaptive spread (adaptiveSpread)", "The spread in force is the pilot's (or the scene's) d_ref times one shared scale: streetSpreadFactor among buildings, 1 when a building lies on the swarm's track within surroundLookAhead (or no building is near). It changes over spreadFilterTime; the formation itself takes about 5 s to follow."],
+    ["T3", "S6's tuned settings, now in the scene: d_ref 2.0, shield 1.6, standoff 0.16. Every S7 row is T3 plus its switches."]]],
+  ["The measures", [
+    ["Progress speed", "The route's length over the time taken to fly it, in m/s."],
+    ["One group", "Two drones are linked when the free-space path between them, round the buildings, is at most 30 m; the swarm is one group when every drone is linked to the rest."],
+    ["Cohesive speed", "Progress speed times the share of the flight the swarm was one group: route covered per second with the swarm together. The headline measure (S6's)."],
+    ["Surrounded", "Of the buildings the route aims at, the share whose centre was inside the drones' convex hull at some moment while the formation was near it."],
+    ["Seconds past a building", "How long the formation's centre stayed within 15 m of a building's avoidance circle."],
+    ["Contact", "A drone touching a facade. In the simulation it does not cost the drone."],
+    ["Drones lost", "Two drones closer than 0.5 m (both lost), or a drone with no neighbour within the cohesion range."],
+    ["Ended in pieces", "Still not one group 10 s after reaching the last waypoint."],
+    ["Hull share", "The share of drones on the formation's outline: the drones whose feeds the pilot's ring shows."]]],
+  ["The flights", [
+    ["A straight line across the city", "From one junction to another 250–420 m away at full stick: the formation meets building after building."],
+    ["Through one block", "Along a street to a block's corner, then aimed through the block to beyond its opposite corner."],
+    ["Along the streets", "The shortest street route between a straight line's two ends, junction by junction."],
+    ["The replica, its twin", "The 2-D model of the swarm the studies use, with Unity's avoidance of these buildings. A twin is the replica flying a Unity flight again from Unity's own start."],
+    ["Held-out cities", "Three more cities of the same design (seeds 2–4) that the tuning never saw, flown only in the confirmation."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2><p>Every term the page uses, in plain words. The manual (docs/swarm_flow/README.md) has the method.</p></div>
+    <div class="terms">${TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join("")}</dl></div>`).join("")}</div>`;
+};
+
+$("#answer-box").innerHTML = ANSWER_BOX();
+if (!route(location.hash.slice(1))) {
+  let first = "answer";
+  try { const s = localStorage.getItem("s7tab"); if (TABS.some(t => t[0] === s)) first = s; } catch (e) { /* storage blocked */ }
+  show(first);
+}
+</script>

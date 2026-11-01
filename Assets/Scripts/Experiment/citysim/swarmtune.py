@@ -450,10 +450,11 @@ def _done_ids(path):
     return out
 
 
-def run(name, cands, jobs, procs, label):
-    """Append every job not yet in <name>/results.jsonl (resumable); cands {id: dict(over, d, ...)} to cands.json."""
+def run(name, cands, jobs, procs, label, root=None, fn=None):
+    """Append every job not yet in <name>/results.jsonl (resumable); cands {id: dict(over, d, ...)} to cands.json.
+    root: the study folder (default OUT; S7's swarmflow passes its own), fn: the job function (default run_job)."""
     from citysim import parallel
-    out = OUT / name
+    out = (root or OUT) / name
     out.mkdir(parents=True, exist_ok=True)
     cpath = out / "cands.json"
     known = json.loads(cpath.read_text(encoding="utf-8")) if cpath.exists() else {}
@@ -464,13 +465,13 @@ def run(name, cands, jobs, procs, label):
     todo = [j for j in jobs if job_id(j) not in done]
     t0 = time.time()
     if todo:
-        parallel.run_jobs(run_job, todo, label, processes=procs, stall_s=600.0,
+        parallel.run_jobs(fn or run_job, todo, label, processes=procs, stall_s=600.0,
                           progress=lambda i, n, r: _append(res, r))
-    _log(name, f"{label}: {len(todo)} flights in {(time.time() - t0) / 60:.1f} min")
+    _log(name, f"{label}: {len(todo)} flights in {(time.time() - t0) / 60:.1f} min", root)
 
 
-def _log(name, msg):
-    out = OUT / name
+def _log(name, msg, root=None):
+    out = (root or OUT) / name
     out.mkdir(parents=True, exist_ok=True)
     line = f"[swarmtune {time.strftime('%H:%M:%S')}] {msg}"
     print(line, flush=True)
@@ -480,9 +481,9 @@ def _log(name, msg):
 
 # ============================================================================= tables and the rule
 
-def read(name):
+def read(name, root=None):
     import pandas as pd
-    out = OUT / name
+    out = (root or OUT) / name
     rows = [json.loads(x) for x in (out / "results.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     errs = [r for r in rows if "error" in r]
     df = pd.DataFrame([r for r in rows if "error" not in r]).drop_duplicates("job_id", keep="last")
@@ -525,9 +526,9 @@ def score_candidate(g):
     return r
 
 
-def table(name):
+def table(name, root=None):
     import pandas as pd
-    df, cands, _ = read(name)
+    df, cands, _ = read(name, root)
     rows = []
     for cid, g in df.groupby("cand"):
         c = cands.get(cid, {})

@@ -173,6 +173,90 @@ public class SwarmManager : MonoBehaviour
              "shield is braking into the facade.")]
     public float maxDampAccel = 4.57f;
 
+    // ---- S7 Building Flow (docs/swarm_flow/README.md) ------------------------------------------
+    // Three independent switches on how the swarm moves among buildings. Each one off is the force law
+    // exactly as it was, and each acts in horizontal swarming only (not in vertical-plane mode).
+
+    [Header("Slide Round Buildings")]
+    [Tooltip("Flown at a building, turn the part of the stick the obstacle shield removes along the building " +
+             "instead of deleting it, so the drone flows round it rather than stalling against the facade. The " +
+             "shield alone leaves a drone flown straight at a building with nothing to push it sideways. Head-on " +
+             "approaches only (slideHeadOnFraction): a drone passing beside a building is untouched, and the " +
+             "command is turned, never lengthened.\n\n" +
+             "Which way round: when the swarm flies squarely at the building (slideSplitAimFraction) the formation " +
+             "splits in halves, left half left, so it surrounds it; a drone that cannot see the swarm's centroid " +
+             "past the building goes round on the swarm's side; any other drone goes round its own side, the " +
+             "short way. Splitting by halves everywhere sends trailing drones round the wrong side of a corner " +
+             "building whenever the route turns. The single drone shares the shield, so it slides too.")]
+    public bool slideRoundBuildings = false;
+
+    [Tooltip("How head-on an approach must be for the slide: the stick's line from the drone must pass within " +
+             "this share of the building's avoidance radius of its centre. Full slide at the centre, fading to " +
+             "none at this offset; a glancing approach already slides on the cylinder's own curve. 1 and above " +
+             "is faster still and starts costing drones in the streets.")]
+    [Range(0.1f, 1.5f)]
+    public float slideHeadOnFraction = 0.8f;
+
+    [Tooltip("The formation splits in halves round a building only when the swarm flies squarely at it: the " +
+             "stick's line from the swarm's centroid (surroundLookAhead long) passes within this share of the " +
+             "building's avoidance radius of its centre. Wider, the split also fires where a street bends past a " +
+             "corner building, and the street flights fragment.")]
+    [Range(0.0f, 1.5f)]
+    public float slideSplitAimFraction = 0.6f;
+
+    [Header("Route Stragglers Round Buildings")]
+    [Tooltip("Turn a drone's pull towards neighbours it cannot see past a building round that building instead " +
+             "of through it. Cohesion is otherwise never shielded, so a drone left on the far side of a building " +
+             "was dragged into its facade by the rest of the swarm while the obstacle field saturated against " +
+             "it: nearly every building contact. Only attraction to a neighbour whose straight line passes " +
+             "through a building within d_shield is touched, so the lattice's repulsion and everything between " +
+             "drones that can see each other is exactly as before. Part of the pull is kept " +
+             "(stragglerPressShare): it is what holds the halves of a formation wrapped round a building it " +
+             "surrounds, and with all of it turned the swarm splits instead.")]
+    public bool routeStragglers = false;
+
+    [Tooltip("How hard the pull towards hidden neighbours may still press a drone towards the building, as a " +
+             "share of the obstacle field's ceiling (maxObstacleAccel, clamped to the tilt budget). The excess is " +
+             "turned along the building towards those neighbours' side. Below 1 the field always wins, so the " +
+             "pull alone can no longer drive a drone into a facade; lower values cut contacts further but leave " +
+             "the swarm in pieces more often.")]
+    [Range(0.0f, 1.0f)]
+    public float stragglerPressShare = 0.7f;
+
+    [Header("Adaptive Spread")]
+    [Tooltip("Narrow the formation among buildings and widen it back when the swarm flies at one, so it fits the " +
+             "streets and can still surround what it meets. The spread in force is d_ref (the scene's, or the " +
+             "pilot's dial) times one swarm-wide scale: streetSpreadFactor among buildings, 1 while a building lies " +
+             "on the swarm's track within surroundLookAhead, and 1 with no building near at all (open ground). " +
+             "The lattice needs ~5 s to follow a change, so the look-ahead is what buys time to widen.\n\n" +
+             "Its cost is drone collisions: a narrower formation is squeezed together in the tight gaps between " +
+             "BlockShapedPatchCityWorld's buildings (S7: about twice the swarm's loss rate even at the gentle " +
+             "defaults below). The cure is a tighter avoidance shape, not a gentler setting.")]
+    public bool adaptiveSpread = false;
+
+    [Tooltip("The share of d_ref held among buildings with none ahead: in the streets. 0.85 takes 2.0 to 1.7. " +
+             "Narrower squeezes drones together in tight gaps between buildings and loses more of them: S7 " +
+             "confirmed 0.8 (with a 1 s filter), which lost 8 drones in 64 Unity flights against 2 with the " +
+             "switch off; 0.85 with a 3 s filter lost 4, for nearly the same gain in the streets.")]
+    [Range(0.5f, 1.0f)]
+    public float streetSpreadFactor = 0.85f;
+
+    [Tooltip("How far ahead of the swarm's centroid, along the stick, a building counts as being flown at, in " +
+             "swarm units (metres / scaleFactor). Shared with the slide's split test. Longer widens earlier, " +
+             "and so narrows less of the time.")]
+    public float surroundLookAhead = 4.0f;
+
+    [Tooltip("The swarm widens for a building when the stick's line from its centroid passes within this share of " +
+             "the building's avoidance radius of its centre.")]
+    [Range(0.0f, 1.5f)]
+    public float surroundAimFraction = 0.8f;
+
+    [Tooltip("Time constant (s) of the low-pass on the spread scale, so it does not chatter as buildings come " +
+             "into and out of the look-ahead, and does not snap the formation narrower or wider: half of S7's " +
+             "collisions under the adaptive spread came while it was changing. Seeded, not ramped, when the " +
+             "feature turns on.")]
+    public float spreadFilterTime = 3.0f;
+
     public enum AttitudeAlgorithm
     {
         NONE,
@@ -370,6 +454,21 @@ public class SwarmManager : MonoBehaviour
     public float GetCDamp() => c_damp;
     public float GetDDamp() => d_damp;
     public float GetMaxDampAccel() => maxDampAccel;
+
+    // Getters for S7 Building Flow
+    public bool GetSlideRoundBuildings() => slideRoundBuildings;
+    public float GetSlideHeadOnFraction() => slideHeadOnFraction;
+    public float GetSlideSplitAimFraction() => slideSplitAimFraction;
+    public bool GetRouteStragglers() => routeStragglers;
+    public float GetStragglerPressShare() => stragglerPressShare;
+    public bool GetAdaptiveSpread() => adaptiveSpread;
+    public float GetStreetSpreadFactor() => streetSpreadFactor;
+    public float GetSurroundLookAhead() => surroundLookAhead;
+    public float GetSurroundAimFraction() => surroundAimFraction;
+    public float GetSpreadFilterTime() => spreadFilterTime;
+
+    /// <summary>Whether any S7 Building Flow switch is on, i.e. whether the swarm-wide aggregates are needed.</summary>
+    public bool GetBuildingFlowActive() => slideRoundBuildings || routeStragglers || adaptiveSpread;
 
     // Getter for the altitude ceiling
     public float GetMaxHeightAboveTerrain() => maxHeightAboveTerrain;

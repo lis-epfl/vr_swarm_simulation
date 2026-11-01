@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s7_stall",
+  "kind": "cross",
+  "k": 5020,
+  "title": "Problem: one drone stalls at a building",
+  "first": "single_off",
+  "met": 3,
+  "why": "the route where one drone with the switches off stalled longest in Unity (12 s under 1 m/s)"
+ },
+ "flights": {
+  "single_off": [
+   "s7_stall_single_off_replica",
+   "s7_stall_single_off_unity"
+  ],
+  "single_slide": [
+   "s7_stall_single_slide_replica",
+   "s7_stall_single_slide_unity"
+  ],
+  "t3": [
+   "s7_stall_t3_replica",
+   "s7_stall_t3_unity"
+  ],
+  "adaptive": [
+   "s7_stall_adaptive_replica",
+   "s7_stall_adaptive_unity"
+  ],
+  "slide": [
+   "s7_stall_slide_replica",
+   "s7_stall_slide_unity"
+  ],
+  "route": [
+   "s7_stall_route_replica",
+   "s7_stall_route_unity"
+  ],
+  "all": [
+   "s7_stall_all_replica",
+   "s7_stall_all_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

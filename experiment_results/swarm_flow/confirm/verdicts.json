@@ -1,0 +1,101 @@
+{
+ "rule": {
+  "lost_margin": 0.05,
+  "open_margin": 0.02,
+  "hull_min": 0.5,
+  "gain": 0.05,
+  "street_floor": 0.98,
+  "wrap_margin": 0.1
+ },
+ "verdicts": {
+  "slide + adaptive": {
+   "safe": false,
+   "helps": true,
+   "score": 4.81783223002883,
+   "v_coh_gain": 0.2554210380968893,
+   "street_gain": 0.22922203413538256,
+   "wrap_change": -0.07875660924441408,
+   "lost_change": 0.07914170817484381,
+   "contact_change": -0.2473178380463869,
+   "open_change": -0.03888888888888889
+  },
+  "slide": {
+   "safe": true,
+   "helps": true,
+   "score": 4.740364233000255,
+   "v_coh_gain": 0.215418912455821,
+   "street_gain": 0.13762342604143152,
+   "wrap_change": -0.07159579449197628,
+   "lost_change": 0.0,
+   "contact_change": -0.05935628113113284,
+   "open_change": -0.044444444444444446
+  },
+  "slide + route + adaptive": {
+   "safe": false,
+   "helps": true,
+   "score": 4.668676848396599,
+   "v_coh_gain": 0.23925222734950857,
+   "street_gain": 0.23477424345795583,
+   "wrap_change": -0.08225311274091762,
+   "lost_change": 0.13849798930597668,
+   "contact_change": -0.2967814056556643,
+   "open_change": -0.04166666666666667
+  },
+  "slide + route": {
+   "safe": false,
+   "helps": true,
+   "score": 4.5742254839970835,
+   "v_coh_gain": 0.19328872390971608,
+   "street_gain": 0.11327934321217414,
+   "wrap_change": -0.07334099519005655,
+   "lost_change": 0.07914170817484381,
+   "contact_change": -0.2473178380463869,
+   "open_change": -0.04166666666666667
+  },
+  "route + adaptive": {
+   "safe": false,
+   "helps": true,
+   "score": 3.7868656654749864,
+   "v_coh_gain": 0.05005187783836229,
+   "street_gain": 0.13933333523640412,
+   "wrap_change": -0.029616724738675937,
+   "lost_change": 0.11871256226226572,
+   "contact_change": -0.22753241100267596,
+   "open_change": -0.013888888888888892
+  },
+  "route": {
+   "safe": true,
+   "helps": false,
+   "score": 3.738417267717713,
+   "v_coh_gain": 0.0014078016254186476,
+   "street_gain": 0.0007507614662398687,
+   "wrap_change": -0.006968641114982521,
+   "lost_change": -0.019785427043710953,
+   "contact_change": -0.10881984874041023,
+   "open_change": 0.002777777777777775
+  },
+  "T3": {
+   "safe": true,
+   "helps": false,
+   "score": 3.649776171799768,
+   "v_coh_gain": 0.0,
+   "street_gain": 0.0,
+   "wrap_change": 0.0,
+   "lost_change": 0.0,
+   "contact_change": 0.0,
+   "open_change": 0.0
+  },
+  "adaptive": {
+   "safe": false,
+   "helps": false,
+   "score": 3.414294546977317,
+   "v_coh_gain": 0.030025551251035676,
+   "street_gain": 0.14226787054931167,
+   "wrap_change": -0.026132404181184676,
+   "lost_change": 0.13849798930597668,
+   "contact_change": 0.11871256226226573,
+   "open_change": 0.005555555555555557
+  }
+ },
+ "pick": "slide"
+}

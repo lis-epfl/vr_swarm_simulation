@@ -43,6 +43,9 @@ Manual: [docs/swarm_tune/README.md](../swarm_tune/README.md).
 spread dial (which overrides `SwarmManager.d_ref` every frame) is centred on 2.0. If building contacts matter, T4
 (`a` 0.72) brings them back to the old rate for ~4% of cohesive speed (not flown in Unity).
 
+**Follow-up.** [S7 Building Flow](S7_building_flow.md) added three switches for the limits named here: a slide round
+buildings (the head-on stall), routing stragglers (the contacts) and an adaptive spread (the d_ref note).
+
 **d_ref note.** A spread narrowing to ~1.6 in the streets and widening to ~2.0 at buildings would beat any constant one
 (street cohesive speed 5.1–5.3 against 3.4–4.4 m/s), but at 1.6 drones still collide in the streets (0.43 per km);
 untested.

@@ -76,7 +76,7 @@ tr:last-child td { border-bottom: 0; }
     <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span></div>
   </header>
 
   <section>
@@ -211,6 +211,28 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+      <article class="study">
+        <header><span class="id">S7</span><h3>Building Flow</h3><span class="was">the flow study · 30–31 Oct 2026</span><span class="status done">Done · three switches, the slide recommended</span></header>
+        <div>
+          <p class="q">Three changes to how the Olfati-Saber law treats BlockShapedPatchCityWorld's buildings, each behind its own SwarmManager switch: slide round a building instead of stalling at it, route a straggler round a building instead of through its facade, and narrow the spread in the streets while widening it at a building. Do they move the swarm through the city faster, together, and still surrounding what it flies at?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick; losses are rare, and a tenth of a drone per km is near the noise of ~100 km per setting.</li>
+            <li>Movement and surrounding only, not what the pilot's screens show.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S7_building_flow.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Sliding round a building (the part of the stick the shield removes turned along it, head-on approaches only) makes the swarm 22% faster while together (23% in Unity), passing a building in 10.6 s instead of 12.6, with fewer contacts, the same losses and no flight ending in pieces. One drone shares it and gets 17% faster.</li>
+            <li>The way round decided it: the formation in halves round a building the swarm flies squarely at, each drone its own way elsewhere. Halves everywhere sent trailing drones round the far side of corner buildings and broke up the street flights.</li>
+            <li>Routing stragglers (only attraction to hidden neighbours, only beyond 0.7 of the obstacle field's ceiling) cuts contacts 28%, and with the slide leaves one contact in 64 Unity flights.</li>
+            <li>The adaptive spread makes the streets 14–23% faster but loses drones (Unity 8 against 2 in 64 flights): a narrower formation is squeezed in the gaps the avoidance circles narrow. It ships at a gentler 0.85 / 3 s and stays off for the trials.</li>
+            <li>Tick Slide Round Buildings for both trial conditions; route is optional. Its page replays five routes seven ways, Unity's beside the replica's.</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -255,6 +277,9 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Screen a mitigation against the failure it might cause.</b> <span class="tag">S4</span></li>
           <li><b>Check what a rule's fallback would pick</b>, and when nothing qualifies, look for the factor held fixed: S5's street spread. <span class="tag">S5</span></li>
           <li><b>Treat the separation (d_ref) as a factor</b>, sized to the task: looking down a block paid for spreads past d* and past the trials' dial. <span class="tag">S4</span></li>
+          <li><b>Gate a rule that moves the whole formation on where it is going</b>: S7's slide split in halves everywhere broke up the street flights at every turn. <span class="tag">S7</span></li>
+          <li><b>Redirect only the part of a force that causes the failure</b>, found by attributing forces at the failure. <span class="tag">S7</span></li>
+          <li><b>A spread that changes in flight inherits the narrowest spread's collisions</b>, and adds its own in the transitions. <span class="tag">S7</span></li>
         </ol>
       </section>
       <section>
@@ -290,21 +315,22 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S4</b> Split and Surround</td><td><code>docs/studies/S4_split_and_surround.md</code></td><td><code>docs/split_study/</code></td><td><code>citysim/split_probe.py</code>, <code>split.py</code></td><td><code>experiment_results/split_study/</code></td></tr>
         <tr><td><b class="mono">S5</b> Block-Shaped Surround</td><td><code>docs/studies/S5_block_shaped_surround.md</code></td><td><code>docs/shaped_study/</code></td><td><code>citysim/shaped.py</code></td><td><code>experiment_results/shaped_study/</code></td></tr>
         <tr><td><b class="mono">S6</b> Patch City Tuning</td><td><code>docs/studies/S6_patch_city_tuning.md</code></td><td><code>docs/swarm_tune/</code></td><td><code>citysim/swarmtune.py</code></td><td><code>experiment_results/swarm_tune/</code></td></tr>
+        <tr><td><b class="mono">S7</b> Building Flow</td><td><code>docs/studies/S7_building_flow.md</code></td><td><code>docs/swarm_flow/</code></td><td><code>citysim/swarmflow.py</code>; <code>OlfatiSaber.cs</code>, <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_flow/</code></td></tr>
       </tbody>
     </table></div>
-    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning), so nothing that reads them broke.</p>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow), so nothing that reads them broke.</p>
   </section>
 
   <section>
     <h2>Starting a new study</h2>
     <ol class="steps">
       <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
-      <li>Take the next ID (S7), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S7_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Take the next ID (S8), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S8_&lt;slug&gt;.md</code> and add it to the table there.</li>
       <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
       <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
       <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>
     </ol>
   </section>
 
-  <footer class="foot">Last updated 30 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
+  <footer class="foot">Last updated 31 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
 </div>

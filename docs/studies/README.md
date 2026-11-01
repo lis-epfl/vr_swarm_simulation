@@ -13,6 +13,7 @@ Roaming"); this folder is where an agent finds it.
 | [S4](S4_split_and_surround.md) | **Split and Surround** | split study | 2026-10-27 | Can the swarm surround each block of a city of large buildings and reform quickly enough to explore it block by block, and does that pay? | Done: surrounding shows more but finds nothing sooner; Phase 3 pilot (looking down, d_ref): it looks down far more, still finds a goal more slowly |
 | [S5](S5_block_shaped_surround.md) | **Block-Shaped Surround** | block-shaped study | 2026-10-28 → 10-29 | S4's question in BlockShapedCityWorld's city (buildings filling their blocks): the spread that gets round a block, footpaths, block size, street width and block layouts | Done |
 | [S6](S6_patch_city_tuning.md) | **Patch City Tuning** | patch-city tuning | 2026-10-30 | The spread and the swarm and obstacle gains that let the formation surround the buildings of BlockShapedPatchCityWorld and re-form quickly as it moves through, without fragmenting; and the metrics for it | Done; applied to the scene (d_ref 2.0, `d_shield` 1.6, `d_obs` 0.16) |
+| [S7](S7_building_flow.md) | **Building Flow** | the flow study | 2026-10-30 → 10-31 | Three SwarmManager switches on how the law treats buildings (slide round a building instead of stalling, route stragglers round instead of through facades, a spread that narrows in the streets): do they move the swarm through BlockShapedPatchCityWorld faster, together and still surrounding? | Done; switches off in the scenes, the slide recommended for both trial conditions |
 
 **[lessons.md](lessons.md)** lists every refinement these studies identified (measures that saturate, assumptions
 that set effect sizes, validation gaps, engineering traps), each with the study it came from. A new study should
@@ -30,6 +31,7 @@ Pages for people (private claude.ai artifacts; open them with the Artifact tool,
 | S4 results page (Phases 1–3) | https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD (a copy published from another account on 2026-10-28, HG2M1DLjWKUdaMWzqutY5q, is not kept up to date) |
 | S5 results page | https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9 |
 | S6 results page | https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF |
+| S7 results page | https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a |
 
 Do not cite https://claude.ai/artifact/6QyLDyzucn1rN3RqauCkie ("Swarm Density Study"): it is a stale 2026-10-13 build of
 S1's explorer, from the street-route results, left up because it was shared.
@@ -44,7 +46,7 @@ the dashboard's store as its type describes, S3 `python -B -m citysim.clutter_re
 (then publish `<run>/clutter_study_bare.html`), S4 `python -B -m citysim.split_replays` (the Cities tab's replays,
 ~10 min) and `python -B -m citysim.split_report phase1`, then publish
 `experiment_results/split_study/phase1/split_phase1_bare.html` with the files `split_phase1_files.json` lists beside
-it (the Cities tab fetches them), S5 `python -B -m citysim.shaped_replays` and `python -B -m citysim.shaped_report`, then publish `experiment_results/shaped_study/shaped_study_bare.html` with the files `shaped_study_files.json` lists, S6 `python -B -m citysim.swarmtune_replays` (the Cities tab's replays: five bench routes flown five ways, Unity's flights and the replica's twins, each twin checked identical to the gate) and `python -B -m citysim.swarmtune_report`, then publish `experiment_results/swarm_tune/swarm_tune_bare.html` with the files `swarm_tune_files.json` lists, the hub from `docs/studies/hub.html` as it stands.
+it (the Cities tab fetches them), S5 `python -B -m citysim.shaped_replays` and `python -B -m citysim.shaped_report`, then publish `experiment_results/shaped_study/shaped_study_bare.html` with the files `shaped_study_files.json` lists, S6 `python -B -m citysim.swarmtune_replays` (the Cities tab's replays: five bench routes flown five ways, Unity's flights and the replica's twins, each twin checked identical to the gate) and `python -B -m citysim.swarmtune_report`, then publish `experiment_results/swarm_tune/swarm_tune_bare.html` with the files `swarm_tune_files.json` lists, S7 `python -B -m citysim.swarmflow_replays` (five bench routes flown seven ways, each twin checked identical to the gate) and `python -B -m citysim.swarmflow_report`, then publish `experiment_results/swarm_flow/swarm_flow_bare.html` with the files `swarm_flow_files.json` lists, the hub from `docs/studies/hub.html` as it stands.
 
 ## Names in code
 
@@ -58,6 +60,7 @@ The code, specs and output folders keep the names the studies had when they ran,
 | S4 | [docs/split_study/](../split_study/README.md) | `citysim/blockcity.py`, `polyfoot.py`, `streetnet.py`, `split_probe.py`, `split_tables.py`, `split_bench.py`, `split.py`, `split_stats.py`, `correspondence.py`, `split_replays.py`, `split_report.py` (+ `.html`); the replays' `playback.py` and `replay_view.js` are shared | `specs/split.json` (Phase 1's settings are command-line, recorded per run) | `experiment_results/split_study/` |
 | S5 | [docs/shaped_study/](../shaped_study/README.md) | `citysim/shaped.py`, `shaped_replays.py`, `shaped_report.py` (+ `.html`); S4's `lookdown.py`, `lookdown_search.py` and `split_replays`' workers fly its designs | none: the designs and rules are in `shaped.py`, recorded per run | `experiment_results/shaped_study/` |
 | S6 | [docs/swarm_tune/](../swarm_tune/README.md) | `citysim/swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` (+ `.html`) | `experiment_results/swarm_tune/rule.json` (the rule), a candidates file beside each run | `experiment_results/swarm_tune/` |
+| S7 | [docs/swarm_flow/](../swarm_flow/README.md) | `citysim/swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` (+ `.html`); in Unity `OlfatiSaber.cs`, `SwarmPlaneController.cs`, `SwarmAlgorithm.cs`, `SwarmManager.cs`; the replica's `slide_round`, `route_round`, `spread_target` | `experiment_results/swarm_flow/rule.json` (the rule), a candidates file beside each run | `experiment_results/swarm_flow/` |
 
 All Python runs in the `stitching` env from `Assets/Scripts/Experiment` (`python -B -m citysim.vissim <command>`).
 

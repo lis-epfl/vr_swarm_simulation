@@ -26,8 +26,9 @@
 Run with the `stitching` env. Output goes to <test>/results/replica/ (or --out).
 
 WHAT IT MIRRORS: OlfatiSaber.GetSwarmAcceleration (cohesion, velocity consensus, close-range damper, obstacle
-beta-agents, hollow core, the shield's projection), SwarmPlaneController's core state (centroid, mean
-velocity, filtered radius), VelocityControl's horizontal loop (stick resolution, shield, velocity P-loop,
+beta-agents, hollow core, the shield's projection, and S7's three switches: the slide round buildings, straggler
+routing and the adaptive spread -- slide_round, route_round, aim_miss, spread_target), SwarmPlaneController's core
+and spread state (centroid, mean velocity, filtered radius, filtered spread scale), VelocityControl's horizontal loop (stick resolution, shield, velocity P-loop,
 swarm-force low-pass, circular tilt clamp, tilt -> rate -> alpha cascade, linear and angular drag) and
 StateFinder's noise -- AS OF FORCE_LAW_COMMIT. Every number comes from the C# initialisers, the scene, the
 prefab or the experiment's own records (swarm_params.py); the STRUCTURE of the law is written out here, so it
@@ -108,6 +109,9 @@ def force_law_changes(since=FORCE_LAW_COMMIT):
 
 
 def check_force_law(allow_stale, since=FORCE_LAW_COMMIT):
+    # SWARM_REPLICA_ALLOW_STALE=1 is --allow-stale for callers that have no flag to pass it through (citysim's
+    # harnesses): for flying the working tree's law while a change to it, and its mirror here, is uncommitted.
+    allow_stale = allow_stale or os.environ.get("SWARM_REPLICA_ALLOW_STALE") == "1"
     log, dirty = force_law_changes(since)
     if log is None:
         print(f"[replica] WARNING: cannot check the mirrored C# against git ({dirty}); assuming it is as of {since}")
@@ -202,6 +206,13 @@ class Model:
         self.shield_slide = float(extras.pop("shield_slide", 0.0))
         self.cohesion_shield = bool(extras.pop("cohesion_shield", False))
         self.aniso = float(extras.pop("aniso", 1.0))
+        # S7 tuning knobs the C# fixes (see slide_round / route_round)
+        self.slide_side = extras.pop("slide_side", "hidden")
+        self.route_side = extras.pop("route_side", "lean")
+        if self.slide_side not in ("auto", "hidden", "own", "formation", "group"):
+            raise ValueError(f"slide_side {self.slide_side!r}: auto, hidden, own, formation or group")
+        if self.route_side not in ("lean", "group"):
+            raise ValueError(f"route_side {self.route_side!r}: lean or group")
         if self.obstacle_model not in OBSTACLE_MODELS:
             raise ValueError(f"obstacle_model {self.obstacle_model!r}: one of {OBSTACLE_MODELS}")
         if self.shield_mode not in ("proximity", "lookahead"):
@@ -219,6 +230,17 @@ class Model:
         self.S = float(swarm["scaleFactor"])
         self.hollow = bool(swarm["hollowSwarmCore"])
         self.core_relative = bool(swarm["coreRelativeVelocity"])
+        # S7 Building Flow. Read with .get: a bench run recorded before the fields existed has none of them.
+        self.slide = bool(swarm.get("slideRoundBuildings", False))
+        self.slide_head_on = float(swarm.get("slideHeadOnFraction", 0.5))
+        self.slide_split = float(swarm.get("slideSplitAimFraction", 0.6))
+        self.route = bool(swarm.get("routeStragglers", False))
+        self.route_press = float(swarm.get("stragglerPressShare", 0.5))
+        self.adaptive = bool(swarm.get("adaptiveSpread", False))
+        self.street_factor = float(swarm.get("streetSpreadFactor", 0.85))
+        self.look_ahead = float(swarm.get("surroundLookAhead", 4.0))
+        self.aim_fraction = float(swarm.get("surroundAimFraction", 0.8))
+        self.spread_filter = float(swarm.get("spreadFilterTime", 3.0))
         self.g = air["gravity"]
         self.dt = air["fixedDeltaTime"]
         self.max_tilt = min(air["maxPitch"], air["maxRoll"])
@@ -418,13 +440,161 @@ def _signed_area(p):
 def remove_inward(v, shield):
     """OlfatiSaber.RemoveInwardComponent, for the pilot's command and the damper: fade out the part of v
     heading into each obstacle within d_shield, frame by frame in query order."""
-    for w, out in shield:
+    for w, out, *_ in shield:
         inward = -(v * out).sum(-1)
         v = v + (w * np.maximum(inward, 0.0))[:, None] * out
     return v
 
 
-def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, alt=None):
+TIE = 0.1   # a side test reads as a tie below this share of its scale, and falls through to the next one
+
+
+def _sign_or(x, scale, fallback):
+    """sign(x) where |x| >= TIE * scale, else fallback (an array of +-1)."""
+    return np.where(np.abs(x) >= TIE * np.maximum(scale, 1e-9), np.sign(x), fallback)
+
+
+def aim_miss(m, city, cand, cen, cmdv):
+    """S7 (SwarmPlaneController.UpdateFlowState): how squarely the swarm is flying at each candidate building -- the
+    distance from its centre to the stick's line from the centroid, surroundLookAhead long (with no stick, to the
+    centroid itself), over its cylinder's radius. (len(cand),). The adaptive spread widens for a building under
+    surroundAimFraction, and the slide splits the formation in halves round one under slideSplitAimFraction."""
+    if not len(cand):
+        return np.zeros(0)
+    c, R = city.c[cand], city.R[cand]
+    L = m.look_ahead * m.S
+    rel = c - cen[None]
+    cn = float(np.linalg.norm(cmdv))
+    seg = L if cn > 0.1 * m.max_speed else 0.0
+    u = cmdv / cn if cn > 1e-9 else np.zeros(2)
+    t = np.clip(rel @ u, 0.0, seg)
+    dseg = np.linalg.norm(rel - t[:, None] * u[None], axis=1)
+    return dseg / R
+
+
+def spread_target(m, city, cand, cen, miss):
+    """S7 adaptive spread (SwarmManager.adaptiveSpread; SwarmPlaneController): the share of d_ref the formation should
+    hold. 1 while the swarm flies at a building (aim_miss under surroundAimFraction) or has no building within
+    surroundLookAhead of its centroid at all (open ground); streetSpreadFactor otherwise, i.e. among buildings with
+    none ahead: in the streets."""
+    if not len(cand) or (miss < m.aim_fraction).any():
+        return 1.0
+    gap = np.linalg.norm(city.c[cand] - cen[None], axis=1) - city.R[cand]
+    return m.street_factor if (gap < m.look_ahead * m.S).any() else 1.0
+
+
+def slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss):
+    """S7: the shield with the stick's removed part turned round the building instead of deleted
+    (SwarmManager.slideRoundBuildings; OlfatiSaber.SlideRoundObstacles). Per frame, in query order as
+    RemoveInwardComponent: the inward part is faded out by the shield's bump w exactly as before, and the same
+    amount, times a head-on gate, is added along the cylinder's tangent -- so a drone flown straight at a building
+    flows round it instead of stalling, while one passing beside it is untouched (gate 0). The gate is
+    1 - miss / (slideHeadOnFraction R): miss is how far the stick's line from the drone passes from the building's
+    centre. The side, slide_side "hidden" (the C#'s rule), in this order: round a building the swarm flies squarely
+    at (aim_miss under slideSplitAimFraction) the formation splits in halves -- a drone left of the centroid's track
+    goes left -- so the swarm surrounds it; round a building that hides the centroid from the drone, on the
+    centroid's side (a straggler, or a drone strayed into the next street); otherwise round its own side of the
+    building's centreline, the short way. The screens' other rules: "auto" (no hidden-centroid case), "own" (own
+    side always), "formation" (halves always: trailing drones go round the far side of a corner building when the
+    route turns) and "group" (the centroid's side always: no surrounding). The result is held to the stick's
+    length: turned, never amplified."""
+    n = len(Pm)
+    cn = float(np.linalg.norm(cmdv))
+    u = cmdv / cn
+    nv = np.array([-u[1], u[0]])                                  # left of the stick
+    one = np.ones(n)
+    v = np.broadcast_to(cmdv, (n, 2)).copy()
+    aimed = miss < m.slide_split
+    for w, out, k in frames:
+        b = cand[k]
+        c, R = city.c[b], float(city.R[b])
+        tan = np.stack([out[:, 1], -out[:, 0]], -1)              # world up x outward, as MakeCylinderFrame
+        inward = np.maximum(-(v * out).sum(-1), 0.0)
+        to_c = c[None] - Pm
+        miss = np.abs(to_c @ nv)
+        gate = np.clip(1.0 - miss / max(m.slide_head_on * R, 1e-6), 0.0, 1.0) * ((to_c @ u) > 0)
+        own = _sign_or(-(to_c @ nv), R, one)                     # which side of the building's centreline
+        group = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
+                         _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
+        if m.slide_side == "hidden" and not aimed[k]:
+            # "hidden": as auto, but a drone that cannot see the centroid past this building goes round on the
+            # swarm's side of it (a straggler, or a drone in the next street)
+            seg = cen[None] - Pm
+            tq = np.clip((to_c * seg).sum(-1) / np.maximum((seg * seg).sum(-1), 1e-12), 0.0, 1.0)
+            hid = np.linalg.norm(Pm + tq[:, None] * seg - c[None], axis=1) < R
+            s = np.sign((tan @ nv) * own)
+            s = np.where(hid, group, np.where(s == 0, 1.0, s))
+        elif m.slide_side == "group":
+            s = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
+                         _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
+        else:
+            if m.slide_side == "formation" or (m.slide_side in ("auto", "hidden") and aimed[k]):
+                lat = _sign_or((Pm - cen) @ nv, R, own)
+            else:
+                lat = own
+            s = np.sign((tan @ nv) * lat)
+            s = np.where(s == 0, 1.0, s)
+        v = v + (w * inward)[:, None] * out + (gate * w * inward * s)[:, None] * tan
+    return clamp_norm(v, cn)
+
+
+def route_round(m, city, cand, Pm, cen, vbar, coh, fmag, unit, frames):
+    """S7: a drone's pull towards neighbours it cannot see past a building is turned round that building instead of
+    through it (SwarmManager.routeStragglers; OlfatiSaber.GetSwarmAcceleration). Only ATTRACTION (fmag > 0) to a
+    neighbour whose straight line from the drone passes through a shield frame's cylinder is touched -- assigned to
+    the first cylinder that line enters -- so the lattice's repulsion, and everything between drones that can see
+    each other, is exactly as before. Per frame, that blocked pull may still press the drone towards the building by
+    up to stragglerPressShare of the obstacle field's ceiling (what keeps the two halves of a formation wrapped round
+    a building it surrounds, and which the field can always resist); the excess is faded out by the shield's bump w
+    and the same amount added along the cylinder's tangent, on the side the blocked pull leans to (route_side
+    "lean"; a pull straight through goes to the swarm's side of the building, then downstream of its mean velocity),
+    held to the blocked pull's length: a drone left behind a building is drawn round it to the swarm rather than
+    dragged through its facade."""
+    n = len(Pm)
+    v = coh.copy()
+    if not frames:
+        return v
+    one = np.ones(n)
+    cs = np.array([city.c[cand[k]] for _, _, k in frames])         # (K, 2)
+    Rs = np.array([float(city.R[cand[k]]) for _, _, k in frames])
+    D = Pm[None, :, :] - Pm[:, None, :]                            # [i, j] = j - i
+    L2 = np.maximum((D * D).sum(-1), 1e-12)
+    rel = cs[:, None, :] - Pm[None, :, :]                          # [q, i] = c_q - p_i
+    tp = np.einsum("qid,ijd->qij", rel, D) / L2[None]              # projection of c_q on the line i -> j
+    tc = np.clip(tp, 0.0, 1.0)
+    near = Pm[None, :, None, :] + tc[..., None] * D[None]          # closest point of the segment to c_q
+    d2 = ((near - cs[:, None, None, :]) ** 2).sum(-1)
+    W = np.array([w for w, _, _ in frames])                         # [q, i] each drone's own frames only
+    blocked = (d2 < Rs[:, None, None] ** 2) & (W[:, :, None] > 0)
+    entry = np.where(blocked, tp - np.sqrt(np.maximum(Rs[:, None, None] ** 2 - d2, 0.0) / L2[None]), np.inf)
+    first = entry.argmin(0)                                         # [i, j] the first cylinder the line enters
+    pull = (fmag > 0) & blocked.any(0)
+    to_cen = cen[None] - Pm
+    dist_cen = np.linalg.norm(to_cen, axis=1)
+    vbar_n = float(np.linalg.norm(vbar))
+    press = m.route_press * m.max_obs
+    for q, (w, out, _) in enumerate(frames):
+        sel = pull & (first == q)
+        if not sel.any():
+            continue
+        A = (np.where(sel, fmag, 0.0)[..., None] * unit).sum(1)     # the blocked pull this cylinder stands in
+        tan = np.stack([out[:, 1], -out[:, 0]], -1)
+        inward = np.maximum(-(A * out).sum(-1), 0.0)
+        excess = np.maximum(inward - press, 0.0)
+        lean = (A * tan).sum(-1)
+        to_g = (to_cen * tan).sum(-1)
+        down = _sign_or((vbar[None] * tan).sum(-1), vbar_n, one)
+        if m.route_side == "lean":
+            s = _sign_or(lean, inward, _sign_or(to_g, dist_cen, down))
+        else:
+            s = _sign_or(to_g, dist_cen, _sign_or(lean, inward, down))
+        An = A + (w * excess)[:, None] * out + (w * excess * s)[:, None] * tan
+        An = clamp_norm(An, np.linalg.norm(A, axis=1, keepdims=True))
+        v = v + (An - A)
+    return v
+
+
+def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, alt=None, vbar=None, miss=None):
     """Every horizontal term OlfatiSaber.GetSwarmAcceleration sums, and the shielded command, per drone.
 
     Pm, Vm     (n, 2) measured positions and velocities (StateFinder, noisy in Unity)
@@ -434,6 +604,9 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
     cmd        the pilot's world command before the shield, (2,)
     fallback   (n, 2) outward direction for a drone exactly on the core axis (C#: its own forward)
     alt        (n,) altitudes for the obstacle query, or None (within every building's height)
+    vbar       the swarm's mean measured velocity (SwarmPlaneController.SwarmMeanVelocity), for the S7 side
+               rules' last tie-break; None = Vm's mean
+    miss       (len(cand),) how squarely the swarm flies at each building (aim_miss); None = computed here
     """
     n, S, dl = len(Pm), m.S, m.delta
     zero = np.zeros((n, 2))
@@ -459,7 +632,8 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
         reff = np.sqrt(al * al + k2 * cr * cr) / S
         coh = (np.where(pair, cohesion(reff, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)[..., None] * gdir).sum(1)
     else:
-        coh = (np.where(pair, cohesion(r, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)[..., None] * unit).sum(1)
+        fmag = np.where(pair, cohesion(r, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)
+        coh = (fmag[..., None] * unit).sum(1)
     vc = m.c_vm * (Vm[None, :, :] - Vm[:, None, :]).sum(1)
     damp = zero
     if m.c_damp > 0:
@@ -510,7 +684,7 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
         if m.d_shield > 0:
             ws = bump(dd, m.d_shield, dl) * (found & (dd < m.d_shield))
             for k in np.flatnonzero(ws.max(0) > 0):
-                shield.append((ws[:, k], out[:, k]))
+                shield.append((ws[:, k], out[:, k], k))
             if m.shield_mode == "lookahead" and m.obstacle_model == "cylinder" and cn > 1e-9:
                 # S6 prototype: the stick is shielded only from a building its line would hit, faded in by the
                 # distance to that hit, so a drone passing beside a building keeps its whole stick
@@ -523,7 +697,7 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
                 hit = inside | ((along > 0) & (lat2 < Rm * Rm))
                 d_hit = np.where(inside, 0.0, np.maximum(along - np.sqrt(np.maximum(Rm * Rm - lat2, 0.0)), 0.0))
                 wl = bump(d_hit / S, m.d_shield, dl) * (found & hit)
-                shield_cmd = [(wl[:, k], out[:, k]) for k in np.flatnonzero(wl.max(0) > 0)]
+                shield_cmd = [(wl[:, k], out[:, k], k) for k in np.flatnonzero(wl.max(0) > 0)]
 
     # ---- hollow core: a virtual beta-agent cylinder on the centroid, moving with the swarm
     core = zero
@@ -546,7 +720,14 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
     damp_raw = damp
     damp = remove_inward(sat(damp, m.max_damp), shield)
     frames = shield if shield_cmd is None else shield_cmd
-    shielded = remove_inward(np.broadcast_to(cmdv, (n, 2)).copy(), frames)
+    if vbar is None:
+        vbar = Vm.mean(0)
+    if m.slide and frames and cn > 1e-9:
+        if miss is None:
+            miss = aim_miss(m, city, cand, cen, cmdv)
+        shielded = slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss)
+    else:
+        shielded = remove_inward(np.broadcast_to(cmdv, (n, 2)).copy(), frames)
     if m.shield_slide > 0 and frames and cn > 1e-9:
         # S6 prototype: the removed part turned sideways, away from the building's centre across the track (on the
         # drone's side of the formation when head on), and the result held to the stick's length
@@ -555,13 +736,17 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
         side = np.sign(((Pm - cen) @ nv))
         side = np.where(side == 0, 1.0, side)
         add = np.zeros((n, 2))
-        for w, out in frames:
+        for w, out, *_ in frames:
             inward = np.maximum(-(out @ cmdv), 0.0)
             perp = out - (out @ u)[:, None] * u
             pn = np.linalg.norm(perp, axis=1)
             pdir = np.where((pn > 0.15)[:, None], perp / np.maximum(pn, 1e-9)[:, None], side[:, None] * nv)
             add += (m.shield_slide * w * inward)[:, None] * pdir
         shielded = clamp_norm(shielded + add, cn)
+    if m.route and shield:
+        if m.aniso > 1.0:
+            raise ValueError("routeStragglers with the aniso prototype is not implemented")
+        coh = route_round(m, city, cand, Pm, cen, vbar, coh, fmag, unit, shield)
     if m.cohesion_shield:
         coh = remove_inward(coh, shield)
     return dict(vc=vc, coh=coh, damp=damp, damp_raw=damp_raw, obs=obs, core=core, cmd=shielded, prox=prox)
@@ -582,6 +767,7 @@ class Sim:
         ang = self.rng.uniform(0, 2 * np.pi, n)
         self.forward = np.stack([np.sin(ang), np.cos(ang)], 1)   # no heading is modelled; any distinct one
         self.core_r = None
+        self.sigma = None          # S7 adaptive spread: the share of d_ref in force (SwarmPlaneController)
         self.cand = np.arange(0)
         self.tick = 0
         self.kills = []            # (t, "drone" | "building", d_ref)
@@ -618,7 +804,18 @@ class Sim:
         if self.tick % QUERY_EVERY == 0:
             self.cand = self.city.near(P, m.r0_obs * m.S + QUERY_MARGIN_M)
         cmd = m.stick_to_world(stick, body_yaw_deg)
-        T = swarm_terms(m, self.city, self.cand, Pm, Vm, cen, vmean, core_r, dref, cmd, self.forward[idx])
+        d_eff = dref
+        miss = aim_miss(m, self.city, self.cand, cen, cmd) if (m.adaptive or m.slide) else None
+        if m.adaptive:
+            # SwarmPlaneController.UpdateFlowState: seeded, then low-passed, as the core radius is
+            target = spread_target(m, self.city, self.cand, cen, miss)
+            if self.sigma is None or m.spread_filter <= 0:
+                self.sigma = target
+            else:
+                self.sigma += (1 - np.exp(-m.dt / m.spread_filter)) * (target - self.sigma)
+            d_eff = dref * self.sigma
+        T = swarm_terms(m, self.city, self.cand, Pm, Vm, cen, vmean, core_r, d_eff, cmd, self.forward[idx],
+                        vbar=Vm.mean(0), miss=miss)
 
         # VelocityControl: low-passed swarm force + velocity P-loop on the shielded command, circular tilt
         # clamp, tilt -> rate -> alpha; then PhysX (velocity change before damping) and a = g tan(tilt).

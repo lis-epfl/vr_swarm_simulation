@@ -1,0 +1,20 @@
+{
+  "study": "S7 Building Flow",
+  "fixed": "2026-10-30, after the screens (screen1-screen6) and before the confirmation was flown",
+  "baseline": "T3: BlockShapedPatchCityWorld's SwarmManager as S6 left it (d_ref 2.0, d_shield 1.6, d_obs 0.16), every S7 switch off",
+  "data": "the confirmation: fresh routes (from 4000) in the scene's city and the three held-out cities (seeds 2-4), 40 cross, 30 pass and 20 street flights in each",
+  "safe": {
+    "lost_km": "at most T3's + 0.05 drones lost per km",
+    "contact_km": "at most T3's building contacts per km",
+    "open": "at most T3's + 0.02 share of flights ending in pieces",
+    "hull": "at least 0.5 of the drones on the hull"
+  },
+  "helps": {
+    "v_coh": "cohesive speed over the cross and pass flights at least 5% above T3's",
+    "street_v_coh": "cohesive speed over the street flights at least 98% of T3's",
+    "cross_wrapped": "surrounds at least T3's share minus 0.10 of the buildings the cross flights fly at"
+  },
+  "pick": "among configurations both safe and helping, the highest penalised score (S6's: v_coh - 2.0 x lost/km - 0.5 x contacts/km - 4.0 x open share)",
+  "none": "if none is both, recommend none on by default and report each switch's effect against T3",
+  "each_switch": "every switch is also judged alone against T3 by the same two tests, so the page can say which helps on its own"
+}

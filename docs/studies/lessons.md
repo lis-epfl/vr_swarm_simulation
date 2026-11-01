@@ -2,7 +2,7 @@
 
 Refinements the studies identified, for whoever designs the next one. Each says what went wrong or what to watch,
 what to do instead, and the study it came from (S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming, S4 Split
-and Surround). Add new
+and Surround, S5 Block-Shaped Surround, S6 Patch City Tuning, S7 Building Flow). Add new
 ones with the study's ID; mark one **Applied** once the code does it by default.
 
 ## Measures
@@ -152,6 +152,25 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     enclosed the block reliably (67% at 2.2): ten drones are too few for that ring. Sweep d_ref with the other factors,
     record it on every flight (round the block and in the streets), and say so when the useful spread is beyond what a
     pilot can dial. (S4 Phase 3)
+40. **A rule that moves the formation as a whole must be gated on where the formation is going.** S7's slide splits the
+    formation in halves round a building so it surrounds it. Applied to every building a drone's stick pointed at, it
+    sent the trailing half of the formation round the far side of the corner building whenever a street route turned,
+    because the new stick points across the corner from where they are, and the street flights fell apart (one group
+    37%). Gated on the formation's own track (the centroid's stick line within 0.6 of the building's radius of its
+    centre), with each drone taking its own, shorter side elsewhere, it kept the surround and the streets. Screen a
+    formation-level rule on turning routes, not only on straight lines. (S7)
+41. **Redirect only the part of a force that causes the failure, and find that part by attributing forces at the
+    failure.** S7's first straggler routing turned all of cohesion's push into a building along it, which also turned
+    the drones' repulsion of each other: neighbours beside a facade collided (2 drones lost per km). The force attribution
+    at each collision (cohesion with and without routing, −4.5 m/s² apart becoming +2 together) showed it at once.
+    Turning all of the pull towards hidden neighbours then removed what holds a surround's two halves together. Attraction
+    to hidden neighbours only, and only beyond a share of the obstacle field's ceiling, kept the contacts down without
+    either failure. (S7)
+42. **A spread that changes in flight inherits the collisions of the narrowest spread it reaches, and adds its own in
+    the transitions.** S7's adaptive spread narrowed 2.0 to 1.6 in the streets: +14–23% there, but 0.18 drones lost per
+    km against 0.04 in the replica and 8 against 2 in 64 Unity flights, pairs squeezed by two buildings' fields in tight
+    gaps, five of nine while the formation was narrowing or widening. Before a dynamic spread, check the static spread it
+    narrows to in the same city, and locate its losses against the spread's changes. (S7)
 
 ## Pilots and outcomes
 

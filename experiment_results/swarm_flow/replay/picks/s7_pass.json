@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s7_pass",
+  "kind": "pass",
+  "k": 5005,
+  "title": "Through one block",
+  "first": "all",
+  "why": "the typical block (of those where a building is met): its all-three-minus-T3 difference (0.81 m/s) is the nearest to the median of its kind (0.79 m/s, 20 routes)",
+  "met": 1
+ },
+ "flights": {
+  "single_slide": [
+   "s7_pass_single_slide_replica",
+   "s7_pass_single_slide_unity"
+  ],
+  "single_off": [
+   "s7_pass_single_off_replica",
+   "s7_pass_single_off_unity"
+  ],
+  "t3": [
+   "s7_pass_t3_replica",
+   "s7_pass_t3_unity"
+  ],
+  "slide": [
+   "s7_pass_slide_replica",
+   "s7_pass_slide_unity"
+  ],
+  "route": [
+   "s7_pass_route_replica",
+   "s7_pass_route_unity"
+  ],
+  "adaptive": [
+   "s7_pass_adaptive_replica",
+   "s7_pass_adaptive_unity"
+  ],
+  "all": [
+   "s7_pass_all_replica",
+   "s7_pass_all_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

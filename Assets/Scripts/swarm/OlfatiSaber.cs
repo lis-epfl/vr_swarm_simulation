@@ -47,7 +47,29 @@ public class OlfatiSaber : MonoBehaviour
     /// <summary>
     /// The cohesion interaction range actually in force this tick, in swarm units.
     /// </summary>
-    public float EffectiveR0Coh => (HollowCore && r0CohRatio > 0.0f) ? r0CohRatio * d_ref : r0_coh;
+    public float EffectiveR0Coh => (HollowCore && r0CohRatio > 0.0f) ? r0CohRatio * EffectiveDRef : r0_coh;
+
+    // ---- S7 Building Flow ----------------------------------------------------------------------
+    // Settings pushed from SwarmManager (swarmParamsChanged), state pushed every tick by
+    // SwarmAlgorithm.ApplyPlaneConstraint from SwarmPlaneController's one set of aggregates. Each
+    // switch off, or FlowActive false (no aggregates, or vertical-plane mode), is the law as it was.
+    [HideInInspector] public bool SlideRoundBuildings = false;
+    [HideInInspector] public float SlideHeadOnFraction = 0.8f;
+    [HideInInspector] public float SlideSplitAimFraction = 0.6f;
+    [HideInInspector] public float SurroundLookAhead = 4.0f;    // swarm units
+    [HideInInspector] public bool RouteStragglers = false;
+    [HideInInspector] public float StragglerPressShare = 0.7f;
+    [HideInInspector] public bool FlowActive = false;
+    [HideInInspector] public Vector3 SwarmCentre = Vector3.zero;     // world metres
+    [HideInInspector] public Vector3 SwarmVelocity = Vector3.zero;   // world m/s, the measured mean
+
+    // The adaptive spread's swarm-wide scale on d_ref (SwarmPlaneController.SpreadScale); 1 when it is
+    // off. Applied to every use of d_ref in the force law -- the lattice, the core's standoff and a
+    // d_ref-relative cohesion range -- so a narrowed formation is the same formation, smaller.
+    [HideInInspector] public float SpreadScale = 1.0f;
+
+    /// <summary>The spread in force this tick: d_ref (the scene's or the pilot's dial) times the adaptive scale.</summary>
+    public float EffectiveDRef => d_ref * SpreadScale;
 
     public float delta = 0.1f;
     public float a = 0.9f;
@@ -190,6 +212,14 @@ public class OlfatiSaber : MonoBehaviour
     private readonly List<ObstacleFrame> shieldFrames = new List<ObstacleFrame>();
     private bool hasWarnedBufferFull = false;
 
+    // Where the drone was when shieldFrames were measured: the slide's geometry is taken from there,
+    // so it agrees with the frames even when they are a tick stale.
+    private Vector3 shieldPosition = Vector3.zero;
+
+    // S7 straggler routing: the pull towards hidden neighbours, one entry per shield frame (the first
+    // building each such neighbour's line of sight enters).
+    private readonly List<Vector3> blockedPull = new List<Vector3>();
+
     // How deep inside the obstacle field this drone was on the last GetObstacleForce: the largest
     // rho_h bump over the obstacles in range, 0 clear of them and 1 at a surface. Kept separately
     // from shieldFrames because that list is only filled when the pilot shield is enabled, and the
@@ -225,6 +255,18 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 position = currentDroneState.Position;
         Vector3 localVelocity = currentDroneState.VelocityVector;
         Vector3 velocity = transform.TransformDirection(localVelocity);
+
+        // Before the neighbour loop, which reads the shield frames it fills when stragglers are routed.
+        // It has always been independent of the loop, so moving it changes nothing else. It must still
+        // run before GetCoreForce, which reads the proximity it measures.
+        obstacle = GetObstacleForce(position, velocity);
+
+        bool routeStragglers = RouteStragglers && FlowActive && shieldFrames.Count > 0;
+        if (routeStragglers)
+        {
+            blockedPull.Clear();
+            for (int q = 0; q < shieldFrames.Count; q++) blockedPull.Add(Vector3.zero);
+        }
 
         // Calculate cohesion and velocity consensus for each neighbour
         float totalNeighbourPlaneOffset = 0f;
@@ -266,9 +308,17 @@ public class OlfatiSaber : MonoBehaviour
 
             float distance = relativePosition.magnitude / ScaleFactor;
 
-            // Cohesion
+            // Cohesion. Routed, attraction to a neighbour hidden behind a building within d_shield is set
+            // aside here and turned round that building below; repulsion never is.
             Vector3 lineOfSight = relativePosition.normalized;
-            cohesion += GetCohesionForce(distance, d_ref, EffectiveR0Coh) * lineOfSight;
+            float cohesionForce = GetCohesionForce(distance, EffectiveDRef, EffectiveR0Coh);
+            int blocker = routeStragglers && cohesionForce > 0.0f
+                ? FirstBlockingFrame(position, neighbourPosition)
+                : -1;
+            if (blocker >= 0)
+                blockedPull[blocker] += cohesionForce * lineOfSight;
+            else
+                cohesion += cohesionForce * lineOfSight;
 
             // Close-range damping: only the approaching part of the range rate, so a pair moving
             // apart or in parallel gets exactly nothing. In constrained mode the line of sight is
@@ -294,9 +344,11 @@ public class OlfatiSaber : MonoBehaviour
             planeCorrection = c_plane * (targetOffset - Vector3.Dot(position, PlaneNormal)) * PlaneNormal;
         }
 
-        // Must run before GetCoreForce: it is what measures lastObstacleProximity, which the core
+        if (routeStragglers)
+            cohesion += RouteBlockedPull(position);
+
+        // GetObstacleForce (above, ahead of the loop) measured lastObstacleProximity, which the core
         // reads to fade itself out near a building rather than running a second overlap query.
-        obstacle = GetObstacleForce(position, velocity);
         Vector3 core = GetCoreForce(position, velocity);
 
         // After GetObstacleForce, which is what fills the shield frames the projection reads.
@@ -320,7 +372,7 @@ public class OlfatiSaber : MonoBehaviour
         if (!CoreActive || CoreRadius <= 0.0f || c_core <= 0.0f)
             return Vector3.zero;
 
-        float standoff = Mathf.Max(coreStandoffRatio * d_ref, 1e-3f);
+        float standoff = Mathf.Max(coreStandoffRatio * EffectiveDRef, 1e-3f);
 
         // Axis along the plane normal — world up in horizontal mode, so `outward` is horizontal and
         // the core contributes exactly nothing vertically and cannot fight altitude hold. The
@@ -542,6 +594,7 @@ public class OlfatiSaber : MonoBehaviour
         Vector3 ObsVel = Vector3.zero;
 
         shieldFrames.Clear();
+        shieldPosition = dronePosition;
         lastObstacleProximity = 0.0f;
 
         int obstacleCount = Physics.OverlapSphereNonAlloc(dronePosition, r0_obs * ScaleFactor, overlapBuffer, obstacleLayerMask);
@@ -602,9 +655,192 @@ public class OlfatiSaber : MonoBehaviour
     ///
     /// Note this shields the pilot's command and the close-range damper only. Cohesion is not
     /// projected, so a drone squeezed between the formation and a facade still relies on the beta
-    /// force alone.
+    /// force alone -- unless SwarmManager.routeStragglers is on (see RouteBlockedPull).
+    ///
+    /// With SwarmManager.slideRoundBuildings the removed part is turned round the building instead of
+    /// deleted (<see cref="SlideRoundObstacles"/>).
     /// </remarks>
-    public Vector3 ProjectCommandVelocity(Vector3 worldCommand) => RemoveInwardComponent(worldCommand);
+    public Vector3 ProjectCommandVelocity(Vector3 worldCommand)
+    {
+        if (SlideRoundBuildings && FlowActive && d_shield > 0.0f && shieldFrames.Count > 0)
+            return SlideRoundObstacles(worldCommand);
+        return RemoveInwardComponent(worldCommand);
+    }
+
+    // ---- S7 Building Flow: slide and straggler routing -----------------------------------------
+    // Mirrored by swarm_replica.slide_round / route_round, which every number in S7 was measured on.
+
+    // A side test reads as a tie below this share of its scale and falls through to the next one.
+    private const float FlowTie = 0.1f;
+
+    private static Vector3 Flat(Vector3 v) => new Vector3(v.x, 0.0f, v.z);
+
+    // numpy's sign: 0 for 0.
+    private static float Sign0(float x) => x > 0.0f ? 1.0f : (x < 0.0f ? -1.0f : 0.0f);
+
+    private static float SignOr(float x, float scale, float fallback)
+        => Mathf.Abs(x) >= FlowTie * Mathf.Max(scale, 1e-9f) ? Sign0(x) : fallback;
+
+    // Horizontal distance from point c to the segment a -> b.
+    private static float SegmentPointDistance(Vector3 c, Vector3 a, Vector3 b)
+    {
+        Vector3 ab = b - a;
+        float t = Mathf.Clamp01(Vector3.Dot(c - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-12f));
+        return (a + t * ab - c).magnitude;
+    }
+
+    /// <summary>
+    /// The shield with the stick's removed part turned along the building instead of deleted, so a
+    /// drone flown at a building flows round it rather than stalling against it. Frame by frame in
+    /// query order, as <see cref="RemoveInwardComponent"/>: the inward part is faded out by the
+    /// shield's bump exactly as before, and the same amount, times a head-on gate, is added along the
+    /// cylinder's tangent. The gate is 1 - miss / (SlideHeadOnFraction R), miss being how far the
+    /// stick's line from the drone passes from the building's centre, so a drone passing beside a
+    /// building is untouched and a glancing one keeps the slide the cylinder's own curve gives it.
+    ///
+    /// <para>Which way round, in this order:</para>
+    /// <list type="bullet">
+    /// <item>the swarm flies squarely at the building (its centroid's stick line, SurroundLookAhead
+    /// long, passes within SlideSplitAimFraction R of its centre): the formation splits in halves,
+    /// a drone left of the centroid's track going left, so the swarm surrounds it;</item>
+    /// <item>the building hides the swarm's centroid from the drone: round on the centroid's side
+    /// (then downstream of the swarm's mean velocity), so a straggler, or a drone that has strayed
+    /// into the next street, comes back rather than flying on round the far side;</item>
+    /// <item>otherwise round its own side of the building's centreline, the short way. Splitting by
+    /// halves here instead sent trailing drones round the far side of a corner building whenever
+    /// the route turned.</item>
+    /// </list>
+    /// The result is held to the command's length: turned, never amplified.
+    /// </summary>
+    private Vector3 SlideRoundObstacles(Vector3 worldCommand)
+    {
+        Vector3 cmd = Flat(worldCommand);
+        float cn = cmd.magnitude;
+        if (cn < 1e-6f)
+            return RemoveInwardComponent(worldCommand);
+
+        Vector3 u = cmd / cn;
+        Vector3 left = new Vector3(-u.z, 0.0f, u.x);
+        Vector3 p = Flat(shieldPosition);
+        Vector3 c = Flat(SwarmCentre);
+        Vector3 vbar = Flat(SwarmVelocity);
+        float maxSpeed = selfVelocityControl != null ? selfVelocityControl.GetMaxSpeed() : 0.0f;
+        float lookAhead = cn > 0.1f * maxSpeed ? SurroundLookAhead * ScaleFactor : 0.0f;
+        Vector3 aheadEnd = c + lookAhead * u;
+
+        Vector3 v = cmd;
+        for (int i = 0; i < shieldFrames.Count; i++)
+        {
+            ObstacleFrame frame = shieldFrames[i];
+            float w = GetBetaBump(frame.distance, d_shield);
+            float inward = Mathf.Max(-Vector3.Dot(v, frame.outward), 0.0f);
+
+            Vector3 centre = Flat(frame.axisCentre);
+            Vector3 toCentre = centre - p;
+            float miss = Mathf.Abs(Vector3.Dot(toCentre, left));
+            float gate = Vector3.Dot(toCentre, u) > 0.0f
+                ? Mathf.Clamp01(1.0f - miss / Mathf.Max(SlideHeadOnFraction * frame.radius, 1e-6f))
+                : 0.0f;
+
+            float own = SignOr(-Vector3.Dot(toCentre, left), frame.radius, 1.0f);
+            float side;
+            if (SegmentPointDistance(centre, c, aheadEnd) < SlideSplitAimFraction * frame.radius)
+            {
+                float half = SignOr(Vector3.Dot(p - c, left), frame.radius, own);
+                side = Vector3.Dot(frame.tangent, left) * half < 0.0f ? -1.0f : 1.0f;
+            }
+            else if (SegmentPointDistance(centre, p, c) < frame.radius)
+            {
+                Vector3 toCentroid = c - p;
+                side = SignOr(Vector3.Dot(toCentroid, frame.tangent), toCentroid.magnitude,
+                              SignOr(Vector3.Dot(vbar, frame.tangent), vbar.magnitude, 1.0f));
+            }
+            else
+            {
+                side = Vector3.Dot(frame.tangent, left) * own < 0.0f ? -1.0f : 1.0f;
+            }
+
+            v += w * inward * frame.outward + gate * w * inward * side * frame.tangent;
+        }
+
+        float vn = v.magnitude;
+        if (vn > cn)
+            v *= cn / vn;
+        v.y = worldCommand.y;
+        return v;
+    }
+
+    /// <summary>
+    /// The shield frame whose cylinder the straight line from <paramref name="from"/> to
+    /// <paramref name="to"/> enters first (horizontally), or -1 if it passes through none of them.
+    /// </summary>
+    private int FirstBlockingFrame(Vector3 from, Vector3 to)
+    {
+        Vector3 a = Flat(from);
+        Vector3 d = Flat(to) - a;
+        float l2 = Mathf.Max(d.sqrMagnitude, 1e-12f);
+        int first = -1;
+        float firstEntry = float.PositiveInfinity;
+        for (int q = 0; q < shieldFrames.Count; q++)
+        {
+            ObstacleFrame frame = shieldFrames[q];
+            Vector3 centre = Flat(frame.axisCentre);
+            float tp = Vector3.Dot(centre - a, d) / l2;
+            float d2 = (a + Mathf.Clamp01(tp) * d - centre).sqrMagnitude;
+            float r2 = frame.radius * frame.radius;
+            if (d2 >= r2)
+                continue;
+            float entry = tp - Mathf.Sqrt(Mathf.Max(r2 - d2, 0.0f) / l2);
+            if (entry < firstEntry)
+            {
+                firstEntry = entry;
+                first = q;
+            }
+        }
+        return first;
+    }
+
+    /// <summary>
+    /// The pull towards neighbours hidden behind each shield frame's building, turned round it. That
+    /// pull may still press the drone towards the building by up to StragglerPressShare of the
+    /// obstacle field's ceiling -- what holds the halves of a formation wrapped round a building it
+    /// surrounds, and always less than the field can resist -- and the excess is faded out by the
+    /// shield's bump and the same amount added along the cylinder's tangent, on the side the hidden
+    /// pull leans to (a pull straight through goes to the swarm centroid's side, then downstream of
+    /// the swarm's mean velocity). Held to the hidden pull's own length.
+    /// </summary>
+    private Vector3 RouteBlockedPull(Vector3 position)
+    {
+        float press = StragglerPressShare * MaxObstacleAccel;
+        Vector3 toCentroid = Flat(SwarmCentre) - Flat(position);
+        float centroidDistance = toCentroid.magnitude;
+        Vector3 vbar = Flat(SwarmVelocity);
+        float vbarMagnitude = vbar.magnitude;
+
+        Vector3 sum = Vector3.zero;
+        for (int q = 0; q < blockedPull.Count; q++)
+        {
+            Vector3 pull = blockedPull[q];
+            if (pull.sqrMagnitude <= 0.0f)
+                continue;
+
+            ObstacleFrame frame = shieldFrames[q];
+            float w = GetBetaBump(frame.distance, d_shield);
+            float inward = Mathf.Max(-Vector3.Dot(pull, frame.outward), 0.0f);
+            float excess = Mathf.Max(inward - press, 0.0f);
+            float downstream = SignOr(Vector3.Dot(vbar, frame.tangent), vbarMagnitude, 1.0f);
+            float side = SignOr(Vector3.Dot(pull, frame.tangent), inward,
+                                SignOr(Vector3.Dot(toCentroid, frame.tangent), centroidDistance, downstream));
+
+            Vector3 routed = pull + w * excess * frame.outward + w * excess * side * frame.tangent;
+            float pullMagnitude = pull.magnitude;
+            float routedMagnitude = routed.magnitude;
+            if (routedMagnitude > pullMagnitude)
+                routed *= pullMagnitude / routedMagnitude;
+            sum += routed;
+        }
+        return sum;
+    }
 
     /// <summary>
     /// The shield's projection for any world vector: fades out the part heading into an obstacle
@@ -630,7 +866,7 @@ public class OlfatiSaber : MonoBehaviour
     public float GetCohesionForce(float r, float ref_d = -1, float r0 = -1)
     {
         // Use default values if parameters are not provided
-        if (ref_d == -1) ref_d = d_ref;
+        if (ref_d == -1) ref_d = EffectiveDRef;
         if (r0 == -1) r0 = EffectiveR0Coh;
 
         float neighbourWeightDerivative = GetNeighbourWeightDerivative(r, r0);
@@ -686,7 +922,7 @@ public class OlfatiSaber : MonoBehaviour
     public float GetCohesionIntensity(float r, float ref_d=-1)
     {
         // Use default value if ref_d is not provided
-        if (ref_d == -1) ref_d = d_ref;
+        if (ref_d == -1) ref_d = EffectiveDRef;
 
         float diff = r - ref_d;
         return ((a + b) / 2) * (Mathf.Sqrt(1 + Mathf.Pow(diff + c, 2)) - Mathf.Sqrt(1 + c * c)) + ((a - b) * diff) / 2;
@@ -696,7 +932,7 @@ public class OlfatiSaber : MonoBehaviour
     float GetCohesionIntensityDerivative(float r, float ref_d=-1)
     {
         // Use default value if ref_d is not provided
-        if (ref_d == -1) ref_d = d_ref;
+        if (ref_d == -1) ref_d = EffectiveDRef;
 
         // Derivative of the cohesion intensity function
         float diff = r - ref_d;

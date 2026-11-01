@@ -1,0 +1,59 @@
+{
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "T3"
+ },
+ "006dd3cc37": {
+  "over": {
+   "slideRoundBuildings": true
+  },
+  "d": 2.0,
+  "label": "slide"
+ },
+ "7377e0daa3": {
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "slide + adaptive 0.8, filter 1 s"
+ },
+ "765bc0dddb": {
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "slide + adaptive 0.8, filter 3 s"
+ },
+ "e5afb7421f": {
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  },
+  "d": 2.0,
+  "label": "slide + adaptive 0.85, filter 1 s"
+ },
+ "e5b4a0826f": {
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "slide + adaptive 0.85, filter 3 s"
+ },
+ "34b528b9c2": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "adaptive 0.85, filter 3 s"
+ }
+}

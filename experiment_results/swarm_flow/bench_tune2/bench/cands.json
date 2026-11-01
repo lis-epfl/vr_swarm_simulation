@@ -1,0 +1,21 @@
+[
+ {
+  "label": "adaptive_085_3s",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "slide_adaptive_085_3s",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ }
+]

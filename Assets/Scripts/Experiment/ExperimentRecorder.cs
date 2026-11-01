@@ -261,7 +261,7 @@ public class ExperimentRecorder : MonoBehaviour
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
         shapeWriter = NewWriter("shape",
             "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
-            "lookGapDeg;lookGapRawDeg;lookGapFill");
+            "lookGapDeg;lookGapRawDeg;lookGapFill;spreadScale");
         stitchWriter = NewWriter("stitch", "t;unixMs;stitcher;shown;qualityOk;pilotOn;reasonBits;panoAgeSec;functional");
         perfWriter = NewWriter("perf", "t;unixMs;frames;fps;dtMaxMs;fpvRenders");
         WriteSwarmSettings();
@@ -455,6 +455,9 @@ public class ExperimentRecorder : MonoBehaviour
         bool hollow = manager != null && manager.GetHollowSwarmCore();
         float r0Eff = manager != null ? manager.GetEffectiveR0Coh() : 0f;
         float coreR = plane != null ? plane.CoreRadiusMetres : 0f;
+        // S7's adaptive spread: the scale on dRef actually in force (1 when the switch is off). Appended last,
+        // so runs recorded before it simply lack the column.
+        float spreadScale = plane != null ? plane.SpreadScale : 1f;
 
         shapeWriter.WriteLine(
             $"{F(t)};{ms};{AttitudeAlgorithm.SharedAliveCount};{AttitudeAlgorithm.SharedHullVertexCount};" +
@@ -462,7 +465,7 @@ public class ExperimentRecorder : MonoBehaviour
             $"{F(AttitudeAlgorithm.SharedMeanNearestNeighbourM)};{F(AttitudeAlgorithm.SharedRingRadiusM)};" +
             $"{F(coreR)};{F(dRef)};{F(r0Eff)};{(hollow ? 1 : 0)};" +
             $"{F(AttitudeAlgorithm.SharedLookGapDeg)};{F(AttitudeAlgorithm.SharedLookGapRawDeg)};" +
-            $"{(AttitudeAlgorithm.SharedLookGapFillActive ? 1 : 0)}");
+            $"{(AttitudeAlgorithm.SharedLookGapFillActive ? 1 : 0)};{F(spreadScale)}");
     }
 
     /// <summary>
