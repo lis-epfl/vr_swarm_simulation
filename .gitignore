@@ -128,3 +128,8 @@ experiment_results/swarm_shape/swarm_shape.html
 experiment_results/swarm_spread/**/results.jsonl
 experiment_results/swarm_spread/**/gate.jsonl
 experiment_results/swarm_spread/swarm_spread.html
+# S10 Ellipse Avoidance: the same; walls.csv, gaps.csv, the tables, the rule, the candidate files and the bench gate
+# tables committed.
+experiment_results/swarm_ellipse/**/results.jsonl
+experiment_results/swarm_ellipse/**/gate.jsonl
+experiment_results/swarm_ellipse/swarm_ellipse.html

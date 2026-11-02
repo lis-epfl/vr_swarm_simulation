@@ -1,0 +1,58 @@
+[
+ {
+  "label": "E15_35a ellipse, aspect cap 1.5, d_obs 0.35, adaptive spread 0.85",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "C35a enclosing circle, d_obs 0.35, adaptive spread 0.85 (the scene)",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "C35 enclosing circle, d_obs 0.35, spread held",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ }
+]

@@ -750,7 +750,9 @@ SWARM_MANAGER_GUID = "0ad6d96a942db456999d589ce17f8408"      # SwarmManager.cs.m
 
 def cmd_apply(a):
     """Write one candidate (d_ref and its overrides) into the scene's SwarmManager, editing only those fields of that
-    one component in the scene file. The editor must reload the scene (it asks) for the values to take effect."""
+    one component in the scene file. The editor must reload the scene (it asks) for the values to take effect. A field
+    the scene was saved before (S10's ellipseMaxAspect) is inserted after the nearest earlier field in SwarmManager.cs's
+    order: Unity matches serialised fields by name, so where it goes only keeps the diff readable."""
     import re
     spec = {c["label"]: c for c in json.loads(open(a.cand, encoding="utf-8").read())}
     c = spec[a.label]
@@ -773,6 +775,15 @@ def cmd_apply(a):
         pat = r"(\n  " + re.escape(k) + r": )([^\n]*)"
         old = re.search(pat, doc)
         new, n = re.subn(pat, lambda mm: mm.group(1) + s, doc)
+        if n == 0:
+            names = list(fields)
+            prev = [f for f in names[:names.index(k)] if re.search(r"\n  " + re.escape(f) + r": ", doc)]
+            if not prev:
+                raise SystemExit(f"[swarmtune] {k}: absent from the SwarmManager block and nothing to insert it after")
+            at = re.search(r"\n  " + re.escape(prev[-1]) + r": [^\n]*", doc).end()
+            doc = doc[:at] + f"\n  {k}: {s}" + doc[at:]
+            print(f"  {k}: (absent, inserted after {prev[-1]}) -> {s}")
+            continue
         if n != 1:
             raise SystemExit(f"[swarmtune] {k}: {n} matches in the SwarmManager block, expected 1")
         print(f"  {k}: {old.group(2)} -> {s}")

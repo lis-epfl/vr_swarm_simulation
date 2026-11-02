@@ -44,6 +44,7 @@ const RV = (() => {
     d.flags = c.block_flags ? bytes(c.block_flags) : new Uint8Array(d.blocks.length);
     d.blockBld = c.block_building ? new Int16Array(bytes(c.block_building).buffer) : null;
     d.cyl = c.cylinders ? Float32Array.from(i16(c.cylinders), v => v / 10) : null;
+    d.ell = c.ellipses ? Float32Array.from(i16(c.ellipses), v => v / 10) : null;   // S10: cx, cz, a, b, axis angle (deg)
     d.samples = c.samples ? Float32Array.from(i16(c.samples), v => v / 10) : null;
     d.blockBox = d.blocks.map(a => a.length ? bbox(a) : null);
     d.bldBox = d.bld.map(bbox);
@@ -241,6 +242,18 @@ const RV = (() => {
       }
       c.stroke(); c.setLineDash([]);
     }
+    if (o.cylinders && C.ell) {
+      // the map flips z, so an axis at angle th in the world (from +x towards +z) is at -th on the screen
+      c.setLineDash([4, 3]); c.lineWidth = 1; c.strokeStyle = T["map-cyl"]; c.beginPath();
+      for (let i = 0; i < C.ell.length; i += 5) {
+        const x = C.ell[i], z = C.ell[i + 1], a = C.ell[i + 2], b = C.ell[i + 3], th = C.ell[i + 4] * Math.PI / 180;
+        if (!v.visible([x - a, z - a, x + a, z + a])) continue;
+        const sx = v.sx(x), sy = v.sy(z);
+        c.moveTo(sx + a * v.k * Math.cos(-th), sy + a * v.k * Math.sin(-th));
+        c.ellipse(sx, sy, a * v.k, b * v.k, -th, 0, 2 * Math.PI);
+      }
+      c.stroke(); c.setLineDash([]);
+    }
     c.strokeStyle = T.line; c.lineWidth = 1; c.setLineDash([4, 4]);
     c.strokeRect(v.sx(a[0]), v.sy(a[3]), (a[1] - a[0]) * v.k, (a[3] - a[2]) * v.k); c.setLineDash([]);
   }
@@ -363,7 +376,7 @@ const RV = (() => {
 
     // ---- layers and legend
     function drawLayers() {
-      const show = LAYER_TEXT.filter(([k]) => k !== "cylinders" || (C && C.cyl)).filter(([k]) => k !== "other" || OTHER);
+      const show = LAYER_TEXT.filter(([k]) => k !== "cylinders" || (C && (C.cyl || C.ell))).filter(([k]) => k !== "other" || OTHER);
       $(".rv-layers").innerHTML = show.map(([k, txt]) => `<label><input type="checkbox" data-l="${k}" ${layers[k] ? "checked" : ""}> ${txt}</label>`).join("");
       $(".rv-layers").querySelectorAll("input").forEach(i => i.addEventListener("change", () => {
         layers[i.dataset.l] = i.checked;

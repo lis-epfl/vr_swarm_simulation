@@ -2,8 +2,9 @@
 
 Refinements the studies identified, for whoever designs the next one. Each says what went wrong or what to watch,
 what to do instead, and the study it came from (S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming, S4 Split
-and Surround, S5 Block-Shaped Surround, S6 Patch City Tuning, S7 Building Flow, S8 Footprint Avoidance). Add new
-ones with the study's ID; mark one **Applied** once the code does it by default.
+and Surround, S5 Block-Shaped Surround, S6 Patch City Tuning, S7 Building Flow, S8 Footprint Avoidance, S9 Street
+Spread, S10 Ellipse Avoidance). Add new ones with the study's ID; mark one **Applied** once the code does it by
+default.
 
 ## Measures
 
@@ -57,6 +58,13 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     study, say what each range stands for (recognising a person, seeing a building, a street's extent) and pick it for
     that; give the runs the range as a setting rather than a constant, so it can be revisited without forking the code.
     (S4)
+49. **Measure the question in its own terms, with a probe built for it, before reaching for the study's usual
+    flights.** S10 asked whether a shape round each building keeps a drone at an even distance from every wall. The
+    formation flights could not see it: 71% of their closest approaches to a facade were within half a metre of a
+    corner, where every enclosing shape touches the footprint. A one-drone probe flown down a street parallel to one
+    wall, 6, 9 or 12.5 m off it, answered it directly (the standoff's spread across walls ×0.55, Unity ×0.56) and showed
+    the mechanism (the push off a wall correlates 0.96–0.99 with the shape's distance from that wall). When the question
+    is about one interaction, isolate it in a probe, then fly the usual flights for what it costs. (S10)
 
 ## Models and validity
 
@@ -142,6 +150,12 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
 21. **Stopping a background shell may not stop the script it runs.** In S4 the inner bash outlived the stop, and when
     its wait ended it read the rewritten script at its old byte offset (a syntax error, luckily). Never rewrite a script
     that a running or stopped process may still be reading; write a new file. (S4)
+50. **A route filter's clearance test must leave out the thing the route is flown at, and a filter's knob should move
+    its output the way you expect.** S10's angled run-ins took S8's clearance test (lines across the corridor clear of
+    every footprint) and kept the target building in it. Square on that never matters; at an angle the lines beside the
+    aim point run into the target's own face, so no 60° run-in qualified at all and 468 flights failed. The tell was that
+    a narrower corridor qualified fewer faces than a wider one. Before running a filter, try its knob both ways and
+    check the count moves the right way. (S10)
 
 ## Manoeuvres and tuning
 
@@ -158,6 +172,11 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     failed in 38–92% of passes at larger blocks. Flown on past the junction, almost every failure was one drone left
     round the far side, rejoining in under a second at p 50 and in 3–12 s or more at p 75. The bar was right; the
     diagnosis needed the uncensored time. (S4)
+    - **Read what a censored measure counts before it decides anything.** S10's split time round a building flown at 60°
+      put every ellipse row ~2.4 s behind the circle: one route in twelve never split within 40 s. Watched, the formation
+      went round one side whole, one group throughout and past the building as fast as the circle, which split it. The
+      measure counted keeping together as failing to split, so the rule judged the split on square-on flights, as S8's
+      did, and the angled flights on time past the building. (S10)
 25. **A manoeuvre's timing scales with the geometry it works on.** The surround that previews a block's streets grew
     from about 5 s (p 40) to 9–14 s (p 50) and 20 s or more (p 60–75), while the time price capped it near 6–8 s. One
     length for every design passes only the small blocks. When the rules fix a timing globally, report that as a
@@ -201,6 +220,16 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     footprint gave back most of the street (20 m median of 25 against 14) and kept the turning normal that spreads
     drones round a building. When a law's shape is chosen for one property (here, a sideways push), test the
     replacement for that property before anything else: S8 did so with a square-on flight from open ground. (S8)
+    - **Carrying a rule into a new shape's coordinates can bring the stall back.** S10 aimed S7's rules by the ellipse in
+      its unit space, where it is the unit circle, which is exact for the split, hidden and blocking tests. The slide's
+      head-on gate, measured there as a line, fell to 0.52 at cap 1.5 and 0.25 at cap 2 where the stick meets a flat side
+      square on: the stall again. Kept local (1 − F |t·u| / slideHeadOnFraction, exactly S7's gate on a circle), the
+      ellipse split round a building as fast as the circle square on, and faster at d_ref 1.2. (S10)
+51. **Pick by the measured effect, not by the size of the knob.** S10's plan picked "the closest fit, the largest cap".
+    In the screen cap 2 fitted no closer than 1.5 (standoff spread ×0.45 against ×0.44 of the circle's; per building
+    3.2 against 3.3 m) and has flatter sides. The rule, changed before it was written, picks the rows within 5% of the
+    evenest measured standoff, then the roundest. A parameter that should improve an effect monotonically often
+    saturates; let the rule read the effect. (S10)
 44. **Bound a safety measure by the configuration the scene flies, and say so before the run.** S8's rule capped building
     contacts at the scene's law as it flies (S7's T3), not at S7's slide, which had already cut them; bounding by the
     slide would have ruled out any shape that lets drones nearer the facades, however much else it gains. The enclosing

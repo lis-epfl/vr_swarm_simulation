@@ -1472,14 +1472,14 @@ status, dates), each study's page links, the code names, how to rebuild each pag
 work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
 output folders keep the code names, and so do the sections below.
 
-| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance | S9 Street Spread |
-|---|---|---|---|---|---|---|---|---|---|
-| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study | the spread study |
-| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) | [S9_street_spread.md](docs/studies/S9_street_spread.md) |
-| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) | [docs/swarm_spread/](docs/swarm_spread/README.md) |
-| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` | `swarmspread.py`, `swarmspread_replays.py`, `swarmspread_report.py` |
-| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` | `swarm_spread/` |
-| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) |
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance | S9 Street Spread | S10 Ellipse Avoidance |
+|---|---|---|---|---|---|---|---|---|---|---|
+| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study | the spread study | the ellipse study |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) | [S9_street_spread.md](docs/studies/S9_street_spread.md) | [S10_ellipse_avoidance.md](docs/studies/S10_ellipse_avoidance.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) | [docs/swarm_spread/](docs/swarm_spread/README.md) | [docs/swarm_ellipse/](docs/swarm_ellipse/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` | `swarmspread.py`, `swarmspread_replays.py`, `swarmspread_report.py` | `swarmellipse.py`, `swarmellipse_bench.py`, `swarmellipse_replays.py`, `swarmellipse_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` | `swarm_spread/` | `swarm_ellipse/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) | [results](https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At) |
 
 All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
 (source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
@@ -2130,7 +2130,7 @@ the manual**; the harness is `citysim/swarmflow.py` on S6's flights and measures
 
 `SwarmManager.obstacleShape` chooses what the Olfati-Saber law avoids each building as: `Cylinder` (0, the circle round
 the collider's axis-aligned bounds, as always and in every scene), `EnclosingCircle` (1, the smallest circle round the
-footprint) or `Footprint` (2, the footprint itself). **[docs/swarm_shape/README.md](docs/swarm_shape/README.md) is the
+footprint), `Footprint` (2, the footprint itself) or, since S10, `Ellipse` (3, below). **[docs/swarm_shape/README.md](docs/swarm_shape/README.md) is the
 manual**; the harness is `citysim/swarmshape.py` on S7's, the outputs `experiment_results/swarm_shape/`. Invariants:
 - **`Cylinder` is the law exactly as before**: the replica re-flew 120 of S7's stored confirmation flights bit for bit.
   The enum's values are spelled out (Unity serialises enums by integer) and it is declared in SwarmManager.cs, where
@@ -2197,6 +2197,44 @@ outputs `experiment_results/swarm_spread/`. Invariants:
   filter), so the runs do not depend on what the scene's SwarmManager holds. Losses are counted as events (a colliding
   pair is one; `ExternallyKilled` partners are not counted in Unity) with exact intervals; speeds are compared route by
   route.
+
+## S10 Ellipse Avoidance: an ellipse round each building
+
+`obstacleShape` `Ellipse` (3) avoids each building as the smallest ellipse round its footprint, its aspect capped at
+`ellipseMaxAspect` (1–2, default 1.5), because the enclosing circle stands close to some walls and far from others
+(the user's question, 2026-11-02). **[docs/swarm_ellipse/README.md](docs/swarm_ellipse/README.md) is the manual**; the
+harness is `citysim/swarmellipse.py` on S8's (the bench `swarmellipse_bench.py`), the outputs
+`experiment_results/swarm_ellipse/`. Invariants:
+- **Shapes 0–2 keep their code paths byte for byte**: every ellipse rule is its own branch (`ObstacleFrame.isEllipse`;
+  the replica's `ell_rules`, `Ellipses.circ`), and 224 stored S8 flights re-flew identical. An ellipse that is round
+  enough (capped aspect under 1.02, or a cap of 1) is the enclosing circle exactly, on the circle's own path; an
+  ellipse forced through the ellipse code at a = b equals the circle to 1e-15 (`test_swarmellipse`).
+- **The fit encloses by construction**: the minimum-area ellipse (Khachiyan with away steps, the 3×3 inverse by
+  cofactors, `ObstacleFootprint.MveeAxis` / `swarm_replica.mvee_axis`) gives only the axis and aspect; the ellipse is
+  the enclosing circle of the hull squashed along that axis by min(cap, aspect), stretched back. Unity's fits match the
+  replica's to 0.01 cm on all 289 of the scene's buildings (`Bench/Editor/EllipseFitProbe.cs`, `swarmellipse fitcheck`).
+- **The cache is keyed on the cap**: `ObstacleFootprint` keeps each collider's axis and aspect and refits the ellipse
+  when the cap changes (`GetEllipse`), as `PolyCity.ellipses` does per cap. The bench flies every set in one process;
+  keyed on the collider alone, every set would fly the first set's ellipse.
+- **The frame**: outside, the closest point (a fixed five-step trig-free solve, `ClosestOnEllipse` / `ell_closest`), mu
+  = rc / (rc + d), rc the radius of curvature there (R/ρ on a circle); inside, the gradient at the drone, mu 1 and
+  distance 0 (continuous at the surface, no flip across the major axis).
+- **S7's rules aim by the ellipse in its unit space** (split aim, hidden centroid, `FirstBlockingFrame`, the adaptive
+  spread's aim test; its "among buildings" test uses the true distance), **except the slide's head-on gate, which
+  stays local**: `1 − F |t·u| / slideHeadOnFraction` while the stick points in, F the drone's unit-space radius,
+  exactly S7's gate on a circle. Measured as a line in unit space it starves the slide where the stick meets a flat
+  side square on (0.52 at cap 1.5, 0.25 at cap 2): lesson 43's stall. The side rule's last branch is S8's lean rule.
+- **The ellipse at cap 1.5 is the recommendation (E15_35a, the scene's law otherwise)**: one drone's standoff spread
+  across walls ×0.55 (Unity ×0.56), corridors under 6 m 376 → 57 over four cities at the same d_obs, the streets 7.5%
+  faster, fewer losses and contacts in the replica, the square-on split as fast (faster at d_ref 1.2). Unity's
+  contacts with the adaptive spread are the one dissent (17 against 12 in 37 km, ×1.42, p ≈ 0.23). **Adoption is the
+  user's call**: `swarmtune apply --cand experiment_results/swarm_ellipse/confirm_cands.json --label "E15_35a ..."`
+  writes `obstacleShape: 3` and inserts `ellipseMaxAspect: 1.5` (`cmd_apply` now inserts a field the scene lacks),
+  nothing else. After adoption an empty override means the ellipse: `swarmellipse.PRE_S10` restores the circle.
+- **The question is measured with a one-drone probe** (`along`: down a street parallel to one wall, 6/9/12.5 m off
+  it), because 71% of formation flights' closest approaches to a facade are at a corner, where every enclosing shape
+  touches (lesson 49). The angled run-ins (`angle`) leave their target building out of the clearance test (lesson 50),
+  and the split is judged square on only: at 60° a formation going round one side whole reads as never splitting.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

@@ -1,0 +1,37 @@
+{
+ "pick": {
+  "key": "s10_narrow",
+  "kind": "street",
+  "k": 18045,
+  "title": "Cost: a street the ellipse narrows",
+  "conds": [
+   "c35a",
+   "e35a",
+   "c35",
+   "e35"
+  ],
+  "first": "e35a",
+  "met": 0,
+  "why": "the street route through the street the ellipse narrows most (15.3 m between the circles, 14.5 m between the ellipses)"
+ },
+ "flights": {
+  "c35a": [
+   "s10_narrow_c35a_replica",
+   "s10_narrow_c35a_unity"
+  ],
+  "c35": [
+   "s10_narrow_c35_replica",
+   "s10_narrow_c35_unity"
+  ],
+  "e35a": [
+   "s10_narrow_e35a_replica",
+   "s10_narrow_e35a_unity"
+  ],
+  "e35": [
+   "s10_narrow_e35_replica",
+   "s10_narrow_e35_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

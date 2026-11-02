@@ -76,7 +76,7 @@ tr:last-child td { border-bottom: 0; }
     <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span><span><b>S10</b>Ellipse Avoidance</span></div>
   </header>
 
   <section>
@@ -275,6 +275,27 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+      <article class="study">
+        <header><span class="id">S10</span><h3>Ellipse Avoidance</h3><span class="was">the ellipse study · 2 Nov 2026</span><span class="status done">Done · adoption waiting</span></header>
+        <div>
+          <p class="q">The enclosing circle the scene avoids each building as lies very close to some of its walls and far from others, so how far a drone is pushed off a wall depends on which wall it is. Does an ellipse fitted to each footprint (its aspect capped) keep the swarm at a more even distance from every wall, how much street does it give back, and what does it cost?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick; Unity flew 37 km per setting, too short for rare losses or contacts.</li>
+            <li>The ellipse narrows about 3% of streets by more than 2 m past the ends of long buildings; BlockShapedPatchCityWorld only.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S10_ellipse_avoidance.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>It fits the walls more evenly: the median building's farthest wall stands 5.7 m further from the circle than its nearest, and 3.3 m from the ellipse (cap 1.5); 173 of 289 buildings have a wall more than 6 m from the circle, 47 from the ellipse.</li>
+            <li>A drone then meets every wall at a more even distance: flown along a wall, the distance it keeps varies about half as much from wall to wall (×0.55 in the replica, ×0.56 in Unity).</li>
+            <li>The narrow streets come back at the same standoff: corridors under 6 m go from 376 to 57 over four cities, and the formation is 7.5% faster in the streets (Unity 5%), faster in every city, with fewer losses and contacts in the replica and no stall at flat sides.</li>
+            <li>For the trials: fly the ellipse at cap 1.5 with everything else as the scene has it (E15_35a); one setting, <code>obstacleShape</code> Ellipse, and adoption is the user's call. Unity's contacts are the one dissent (17 against 12 in 37 km); watch them in the first sessions.</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -294,6 +315,8 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Score a view by the decision it informs</b>: seeing the start of a street is not seeing down it to the building at its end. <span class="tag">S4</span></li>
           <li><b>Score each condition at its own decision</b>: a pass decides at the corner, before it goes round. <span class="tag">S4</span></li>
           <li><b>Choose the sight range for what is being seen</b>, and record it with the run: 80 m, a hat's range, set most of S4's numbers for seeing a building down a street. <span class="tag">S4</span></li>
+          <li><b>Measure the question with a probe built for it</b>: S10's formation flights met facades mostly at corners, where every shape touches; one drone flown along each wall answered it directly. <span class="tag">S10</span></li>
+          <li><b>Read what a censored measure counts</b>: S10's 60° "never split" was the formation going round one side whole, as fast. <span class="tag">S4 S10</span></li>
         </ol>
       </section>
       <section>
@@ -366,6 +389,7 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S7</b> Building Flow</td><td><code>docs/studies/S7_building_flow.md</code></td><td><code>docs/swarm_flow/</code></td><td><code>citysim/swarmflow.py</code>; <code>OlfatiSaber.cs</code>, <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_flow/</code></td></tr>
         <tr><td><b class="mono">S8</b> Footprint Avoidance</td><td><code>docs/studies/S8_footprint_avoidance.md</code></td><td><code>docs/swarm_shape/</code></td><td><code>citysim/swarmshape.py</code>; <code>ObstacleFootprint.cs</code>, <code>OlfatiSaber.cs</code></td><td><code>experiment_results/swarm_shape/</code></td></tr>
         <tr><td><b class="mono">S9</b> Street Spread</td><td><code>docs/studies/S9_street_spread.md</code></td><td><code>docs/swarm_spread/</code></td><td><code>citysim/swarmspread.py</code></td><td><code>experiment_results/swarm_spread/</code></td></tr>
+        <tr><td><b class="mono">S10</b> Ellipse Avoidance</td><td><code>docs/studies/S10_ellipse_avoidance.md</code></td><td><code>docs/swarm_ellipse/</code></td><td><code>citysim/swarmellipse.py</code></td><td><code>experiment_results/swarm_ellipse/</code></td></tr>
       </tbody>
     </table></div>
     <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape, spread), so nothing that reads them broke.</p>

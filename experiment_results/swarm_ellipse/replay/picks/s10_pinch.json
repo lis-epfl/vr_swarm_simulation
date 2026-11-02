@@ -1,0 +1,37 @@
+{
+ "pick": {
+  "key": "s10_pinch",
+  "kind": "street",
+  "k": 18040,
+  "title": "The streets the circles pinch",
+  "conds": [
+   "c35a",
+   "e35a",
+   "c35",
+   "e35"
+  ],
+  "first": "c35a",
+  "met": 0,
+  "why": "the street route through the narrowest gap the circles leave (1.5 m between the two circles; 11.3 m between the ellipses)"
+ },
+ "flights": {
+  "c35": [
+   "s10_pinch_c35_replica",
+   "s10_pinch_c35_unity"
+  ],
+  "c35a": [
+   "s10_pinch_c35a_replica",
+   "s10_pinch_c35a_unity"
+  ],
+  "e35": [
+   "s10_pinch_e35_replica",
+   "s10_pinch_e35_unity"
+  ],
+  "e35a": [
+   "s10_pinch_e35a_replica",
+   "s10_pinch_e35a_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

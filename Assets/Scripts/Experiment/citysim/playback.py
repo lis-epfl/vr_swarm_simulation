@@ -203,15 +203,20 @@ def flight_json(rec, **meta):
                 losses=rec["losses"], contacts=rec["contacts"])
 
 
-def city_json(cid, arena, blocks, buildings, block_flags=None, cylinders=None, samples=None, streets=None, **meta):
+def city_json(cid, arena, blocks, buildings, block_flags=None, cylinders=None, samples=None, streets=None,
+              ellipses=None, **meta):
     """One city for replay_view.js. blocks / buildings: lists of (k, 2) polygons; block_flags: per block, bit 1
     interior and bit 2 empty (a plaza); cylinders: (m, 3) cx, cz, r of what the force law sees round each building;
-    samples: (q, 2) street centreline points (a flight's first-seen times index them); streets: (r, 4) segments."""
+    ellipses (S10): (m, 5) cx, cz, a, b and the major axis's angle in degrees from +x towards +z, the same drawn as
+    ellipses; samples: (q, 2) street centreline points (a flight's first-seen times index them); streets: (r, 4)
+    segments."""
     out = dict(meta, id=cid, arena=[float(x) for x in arena], blocks=polys_json(blocks), buildings=polys_json(buildings))
     if block_flags is not None:
         out["block_flags"] = b64(np.asarray(block_flags, "u1"), "u1")
     if cylinders is not None:
         out["cylinders"] = b64(dm16(np.asarray(cylinders, float).reshape(-1)), "<i2")
+    if ellipses is not None:
+        out["ellipses"] = b64(dm16(np.asarray(ellipses, float).reshape(-1)), "<i2")
     if samples is not None:
         out["samples"] = b64(dm16(np.asarray(samples, float).reshape(-1)), "<i2")
         out["n_samples"] = int(len(samples))

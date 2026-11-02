@@ -1,0 +1,37 @@
+{
+ "pick": {
+  "key": "s10_cross",
+  "kind": "cross",
+  "k": 18021,
+  "title": "A straight line across the city",
+  "conds": [
+   "c35a",
+   "e35a",
+   "c35",
+   "e35"
+  ],
+  "first": "e35a",
+  "met": 4,
+  "why": "the typical straight line (of those meeting three buildings): its difference in cohesive speed, ellipse minus circle (both adaptive), +0.16 m/s, is the nearest to the median (+0.13 m/s, 30 routes)"
+ },
+ "flights": {
+  "c35a": [
+   "s10_cross_c35a_replica",
+   "s10_cross_c35a_unity"
+  ],
+  "e35a": [
+   "s10_cross_e35a_replica",
+   "s10_cross_e35a_unity"
+  ],
+  "c35": [
+   "s10_cross_c35_replica",
+   "s10_cross_c35_unity"
+  ],
+  "e35": [
+   "s10_cross_e35_replica",
+   "s10_cross_e35_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

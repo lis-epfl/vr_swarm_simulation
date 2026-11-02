@@ -1,0 +1,47 @@
+{
+ "pick": {
+  "key": "s10_angle",
+  "kind": "angle",
+  "k": 18025,
+  "title": "At 60\u00b0 to a long building",
+  "conds": [
+   "c35a",
+   "e35a",
+   "c35",
+   "e35",
+   "single_c",
+   "single_e"
+  ],
+  "first": "e35a",
+  "met": 1,
+  "why": "the 60\u00b0 run-in at the longest building met that way (aspect 2.22), flown by the formation and by one drone"
+ },
+ "flights": {
+  "e35a": [
+   "s10_angle_e35a_replica",
+   "s10_angle_e35a_unity"
+  ],
+  "c35a": [
+   "s10_angle_c35a_replica",
+   "s10_angle_c35a_unity"
+  ],
+  "c35": [
+   "s10_angle_c35_replica",
+   "s10_angle_c35_unity"
+  ],
+  "e35": [
+   "s10_angle_e35_replica",
+   "s10_angle_e35_unity"
+  ],
+  "single_c": [
+   "s10_angle_single_c_replica",
+   "s10_angle_single_c_unity"
+  ],
+  "single_e": [
+   "s10_angle_single_e_replica",
+   "s10_angle_single_e_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}
