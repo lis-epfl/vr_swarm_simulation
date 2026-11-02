@@ -8,7 +8,8 @@
 S4's page family (lesson 36): the question for the human trials and the answer first, the cities and flights
 (swarmspread_replays), every table behind All results, the terms. Every number is read from the runs here: the replica
 run (swarmspread analyse -> analysis.json, and its table), the Unity gate, and S8's counts for the two settings both
-studies flew (C35 = F20, C35a = A85), pooled as independent replicates on different routes.
+studies flew (C35 = F20, C35a = A85), pooled as independent replicates on different routes; the follow-up's run2, its
+timing (swarmspread_temporal) and second bench; and the settling run's third bench and verdict (swarmspread_settle).
 """
 if __name__ == "__main__" and __package__ in (None, ""):
     import os.path as _p
@@ -32,6 +33,7 @@ TEMPLATE = HERE / "swarmspread_report.html"
 REPLAY = X.OUT / "replay"
 RUN, RUN2 = "run1", "run2"
 BENCH_RUN, BENCH_RUN2 = "swarmspread_bench_spread", "swarmspread_bench_spread2"
+BENCH_RUN3 = "swarmspread_bench_spread3"
 S8_PAIR = {"F20": "C35", "A85": "C35a"}       # the same settings in S8 (its confirmation and Unity bench)
 
 
@@ -159,10 +161,17 @@ def build():
                 replay=json.loads(rindex.read_text(encoding="utf-8")) if rindex.exists() else None,
                 follow=dict(paired1=paired(RUN), paired2=paired(RUN2) if (X.OUT / RUN2 / "results.jsonl").exists()
                             else None, run2=analysis(RUN2), run2_table=table(RUN2), temporal=temporal(RUN2),
+                            seeds2=by_seed(RUN2) if (X.OUT / RUN2 / "results.jsonl").exists() else None,
                             unity_temporal=json.loads((X.OUT / "unity_temporal.json").read_text(encoding="utf-8"))
                             if (X.OUT / "unity_temporal.json").exists() else None,
                             unity2=gate("bench_spread2"), counts2=bench_counts(BENCH_RUN2),
-                            ulost=dict(b1=unity_losses("bench_spread"), b2=unity_losses("bench_spread2")),
+                            unity3=gate("bench_spread3"), counts3=bench_counts(BENCH_RUN3),
+                            settle=json.loads((X.OUT / "settle.json").read_text(encoding="utf-8"))
+                            if (X.OUT / "settle.json").exists() else None,
+                            settle_rule=json.loads((X.OUT / "settle_rule.json").read_text(encoding="utf-8"))
+                            if (X.OUT / "settle_rule.json").exists() else None,
+                            ulost=dict(b1=unity_losses("bench_spread"), b2=unity_losses("bench_spread2"),
+                                       b3=unity_losses("bench_spread3")),
                             flights2=dict(cross=25, street=250, k0=12000), window=dict(before=X.WIN_BEFORE,
                                                                                        after=X.WIN_AFTER,
                                                                                        dt=X.WIN_DT)))

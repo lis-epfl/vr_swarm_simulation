@@ -2151,30 +2151,37 @@ manual**; the harness is `citysim/swarmshape.py` on S7's, the outputs `experimen
 ## S9 Street Spread: how far the adaptive spread should narrow
 
 A short study (2026-11-02) of the spread values alone on BlockShapedPatchCityWorld's law (S8's C35a), with no change to
-the law or the scene, and a same-day follow-up on significance and timing. **[docs/swarm_spread/README.md](docs/swarm_spread/README.md)
-is the manual**; the harness is `citysim/swarmspread.py` on S8's (the timing test `swarmspread_temporal.py`), the
+the law or the scene, a same-day follow-up on significance and timing, and a settling run in Unity.
+**[docs/swarm_spread/README.md](docs/swarm_spread/README.md) is the manual**; the harness is `citysim/swarmspread.py` on
+S8's (the timing test `swarmspread_temporal.py`, the settling run's rule and verdict `swarmspread_settle.py`), the
 outputs `experiment_results/swarm_spread/`. Invariants:
-- **The choice is the spread in the streets, not adaptive against held.** Narrower is faster beyond doubt (route by
-  route over 1,000 street routes: adaptive 0.85 +8.0%, 1.8 held +8.0%, 1.7 held +11.4% against 2.0 held). In the replica
-  it also doubles the loss events, held or adaptive alike (431 km a row: 24 at 2.0 held, 43 at 1.8 held, 48 at 1.7 held
-  and at 0.85, p = 0.003). Unity does not reproduce the loss difference (12 / 9 / 10 flights with losses in 156) and
-  loses about twice what the replica's twins do on the same routes, which match its speeds and contacts; so the
-  replica's count of collisions is the uncertain number, not its flow.
-- **The adaptive spread's changes cost nothing.** Losses cluster as the swarm leaves a building into a street in every
-  row, including 2.0 held whose spread never changes, and the adaptive rows' excess is the same in those moments as
-  elsewhere (equal-ratio test p = 0.69). The adaptive 0.85 flies like 1.8 held (the same street speed, p = 0.68). The
-  first run's readings that held spreads lose alike and that the losses came with the narrowing were noise (~10
-  events a row) and a confound (the place); lessons 45 and 47.
+- **The scene's adaptive spread stays, and Unity is why.** Narrower in the streets is faster beyond doubt (route by
+  route: adaptive 0.85 +8.0%, 1.7 held +11.4% against 2.0 held over 1,000 replica routes; 0.85 +8.1% in Unity over
+  300). The replica's own flights also lose about twice the drones at the narrower spread, held or adaptive (431 km a
+  row: 24 loss events at 2.0 held, 48 at 0.85 and at 1.7 held), but the settling run in Unity, 300 fresh street routes
+  each for 2.0 held and 0.85 under a rule written before it flew (`settle_rule.json`), found 18 against 18, and over all
+  three benches' street routes 30 against 28, ×1.07 (95% 0.62–1.86): the doubling is ruled out (a rise up to ~×1.9 is
+  not). In Unity the 0.85 also touches buildings 39% less (p = 0.001).
+- **The replica's doubling is its own flights, not the law**: its twins of Unity's flights (Unity's starts, same routes)
+  lost drones in 17 flights at 0.85 against 16 at 2.0 held. Its own 2.0-held flights lose fewer than those twins
+  (p = 0.12), in the scene's city as in the held-out ones; the start is the likely difference, not tested. Unity loses
+  ~1.75× its twins in both rows alike. When the replica and Unity disagree on a cost, ask the twins first (lesson 48).
+- **The adaptive spread's changes cost nothing.** Losses cluster as the swarm enters a street in every row, including
+  2.0 held whose spread never changes, and the adaptive rows' excess is the same in those moments as elsewhere (replica
+  equal-ratio p = 0.69; Unity ×1.25 against ×1.02, p = 0.71, with 57% of its losses in the first 4 s in a street, 36% of
+  the time). The adaptive 0.85 flies like 1.8 held (the same street speed, p = 0.68). The first run's readings that held
+  spreads lose alike and that the losses came with the narrowing were noise (~10 events a row) and a confound (the
+  place); lessons 45 and 47.
 - **Time losses against a shadow, not against the spread**: `swarmspread.ShadowLog` logs, in every row, what the
   adaptive spread would be doing (the replica's `spread_target` on the swarm's own centroid, stick and buildings,
   low-passed at its filter), so held rows carry the same moments as placebo; exposure per phase is counted beside the
   losses. It equals the real spread exactly in an adaptive row (it re-queries buildings on the ticks `Sim.step` does).
-- **Not applied**: the scene still flies C35a. 2.0 held is the safer setting if the replica's losses are real (~8%
-  slower in the streets); the scene's setting or 1.7 held (3% faster than it, the same losses) if Unity is right. A
-  Unity run of 2.0 held against the scene's setting, ~300 street routes each, would settle it.
+  `swarmspread_temporal unity` rebuilds it from Unity's trajectories.
+- **1.7 held is not cleared**: about 3% faster again than the scene in the replica, but Unity flew it only 156 times.
 - **Every candidate row names the law's fields explicitly** (`obstacleShape`, `d_obs`, the slide, route stragglers, the
   filter), so the runs do not depend on what the scene's SwarmManager holds. Losses are counted as events (a colliding
-  pair is one) with exact intervals; speeds are compared route by route.
+  pair is one; `ExternallyKilled` partners are not counted in Unity) with exact intervals; speeds are compared route by
+  route.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

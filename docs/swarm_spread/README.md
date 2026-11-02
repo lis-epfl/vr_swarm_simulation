@@ -5,37 +5,42 @@ spreads do held fixed. Asked for on 2026-11-02, after the evaluation of S7 and S
 "investigate the spread values; I wonder if the adaptive spread simply narrows too much in the streets and should stay
 a bit wider; also investigate the fixed d_ref". No change to the force law or the scene.
 
-Registry entry: [S9_street_spread.md](../studies/S9_street_spread.md). Page: [S9 Street Spread](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx).
-Code: `citysim/swarmspread.py` (the run, the rule, the analysis, the bench), `swarmspread_replays.py`,
+Registry entry: [S9_street_spread.md](../studies/S9_street_spread.md). Page: [S9 Street Spread](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx)
+(version 2, before the settling run; version 3, with it, is [here](https://claude.ai/artifact/M6fGKgM1WvMVw3mRSusMwK), published
+from a second claude.ai account until the original can be republished).
+Code: `citysim/swarmspread.py` (the run, the rule, the analysis, the bench), `swarmspread_temporal.py` (the timing),
+`swarmspread_settle.py` (the settling run's rule and verdict), `swarmspread_replays.py`,
 `swarmspread_report.py` (+ `.html`). Outputs: `experiment_results/swarm_spread/`.
 
-**The answer (revised after the follow-up, §8).** The adaptive spread is neither the problem nor the fix: what matters
-is how narrow the swarm flies the streets.
-- **Narrower is faster, beyond doubt.** Route by route over 1,000 street routes, the adaptive spread at 0.95 / 0.90 / 0.85
-  is 2.7% / 5.3% / 8.0% faster in the streets than holding d_ref 2.0, 1.8 held 8.0% and 1.7 held 11.4%, in every city
-  (p < 1e-15 each).
-- **In the replica, narrower costs drones, held or adaptive alike.** Over 431 km per row: 24 loss events at 2.0 held,
-  36 / 35 / 48 at 0.95 / 0.90 / 0.85, 43 at 1.8 held and 48 at 1.7 held (0.85 and 1.7 against 2.0: p = 0.003). Every
-  replica run of 0.85 and 2.0 held (S8 and S9): 68 flights with losses against 34.
-- **Unity does not reproduce the loss difference.** Two benches, 156 flights a row: 12 flights with losses at 0.85, 9 at
-  1.7 held, 10 at 2.0 held. Unity also loses about twice as many as the replica's twins on the same routes (31 flights
-  against 18 in those three rows; across every bench row the twin lost drones in only 3 of Unity's 39), while matching
-  its speeds and contacts. So whether the
-  narrower street spread costs drones in Unity is not settled.
-- **The adaptive spread's changes cost nothing; the first run's two readings were wrong.** Held at 1.7–1.8 the swarm
-  loses as many drones as with the adaptive spread (first run: "held 1.7–2.0 lose alike" was noise at ~10 events a row).
-  And the losses cluster as the swarm leaves a building into a street in *every* row, held or adaptive: 2.0 held,
-  whose spread never changes, loses 2.05 an hour in those moments against 0.41 while the shadow is held narrow, and the
-  adaptive 0.85's excess over 2.0 held is the same there as elsewhere (×1.96 against ×2.18, p = 0.83). The first
-  run's "33 of 63 losses during a change" was the place, not the change.
-- **The adaptive spread flies like 1.8 held** (the same street speed, p = 0.68; 48 against 43 loss events); 1.7 held is
-  3.1% faster than it for the same losses.
-- **For the trials** the choice is the street spread: 2.0 held (adaptive off) for the fewest losses in the replica, about
-  8% slower in the streets; the scene as it is (≈ 1.8 held) or 1.7 held for the speed. The first write-up's advice to
-  hold 1.7–1.8 "to avoid the narrowing" is withdrawn. A Unity run of 2.0 held against the scene's setting, a few hundred
-  street routes each, would settle the losses. The scene is unchanged (C35a).
+**The answer (settled in Unity, §9).** Keep the scene's adaptive spread: in Unity it flies the streets faster and
+loses no more drones.
+- **Narrower is faster, beyond doubt.** Route by route over 1,000 replica street routes, the adaptive spread at 0.95 /
+  0.90 / 0.85 is 2.7% / 5.3% / 8.0% faster in the streets than holding d_ref 2.0, 1.8 held 8.0% and 1.7 held 11.4%, in
+  every city (p < 1e-15 each). In Unity, over 300 fresh street routes, the 0.85 is 8.1% faster (faster on 84% of them).
+- **In Unity the narrower street spread costs no drones.** The replica's own flights lose about twice as many at the
+  narrower spread, held or adaptive (431 km a row: 24 loss events at 2.0 held, 36 / 35 / 48 at 0.95 / 0.90 / 0.85, 43 at
+  1.8 held, 48 at 1.7 held). The settling run in Unity, 300 fresh street routes each for 2.0 held and the scene's 0.85
+  judged by a rule written before it flew, found 18 loss events against 18; over all three benches' street routes (440 a
+  row), 30 against 28, ×1.07 (95%: 0.62–1.86), which rules out the replica's doubling. A rise of up to about ×1.9 is not
+  ruled out.
+- **The replica's twins side with Unity**: flown from Unity's own starts on the same routes, 17 against 16 flights with
+  losses. So the doubling lies in the replica's own flights, not in the force law the two share: its 2.0-held flights lose
+  fewer than its twins of Unity's (5.6 against 9.3 flights with losses per 100 km, p = 0.12), while at 0.85 the two agree.
+  Unity loses about 1.75 times its twins in both rows alike, so that under-count does not bias the comparison.
+- **In Unity the narrower spread also touches buildings less**: 73 contacts against 119 on the same 300 routes (×0.61,
+  0.45–0.83, p = 0.001).
+- **The adaptive spread's changes cost nothing**, in the replica and in Unity. The losses cluster as the swarm enters a
+  street in every row, including 2.0 held, whose spread never changes. In the replica the adaptive 0.85's excess over
+  2.0 held is the same in those moments as elsewhere (×1.96 against ×2.18, p = 0.83); in Unity 57% of the two rows' 58
+  loss events came in the first 4 s in a street, 36% of the time, and the ratio is ×1.25 there against ×1.02 elsewhere
+  (p = 0.71). The first run's "33 of 63 losses during a change" was the place, not the change, and its "held 1.7–2.0 lose
+  alike" was noise at ~10 events a row.
+- **For the trials** the scene stays as it is (C35a, the adaptive spread at 0.85). 1.7 held is about 3% faster again in
+  the replica, but Unity flew it only 156 times (9 flights with losses, against 10 for 2.0 held in the same flights), too
+  few to clear it. The follow-up's caution (2.0 held for the fewest losses) is withdrawn with the replica's doubling, as
+  the first write-up's advice to hold 1.7–1.8 "to avoid the narrowing" was before it.
 
-§4–§7 are the first run, as written before the follow-up; read their loss findings through §8.
+§4–§7 are the first run and §8 the follow-up, as written at the time; read their loss findings through §9.
 
 ## 1. Why
 
@@ -266,13 +271,70 @@ wide), because the shadow is the geometry's.
 31 m across at 2.0 and 26 m at 1.7), and losses are rare: 2% of F20's and 4% of A85's replica flights, about one Unity
 flight in 16. Four replayed routes cannot show them; it takes hundreds of flights.
 
-**What it means now.**
+**What it meant after the follow-up (superseded by §9).**
 - The choice is the spread in the streets, not adaptive against held. The adaptive 0.85 ≈ 1.8 held in speed and losses;
   its changes add no losses and its widening at buildings buys no surrounding (89–91% in every row).
 - If the replica's loss doubling is real, 2.0 held (adaptive off) is the safe setting, ~8% slower in the streets. If
   Unity is right that it is not, the scene's setting or 1.7 held (3% faster than it) costs nothing.
 - **To settle it**: Unity, 2.0 held against A85 (or 1.7 held), ~300 street routes each (~35 min alone on the bench).
 - Lessons 45 (rewritten) and 47.
+
+## 9. The settling run: does the narrower street spread cost drones in Unity?
+
+**Why.** The follow-up left one question open, and it decides the scene: the replica's own flights lost twice the
+drones at the narrower street spread, while Unity's 156 flights a row showed no difference and could not exclude one.
+The user asked for the Unity run (2026-11-02).
+
+**The rule, written before the bench flew** (`settle_rule.json`; `citysim/swarmspread_settle.py`). Judged on the rate
+ratio of Unity's loss events, A85 over F20 (a colliding pair is one event: the `ExternallyKilled` partner of each
+collision is not counted), by its exact 95% interval over the street routes of all three benches:
+- the lower bound above 1: narrower costs drones in Unity too;
+- the upper bound under 2, the replica's ratio, and the lower not above 1: the doubling is ruled out;
+- otherwise unsettled.
+
+The fresh bench alone is reported beside it.
+
+**What was flown.** `bench_spread3`: BlockShapedPatchCityWorld as baked, F20 and A85 with the law's fields named as in
+every S9 row, 300 fresh street routes each from 14000, gated with twins (600 flights, ~50 minutes on the bench).
+
+| | 2.0 held (F20) | 0.85, the scene (A85) | A85 against F20 |
+|---|---|---|---|
+| ***The settling run: 300 routes a row, 119 km*** | | | |
+| Unity loss events | 18 | 18 | ×1.00 (0.49–2.04), p = 1.00 |
+| Unity flights that lost drones | 18 | 17 | |
+| Unity building contacts | 119 | 73 | ×0.61 (0.45–0.83), p = 0.001 |
+| Unity in the streets (m/s) | 5.30 | 5.73 | +8.1% (6.5 to 9.8), p < 1e-18, faster on 84% |
+| Twins: flights that lost drones | 10 | 13 | |
+| Twins in the streets (m/s) | 5.39 | 5.79 | +7.5% |
+| ***All three benches: 440 street routes a row, 173 km*** | | | |
+| Unity loss events | 28 | 30 | ×1.07 (0.62–1.86), p = 0.90: **the doubling is ruled out** |
+| Twins: flights that lost drones | 16 | 17 | ×1.06 (0.50–2.25) |
+| Unity building contacts | 173 | 104 | ×0.60 (0.47–0.77), p < 0.001 |
+| ***The replica's own flights: run2, 431 km a row, four cities*** | | | |
+| Loss events | 24 | 48 | ×2.00, p = 0.003 (one-sided) |
+
+**Findings.**
+- **The rule's verdict: the replica's doubling is ruled out in Unity.** The fresh bench alone (18 against 18, upper bound
+  2.04) falls just short of that by itself; with the first two benches' street routes it clears it.
+- **The twins side with Unity, not with the replica's own flights.** Per 100 km, flights that lost drones: the twins 9.3
+  at 2.0 held and 9.8 at 0.85, the replica's own flights 5.6 and 10.9. The gap sits on the 2.0-held side (twins against
+  own ×1.67, 0.83–3.27, p = 0.12, not significant by itself; at 0.85 ×0.90, p = 0.78). It is not the city: in the scene's
+  city alone the replica's own flights still lost drones in 11 flights at 0.85 against 3 at 2.0 held. What differs is the
+  start (the replica's own settled formation against Unity's recorded one); not tested.
+- **Unity loses about 1.75 times its twins in both rows** (28 against 16, 30 against 17), so the replica's under-count of
+  collisions does not bias the comparison between them.
+- **Contacts**: the narrower spread touches buildings ×0.61 as often in Unity, ×0.80 in the replica (0.60 against 0.75
+  per km), the same direction.
+- **Timing in Unity** (`unity_temporal.json`, all three benches, the shadow rebuilt from the trajectories): 10 of F20's
+  28 loss events and 12 of A85's 30 came while the shadow narrowed, about a quarter of the time; the first 4 s after the
+  swarm entered a street hold 16 of F20's and 17 of A85's (57%) against 36% of the time (p < 0.001); A85 against F20
+  ×1.25 in the narrowing moments and ×1.02 elsewhere (p = 0.71). The replica's reading holds in Unity: the place, not the
+  change.
+
+**What it means.** Keep the scene as it is. In Unity its adaptive spread flies the streets 8% faster than 2.0 held,
+touches buildings 39% less and loses no more drones; a rise smaller than a doubling is not excluded. 1.7 held was not
+flown again and is not cleared. The follow-up's choice ("2.0 held for the fewest losses in the replica") rested on the
+replica's own collision counts, which the twins show are not the law's. Lesson 48.
 
 ## Running it
 
@@ -290,7 +352,12 @@ python -B -m citysim.swarmspread run --name run2 --cand ../../../experiment_resu
 python -B -m citysim.swarmspread_temporal replica --name run2  # -> run2/temporal.json
 python -B -m citysim.swarmspread bench-plan --name bench_spread2 --cand ../../../experiment_results/swarm_spread/bench2_cands.json --cross 0 --pass 0 --street 100 --k0 13000
 python -B -m citysim.swarmspread bench-gate --name bench_spread2 --runs D:\claude_obstacle_bench\runs\swarmspread_bench_spread2
-python -B -m citysim.swarmspread_temporal unity --runs swarmspread_bench_spread swarmspread_bench_spread2
+# the settling run: F20 against A85 in Unity, 300 fresh street routes each, judged by a rule written first
+python -B -m citysim.swarmspread_settle rule                  # settle_rule.json, before the bench
+python -B -m citysim.swarmspread bench-plan --name bench_spread3 --cand ../../../experiment_results/swarm_spread/bench3_cands.json --cross 0 --pass 0 --street 300 --k0 14000
+python -B -m citysim.swarmspread bench-gate --name bench_spread3 --runs D:\claude_obstacle_bench\runs\swarmspread_bench_spread3
+python -B -m citysim.swarmspread_settle analyse               # -> settle.json
+python -B -m citysim.swarmspread_temporal unity --runs swarmspread_bench_spread swarmspread_bench_spread2 swarmspread_bench_spread3
 python -B -m citysim.swarmspread_replays                       # the page's flights, each twin identical to the gate
 python -B -m citysim.swarmspread_report                        # then publish swarm_spread_bare.html with swarm_spread_files.json
 ```

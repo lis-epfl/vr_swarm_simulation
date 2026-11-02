@@ -1,0 +1,481 @@
+{
+ "rule": {
+  "question": "Does the narrower street spread cost drones in Unity, as the replica's doubling says?",
+  "narrow": "A85",
+  "base": "F20",
+  "fresh": "bench_spread3",
+  "earlier": [
+   "bench_spread",
+   "bench_spread2"
+  ],
+  "kind": "street",
+  "conf": 0.95,
+  "measure": "loss events per km: drones lost, less the partner of each collision (ExternallyKilled)",
+  "judged_on": "all three benches' street routes; the fresh bench alone is reported beside it",
+  "replica_ratio": 2.0,
+  "verdicts": {
+   "shows_it": "the interval's lower bound is above 1: narrower costs drones in Unity too",
+   "rules_out_doubling": "the upper bound is below replica_ratio and the lower is not above 1",
+   "unsettled": "the interval holds both 1 and replica_ratio"
+  }
+ },
+ "fresh": {
+  "rows": {
+   "A85": {
+    "flights": 300,
+    "km": 118.53700000000002,
+    "events": 18,
+    "events_lo": 10.66794078039953,
+    "events_hi": 28.447760267527983,
+    "flights_lost": 17,
+    "drones": 35,
+    "contacts": 73,
+    "clean": 229,
+    "v_coh": 5.7268799999999995,
+    "one_frac": 0.9475266666666667,
+    "min_pair": 1.46,
+    "deaths": {
+     "CollidingWithAnotherDrone": 17,
+     "Crashed": 1,
+     "ExternallyKilled": 17
+    },
+    "twin_flights_lost": 13,
+    "twin_drones": 26,
+    "both": 4,
+    "twin_v_coh": 5.791603333333334,
+    "twin_contacts": 86
+   },
+   "F20": {
+    "flights": 300,
+    "km": 118.53700000000002,
+    "events": 18,
+    "events_lo": 10.66794078039953,
+    "events_hi": 28.447760267527983,
+    "flights_lost": 18,
+    "drones": 36,
+    "contacts": 119,
+    "clean": 199,
+    "v_coh": 5.296913333333333,
+    "one_frac": 0.8999166666666667,
+    "min_pair": 1.665,
+    "deaths": {
+     "CollidingWithAnotherDrone": 18,
+     "ExternallyKilled": 18
+    },
+    "twin_flights_lost": 10,
+    "twin_drones": 20,
+    "both": 3,
+    "twin_v_coh": 5.3896733333333335,
+    "twin_contacts": 110
+   }
+  },
+  "loss": {
+   "ratio": 1.0,
+   "lo": 0.49080575247011826,
+   "hi": 2.037465932229234,
+   "p": 1.0,
+   "verdict": "unsettled"
+  },
+  "twins": {
+   "ratio": 1.3,
+   "lo": 0.5265931164951496,
+   "hi": 3.311939510349595,
+   "p": 0.6776394844055176
+  },
+  "contacts": {
+   "ratio": 0.6134453781512605,
+   "lo": 0.45196084889474797,
+   "hi": 0.8278228235278354,
+   "p": 0.0011089342515486953,
+   "paired_p": 0.0032188759996099985
+  },
+  "speed": {
+   "n": 300,
+   "mean": 0.4299666666666667,
+   "pct": 0.08117306053714303,
+   "lo": 0.34266687910809834,
+   "hi": 0.5172664542252351,
+   "p": 1.700768697265188e-19,
+   "p_w": 2.1845504006094165e-29,
+   "faster": 0.84,
+   "twin_pct": 0.0745740929258545
+  },
+  "discordant": {
+   "narrow_only": 16,
+   "base_only": 17,
+   "both": 1
+  }
+ },
+ "pooled": {
+  "rows": {
+   "A85": {
+    "flights": 440,
+    "km": 172.5985,
+    "events": 30,
+    "events_lo": 20.240874021420915,
+    "events_hi": 42.82686539480767,
+    "flights_lost": 29,
+    "drones": 59,
+    "contacts": 104,
+    "clean": 331,
+    "v_coh": 5.685268181818182,
+    "one_frac": 0.9413863636363637,
+    "min_pair": 1.48,
+    "deaths": {
+     "CollidingWithAnotherDrone": 29,
+     "Crashed": 1,
+     "ExternallyKilled": 29
+    },
+    "twin_flights_lost": 17,
+    "twin_drones": 34,
+    "both": 4,
+    "twin_v_coh": 5.764961363636364,
+    "twin_contacts": 119
+   },
+   "F20": {
+    "flights": 440,
+    "km": 172.5985,
+    "events": 28,
+    "events_lo": 18.60579665585753,
+    "events_hi": 40.46779594326819,
+    "flights_lost": 28,
+    "drones": 53,
+    "contacts": 173,
+    "clean": 295,
+    "v_coh": 5.312520454545455,
+    "one_frac": 0.9029295454545454,
+    "min_pair": 1.71,
+    "deaths": {
+     "CollidingWithAnotherDrone": 25,
+     "Crashed": 3,
+     "ExternallyKilled": 25
+    },
+    "twin_flights_lost": 16,
+    "twin_drones": 32,
+    "both": 4,
+    "twin_v_coh": 5.373727272727272,
+    "twin_contacts": 160
+   }
+  },
+  "loss": {
+   "ratio": 1.0714285714285714,
+   "lo": 0.6185779579771995,
+   "hi": 1.8611386137013546,
+   "p": 0.8956832138895906,
+   "verdict": "rules_out_doubling"
+  },
+  "twins": {
+   "ratio": 1.0625,
+   "lo": 0.50476516631019,
+   "hi": 2.2471386483244067,
+   "p": 1.0
+  },
+  "contacts": {
+   "ratio": 0.6011560693641619,
+   "lo": 0.4667643556280262,
+   "hi": 0.7710749493011644,
+   "p": 4.035352113208038e-05,
+   "paired_p": 0.00021536454311356614
+  },
+  "speed": {
+   "n": 440,
+   "mean": 0.3727477272727273,
+   "pct": 0.07016400792467538,
+   "lo": 0.2986911212955574,
+   "hi": 0.4468043332498972,
+   "p": 5.7888107925469584e-21,
+   "p_w": 1.2657723989105732e-35,
+   "faster": 0.8136363636363636,
+   "twin_pct": 0.0728049770770246
+  },
+  "discordant": {
+   "narrow_only": 27,
+   "base_only": 26,
+   "both": 2
+  }
+ },
+ "by_bench": {
+  "bench_spread": {
+   "rows": {
+    "A85": {
+     "flights": 40,
+     "km": 15.288900000000002,
+     "events": 4,
+     "events_lo": 1.089865373626325,
+     "events_hi": 10.241588675403694,
+     "flights_lost": 4,
+     "drones": 8,
+     "contacts": 6,
+     "clean": 30,
+     "v_coh": 5.542375,
+     "one_frac": 0.922125,
+     "min_pair": 1.5150000000000001,
+     "deaths": {
+      "CollidingWithAnotherDrone": 4,
+      "ExternallyKilled": 4
+     },
+     "twin_flights_lost": 2,
+     "twin_drones": 4,
+     "both": 0,
+     "twin_v_coh": 5.577175,
+     "twin_contacts": 10
+    },
+    "F20": {
+     "flights": 40,
+     "km": 15.288900000000002,
+     "events": 1,
+     "events_lo": 0.025317807984289897,
+     "events_hi": 5.571643390938898,
+     "flights_lost": 1,
+     "drones": 2,
+     "contacts": 16,
+     "clean": 30,
+     "v_coh": 5.359,
+     "one_frac": 0.911325,
+     "min_pair": 1.81,
+     "deaths": {
+      "CollidingWithAnotherDrone": 1,
+      "ExternallyKilled": 1
+     },
+     "twin_flights_lost": 2,
+     "twin_drones": 4,
+     "both": 1,
+     "twin_v_coh": 5.317099999999999,
+     "twin_contacts": 16
+    }
+   },
+   "loss": {
+    "ratio": 4.0,
+    "lo": 0.39583328331853324,
+    "hi": 196.98987298932116,
+    "p": 0.375,
+    "verdict": "unsettled"
+   },
+   "twins": {
+    "ratio": 1.0,
+    "lo": 0.07248495358195571,
+    "hi": 13.795966619049318,
+    "p": 1.0
+   },
+   "contacts": {
+    "ratio": 0.375,
+    "lo": 0.12018366326892033,
+    "hi": 1.008924451069429,
+    "p": 0.052478790283203125,
+    "paired_p": 0.08824527477915595
+   },
+   "speed": {
+    "n": 40,
+    "mean": 0.18337499999999998,
+    "pct": 0.03421813771225975,
+    "lo": -0.12418126626449003,
+    "hi": 0.49093126626449,
+    "p": 0.2350854901788548,
+    "p_w": 0.004513098247110304,
+    "faster": 0.725,
+    "twin_pct": 0.048912941264975265
+   },
+   "discordant": {
+    "narrow_only": 4,
+    "base_only": 1,
+    "both": 0
+   }
+  },
+  "bench_spread2": {
+   "rows": {
+    "A85": {
+     "flights": 100,
+     "km": 38.7726,
+     "events": 8,
+     "events_lo": 3.4538321767485023,
+     "events_hi": 15.763189220193313,
+     "flights_lost": 8,
+     "drones": 16,
+     "contacts": 25,
+     "clean": 72,
+     "v_coh": 5.617590000000002,
+     "one_frac": 0.9306700000000001,
+     "min_pair": 1.53,
+     "deaths": {
+      "CollidingWithAnotherDrone": 8,
+      "ExternallyKilled": 8
+     },
+     "twin_flights_lost": 2,
+     "twin_drones": 4,
+     "both": 0,
+     "twin_v_coh": 5.760149999999999,
+     "twin_contacts": 23
+    },
+    "F20": {
+     "flights": 100,
+     "km": 38.7726,
+     "events": 9,
+     "events_lo": 4.115373097378334,
+     "events_hi": 17.084803451419166,
+     "flights_lost": 9,
+     "drones": 15,
+     "contacts": 38,
+     "clean": 66,
+     "v_coh": 5.340750000000001,
+     "one_frac": 0.9086099999999999,
+     "min_pair": 1.88,
+     "deaths": {
+      "CollidingWithAnotherDrone": 6,
+      "Crashed": 3,
+      "ExternallyKilled": 6
+     },
+     "twin_flights_lost": 4,
+     "twin_drones": 8,
+     "both": 0,
+     "twin_v_coh": 5.348540000000001,
+     "twin_contacts": 34
+    }
+   },
+   "loss": {
+    "ratio": 0.8888888888888888,
+    "lo": 0.298419166155091,
+    "hi": 2.5955922311098405,
+    "p": 1.0,
+    "verdict": "unsettled"
+   },
+   "twins": {
+    "ratio": 0.5,
+    "lo": 0.04522901214948502,
+    "hi": 3.4887716529753474,
+    "p": 0.6875
+   },
+   "contacts": {
+    "ratio": 0.6578947368421053,
+    "lo": 0.38062644893735165,
+    "hi": 1.1186128886771896,
+    "p": 0.12991792302255253,
+    "paired_p": 0.1116210598605096
+   },
+   "speed": {
+    "n": 100,
+    "mean": 0.27684000000000014,
+    "pct": 0.05183541637410478,
+    "lo": 0.12453864929843833,
+    "hi": 0.42914135070156195,
+    "p": 0.00048795713187373135,
+    "p_w": 1.347750262748907e-06,
+    "faster": 0.77,
+    "twin_pct": 0.07695745007048652
+   },
+   "discordant": {
+    "narrow_only": 7,
+    "base_only": 8,
+    "both": 1
+   }
+  },
+  "bench_spread3": {
+   "rows": {
+    "A85": {
+     "flights": 300,
+     "km": 118.53700000000002,
+     "events": 18,
+     "events_lo": 10.66794078039953,
+     "events_hi": 28.447760267527983,
+     "flights_lost": 17,
+     "drones": 35,
+     "contacts": 73,
+     "clean": 229,
+     "v_coh": 5.7268799999999995,
+     "one_frac": 0.9475266666666667,
+     "min_pair": 1.46,
+     "deaths": {
+      "CollidingWithAnotherDrone": 17,
+      "Crashed": 1,
+      "ExternallyKilled": 17
+     },
+     "twin_flights_lost": 13,
+     "twin_drones": 26,
+     "both": 4,
+     "twin_v_coh": 5.791603333333334,
+     "twin_contacts": 86
+    },
+    "F20": {
+     "flights": 300,
+     "km": 118.53700000000002,
+     "events": 18,
+     "events_lo": 10.66794078039953,
+     "events_hi": 28.447760267527983,
+     "flights_lost": 18,
+     "drones": 36,
+     "contacts": 119,
+     "clean": 199,
+     "v_coh": 5.296913333333333,
+     "one_frac": 0.8999166666666667,
+     "min_pair": 1.665,
+     "deaths": {
+      "CollidingWithAnotherDrone": 18,
+      "ExternallyKilled": 18
+     },
+     "twin_flights_lost": 10,
+     "twin_drones": 20,
+     "both": 3,
+     "twin_v_coh": 5.3896733333333335,
+     "twin_contacts": 110
+    }
+   },
+   "loss": {
+    "ratio": 1.0,
+    "lo": 0.49080575247011826,
+    "hi": 2.037465932229234,
+    "p": 1.0,
+    "verdict": "unsettled"
+   },
+   "twins": {
+    "ratio": 1.3,
+    "lo": 0.5265931164951496,
+    "hi": 3.311939510349595,
+    "p": 0.6776394844055176
+   },
+   "contacts": {
+    "ratio": 0.6134453781512605,
+    "lo": 0.45196084889474797,
+    "hi": 0.8278228235278354,
+    "p": 0.0011089342515486953,
+    "paired_p": 0.0032188759996099985
+   },
+   "speed": {
+    "n": 300,
+    "mean": 0.4299666666666667,
+    "pct": 0.08117306053714303,
+    "lo": 0.34266687910809834,
+    "hi": 0.5172664542252351,
+    "p": 1.700768697265188e-19,
+    "p_w": 2.1845504006094165e-29,
+    "faster": 0.84,
+    "twin_pct": 0.0745740929258545
+   },
+   "discordant": {
+    "narrow_only": 16,
+    "base_only": 17,
+    "both": 1
+   }
+  }
+ },
+ "twin_vs_own": {
+  "A85": {
+   "ratio": 0.9035387193954435,
+   "lo": 0.48638661206863765,
+   "hi": 1.6029841723397125,
+   "p": 0.783439614944971,
+   "twin": 17,
+   "twin_km": 172.5985,
+   "own": 47,
+   "own_km": 431.1543
+  },
+  "F20": {
+   "ratio": 1.6653458749641512,
+   "lo": 0.826688405034843,
+   "hi": 3.2675218622962574,
+   "p": 0.11672983622932678,
+   "twin": 16,
+   "twin_km": 172.5985,
+   "own": 24,
+   "own_km": 431.15430000000003
+  }
+ }
+}

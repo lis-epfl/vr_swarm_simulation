@@ -1,0 +1,21 @@
+{
+ "question": "Does the narrower street spread cost drones in Unity, as the replica's doubling says?",
+ "narrow": "A85",
+ "base": "F20",
+ "fresh": "bench_spread3",
+ "earlier": [
+  "bench_spread",
+  "bench_spread2"
+ ],
+ "kind": "street",
+ "conf": 0.95,
+ "measure": "loss events per km: drones lost, less the partner of each collision (ExternallyKilled)",
+ "judged_on": "all three benches' street routes; the fresh bench alone is reported beside it",
+ "replica_ratio": 2.0,
+ "verdicts": {
+  "shows_it": "the interval's lower bound is above 1: narrower costs drones in Unity too",
+  "rules_out_doubling": "the upper bound is below replica_ratio and the lower is not above 1",
+  "unsettled": "the interval holds both 1 and replica_ratio"
+ },
+ "written": "2026-11-02 14:24:29"
+}

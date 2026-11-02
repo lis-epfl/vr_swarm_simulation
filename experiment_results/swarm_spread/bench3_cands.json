@@ -1,0 +1,27 @@
+[
+ {
+  "label": "F20 fixed d_ref 2.0 (C35)",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  }
+ }
+]

@@ -1,7 +1,7 @@
 """S9 Street Spread, the follow-up: are the adaptive spread's losses the narrowing's, or the place's?
 
     python -B -m citysim.swarmspread_temporal replica --name run2
-    python -B -m citysim.swarmspread_temporal unity --runs swarmspread_bench_spread swarmspread_bench_spread2
+    python -B -m citysim.swarmspread_temporal unity --runs swarmspread_bench_spread swarmspread_bench_spread2 swarmspread_bench_spread3
         -> experiment_results/swarm_spread/<name>/temporal.json, unity_temporal.json
 
 The spread only changes near buildings, so a loss "during a change" can be the change's or the place's. run2 logs the
@@ -21,7 +21,8 @@ by maximum likelihood on the conditional binomials. Profiles: the spread and the
 Unity has no shadow log, so `unity` rebuilds it from Unity's own trajectories (0.1 s rows): the centroid of the live
 drones, the bench pilot's stick towards the current waypoint, the replica's spread_target on the scene's city with the
 set's recorded SwarmManager values, low-passed at its filter; a loss is a drop in the alive mask. Approximate (Unity
-queries buildings through PhysX), and it places so few losses that it is a check on the direction, not a test.
+queries buildings through PhysX). The same comparisons as the replica's, and place_p: the exact test that a row loses
+no more in the narrowing moments than their share of its flight time.
 """
 if __name__ == "__main__" and __package__ in (None, ""):
     import os.path as _p
@@ -133,6 +134,32 @@ def profile(wins):
                 hi=[round(float(x), 4) for x in np.percentile(a, 75, axis=0)])
 
 
+def compare(rows, a_rows, b_rows):
+    A = [rows[c] for c in a_rows if c in rows]
+    B = [rows[c] for c in b_rows if c in rows]
+    if not A or not B:
+        return None
+    ka = {p: sum(o["ev"][p] for o in A) for p in PHASES}
+    kb = {p: sum(o["ev"][p] for o in B) for p in PHASES}
+    ea = {p: sum(o["exp"][p] for o in A) for p in PHASES}
+    eb = {p: sum(o["exp"][p] for o in B) for p in PHASES}
+    per = {p: dict(ka=ka[p], kb=kb[p], ratio=(ka[p] / ea[p]) / (kb[p] / eb[p]) if kb[p] and ea[p] and eb[p] else None,
+                   p_worse=binom_worse(ka[p], kb[p], ea[p], eb[p])) for p in PHASES}
+    tot = binom_worse(sum(ka.values()), sum(kb.values()), sum(ea.values()), sum(eb.values()))
+    common, _, lr, df, p_lr = lr_homogeneity([(ka[p], kb[p], ea[p], eb[p]) for p in PHASES])
+    # the narrowing phase against the rest
+    rest = [p for p in PHASES if p != "narrowing"]
+    s2 = [(ka["narrowing"], kb["narrowing"], ea["narrowing"], eb["narrowing"]),
+          (sum(ka[p] for p in rest), sum(kb[p] for p in rest), sum(ea[p] for p in rest), sum(eb[p] for p in rest))]
+    c2, per2, lr2, df2, p2 = lr_homogeneity(s2)
+    return dict(a=list(a_rows), b=list(b_rows), per_phase=per, p_worse_all=tot,
+                ratio_all=(sum(ka.values()) / sum(ea.values())) / (sum(kb.values()) / sum(eb.values()))
+                if sum(kb.values()) else None,
+                homogeneity=dict(common=common, lr=lr, df=df, p=p_lr),
+                narrowing_vs_rest=dict(ratio_narrowing=per2[0] if per2 else None,
+                                       ratio_rest=per2[1] if len(per2) > 1 else None, lr=lr2, p=p2))
+
+
 def summarise(rows, fixed=FIXED, adapt=ADAPT):
     out = dict(phases=list(PHASES), rows={}, compare={}, pooled={})
     for c, o in rows.items():
@@ -150,38 +177,13 @@ def summarise(rows, fixed=FIXED, adapt=ADAPT):
                               prof_ctl_sig=profile(o["ctl_win_sig"]), prof_ctl_sh=profile(o["ctl_win_sh"]),
                               events_list=o["events"])
 
-    def compare(a_rows, b_rows):
-        A = [rows[c] for c in a_rows if c in rows]
-        B = [rows[c] for c in b_rows if c in rows]
-        if not A or not B:
-            return None
-        ka = {p: sum(o["ev"][p] for o in A) for p in PHASES}
-        kb = {p: sum(o["ev"][p] for o in B) for p in PHASES}
-        ea = {p: sum(o["exp"][p] for o in A) for p in PHASES}
-        eb = {p: sum(o["exp"][p] for o in B) for p in PHASES}
-        per = {p: dict(ka=ka[p], kb=kb[p], ratio=(ka[p] / ea[p]) / (kb[p] / eb[p]) if kb[p] and ea[p] and eb[p] else None,
-                       p_worse=binom_worse(ka[p], kb[p], ea[p], eb[p])) for p in PHASES}
-        tot = binom_worse(sum(ka.values()), sum(kb.values()), sum(ea.values()), sum(eb.values()))
-        common, _, lr, df, p_lr = lr_homogeneity([(ka[p], kb[p], ea[p], eb[p]) for p in PHASES])
-        # the narrowing phase against the rest
-        rest = [p for p in PHASES if p != "narrowing"]
-        s2 = [(ka["narrowing"], kb["narrowing"], ea["narrowing"], eb["narrowing"]),
-              (sum(ka[p] for p in rest), sum(kb[p] for p in rest), sum(ea[p] for p in rest), sum(eb[p] for p in rest))]
-        c2, per2, lr2, df2, p2 = lr_homogeneity(s2)
-        return dict(a=list(a_rows), b=list(b_rows), per_phase=per, p_worse_all=tot,
-                    ratio_all=(sum(ka.values()) / sum(ea.values())) / (sum(kb.values()) / sum(eb.values()))
-                    if sum(kb.values()) else None,
-                    homogeneity=dict(common=common, lr=lr, df=df, p=p_lr),
-                    narrowing_vs_rest=dict(ratio_narrowing=per2[0] if per2 else None,
-                                           ratio_rest=per2[1] if len(per2) > 1 else None, lr=lr2, p=p2))
-
     for a in rows:
         if a != "F20":
-            out["compare"][f"{a}>F20"] = compare([a], ["F20"])
+            out["compare"][f"{a}>F20"] = compare(rows, [a], ["F20"])
     for a, b in (("A85", "F17"), ("A90", "F18"), ("A85", "F18")):
-        out["compare"][f"{a}>{b}"] = compare([a], [b])
-    out["pooled"]["adaptive>fixed"] = compare(adapt, fixed)
-    out["pooled"]["A85+A90>F20+F18+F17"] = compare(("A85", "A90"), fixed)
+        out["compare"][f"{a}>{b}"] = compare(rows, [a], [b])
+    out["pooled"]["adaptive>fixed"] = compare(rows, adapt, fixed)
+    out["pooled"]["A85+A90>F20+F18+F17"] = compare(rows, ("A85", "A90"), fixed)
     return out
 
 
@@ -223,14 +225,15 @@ def report(out):
 # ============================================================================= Unity, rebuilt from its trajectories
 
 def unity_flight(m, C, sc, tr):
-    """(phase exposure s, [(loss phase, t)]) for one Unity flight: the shadow rebuilt from the trajectory."""
+    """(phase exposure s, [(loss phase, t, drones, since key)], since exposure s) for one Unity flight: the shadow rebuilt
+    from the trajectory."""
     rep = T.rep
     rc = C["rcity"]
     w = np.array(sc["wps"], float).reshape(-1, 4)
     t, al, Xs, Zs, wpi = tr["t"], tr["alive"], tr["X"], tr["Z"], tr["wp"]
     dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.1
     sh, hist, exp, ev = None, [], {p: 0.0 for p in PHASES}, []
-    prev_alive = None
+    prev_alive, was_street, since, since_exp = None, None, 0.0, {}
     for i in range(len(t)):
         a = al[i]
         if not a.any():
@@ -245,6 +248,10 @@ def unity_flight(m, C, sc, tr):
         cand = rc.near(P, m.r0_obs * m.S + rep.QUERY_MARGIN_M)
         miss = rep.aim_miss(m, rc, cand, cen, m.stick_to_world(cmd, 0.0))
         street = rep.spread_target(m, rc, cand, cen, miss) < 1.0
+        since = 0.0 if street != was_street else since + dt
+        was_street = street
+        key = X.phase_key(street, since)
+        since_exp[key] = since_exp.get(key, 0.0) + dt
         tg = X.SHADOW_FACTOR if street else 1.0
         sh = tg if sh is None else sh + (1 - math.exp(-dt / m.spread_filter)) * (tg - sh)
         hist.append(sh)
@@ -252,9 +259,9 @@ def unity_flight(m, C, sc, tr):
         ph = X.sh_phase(sh, hist[j])
         exp[ph] += dt
         if prev_alive is not None and (prev_alive & ~a).any():
-            ev.append((ph, float(t[i]), int((prev_alive & ~a).sum())))
+            ev.append((ph, float(t[i]), int((prev_alive & ~a).sum()), key))
         prev_alive = a
-    return exp, ev
+    return exp, ev, since_exp
 
 
 def cmd_unity(a):
@@ -274,26 +281,42 @@ def cmd_unity(a):
             over.pop("d_ref", None)
             m = T.model(over)
             o = rows.setdefault(lab, dict(exp={p: 0.0 for p in PHASES}, ev={p: 0 for p in PHASES}, flights=0,
-                                          drones=0))
+                                          drones=0, since_exp={}, since_ev={}))
             for idx, sc in enumerate(cfg["scenarios"]):
                 if not sc["kind"].startswith("street"):
                     continue
                 f = run / f"traj_{lab}_{idx}.csv"
                 if not f.exists():
                     continue
-                e, ev = unity_flight(m, C, sc, tierc.read_traj(f))
+                e, ev, se = unity_flight(m, C, sc, tierc.read_traj(f))
                 o["flights"] += 1
                 for p in PHASES:
                     o["exp"][p] += e[p]
-                for ph, _, n in ev:
+                for k, v in se.items():
+                    o["since_exp"][k] = o["since_exp"].get(k, 0.0) + v
+                for ph, _, n, k in ev:
                     o["ev"][ph] += 1
                     o["drones"] += n
-    out = dict(runs=a.runs, rows={})
+                    o["since_ev"][k] = o["since_ev"].get(k, 0) + 1
+    out = dict(runs=a.runs, rows={}, compare={})
+    from scipy.stats import binomtest
     for c, o in rows.items():
-        out["rows"][c] = dict(flights=o["flights"], drones=o["drones"], events=sum(o["ev"].values()),
-                              hours=sum(o["exp"].values()) / 3600,
-                              phase={p: dict(events=o["ev"][p], hours=o["exp"][p] / 3600,
-                                             share=o["exp"][p] / max(sum(o["exp"].values()), 1e-9)) for p in PHASES})
+        total = sum(o["exp"].values())
+        hz = {}
+        for p in PHASES:
+            k, e = o["ev"][p], o["exp"][p]
+            lo, hi = poisson_ci(k)
+            hz[p] = dict(events=k, hours=e / 3600, per_hour=k / (e / 3600) if e > 0 else None,
+                         lo=lo / (e / 3600) if e > 0 else None, hi=hi / (e / 3600) if e > 0 else None,
+                         share=e / max(total, 1e-9))
+        n = sum(o["ev"].values())
+        # the place: does the row lose more in the narrowing moments than their share of the time?
+        place_p = float(binomtest(o["ev"]["narrowing"], n, hz["narrowing"]["share"], alternative="greater").pvalue) if n else None
+        out["rows"][c] = dict(flights=o["flights"], drones=o["drones"], events=n, hours=total / 3600, phase=hz,
+                              place_p=place_p, since_exp=o["since_exp"], since_ev=o["since_ev"])
+    for x, y in (("A85", "F20"), ("F17", "F20"), ("A85", "F17")):
+        if x in rows and y in rows:
+            out["compare"][f"{x}>{y}"] = compare(rows, [x], [y])
     (X.OUT / "unity_temporal.json").write_text(json.dumps(T_clean(out), indent=1), encoding="utf-8")
     for c, r in out["rows"].items():
         print(c, r["flights"], "flights", r["events"], "loss moments", {p: (r["phase"][p]["events"], round(r["phase"][p]["share"], 3)) for p in PHASES})

@@ -80,8 +80,11 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
       surrounding and hull share within a few percent, and T3's contacts and losses exactly; at d_ref 1.2–1.6 under
       the old gains the replica lost more drones than Unity (22 against 10 in 52 flights). The direction of the
       collision error differs from city to city.
+    - In the same scene under S8's law (S9), the twins matched Unity's street speed within 2% and its contacts, Unity
+      lost about 1.75 times the twins' drones in both rows alike, and the twins did not reproduce the replica's own
+      doubling (lesson 48).
 
-    Run a Unity spot check of the cities a decision rests on, and read its costs separately. (S1, S3, S4, S6)
+    Run a Unity spot check of the cities a decision rests on, and read its costs separately. (S1, S3, S4, S6, S9)
 12. **The replica is 2-D**: every building blocks every sight line and nothing is lower than the drones; there is no
     street furniture, wind or attention. (S1, S2, S3)
 39. **Start a replica flight from a settled formation, as the bench does.** S6's first screens placed the open-sky
@@ -92,6 +95,15 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     settles 15 s at zero stick and counts from there; `swarmtune.fly` now does too, from a formation shrunk to fit the
     junction's streets. Before trusting a harness's contact or loss counts, locate the events in time (lesson 32): a
     cluster in the first seconds is the start, not the flight. (S6)
+48. **When the replica and Unity disagree on a cost, ask the replica's twins before flying more replica.** A twin is the
+    replica flown from Unity's own start on Unity's route, so it shares the force law with Unity and the start with
+    Unity, and tells the law apart from the replica's own flights. S9's replica lost about twice the drones at the
+    narrower street spread (48 against 24 loss events in 431 km); Unity did not (30 against 28 over 440 street routes a
+    row, ×1.07, 95% 0.62–1.86); and the twins sided with Unity (17 against 16), as they already had on the first two
+    benches (4 against 6). The doubling lay in the replica's own flights (its 2.0-held flights lost fewer than its twins
+    of Unity's), and the follow-up's caution rested on it. Settle a cost that decides a scene setting in Unity, with a
+    rule written before the run and the run sized so its interval can exclude the replica's effect: ~300 street routes a
+    row for a doubling at ~15 loss events per 100 km, with the earlier benches pooled. (S9)
 
 ## Statistics
 

@@ -255,23 +255,23 @@ tr:last-child td { border-bottom: 0; }
         </div>
       </article>
       <article class="study">
-        <header><span class="id">S9</span><h3>Street Spread</h3><span class="was">the spread study · 2 Nov 2026</span><span class="status done">Done · revised by its follow-up</span></header>
+        <header><span class="id">S9</span><h3>Street Spread</h3><span class="was">the spread study · 2 Nov 2026</span><span class="status done">Done · settled in Unity</span></header>
         <div>
-          <p class="q">Does S7's adaptive spread, which the scene now flies, narrow the swarm too much in BlockShapedPatchCityWorld's streets and should it stay a bit wider? What do the same spreads do held fixed, and what happens at the pilot's dial ends? Then, the same day: is any of it significant, and do the losses really happen while the spread changes?</p>
+          <p class="q">Does S7's adaptive spread, which the scene now flies, narrow the swarm too much in BlockShapedPatchCityWorld's streets and should it stay a bit wider? What do the same spreads do held fixed, and what happens at the pilot's dial ends? Then, the same day: is any of it significant, do the losses really happen while the spread changes, and does the narrower street spread cost drones in Unity?</p>
           <h4>Limits</h4>
           <ul>
             <li>Scripted pilots at full stick with the dial fixed; a pilot turns the dial, which the adaptive spread then scales.</li>
-            <li>The replica under-counts Unity's collisions (about half) and the two disagree on whether a narrower spread costs drones; the dial ends were flown only in the first run.</li>
+            <li>The replica under-counts Unity's collisions (about half), and its own flights doubled the losses at the narrower spread where Unity and its twins did not; a rise up to ×1.9 is not excluded in Unity, and the dial ends were flown only in the first run.</li>
           </ul>
           <div class="links"><a href="https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S9_street_spread.md</span></div>
         </div>
         <div>
           <h4>Findings</h4>
           <ul>
-            <li>Narrower in the streets is faster, beyond doubt: route by route over 1,000 street routes, the adaptive spread at 0.85 is 8% faster than 2.0 held and 1.7 held 11%, in every city.</li>
-            <li>In the replica the narrower street spread costs drones, held or adaptive alike: 48 loss events at 0.85 and at 1.7 held, 43 at 1.8 held, against 24 at 2.0 held (431 km each). Unity does not show it (12, 9 and 10 flights with losses in 156), and it loses about twice what the replica's twins do on the same routes. Unsettled.</li>
-            <li>The adaptive spread's changes cost nothing: losses cluster as the swarm leaves a building into a street in every row, even 2.0 held where the spread never moves, and the adaptive spread's excess is the same there as elsewhere. It flies like 1.8 held. The first run's "held spreads lose alike" and "losses during the change" were noise and a confound.</li>
-            <li>For the trials the choice is the street spread: 2.0 held for the fewest losses in the replica, the scene's setting or 1.7 held for 8–11% more street speed. A longer Unity run would settle it. Its page has an "Is it significant?" tab and replays four routes six ways.</li>
+            <li>Narrower in the streets is faster, beyond doubt: route by route over 1,000 street routes, the adaptive spread at 0.85 is 8% faster than 2.0 held and 1.7 held 11%, in every city; Unity, 8% at 0.85.</li>
+            <li>In Unity the narrower street spread costs no drones. The replica's own flights lose about twice as many at it, held or adaptive (48 loss events at 0.85 against 24 at 2.0 held, 431 km each). A settling run in Unity, 300 fresh street routes each judged by a rule written first, found 18 against 18, and over all three benches ×1.07 (95%: 0.62–1.86): the doubling is ruled out. The replica's twins of those flights side with Unity (17 against 16), so the doubling is the replica's own flights, not the law. In Unity the narrower spread also touches buildings 39% less.</li>
+            <li>The adaptive spread's changes cost nothing, in the replica and in Unity: losses cluster as the swarm enters a street in every row, even 2.0 held where the spread never moves, and the adaptive spread's excess is the same there as elsewhere. It flies like 1.8 held. The first run's "held spreads lose alike" and "losses during the change" were noise and a confound.</li>
+            <li>For the trials: keep the scene as it is (C35a, the adaptive spread at 0.85). 1.7 held is about 3% faster again but was not flown enough in Unity to clear it. Its page has an "Is it significant?" tab, the settling run, and replays of four routes six ways.</li>
           </ul>
         </div>
       </article>
@@ -301,7 +301,7 @@ tr:last-child td { border-bottom: 0; }
         <ol>
           <li><b>Scripted pilots are not people</b>; calibrate against a pilot block. <span class="tag">S1 S2</span></li>
           <li><b>Spread 0.4 loses drones in every model</b>; report per spread, consider a dial floor. <span class="tag">S1 S2 S3</span></li>
-          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3 S4 S6</span></li>
+          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3 S4 S6 S9</span></li>
           <li><b>Start a replica flight from a settled formation</b>, as the bench does: S6's first screens counted start-up contacts as flight contacts and favoured narrow spreads. <span class="tag">S6</span></li>
           <li><b>Cities are the statistical units</b>; tests over walks overstate. <span class="tag">S3</span></li>
           <li><b>Pair every condition</b> on one intent chain from one start. <span class="tag">S2 S3</span></li>
@@ -310,6 +310,7 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Check an adaptive pilot for dead ends</b>, and a walk for early ends, before the run. <span class="tag">S4</span></li>
           <li><b>Count rare events with exact intervals and pool every run of a setting, within a platform</b>: S9's first run called the adaptive spread safe (p 0.20); four times the distance made it 48 against 24, while Unity disagreed. <span class="tag">S9</span></li>
           <li><b>A timing claim needs a placebo of the same moments</b>: S9's "losses during the spread's change" appeared just as much in rows whose spread never changes. <span class="tag">S9</span></li>
+          <li><b>When the replica and Unity disagree on a cost, ask the twins before flying more replica</b>: S9's twins sided with Unity (no doubling), so the replica's doubling was its own flights, not the law. <span class="tag">S9</span></li>
         </ol>
       </section>
       <section>
