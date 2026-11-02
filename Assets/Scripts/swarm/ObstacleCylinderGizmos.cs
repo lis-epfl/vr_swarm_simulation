@@ -113,6 +113,7 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     private float _scaleFactor;
     private float _dObs;
     private SwarmManager.ObstacleShape _shape;
+    private float _ellipseCap;
 
     // The drone the labels quote a distance from, and the per-frame label budget.
     private bool _hasReference;
@@ -174,6 +175,7 @@ public class ObstacleCylinderGizmos : MonoBehaviour
         _dObs = flying ? source.d_obs : manager != null ? manager.GetDObs() : fallbackDObs;
         _shape = flying ? source.ObstacleShape
                : manager != null ? manager.GetObstacleShape() : SwarmManager.ObstacleShape.Cylinder;
+        _ellipseCap = flying ? source.EllipseMaxAspect : manager != null ? manager.GetEllipseMaxAspect() : 1.5f;
 
         if (_axis.sqrMagnitude < 1e-8f) _axis = Vector3.up;
         if (_scaleFactor <= 0.0f) _scaleFactor = 1.0f;
@@ -286,10 +288,16 @@ public class ObstacleCylinderGizmos : MonoBehaviour
             DrawFootprint(obstacle);
             return;
         }
+        if (_shape == SwarmManager.ObstacleShape.Ellipse &&
+            !ObstacleFootprint.GetEllipse(ObstacleFootprint.Get(obstacle), _ellipseCap).circle)
+        {
+            DrawEllipseObstacle(obstacle);
+            return;
+        }
 
         Vector3 centre, axis;
         float radius, halfHeight;
-        if (_shape == SwarmManager.ObstacleShape.EnclosingCircle)
+        if (_shape == SwarmManager.ObstacleShape.EnclosingCircle || _shape == SwarmManager.ObstacleShape.Ellipse)
         {
             ObstacleFootprint.Footprint fp = ObstacleFootprint.Get(obstacle);
             centre = new Vector3(fp.circleCentre.x, fp.centreY, fp.circleCentre.y);
@@ -319,6 +327,60 @@ public class ObstacleCylinderGizmos : MonoBehaviour
         {
             Gizmos.color = guideColour;
             DrawCylinder(centre, axis, radius + _dObs * _scaleFactor, halfHeight);
+        }
+    }
+
+    // S10 Ellipse: the ellipse the law avoids, top and bottom rings joined by spokes, and with drawRepulsionShell the
+    // curve d_obs out from it where the field takes hold (each point moved out along its normal: not itself an
+    // ellipse). The label's ring point and the "R" it quotes are the semi-major axis.
+    private void DrawEllipseObstacle(Collider obstacle)
+    {
+        ObstacleFootprint.Footprint fp = ObstacleFootprint.Get(obstacle);
+        ObstacleFootprint.Ellipse el = ObstacleFootprint.GetEllipse(fp, _ellipseCap);
+        float yTop = fp.centreY + fp.halfHeight, yBottom = fp.centreY - fp.halfHeight;
+        Vector3 e = new Vector3(el.axis.x, 0.0f, el.axis.y), ep = new Vector3(-el.axis.y, 0.0f, el.axis.x);
+        Vector3 c = new Vector3(el.centre.x, 0.0f, el.centre.y);
+
+        if (drawBounds)
+        {
+            Gizmos.color = guideColour;
+            Gizmos.DrawWireCube(obstacle.bounds.center, obstacle.bounds.size);
+        }
+
+        Gizmos.color = cylinderColour;
+        DrawEllipseRing(c, e, ep, el.a, el.b, 0.0f, yTop);
+        DrawEllipseRing(c, e, ep, el.a, el.b, 0.0f, yBottom);
+        for (int i = 0; i < spokes; i++)
+        {
+            float t = (i / (float)spokes) * Mathf.PI * 2.0f;
+            Vector3 q = c + e * (el.a * Mathf.Cos(t)) + ep * (el.b * Mathf.Sin(t));
+            Gizmos.DrawLine(new Vector3(q.x, yBottom, q.z), new Vector3(q.x, yTop, q.z));
+        }
+
+        if (labelObstacles && _labelsDrawn < maxLabels)
+            LabelObstacle(obstacle, new Vector3(el.centre.x, fp.centreY, el.centre.y), Vector3.up, el.a, fp.halfHeight);
+
+        if (drawRepulsionShell)
+        {
+            Gizmos.color = guideColour;
+            DrawEllipseRing(c, e, ep, el.a, el.b, _dObs * _scaleFactor, yTop);
+        }
+    }
+
+    private void DrawEllipseRing(Vector3 c, Vector3 e, Vector3 ep, float a, float b, float offset, float y)
+    {
+        int n = Mathf.Max(circleSegments, 48);
+        Vector3 previous = Vector3.zero;
+        for (int i = 0; i <= n; i++)
+        {
+            float t = (i / (float)n) * Mathf.PI * 2.0f;
+            float ct = Mathf.Cos(t), st = Mathf.Sin(t);
+            Vector2 nrm = new Vector2(ct / a, st / b).normalized;
+            Vector3 q = c + e * (a * ct + offset * nrm.x) + ep * (b * st + offset * nrm.y);
+            q.y = y;
+            if (i > 0)
+                Gizmos.DrawLine(previous, q);
+            previous = q;
         }
     }
 
@@ -404,7 +466,8 @@ public class ObstacleCylinderGizmos : MonoBehaviour
             // divided down from. That ScaleFactor divide is the easiest thing to lose track of when
             // reading d against d_obs.
             OlfatiSaber.ObstacleFrame frame =
-                OlfatiSaber.ComputeObstacleFrame(obstacle, _referencePosition, _axis, _scaleFactor, _shape);
+                OlfatiSaber.ComputeObstacleFrame(obstacle, _referencePosition, _axis, _scaleFactor, _shape,
+                                                 _ellipseCap);
             if (frame.valid)
                 text += $"\nd {frame.distance:F2}  ({frame.distance * _scaleFactor:F1} m)";
         }
@@ -482,8 +545,8 @@ public class ObstacleCylinderGizmos : MonoBehaviour
             // labels used to say.
             Vector3 axisFoot = frame.axisCentre + frame.axis * Vector3.Dot(position - frame.axisCentre, frame.axis);
             Gizmos.color = cylinderColour;
-            Gizmos.DrawLine(position, frame.localGate
-                ? position - frame.outward * frame.distance * _scaleFactor     // the footprint's closest point
+            Gizmos.DrawLine(position, frame.localGate || frame.isEllipse
+                ? position - frame.outward * frame.distance * _scaleFactor     // the footprint's / ellipse's closest point
                 : axisFoot + frame.outward * frame.radius);
 
             if (drawFrameAxes)

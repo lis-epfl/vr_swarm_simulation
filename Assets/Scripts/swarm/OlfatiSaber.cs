@@ -75,6 +75,8 @@ public class OlfatiSaber : MonoBehaviour
     // What each building is avoided as (SwarmManager.obstacleShape), pushed with the other settings.
     // Cylinder is the law as it was on every path.
     [HideInInspector] public SwarmManager.ObstacleShape ObstacleShape = SwarmManager.ObstacleShape.Cylinder;
+    // S10 Ellipse Avoidance: the aspect cap on each building's ellipse (SwarmManager.ellipseMaxAspect).
+    [HideInInspector] public float EllipseMaxAspect = 1.5f;
 
     public float delta = 0.1f;
     public float a = 0.9f;
@@ -437,6 +439,11 @@ public class OlfatiSaber : MonoBehaviour
         // footprint's smallest enclosing circle, which the S7 rules aim by, and the slide's head-on gate is measured
         // locally, where the stick meets the surface (SlideRoundObstacles).
         public bool localGate;
+
+        // S10: an Ellipse frame. axisCentre is the ellipse's centre and radius its semi-major axis; the S7 rules aim by
+        // the ellipse itself, in its unit space (SlideRoundObstacles, FirstBlockingFrame).
+        public bool isEllipse;
+        public ObstacleFootprint.Ellipse ellipse;
     }
 
     // The cylinder standing in for one obstacle. Static and drone-free so the debug gizmos can
@@ -495,25 +502,86 @@ public class OlfatiSaber : MonoBehaviour
     }
 
     /// <summary>
-    /// The frame for an obstacle avoided as <paramref name="shape"/> (SwarmManager.obstacleShape, S8). Cylinder is
-    /// <see cref="ComputeObstacleFrame(Collider, Vector3, Vector3, float)"/> exactly; EnclosingCircle the same
-    /// cylinder frame on the smallest circle round the footprint, about world up; Footprint
-    /// <see cref="MakeFootprintFrame"/>.
+    /// The frame for an obstacle avoided as <paramref name="shape"/> (SwarmManager.obstacleShape, S8 and S10).
+    /// Cylinder is <see cref="ComputeObstacleFrame(Collider, Vector3, Vector3, float)"/> exactly; EnclosingCircle the
+    /// same cylinder frame on the smallest circle round the footprint, about world up; Footprint
+    /// <see cref="MakeFootprintFrame"/>; Ellipse <see cref="MakeEllipseFrame"/> on the footprint's ellipse under
+    /// <paramref name="ellipseCap"/>, or EnclosingCircle's frame exactly where that ellipse is the circle. Every shape
+    /// is named: an unknown one used to fall through to Footprint.
     /// </summary>
     public static ObstacleFrame ComputeObstacleFrame(Collider obstacleCollider, Vector3 dronePosition,
                                                      Vector3 cylinderAxis, float scaleFactor,
-                                                     SwarmManager.ObstacleShape shape)
+                                                     SwarmManager.ObstacleShape shape, float ellipseCap = 1.5f)
     {
         if (shape == SwarmManager.ObstacleShape.Cylinder)
             return ComputeObstacleFrame(obstacleCollider, dronePosition, cylinderAxis, scaleFactor);
         ObstacleFootprint.Footprint fp = ObstacleFootprint.Get(obstacleCollider);
-        if (shape == SwarmManager.ObstacleShape.EnclosingCircle)
+        if (shape == SwarmManager.ObstacleShape.Ellipse)
+        {
+            ObstacleFootprint.Ellipse el = ObstacleFootprint.GetEllipse(fp, ellipseCap);
+            if (!el.circle)
+                return MakeEllipseFrame(el, fp.centreY, fp.halfHeight, dronePosition, scaleFactor);
+        }
+        if (shape == SwarmManager.ObstacleShape.EnclosingCircle || shape == SwarmManager.ObstacleShape.Ellipse)
         {
             Vector3 centre = new Vector3(fp.circleCentre.x, fp.centreY, fp.circleCentre.y);
             return MakeCylinderFrame(centre, Vector3.up, fp.circleRadius, fp.halfHeight, dronePosition, scaleFactor,
                                      Vector3.zero);
         }
         return MakeFootprintFrame(fp, dronePosition, scaleFactor);
+    }
+
+    /// <summary>
+    /// S10: the beta-agent on an ellipse round the footprint. Outside it, the closest point
+    /// (<see cref="ObstacleFootprint.ClosestOnEllipse"/>) with the normal there and mu = rc / (rc + d), rc the radius
+    /// of curvature there -- R / rho on a circle, so this is the cylinder frame where the ellipse is round. Inside, the
+    /// gradient at the drone itself, mu 1 and distance 0: continuous with the outside at the surface, the cylinder's
+    /// inside on a circle, and with no closest point to flip between the two sides of the major axis. A drone within
+    /// 1e-4 m of the centre gets no frame, as on the cylinder's axis. swarm_replica.ell_frame.
+    /// </summary>
+    public static ObstacleFrame MakeEllipseFrame(ObstacleFootprint.Ellipse el, float centreY, float halfHeight,
+                                                 Vector3 dronePosition, float scaleFactor)
+    {
+        ObstacleFrame frame = new ObstacleFrame();
+        frame.axisCentre = new Vector3(el.centre.x, centreY, el.centre.y);
+        frame.axis = Vector3.up;
+        frame.radius = el.a;
+        frame.axisHalfHeight = halfHeight;
+        frame.isEllipse = true;
+        frame.ellipse = el;
+
+        double ex = el.axis.x, ez = el.axis.y;
+        double dx = dronePosition.x - el.centre.x, dz = dronePosition.z - el.centre.y;
+        double x = dx * ex + dz * ez, y = -dx * ez + dz * ex;
+        if (System.Math.Sqrt(x * x + y * y) < 1e-4)
+            return frame;
+        double a = el.a, b = el.b;
+        double X = System.Math.Abs(x), Y = System.Math.Abs(y);
+        double gx, gy, d, mu;
+        if ((x / a) * (x / a) + (y / b) * (y / b) < 1.0)
+        {
+            gx = X / (a * a);
+            gy = Y / (b * b);
+            d = 0.0;
+            mu = 1.0;
+        }
+        else
+        {
+            ObstacleFootprint.ClosestOnEllipse(X, Y, a, b, out double tx, out double ty);
+            d = System.Math.Sqrt((X - a * tx) * (X - a * tx) + (Y - b * ty) * (Y - b * ty));
+            gx = tx / a;
+            gy = ty / b;
+            double rc = System.Math.Pow(a * a * ty * ty + b * b * tx * tx, 1.5) / (a * b);
+            mu = rc / (rc + d);
+        }
+        double gn = System.Math.Max(System.Math.Sqrt(gx * gx + gy * gy), 1e-300);
+        double nx = (x < 0.0 ? -1.0 : 1.0) * gx / gn, ny = (y < 0.0 ? -1.0 : 1.0) * gy / gn;
+        frame.valid = true;
+        frame.outward = new Vector3((float)(nx * ex - ny * ez), 0.0f, (float)(nx * ez + ny * ex));
+        frame.tangent = Vector3.Cross(frame.axis, frame.outward);
+        frame.mu = (float)mu;
+        frame.distance = (float)(d / scaleFactor);
+        return frame;
     }
 
     /// <summary>
@@ -641,7 +709,8 @@ public class OlfatiSaber : MonoBehaviour
 
     public ObstacleFrame GetObstacleFrame(Collider obstacleCollider, Vector3 dronePosition)
     {
-        return ComputeObstacleFrame(obstacleCollider, dronePosition, cylinderAxis, ScaleFactor, ObstacleShape);
+        return ComputeObstacleFrame(obstacleCollider, dronePosition, cylinderAxis, ScaleFactor, ObstacleShape,
+                                    EllipseMaxAspect);
     }
 
     // One obstacle's two contributions, before the c_obs / c2_beta gains. Split out so the gizmos
@@ -832,31 +901,58 @@ public class OlfatiSaber : MonoBehaviour
 
             Vector3 centre = Flat(frame.axisCentre);
             Vector3 toCentre = centre - p;
-            float gate;
-            if (frame.localGate)
+            float gate, tie;
+            bool aimedHere, hidden;
+            if (frame.isEllipse)
             {
-                // S8 Footprint: 1 - |sin(incidence)| / SlideHeadOnFraction where the stick meets the surface -- at a
-                // circle's surface the same number as below, and on a flat face the whole slide wherever the stick
-                // meets the wall square on, which is where a wall has no sideways push of its own.
-                gate = Mathf.Clamp01(1.0f - Mathf.Abs(Vector3.Dot(u, frame.tangent))
-                                     / Mathf.Max(SlideHeadOnFraction, 1e-6f));
+                // S10: the circle's rules in the ellipse's unit space, where it is the unit circle and a segment is
+                // still a segment. The gate stays local -- 1 - F |t.u| / SlideHeadOnFraction while the stick points
+                // into the ellipse, F the drone's unit-space radius: on a circle F |t.u| is exactly miss / R, so it is
+                // the line gate below there, and at a flat side it is S8's local gate, where a unit-space line gate
+                // would starve the slide. The tie scale is the ellipse's half-width across the stick.
+                // swarm_replica._slide_ellipse.
+                ObstacleFootprint.Ellipse el = frame.ellipse;
+                Vector2 pu = ObstacleFootprint.EllipseUnit(el, new Vector2(p.x, p.z));
+                Vector2 cu = ObstacleFootprint.EllipseUnit(el, new Vector2(c.x, c.z));
+                gate = Vector3.Dot(frame.outward, u) < 0.0f
+                    ? Mathf.Clamp01(1.0f - pu.magnitude * Mathf.Abs(Vector3.Dot(u, frame.tangent))
+                                    / Mathf.Max(SlideHeadOnFraction, 1e-6f))
+                    : 0.0f;
+                tie = ObstacleFootprint.EllipseHalfWidth(el, new Vector2(left.x, left.z));
+                aimedHere = ObstacleFootprint.SegmentOriginDistance(
+                    cu, ObstacleFootprint.EllipseUnit(el, new Vector2(aheadEnd.x, aheadEnd.z))) < SlideSplitAimFraction;
+                hidden = ObstacleFootprint.SegmentOriginDistance(pu, cu) < 1.0f;
             }
             else
             {
-                float miss = Mathf.Abs(Vector3.Dot(toCentre, left));
-                gate = Vector3.Dot(toCentre, u) > 0.0f
-                    ? Mathf.Clamp01(1.0f - miss / Mathf.Max(SlideHeadOnFraction * frame.radius, 1e-6f))
-                    : 0.0f;
+                if (frame.localGate)
+                {
+                    // S8 Footprint: 1 - |sin(incidence)| / SlideHeadOnFraction where the stick meets the surface -- at
+                    // a circle's surface the same number as below, and on a flat face the whole slide wherever the
+                    // stick meets the wall square on, which is where a wall has no sideways push of its own.
+                    gate = Mathf.Clamp01(1.0f - Mathf.Abs(Vector3.Dot(u, frame.tangent))
+                                         / Mathf.Max(SlideHeadOnFraction, 1e-6f));
+                }
+                else
+                {
+                    float miss = Mathf.Abs(Vector3.Dot(toCentre, left));
+                    gate = Vector3.Dot(toCentre, u) > 0.0f
+                        ? Mathf.Clamp01(1.0f - miss / Mathf.Max(SlideHeadOnFraction * frame.radius, 1e-6f))
+                        : 0.0f;
+                }
+                tie = frame.radius;
+                aimedHere = SegmentPointDistance(centre, c, aheadEnd) < SlideSplitAimFraction * frame.radius;
+                hidden = SegmentPointDistance(centre, p, c) < frame.radius;
             }
 
-            float own = SignOr(-Vector3.Dot(toCentre, left), frame.radius, 1.0f);
+            float own = SignOr(-Vector3.Dot(toCentre, left), tie, 1.0f);
             float side;
-            if (SegmentPointDistance(centre, c, aheadEnd) < SlideSplitAimFraction * frame.radius)
+            if (aimedHere)
             {
-                float half = SignOr(Vector3.Dot(p - c, left), frame.radius, own);
+                float half = SignOr(Vector3.Dot(p - c, left), tie, own);
                 side = Vector3.Dot(frame.tangent, left) * half < 0.0f ? -1.0f : 1.0f;
             }
-            else if (SegmentPointDistance(centre, p, c) < frame.radius)
+            else if (hidden)
             {
                 Vector3 toCentroid = c - p;
                 side = SignOr(Vector3.Dot(toCentroid, frame.tangent), toCentroid.magnitude,
@@ -868,7 +964,8 @@ public class OlfatiSaber : MonoBehaviour
                 // S8 Footprint: along a flat face the own-side test can point back down the street (a long facade
                 // whose centre lies past the stick's line), which sent drones into the ones behind them. Slide the
                 // way the stick already leans along the wall; the own side only when it meets the wall square on.
-                if (frame.localGate)
+                // S10 Ellipse the same: on a circle it is the own side wherever the gate is open.
+                if (frame.localGate || frame.isEllipse)
                     side = SignOr(Vector3.Dot(frame.tangent, u), 1.0f, side);
             }
 
@@ -896,13 +993,30 @@ public class OlfatiSaber : MonoBehaviour
         for (int q = 0; q < shieldFrames.Count; q++)
         {
             ObstacleFrame frame = shieldFrames[q];
-            Vector3 centre = Flat(frame.axisCentre);
-            float tp = Vector3.Dot(centre - a, d) / l2;
-            float d2 = (a + Mathf.Clamp01(tp) * d - centre).sqrMagnitude;
-            float r2 = frame.radius * frame.radius;
-            if (d2 >= r2)
-                continue;
-            float entry = tp - Mathf.Sqrt(Mathf.Max(r2 - d2, 0.0f) / l2);
+            float entry;
+            if (frame.isEllipse)
+            {
+                // S10: the same test in the ellipse's unit space; an affine map keeps the line's parameter, so the
+                // entries stay comparable with the circles'. swarm_replica.route_round.
+                Vector2 ua = ObstacleFootprint.EllipseUnit(frame.ellipse, new Vector2(a.x, a.z));
+                Vector2 du = ObstacleFootprint.EllipseUnit(frame.ellipse, new Vector2(a.x + d.x, a.z + d.z)) - ua;
+                float l2u = Mathf.Max(du.sqrMagnitude, 1e-12f);
+                float tpu = Vector2.Dot(-ua, du) / l2u;
+                float d2u = (ua + Mathf.Clamp01(tpu) * du).sqrMagnitude;
+                if (d2u >= 1.0f)
+                    continue;
+                entry = tpu - Mathf.Sqrt(Mathf.Max(1.0f - d2u, 0.0f) / l2u);
+            }
+            else
+            {
+                Vector3 centre = Flat(frame.axisCentre);
+                float tp = Vector3.Dot(centre - a, d) / l2;
+                float d2 = (a + Mathf.Clamp01(tp) * d - centre).sqrMagnitude;
+                float r2 = frame.radius * frame.radius;
+                if (d2 >= r2)
+                    continue;
+                entry = tp - Mathf.Sqrt(Mathf.Max(r2 - d2, 0.0f) / l2);
+            }
             if (entry < firstEntry)
             {
                 firstEntry = entry;

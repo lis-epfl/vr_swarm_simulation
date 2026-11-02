@@ -29,7 +29,8 @@ WHAT IT MIRRORS: OlfatiSaber.GetSwarmAcceleration (cohesion, velocity consensus,
 beta-agents, hollow core, the shield's projection, and S7's three switches: the slide round buildings, straggler
 routing and the adaptive spread -- slide_round, route_round, aim_miss, spread_target -- and S8's obstacleShape: the
 bounds circle, the footprint's enclosing circle or the footprint itself -- enclosing_circle, aim_circle, the
-obstacle branches), SwarmPlaneController's core
+obstacle branches -- and S10's Ellipse: mvee_axis, ellipse_fit, PolyCity.ellipses, ell_frame, and the S7 rules
+in the ellipse's unit space, _slide_ellipse among them), SwarmPlaneController's core
 and spread state (centroid, mean velocity, filtered radius, filtered spread scale), VelocityControl's horizontal loop (stick resolution, shield, velocity P-loop,
 swarm-force low-pass, circular tilt clamp, tilt -> rate -> alpha cascade, linear and angular drag) and
 StateFinder's noise -- AS OF FORCE_LAW_COMMIT. Every number comes from the C# initialisers, the scene, the
@@ -184,7 +185,12 @@ OBSTACLE_MODELS = ("cylinder", "closest")
 # bounds (OlfatiSaber's since before S4), EnclosingCircle the smallest circle round the footprint, Footprint the
 # footprint itself (a wall beta-agent on each face, mu 1). The two new shapes take the S7 rules' centre and radius from
 # the enclosing circle (aim_circle); Footprint also measures the slide's head-on gate locally (slide_round).
-CYLINDER, ENCLOSING, FOOTPRINT = 0, 1, 2
+# Ellipse (S10 Ellipse Avoidance) is the smallest ellipse round the footprint with its aspect capped at
+# ellipseMaxAspect (PolyCity.ellipses), and the S7 rules aim by that ellipse (ell_rules); a footprint whose capped
+# aspect is under ELLIPSE_MIN_ASPECT is avoided as its enclosing circle, bit for bit as under EnclosingCircle.
+CYLINDER, ENCLOSING, FOOTPRINT, ELLIPSE = 0, 1, 2, 3
+ELLIPSE_MIN_ASPECT = 1.02
+ELL_ITERS = 5          # iterations of the closest-point solve on an ellipse (ell_closest): ~1e-5 m at aspect 2
 
 
 class Model:
@@ -224,6 +230,11 @@ class Model:
         self.fp_side = extras.pop("fp_side", "lean")
         if self.fp_side not in ("lean", "s7"):
             raise ValueError(f"fp_side {self.fp_side!r}: lean or s7")
+        # S10: under Ellipse the S7 rules aim by the ellipse ("ellipse", the C#'s) or, as under the S8 shapes, by the
+        # footprint's enclosing circle ("circle": the screen's arm asking whether aiming by the ellipse matters)
+        self.ell_aim = extras.pop("ell_aim", "ellipse")
+        if self.ell_aim not in ("ellipse", "circle"):
+            raise ValueError(f"ell_aim {self.ell_aim!r}: ellipse or circle")
         if self.slide_side not in ("auto", "hidden", "own", "formation", "group"):
             raise ValueError(f"slide_side {self.slide_side!r}: auto, hidden, own, formation or group")
         if self.route_side not in ("lean", "group"):
@@ -258,10 +269,15 @@ class Model:
         self.spread_filter = float(swarm.get("spreadFilterTime", 3.0))
         # S8 Footprint Avoidance (.get, as S7's)
         self.obstacle_shape = int(swarm.get("obstacleShape", CYLINDER))
-        if self.obstacle_shape not in (CYLINDER, ENCLOSING, FOOTPRINT):
-            raise ValueError(f"obstacleShape {self.obstacle_shape}: 0 Cylinder, 1 EnclosingCircle or 2 Footprint")
+        if self.obstacle_shape not in (CYLINDER, ENCLOSING, FOOTPRINT, ELLIPSE):
+            raise ValueError(f"obstacleShape {self.obstacle_shape}: 0 Cylinder, 1 EnclosingCircle, 2 Footprint or "
+                             f"3 Ellipse")
         if self.obstacle_shape != CYLINDER and self.obstacle_model != "cylinder":
             raise ValueError("obstacleShape and the replica-only obstacle_model cannot both be set")
+        # S10 Ellipse Avoidance (.get, as S7's)
+        self.ellipse_cap = float(swarm.get("ellipseMaxAspect", 1.5))
+        if self.obstacle_shape == ELLIPSE and self.shield_mode == "lookahead":
+            raise ValueError("S6's lookahead shield is implemented for the circle shapes only")
         self.g = air["gravity"]
         self.dt = air["fixedDeltaTime"]
         self.max_tilt = min(air["maxPitch"], air["maxRoll"])
@@ -391,6 +407,26 @@ class PolyCity:
             lo, hi = p.min(0), p.max(0)
             self.c[i], self.R[i] = (lo + hi) / 2, 0.5 * float(np.hypot(*(hi - lo)))
             self.mec_c[i], self.mec_R[i] = enclosing_circle(p)
+        self.polys = polys
+        self._mvee = None      # S10: (axis, aspect) of each footprint's minimum-area ellipse, fitted on first use
+        self._ell = {}         # S10: {cap: Ellipses}
+
+    def ellipses(self, cap):
+        """S10: every footprint's ellipse under the aspect cap (SwarmManager.ellipseMaxAspect), fitted once per cap and
+        kept: the axis and aspect come from the footprint alone (mvee_axis), the ellipse from the cap (ellipse_fit), so
+        two caps in one city are two shapes. ObstacleFootprint keys its cache the same way."""
+        key = float(cap)
+        E = self._ell.get(key)
+        if E is None:
+            if self._mvee is None:
+                self._mvee = [mvee_axis(p) for p in self.polys]
+            fits = [ellipse_fit(p, key, ax, k, self.mec_c[i], self.mec_R[i])
+                    for i, (p, (ax, k)) in enumerate(zip(self.polys, self._mvee))]
+            E = Ellipses(np.array([f[0] for f in fits]).reshape(-1, 2), np.array([f[1] for f in fits]).reshape(-1, 2),
+                         np.array([f[2] for f in fits]), np.array([f[3] for f in fits]),
+                         np.array([f[4] for f in fits], bool))
+            self._ell[key] = E
+        return E
 
     def closest(self, P, B):
         """(q (n, len(B), 2) the closest point of each building's footprint to each point, d (n, len(B)) the distance;
@@ -496,6 +532,187 @@ def enclosing_circle(p):
     return best_c, best_r
 
 
+# ============================================================================= S10: ellipses
+
+class Ellipses:
+    """Every footprint's avoidance ellipse: centre c (n, 2), major axis e (n, 2) unit, semi-axes a >= b (n,), and circ
+    (n,) where the capped aspect is under ELLIPSE_MIN_ASPECT and the building is avoided as its enclosing circle
+    exactly (c, a = b = the circle's, e = (1, 0)), on the circle's own code path."""
+
+    def __init__(self, c, e, a, b, circ):
+        self.c, self.e, self.a, self.b, self.circ = c, e, a, b, circ
+        self.ep = np.stack([-e[:, 1], e[:, 0]], 1)      # the minor axis, a quarter turn anticlockwise from e
+
+
+def mvee_axis(p, tol=1e-7, iters=4000):
+    """(axis (2,), aspect >= 1) of the minimum-area ellipse containing the points p (k >= 3; a footprint's hull):
+    Khachiyan's algorithm with Todd and Yildirim's away steps, in doubles, the 3x3 inverse by cofactors so the C#
+    (ObstacleFootprint.MveeAxis) is the same arithmetic in the same order. The axis is the covariance's leading
+    eigenvector in closed form, signed so its x (else z) is positive; aspect is 1 with axis (1, 0) when the hull has
+    fewer than 3 points or no preferred direction. Only the axis and aspect are used: ellipse_fit makes the ellipse,
+    so the tolerance cannot leak into whether it encloses the footprint."""
+    xs = [float(q[0]) for q in p]
+    zs = [float(q[1]) for q in p]
+    k = len(xs)
+    if k < 3:
+        return np.array([1.0, 0.0]), 1.0
+    u = [1.0 / k] * k
+    for _ in range(iters):
+        sxx = sxz = sx = szz = sz = s1 = 0.0
+        for i in range(k):
+            w, x, z = u[i], xs[i], zs[i]
+            sxx += w * x * x
+            sxz += w * x * z
+            sx += w * x
+            szz += w * z * z
+            sz += w * z
+            s1 += w
+        c00 = szz * s1 - sz * sz
+        c01 = sz * sx - sxz * s1
+        c02 = sxz * sz - szz * sx
+        c11 = sxx * s1 - sx * sx
+        c12 = sxz * sx - sxx * sz
+        c22 = sxx * szz - sxz * sxz
+        det = sxx * c00 + sxz * c01 + sx * c02
+        if abs(det) < 1e-300:
+            break
+        M = [(c00 * x * x + c11 * z * z + c22 + 2.0 * (c01 * x * z + c02 * x + c12 * z)) / det
+             for x, z in zip(xs, zs)]
+        j = 0
+        for i in range(1, k):
+            if M[i] > M[j]:
+                j = i
+        a_ = -1
+        for i in range(k):
+            if u[i] > 1e-12 and (a_ < 0 or M[i] < M[a_]):
+                a_ = i
+        up = (M[j] - 3.0) / 3.0
+        down = (3.0 - M[a_]) / 3.0
+        if max(up, down) < tol:
+            break
+        if up >= down:
+            s = (M[j] - 3.0) / (3.0 * (M[j] - 1.0))
+            u = [(1.0 - s) * w for w in u]
+            u[j] += s
+        else:
+            if M[a_] <= 1.0 or u[a_] >= 1.0:
+                break
+            s = min((3.0 - M[a_]) / (3.0 * (M[a_] - 1.0)), u[a_] / (1.0 - u[a_]))
+            u = [(1.0 + s) * w for w in u]
+            u[a_] -= s
+    cx = sum(w * x for w, x in zip(u, xs))
+    cz = sum(w * z for w, z in zip(u, zs))
+    A = sum(w * (x - cx) * (x - cx) for w, x in zip(u, xs))
+    B = sum(w * (x - cx) * (z - cz) for w, x, z in zip(u, xs, zs))
+    D = sum(w * (z - cz) * (z - cz) for w, z in zip(u, zs))
+    half = 0.5 * (A - D)
+    r = float(np.sqrt(half * half + B * B))
+    lmax, lmin = 0.5 * (A + D) + r, 0.5 * (A + D) - r
+    if lmin <= 0.0 or r <= 1e-12 * max(A + D, 1e-300):
+        return np.array([1.0, 0.0]), 1.0
+    vx, vz = (half + r, B) if half >= 0.0 else (B, r - half)
+    n = float(np.sqrt(vx * vx + vz * vz))
+    vx, vz = vx / n, vz / n
+    if vx < 0.0 or (vx == 0.0 and vz < 0.0):
+        vx, vz = -vx, -vz
+    return np.array([vx, vz]), float(np.sqrt(lmax / lmin))
+
+
+def ellipse_fit(p, cap, axis, aspect, circle_c, circle_r):
+    """(centre (2,), axis (2,), a, b, circ) of the ellipse a footprint p is avoided as under aspect cap `cap`. Squash
+    the hull along the axis by k = min(cap, aspect), take the smallest circle round the squashed hull
+    (enclosing_circle), and stretch it back: an ellipse of aspect k that contains the footprint exactly, which is the
+    minimum-area one when its own aspect is within the cap. Under ELLIPSE_MIN_ASPECT it is the enclosing circle itself
+    (circle_c, circle_r) and circ is set."""
+    k = min(float(cap), float(aspect))
+    if k < ELLIPSE_MIN_ASPECT:
+        return np.asarray(circle_c, float).copy(), np.array([1.0, 0.0]), float(circle_r), float(circle_r), True
+    e = np.asarray(axis, float)
+    ep = np.array([-e[1], e[0]])
+    p = np.asarray(p, float)
+    sq = np.stack([(p @ e) / k, p @ ep], 1)
+    cs, r = enclosing_circle(sq)
+    return e * (cs[0] * k) + ep * cs[1], e.copy(), k * r, r, False
+
+
+def ell_rules(m, city):
+    """The Ellipses the S7 rules aim by, or None where they aim by a circle (every other shape, and ell_aim
+    "circle")."""
+    if m.obstacle_shape != ELLIPSE or m.ell_aim != "ellipse":
+        return None
+    return city.ellipses(m.ellipse_cap)
+
+
+def ell_local(P, E, B):
+    """(x, y) (n, len(B)): the points P (n, 2) in each ellipse's own axes (x along the major axis)."""
+    d = np.atleast_2d(P)[:, None, :] - E.c[B][None]
+    return (d * E.e[B][None]).sum(-1), (d * E.ep[B][None]).sum(-1)
+
+
+def ell_unit(P, E, b):
+    """(n, 2): the points P in building b's unit space, where its ellipse is the unit circle."""
+    d = np.atleast_2d(P) - E.c[b]
+    return np.stack([(d @ E.e[b]) / E.a[b], (d @ E.ep[b]) / E.b[b]], -1)
+
+
+def ell_closest(X, Y, a, b, iters=ELL_ITERS):
+    """(tx, ty): the closest point (a tx, b ty) of the ellipse x^2/a^2 + y^2/b^2 = 1 to (X, Y) >= 0, with
+    tx^2 + ty^2 = 1, inside or out. A fixed number of trig-free iterations (a point of the ellipse and its centre of
+    curvature define the circle that osculates it there; step along that circle to where the line to (X, Y) meets it),
+    so the C# can run the same loop."""
+    shape = np.broadcast(X, Y, a, b).shape
+    tx = np.full(shape, 0.7071067811865476)
+    ty = np.full(shape, 0.7071067811865476)
+    for _ in range(iters):
+        ex = (a * a - b * b) * tx ** 3 / a
+        ey = (b * b - a * a) * ty ** 3 / b
+        rx, ry = a * tx - ex, b * ty - ey
+        qx, qy = X - ex, Y - ey
+        r = np.sqrt(rx * rx + ry * ry)
+        q = np.maximum(np.sqrt(qx * qx + qy * qy), 1e-12)
+        tx = np.clip((qx * r / q + ex) / a, 0.0, 1.0)
+        ty = np.clip((qy * r / q + ey) / b, 0.0, 1.0)
+        t = np.maximum(np.sqrt(tx * tx + ty * ty), 1e-12)
+        tx, ty = tx / t, ty / t
+    return tx, ty
+
+
+def ell_frame(P, E, B):
+    """OlfatiSaber.MakeEllipseFrame for every point P (n, 2) and building of B: (out (n, K, 2), d (n, K) metres to the
+    ellipse, 0 inside, mu (n, K), valid (n, K), F (n, K) the unit-space radius, sd (n, K) signed distance).
+
+    Outside: out is the normal at the closest point (the gradient there), mu = rc / (rc + d) with rc the radius of
+    curvature there -- R / rho on a circle. Inside: out is the gradient at the point itself, mu 1 and d 0, with no
+    closest point to flip between the two sides of the major axis; continuous with the outside at the surface, and on
+    a circle exactly the cylinder frame's inside. A point within 1e-4 m of the centre has no frame, as on the axis."""
+    a, b = E.a[B][None], E.b[B][None]
+    x, y = ell_local(P, E, B)
+    X, Y = np.abs(x), np.abs(y)
+    F = np.sqrt((x / a) ** 2 + (y / b) ** 2)
+    inside = F < 1.0
+    tx, ty = ell_closest(X, Y, a, b)
+    dist = np.sqrt((X - a * tx) ** 2 + (Y - b * ty) ** 2)
+    gx = np.where(inside, X / (a * a), tx / a)
+    gy = np.where(inside, Y / (b * b), ty / b)
+    gn = np.maximum(np.sqrt(gx * gx + gy * gy), 1e-300)
+    nx = np.where(x < 0, -1.0, 1.0) * gx / gn
+    ny = np.where(y < 0, -1.0, 1.0) * gy / gn
+    out = nx[..., None] * E.e[B][None] + ny[..., None] * E.ep[B][None]
+    rc = (a * a * ty * ty + b * b * tx * tx) ** 1.5 / (a * b)
+    d = np.where(inside, 0.0, dist)
+    mu = np.where(inside, 1.0, rc / (rc + d))
+    valid = np.sqrt(x * x + y * y) >= 1e-4
+    return out, d, mu, valid, F, np.where(inside, -dist, dist)
+
+
+def seg_origin_dist(A, Bp):
+    """Distance from the origin to each segment A -> Bp ((n, 2) each)."""
+    d = Bp - A
+    dd = (d * d).sum(-1)
+    t = np.where(dd > 1e-18, np.clip(-(A * d).sum(-1) / np.maximum(dd, 1e-18), 0.0, 1.0), 0.0)
+    return np.linalg.norm(A + t[:, None] * d, axis=-1)
+
+
 def aim_circle(m, city):
     """(c, R) of every building as the S7 rules see it: its centre and radius for aiming, side choice and the hidden
     tests. The bounds circle under Cylinder (S7 as flown), the smallest circle round the footprint under the S8 shapes
@@ -538,7 +755,20 @@ def aim_miss(m, city, cand, cen, cmdv):
     u = cmdv / cn if cn > 1e-9 else np.zeros(2)
     t = np.clip(rel @ u, 0.0, seg)
     dseg = np.linalg.norm(rel - t[:, None] * u[None], axis=1)
-    return dseg / R
+    E = ell_rules(m, city)
+    if E is None:
+        return dseg / R
+    # S10: the same distance measured in each ellipse's unit space, where the ellipse is the unit circle and the
+    # stick's segment is still a segment; a circle (circ) keeps the line above, bit for bit
+    out = dseg / R
+    ell = ~E.circ[cand]
+    if ell.any():
+        B = cand[ell]
+        x, y = ell_local(np.stack([cen, cen + seg * u]), E, B)          # (2, len(B)): the segment's two ends
+        A0 = np.stack([x[0] / E.a[B], y[0] / E.b[B]], -1)
+        A1 = np.stack([x[1] / E.a[B], y[1] / E.b[B]], -1)
+        out[ell] = seg_origin_dist(A0, A1)
+    return out
 
 
 def spread_target(m, city, cand, cen, miss):
@@ -550,6 +780,13 @@ def spread_target(m, city, cand, cen, miss):
         return 1.0
     ac, aR = aim_circle(m, city)
     gap = np.linalg.norm(ac[cand] - cen[None], axis=1) - aR[cand]
+    E = ell_rules(m, city)
+    if E is not None:
+        # S10: the centroid's true distance to each ellipse (negative inside); a circle keeps the line above
+        ell = ~E.circ[cand]
+        if ell.any():
+            gap = gap.copy()
+            gap[ell] = ell_frame(cen[None], E, cand[ell])[5][0]
     return m.street_factor if (gap < m.look_ahead * m.S).any() else 1.0
 
 
@@ -576,11 +813,15 @@ def slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss):
     v = np.broadcast_to(cmdv, (n, 2)).copy()
     aimed = miss < m.slide_split
     ac, aR = aim_circle(m, city)
+    E = ell_rules(m, city)
     for w, out, k in frames:
         b = cand[k]
         c, R = ac[b], float(aR[b])
         tan = np.stack([out[:, 1], -out[:, 0]], -1)              # world up x outward, as MakeCylinderFrame
         inward = np.maximum(-(v * out).sum(-1), 0.0)
+        if E is not None and not E.circ[b]:
+            v = v + _slide_ellipse(m, E, b, Pm, cen, vbar, u, nv, w, out, tan, inward, bool(aimed[k]))
+            continue
         to_c = c[None] - Pm
         if m.obstacle_shape == FOOTPRINT:
             # S8: the gate measured where the drone meets the surface, 1 - |sin(incidence)| / slideHeadOnFraction --
@@ -620,6 +861,41 @@ def slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss):
     return clamp_norm(v, cn)
 
 
+def _slide_ellipse(m, E, b, Pm, cen, vbar, u, nv, w, out, tan, inward, aimed):
+    """slide_round's term for one frame on an ellipse (S10), the circle's rules carried into the ellipse's unit space:
+    the gate is the local one, 1 - F |t.u| / slideHeadOnFraction while the stick points into the ellipse (F the
+    drone's unit-space radius: on a circle F |t.u| is exactly miss / R, so this is S7's gate there, and at a flat side
+    it is S8's local gate, where a unit-space line gate would starve the slide); the hidden test asks whether the
+    segment from the drone to the centroid meets the unit circle; the tie scales are the ellipse's half-width across
+    the stick; and a drone not splitting or hidden slides the way its stick leans along the surface (S8's lean rule:
+    on a circle the own-side rule wherever the gate is open, and along a long side it does not point back down the
+    street). Only the "hidden" side rule (the C#'s) is carried over."""
+    n = len(Pm)
+    one = np.ones(n)
+    c = E.c[b]
+    to_c = c[None] - Pm
+    pu = ell_unit(Pm, E, b)
+    F = np.sqrt((pu * pu).sum(-1))
+    gate = np.clip(1.0 - F * np.abs(tan @ u) / max(m.slide_head_on, 1e-6), 0.0, 1.0) * ((out @ u) < 0)
+    h = float(np.hypot(E.a[b] * (nv @ E.e[b]), E.b[b] * (nv @ E.ep[b])))   # half-width across the stick
+    own = _sign_or(-(to_c @ nv), h, one)
+    group = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
+                     _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
+    if m.slide_side != "hidden":
+        raise ValueError("under obstacleShape Ellipse only the C#'s slide_side 'hidden' is implemented")
+    if aimed:
+        lat = _sign_or((Pm - cen) @ nv, h, own)
+        s = np.sign((tan @ nv) * lat)
+        s = np.where(s == 0, 1.0, s)
+    else:
+        hid = seg_origin_dist(pu, ell_unit(np.broadcast_to(cen, Pm.shape), E, b)) < 1.0
+        s = np.sign((tan @ nv) * own)
+        s = np.where(s == 0, 1.0, s)
+        s = _sign_or(tan @ u, 1.0, s)
+        s = np.where(hid, group, s)
+    return (w * inward)[:, None] * out + (gate * w * inward * s)[:, None] * tan
+
+
 def route_round(m, city, cand, Pm, cen, vbar, coh, fmag, unit, frames):
     """S7: a drone's pull towards neighbours it cannot see past a building is turned round that building instead of
     through it (SwarmManager.routeStragglers; OlfatiSaber.GetSwarmAcceleration). Only ATTRACTION (fmag > 0) to a
@@ -650,6 +926,22 @@ def route_round(m, city, cand, Pm, cen, vbar, coh, fmag, unit, frames):
     W = np.array([w for w, _, _ in frames])                         # [q, i] each drone's own frames only
     blocked = (d2 < Rs[:, None, None] ** 2) & (W[:, :, None] > 0)
     entry = np.where(blocked, tp - np.sqrt(np.maximum(Rs[:, None, None] ** 2 - d2, 0.0) / L2[None]), np.inf)
+    E = ell_rules(m, city)
+    if E is not None:
+        # S10: an ellipse frame's test in its unit space, where the ellipse is the unit circle; an affine map keeps
+        # each line's parameter, so entries stay comparable with the circle frames'
+        for q, (_, _, k) in enumerate(frames):
+            b = cand[k]
+            if E.circ[b]:
+                continue
+            Pu = ell_unit(Pm, E, b)
+            Du = Pu[None, :, :] - Pu[:, None, :]
+            L2u = np.maximum((Du * Du).sum(-1), 1e-12)
+            tpu = np.einsum("id,ijd->ij", -Pu, Du) / L2u
+            nearu = Pu[:, None, :] + np.clip(tpu, 0.0, 1.0)[..., None] * Du
+            d2u = (nearu * nearu).sum(-1)
+            blocked[q] = (d2u < 1.0) & (W[q][:, None] > 0)
+            entry[q] = np.where(blocked[q], tpu - np.sqrt(np.maximum(1.0 - d2u, 0.0) / L2u), np.inf)
     first = entry.argmin(0)                                         # [i, j] the first cylinder the line enters
     pull = (fmag > 0) & blocked.any(0)
     to_cen = cen[None] - Pm
@@ -765,17 +1057,32 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
         found = d < m.r0_obs * S
         bo = bump(dd, m.d_obs, dl) * found
     elif len(cand):
-        if m.obstacle_shape == ENCLOSING and not isinstance(city, PolyCity):
-            raise ValueError("obstacleShape EnclosingCircle is implemented for PolyCity only")
+        if m.obstacle_shape in (ENCLOSING, ELLIPSE) and not isinstance(city, PolyCity):
+            raise ValueError("obstacleShape EnclosingCircle and Ellipse are implemented for PolyCity only")
         ac, aR = aim_circle(m, city)
         rel = Pm[:, None, :] - ac[cand][None]
         rho = np.linalg.norm(rel, axis=-1)
         R = aR[cand][None]
-        found = (city.distance(Pm, cand, alt) < m.r0_obs * S) & (rho >= 1e-4)   # OverlapSphere, valid frame
+        reach = city.distance(Pm, cand, alt) < m.r0_obs * S                     # OverlapSphere
+        found = reach & (rho >= 1e-4)                                            # and a valid frame
         out = rel / np.maximum(rho, 1e-4)[..., None]
         tan = np.stack([out[..., 1], -out[..., 0]], -1)                         # world up x outward
         mu = np.minimum(R / np.maximum(rho, 1e-4), 1.0)
         dd = np.maximum(rho - R, 0.0) / S
+        if m.obstacle_shape == ELLIPSE:
+            # S10 (OlfatiSaber.MakeEllipseFrame): each building not avoided as its circle (circ) takes the ellipse's
+            # frame; the circles keep the values above, bit for bit as under EnclosingCircle
+            E = city.ellipses(m.ellipse_cap)
+            ell = ~E.circ[cand]
+            if ell.any():
+                eo, ed, emu, ev, _, _ = ell_frame(Pm, E, cand[ell])
+                found = found.copy()
+                found[:, ell] = reach[:, ell] & ev
+                out, mu, dd = out.copy(), mu.copy(), dd.copy()
+                out[:, ell] = eo
+                mu[:, ell] = emu
+                dd[:, ell] = ed / S
+                tan = np.stack([out[..., 1], -out[..., 0]], -1)
         bo = bump(dd, m.d_obs, dl) * found
     if len(cand):
         prox = bo.max(1)

@@ -60,7 +60,7 @@ K_SCREEN, K_CONFIRM, K_BENCH = 7000, 8000, 9000
 # S8 candidate file was flown against that scene, so a candidate with an empty `over` (S7's T3, S8's A0) meant this; to
 # re-fly one now, merge PRE_S8 under its `over`.
 PRE_S8 = dict(obstacleShape=0, d_obs=0.16, slideRoundBuildings=False, adaptiveSpread=False)
-SHAPES = ("Cylinder", "EnclosingCircle", "Footprint")
+SHAPES = ("Cylinder", "EnclosingCircle", "Footprint", "Ellipse")    # SwarmManager.ObstacleShape; Ellipse is S10's
 
 FACE_RUN_M = 50.0          # the run-in: start this far out along the face's normal
 FACE_MIN_LEN_M = 12.0

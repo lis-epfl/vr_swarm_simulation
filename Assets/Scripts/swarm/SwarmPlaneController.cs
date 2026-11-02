@@ -492,10 +492,31 @@ public class SwarmPlaneController : MonoBehaviour
         float aim = manager.GetSurroundAimFraction();
 
         bool amongBuildings = false;
+        bool ellipses = manager.GetObstacleShape() == SwarmManager.ObstacleShape.Ellipse;
         for (int i = 0; i < count; i++)
         {
+            if (ellipses)
+            {
+                // S10: the building's ellipse, unless it is round enough to be avoided as its circle (below). The
+                // centroid's true distance to it, and the stick's segment measured in its unit space, where the aim
+                // fraction is a share of the unit circle's radius. swarm_replica.spread_target / aim_miss.
+                ObstacleFootprint.Ellipse el = ObstacleFootprint.GetEllipse(
+                    ObstacleFootprint.Get(spreadQueryBuffer[i]), manager.GetEllipseMaxAspect());
+                if (!el.circle)
+                {
+                    Vector2 c2 = new Vector2(centroid.x, centroid.z);
+                    if (ObstacleFootprint.EllipseSignedDistance(el, c2) < lookAhead)
+                        amongBuildings = true;
+                    Vector3 end = centroid + segment * along;
+                    if (ObstacleFootprint.SegmentOriginDistance(ObstacleFootprint.EllipseUnit(el, c2),
+                            ObstacleFootprint.EllipseUnit(el, new Vector2(end.x, end.z))) < aim)
+                        return 1.0f;
+                    continue;
+                }
+            }
             // The circle OlfatiSaber's rules aim by: the bounds cylinder about world up (as every scene's
-            // cylinderAxis is), or under the S8 shapes the footprint's smallest enclosing circle.
+            // cylinderAxis is), or under the S8 shapes (and an S10 ellipse that is its circle) the footprint's
+            // smallest enclosing circle.
             OlfatiSaber.GetObstacleAimCircle(spreadQueryBuffer[i], manager.GetObstacleShape(),
                                              out Vector3 centre, out float radius);
             Vector3 rel = new Vector3(centre.x, 0.0f, centre.z) - centroid;

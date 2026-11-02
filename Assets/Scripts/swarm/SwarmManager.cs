@@ -258,12 +258,14 @@ public class SwarmManager : MonoBehaviour
     public float spreadFilterTime = 3.0f;
 
     // ---- S8 Footprint Avoidance (docs/swarm_shape/README.md) -------------------------------------
-    // What each building is avoided as. Values spelled out: Unity serialises enums by integer.
+    // What each building is avoided as. Values spelled out: Unity serialises enums by integer, and swarm_params maps
+    // the members by position, so a new one goes at the end with the next value.
     public enum ObstacleShape
     {
         Cylinder = 0,
         EnclosingCircle = 1,
         Footprint = 2,
+        Ellipse = 3,        // S10 Ellipse Avoidance (docs/swarm_ellipse/README.md)
     }
 
     [Header("Obstacle Shape")]
@@ -274,8 +276,18 @@ public class SwarmManager : MonoBehaviour
              "are measured from the facade. A flat face has no sideways push of its own, which is why the " +
              "cylinder was chosen; under Footprint the slide (slideRoundBuildings) supplies it, with its head-on " +
              "gate measured where the stick meets the wall. Both new shapes take the S7 rules' centre and radius " +
-             "from the footprint's enclosing circle.")]
+             "from the footprint's enclosing circle.\n\n" +
+             "Ellipse (S10): the smallest ellipse round the footprint, its aspect capped at ellipseMaxAspect, so it " +
+             "stands at a more even distance from every wall than the circle does, and the S7 rules aim by that " +
+             "ellipse. A footprint round enough to need no ellipse is avoided as its enclosing circle exactly.")]
     public ObstacleShape obstacleShape = ObstacleShape.Cylinder;
+
+    [Tooltip("S10, under obstacleShape Ellipse: the longest the ellipse may be against its width. The smallest " +
+             "ellipse round the footprint is used up to this aspect; a longer footprint gets a rounder ellipse that " +
+             "still encloses it. 1 is the enclosing circle exactly. A long ellipse has nearly flat sides, and flat " +
+             "faces are what stall a formation flown square at a building (S8).")]
+    [Range(1.0f, 2.0f)]
+    public float ellipseMaxAspect = 1.5f;
 
     public enum AttitudeAlgorithm
     {
@@ -490,8 +502,9 @@ public class SwarmManager : MonoBehaviour
     /// <summary>Whether any S7 Building Flow switch is on, i.e. whether the swarm-wide aggregates are needed.</summary>
     public bool GetBuildingFlowActive() => slideRoundBuildings || routeStragglers || adaptiveSpread;
 
-    // Getter for S8 Footprint Avoidance
+    // Getters for S8 Footprint Avoidance and S10 Ellipse Avoidance
     public ObstacleShape GetObstacleShape() => obstacleShape;
+    public float GetEllipseMaxAspect() => ellipseMaxAspect;
 
     // Getter for the altitude ceiling
     public float GetMaxHeightAboveTerrain() => maxHeightAboveTerrain;

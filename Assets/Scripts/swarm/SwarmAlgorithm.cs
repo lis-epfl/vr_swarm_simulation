@@ -376,8 +376,9 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.RouteStragglers = swarmManager.GetRouteStragglers();
             olfatiSaberAlgorithm.StragglerPressShare = swarmManager.GetStragglerPressShare();
 
-            // S8 Footprint Avoidance
+            // S8 Footprint Avoidance, S10 Ellipse Avoidance
             olfatiSaberAlgorithm.ObstacleShape = swarmManager.GetObstacleShape();
+            olfatiSaberAlgorithm.EllipseMaxAspect = swarmManager.GetEllipseMaxAspect();
 
             // Bound the obstacle force by what this drone can actually produce. Beyond the tilt
             // budget the extra demand does not move the drone any faster -- VelocityControl clamps
