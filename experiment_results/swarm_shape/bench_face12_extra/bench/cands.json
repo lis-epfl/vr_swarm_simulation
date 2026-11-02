@@ -1,0 +1,12 @@
+[
+ {
+  "label": "C35a enclosing circle + slide + adaptive, d_obs 0.35",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35,
+   "adaptiveSpread": true
+  }
+ }
+]

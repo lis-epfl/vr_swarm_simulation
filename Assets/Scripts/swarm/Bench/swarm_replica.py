@@ -27,7 +27,9 @@ Run with the `stitching` env. Output goes to <test>/results/replica/ (or --out).
 
 WHAT IT MIRRORS: OlfatiSaber.GetSwarmAcceleration (cohesion, velocity consensus, close-range damper, obstacle
 beta-agents, hollow core, the shield's projection, and S7's three switches: the slide round buildings, straggler
-routing and the adaptive spread -- slide_round, route_round, aim_miss, spread_target), SwarmPlaneController's core
+routing and the adaptive spread -- slide_round, route_round, aim_miss, spread_target -- and S8's obstacleShape: the
+bounds circle, the footprint's enclosing circle or the footprint itself -- enclosing_circle, aim_circle, the
+obstacle branches), SwarmPlaneController's core
 and spread state (centroid, mean velocity, filtered radius, filtered spread scale), VelocityControl's horizontal loop (stick resolution, shield, velocity P-loop,
 swarm-force low-pass, circular tilt clamp, tilt -> rate -> alpha cascade, linear and angular drag) and
 StateFinder's noise -- AS OF FORCE_LAW_COMMIT. Every number comes from the C# initialisers, the scene, the
@@ -80,6 +82,7 @@ import analyse  # noqa: E402  (scene_boxes: the city as a run saw it, goal tiles
 FORCE_LAW_COMMIT = "7bf41e8c"
 FORCE_LAW_FILES = [
     "Assets/Scripts/swarm/OlfatiSaber.cs",
+    "Assets/Scripts/swarm/ObstacleFootprint.cs",
     "Assets/Scripts/swarm/SwarmAlgorithm.cs",
     "Assets/Scripts/swarm/SwarmPlaneController.cs",
     "Assets/Scripts/VelocityControl/VelocityControl.cs",
@@ -177,6 +180,12 @@ def cohesion(r, dref, r0, a, b, delta):
 
 OBSTACLE_MODELS = ("cylinder", "closest")
 
+# SwarmManager.obstacleShape (S8 Footprint Avoidance): what the law avoids. Cylinder is the circle round the collider's
+# bounds (OlfatiSaber's since before S4), EnclosingCircle the smallest circle round the footprint, Footprint the
+# footprint itself (a wall beta-agent on each face, mu 1). The two new shapes take the S7 rules' centre and radius from
+# the enclosing circle (aim_circle); Footprint also measures the slide's head-on gate locally (slide_round).
+CYLINDER, ENCLOSING, FOOTPRINT = 0, 1, 2
+
 
 class Model:
     """The resolved constants under the names of the C# fields they come from, plus what
@@ -209,6 +218,12 @@ class Model:
         # S7 tuning knobs the C# fixes (see slide_round / route_round)
         self.slide_side = extras.pop("slide_side", "hidden")
         self.route_side = extras.pop("route_side", "lean")
+        # S8: under Footprint a drone not splitting round a building or hidden from the centroid slides the way its
+        # stick leans along the wall ("lean", the C#'s); "s7" keeps S7's own-side rule, which on a long facade can turn
+        # the stick back down the street (screen 1's collisions)
+        self.fp_side = extras.pop("fp_side", "lean")
+        if self.fp_side not in ("lean", "s7"):
+            raise ValueError(f"fp_side {self.fp_side!r}: lean or s7")
         if self.slide_side not in ("auto", "hidden", "own", "formation", "group"):
             raise ValueError(f"slide_side {self.slide_side!r}: auto, hidden, own, formation or group")
         if self.route_side not in ("lean", "group"):
@@ -241,6 +256,12 @@ class Model:
         self.look_ahead = float(swarm.get("surroundLookAhead", 4.0))
         self.aim_fraction = float(swarm.get("surroundAimFraction", 0.8))
         self.spread_filter = float(swarm.get("spreadFilterTime", 3.0))
+        # S8 Footprint Avoidance (.get, as S7's)
+        self.obstacle_shape = int(swarm.get("obstacleShape", CYLINDER))
+        if self.obstacle_shape not in (CYLINDER, ENCLOSING, FOOTPRINT):
+            raise ValueError(f"obstacleShape {self.obstacle_shape}: 0 Cylinder, 1 EnclosingCircle or 2 Footprint")
+        if self.obstacle_shape != CYLINDER and self.obstacle_model != "cylinder":
+            raise ValueError("obstacleShape and the replica-only obstacle_model cannot both be set")
         self.g = air["gravity"]
         self.dt = air["fixedDeltaTime"]
         self.max_tilt = min(air["maxPitch"], air["maxRoll"])
@@ -357,6 +378,8 @@ class PolyCity:
         self.W = np.zeros((self.n, K, 2))
         self.c = np.zeros((self.n, 2))
         self.R = np.zeros(self.n)
+        self.mec_c = np.zeros((self.n, 2))     # S8: the smallest circle round each footprint (enclosing_circle)
+        self.mec_R = np.zeros(self.n)
         for i, p in enumerate(polys):
             k = len(p)
             e = np.roll(p, -1, axis=0) - p
@@ -367,6 +390,7 @@ class PolyCity:
             self.V[i, k:] = self.W[i, k:] = p[-1]
             lo, hi = p.min(0), p.max(0)
             self.c[i], self.R[i] = (lo + hi) / 2, 0.5 * float(np.hypot(*(hi - lo)))
+            self.mec_c[i], self.mec_R[i] = enclosing_circle(p)
 
     def closest(self, P, B):
         """(q (n, len(B), 2) the closest point of each building's footprint to each point, d (n, len(B)) the distance;
@@ -437,6 +461,50 @@ def _signed_area(p):
     return 0.5 * float(np.dot(x, np.roll(z, -1)) - np.dot(z, np.roll(x, -1)))
 
 
+def enclosing_circle(p):
+    """(centre (2,), radius) of the smallest circle containing the points p (k, 2): the smallest of the circles on
+    two of them as a diameter or through three of them that contains them all. Brute force, exact, and quick for a
+    footprint's handful of vertices; ObstacleFootprint.EnclosingCircle is the same loop in the same order."""
+    p = np.asarray(p, float)
+    k = len(p)
+    if k == 1:
+        return p[0].copy(), 0.0
+    best_c, best_r = None, np.inf
+
+    def contains(c, r):
+        return bool((np.linalg.norm(p - c, axis=1) <= r + 1e-6).all())
+
+    for i in range(k):
+        for j in range(i + 1, k):
+            c = 0.5 * (p[i] + p[j])
+            r = float(np.linalg.norm(p[i] - c))
+            if r < best_r and contains(c, r):
+                best_c, best_r = c, r
+    for i in range(k):
+        for j in range(i + 1, k):
+            for l in range(j + 1, k):
+                bx, bz = p[j] - p[i]
+                cx, cz = p[l] - p[i]
+                det = 2.0 * (bx * cz - bz * cx)
+                if abs(det) < 1e-9:
+                    continue
+                b2, c2 = bx * bx + bz * bz, cx * cx + cz * cz
+                c = p[i] + np.array([(cz * b2 - bz * c2) / det, (bx * c2 - cx * b2) / det])
+                r = float(np.linalg.norm(p[i] - c))
+                if r < best_r and contains(c, r):
+                    best_c, best_r = c, r
+    return best_c, best_r
+
+
+def aim_circle(m, city):
+    """(c, R) of every building as the S7 rules see it: its centre and radius for aiming, side choice and the hidden
+    tests. The bounds circle under Cylinder (S7 as flown), the smallest circle round the footprint under the S8 shapes
+    (OlfatiSaber.GetObstacleAimCircle, and the frame's axisCentre / radius)."""
+    if m.obstacle_shape == CYLINDER:
+        return city.c, city.R
+    return city.mec_c, city.mec_R
+
+
 def remove_inward(v, shield):
     """OlfatiSaber.RemoveInwardComponent, for the pilot's command and the damper: fade out the part of v
     heading into each obstacle within d_shield, frame by frame in query order."""
@@ -461,7 +529,8 @@ def aim_miss(m, city, cand, cen, cmdv):
     surroundAimFraction, and the slide splits the formation in halves round one under slideSplitAimFraction."""
     if not len(cand):
         return np.zeros(0)
-    c, R = city.c[cand], city.R[cand]
+    ac, aR = aim_circle(m, city)
+    c, R = ac[cand], aR[cand]
     L = m.look_ahead * m.S
     rel = c - cen[None]
     cn = float(np.linalg.norm(cmdv))
@@ -479,7 +548,8 @@ def spread_target(m, city, cand, cen, miss):
     none ahead: in the streets."""
     if not len(cand) or (miss < m.aim_fraction).any():
         return 1.0
-    gap = np.linalg.norm(city.c[cand] - cen[None], axis=1) - city.R[cand]
+    ac, aR = aim_circle(m, city)
+    gap = np.linalg.norm(ac[cand] - cen[None], axis=1) - aR[cand]
     return m.street_factor if (gap < m.look_ahead * m.S).any() else 1.0
 
 
@@ -505,14 +575,21 @@ def slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss):
     one = np.ones(n)
     v = np.broadcast_to(cmdv, (n, 2)).copy()
     aimed = miss < m.slide_split
+    ac, aR = aim_circle(m, city)
     for w, out, k in frames:
         b = cand[k]
-        c, R = city.c[b], float(city.R[b])
+        c, R = ac[b], float(aR[b])
         tan = np.stack([out[:, 1], -out[:, 0]], -1)              # world up x outward, as MakeCylinderFrame
         inward = np.maximum(-(v * out).sum(-1), 0.0)
         to_c = c[None] - Pm
-        miss = np.abs(to_c @ nv)
-        gate = np.clip(1.0 - miss / max(m.slide_head_on * R, 1e-6), 0.0, 1.0) * ((to_c @ u) > 0)
+        if m.obstacle_shape == FOOTPRINT:
+            # S8: the gate measured where the drone meets the surface, 1 - |sin(incidence)| / slideHeadOnFraction --
+            # at a circle's surface the same number as the line below, and on a flat face the whole slide wherever
+            # the stick meets the wall square on, which is where a wall has no sideways push of its own
+            gate = np.clip(1.0 - np.abs(tan @ u) / max(m.slide_head_on, 1e-6), 0.0, 1.0)
+        else:
+            miss = np.abs(to_c @ nv)
+            gate = np.clip(1.0 - miss / max(m.slide_head_on * R, 1e-6), 0.0, 1.0) * ((to_c @ u) > 0)
         own = _sign_or(-(to_c @ nv), R, one)                     # which side of the building's centreline
         group = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
                          _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
@@ -523,7 +600,12 @@ def slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss):
             tq = np.clip((to_c * seg).sum(-1) / np.maximum((seg * seg).sum(-1), 1e-12), 0.0, 1.0)
             hid = np.linalg.norm(Pm + tq[:, None] * seg - c[None], axis=1) < R
             s = np.sign((tan @ nv) * own)
-            s = np.where(hid, group, np.where(s == 0, 1.0, s))
+            s = np.where(s == 0, 1.0, s)
+            if m.obstacle_shape == FOOTPRINT and m.fp_side == "lean":
+                # S8: along a flat face the own-side test can point back down the street; slide the way the stick
+                # already leans along the wall, the own side only when it meets the wall square on
+                s = _sign_or(tan @ u, 1.0, s)
+            s = np.where(hid, group, s)
         elif m.slide_side == "group":
             s = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
                          _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
@@ -555,8 +637,9 @@ def route_round(m, city, cand, Pm, cen, vbar, coh, fmag, unit, frames):
     if not frames:
         return v
     one = np.ones(n)
-    cs = np.array([city.c[cand[k]] for _, _, k in frames])         # (K, 2)
-    Rs = np.array([float(city.R[cand[k]]) for _, _, k in frames])
+    ac, aR = aim_circle(m, city)
+    cs = np.array([ac[cand[k]] for _, _, k in frames])             # (K, 2)
+    Rs = np.array([float(aR[cand[k]]) for _, _, k in frames])
     D = Pm[None, :, :] - Pm[:, None, :]                            # [i, j] = j - i
     L2 = np.maximum((D * D).sum(-1), 1e-12)
     rel = cs[:, None, :] - Pm[None, :, :]                          # [q, i] = c_q - p_i
@@ -665,10 +748,29 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
         dd = d / S
         found = d < m.r0_obs * S
         bo = bump(dd, m.d_obs, dl) * found
+    elif len(cand) and m.obstacle_shape == FOOTPRINT:
+        # S8 (OlfatiSaber.MakeFootprintFrame): Olfati-Saber's wall beta-agent at the footprint's closest point -- the
+        # distance to the facade itself, mu 1, the normal turning round each corner as the distance field does. A
+        # drone inside a footprint is pushed out from the enclosing circle's centre.
+        if not isinstance(city, PolyCity):
+            raise ValueError("obstacleShape Footprint is implemented for PolyCity only")
+        q, d = city.closest(Pm, cand)
+        rel = Pm[:, None, :] - q
+        from_c = Pm[:, None, :] - city.mec_c[cand][None]
+        from_c_dir = from_c / np.maximum(np.linalg.norm(from_c, axis=-1), 1e-9)[..., None]
+        out = np.where((d > 1e-4)[..., None], rel / np.maximum(d, 1e-9)[..., None], from_c_dir)
+        tan = np.stack([out[..., 1], -out[..., 0]], -1)
+        mu = np.ones_like(d)
+        dd = d / S
+        found = d < m.r0_obs * S
+        bo = bump(dd, m.d_obs, dl) * found
     elif len(cand):
-        rel = Pm[:, None, :] - city.c[cand][None]
+        if m.obstacle_shape == ENCLOSING and not isinstance(city, PolyCity):
+            raise ValueError("obstacleShape EnclosingCircle is implemented for PolyCity only")
+        ac, aR = aim_circle(m, city)
+        rel = Pm[:, None, :] - ac[cand][None]
         rho = np.linalg.norm(rel, axis=-1)
-        R = city.R[cand][None]
+        R = aR[cand][None]
         found = (city.distance(Pm, cand, alt) < m.r0_obs * S) & (rho >= 1e-4)   # OverlapSphere, valid frame
         out = rel / np.maximum(rho, 1e-4)[..., None]
         tan = np.stack([out[..., 1], -out[..., 0]], -1)                         # world up x outward

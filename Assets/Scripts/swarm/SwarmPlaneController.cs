@@ -494,9 +494,10 @@ public class SwarmPlaneController : MonoBehaviour
         bool amongBuildings = false;
         for (int i = 0; i < count; i++)
         {
-            // The cylinder OlfatiSaber flies round, about world up as every scene's cylinderAxis is.
-            OlfatiSaber.GetObstacleCylinder(spreadQueryBuffer[i], Vector3.up,
-                                            out Vector3 centre, out _, out float radius, out _);
+            // The circle OlfatiSaber's rules aim by: the bounds cylinder about world up (as every scene's
+            // cylinderAxis is), or under the S8 shapes the footprint's smallest enclosing circle.
+            OlfatiSaber.GetObstacleAimCircle(spreadQueryBuffer[i], manager.GetObstacleShape(),
+                                             out Vector3 centre, out float radius);
             Vector3 rel = new Vector3(centre.x, 0.0f, centre.z) - centroid;
             if (rel.magnitude - radius < lookAhead)
                 amongBuildings = true;

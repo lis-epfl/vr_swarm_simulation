@@ -113,6 +113,7 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     private Vector3 _axis;
     private float _scaleFactor;
     private float _dObs;
+    private SwarmManager.ObstacleShape _shape;
 
     // The drone the labels quote a distance from, and the per-frame label budget.
     private bool _hasReference;
@@ -177,6 +178,11 @@ public class ObstacleCylinderGizmos : MonoBehaviour
             _scaleFactor = fallbackScaleFactor;
             _dObs = fallbackDObs;
         }
+
+        // The shape is pushed into OlfatiSaber only at Play, so in edit mode SwarmManager's field is the truth.
+        SwarmManager manager = FindAnyObjectByType<SwarmManager>();
+        _shape = Application.isPlaying && source != null ? source.ObstacleShape
+               : manager != null ? manager.obstacleShape : SwarmManager.ObstacleShape.Cylinder;
 
         if (_axis.sqrMagnitude < 1e-8f) _axis = Vector3.up;
         if (_scaleFactor <= 0.0f) _scaleFactor = 1.0f;
@@ -284,9 +290,26 @@ public class ObstacleCylinderGizmos : MonoBehaviour
 
     private void DrawObstacle(Collider obstacle)
     {
-        OlfatiSaber.GetObstacleCylinder(obstacle, _axis,
-                                        out Vector3 centre, out Vector3 axis,
-                                        out float radius, out float halfHeight);
+        if (_shape == SwarmManager.ObstacleShape.Footprint)
+        {
+            DrawFootprint(obstacle);
+            return;
+        }
+
+        Vector3 centre, axis;
+        float radius, halfHeight;
+        if (_shape == SwarmManager.ObstacleShape.EnclosingCircle)
+        {
+            ObstacleFootprint.Footprint fp = ObstacleFootprint.Get(obstacle);
+            centre = new Vector3(fp.circleCentre.x, fp.centreY, fp.circleCentre.y);
+            axis = Vector3.up;
+            radius = fp.circleRadius;
+            halfHeight = fp.halfHeight;
+        }
+        else
+        {
+            OlfatiSaber.GetObstacleCylinder(obstacle, _axis, out centre, out axis, out radius, out halfHeight);
+        }
 
         if (drawBounds)
         {
@@ -305,6 +328,54 @@ public class ObstacleCylinderGizmos : MonoBehaviour
         {
             Gizmos.color = guideColour;
             DrawCylinder(centre, axis, radius + _dObs * _scaleFactor, halfHeight);
+        }
+    }
+
+    // S8 Footprint: the footprint the law avoids, top and bottom outlines with its corners, and with
+    // drawRepulsionShell the line d_obs out from it (each face moved out, each corner an arc) where the
+    // field takes hold.
+    private void DrawFootprint(Collider obstacle)
+    {
+        ObstacleFootprint.Footprint fp = ObstacleFootprint.Get(obstacle);
+        Vector2[] poly = fp.polygon;
+        float yTop = fp.centreY + fp.halfHeight, yBottom = fp.centreY - fp.halfHeight;
+
+        if (drawBounds)
+        {
+            Gizmos.color = guideColour;
+            Gizmos.DrawWireCube(obstacle.bounds.center, obstacle.bounds.size);
+        }
+
+        Gizmos.color = cylinderColour;
+        for (int e = 0; e < poly.Length; e++)
+        {
+            Vector2 a = poly[e], b = poly[(e + 1) % poly.Length];
+            Gizmos.DrawLine(new Vector3(a.x, yTop, a.y), new Vector3(b.x, yTop, b.y));
+            Gizmos.DrawLine(new Vector3(a.x, yBottom, a.y), new Vector3(b.x, yBottom, b.y));
+            Gizmos.DrawLine(new Vector3(a.x, yBottom, a.y), new Vector3(a.x, yTop, a.y));
+        }
+
+        if (!drawRepulsionShell) return;
+        float r = _dObs * _scaleFactor;
+        Gizmos.color = guideColour;
+        for (int e = 0; e < poly.Length; e++)
+        {
+            Vector2 a = poly[e], b = poly[(e + 1) % poly.Length], c = poly[(e + 2) % poly.Length];
+            Vector2 n1 = new Vector2(b.y - a.y, a.x - b.x).normalized;     // outward, counter-clockwise
+            Vector2 n2 = new Vector2(c.y - b.y, b.x - c.x).normalized;
+            Vector2 p = a + n1 * r, q = b + n1 * r;
+            Gizmos.DrawLine(new Vector3(p.x, yTop, p.y), new Vector3(q.x, yTop, q.y));
+            float a1 = Mathf.Atan2(n1.y, n1.x), a2 = Mathf.Atan2(n2.y, n2.x);
+            if (a2 < a1) a2 += 2.0f * Mathf.PI;
+            int steps = Mathf.Max(1, Mathf.CeilToInt((a2 - a1) / (2.0f * Mathf.PI) * circleSegments));
+            Vector2 prev = q;
+            for (int i = 1; i <= steps; i++)
+            {
+                float t = a1 + (a2 - a1) * i / steps;
+                Vector2 next = b + r * new Vector2(Mathf.Cos(t), Mathf.Sin(t));
+                Gizmos.DrawLine(new Vector3(prev.x, yTop, prev.y), new Vector3(next.x, yTop, next.y));
+                prev = next;
+            }
         }
     }
 
@@ -420,7 +491,9 @@ public class ObstacleCylinderGizmos : MonoBehaviour
             // labels used to say.
             Vector3 axisFoot = frame.axisCentre + frame.axis * Vector3.Dot(position - frame.axisCentre, frame.axis);
             Gizmos.color = cylinderColour;
-            Gizmos.DrawLine(position, axisFoot + frame.outward * frame.radius);
+            Gizmos.DrawLine(position, frame.localGate
+                ? position - frame.outward * frame.distance * _scaleFactor     // the footprint's closest point
+                : axisFoot + frame.outward * frame.radius);
 
             if (drawFrameAxes)
             {

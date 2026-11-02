@@ -1472,14 +1472,14 @@ status, dates), each study's page links, the code names, how to rebuild each pag
 work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
 output folders keep the code names, and so do the sections below.
 
-| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow |
-|---|---|---|---|---|---|---|---|
-| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study |
-| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) |
-| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) |
-| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` |
-| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` |
-| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) |
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance |
+|---|---|---|---|---|---|---|---|---|
+| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) |
 
 All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
 (source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
@@ -2106,6 +2106,40 @@ the manual**; the harness is `citysim/swarmflow.py` on S6's flights and measures
   screens' alternatives as `Model` extras (`slide_side`, `route_side`). citysim's harnesses have no `--allow-stale`
   flag, so `SWARM_REPLICA_ALLOW_STALE=1` is theirs, for flying a change to the law before it is committed and
   `FORCE_LAW_COMMIT` bumped.
+
+## S8 Footprint Avoidance: what each building is avoided as
+
+`SwarmManager.obstacleShape` chooses what the Olfati-Saber law avoids each building as: `Cylinder` (0, the circle round
+the collider's axis-aligned bounds, as always and in every scene), `EnclosingCircle` (1, the smallest circle round the
+footprint) or `Footprint` (2, the footprint itself). **[docs/swarm_shape/README.md](docs/swarm_shape/README.md) is the
+manual**; the harness is `citysim/swarmshape.py` on S7's, the outputs `experiment_results/swarm_shape/`. Invariants:
+- **`Cylinder` is the law exactly as before**: the replica re-flew 120 of S7's stored confirmation flights bit for bit.
+  The enum's values are spelled out (Unity serialises enums by integer) and it is declared in SwarmManager.cs, where
+  `swarm_params` parses it.
+- **The footprint comes from the collider, cached once per collider** (`ObstacleFootprint`): the hull of a convex
+  `MeshCollider`'s `sharedMesh` (never the MeshFilter's, which static batching swaps), a `BoxCollider`'s corners, else
+  the bounds rectangle; the enclosing circle is a brute-force search over the hull (`swarm_replica.enclosing_circle` is
+  the same loop). Obstacles are assumed static; `ObstacleFootprint.Clear()` exists for a scene that moves them.
+- **There is no margin, by design**: a margin is a second name for `d_obs + m` (the σ₁ term of φ_β is identical, and
+  c_obs saturates the force within a few tenths of a metre). The standoff is `d_obs`, measured from the shape in force,
+  so a tighter shape at the same `d_obs` lets drones nearer the facades.
+- **S7's rules aim by the enclosing circle under both new shapes** (the frame's `axisCentre`/`radius`,
+  `OlfatiSaber.GetObstacleAimCircle` for `SpreadTarget`). Under `Footprint` only, the slide's head-on gate is local
+  (`ObstacleFrame.localGate`: `1 − |û·t̂| / slideHeadOnFraction`, S7's gate exactly at a circle's surface) and a drone
+  not splitting or hidden slides the way its stick leans along the wall.
+- **`Footprint` is not usable here, and the reason is the reason the cylinder exists.** Without the slide a formation
+  flown square at a wall stalls (the user's first city, with bounding boxes); with the slide, drones slide along flat
+  faces in single file 1–2 m off them and collide (1.55 drones lost per km against 0.23, 21× the contacts). A larger
+  standoff moves the lane out and loses more. Keep any replacement shape curved (lesson 43).
+- **`EnclosingCircle` with the slide and `d_obs` 0.35 (C35) is the recommendation**: the street left between two
+  buildings goes from a median 14 m to 20 m, the streets' cohesive speed +9% over the bounds circles with the slide in
+  the replica and +17% in Unity, a tenth of the losses, the split round a wall as quick; in Unity no drone lost and 5
+  contacts in 100 flights (bounds circles 2 and 14). At `d_obs` 0.16 it touches buildings twice as often. The rule's
+  pick added the adaptive spread (C35a: +20% in the replica's streets with no extra losses), but in Unity that lost 3
+  pairs in 100 flights against none, so it is the user's call. The scene has not been changed.
+- **The head-on flight (`swarmshape` kind `face`) is the test for any obstacle shape**: from open ground 50 m out along
+  a straight edge face's normal, aimed through the building, timed from arrival to the split round both ends. The
+  city's interior has no 50 m run-in, so the faces are on its edge.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

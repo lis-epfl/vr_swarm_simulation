@@ -1,0 +1,59 @@
+[
+ {
+  "label": "B2b footprint + slide (lean), d_obs 0.25, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25,
+   "x:fp_side": "lean"
+  }
+ },
+ {
+  "label": "B2c footprint + slide (lean), d_obs 0.35, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35,
+   "x:fp_side": "lean"
+  }
+ },
+ {
+  "label": "B2d footprint + slide (lean), d_obs 0.5, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.5,
+   "x:fp_side": "lean"
+  }
+ },
+ {
+  "label": "C2b enclosing circle + slide, d_obs 0.25, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  }
+ },
+ {
+  "label": "C2c enclosing circle + slide, d_obs 0.35, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35
+  }
+ },
+ {
+  "label": "C2s enclosing circle + slide, d_shield 2.0, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_shield": 2.0
+  }
+ }
+]

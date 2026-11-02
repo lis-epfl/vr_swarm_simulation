@@ -71,6 +71,11 @@ public class OlfatiSaber : MonoBehaviour
     /// <summary>The spread in force this tick: d_ref (the scene's or the pilot's dial) times the adaptive scale.</summary>
     public float EffectiveDRef => d_ref * SpreadScale;
 
+    // ---- S8 Footprint Avoidance ----------------------------------------------------------------
+    // What each building is avoided as (SwarmManager.obstacleShape), pushed with the other settings.
+    // Cylinder is the law as it was on every path.
+    [HideInInspector] public SwarmManager.ObstacleShape ObstacleShape = SwarmManager.ObstacleShape.Cylinder;
+
     public float delta = 0.1f;
     public float a = 0.9f;
     public float b = 1.5f;
@@ -427,6 +432,11 @@ public class OlfatiSaber : MonoBehaviour
         public Vector3 axis;
         public float radius;
         public float axisHalfHeight;
+
+        // S8: a Footprint frame (a face or corner of the footprint itself). axisCentre / radius then hold the
+        // footprint's smallest enclosing circle, which the S7 rules aim by, and the slide's head-on gate is measured
+        // locally, where the stick meets the surface (SlideRoundObstacles).
+        public bool localGate;
     }
 
     // The cylinder standing in for one obstacle. Static and drone-free so the debug gizmos can
@@ -482,6 +492,91 @@ public class OlfatiSaber : MonoBehaviour
         // it has already crashed and there is nothing useful to push it along.
         return MakeCylinderFrame(centre, axis, radius, halfHeight, dronePosition, scaleFactor,
                                  Vector3.zero);
+    }
+
+    /// <summary>
+    /// The frame for an obstacle avoided as <paramref name="shape"/> (SwarmManager.obstacleShape, S8). Cylinder is
+    /// <see cref="ComputeObstacleFrame(Collider, Vector3, Vector3, float)"/> exactly; EnclosingCircle the same
+    /// cylinder frame on the smallest circle round the footprint, about world up; Footprint
+    /// <see cref="MakeFootprintFrame"/>.
+    /// </summary>
+    public static ObstacleFrame ComputeObstacleFrame(Collider obstacleCollider, Vector3 dronePosition,
+                                                     Vector3 cylinderAxis, float scaleFactor,
+                                                     SwarmManager.ObstacleShape shape)
+    {
+        if (shape == SwarmManager.ObstacleShape.Cylinder)
+            return ComputeObstacleFrame(obstacleCollider, dronePosition, cylinderAxis, scaleFactor);
+        ObstacleFootprint.Footprint fp = ObstacleFootprint.Get(obstacleCollider);
+        if (shape == SwarmManager.ObstacleShape.EnclosingCircle)
+        {
+            Vector3 centre = new Vector3(fp.circleCentre.x, fp.centreY, fp.circleCentre.y);
+            return MakeCylinderFrame(centre, Vector3.up, fp.circleRadius, fp.halfHeight, dronePosition, scaleFactor,
+                                     Vector3.zero);
+        }
+        return MakeFootprintFrame(fp, dronePosition, scaleFactor);
+    }
+
+    /// <summary>
+    /// The beta-agent on the footprint itself: Olfati-Saber's wall (his hyperplane case) at the footprint's closest
+    /// point, so the distance is to the facade, mu is 1 -- the beta-agent keeps the drone's tangential velocity and
+    /// only the approach speed is matched away -- and the normal turns round each corner as the distance field does.
+    /// A drone inside a footprint is pushed out from the enclosing circle's centre, and one exactly there gets no
+    /// frame, as on the cylinder's axis.
+    ///
+    /// <para>A flat face has no sideways push of its own, which is why the cylinder was chosen (see above): under this
+    /// shape the slide supplies it, its gate measured where the stick meets the wall (<see cref="SlideRoundObstacles"/>).
+    /// axisCentre and radius carry the enclosing circle for the S7 rules, which aim by a centre and a size.</para>
+    /// </summary>
+    public static ObstacleFrame MakeFootprintFrame(ObstacleFootprint.Footprint fp, Vector3 dronePosition,
+                                                   float scaleFactor)
+    {
+        ObstacleFrame frame = new ObstacleFrame();
+        frame.axisCentre = new Vector3(fp.circleCentre.x, fp.centreY, fp.circleCentre.y);
+        frame.axis = Vector3.up;
+        frame.radius = fp.circleRadius;
+        frame.axisHalfHeight = fp.halfHeight;
+        frame.localGate = true;
+
+        Vector2 p = new Vector2(dronePosition.x, dronePosition.z);
+        float d = ObstacleFootprint.Closest(fp, p, out Vector2 q);
+        Vector2 outward;
+        if (d > 1e-4f)
+        {
+            outward = (p - q) / d;
+        }
+        else
+        {
+            Vector2 fromCentre = p - fp.circleCentre;
+            float m = fromCentre.magnitude;
+            if (m < 1e-9f)
+                return frame;
+            outward = fromCentre / m;
+        }
+
+        frame.valid = true;
+        frame.outward = new Vector3(outward.x, 0.0f, outward.y);
+        frame.tangent = Vector3.Cross(frame.axis, frame.outward);
+        frame.mu = 1.0f;
+        frame.distance = d / scaleFactor;
+        return frame;
+    }
+
+    /// <summary>
+    /// The centre and radius the S7 rules aim by for an obstacle under <paramref name="shape"/>: the bounds cylinder
+    /// under Cylinder (about world up, as every scene's cylinderAxis is), the footprint's smallest enclosing circle
+    /// under the S8 shapes -- what a frame's axisCentre / radius carry. Used by SwarmPlaneController's adaptive spread.
+    /// </summary>
+    public static void GetObstacleAimCircle(Collider obstacleCollider, SwarmManager.ObstacleShape shape,
+                                            out Vector3 centre, out float radius)
+    {
+        if (shape == SwarmManager.ObstacleShape.Cylinder)
+        {
+            GetObstacleCylinder(obstacleCollider, Vector3.up, out centre, out _, out radius, out _);
+            return;
+        }
+        ObstacleFootprint.Footprint fp = ObstacleFootprint.Get(obstacleCollider);
+        centre = new Vector3(fp.circleCentre.x, fp.centreY, fp.circleCentre.y);
+        radius = fp.circleRadius;
     }
 
     /// <summary>
@@ -546,7 +641,7 @@ public class OlfatiSaber : MonoBehaviour
 
     public ObstacleFrame GetObstacleFrame(Collider obstacleCollider, Vector3 dronePosition)
     {
-        return ComputeObstacleFrame(obstacleCollider, dronePosition, cylinderAxis, ScaleFactor);
+        return ComputeObstacleFrame(obstacleCollider, dronePosition, cylinderAxis, ScaleFactor, ObstacleShape);
     }
 
     // One obstacle's two contributions, before the c_obs / c2_beta gains. Split out so the gizmos
@@ -737,10 +832,22 @@ public class OlfatiSaber : MonoBehaviour
 
             Vector3 centre = Flat(frame.axisCentre);
             Vector3 toCentre = centre - p;
-            float miss = Mathf.Abs(Vector3.Dot(toCentre, left));
-            float gate = Vector3.Dot(toCentre, u) > 0.0f
-                ? Mathf.Clamp01(1.0f - miss / Mathf.Max(SlideHeadOnFraction * frame.radius, 1e-6f))
-                : 0.0f;
+            float gate;
+            if (frame.localGate)
+            {
+                // S8 Footprint: 1 - |sin(incidence)| / SlideHeadOnFraction where the stick meets the surface -- at a
+                // circle's surface the same number as below, and on a flat face the whole slide wherever the stick
+                // meets the wall square on, which is where a wall has no sideways push of its own.
+                gate = Mathf.Clamp01(1.0f - Mathf.Abs(Vector3.Dot(u, frame.tangent))
+                                     / Mathf.Max(SlideHeadOnFraction, 1e-6f));
+            }
+            else
+            {
+                float miss = Mathf.Abs(Vector3.Dot(toCentre, left));
+                gate = Vector3.Dot(toCentre, u) > 0.0f
+                    ? Mathf.Clamp01(1.0f - miss / Mathf.Max(SlideHeadOnFraction * frame.radius, 1e-6f))
+                    : 0.0f;
+            }
 
             float own = SignOr(-Vector3.Dot(toCentre, left), frame.radius, 1.0f);
             float side;
@@ -758,6 +865,11 @@ public class OlfatiSaber : MonoBehaviour
             else
             {
                 side = Vector3.Dot(frame.tangent, left) * own < 0.0f ? -1.0f : 1.0f;
+                // S8 Footprint: along a flat face the own-side test can point back down the street (a long facade
+                // whose centre lies past the stick's line), which sent drones into the ones behind them. Slide the
+                // way the stick already leans along the wall; the own side only when it meets the wall square on.
+                if (frame.localGate)
+                    side = SignOr(Vector3.Dot(frame.tangent, u), 1.0f, side);
             }
 
             v += w * inward * frame.outward + gate * w * inward * side * frame.tangent;

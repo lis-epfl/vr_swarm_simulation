@@ -1,0 +1,67 @@
+{
+ "110c44ba9d": {
+  "over": {},
+  "d": 1.2,
+  "label": "A0 cylinder (the scene today), d_ref 1.2"
+ },
+ "b542245bd1": {
+  "over": {
+   "slideRoundBuildings": true
+  },
+  "d": 1.2,
+  "label": "A1 cylinder + slide, d_ref 1.2"
+ },
+ "ec9d526c73": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 1.2,
+  "label": "B2 footprint + slide, d_obs 0.25, d_ref 1.2"
+ },
+ "66483e418d": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true
+  },
+  "d": 1.2,
+  "label": "C16 enclosing circle + slide, d_ref 1.2"
+ },
+ "a12e80e0c8": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 1.2,
+  "label": "C25 enclosing circle + slide, d_obs 0.25, d_ref 1.2"
+ },
+ "2087a47137": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35
+  },
+  "d": 1.2,
+  "label": "C35 enclosing circle + slide, d_obs 0.35, d_ref 1.2"
+ },
+ "0d6e433aa4": {
+  "over": {
+   "obstacleShape": 2,
+   "d_obs": 0.25
+  },
+  "d": 1.2,
+  "label": "B0 footprint, no slide, d_obs 0.25, d_ref 1.2"
+ },
+ "1593932b3d": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35,
+   "adaptiveSpread": true
+  },
+  "d": 1.2,
+  "label": "C35a enclosing circle + slide + adaptive, d_obs 0.35, d_ref 1.2"
+ }
+}

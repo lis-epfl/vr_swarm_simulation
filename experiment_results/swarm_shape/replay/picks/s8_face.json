@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s8_face",
+  "kind": "face",
+  "k": 9015,
+  "title": "Problem: square on at a wall",
+  "first": "b0",
+  "met": 1,
+  "why": "the square-on approach where the footprint without the slide took longest to get past its building in Unity (14 s from arriving, censored at 40)"
+ },
+ "flights": {
+  "single_cyl": [
+   "s8_face_single_cyl_replica",
+   "s8_face_single_cyl_unity"
+  ],
+  "single_enc": [
+   "s8_face_single_enc_replica",
+   "s8_face_single_enc_unity"
+  ],
+  "a0": [
+   "s8_face_a0_replica",
+   "s8_face_a0_unity"
+  ],
+  "a1": [
+   "s8_face_a1_replica",
+   "s8_face_a1_unity"
+  ],
+  "b2": [
+   "s8_face_b2_replica",
+   "s8_face_b2_unity"
+  ],
+  "c": [
+   "s8_face_c_replica",
+   "s8_face_c_unity"
+  ],
+  "b0": [
+   "s8_face_b0_replica",
+   "s8_face_b0_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

@@ -1,0 +1,12 @@
+[
+ {"label": "A0 cylinder (the scene today)", "d": 2.0, "over": {}},
+ {"label": "A1 cylinder + slide", "d": 2.0, "over": {"slideRoundBuildings": true}},
+ {"label": "B2 footprint + slide, d_obs 0.25", "d": 2.0, "over": {"obstacleShape": 2, "slideRoundBuildings": true, "d_obs": 0.25}},
+ {"label": "C16 enclosing circle + slide", "d": 2.0, "over": {"obstacleShape": 1, "slideRoundBuildings": true}},
+ {"label": "C25 enclosing circle + slide, d_obs 0.25", "d": 2.0, "over": {"obstacleShape": 1, "slideRoundBuildings": true, "d_obs": 0.25}},
+ {"label": "C35 enclosing circle + slide, d_obs 0.35", "d": 2.0, "over": {"obstacleShape": 1, "slideRoundBuildings": true, "d_obs": 0.35}},
+ {"label": "A1a cylinder + slide + adaptive", "d": 2.0, "over": {"slideRoundBuildings": true, "adaptiveSpread": true}},
+ {"label": "C16a enclosing circle + slide + adaptive", "d": 2.0, "over": {"obstacleShape": 1, "slideRoundBuildings": true, "adaptiveSpread": true}},
+ {"label": "C25a enclosing circle + slide + adaptive, d_obs 0.25", "d": 2.0, "over": {"obstacleShape": 1, "slideRoundBuildings": true, "d_obs": 0.25, "adaptiveSpread": true}},
+ {"label": "C35a enclosing circle + slide + adaptive, d_obs 0.35", "d": 2.0, "over": {"obstacleShape": 1, "slideRoundBuildings": true, "d_obs": 0.35, "adaptiveSpread": true}}
+]

@@ -257,6 +257,26 @@ public class SwarmManager : MonoBehaviour
              "feature turns on.")]
     public float spreadFilterTime = 3.0f;
 
+    // ---- S8 Footprint Avoidance (docs/swarm_shape/README.md) -------------------------------------
+    // What each building is avoided as. Values spelled out: Unity serialises enums by integer.
+    public enum ObstacleShape
+    {
+        Cylinder = 0,
+        EnclosingCircle = 1,
+        Footprint = 2,
+    }
+
+    [Header("Obstacle Shape")]
+    [Tooltip("What the swarm avoids each building as. Cylinder: the circle round the collider's axis-aligned " +
+             "bounds, as always -- in BlockShapedPatchCityWorld it reaches a median 8.8 m past the facade and " +
+             "leaves 14 m of a 25 m street. EnclosingCircle: the smallest circle round the building's footprint. " +
+             "Footprint: the footprint itself, Olfati-Saber's wall beta-agent on each face, so d_obs and d_shield " +
+             "are measured from the facade. A flat face has no sideways push of its own, which is why the " +
+             "cylinder was chosen; under Footprint the slide (slideRoundBuildings) supplies it, with its head-on " +
+             "gate measured where the stick meets the wall. Both new shapes take the S7 rules' centre and radius " +
+             "from the footprint's enclosing circle.")]
+    public ObstacleShape obstacleShape = ObstacleShape.Cylinder;
+
     public enum AttitudeAlgorithm
     {
         NONE,
@@ -469,6 +489,9 @@ public class SwarmManager : MonoBehaviour
 
     /// <summary>Whether any S7 Building Flow switch is on, i.e. whether the swarm-wide aggregates are needed.</summary>
     public bool GetBuildingFlowActive() => slideRoundBuildings || routeStragglers || adaptiveSpread;
+
+    // Getter for S8 Footprint Avoidance
+    public ObstacleShape GetObstacleShape() => obstacleShape;
 
     // Getter for the altitude ceiling
     public float GetMaxHeightAboveTerrain() => maxHeightAboveTerrain;

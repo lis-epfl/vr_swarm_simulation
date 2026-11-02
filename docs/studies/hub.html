@@ -76,7 +76,7 @@ tr:last-child td { border-bottom: 0; }
     <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span></div>
   </header>
 
   <section>
@@ -233,6 +233,27 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+      <article class="study">
+        <header><span class="id">S8</span><h3>Footprint Avoidance</h3><span class="was">the shape study · 1–2 Nov 2026</span><span class="status done">Done · the enclosing circle recommended</span></header>
+        <div>
+          <p class="q">The force law avoids each building as the circle round its bounding box, which reaches into BlockShapedPatchCityWorld's streets. With S7's slide on, is a tighter shape better: the building's footprint itself, or the smallest circle round it? The cylinder was chosen because a flat wall gave a swarm flown square at it no sideways push; does that still hold?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick; losses are rare, and a tenth of a drone per km is near the noise of ~100 km per setting.</li>
+            <li>The rule's pick sits exactly at its contact bound; route stragglers was left off by design.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S8_footprint_avoidance.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The bounds circles leave a median 14 m of the 25 m between two facades. Half of the drones S7 lost went down where they leave under 10 m, a place the drones spent a tenth of their time.</li>
+            <li>The footprint fails for the cylinder's own reason: without the slide a formation flown square at a wall took 20 s to split round it (3.8 s with the circles); with the slide drones line up along the walls and collide (54 lost against 2 in 100 Unity flights).</li>
+            <li>The smallest circle round each footprint keeps the curvature and leaves 20 m: with the slide the streets are 9–15% faster, a tenth of the drones are lost, and the split round a wall is as quick; the cost is building contacts, which a standoff of 0.35 holds down (Unity: none lost, 5 contacts in 100 flights).</li>
+            <li>The rule picked it with the adaptive spread too (20% faster in the replica's streets than S7's pick, no extra losses), but in Unity that lost 3 pairs in 100 flights against none without it; the recommendation is the enclosing circle with the slide and d_obs 0.35, the adaptive spread optional. Both trial conditions change together.</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -280,6 +301,8 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Gate a rule that moves the whole formation on where it is going</b>: S7's slide split in halves everywhere broke up the street flights at every turn. <span class="tag">S7</span></li>
           <li><b>Redirect only the part of a force that causes the failure</b>, found by attributing forces at the failure. <span class="tag">S7</span></li>
           <li><b>A spread that changes in flight inherits the narrowest spread's collisions</b>, and adds its own in the transitions. <span class="tag">S7</span></li>
+          <li><b>A tighter obstacle shape must keep its curvature</b>: flat faces stall a formation without the slide and line drones up to collide with it. <span class="tag">S8</span></li>
+          <li><b>Bound a safety measure by the configuration the scene flies</b>, and report every bar a candidate misses. <span class="tag">S8</span></li>
         </ol>
       </section>
       <section>
@@ -316,21 +339,22 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S5</b> Block-Shaped Surround</td><td><code>docs/studies/S5_block_shaped_surround.md</code></td><td><code>docs/shaped_study/</code></td><td><code>citysim/shaped.py</code></td><td><code>experiment_results/shaped_study/</code></td></tr>
         <tr><td><b class="mono">S6</b> Patch City Tuning</td><td><code>docs/studies/S6_patch_city_tuning.md</code></td><td><code>docs/swarm_tune/</code></td><td><code>citysim/swarmtune.py</code></td><td><code>experiment_results/swarm_tune/</code></td></tr>
         <tr><td><b class="mono">S7</b> Building Flow</td><td><code>docs/studies/S7_building_flow.md</code></td><td><code>docs/swarm_flow/</code></td><td><code>citysim/swarmflow.py</code>; <code>OlfatiSaber.cs</code>, <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_flow/</code></td></tr>
+        <tr><td><b class="mono">S8</b> Footprint Avoidance</td><td><code>docs/studies/S8_footprint_avoidance.md</code></td><td><code>docs/swarm_shape/</code></td><td><code>citysim/swarmshape.py</code>; <code>ObstacleFootprint.cs</code>, <code>OlfatiSaber.cs</code></td><td><code>experiment_results/swarm_shape/</code></td></tr>
       </tbody>
     </table></div>
-    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow), so nothing that reads them broke.</p>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape), so nothing that reads them broke.</p>
   </section>
 
   <section>
     <h2>Starting a new study</h2>
     <ol class="steps">
       <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
-      <li>Take the next ID (S8), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S8_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Take the next ID (S9), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S9_&lt;slug&gt;.md</code> and add it to the table there.</li>
       <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
       <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
       <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>
     </ol>
   </section>
 
-  <footer class="foot">Last updated 31 October 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
+  <footer class="foot">Last updated 2 November 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
 </div>

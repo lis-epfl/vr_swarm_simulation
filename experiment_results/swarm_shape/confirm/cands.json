@@ -1,0 +1,133 @@
+{
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "A0 cylinder (the scene today)"
+ },
+ "006dd3cc37": {
+  "over": {
+   "slideRoundBuildings": true
+  },
+  "d": 2.0,
+  "label": "A1 cylinder + slide"
+ },
+ "9ba9bfea0f": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 2.0,
+  "label": "B2 footprint + slide, d_obs 0.25"
+ },
+ "119ee3882e": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true
+  },
+  "d": 2.0,
+  "label": "C16 enclosing circle + slide"
+ },
+ "f631936507": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 2.0,
+  "label": "C25 enclosing circle + slide, d_obs 0.25"
+ },
+ "1ddc4eed60": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35
+  },
+  "d": 2.0,
+  "label": "C35 enclosing circle + slide, d_obs 0.35"
+ },
+ "7377e0daa3": {
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "A1a cylinder + slide + adaptive"
+ },
+ "3310a422b3": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "C16a enclosing circle + slide + adaptive"
+ },
+ "a95a7de967": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "C25a enclosing circle + slide + adaptive, d_obs 0.25"
+ },
+ "27754bf811": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35,
+   "adaptiveSpread": true
+  },
+  "d": 2.0,
+  "label": "C35a enclosing circle + slide + adaptive, d_obs 0.35"
+ },
+ "single-1a08c05a10": {
+  "over": {},
+  "d": 2.0,
+  "label": "one drone, A0 cylinder (the scene today)"
+ },
+ "single-68f4dfc327": {
+  "over": {
+   "slideRoundBuildings": true
+  },
+  "d": 2.0,
+  "label": "one drone, A1 cylinder + slide"
+ },
+ "single-2145ca7c86": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 2.0,
+  "label": "one drone, B2 footprint + slide, d_obs 0.25"
+ },
+ "single-f5911edc57": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true
+  },
+  "d": 2.0,
+  "label": "one drone, C16 enclosing circle + slide"
+ },
+ "single-01aa81af33": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 2.0,
+  "label": "one drone, C25 enclosing circle + slide, d_obs 0.25"
+ },
+ "single-8022ba9f9f": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35
+  },
+  "d": 2.0,
+  "label": "one drone, C35 enclosing circle + slide, d_obs 0.35"
+ }
+}

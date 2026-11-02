@@ -117,3 +117,9 @@ experiment_results/swarm_tune/swarm_tune.html
 experiment_results/swarm_flow/**/results.jsonl
 experiment_results/swarm_flow/**/gate.jsonl
 experiment_results/swarm_flow/swarm_flow.html
+# S8 Footprint Avoidance: the same (and S7's events re-flown, flights.jsonl); gaps.csv, the tables, the rule, the
+# candidate files, verdicts, the events summary and the bench gate tables committed.
+experiment_results/swarm_shape/**/results.jsonl
+experiment_results/swarm_shape/**/gate.jsonl
+experiment_results/swarm_shape/s7_events/flights.jsonl
+experiment_results/swarm_shape/swarm_shape.html

@@ -2,7 +2,7 @@
 
 Refinements the studies identified, for whoever designs the next one. Each says what went wrong or what to watch,
 what to do instead, and the study it came from (S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming, S4 Split
-and Surround, S5 Block-Shaped Surround, S6 Patch City Tuning, S7 Building Flow). Add new
+and Surround, S5 Block-Shaped Surround, S6 Patch City Tuning, S7 Building Flow, S8 Footprint Avoidance). Add new
 ones with the study's ID; mark one **Applied** once the code does it by default.
 
 ## Measures
@@ -171,6 +171,21 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     km against 0.04 in the replica and 8 against 2 in 64 Unity flights, pairs squeezed by two buildings' fields in tight
     gaps, five of nine while the formation was narrowing or widening. Before a dynamic spread, check the static spread it
     narrows to in the same city, and locate its losses against the spread's changes. (S7)
+43. **A tighter obstacle shape must keep its curvature.** S8 tried the building's footprint itself, Olfati-Saber's wall on
+    each face, to give the streets back. Without S7's slide, a formation flown square at a wall split round it in 22 s
+    against 6 (half never split within 40 s): the stall the user's first city had with bounding boxes, and the reason the
+    cylinder was chosen. With the slide it moved, but drones sliding along a flat face settled in single file 1–2 m off
+    it and ran into the one ahead, pinned in a pocket between two faces or slowed at a corner: 1.55 drones lost per km
+    against 0.23, 21 times the contacts. A larger standoff only moved the lane out. The smallest circle round each
+    footprint gave back most of the street (20 m median of 25 against 14) and kept the turning normal that spreads
+    drones round a building. When a law's shape is chosen for one property (here, a sideways push), test the
+    replacement for that property before anything else: S8 did so with a square-on flight from open ground. (S8)
+44. **Bound a safety measure by the configuration the scene flies, and say so before the run.** S8's rule capped building
+    contacts at the scene's law as it flies (S7's T3), not at S7's slide, which had already cut them; bounding by the
+    slide would have ruled out any shape that lets drones nearer the facades, however much else it gains. The enclosing
+    circle passed the speed and loss bars by a distance (a tenth of the losses) and failed only on contacts unless the
+    standoff was raised; state the bound in rule.json and report every bar a candidate misses, so the reader can move the
+    bar knowingly. (S8)
 
 ## Pilots and outcomes
 

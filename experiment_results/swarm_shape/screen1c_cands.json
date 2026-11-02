@@ -1,0 +1,9 @@
+[
+ {"label": "A0 cylinder, no slide, d_ref 1.2", "d": 1.2, "over": {}},
+ {"label": "A1 cylinder + slide, d_ref 1.2", "d": 1.2, "over": {"slideRoundBuildings": true}},
+ {"label": "B0 footprint, no slide, d_obs 0.25, d_ref 1.2", "d": 1.2, "over": {"obstacleShape": 2, "d_obs": 0.25}},
+ {"label": "B1a footprint + slide, d_obs 0.16, d_ref 1.2", "d": 1.2, "over": {"obstacleShape": 2, "slideRoundBuildings": true}},
+ {"label": "B1b footprint + slide, d_obs 0.25, d_ref 1.2", "d": 1.2, "over": {"obstacleShape": 2, "slideRoundBuildings": true, "d_obs": 0.25}},
+ {"label": "B1c footprint + slide, d_obs 0.35, d_ref 1.2", "d": 1.2, "over": {"obstacleShape": 2, "slideRoundBuildings": true, "d_obs": 0.35}},
+ {"label": "C1 enclosing circle + slide, d_ref 1.2", "d": 1.2, "over": {"obstacleShape": 1, "slideRoundBuildings": true}}
+]

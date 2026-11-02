@@ -1,0 +1,67 @@
+[
+ {
+  "label": "A0 cylinder (the scene today), d_ref 1.2",
+  "d": 1.2,
+  "over": {}
+ },
+ {
+  "label": "A1 cylinder + slide, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "slideRoundBuildings": true
+  }
+ },
+ {
+  "label": "B2 footprint + slide, d_obs 0.25, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  }
+ },
+ {
+  "label": "C16 enclosing circle + slide, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true
+  }
+ },
+ {
+  "label": "C25 enclosing circle + slide, d_obs 0.25, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  }
+ },
+ {
+  "label": "C35 enclosing circle + slide, d_obs 0.35, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35
+  }
+ },
+ {
+  "label": "B0 footprint, no slide, d_obs 0.25, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 2,
+   "d_obs": 0.25
+  }
+ },
+ {
+  "label": "C35a enclosing circle + slide + adaptive, d_obs 0.35, d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35,
+   "adaptiveSpread": true
+  }
+ }
+]

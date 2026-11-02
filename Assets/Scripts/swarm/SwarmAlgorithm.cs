@@ -376,6 +376,9 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.RouteStragglers = swarmManager.GetRouteStragglers();
             olfatiSaberAlgorithm.StragglerPressShare = swarmManager.GetStragglerPressShare();
 
+            // S8 Footprint Avoidance
+            olfatiSaberAlgorithm.ObstacleShape = swarmManager.GetObstacleShape();
+
             // Bound the obstacle force by what this drone can actually produce. Beyond the tilt
             // budget the extra demand does not move the drone any faster -- VelocityControl clamps
             // the pilot + swarm *sum* -- it only crowds the pilot's command out of that sum. Tying
