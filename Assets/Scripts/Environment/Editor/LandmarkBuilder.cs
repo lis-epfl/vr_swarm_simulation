@@ -21,11 +21,19 @@ using UnityEngine.Splines;
 /// (<see cref="FpvCameraFov"/>) and clips at 2000 m, and the drones fly below the 50 m roofs (ceiling 45 m, flown ~1.3 m
 /// above). So a landmark's top has to stand at least ~8–10° up seen from the far side of the city, to clear the roofs,
 /// and at most ~22° from the near side, or the frame cuts it off; and its skyline has to stay inside the far clip from
-/// every corner of the city. That is why each feature lies on an arc round the centre, 1.25–1.45 km out and 300–400 m
-/// high, with its relief falling away behind <see cref="BackStart"/>: laid along straight lines into the corner tiles,
-/// ~25° of each side's skyline was past the far clip from the opposite corner and showed sliced. <see cref="Check"/>
-/// measures all three after any edit. The mountain is to the south because the sun (Sun_02) stands in the north-west:
-/// placed north, it would face the city with its unlit side.</para>
+/// every corner of the city. That is why each feature lies on an arc round the centre, 1.25–1.45 km out, with its relief
+/// falling away behind <see cref="BackStart"/>: laid along straight lines into the corner tiles, ~25° of each side's
+/// skyline was past the far clip from the opposite corner and showed sliced. <see cref="Check"/> measures all three
+/// after any edit. The mountain is to the south because the sun (Sun_02) stands in the north-west: placed north, it
+/// would face the city with its unlit side.</para>
+///
+/// <para><b>Every height is its design value times <see cref="HeightScale"/></b> (1.5 since 2026-11-02): the relief, the
+/// mast and the turbines, so the mountain stands ~600 m and the mast ~480 m with its antenna. The design values (300–400
+/// m) cleared the roofs from VoronoiCityWorld's open streets, but in BlockShapedPatchCityWorld a drone sees out only
+/// down a street, past facades 25 m apart, and they showed over the roofs from too little of it. The tops are now cut
+/// off by the frame from the side of the city facing them, which is the price: from there their flanks fill the upper
+/// frame instead. The paint and the woods are laid out on the design shape (<see cref="DesignHeight"/>), so the look is
+/// the same, only taller.</para>
 ///
 /// <para><b>The ground is a ring of twelve 1000 m Terrain tiles</b> round the city scenes' own four (±1000 m), out to
 /// ±2000 m, each with its own TerrainData in <see cref="TerrainFolder"/>. The four city tiles are shared with five other
@@ -74,8 +82,8 @@ public static class LandmarkBuilder
     /// <summary>The city scenes' own four tiles cover ±Inner.</summary>
     private const float Inner = 1000f;
     private const int HeightRes = 257, AlphaRes = 256, BaseMapRes = 512;
-    /// <summary>TerrainData.size.y: room to sculpt well above the generated 400 m.</summary>
-    private const float MaxHeight = 800f;
+    /// <summary>TerrainData.size.y: room to sculpt well above the generated ~670 m.</summary>
+    private const float MaxHeight = 1200f;
     /// <summary>The ground rises from exactly 0 at the joint over this distance, with a flat start.</summary>
     private const float ApronMetres = 200f;
     /// <summary>The relief falls away behind this radius from the city's centre (over <see cref="BackWidth"/>), so
@@ -88,7 +96,11 @@ public static class LandmarkBuilder
     private const int Seed = 1;
 
     // ---------------------------------------------------------------- the features (world metres, +Z north)
-    // Bearings are degrees clockwise from north (+Z), radii metres from the city's centre (the origin).
+    // Bearings are degrees clockwise from north (+Z), radii metres from the city's centre (the origin). Heights here
+    // and in the generated models are design values, built at HeightScale times their size.
+    /// <summary>How much taller than its design every landmark is built: the ground's relief, the mast and the turbines.
+    /// </summary>
+    public const float HeightScale = 1.5f;
     /// <summary>The mountain range's peaks: bearing, radius, height, radial and tangential half-widths. The first is
     /// the main peak.</summary>
     private static readonly (float bearing, float radius, float height, float radial, float tangential)[] Peaks =
@@ -116,8 +128,9 @@ public static class LandmarkBuilder
     /// <summary>Bumped whenever the generated lake changes, so <see cref="AddTo"/> offers to replace a prefab lake made by
     /// an older generator (<see cref="LakeOutline.generatorVersion"/>). 2: twice as wide, out to the hills' foot.</summary>
     private const int LakeGeneratorVersion = 2;
-    /// <summary>Likewise for the ring's ground (<see cref="LandmarkSet.groundVersion"/>). 2: the hills lowered to 210 m.</summary>
-    private const int GroundGeneratorVersion = 2;
+    /// <summary>Likewise for the ring's ground (<see cref="LandmarkSet.groundVersion"/>). 2: the hills lowered to 210 m.
+    /// 3: every height <see cref="HeightScale"/> times its design.</summary>
+    private const int GroundGeneratorVersion = 3;
     /// <summary>How far beyond the shore the city tiles' trees are cleared (m).</summary>
     private const float TreeClearance = 6f;
     private const string CityCopyPrefix = "City_";
@@ -132,7 +145,7 @@ public static class LandmarkBuilder
     /// <summary>About the city tiles' own density (~100 trees a hectare in their woods).</summary>
     private const float TreeSpacing = 10f;
 
-    // ---------------------------------------------------------------- the generated models
+    // ---------------------------------------------------------------- the generated models (design sizes)
     public const float MastHeight = 300f;
     private const float MastBaseRadius = 3f, MastTopRadius = 1.5f, MastAntenna = 18f;
     private const int MastBands = 7;   // aviation marking: an odd number of bands, red at both ends
@@ -190,10 +203,12 @@ public static class LandmarkBuilder
             return;
         }
         Debug.Log($"LandmarkBuilder: {RegenerateGround(set)}");
+        PlaceModelsAndSave(set);   // back onto the new ground
     }
 
     /// <summary>Overwrites every ring tile's heights, paint and trees with the generated ones, with no question asked
-    /// (the menu asks). Also brings the generated terrain layers up to date.</summary>
+    /// (the menu asks). Also brings the generated terrain layers up to date. The mast and the turbines stay where they
+    /// stood, so place the models again after it (<see cref="PlaceModels"/>) to stand them on the new ground.</summary>
     public static string RegenerateGround(LandmarkSet set)
     {
         if (set == null || set.ground == null) return "no ground to regenerate.";
@@ -323,8 +338,9 @@ public static class LandmarkBuilder
         }
 
         bool regenerate = oldGround && EditorUtility.DisplayDialog("Landmarks: newer ground",
-            "The generated ground has changed since the prefab's was made (the hills are lower). Regenerate the ring's " +
-            "Terrain tiles? Every bit of sculpting and painting on them is lost.", "Regenerate", "Keep mine");
+            $"The generated ground has changed since the prefab's was made (every landmark is {HeightScale}x its " +
+            "design height). Regenerate the ring's Terrain tiles and place the models on them again? Every bit of " +
+            "sculpting and painting on the tiles is lost.", "Regenerate", "Keep mine");
         bool replace = oldLake && EditorUtility.DisplayDialog("Landmarks: newer lake",
             "The generated lake has changed since the prefab's was made (it is twice as wide and runs to the hills' " +
             "foot). Replace the prefab's lake with a new one? Its knots and settings are lost.", "Replace", "Keep mine");
@@ -336,7 +352,7 @@ public static class LandmarkBuilder
             LandmarkSet set = contents.GetComponentInChildren<LandmarkSet>(true);
             if (oldGround)
             {
-                if (regenerate) note += " Prefab ground: " + RegenerateGround(set);
+                if (regenerate) note += $" Prefab ground: {RegenerateGround(set)} Placed {PlaceModels(set)}.";
                 set.groundVersion = GroundGeneratorVersion;
             }
             foreach (LakeOutline lake in set.GetComponentsInChildren<LakeOutline>(true))
@@ -482,10 +498,15 @@ public static class LandmarkBuilder
 
     // ================================================================ the ground
 
-    /// <summary>The generated ground height (m above the city's ground) at world (x, z): zero over the city tiles,
-    /// rising from a flat start at the joint, with the four features on arcs round the centre, each on its side, and
-    /// falling away behind <see cref="BackStart"/>.</summary>
-    public static float GroundHeight(float x, float z)
+    /// <summary>The generated ground height (m above the city's ground) at world (x, z): the design shape
+    /// (<see cref="DesignHeight"/>) <see cref="HeightScale"/> times as tall.</summary>
+    public static float GroundHeight(float x, float z) => HeightScale * DesignHeight(x, z);
+
+    /// <summary>The ground's design height (m) at world (x, z): zero over the city tiles, rising from a flat start at the
+    /// joint, with the four features on arcs round the centre, each on its side, and falling away behind
+    /// <see cref="BackStart"/>. The paint and the woods read this shape, so scaling the heights leaves them where they
+    /// were.</summary>
+    private static float DesignHeight(float x, float z)
     {
         float d = Mathf.Max(Mathf.Abs(x), Mathf.Abs(z)) - Inner;
         if (d <= 0f) return 0f;
@@ -594,12 +615,12 @@ public static class LandmarkBuilder
         return (rock * (1f - wood), wood);
     }
 
-    /// <summary>The slope (degrees) of the generated ground at world (x, z).</summary>
+    /// <summary>The slope (degrees) of the design ground at world (x, z), which the paint and the woods read.</summary>
     private static float Slope(float x, float z)
     {
         const float e = 4f;
-        float gx = (GroundHeight(x + e, z) - GroundHeight(x - e, z)) / (2f * e);
-        float gz = (GroundHeight(x, z + e) - GroundHeight(x, z - e)) / (2f * e);
+        float gx = (DesignHeight(x + e, z) - DesignHeight(x - e, z)) / (2f * e);
+        float gz = (DesignHeight(x, z + e) - DesignHeight(x, z - e)) / (2f * e);
         return Mathf.Atan(Mathf.Sqrt(gx * gx + gz * gz)) * Mathf.Rad2Deg;
     }
 
@@ -632,6 +653,8 @@ public static class LandmarkBuilder
     /// world (x, z) = <paramref name="origin"/>. Returns how many trees it planted.</summary>
     private static int Generate(TerrainData data, Vector2 origin)
     {
+        // Tiles made before the heights were scaled are 800 m tall, which the scaled mountain would hardly leave room in.
+        if (data.size.y < MaxHeight) data.size = new Vector3(data.size.x, MaxHeight, data.size.z);
         int n = data.heightmapResolution;
         float size = data.size.x, top = data.size.y;
         float step = size / (n - 1);
@@ -655,7 +678,7 @@ public static class LandmarkBuilder
                 for (int i = 0; i < a; i++)
                 {
                     float x = origin.x + (i + 0.5f) * texel, z = origin.y + (j + 0.5f) * texel;
-                    Vector4 w = Paint(x, z, GroundHeight(x, z), Slope(x, z));
+                    Vector4 w = Paint(x, z, DesignHeight(x, z), Slope(x, z));
                     for (int k = 0; k < 4; k++) alpha[j, i, k] = w[k];
                 }
             }
@@ -693,7 +716,7 @@ public static class LandmarkBuilder
                 float width01 = (float)rng.NextDouble(), turn = (float)rng.NextDouble();
                 float south = Smooth01((-z - Inner) / 100f);
                 if (south <= 0f) continue;
-                float h = GroundHeight(x, z);
+                float h = DesignHeight(x, z);
                 if (h < 10f) continue;
                 float slope = Slope(x, z);
                 float wood = south * MountainCover(x, z, h, slope).wood;
@@ -1588,8 +1611,9 @@ public static class LandmarkBuilder
 
     // ================================================================ the mast and the turbines
 
-    /// <summary>Puts each spot's model in place: the slot's model if set, else the generated one. Every spot is snapped
-    /// to the ground first; a model is scaled to the generated height (if <see cref="LandmarkSet.fitModelHeight"/>), has
+    /// <summary>Puts each spot's model in place: the slot's model if set, else the generated one, built at its design
+    /// size and scaled by <see cref="HeightScale"/>. Every spot is snapped to the ground first; a slot's model is scaled
+    /// to the generated one's height (if <see cref="LandmarkSet.fitModelHeight"/>), has
     /// its colliders removed, its layers set to Default and its shadows turned off. The mast's beacons go on top of
     /// whatever model stands there. Returns a summary with each model's triangle count.</summary>
     public static string PlaceModels(LandmarkSet set) => PlaceModels(set, EnsureMaterials());
@@ -1605,7 +1629,8 @@ public static class LandmarkBuilder
             {
                 SnapToGround(set, spot);
                 GameObject model = set.turbineModel != null
-                    ? PlaceModel(spot, set.turbineModel, set.turbineModelYaw, set.fitModelHeight ? TurbineTip : 0f)
+                    ? PlaceModel(spot, set.turbineModel, set.turbineModelYaw,
+                                 set.fitModelHeight ? HeightScale * TurbineTip : 0f)
                     : GeneratedTurbine(spot, tower, rotor, mats);
                 tris += Triangles(model);
                 n++;
@@ -1617,7 +1642,7 @@ public static class LandmarkBuilder
         {
             SnapToGround(set, set.mast);
             GameObject model = set.mastModel != null
-                ? PlaceModel(set.mast, set.mastModel, set.mastModelYaw, set.fitModelHeight ? MastHeight : 0f)
+                ? PlaceModel(set.mast, set.mastModel, set.mastModelYaw, set.fitModelHeight ? HeightScale * MastHeight : 0f)
                 : GeneratedMast(set.mast, mats);
             set.beacons = PlaceBeacons(set.mast, model, mats);
             report.Append($"mast ({(set.mastModel != null ? set.mastModel.name : "generated")}, " +
@@ -1750,6 +1775,7 @@ public static class LandmarkBuilder
     {
         RemoveModel(spot);
         GameObject go = MeshObject(LandmarkSet.ModelName, spot, tower, new[] { mats.turbine }, true);
+        go.transform.localScale = Vector3.one * HeightScale;
         GameObject rotor = MeshObject("Rotor", go.transform, rotorMesh, new[] { mats.turbine }, false);
         rotor.transform.localPosition = new Vector3(0f, HubHeight, 4.2f);
         return go;
@@ -1758,7 +1784,9 @@ public static class LandmarkBuilder
     private static GameObject GeneratedMast(Transform spot, Materials mats)
     {
         RemoveModel(spot);
-        return MeshObject(LandmarkSet.ModelName, spot, MastMesh(), new[] { mats.mastRed, mats.mastWhite }, true);
+        GameObject go = MeshObject(LandmarkSet.ModelName, spot, MastMesh(), new[] { mats.mastRed, mats.mastWhite }, true);
+        go.transform.localScale = Vector3.one * HeightScale;
+        return go;
     }
 
     /// <summary>A beacon on the top of the mast's model and one at 55% of its height, rebuilt every time.</summary>
@@ -1769,7 +1797,7 @@ public static class LandmarkBuilder
             Object.DestroyImmediate(old.gameObject);
         }
         Bounds b = RendererBounds(model);
-        float top = b.size.y > 0f ? b.max.y - spot.position.y : MastHeight + MastAntenna;
+        float top = b.size.y > 0f ? b.max.y - spot.position.y : HeightScale * (MastHeight + MastAntenna);
         Mesh sphere = BeaconMesh();
         var beacons = new List<Renderer>();
         foreach ((string name, float y) in new[] { ("Beacon top", top + BeaconRadius), ("Beacon mid", 0.55f * top + 3.5f) })

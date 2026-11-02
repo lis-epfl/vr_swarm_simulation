@@ -30,7 +30,7 @@ public class LandmarkSet : MonoBehaviour
     public GameObject mastModel;
     [Tooltip("A wind turbine for every Turbine spot. Press Place models after changing it.")]
     public GameObject turbineModel;
-    [Tooltip("Scale a model so it stands as tall as the generated one (mast 300 m, turbine tip 150 m).")]
+    [Tooltip("Scale a model so it stands as tall as the generated one (mast 450 m, turbine tip 225 m).")]
     public bool fitModelHeight = true;
     [Tooltip("Degrees added about the vertical, for a model whose front is not its +Z.")]
     public float mastModelYaw = 0f;

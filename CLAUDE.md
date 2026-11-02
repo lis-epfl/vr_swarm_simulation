@@ -1707,9 +1707,9 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
       saved with, so a new default never reaches it otherwise. `EnsureDressing` resets older rules to the defaults
       and logs that it did, at the cost of any rule set by hand.
   - **Landmarks stand round it, one per side, for orientation** (2026-10-26; `LandmarkBuilder`,
-    `Tools/Swarm/Landmarks/…`, all of it in `Assets/Landmarks/Landmarks.prefab`): a snow-capped mountain range S
-    (main peak ~370 m, 1.45 km out), a ~1.4 km lake from ~110–200 m beyond the city's north edge to the foot of
-    wooded hills (~200 m) N,
+    `Tools/Swarm/Landmarks/…`, all of it in `Assets/Landmarks/Landmarks.prefab`, shared by VoronoiCityWorld and the
+    three block cities): a snow-capped mountain range S (main peak ~560 m, 1.45 km out), a ~1.4 km lake from
+    ~110–200 m beyond the city's north edge to the foot of wooded hills (~310 m) N,
     eight turbines turning on a ridge E, and a
     red-and-white TV mast with a blinking beacon W, in line with ParkRoad behind the spawn (fly towards it to get
     home). **Runs recorded before then had none**, so they are an orientation aid that differs between test series;
@@ -1717,14 +1717,29 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
     rebuild keeps them. Points worth keeping:
     - **Sized to the feeds, and *Check* says whether they still are.** A level gimbal sees ±23° and clips at
       2000 m, and the drones fly under the 50 m roofs, so a landmark's top has to stand ≥ 8° up from the far edge of
-      the city (to clear the roofs) and ≤ 23° from the near edge (or the frame crops it), with its skyline inside
-      the far clip from every corner. That is why each feature lies on an **arc round the city's centre** at
-      1.25–1.45 km, its relief falling away behind 1.5 km: laid along straight lines into the corner tiles, ~25° of
-      each side's skyline was past the far clip from the opposite corner and showed sliced. As built (far → near
-      edge, from a 51 m eye, so slightly low): S 10.2° → 16.9°, N 8.2° → 15.0°, E 10.0° → 17.2°, W 12.0° → 21.3°,
-      no skyline past the clip. **The hills now sit below the 8° floor on purpose** (2026-10-26, the user's call:
-      `HillsHeight` 290 → 210), so *Check* warns on N; the N figures above are from before. The mountain is south
-      because the sun stands in the north-west: placed north, it faced the city unlit.
+      the city to clear the roofs, and its skyline has to stay inside the far clip from every corner. That is why
+      each feature lies on an **arc round the city's centre** at 1.25–1.45 km, its relief falling away behind
+      1.5 km: laid along straight lines into the corner tiles, ~25° of each side's skyline was past the far clip
+      from the opposite corner and showed sliced. The mountain is south because the sun stands in the north-west:
+      placed north, it faced the city unlit.
+    - **Every height is built 1.5× its design** (`LandmarkBuilder.HeightScale`, 2026-11-02, the user's request for
+      BlockShapedPatchCityWorld, applied to all four scenes at their choice): the relief and the generated mast and
+      turbines (mast 450 m plus antenna on a ~105 m hill, turbine tips 225 m on a ~285 m ridge). Every other height
+      in these notes is a design height. The design kept each top ≤ 23° up from the city's near edge, i.e. always
+      in frame, which suited VoronoiCityWorld's open streets; in the patch city a drone sees out only down a street
+      between facades 25 m apart, and the tops showed over the roofs from too little of it. Measured over
+      BlockShapedPatchCityWorld's street points (10 m grid, some part of the landmark in a level frame with a clear
+      line; scratch probe, not in the repo), before → after, at a 20 m eye: mountain 49 → 74% (in the half of the
+      city away from it 24 → 61%), turbines 54 → 75%, ridge 35 → 56%, hills 39 → 52%, mast 18 → 27%; at 40 m
+      73–90 → 88–94%, mast 53 → 64%. The price is the frame: far → near edge from a 46.3 m eye, S 16.0° → 25.8°,
+      N 9.4° → 17.0°, E 15.8° → 26.6°, W 18.7° → 31.7°, so from the near edge the tops of S, E and W are cut off
+      and their flanks fill the upper frame instead; *Check* warns of that by design. It also warns of 2–3° of S
+      and W skyline past the far clip from the NE corner: the mountain's foot 1–2° up, exactly along the diagonal,
+      behind the corner's own buildings (checked in a render), so it was left. The hills, lowered at the user's call
+      on 2026-10-26 (`HillsHeight` 290 → 210, below the 8° floor), stay lowered in the design and now clear the
+      floor anyway. **The paint and the woods are laid out on the design shape** (`DesignHeight` and its slope), so
+      the look the user approved is the same, only taller; the faces are steeper than the paint thresholds read.
+      *Regenerate ground* now places the models again, since the spots stand on the ground.
     - **The mountain's near face is broken up on purpose** (`MountainCover`): rock starts at a height that wanders
       between ~50 and ~250 m and on slopes from ~20° to ~40°, meadows break it up to ~300 m, and woods sit in
       patches on the lower, gentler slopes: ~1,000 terrain trees (`Tree9_3`) at the city tiles' own size and
