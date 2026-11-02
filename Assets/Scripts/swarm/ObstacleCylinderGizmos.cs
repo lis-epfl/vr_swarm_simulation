@@ -94,13 +94,12 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     public Color totalForceColour = new Color(0.99f, 0.91f, 0.72f, 1.00f);    // cream
 
     [Header("Parameters")]
-    [Tooltip("Left empty, the first OlfatiSaber in the scene is used. In edit mode there is usually " +
-             "none, so the fallbacks below are used instead -- keep them matching the drone prefab.")]
+    [Tooltip("Left empty, the first OlfatiSaber in the scene is used, for what it is flying. Before " +
+             "Play SwarmManager's values are drawn instead, and the fallbacks below only in a scene " +
+             "with no SwarmManager.")]
     public OlfatiSaber parameterSource;
     public Vector3 fallbackCylinderAxis = Vector3.up;
     public float fallbackScaleFactor = 10.0f;
-    // Matches the city scenes' SwarmManager, not the OlfatiSaber component default -- the component
-    // default is overwritten at Start and is not what any scene flies.
     public float fallbackDObs = 0.4f;
 
     private const string k_ObstacleLayerName = "Obstacle";
@@ -165,24 +164,16 @@ public class ObstacleCylinderGizmos : MonoBehaviour
     private void ResolveParameters()
     {
         OlfatiSaber source = parameterSource != null ? parameterSource : FindAnyObjectByType<OlfatiSaber>();
-
-        if (source != null)
-        {
-            _axis = source.cylinderAxis;
-            _scaleFactor = source.ScaleFactor;
-            _dObs = source.d_obs;
-        }
-        else
-        {
-            _axis = fallbackCylinderAxis;
-            _scaleFactor = fallbackScaleFactor;
-            _dObs = fallbackDObs;
-        }
-
-        // The shape is pushed into OlfatiSaber only at Play, so in edit mode SwarmManager's field is the truth.
         SwarmManager manager = FindAnyObjectByType<SwarmManager>();
-        _shape = Application.isPlaying && source != null ? source.ObstacleShape
-               : manager != null ? manager.obstacleShape : SwarmManager.ObstacleShape.Cylinder;
+
+        // SwarmManager's values are pushed into OlfatiSaber only at Play, so until then its fields are the truth.
+        bool flying = Application.isPlaying && source != null;
+
+        _axis = source != null ? source.cylinderAxis : fallbackCylinderAxis;
+        _scaleFactor = flying ? source.ScaleFactor : manager != null ? manager.GetScaleFactor() : fallbackScaleFactor;
+        _dObs = flying ? source.d_obs : manager != null ? manager.GetDObs() : fallbackDObs;
+        _shape = flying ? source.ObstacleShape
+               : manager != null ? manager.GetObstacleShape() : SwarmManager.ObstacleShape.Cylinder;
 
         if (_axis.sqrMagnitude < 1e-8f) _axis = Vector3.up;
         if (_scaleFactor <= 0.0f) _scaleFactor = 1.0f;
@@ -413,7 +404,7 @@ public class ObstacleCylinderGizmos : MonoBehaviour
             // divided down from. That ScaleFactor divide is the easiest thing to lose track of when
             // reading d against d_obs.
             OlfatiSaber.ObstacleFrame frame =
-                OlfatiSaber.ComputeObstacleFrame(obstacle, _referencePosition, _axis, _scaleFactor);
+                OlfatiSaber.ComputeObstacleFrame(obstacle, _referencePosition, _axis, _scaleFactor, _shape);
             if (frame.valid)
                 text += $"\nd {frame.distance:F2}  ({frame.distance * _scaleFactor:F1} m)";
         }
