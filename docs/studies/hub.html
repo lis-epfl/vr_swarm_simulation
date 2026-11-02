@@ -234,7 +234,7 @@ tr:last-child td { border-bottom: 0; }
         </div>
       </article>
       <article class="study">
-        <header><span class="id">S8</span><h3>Footprint Avoidance</h3><span class="was">the shape study · 1–2 Nov 2026</span><span class="status done">Done · the enclosing circle recommended</span></header>
+        <header><span class="id">S8</span><h3>Footprint Avoidance</h3><span class="was">the shape study · 1–2 Nov 2026</span><span class="status done">Done · applied to the scene</span></header>
         <div>
           <p class="q">The force law avoids each building as the circle round its bounding box, which reaches into BlockShapedPatchCityWorld's streets. With S7's slide on, is a tighter shape better: the building's footprint itself, or the smallest circle round it? The cylinder was chosen because a flat wall gave a swarm flown square at it no sideways push; does that still hold?</p>
           <h4>Limits</h4>
@@ -250,7 +250,7 @@ tr:last-child td { border-bottom: 0; }
             <li>The bounds circles leave a median 14 m of the 25 m between two facades. Half of the drones S7 lost went down where they leave under 10 m, a place the drones spent a tenth of their time.</li>
             <li>The footprint fails for the cylinder's own reason: without the slide a formation flown square at a wall took 20 s to split round it (3.8 s with the circles); with the slide drones line up along the walls and collide (54 lost against 2 in 100 Unity flights).</li>
             <li>The smallest circle round each footprint keeps the curvature and leaves 20 m: with the slide the streets are 9–15% faster, a tenth of the drones are lost, and the split round a wall is as quick; the cost is building contacts, which a standoff of 0.35 holds down (Unity: none lost, 5 contacts in 100 flights).</li>
-            <li>The rule picked it with the adaptive spread too (20% faster in the replica's streets than S7's pick, no extra losses), but in Unity that lost 3 pairs in 100 flights against none without it; the recommendation is the enclosing circle with the slide and d_obs 0.35, the adaptive spread optional. Both trial conditions change together.</li>
+            <li>The rule picked it with the adaptive spread too (20% faster in the replica's streets than S7's pick, no extra losses), but in Unity that lost 3 pairs in 100 flights against none without it. The scene now flies it (enclosing circle, slide, d_obs 0.35, adaptive spread: the user's choice); watch its collisions in the trials. Both trial conditions change together.</li>
           </ul>
         </div>
       </article>

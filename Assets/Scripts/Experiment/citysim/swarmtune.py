@@ -20,7 +20,9 @@ which is what Unity flies there: each prism avoided as the circle round its axis
 prism, PhysX's friction, DroneHealthMonitor's isolation loss (S5's model; swarm_replica's `validate` is its gate).
 The gains are BlockShapedPatchCityWorld's SwarmManager (swarm_params) plus a candidate's overrides; d_ref is held
 constant through every flight (the pilot leaves the dial alone). Since S6 the scene carries its pick (T3: d_ref 2.0,
-d_shield 1.6, d_obs 0.16), so a candidate with no overrides is T3; PRE_S6 overrides give the scene as it was.
+d_shield 1.6, d_obs 0.16), so a candidate with no overrides was T3; PRE_S6 overrides give the scene as it was. Since
+S8 (2026-11-02) the scene carries S8's pick instead (the enclosing circle, d_obs 0.35, S7's slide and adaptive spread on):
+swarmshape.PRE_S8 overrides give T3 back.
 
 The pilot is the bench's (SwarmBenchRunner): full stick at the current waypoint, taken when the live drones' centroid
 comes within CAPTURE_M or its timeout runs out; after the last, END_HOLD_S at zero stick. Every flight starts with the

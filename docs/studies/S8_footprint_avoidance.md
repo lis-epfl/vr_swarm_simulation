@@ -1,8 +1,8 @@
 # S8 Footprint Avoidance
 
-**Code name:** the shape study · **Dates:** 2026-11-01 → 11-02 · **Status:** done; `obstacleShape` on `SwarmManager`,
-Cylinder (as before) in every scene, EnclosingCircle with the slide and d_obs 0.35 recommended, the adaptive spread the
-user's call ·
+**Code name:** the shape study · **Dates:** 2026-11-01 → 11-02 · **Status:** done; `obstacleShape` on `SwarmManager`;
+BlockShapedPatchCityWorld flies C35a (EnclosingCircle, d_obs 0.35, the slide and the adaptive spread on: the user's
+choice, 2026-11-02), every other scene Cylinder as before ·
 **Builds on:** S7 (its harness, its slide, its confirmation re-flown), S6 (the flights and measures, T3), S4 (the
 replica's closest-point model)
 
@@ -40,9 +40,11 @@ row with replica twins. Manual: [docs/swarm_shape/README.md](../swarm_shape/READ
   28% faster in the streets than A1 against C35's 17%. Too few to settle, but in S7's direction.
 - One drone shares the shape: 8% faster with the enclosing circle (Unity 6.12 against 5.67 m/s).
 
-**For the trials.** Set BlockShapedPatchCityWorld's `obstacleShape` to EnclosingCircle, `d_obs` 0.35, and tick the slide
-(C35), on the user's go-ahead; it changes both conditions alike. Add the adaptive spread (C35a, the rule's pick) only
-if its extra street speed outweighs the collisions Unity hints at. Route stragglers stays optional, as in S7.
+**For the trials.** I recommended C35 (the enclosing circle, `d_obs` 0.35, the slide), with the adaptive spread (C35a,
+the rule's pick) only if its extra street speed outweighed the collisions Unity hinted at. The user chose C35a, and
+BlockShapedPatchCityWorld's SwarmManager carries it since 2026-11-02; it changes both conditions alike. Watch the
+adaptive spread's collisions in the trials' flights. Route stragglers stays optional, as in S7. The study harnesses
+read the scene as their baseline, so an empty override is now C35a; `swarmshape.PRE_S8` gives the scene S8 flew against.
 
 **Limits and refinements.** Scripted pilots at full stick; rare losses (a tenth of a drone per km is near the noise of
 ~100 km); the rule's pick sits exactly at its contact bound; this confirmation's routes were harder than S7's for every

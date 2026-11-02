@@ -56,6 +56,10 @@ from citysim import swarmtune as T  # noqa: E402
 
 OUT = REPO / "experiment_results" / "swarm_shape"
 K_SCREEN, K_CONFIRM, K_BENCH = 7000, 8000, 9000
+# The scene's SwarmManager before S8's pick was written into it (2026-11-02): S6's T3 with S7's switches off. Every S7 and
+# S8 candidate file was flown against that scene, so a candidate with an empty `over` (S7's T3, S8's A0) meant this; to
+# re-fly one now, merge PRE_S8 under its `over`.
+PRE_S8 = dict(obstacleShape=0, d_obs=0.16, slideRoundBuildings=False, adaptiveSpread=False)
 SHAPES = ("Cylinder", "EnclosingCircle", "Footprint")
 
 FACE_RUN_M = 50.0          # the run-in: start this far out along the face's normal

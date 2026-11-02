@@ -2016,7 +2016,8 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     the channels cross bring the median under 200 m but need one in nearly every junction and narrow almost all of
     them below 6 m for the cylinders; building the boundary blocks out to the arena edge only removes the straight
     730 m strip along its sides.
-  - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6, `d_obs` 0.16; below), unlike
+  - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6; below) **and since 2026-11-02 S8's pick**
+    (`obstacleShape` EnclosingCircle, `d_obs` 0.35, S7's slide and adaptive spread on; S8 below), unlike
     BlockShapedCityWorld's, which keeps BlockCityWorld's profile.
 
 ## S5 Block-Shaped Surround: the block-shaped study
@@ -2046,7 +2047,10 @@ building it meets and re-forming beyond it, with metrics for that. **[docs/swarm
 is the manual**; the code is `citysim/swarmtune.py`, the outputs `experiment_results/swarm_tune/`. Invariants:
 - **The scene's SwarmManager is S6's pick (T3): d_ref 2.0, `d_shield` 1.6 (was 2.5), `d_obs` 0.16 (was 0.4)**, every
   other value as BlockCityWorld's profile left it (`a` 0.8, `r0_coh` 30). So in swarmtune, the replica and the bench a
-  candidate with no overrides is now T3: re-create the scene as it was with `d_shield=2.5,d_obs=0.4,d_ref=1.08`.
+  candidate with no overrides was T3: re-create the scene as it was with `d_shield=2.5,d_obs=0.4,d_ref=1.08`. **Since
+  S8 wrote its pick into the scene (2026-11-02), an empty override is that pick**, not T3; `swarmshape.PRE_S8`
+  (`obstacleShape=0, d_obs=0.16`, slide and adaptive spread off) gives T3 back, and every S7 and S8 candidate file
+  with an empty `over` (S7's T3, S8's A0) was flown against T3.
   `swarmtune apply --cand <file> --label <L>` writes a candidate into the scene, those fields of that one component only.
 - **Why 2.0**: the formation's ring at hover is then 31 m across, as wide as a typical building's avoidance cylinder
   (radius 15.4 m), so it closes round a building without stretching the lattice (94–98% of the buildings met are
@@ -2136,7 +2140,10 @@ manual**; the harness is `citysim/swarmshape.py` on S7's, the outputs `experimen
   the replica and +17% in Unity, a tenth of the losses, the split round a wall as quick; in Unity no drone lost and 5
   contacts in 100 flights (bounds circles 2 and 14). At `d_obs` 0.16 it touches buildings twice as often. The rule's
   pick added the adaptive spread (C35a: +20% in the replica's streets with no extra losses), but in Unity that lost 3
-  pairs in 100 flights against none, so it is the user's call. The scene has not been changed.
+  pairs in 100 flights against none, so it was the user's call. **The user chose C35a, and it is in
+  BlockShapedPatchCityWorld's SwarmManager since 2026-11-02** (`obstacleShape` 1, `d_obs` 0.35, `slideRoundBuildings`
+  and `adaptiveSpread` on, route off, d_ref 2.0); every other scene is still `Cylinder` with S7's switches off. Watch the
+  adaptive spread's collisions in the trials' Unity flights.
 - **The head-on flight (`swarmshape` kind `face`) is the test for any obstacle shape**: from open ground 50 m out along
   a straight edge face's normal, aimed through the building, timed from arrival to the split round both ends. The
   city's interior has no 50 m run-in, so the faces are on its edge.

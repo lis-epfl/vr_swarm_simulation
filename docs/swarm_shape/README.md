@@ -243,11 +243,15 @@ Over the 64 straight lines, blocks and street routes (in brackets the replica's 
 
 ## 9. What it means
 
-- **Set `obstacleShape` to EnclosingCircle on BlockShapedPatchCityWorld's SwarmManager, with the slide and `d_obs`
-  0.35** (C35), if the user agrees; the scene is unchanged until then. Both trial conditions change together (one drone
-  shares the shape and the field). **The adaptive spread is the user's call**: the rule picked it (C35a) on the
-  replica's ~100 km, where it is the fastest safe row; Unity's 100 flights lost 3 pairs with it and none without.
-  A longer Unity run would settle it.
+- **BlockShapedPatchCityWorld now flies C35a** (the user's choice, 2026-11-02): `obstacleShape` EnclosingCircle,
+  `d_obs` 0.35, the slide and the adaptive spread on, route stragglers off, d_ref 2.0. I had recommended C35 (without
+  the adaptive spread), adding it only if its extra street speed outweighed the collisions Unity hinted at. The rule
+  picked C35a on the replica's ~100 km, where it is the fastest safe row; Unity's 100 flights lost 3 pairs with it and
+  none without. A longer Unity run, or the trials' own flights, would settle it. Both trial conditions change together
+  (one drone shares the shape and the field). Every other scene is still `Cylinder` with S7's switches off.
+- **The harnesses read the scene as their baseline**, so an empty override is now C35a. Every S7 and S8 candidate file
+  with an empty `over` (S7's T3, S8's A0) was flown against T3; `swarmshape.PRE_S8` (`obstacleShape=0, d_obs=0.16`,
+  slide and adaptive spread off) gives that scene back.
 - **Keep any future shape curved.** The cylinder's turning normal is not only what starts a formation round a wall
   (the user's first city); with the slide it is also what spreads drones round a building instead of lining them up
   along it.

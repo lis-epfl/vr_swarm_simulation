@@ -353040,7 +353040,7 @@ MonoBehaviour:
   b: 2.6
   gamma: 1
   c_vm: 0
-  d_obs: 0.16
+  d_obs: 0.35
   r0_obs: 5
   lambda_obs: 1
   c_obs: 14
@@ -353060,6 +353060,17 @@ MonoBehaviour:
   c_damp: 2
   d_damp: 0.3
   maxDampAccel: 4.57
+  slideRoundBuildings: 1
+  slideHeadOnFraction: 0.8
+  slideSplitAimFraction: 0.6
+  routeStragglers: 0
+  stragglerPressShare: 0.7
+  adaptiveSpread: 1
+  streetSpreadFactor: 0.85
+  surroundLookAhead: 4
+  surroundAimFraction: 0.8
+  spreadFilterTime: 3
+  obstacleShape: 1
   maxHeightAboveTerrain: 45
   SelectedAttitudeAlgorithm: 3
   numNeighbours: 9
