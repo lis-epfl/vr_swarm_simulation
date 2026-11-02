@@ -88,9 +88,6 @@ public class ExperimentRecorder : MonoBehaviour
     [Range(0.1f, 1f)]
     public float identifyCentralFraction = 0.8f;
 
-    /// <summary>The hat's height above the walker's origin (analyse.py's HAT_HEIGHT).</summary>
-    private const float HatAboveWalker = 1.6f;
-
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
     private ScreenSpawn screenSpawn;   // which drones' feeds are on screen, and where the quads hang
@@ -103,6 +100,7 @@ public class ExperimentRecorder : MonoBehaviour
     {
         public Transform goal;
         public Transform special;          // the SpecialWalker's transform (may be null)
+        public SpecialWalker marker;       // the SpecialWalker itself, which knows where its hat is (null with special)
         public Vector3 specialSpawnPos;    // captured at resolve time
         public string hat = "";            // which hat this goal's special walker wears
         // The seeded choices that put the hat there (GoalSpecialWalker), so a replay can be checked against them.
@@ -257,7 +255,7 @@ public class ExperimentRecorder : MonoBehaviour
         headWriter = NewWriter("head",
             "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread;" +
             "gimbalPitch;gazeX;gazeY;gazeZ;gazeConf;gazeFeed");
-        walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ;hat");
+        walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ;hat;hatX;hatY;hatZ");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
         shapeWriter = NewWriter("shape",
             "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
@@ -350,12 +348,14 @@ public class ExperimentRecorder : MonoBehaviour
         {
             GoalSpecialWalker gsw = g.GetComponent<GoalSpecialWalker>();
             Transform special = null;
+            SpecialWalker marker = null;
             string hat = "";
             foreach (SpecialWalker sw in specials)
             {
                 if (gsw != null && sw.GetComponentInParent<GoalSpecialWalker>() == gsw)
                 {
                     special = sw.transform;
+                    marker = sw;
                     hat = sw.HatId;
                     break;
                 }
@@ -364,6 +364,7 @@ public class ExperimentRecorder : MonoBehaviour
             {
                 goal = g.transform,
                 special = special,
+                marker = marker,
                 specialSpawnPos = special != null ? special.position : Vector3.zero,
                 hat = hat,
                 dealOrdinal = gsw != null ? gsw.DealOrdinal : -1,
@@ -593,7 +594,8 @@ public class ExperimentRecorder : MonoBehaviour
             Transform sp = goals[i].special;
             if (sp == null) continue;
             Vector3 p = sp.position;
-            walkersWriter.WriteLine($"{F(t)};{ms};{i};{F(p.x)};{F(p.y)};{F(p.z)};{goals[i].hat}");
+            Vector3 h = goals[i].marker.HatCentre;
+            walkersWriter.WriteLine($"{F(t)};{ms};{i};{F(p.x)};{F(p.y)};{F(p.z)};{goals[i].hat};{F(h.x)};{F(h.y)};{F(h.z)}");
         }
     }
 
@@ -706,7 +708,7 @@ public class ExperimentRecorder : MonoBehaviour
         camDist = -1f;
         List<GameObject> swarm = spawner != null ? spawner.swarm : null;
         if (g.special == null || swarm == null) return false;
-        Vector3 hat = g.special.position + Vector3.up * HatAboveWalker;
+        Vector3 hat = g.marker.HatCentre;
         float half = 0.5f * identifyCentralFraction;
         float best = float.PositiveInfinity;
         for (int i = 0; i < swarm.Count; i++)

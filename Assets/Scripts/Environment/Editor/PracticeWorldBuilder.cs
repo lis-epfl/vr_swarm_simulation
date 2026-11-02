@@ -69,13 +69,13 @@ public static class PracticeWorldBuilder
     // Also seeds its verge trees, which VergeTreePlanter draws per tile name.
     private const string GoalName = "goal_patch (practice)";
 
-    // Sign geometry, metres. The board clears the tallest hat (~2.0 m) and hangs directly over its walker, so it
-    // cannot come between a drone's camera and the hat: only a view from straight overhead crosses it, and from there
-    // it is 5 cm thick.
+    // Sign geometry, metres. The board hangs BoardClearance over the tallest of the walkers placed under the signs,
+    // directly over its own, so it cannot come between a drone's camera and the hat: only a view from straight overhead
+    // crosses it, and from there it is 5 cm thick.
     private const float BoardWidth = 3f;
     private const float BoardHeight = 1f;
     private const float BoardThickness = 0.05f;
-    private const float BoardBottom = 2.4f;
+    private const float BoardClearance = 0.4f;
     private const float PostDiameter = 0.08f;
     private const float PostInset = 0.15f;      // from the board's ends
     private const float LabelMargin = 0.1f;     // clear space round the text
@@ -326,6 +326,8 @@ public static class PracticeWorldBuilder
 
         Material boardMaterial = LoadOrCreateSignMaterial();
         List<TextMeshPro> labels = new List<TextMeshPro>();
+        Transform[] stations = new Transform[Stations.Length];
+        float tallest = 0f;
         for (int i = 0; i < Stations.Length; i++)
         {
             GameObject station = new GameObject(Stations[i].Label + " station");
@@ -346,14 +348,22 @@ public static class PracticeWorldBuilder
                 PrefabUtility.RecordPrefabInstancePropertyModifications(animator);
             }
 
-            labels.AddRange(BuildSign(Stations[i].Label, station.transform, boardMaterial, parts.Font));
+            stations[i] = station.transform;
+            tallest = Mathf.Max(tallest, HeightOf(walker));
+        }
+
+        // Every board at one height, measured off the walkers, so resizing them needs no change here.
+        float boardBottom = tallest + BoardClearance;
+        for (int i = 0; i < Stations.Length; i++)
+        {
+            labels.AddRange(BuildSign(Stations[i].Label, stations[i], boardBottom, boardMaterial, parts.Font));
         }
         float fontSize = MatchLabelSizes(labels);
 
         EditorSceneManager.MarkSceneDirty(scene);
         return $"kept {KeptTileName} with its block centred at {tileCentre}, {goalSummary}, removed {leaving.Count} " +
                $"tiles and loose objects and {stripped} experiment/tuning components, stood {Stations.Length} walkers " +
-               $"at {rowCentre} under signs lettered at font size {fontSize:F2}.";
+               $"at {rowCentre} under signs {boardBottom:F2} m up, lettered at font size {fontSize:F2}.";
     }
 
     /// <summary>
@@ -410,14 +420,26 @@ public static class PracticeWorldBuilder
                $"{trees} verge trees)";
     }
 
+    /// <summary>How far a placed walker's meshes, hat included, reach above its origin.</summary>
+    private static float HeightOf(GameObject walker)
+    {
+        float top = walker.transform.position.y;
+        foreach (Renderer renderer in walker.GetComponentsInChildren<Renderer>(true))
+        {
+            top = Mathf.Max(top, renderer.bounds.max.y);
+        }
+        return top - walker.transform.position.y;
+    }
+
     /// <summary>A board on two posts, lettered on both faces. Returns the two labels.</summary>
-    private static TextMeshPro[] BuildSign(string text, Transform station, Material boardMaterial, TMP_FontAsset font)
+    private static TextMeshPro[] BuildSign(string text, Transform station, float boardBottom, Material boardMaterial,
+                                           TMP_FontAsset font)
     {
         GameObject sign = new GameObject("Sign");
         sign.transform.SetParent(station, false);
 
-        float boardCentre = BoardBottom + BoardHeight * 0.5f;
-        float top = BoardBottom + BoardHeight;
+        float boardCentre = boardBottom + BoardHeight * 0.5f;
+        float top = boardBottom + BoardHeight;
 
         GameObject board = Prop(PrimitiveType.Cube, "Board", sign.transform);
         board.transform.localPosition = new Vector3(0f, boardCentre, 0f);

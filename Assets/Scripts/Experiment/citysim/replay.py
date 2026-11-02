@@ -27,7 +27,6 @@ from citysim.los import Boxes, vertical_band, wrap_deg  # noqa: E402
 
 BOUNDARY_HYST_S = 0.5           # AttitudeAlgorithm.BoundaryHysteresisTime
 FEED_TOLERANCE_DEG = 5.0        # SwarmManager.feedHeadingToleranceDeg
-HAT_ABOVE_LOG = 1.6             # analyse.HAT_HEIGHT: the walker's origin is logged 0.2 m up
 
 
 def shown_mask(run):
@@ -92,9 +91,9 @@ def hat_bases(run, boxes, r_id=camera.R_ID_M, head=True):
     out = []
     for gi, g in enumerate(run.goals):
         gidx = g.get("goalIndex", gi)
-        w = run.walkers[run.walkers.goalIndex == gidx].set_index("t")[["specialX", "specialY", "specialZ"]]
+        w = run.walkers[run.walkers.goalIndex == gidx].set_index("t")[["hatX", "hatY", "hatZ"]]
         w = w[~w.index.duplicated()].reindex(T)
-        hat = w.values + [0.0, HAT_ABOVE_LOG, 0.0]
+        hat = w.values
         have = np.isfinite(hat).all(1)
         cam = np.stack([piv["gtX"], piv["gtY"], piv["gtZ"]], -1)               # (T, n, 3)
         rel = hat[:, None, :] - cam
@@ -112,7 +111,8 @@ def hat_bases(run, boxes, r_id=camera.R_ID_M, head=True):
         on_head = np.abs(wrap_deg(az - head_rel[:, None])) <= camera.HMD_HALF_FOV_DEG
         if run.condition != "Swarm" or len(ids) == 1:
             on_head[:] = True
-        band = vertical_band(piv["gtY"], pitch[:, None], hd, target_h=camera.HAT_HEIGHT_M) if np.isfinite(pitch).any() \
+        target_h = hat[:, 1, None] if run.hat_logged else camera.HAT_HEIGHT_M
+        band = vertical_band(piv["gtY"], pitch[:, None], hd, target_h=target_h) if np.isfinite(pitch).any() \
             else np.ones_like(vis)
         row = dict(goalIndex=gidx, t=T, dt=dtc, all=vis.any(1), shown=(vis & shown).any(1),
                    head=(vis & shown & on_head).any(1), band=(vis & band).any(1),

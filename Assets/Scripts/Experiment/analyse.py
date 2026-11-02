@@ -228,6 +228,10 @@ class Run:
         self.drones = self._csv("drones")
         self.shape = self._csv("shape")
         self.walkers = self._csv("walkers")
+        self.hat_logged = self.walkers is not None and "hatY" in self.walkers   # since 2026-11-02
+        if self.walkers is not None and not self.hat_logged:
+            self.walkers = self.walkers.assign(hatX=self.walkers.specialX, hatY=self.walkers.specialY + HAT_HEIGHT,
+                                               hatZ=self.walkers.specialZ)
         self.events = read_events(self.path("events.csv"))
         if self.drones is None:
             raise ValueError("no _drones.csv")
@@ -734,7 +738,8 @@ def proximity_family(run, legs, cfg):
 #        was on screen before the pilot answered -- the utilisation gap.
 
 GAP_S = 5.0          # s, gaps up to this long do not split an episode
-HAT_HEIGHT = 1.6     # m above the walker's logged position (0.2 m up) -> hat centre ~1.8 m above ground
+HAT_HEIGHT = 1.6     # m above the walker's logged position (0.2 m up) -> hat centre ~1.8 m above ground, for runs that
+#                      did not log the hat's own position (hatX/Y/Z in _walkers.csv, since 2026-11-02)
 # Goal patch buildings (goal_patch_Scaled.prefab) as they stand at runtime, in the goal-root frame: each
 # building's pivot after StreetWidthTuner (blockScale 0.8) has moved it about the kerb, the offset of its
 # collider's centre from that pivot, and the collider's horizontal half-extents -- the last two at the prefab
@@ -873,10 +878,10 @@ def hat_family(run, cfg):
     r_id = cfg.range
     rows = []
     for gi, g in enumerate(run.goals):
-        w = wk[wk.goalIndex == g["goalIndex"]][["t", "specialX", "specialY", "specialZ"]]
+        w = wk[wk.goalIndex == g["goalIndex"]][["t", "hatX", "hatY", "hatZ"]]
         m = dr.merge(w, on="t")
         cam = m[["gtX", "gtY", "gtZ"]].to_numpy()
-        hat = m[["specialX", "specialY", "specialZ"]].to_numpy() + [0, HAT_HEIGHT, 0]
+        hat = m[["hatX", "hatY", "hatZ"]].to_numpy()
         rel = hat - cam
         dist = np.linalg.norm(rel, axis=1)
         hd = np.hypot(rel[:, 0], rel[:, 2])

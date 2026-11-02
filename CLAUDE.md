@@ -2320,6 +2320,19 @@ worth keeping:
 - **The session auto-ends only once every goal is resolved** -- under `Legacy`, once every goal has an
   outcome, so a pending press holds it open for its key. In a session with no keys pressed it ends by hand,
   as it always did.
+- **The walkers' size has one dial, the root scale of `SimpleWalker.prefab`** (the three hat prefabs nest it),
+  and nothing in the task assumes its value. `SpecialWalker.HatCentre` reads the hat off its own mesh, and the
+  recorder scores against that and logs it per sample (`hatX/Y/Z` in `_walkers.csv`, since 2026-11-02);
+  `analyse.Run` fills those columns in for older runs from `HAT_HEIGHT`, so their numbers stay as they were, though
+  that 1.6 was never a measurement: through the walk cycle the hats' centres stood ~1.73 m above the origin at scale
+  1 (the T-pose reads ~6 cm higher, so measure posed). The body stands 1.767 m at scale 1, and the root has been
+  1.035 since 2026-11-02 for 1.83 m, with each hat 1.1x relative to the head. **Resize a hat about where its rim
+  meets the head, not about its pivot**, which can be far from the hat (`Hat_1`'s is ~0.95 m below it): scaled in
+  place by 1.1 the cowboy hat rises ~10 cm off the head. In the hat's parent frame,
+  `newPos = anchor + k * (oldPos - anchor)`. `PracticeWorldBuilder` hangs its signs
+  over the tallest walker it placed, so a resize reaches that scene's signs through a rebuild. Two things do not
+  follow the dial, deliberately: `citysim/camera.py`'s `HAT_HEIGHT_M` / `HAT_SIZE_M`, the target S1–S9 modelled,
+  and `identifyRangeM`, a recognition limit that is the experimenter's to change.
 - The count is cumulative on the wire, not a flag, because a press carried in one datagram is lost with
   it and a count is not. The first packet, and a restarted bridge counting from 0, are only a baseline —
   which is also why a press made before Play never lands late.

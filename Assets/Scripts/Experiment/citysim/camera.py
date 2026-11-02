@@ -29,6 +29,9 @@ PITCH_MIN_DEG, PITCH_MAX_DEG = -90.0, 60.0   # FPVCameraScript.MinPitch / MaxPit
 DIAL_CENTRE_PITCH_DEG = 0.5 * (PITCH_MIN_DEG + PITCH_MAX_DEG)
 
 # ----------------------------------------------------------------------------------------- the target
+# The target these studies model, not a reading of the walker prefabs: S1-S9 reproduce only while these stay put, so
+# they do not follow the prefabs' scale, and a new study should set them to what the walkers are by then. A recorded
+# run needs neither, since it logs where its hat was.
 HAT_HEIGHT_M = 1.8               # hat centre above the ground (walker origin 0.2 m up + analyse.HAT_HEIGHT 1.6)
 HAT_SIZE_M = 0.21                # cowboy crown, ~21 cm across (the largest of the three)
 R_ID_M = 40.0                    # a-priori recognition range (analyse.py --range): five hats were identified

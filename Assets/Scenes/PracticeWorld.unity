@@ -916,12 +916,12 @@ PrefabInstance:
       propertyPath: m_Name
       value: CowboyWalker
       objectReference: {fileID: 0}
-    - target: {fileID: 6388837731574096555, guid: f5abe014cd51c914b85838ddec9970e0,
+    - target: {fileID: 7056142598108806028, guid: f5abe014cd51c914b85838ddec9970e0,
         type: 3}
       propertyPath: m_Controller
       value: 
       objectReference: {fileID: 9100000, guid: 084ed73b7e7c0754eb337259e9209468, type: 2}
-    - target: {fileID: 6388837731574096555, guid: f5abe014cd51c914b85838ddec9970e0,
+    - target: {fileID: 7056142598108806028, guid: f5abe014cd51c914b85838ddec9970e0,
         type: 3}
       propertyPath: m_ApplyRootMotion
       value: 0
