@@ -1472,14 +1472,14 @@ status, dates), each study's page links, the code names, how to rebuild each pag
 work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
 output folders keep the code names, and so do the sections below.
 
-| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance |
-|---|---|---|---|---|---|---|---|---|
-| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study |
-| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) |
-| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) |
-| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` |
-| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` |
-| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) |
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance | S9 Street Spread |
+|---|---|---|---|---|---|---|---|---|---|
+| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study | the spread study |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) | [S9_street_spread.md](docs/studies/S9_street_spread.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) | [docs/swarm_spread/](docs/swarm_spread/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` | `swarmspread.py`, `swarmspread_replays.py`, `swarmspread_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` | `swarm_spread/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) |
 
 All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
 (source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
@@ -2147,6 +2147,34 @@ manual**; the harness is `citysim/swarmshape.py` on S7's, the outputs `experimen
 - **The head-on flight (`swarmshape` kind `face`) is the test for any obstacle shape**: from open ground 50 m out along
   a straight edge face's normal, aimed through the building, timed from arrival to the split round both ends. The
   city's interior has no 50 m run-in, so the faces are on its edge.
+
+## S9 Street Spread: how far the adaptive spread should narrow
+
+A short study (2026-11-02) of the spread values alone on BlockShapedPatchCityWorld's law (S8's C35a), with no change to
+the law or the scene, and a same-day follow-up on significance and timing. **[docs/swarm_spread/README.md](docs/swarm_spread/README.md)
+is the manual**; the harness is `citysim/swarmspread.py` on S8's (the timing test `swarmspread_temporal.py`), the
+outputs `experiment_results/swarm_spread/`. Invariants:
+- **The choice is the spread in the streets, not adaptive against held.** Narrower is faster beyond doubt (route by
+  route over 1,000 street routes: adaptive 0.85 +8.0%, 1.8 held +8.0%, 1.7 held +11.4% against 2.0 held). In the replica
+  it also doubles the loss events, held or adaptive alike (431 km a row: 24 at 2.0 held, 43 at 1.8 held, 48 at 1.7 held
+  and at 0.85, p = 0.003). Unity does not reproduce the loss difference (12 / 9 / 10 flights with losses in 156) and
+  loses about twice what the replica's twins do on the same routes, which match its speeds and contacts; so the
+  replica's count of collisions is the uncertain number, not its flow.
+- **The adaptive spread's changes cost nothing.** Losses cluster as the swarm leaves a building into a street in every
+  row, including 2.0 held whose spread never changes, and the adaptive rows' excess is the same in those moments as
+  elsewhere (equal-ratio test p = 0.69). The adaptive 0.85 flies like 1.8 held (the same street speed, p = 0.68). The
+  first run's readings that held spreads lose alike and that the losses came with the narrowing were noise (~10
+  events a row) and a confound (the place); lessons 45 and 47.
+- **Time losses against a shadow, not against the spread**: `swarmspread.ShadowLog` logs, in every row, what the
+  adaptive spread would be doing (the replica's `spread_target` on the swarm's own centroid, stick and buildings,
+  low-passed at its filter), so held rows carry the same moments as placebo; exposure per phase is counted beside the
+  losses. It equals the real spread exactly in an adaptive row (it re-queries buildings on the ticks `Sim.step` does).
+- **Not applied**: the scene still flies C35a. 2.0 held is the safer setting if the replica's losses are real (~8%
+  slower in the streets); the scene's setting or 1.7 held (3% faster than it, the same losses) if Unity is right. A
+  Unity run of 2.0 held against the scene's setting, ~300 street routes each, would settle it.
+- **Every candidate row names the law's fields explicitly** (`obstacleShape`, `d_obs`, the slide, route stragglers, the
+  filter), so the runs do not depend on what the scene's SwarmManager holds. Losses are counted as events (a colliding
+  pair is one) with exact intervals; speeds are compared route by route.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

@@ -1,0 +1,38 @@
+{
+ "pick": {
+  "key": "s9_l85",
+  "kind": "pass",
+  "k": 11002,
+  "title": "Problem: the dial at its lowest",
+  "first": "l85",
+  "why": "the route where dial at 1.4, adaptive 0.85: 1.19 in the streets lost the most drones in Unity (2)"
+ },
+ "flights": {
+  "f20": [
+   "s9_l85_f20_replica",
+   "s9_l85_f20_unity"
+  ],
+  "a90": [
+   "s9_l85_a90_replica",
+   "s9_l85_a90_unity"
+  ],
+  "a85": [
+   "s9_l85_a85_replica",
+   "s9_l85_a85_unity"
+  ],
+  "a95": [
+   "s9_l85_a95_replica",
+   "s9_l85_a95_unity"
+  ],
+  "f17": [
+   "s9_l85_f17_replica",
+   "s9_l85_f17_unity"
+  ],
+  "l85": [
+   "s9_l85_l85_replica",
+   "s9_l85_l85_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

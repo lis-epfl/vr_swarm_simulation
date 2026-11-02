@@ -1,0 +1,176 @@
+{
+ "runs": [
+  "swarmspread_bench_spread",
+  "swarmspread_bench_spread2"
+ ],
+ "rows": {
+  "F20": {
+   "flights": 140,
+   "drones": 17,
+   "events": 10,
+   "hours": 2.9521,
+   "phase": {
+    "narrowing": {
+     "events": 3,
+     "hours": 0.7465,
+     "share": 0.2529
+    },
+    "widening": {
+     "events": 4,
+     "hours": 0.6811,
+     "share": 0.2307
+    },
+    "narrow": {
+     "events": 3,
+     "hours": 1.3063,
+     "share": 0.4425
+    },
+    "wide": {
+     "events": 0,
+     "hours": 0.2183,
+     "share": 0.0739
+    }
+   }
+  },
+  "A85": {
+   "flights": 140,
+   "drones": 24,
+   "events": 12,
+   "hours": 2.8908,
+   "phase": {
+    "narrowing": {
+     "events": 6,
+     "hours": 0.717,
+     "share": 0.248
+    },
+    "widening": {
+     "events": 1,
+     "hours": 0.6648,
+     "share": 0.23
+    },
+    "narrow": {
+     "events": 3,
+     "hours": 1.3105,
+     "share": 0.4533
+    },
+    "wide": {
+     "events": 2,
+     "hours": 0.1985,
+     "share": 0.0687
+    }
+   }
+  },
+  "A90": {
+   "flights": 40,
+   "drones": 6,
+   "events": 3,
+   "hours": 0.8268,
+   "phase": {
+    "narrowing": {
+     "events": 1,
+     "hours": 0.2143,
+     "share": 0.2592
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.1943,
+     "share": 0.235
+    },
+    "narrow": {
+     "events": 1,
+     "hours": 0.3557,
+     "share": 0.4302
+    },
+    "wide": {
+     "events": 1,
+     "hours": 0.0625,
+     "share": 0.0756
+    }
+   }
+  },
+  "A95": {
+   "flights": 40,
+   "drones": 2,
+   "events": 1,
+   "hours": 0.8324,
+   "phase": {
+    "narrowing": {
+     "events": 1,
+     "hours": 0.217,
+     "share": 0.2607
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.1992,
+     "share": 0.2393
+    },
+    "narrow": {
+     "events": 0,
+     "hours": 0.3555,
+     "share": 0.4271
+    },
+    "wide": {
+     "events": 0,
+     "hours": 0.0608,
+     "share": 0.073
+    }
+   }
+  },
+  "F17": {
+   "flights": 140,
+   "drones": 17,
+   "events": 9,
+   "hours": 2.8553,
+   "phase": {
+    "narrowing": {
+     "events": 3,
+     "hours": 0.695,
+     "share": 0.2434
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.6436,
+     "share": 0.2254
+    },
+    "narrow": {
+     "events": 5,
+     "hours": 1.3161,
+     "share": 0.4609
+    },
+    "wide": {
+     "events": 1,
+     "hours": 0.2006,
+     "share": 0.0703
+    }
+   }
+  },
+  "L85": {
+   "flights": 40,
+   "drones": 4,
+   "events": 2,
+   "hours": 0.7725,
+   "phase": {
+    "narrowing": {
+     "events": 0,
+     "hours": 0.1816,
+     "share": 0.2351
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.1714,
+     "share": 0.2219
+    },
+    "narrow": {
+     "events": 2,
+     "hours": 0.3606,
+     "share": 0.4668
+    },
+    "wide": {
+     "events": 0,
+     "hours": 0.0589,
+     "share": 0.0763
+    }
+   }
+  }
+ }
+}

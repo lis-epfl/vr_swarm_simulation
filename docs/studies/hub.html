@@ -76,7 +76,7 @@ tr:last-child td { border-bottom: 0; }
     <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span></div>
   </header>
 
   <section>
@@ -254,6 +254,27 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+      <article class="study">
+        <header><span class="id">S9</span><h3>Street Spread</h3><span class="was">the spread study · 2 Nov 2026</span><span class="status done">Done · revised by its follow-up</span></header>
+        <div>
+          <p class="q">Does S7's adaptive spread, which the scene now flies, narrow the swarm too much in BlockShapedPatchCityWorld's streets and should it stay a bit wider? What do the same spreads do held fixed, and what happens at the pilot's dial ends? Then, the same day: is any of it significant, and do the losses really happen while the spread changes?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick with the dial fixed; a pilot turns the dial, which the adaptive spread then scales.</li>
+            <li>The replica under-counts Unity's collisions (about half) and the two disagree on whether a narrower spread costs drones; the dial ends were flown only in the first run.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S9_street_spread.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Narrower in the streets is faster, beyond doubt: route by route over 1,000 street routes, the adaptive spread at 0.85 is 8% faster than 2.0 held and 1.7 held 11%, in every city.</li>
+            <li>In the replica the narrower street spread costs drones, held or adaptive alike: 48 loss events at 0.85 and at 1.7 held, 43 at 1.8 held, against 24 at 2.0 held (431 km each). Unity does not show it (12, 9 and 10 flights with losses in 156), and it loses about twice what the replica's twins do on the same routes. Unsettled.</li>
+            <li>The adaptive spread's changes cost nothing: losses cluster as the swarm leaves a building into a street in every row, even 2.0 held where the spread never moves, and the adaptive spread's excess is the same there as elsewhere. It flies like 1.8 held. The first run's "held spreads lose alike" and "losses during the change" were noise and a confound.</li>
+            <li>For the trials the choice is the street spread: 2.0 held for the fewest losses in the replica, the scene's setting or 1.7 held for 8–11% more street speed. A longer Unity run would settle it. Its page has an "Is it significant?" tab and replays four routes six ways.</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -287,6 +308,8 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Size a pass/fail run to its bar</b>, then confirm on fresh trials in fresh cities. <span class="tag">S4</span></li>
           <li><b>Read the full run, not the first rounds</b>: S4's H2 read ×1.12–1.39 early and ×1.02 in the end. <span class="tag">S4</span></li>
           <li><b>Check an adaptive pilot for dead ends</b>, and a walk for early ends, before the run. <span class="tag">S4</span></li>
+          <li><b>Count rare events with exact intervals and pool every run of a setting, within a platform</b>: S9's first run called the adaptive spread safe (p 0.20); four times the distance made it 48 against 24, while Unity disagreed. <span class="tag">S9</span></li>
+          <li><b>A timing claim needs a placebo of the same moments</b>: S9's "losses during the spread's change" appeared just as much in rows whose spread never changes. <span class="tag">S9</span></li>
         </ol>
       </section>
       <section>
@@ -303,6 +326,7 @@ tr:last-child td { border-bottom: 0; }
           <li><b>A spread that changes in flight inherits the narrowest spread's collisions</b>, and adds its own in the transitions. <span class="tag">S7</span></li>
           <li><b>A tighter obstacle shape must keep its curvature</b>: flat faces stall a formation without the slide and line drones up to collide with it. <span class="tag">S8</span></li>
           <li><b>Bound a safety measure by the configuration the scene flies</b>, and report every bar a candidate misses. <span class="tag">S8</span></li>
+          <li><b>Before tuning a setting that moves between values in flight, fly those values held, far enough to compare costs</b>: 1.8 held flew exactly like the adaptive spread. <span class="tag">S9</span></li>
         </ol>
       </section>
       <section>
@@ -340,16 +364,17 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S6</b> Patch City Tuning</td><td><code>docs/studies/S6_patch_city_tuning.md</code></td><td><code>docs/swarm_tune/</code></td><td><code>citysim/swarmtune.py</code></td><td><code>experiment_results/swarm_tune/</code></td></tr>
         <tr><td><b class="mono">S7</b> Building Flow</td><td><code>docs/studies/S7_building_flow.md</code></td><td><code>docs/swarm_flow/</code></td><td><code>citysim/swarmflow.py</code>; <code>OlfatiSaber.cs</code>, <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_flow/</code></td></tr>
         <tr><td><b class="mono">S8</b> Footprint Avoidance</td><td><code>docs/studies/S8_footprint_avoidance.md</code></td><td><code>docs/swarm_shape/</code></td><td><code>citysim/swarmshape.py</code>; <code>ObstacleFootprint.cs</code>, <code>OlfatiSaber.cs</code></td><td><code>experiment_results/swarm_shape/</code></td></tr>
+        <tr><td><b class="mono">S9</b> Street Spread</td><td><code>docs/studies/S9_street_spread.md</code></td><td><code>docs/swarm_spread/</code></td><td><code>citysim/swarmspread.py</code></td><td><code>experiment_results/swarm_spread/</code></td></tr>
       </tbody>
     </table></div>
-    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape), so nothing that reads them broke.</p>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape, spread), so nothing that reads them broke.</p>
   </section>
 
   <section>
     <h2>Starting a new study</h2>
     <ol class="steps">
       <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
-      <li>Take the next ID (S9), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S9_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Take the next ID (S10), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S10_&lt;slug&gt;.md</code> and add it to the table there.</li>
       <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
       <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
       <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>

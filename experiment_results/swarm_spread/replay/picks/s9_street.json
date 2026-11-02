@@ -1,0 +1,38 @@
+{
+ "pick": {
+  "key": "s9_street",
+  "kind": "street",
+  "k": 11013,
+  "title": "Along the streets",
+  "first": "a85",
+  "why": "the typical street route: its difference in cohesive speed, adaptive 0.95 minus 0.85, -0.14 m/s, is the nearest to the median of its kind (-0.14 m/s, 40 routes)"
+ },
+ "flights": {
+  "l85": [
+   "s9_street_l85_replica",
+   "s9_street_l85_unity"
+  ],
+  "a85": [
+   "s9_street_a85_replica",
+   "s9_street_a85_unity"
+  ],
+  "f20": [
+   "s9_street_f20_replica",
+   "s9_street_f20_unity"
+  ],
+  "a90": [
+   "s9_street_a90_replica",
+   "s9_street_a90_unity"
+  ],
+  "f17": [
+   "s9_street_f17_replica",
+   "s9_street_f17_unity"
+  ],
+  "a95": [
+   "s9_street_a95_replica",
+   "s9_street_a95_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

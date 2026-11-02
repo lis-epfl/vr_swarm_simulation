@@ -1,0 +1,164 @@
+{
+ "34fe8b11a2": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 2.0,
+  "label": "F20 fixed d_ref 2.0 (C35)"
+ },
+ "ba63d46cbe": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  },
+  "d": 2.0,
+  "label": "A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene"
+ },
+ "ba485c957d": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.9
+  },
+  "d": 2.0,
+  "label": "A90 d_ref 2.0, adaptive 0.9 (1.8 in the streets)"
+ },
+ "61658a2c6a": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.95
+  },
+  "d": 2.0,
+  "label": "A95 d_ref 2.0, adaptive 0.95 (1.9 in the streets)"
+ },
+ "6b1f934ccf": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 1.9,
+  "label": "F19 fixed d_ref 1.9"
+ },
+ "1612a9dafe": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 1.8,
+  "label": "F18 fixed d_ref 1.8"
+ },
+ "a49b3eed0d": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 1.7,
+  "label": "F17 fixed d_ref 1.7"
+ },
+ "15ec4919dc": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 1.4,
+  "label": "F14 fixed d_ref 1.4: the dial at its lowest"
+ },
+ "a909f7da99": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  },
+  "d": 1.4,
+  "label": "L85 d_ref 1.4, adaptive 0.85 (1.19 in the streets)"
+ },
+ "936fce6ae2": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.95
+  },
+  "d": 1.4,
+  "label": "L95 d_ref 1.4, adaptive 0.95 (1.33 in the streets)"
+ },
+ "e72445e057": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 1.2,
+  "label": "F12 fixed d_ref 1.2"
+ },
+ "916d8a440d": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 2.6,
+  "label": "F26 fixed d_ref 2.6: the dial at its highest"
+ },
+ "676ff62223": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  },
+  "d": 2.6,
+  "label": "H85 d_ref 2.6, adaptive 0.85 (2.21 in the streets)"
+ }
+}

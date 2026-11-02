@@ -102,6 +102,15 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     is within-scenario. (S2, S3)
 15. **Fix the selection rule before the data**, record near-misses (S1's L3 knife-edge between G6 and G7), and rerun
     the rule rather than hand-editing its output. (S1)
+46. **Count rare events with their exact intervals, and pool every run of the same setting before calling it safe.**
+    Collisions run at about ten per ~100 km row and fall on different routes in every row, so pairing the routes buys no
+    power for them and each count's 95% interval spans a factor of three. S9's rule, on its first run's counts, found the
+    adaptive spread at 0.85 safe (14 loss events against 9, p = 0.20); the follow-up at four times the distance had 48
+    against 24 (p = 0.003), and every replica run of the two settings together 68 against 34. Write the pooling of earlier
+    runs of the same setting into the rule, count events (a colliding pair is one), and test a trend across ordered levels
+    rather than one level against the base. **Pool within a platform, not across**: Unity's benches had the same two
+    settings at 15 against 10 and lose about twice the replica's twins on the same routes, so a pooled replica-and-Unity
+    count hides the disagreement that matters. (S9)
 
 ## Running studies on this machine
 
@@ -186,6 +195,22 @@ ones with the study's ID; mark one **Applied** once the code does it by default.
     circle passed the speed and loss bars by a distance (a tenth of the losses) and failed only on contacts unless the
     standoff was raised; state the bound in rule.json and report every bar a candidate misses, so the reader can move the
     bar knowingly. (S8)
+45. **Before tuning a setting that moves between values in flight, fly the values it moves between, held, and fly them
+    far enough to compare their costs.** S7 and S8 tuned the adaptive spread's street factor without ever holding the
+    spread it narrows to. S9 did, and the held rows answered the question the factor could not: 1.8 held flies exactly
+    like the adaptive spread at 0.85 (the same street speed, p = 0.68; 43 against 48 loss events over 431 km), 1.7 held is
+    3% faster for the same losses, and both lose about twice what 2.0 held does. So the cost was the narrower spread, not
+    the dynamics, and a dynamic setting has to beat the best static value in its range. S9's first run (~10 loss events a
+    row) read the held rows as losing alike and recommended them on that basis; the follow-up at four times the distance
+    reversed it. Size the run to the comparison before recommending from it (lesson 23). (S9)
+47. **A timing claim needs a placebo of the same moments.** S9's first run found the adaptive spread's losses clustered
+    while the spread changed (33 of 63 against 23 expected from the time spent changing) and read it as the narrowing's
+    doing. But the spread only changes near buildings, so the comparison was confounded with the place. The follow-up
+    logged the adaptive spread's *shadow* in every row (what it would be doing, from the swarm's own position, stick and
+    buildings): 2.0 held, whose spread never changes, lost five times as often in the shadow's "narrowing" moments as when
+    it was held narrow, and the adaptive rows' excess over the held rows was the same in every phase (equal-ratio test
+    p = 0.69). When a loss is timed against an event, time the control rows against the same event, computed but not
+    applied, and count exposure per phase; a cluster that appears in every row is where, not what. (S9)
 
 ## Pilots and outcomes
 

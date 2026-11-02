@@ -1,0 +1,634 @@
+<title>S9 Street Spread</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (swarmspread_report via swarmtune_report.s4_style),
+   then S9's additions. */
+/*__S4_STYLE__*/
+/* S9: the ways a route is flown, on the family's validated slots */
+:root { --k-f20: var(--m-other); --k-a85: var(--c-pass); --k-a90: var(--c-hop); --k-a95: var(--c-hop2);
+        --k-f17: var(--c-street); --k-l85: var(--c-look); --k-adapt: var(--c-hop2); --k-fixed: var(--m-other);
+        --k-scene: var(--c-pass); --k-other: var(--m-firm); }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 150px; font-family: var(--font-body); }
+table.dt tr.pick td { background: color-mix(in srgb, var(--c-hop2) 12%, transparent); font-weight: 600; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+.seg { display: inline-flex; gap: 0; border: 1px solid var(--rule, color-mix(in srgb, var(--ink) 20%, transparent)); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 0.8rem/1 var(--font-body); padding: 6px 10px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--c-hop2) 18%, transparent); color: var(--ink); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--ink-2); margin: 2px 0 8px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; background: var(--sw); vertical-align: -1px; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S9 · Street Spread · for the human trials</p>
+      <h1>Does the adaptive spread narrow the swarm too much in the streets?</h1>
+      <p class="lead">The trials have pilots search BlockShapedPatchCityWorld with a swarm of ten drones or with one drone. Since S8 the scene flies C35a: each building avoided as
+        the smallest circle round its footprint, S7's slide, d_obs 0.35, and S7's <b>adaptive spread</b>, which narrows the formation to 0.85 of the pilot's spread in the streets
+        and widens it back when the swarm flies at a building. In S8 it was the fastest setting in the streets, and it lost more drones than the same setting without it.</p>
+      <p class="lead">S9 is a short study (about 70 minutes) of the spread values alone, with no change to the force law: how far to narrow (0.85, 0.90, 0.95 or not at all),
+        what the same spreads do held fixed (so the narrowed spread can be told apart from the narrowing), and the pilot's dial at its two ends. The replica on S8's harness,
+        street-heavy routes in the scene's city and three held out, and a Unity check. Scripted pilots at full stick.</p>
+      <p class="lead"><b>Revised the same day.</b> A follow-up flew the six rows that matter four times as far, with the moment of every loss placed against what the adaptive spread was doing
+        (and would have been doing, in the rows that hold the spread), and a second Unity bench. It overturned two of the first run's readings; the answer below is the follow-up's.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const by = (a, b) => ok(a) && ok(b) && b ? `${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+const sgn = (a, b) => ok(a) && ok(b) && b ? `${a >= b ? "+" : "−"}${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+const pv = p => !ok(p) ? "–" : p < 0.001 ? "p &lt; 0.001" : `p = ${p < 0.01 ? p.toFixed(3) : p.toFixed(2)}`;
+
+// ---------------------------------------------------------------- the rows
+const A = D.analysis || {}, ROWS = A.rows || {}, V = A.verdicts || {}, PICK = A.pick, R = D.rule || {};
+const row = c => ROWS[c];
+const per100 = r => r && r.km ? 100 * r.events / r.km : null;
+const ci100 = r => r && r.km && r.ci ? `${fmt(100 * r.ci[0] / r.km, 1)}–${fmt(100 * r.ci[1] / r.km, 1)}` : "–";
+const tab = c => (D.run || []).find(r => String(r.label).split(" ")[0] === c);
+const kind = (r, k, m) => r && r.kinds && r.kinds[k] ? r.kinds[k][m] : null;
+const isAdapt = c => /^[AHL]/.test(c);
+const kCol = c => c === "A85" ? "var(--k-scene)" : isAdapt(c) ? "var(--k-adapt)" : "var(--k-fixed)";
+const SHORT = {F20: "2.0 held", A85: "0.85 (the scene)", A90: "0.90", A95: "0.95", F19: "1.9 held", F18: "1.8 held", F17: "1.7 held",
+               F14: "1.4 held", L85: "1.4, adaptive 0.85", L95: "1.4, adaptive 0.95", F12: "1.2 held", F26: "2.6 held", H85: "2.6, adaptive 0.85"};
+const short = c => SHORT[c] || c;
+const unity = (set, src = "unity") => (D.unity || []).find(r => r.set === set && r.src === src);
+const CNT = set => D.counts ? D.counts[set] : null;
+const pairP = (a, b) => (A.pair_p || {})[`${a}>${b}`];
+
+// ---------------------------------------------------------------- tooltip and chart helpers (S5's)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (W, H, label, g) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// Small-multiple horizontal bars: one panel per measure, one bar per row; an optional interval per bar ([lo, hi]).
+function barPanels(el, rows, panels) {
+  const W = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 16, gap = 7, m = {l: 128, r: 46, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x.r)), iv = rows.map(x => p.ci ? p.ci(x.r) : null);
+    const vmax = Math.max(1e-9, ...vals.filter(ok), ...iv.filter(Boolean).map(v => v[1])) * 1.05;
+    const xx = v => m.l + (W - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = "";
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(x.lab || short(x.c))}</text>`;
+      if (ok(v)) {
+        g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${kCol(x.c)}"/>`;
+        const ci = iv[i];
+        if (ci) g += `<line x1="${xx(ci[0]).toFixed(1)}" x2="${xx(ci[1]).toFixed(1)}" y1="${yy + bh / 2}" y2="${yy + bh / 2}" stroke="var(--ink)" stroke-width="1.4"/>
+          <line x1="${xx(ci[1]).toFixed(1)}" x2="${xx(ci[1]).toFixed(1)}" y1="${yy + 4}" y2="${yy + bh - 4}" stroke="var(--ink)" stroke-width="1.4"/>`;
+        g += `<text class="val" x="${(xx(ci ? Math.max(v, ci[1]) : v) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      } else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${W}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(W, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `<div class="legend"><span style="--sw:var(--k-scene)">the scene (adaptive 0.85)</span><span style="--sw:var(--k-adapt)">adaptive spread</span><span style="--sw:var(--k-fixed)">spread held fixed</span></div><div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100], ci = p.ci ? p.ci(x.r) : null;
+    return [x.r ? x.r.label : x.c, [[kCol(x.c), p.f(p.get(x.r)) + (ci ? ` (95%: ${p.f(ci[0])}–${p.f(ci[1])})` : ""), p.title]]]; });
+}
+const LOSS_PANEL = {title: "Loss events per 100 km", get: per100, ci: r => r && r.km && r.ci ? [100 * r.ci[0] / r.km, 100 * r.ci[1] / r.km] : null, f: v => fmt(v, 1),
+                    unit: "a loss event is a moment drones are lost, nearly always a colliding pair; the line is the exact 95% interval"};
+const STREET_PANEL = {title: "In the streets (m/s)", get: r => r && r.street_v_coh, f: v => fmt(v, 2), unit: "cohesive speed on the street routes"};
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["follow", "Is it significant?"], ["flights", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s9tab", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (h === "reading" || /^q\d$/.test(h)) { show("answer", h); return true; }
+  if (/^f\d$/.test(h)) { show("follow", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? D.replay.groups[gi].flights.find(f => f.cond === cond && f.source === "unity") : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (gid, cond, text) => D.replay && D.replay.groups.some(g => g.id === gid) ? `<a class="watch" href="#watch:${gid}:${cond}">${esc(text)}</a>` : "";
+const tagV = v => v && v.safe && v.helps ? '<span class="vp yes">Yes</span>' : v && (v.safe || v.helps) ? '<span class="vp part">Partly</span>' : '<span class="vp no">No</span>';
+
+// ---------------------------------------------------------------- the answer's sums
+// The answer rests on the follow-up (run2: the six rows that matter, four times the first run's street distance, with
+// the timing logged); the first run (run1) adds the dial's ends and is shown beside it.
+const RA = ((D.follow || {}).run2 || {}).rows || {}, VA = ((D.follow || {}).run2 || {}).verdicts || {};
+const r2 = c => RA[c];
+const PS2 = (D.follow || {}).paired2 || {}, PS1 = (D.follow || {}).paired1 || {};
+const UL = ((D.follow || {}).ulost) || {};
+const ufl = c => { const a = (UL.b1 || {})[c], b = (UL.b2 || {})[c]; if (!a && !b) return null;
+  const s = (k) => (a ? a[k] : 0) + (b ? b[k] : 0); return {flights: s("flights"), lost: s("u_flights_lost"), drones: s("u_lost"), twin: s("r_flights_lost")}; };
+const S8P = c => (D.s8 || {})[c];
+// exact one-sided binomial tail P(X >= k | n, 1/2), for pooled counts on equal exposure
+function tail(k, n) { let s = 0, c = 1; for (let i = 0; i <= n; i++) { if (i > 0) c = c * (n - i + 1) / i; if (i >= k) s += c; } return s / Math.pow(2, n); }
+// every replica run of the two settings S8 and S9 both flew (flights that lost drones), and every Unity bench
+const pooledRep = () => { const a = S8P("A85"), b = S8P("F20"); if (!a || !b || !r2("A85") || !row("A85")) return null;
+  return {a: a.flights_lost + row("A85").flights_lost + r2("A85").flights_lost, b: b.flights_lost + row("F20").flights_lost + r2("F20").flights_lost}; };
+const pooledUni = () => { const a = S8P("A85"), b = S8P("F20"), ua = ufl("A85"), ub = ufl("F20"); if (!ua || !ub) return null;
+  return {a: ua.lost + (a && ok(a.unity_lost) ? a.unity_lost / 2 : 0), b: ub.lost + (b && ok(b.unity_lost) ? b.unity_lost / 2 : 0)}; };
+const evs = c => r2(c) ? r2(c).events : null;
+const twinOverlap = () => { let u = 0, both = 0; for (const b of [UL.b1, UL.b2]) for (const s of Object.values(b || {})) { u += s.u_flights_lost; both += s.both || 0; } return {u, both}; };
+
+// ---------------------------------------------------------------- the masthead
+function ANSWER_BOX() {
+  const f20 = r2("F20"), a85 = r2("A85"), a90 = r2("A90"), a95 = r2("A95"), f17 = r2("F17"), f18 = r2("F18");
+  const pa = cmpT("adaptive>fixed") || {}, h85 = cmpT("A85>F20") || {}, uA = ufl("A85"), uF = ufl("F20"), uS = ufl("F17");
+  return `<p class="eyebrow">The short answer (revised after the follow-up)</p><ol>
+    <li><b>The speed is real.</b> The narrower the swarm flies the streets, the faster: route by route over 1,000 street routes, the adaptive spread at 0.85 is ${sgn(a85.street_v_coh, f20.street_v_coh)}
+      and 1.7 held ${sgn(f17.street_v_coh, f20.street_v_coh)} against 2.0 held, in every city (${pv((PS2["A85-F20"] || {}).p_w)}).</li>
+    <li><b>Flying the streets narrower costs drones in the replica, held or adaptive alike.</b> ${f17.events} loss events at 1.7 held, ${f18.events} at 1.8 held, ${a85.events} with the adaptive 0.85, against
+      ${f20.events} at 2.0 held (${pv((VA.A85 || {}).p_worse)}). Unity does not show it: ${uA ? uA.lost : "–"}, ${uS ? uS.lost : "–"} and ${uF ? uF.lost : "–"} flights with losses in ${uF ? uF.flights : "–"} each, and Unity
+      loses about twice as many as the replica on the same routes. Not settled.</li>
+    <li><b>The adaptive spread's changes cost nothing; my first reading was wrong.</b> Losses cluster as the swarm leaves a building into a street in every row, held or adaptive, and the adaptive
+      spread's excess over 2.0 held is the same in that moment as elsewhere (×${fmt(((h85.narrowing_vs_rest) || {}).ratio_narrowing, 2)} against ×${fmt(((h85.narrowing_vs_rest) || {}).ratio_rest, 2)}). It flies like
+      1.8 held (the same street speed, ${a85.events} against ${f18.events} loss events).</li></ol>
+    <p class="bottom"><b>My reading:</b> the choice is the spread in the streets, not adaptive against held: 2.0 for the fewest losses in the replica, 1.7–1.8 for 8–11% more street speed.
+      Nothing measured favours changing the scene's adaptive spread to a held 1.8; a held 1.7 is 3% faster for the same losses. A longer Unity run is what would settle the losses. <a href="#reading">The full reading</a>.</p>`;
+}
+
+// ---------------------------------------------------------------- the answer
+function ruleTable() {
+  const head = ["", "in the streets (m/s)", "vs 2.0 held", "loss events (95%)", "loses more than 2.0 held", "contacts /km", "first run: rule", "follow-up: rule"];
+  const rows = ["F20", "A95", "A90", "A85"].map(c => {
+    const r = r2(c), v1 = V[c] || {}, v2 = VA[c] || {};
+    const verdict = v => c === R.base ? "baseline" : `${v.safe ? "safe" : "not safe"} · ${v.helps ? "helps" : "does not help"}`;
+    return `<tr><td class="l">${esc(r.label)}</td><td>${fmt(r.street_v_coh, 2)}</td><td>${c === R.base ? "–" : sgn(r.street_v_coh, r2(R.base).street_v_coh)}</td>
+      <td>${r.events} (${fmt(r.ci[0], 1)}–${fmt(r.ci[1], 1)})</td><td>${c === R.base ? "–" : pv(v2.p_worse)}</td><td>${fmt(r.contact_km, 2)}</td><td class="l small">${esc(verdict(v1))}</td><td class="l small">${esc(verdict(v2))}</td></tr>`;
+  }).join("");
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 || i >= head.length - 2 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="small muted">The follow-up's numbers (the replica, ${fmt(r2("F20").km, 0)} km per row on the same routes). The rule (written ${esc(D.rule_written)}, before the first run): a street factor is safe when its loss events are not more
+      frequent than with d_ref 2.0 held at one-sided exact p &lt; ${R.safe_p} and its contacts are at most ${R.contact_ratio}× that row's; it helps when the streets are at least ${Math.round(100 * R.street_gain)}% faster and it
+      surrounds within ${Math.round(100 * R.wrap_margin)} points. Pick: the narrowest safe and helping factor. On the first run's counts it picked ${esc(short(PICK || "none"))}; applied unchanged to the follow-up's, it
+      finds no factor safe and leaves the adaptive spread off.</p>`;
+}
+RENDER.answer = el => {
+  const f20 = r2("F20"), a85 = r2("A85"), a90 = r2("A90"), a95 = r2("A95"), f18 = r2("F18"), f17 = r2("F17");
+  const f14 = row("F14"), l85 = row("L85"), l95 = row("L95"), f12 = row("F12"), f26 = row("F26"), h85 = row("H85");
+  const pa = cmpT("adaptive>fixed") || {}, nv = pa.narrowing_vs_rest || {}, c85 = cmpT("A85>F20") || {};
+  const PR = pooledRep(), PU = pooledUni(), uA = ufl("A85"), uF = ufl("F20"), uS = ufl("F17");
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>Does the adaptive spread narrow too much?</h2>
+      <p class="qa"><span class="vp part">A trade</span>Each step narrower buys street speed; in the replica it also costs drones, and the rule now finds no factor safe.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-factor"></div>
+      <div class="qtext"><ul>
+        <li><b>The streets get faster the narrower it goes</b>: ${fmt(f20.street_v_coh, 2)} m/s holding 2.0, then ${fmt(a95.street_v_coh, 2)}, ${fmt(a90.street_v_coh, 2)} and ${fmt(a85.street_v_coh, 2)} at 0.95, 0.90 and 0.85.
+          Route by route that is ${sgn(a95.street_v_coh, f20.street_v_coh)}, ${sgn(a90.street_v_coh, f20.street_v_coh)} and ${sgn(a85.street_v_coh, f20.street_v_coh)}, faster on ${pc((PS2["A95-F20"] || {}).faster)}, ${pc((PS2["A90-F20"] || {}).faster)} and
+          ${pc((PS2["A85-F20"] || {}).faster)} of the 1,000 routes and in all four cities. Significant beyond doubt.</li>
+        <li><b>In the replica the losses rise with it</b>: ${a95.events}, ${a90.events} and ${a85.events} loss events against ${f20.events} (${pv((VA.A95 || {}).p_worse)}, ${pv((VA.A90 || {}).p_worse)}, ${pv((VA.A85 || {}).p_worse)}).
+          The first run, with a quarter of the distance, had 6, 10 and 14 against 9 and could not tell. Every replica run of 0.85 and 2.0 held together (S8 and S9): ${PR ? `${PR.a} flights with losses against ${PR.b}, ${pv(tail(PR.a, PR.a + PR.b))}` : "–"}.</li>
+        <li><b>Unity does not show it</b>: ${uA ? uA.lost : "–"} flights with losses at 0.85 against ${uF ? uF.lost : "–"} at 2.0 held in ${uF ? uF.flights : "–"} each (S9's two benches; with S8's, ${PU ? `${PU.a} against ${PU.b}` : "–"}).
+          See question 5.</li>
+        <li><b>The rule, fixed before the first run</b>, picked 0.85 on that run's counts; applied unchanged to the follow-up's it finds no factor safe (question 6).</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Is it the narrower spread, or the narrowing?</h2>
+      <p class="qa"><span class="vp no">The narrower spread</span>Held at 1.7 or 1.8 the swarm loses as many drones as the adaptive spread does; its changes add nothing.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-fixed"></div>
+      <div class="qtext"><ul>
+        <li><b>Held fixed, the narrower spreads lose as much as the adaptive spread</b>: ${f17.events} loss events at 1.7 held and ${f18.events} at 1.8 held, against ${a85.events} adaptive and ${f20.events} at 2.0 held
+          (1.7 against 2.0: ${pv((VA.F17 || {}).p_worse)}). <b>This reverses the first run</b>, where 1.7–2.0 held lost 12, 6, 13 and 9 and seemed alike: about ten events a row could not show a doubling.</li>
+        <li><b>1.8 held is the adaptive 0.85's twin</b>: the same street speed (${fmt(f18.street_v_coh, 2)} against ${fmt(a85.street_v_coh, 2)} m/s, ${pv((PS2["F18-A85"] || {}).p_w)} route by route) and ${f18.events} loss events against ${a85.events}.
+          1.7 held is ${sgn(f17.street_v_coh, a85.street_v_coh)} faster than the adaptive 0.85 for the same losses (${f17.events} against ${a85.events}).</li>
+        <li><b>The changes cost nothing</b>: the losses that seemed to fall while the spread changed fall at the same moments in the held rows, where the spread never changes (the follow-up tab).
+          Pooled, the adaptive rows lose ×${fmt(pa.ratio_all, 2)} what the held rows do (${pv(pa.p_worse_all)}), ×${fmt(nv.ratio_narrowing, 2)} in the narrowing moments and ×${fmt(nv.ratio_rest, 2)} elsewhere.</li></ul>
+        <div class="watches"><a class="watch" href="#f2">When the losses happen</a>${watch("s9_street", "f17", "A street route, six ways")}</div></div></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>What does a narrower spread give up?</h2>
+      <p class="qa"><span class="vp part">Drones, in the replica; little surrounding down to 1.7</span>Below 1.7 the formation stops surrounding buildings.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-cost"></div>
+      <div class="qtext"><ul>
+        <li><b>Surrounding barely moves down to 1.7</b>: ${["F20", "F18", "F17", "A85"].map(c => `${short(c)} ${pc(r2(c).cross_wrapped)}`).join(", ")} of the buildings a straight line flies at (the follow-up); the first run's
+          ${["F14", "F12"].map(c => `${fmt(row(c).d, 1)} held ${pc(row(c).cross_wrapped)}`).join(", ")}. The widening at a building, which is what the adaptive spread is for, buys no surrounding.</li>
+        <li><b>Building contacts fall as the formation narrows</b> (${["F20", "A85", "F18", "F17"].map(c => `${short(c)}: ${fmt(r2(c).contact_km, 2)}`).join(", ")} per km): a narrower formation fits the streets
+          and fewer drones are pressed against facades. Drone collisions are the other side of the same squeeze.</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>What happens at the dial's two ends?</h2>
+      <p class="qa"><span class="vp part">The first run only</span>The low end loses the most, with or without the adaptive spread; at the high end the formation does not fit the streets.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-dial"></div>
+      <div class="qtext"><ul>
+        <li><b>At 1.4 (the dial's lowest)</b>: ${f14.events} loss events held, the most of any row of the first run; with the adaptive spread ${l85.events} at 0.85 (1.19 in the streets) and ${l95.events} at 0.95; ${f12.events} held at 1.2.
+          Surrounding falls to ${pc(f14.cross_wrapped)}; the streets are the fastest of all (${fmt(f14.street_v_coh, 2)} m/s). These rows were not flown again, so read them as the first run's counts were read: about ten events each.</li>
+        <li><b>At 2.6 (the highest)</b> the formation does not fit the streets: ${fmt(f26.street_v_coh, 2)} m/s, one group ${pc(f26.street_one)} of the time, ${f26.events} loss events. The adaptive spread (2.21 in the streets)
+          makes them ${by(h85.street_v_coh, f26.street_v_coh)} faster and loses ${h85.events}, the same trade as at 2.0.</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q5">
+    <div class="qhead"><span class="qn">5</span><div><h2>Does Unity agree?</h2>
+      <p class="qa"><span class="vp part">On speed, not on losses</span>Two benches, ${uF ? uF.flights : "–"} flights per row: the same street speeds, no difference in losses, and about twice the replica's losses.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-unity"></div>
+      <div class="qtext"><ul>
+        <li><b>The street speeds match</b>: in the follow-up bench, ${["F20", "A85", "F17"].map(c => { const u = ((D.follow || {}).unity2 || []).find(r => r.set === c && r.src === "unity"), t = ((D.follow || {}).unity2 || []).find(r => r.set === c && r.src === "replica");
+          return u ? `${short(c)} ${fmt(kind(u, "street", "v_coh"), 2)} (twin ${fmt(kind(t, "street", "v_coh"), 2)})` : ""; }).filter(Boolean).join(", ")} m/s.</li>
+        <li><b>The losses do not differ</b>: flights with losses ${["F20", "A85", "F17"].map(c => { const u = ufl(c); return u ? `${short(c)} ${u.lost}` : ""; }).filter(Boolean).join(", ")} in ${uF ? uF.flights : "–"} each.
+          If the replica's doubling held in Unity, 0.85 would have had about twice 2.0 held's; ${uA && uF ? uA.lost : "–"} against ${uF ? uF.lost : "–"} is unlikely under a doubling but too few flights to rule it out.</li>
+        <li><b>Unity loses about twice what the replica does on the same routes</b>: ${["F20", "A85", "F17"].map(c => { const u = ufl(c); return u ? `${short(c)} ${u.lost} in Unity against ${u.twin} for the twins` : ""; }).filter(Boolean).join(", ")}.
+          The twins match Unity's speeds and contacts, so the replica models the flow well and the collisions less well; its count of losses is the less certain number.</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q6">
+    <div class="qhead"><span class="qn">6</span><div><h2>Which street factor, by the rule?</h2>
+      <p class="qa"><span class="vp part">${esc(short(PICK || "none"))}, then none</span>The rule picked 0.85 on the first run; on the follow-up's four-times-longer run no factor passes its safety bar.</p></div></div>
+    <div id="ans-table">${ruleTable()}</div>
+  </section>
+
+  <section class="q reading" id="reading">
+    <div><h2>My reading</h2>
+      <p class="qa" id="reading-text"></p></div>
+    <div class="grid2">
+      <div><h3>What S9 settles</h3><ol>
+        <li><b>Flying the streets narrower is faster</b>, by 3–11% between 1.9 and 1.7, held or adaptive.</li>
+        <li><b>The adaptive spread is a held spread of about 1.8 in disguise</b>: the same speed, the same losses, and its changes add none.</li>
+        <li><b>The first run's two strong claims were noise and a confound</b>: held spreads did not lose alike, and the losses in the changes were the place, not the change.</li></ol></div>
+      <div><h3>What it cannot settle</h3><ol>
+        <li><b>Whether narrower costs drones in Unity</b>: the replica says about twice as many, Unity's 156 flights a row show no difference, and Unity loses twice the replica's count anyway.</li>
+        <li><b>People.</b> Scripted routes at full stick with the dial fixed; a pilot turns the dial, which the adaptive spread then scales.</li>
+        <li><b>The dial's ends</b>, flown only in the first run.</li></ol></div></div>
+  </section></div>`;
+  const R2row = c => Object.assign({}, r2(c));
+  const draws = [
+    ["#ans-factor", () => barPanels($("#ans-factor", el), ["F20", "A95", "A90", "A85"].map(c => ({c, r: R2row(c)})), [STREET_PANEL, LOSS_PANEL])],
+    ["#ans-fixed", () => barPanels($("#ans-fixed", el), ["F20", "F18", "F17", "A85"].map(c => ({c, r: R2row(c)})), [STREET_PANEL, LOSS_PANEL])],
+    ["#ans-cost", () => barPanels($("#ans-cost", el), ["F20", "F18", "F17", "A85"].map(c => ({c, r: R2row(c)})), [
+      {title: "Buildings surrounded", get: r => r && r.cross_wrapped, f: v => pc(v), unit: "of those a straight line flies at (100 per row)"},
+      {title: "Building contacts per km", get: r => r && r.contact_km, f: v => fmt(v, 2), unit: "every flight"}])],
+    ["#ans-dial", () => barPanels($("#ans-dial", el), ["F14", "L95", "L85", "F12", "F20", "F26", "H85"].map(c => ({c, r: row(c)})), [STREET_PANEL, LOSS_PANEL])],
+    ["#ans-unity", () => barPanels($("#ans-unity", el), ["F20", "A85", "F17"].filter(ufl).map(c => ({c, r: Object.assign({label: r2(c).label}, ufl(c))})), [
+      {title: "Flights that lost drones, Unity", get: r => r && r.lost, f: v => fmt(v, 0), unit: `in ${uF ? uF.flights : "–"} flights per row (both benches)`},
+      {title: "… the replica's twins of the same flights", get: r => r && r.twin, f: v => fmt(v, 0), unit: "flown from Unity's recorded starts"}])]];
+  for (const [sel, draw] of draws) { const cc = $(sel, el); if (cc) observe(cc, draw); }
+  $("#reading-text", el).innerHTML = READING();
+};
+function READING() {
+  const f20 = r2("F20"), a85 = r2("A85"), f17 = r2("F17"), f18 = r2("F18"), uA = ufl("A85"), uF = ufl("F20");
+  return `<b>The adaptive spread is neither the problem nor the fix: what matters is how narrow the swarm flies the streets.</b> Narrower is faster by every test (${sgn(a85.street_v_coh, f20.street_v_coh)} at 0.85,
+       ${sgn(f17.street_v_coh, f20.street_v_coh)} at 1.7 held). In the replica it also doubles the drones lost (${a85.events} and ${f17.events} loss events against ${f20.events}), whether the spread is held narrow or narrowed to,
+       and the adaptive spread's changes add nothing: the losses I first read as the narrowing's happen at the same moment in every row, as the swarm leaves a building into a street.
+       Unity reproduces the speeds but not the losses (${uA ? uA.lost : "–"} against ${uF ? uF.lost : "–"} flights with losses), and it loses twice what the replica does on the same routes, so the replica's count of collisions is
+       the least certain number here. I withdraw the earlier advice to hold 1.7–1.8 to avoid the narrowing: a held 1.8 flies like the scene's adaptive spread, and a held 1.7 is ${sgn(f17.street_v_coh, a85.street_v_coh)} faster for the same losses.
+       For the trials the choice is between 2.0 held (adaptive off), safer if the replica's losses are real and ${by(a85.street_v_coh, f20.street_v_coh)} slower in the streets, and the scene as it is (or 1.7 held) for the speed.
+       A Unity run of 2.0 held against the scene's setting, a few hundred street routes each, is what would settle it.`;
+}
+
+// ---------------------------------------------------------------- the follow-up: is it significant, and when do the losses happen?
+const FU = D.follow || {}, TM = FU.temporal || {}, R2 = (FU.run2 || {}).rows || {}, UT = (FU.unity_temporal || {}).rows || {};
+const PH = ["narrowing", "widening", "narrow", "wide"];
+const PH_LAB = {narrowing: "narrowing", widening: "widening", narrow: "held narrow", wide: "held wide"};
+const tm = c => (TM.rows || {})[c];
+const cmpT = k => (TM.compare || {})[k] || (TM.pooled || {})[k];
+const CNT2 = set => FU.counts2 ? FU.counts2[set] : null;
+const unityPairs = c => { const a = CNT(c), b = CNT2(c); return (a || b) ? {pairs: ((a ? a.lost : 0) + (b ? b.lost : 0)) / 2, flights: (a ? a.flights : 0) + (b ? b.flights : 0)} : null; };
+// a line chart: x the seconds round a loss, series [{lab, col, mean, lo, hi, dash}]
+function lineChart(el, xs, series, opt = {}) {
+  const W = cw(el, 280, 720), H = 230, m = {l: 44, r: 14, t: 12, b: 34};
+  const all = series.flatMap(s => [...s.mean, ...(s.lo || []), ...(s.hi || [])]).filter(ok);
+  const y0 = opt.y0 ?? Math.min(...all), y1 = opt.y1 ?? Math.max(...all);
+  const X = x => m.l + (W - m.l - m.r) * (x - xs[0]) / (xs[xs.length - 1] - xs[0]);
+  const Y = y => m.t + (H - m.t - m.b) * (1 - (y - y0) / Math.max(1e-9, y1 - y0));
+  let g = "";
+  const ticksY = opt.ticksY || [y0, (y0 + y1) / 2, y1];
+  for (const v of ticksY) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="var(--line)"/><text class="lbl" x="${m.l - 6}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end">${fmt(v, 2)}</text>`;
+  for (const v of (opt.ticksX || [-15, -10, -5, 0])) g += `<text class="lbl" x="${X(v).toFixed(1)}" y="${H - m.b + 16}" text-anchor="middle">${v === 0 ? "the loss" : `${v} s`}</text>`;
+  g += `<line x1="${X(0).toFixed(1)}" x2="${X(0).toFixed(1)}" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-2)" stroke-dasharray="3 3"/>`;
+  for (const s of series) {
+    if (s.lo && s.hi) g += `<path d="M${xs.map((x, i) => `${X(x).toFixed(1)},${Y(s.hi[i]).toFixed(1)}`).join("L")}L${xs.map((x, i) => [X(x).toFixed(1), Y(s.lo[i]).toFixed(1)]).reverse().map(p => p.join(",")).join("L")}Z" fill="${s.col}" opacity="0.12"/>`;
+    g += `<path d="M${xs.map((x, i) => `${X(x).toFixed(1)},${Y(s.mean[i]).toFixed(1)}`).join("L")}" fill="none" stroke="${s.col}" stroke-width="2.2"${s.dash ? ' stroke-dasharray="6 4"' : ""}/>`;
+  }
+  el.innerHTML = `<div class="legend">${series.map(s => `<span style="--sw:${s.col}">${esc(s.lab)}</span>`).join("")}</div>${svgOf(W, H, opt.label || "profile", g)}${opt.unit ? `<p class="small muted">${esc(opt.unit)}</p>` : ""}`;
+}
+function testRows() {
+  const P1 = FU.paired1 || {}, P2 = FU.paired2 || {};
+  const sp = (k, lab) => { const a = P1[k], b = P2[k];
+    const cell = x => x ? `${x.pct >= 0 ? "+" : "−"}${fmt(Math.abs(100 * x.pct), 1)}% (${fmt(100 * x.lo / (x.mean / x.pct), 1)} to ${fmt(100 * x.hi / (x.mean / x.pct), 1)}) · ${pv(x.p_w)} · cities ${pv(x.p_city)} · faster on ${pc(x.faster)}` : "–";
+    return `<tr><td class="l">${esc(lab)}</td><td class="l">${cell(a)}</td><td class="l">${cell(b)}</td></tr>`; };
+  return sp("A85-F20", "adaptive 0.85 against 2.0 held") + sp("A90-F20", "adaptive 0.90 against 2.0 held") + sp("A95-F20", "adaptive 0.95 against 2.0 held") +
+    sp("F17-F20", "1.7 held against 2.0 held") + sp("F18-F20", "1.8 held against 2.0 held") + sp("F17-A85", "1.7 held against adaptive 0.85") + sp("F18-A85", "1.8 held against adaptive 0.85");
+}
+function lossRows() {
+  const order = ["F20", "F18", "F17", "A95", "A90", "A85"];
+  return order.map(c => { const a = row(c), b = R2[c], u = unityPairs(c), v1 = V[c] || {}, v2 = ((FU.run2 || {}).verdicts || {})[c] || {};
+    const cell = (r, v) => r ? `${r.events} in ${fmt(r.km, 0)} km (${fmt(100 * r.ci[0] / r.km, 1)}–${fmt(100 * r.ci[1] / r.km, 1)} per 100 km)${c === "F20" ? "" : ` · ${pv(v.p_worse)}`}` : "–";
+    const uf = ufl(c);
+    return `<tr><td class="l">${esc(short(c))}</td><td class="l">${cell(a, v1)}</td><td class="l">${cell(b, v2)}</td><td>${uf ? `${uf.lost} of ${uf.flights}` : "–"}</td></tr>`; }).join("");
+}
+RENDER.follow = el => {
+  const c2 = k => cmpT(k);
+  const pa = c2("adaptive>fixed"), p85 = c2("A85>F20"), p85f = c2("A85>F17");
+  const hz = (c, p) => tm(c) ? tm(c).phase[p] : null;
+  const prof = (c, which) => tm(c) ? tm(c)[which] : null;
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="f1">
+    <div class="qhead"><span class="qn">A</span><div><h2>What is significant, and what is not?</h2>
+      <p class="qa" id="f1-verdict"></p></div></div>
+    <div class="qbody" style="grid-template-columns:minmax(0,1fr)"><div class="qtext">
+      <div class="box"><h3>Street speed: route by route</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th class="l">first run (240 street routes)</th><th class="l">follow-up (1,000 street routes)</th></tr></thead><tbody>${testRows()}</tbody></table></div>
+        <p class="small muted">Each row flew the same routes, so each route gives one difference. The mean difference with its 95% interval (as a share of the second row's speed), the Wilcoxon test over routes,
+          the t test over the four cities' mean differences (the cities are the independent units), and the share of routes the first row was faster on.</p></div>
+      <div class="box"><h3>Loss events</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th class="l">first run</th><th class="l">follow-up</th><th>Unity: flights that lost drones (both benches)</th></tr></thead><tbody>${lossRows()}</tbody></table></div>
+        <p class="small muted">A loss event is a moment drones are lost, nearly always a colliding pair. p: the one-sided exact test that the row loses no more often than 2.0 held, on the same routes.</p></div>
+      <div id="f1-text"></div></div></div>
+  </section>
+  <section class="q" id="f2">
+    <div class="qhead"><span class="qn">B</span><div><h2>When do the losses happen?</h2>
+      <p class="qa" id="f2-verdict"></p></div></div>
+    <div class="qbody"><div class="chart" id="f2-chart"></div><div class="qtext" id="f2-text"></div></div>
+  </section>
+  <section class="q" id="f3">
+    <div class="qhead"><span class="qn">C</span><div><h2>The spread round a loss</h2>
+      <p class="qa" id="f3-verdict"></p></div></div>
+    <div class="qbody"><div class="chart" id="f3-chart"></div><div class="qtext" id="f3-text"></div></div>
+  </section>
+  <section class="q" id="f4">
+    <div class="qhead"><span class="qn">D</span><div><h2>Why two replays look alike</h2>
+      <p class="qa"><span class="vp part">Small effects, rare events</span>The differences are a few percent of speed and a loss in a few flights in a hundred.</p></div></div>
+    <div class="qbody" style="grid-template-columns:minmax(0,1fr)"><div class="qtext" id="f4-text"></div></div>
+  </section></div>`;
+  const rowsP = ["F20", "F18", "F17", "A95", "A90", "A85"].filter(tm).map(c => ({c, r: Object.assign({label: row(c) ? row(c).label : c}, tm(c))}));
+  observe($("#f2-chart", el), () => barPanels($("#f2-chart", el), rowsP, PH.map(p => ({title: `Losses per hour: ${PH_LAB[p]}`, get: r => r && r.phase[p].per_hour,
+    ci: r => r && r.phase[p].lo !== null ? [r.phase[p].lo, r.phase[p].hi] : null, f: v => fmt(v, 2),
+    unit: `the shadow ${PH_LAB[p]}; ${pc(rowsP.length ? rowsP[0].r.phase[p].share : null)} of flight time`}))));
+  const xs = []; for (let x = -(FU.window || {}).before; x <= (FU.window || {}).after + 1e-9; x += (FU.window || {}).dt) xs.push(+x.toFixed(2));
+  const series = [];
+  const add = (c, which, lab, col, dash) => { const p = prof(c, which); if (p) series.push({lab: `${lab} (${p.n})`, col, mean: p.mean, dash}); };
+  add("A85", "prof_ev_sh", "adaptive 0.85: round its losses", "var(--k-scene)");
+  add("A85", "prof_ctl_sh", "adaptive 0.85: round random moments", "var(--k-scene)", true);
+  // the fixed rows pooled: weight each row's mean profile by its count
+  const pool = (cs, which) => { const ps = cs.map(c => prof(c, which)).filter(Boolean); if (!ps.length) return null; const n = ps.reduce((s, p) => s + p.n, 0);
+    return {n, mean: ps[0].mean.map((_, i) => ps.reduce((s, p) => s + p.mean[i] * p.n, 0) / n)}; };
+  const fe = pool(["F20", "F18", "F17"], "prof_ev_sh"), fc = pool(["F20", "F18", "F17"], "prof_ctl_sh");
+  if (fe) series.push({lab: `held spreads: round their losses (${fe.n})`, col: "var(--k-fixed)", mean: fe.mean});
+  if (fc) series.push({lab: `held spreads: round random moments (${fc.n})`, col: "var(--k-fixed)", mean: fc.mean, dash: true});
+  if (xs.length && series.length) observe($("#f3-chart", el), () => lineChart($("#f3-chart", el), xs, series, {y0: 0.85, y1: 1.0, ticksY: [0.85, 0.9, 0.95, 1.0], label: "the shadow round a loss",
+    unit: "the adaptive spread's share of d_ref (its shadow in the held rows: what it would be doing), averaged over the losses and over random moments of the same flights"}));
+  FOLLOW_TEXT(el);
+};
+function FOLLOW_TEXT(el) {
+  const f20 = r2("F20"), a85 = r2("A85"), f17 = r2("F17"), f18 = r2("F18");
+  const pa = cmpT("adaptive>fixed") || {}, nva = pa.narrowing_vs_rest || {}, c85 = cmpT("A85>F20") || {}, nv85 = c85.narrowing_vs_rest || {};
+  const PR = pooledRep(), PU = pooledUni(), uA = ufl("A85"), uF = ufl("F20"), uS = ufl("F17");
+  const hz = (c, p) => (tm(c) ? tm(c).phase[p] : null) || {};
+  const early = c => { const t = tm(c); if (!t) return null; const ev = t.since_ev || {}, ex = t.since_exp || {};
+    const E = Object.values(ev).reduce((s, v) => s + v, 0), X = Object.values(ex).reduce((s, v) => s + v, 0);
+    return {ev: ((ev.S0 || 0) + (ev.S1 || 0)) / Math.max(1, E), time: ((ex.S0 || 0) + (ex.S1 || 0)) / Math.max(1e-9, X)}; };
+  const nFl = c => tm(c) ? tm(c).flights : null;
+  $("#f1-verdict", el).innerHTML = `<span class="vp part">Speed yes; losses in the replica only</span>The speed differences are beyond doubt; the loss differences hold in the replica's longer run and not in Unity.`;
+  $("#f1-text", el).innerHTML = `<ul>
+    <li><b>Speed is significant at every step</b>, with both runs agreeing: route by route the narrower street spread is faster on most routes and in every city, and the follow-up's intervals are a fraction of a percent wide.
+      Only 1.8 held against the adaptive 0.85 shows no difference (${pv((PS2["F18-A85"] || {}).p_w)}): the same street spread.</li>
+    <li><b>The first run's loss comparisons were not significant, and two of my readings of them were wrong.</b> About ten loss events a row cannot show a doubling, so "held 1.7–2.0 lose alike"
+      (12, 6, 13, 9) was noise. With four times the distance the held spreads separate: ${f20.events} at 2.0, ${f18.events} at 1.8 and ${f17.events} at 1.7 (${pv((VA.F17 || {}).p_worse)}), and the adaptive 0.85 lands with them (${a85.events}).</li>
+    <li><b>In the replica the narrower street spread costs drones</b>, about twice as many from 2.0 to 1.7–1.8 (${pv((VA.A85 || {}).p_worse)} for the adaptive 0.85). Every replica run of those two settings, S8 and S9: ${PR ? `${PR.a} flights with losses against ${PR.b}` : "–"}.</li>
+    <li><b>Unity does not reproduce it</b>: ${uA ? uA.lost : "–"} flights with losses at 0.85, ${uS ? uS.lost : "–"} at 1.7 held and ${uF ? uF.lost : "–"} at 2.0 held, ${uF ? uF.flights : "–"} flights each; with S8's bench, 0.85 against 2.0 held is ${PU ? `${PU.a} against ${PU.b}` : "–"}.
+      On the same routes Unity lost drones in ${uF ? uF.lost + uA.lost + uS.lost : "–"} flights and the replica's twins in ${uF ? uF.twin + uA.twin + uS.twin : "–"}: the replica matches Unity's speeds and contacts and under-counts its collisions.</li></ul>`;
+  $("#f2-verdict", el).innerHTML = `<span class="vp no">Not the change</span>The losses cluster as the swarm leaves a building into a street, in every row, whether the spread changes there or not.`;
+  $("#f2-text", el).innerHTML = `<ul>
+    <li><b>The method.</b> Every flight of the follow-up carries a shadow of the adaptive spread: what it would be doing at that moment, from the swarm's own position, stick and buildings.
+      In the adaptive rows it is the spread itself; in the held rows it marks the same moments while the spread stays put. Each moment and each loss is placed in a phase of the shadow
+      (narrowing, widening, held narrow, held wide), and losses are counted per hour spent in each phase. The rows spend the same share of time in each (about ${pc(hz("F20", "narrowing").share)} narrowing).</li>
+    <li><b>2.0 held, whose spread never changes, loses most in the "narrowing" moments too</b>: ${fmt(hz("F20", "narrowing").per_hour, 2)} losses an hour there against ${fmt(hz("F20", "narrow").per_hour, 2)} while the shadow is held narrow.
+      Those moments are the swarm leaving a building's side into a street, where the formation is reforming.</li>
+    <li><b>The adaptive spread's excess is the same in every phase</b>: against 2.0 held, the adaptive 0.85 loses ×${fmt(nv85.ratio_narrowing, 2)} in the narrowing moments and ×${fmt(nv85.ratio_rest, 2)} elsewhere
+      (the test that the two ratios are equal: ${pv(nv85.p)}). Pooled, the adaptive rows against the held rows: ×${fmt(nva.ratio_narrowing, 2)} and ×${fmt(nva.ratio_rest, 2)} (${pv(nva.p)}), and ×${fmt(pa.ratio_all, 2)} overall (${pv(pa.p_worse_all)}).</li>
+    <li><b>Timed from the moment the swarm enters a street</b>, the first 4 s hold ${["F20", "F17", "A85"].map(c => { const e = early(c); return e ? `${pc(e.ev)} of ${short(c)}'s losses` : ""; }).filter(Boolean).join(", ")}, against
+      ${pc((early("F20") || {}).time)} of the time. Held 1.7 has the same share as the adaptive 0.85.</li>
+    <li><b>Unity</b>, rebuilt from its trajectories (approximate, and only 9–12 losses a row): ${["F20", "F17", "A85"].map(c => { const u = UT[c]; return u ? `${short(c)} ${u.phase.narrowing.events} of ${u.events} while narrowing` : ""; }).filter(Boolean).join(", ")}, against about a quarter of the time. Too few to say more.</li></ul>`;
+  $("#f3-verdict", el).innerHTML = `<span class="vp no">The same profile</span>Every row's losses come about two seconds after the swarm has passed a building, the held rows' too.`;
+  const pf = (c, w, x) => { const p = tm(c) && tm(c)[w]; if (!p) return null; const i = Math.round((x + (FU.window || {}).before) / (FU.window || {}).dt); return p.mean[i]; };
+  $("#f3-text", el).innerHTML = `<ul>
+    <li><b>Round a loss the shadow rises and falls</b>: about ${fmt(pf("F20", "prof_ev_sh", -2), 2)} two seconds before a loss of 2.0 held and ${fmt(pf("A85", "prof_ev_sh", -2), 2)} before one of the adaptive 0.85, against
+      ${fmt(pf("F20", "prof_ctl_sh", -2), 2)} round random moments, which stay flat. A shadow near 1 means a building is on the swarm's track; the fall after it is the swarm turning into a street.</li>
+    <li><b>The held rows show the same rise and fall as the adaptive rows</b>, so the profile describes where in the flight the losses happen, not something the spread does. In the adaptive
+      rows the real spread follows the shadow and is narrowing at that moment, which is what made the first analysis read the change as the cause.</li></ul>`;
+  $("#f4-text", el).innerHTML = `<ul>
+    <li><b>The differences are a few percent per flight.</b> The adaptive 0.85 is ${fmt((PS2["A85-F20"] || {}).mean, 2)} m/s faster in the streets than 2.0 held on average, and 1.7 held ${fmt((PS2["F17-F20"] || {}).mean, 2)} m/s; the ring is about 31 m
+      across at 2.0 and 26 m at 1.7. Side by side on one route, that is a formation slightly tighter and a few seconds ahead at the end.</li>
+    <li><b>Losses are rare in any one flight</b>: in the follow-up ${pc(f20.flights_lost / nFl("F20"))} of 2.0 held's flights lost drones and ${pc(a85.flights_lost / nFl("A85"))} of the adaptive 0.85's; in Unity about one flight in
+      ${uF ? Math.round(uF.flights / Math.max(1, uF.lost)) : "–"}. Four replayed routes cannot show that difference: it takes hundreds of flights, which is also why the first run's loss counts could not.</li>
+    <li><b>Twins diverge on losses</b>: flown from the very same start as Unity, the replica matches the speed within a few percent but loses drones on different routes: of the
+      ${twinOverlap().u} Unity flights that lost drones, the twin lost drones in ${twinOverlap().both}. A collision turns on small differences in timing, so a loss is a property of many flights, not of one.</li></ul>`;
+}
+
+
+// ---------------------------------------------------------------- flights
+const RP = D.replay;
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+const WAYS = [["f20", "d_ref 2.0 held (adaptive off, C35)"], ["a85", "adaptive 0.85: 1.7 in the streets (the scene)"], ["a90", "adaptive 0.90: 1.8 in the streets"],
+              ["a95", "adaptive 0.95: 1.9 in the streets"], ["f17", "d_ref 1.7 held"], ["l85", "dial at 1.4, adaptive 0.85: 1.19 in the streets"]];
+RENDER.flights = el => {
+  if (!RP || !RP.groups || !RP.groups.length) { el.innerHTML = `<div class="intro"><h2>Cities and flights</h2></div><p class="notrun">The Unity flights have not been replayed yet.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Cities and flights</h2><p>The scene's city, where Unity and the replays fly, and the three cities of the same design held
+      out (S6's). Every S9 setting avoids each building as the smallest circle round its footprint (S8's enclosing circle); choose the shape to draw round the buildings.</p></div>
+    <div class="gal" id="gal"></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3><div class="seg" role="group" aria-label="Shape drawn">
+        <button type="button" data-s="__enc" aria-pressed="true">enclosing circles</button><button type="button" data-s="" aria-pressed="false">bounds circles</button><button type="button" data-s="__fp" aria-pressed="false">footprints only</button></div></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div></div>
+    <div class="intro" id="flightsx"><h2>Flights</h2><p>Routes from the Unity bench's set in the scene's city, each flown the six ways the bench flew them: d_ref 2.0 held, the adaptive
+      spread narrowing to 0.85, 0.90 and 0.95 of it, d_ref 1.7 held (the spread 0.85 narrows to), and the dial at its lowest (1.4) with the adaptive spread. Unity's own
+      trajectories, and the replica's twins flown from Unity's recorded start, kept only because they scored identically to the gate's rows. Drones are dots in the way's colour,
+      filled while their feed is on the pilot's ring; a ring round a dot marks a drone apart from the main group; a cross marks a drone lost. Space plays or pauses, ← and → step 5 s.</p></div><div id="c-player"></div>`;
+  const gal = $("#gal", el), thumbs = [];
+  gal.innerHTML = RP.gallery.map((g, i) => `<button type="button" class="thumb" data-i="${i}" aria-pressed="${i === 0}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span>${esc(g.seed === 1 ? "the scene's city" : `held out, seed ${g.seed}`)}</span></button>`).join("");
+  const CM = new RV.MapView($("#c-map", el), {aspect: 0.8, minH: 320, maxH: 760});
+  let city = null, sel = 0, suf = "__enc";
+  CM.draw = (c, v) => { if (city) { RV.drawCity(c, v, city, {cylinders: true}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => { if (b.dataset.z === "in") CM.zoomBy(1.5); else if (b.dataset.z === "out") CM.zoomBy(1 / 1.5); else if (city) CM.fit(city.arena, 10); }));
+  const load = keepView => {
+    const g = RP.gallery[sel], st = (g.stats || {})[suf || "bounds"] || {}, i = sel;
+    $("#c-title").textContent = g.what.charAt(0).toUpperCase() + g.what.slice(1);
+    $("#c-stats").innerHTML = [["buildings", st.buildings], ["circle radius (median)", suf === "__fp" ? "–" : `${fmt(st.cyl_r, 1)} m`],
+      ["street left between two buildings (median)", `${fmt(st.gap_median, 1)} m`], ["streets closed", st.pairs ? `${st.closed} of ${st.pairs}` : "–"], ["… narrowed below 6 m", st.narrow]]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v === undefined ? "–" : v}</dd>`).join("");
+    RV.load(RPATH.city(g.city + suf)).then(RV.city).then(C => { if (sel !== i) return; city = C; if (keepView) CM.request(); else CM.fit(C.arena, 10); });
+  };
+  el.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    suf = b.dataset.s; el.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); load(true);
+  }));
+  const pick = i => { sel = i; gal.querySelectorAll(".thumb").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i))); load(false); };
+  gal.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 400, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); };
+    thumbs.push(v);
+    RV.load(RPATH.city(RP.gallery[+b.dataset.i].city)).then(RV.city).then(C => { v.city = C; v.fit([-150, 150, -150, 150], 0); }).catch(() => {});
+    b.addEventListener("click", () => pick(+b.dataset.i));
+  });
+  RV.onTheme(() => { thumbs.forEach(v => v.request()); CM.request(); });
+  pick(0);
+  const labels = {}, colors = {};
+  for (const [k, l] of WAYS) { labels[k] = l; colors[k] = `var(--k-${k})`; }
+  PLAYER = RV.Player($("#c-player", el), RP.groups.map(g => Object.assign({short: g.title.replace(/^Problem: /, "Problem · ")}, g)),
+    {labels, colors, path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function flightSummaryRows(F, s) {
+  const n = x => ok(x) ? String(x) : "–", r = [];
+  r.push(["d_ref (the dial)", fmt(s.d, 1)], ["adaptive spread", s.adaptive ? `on, ${fmt(s.street_factor, 2)} in the streets (${fmt(s.d * s.street_factor, 2)})` : "off"]);
+  const k = F.route ? F.route.kind : "";
+  r.push(["route", F.route ? `${k === "cross" ? "a straight line" : k === "pass" ? "through a block" : "along the streets"}, ${fmt(F.route.L, 0)} m` : "–"]);
+  r.push(["progress speed", `${fmt(s.v_prog, 2)} m/s`], ["flight as one group", pc(s.one_frac)], ["cohesive speed", `${fmt(s.v_coh, 2)} m/s`], ["ended in pieces", s.open_end ? "yes" : "no"]);
+  if (s.met) r.push(["buildings met / surrounded", `${s.met} / ${n(s.wrapped)}`], ["seconds past each, on average", fmt(s.bld_pass, 1)]);
+  r.push(["closest pair (m)", fmt(s.min_pair, 2)], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  return r;
+}
+function flightSummaryNote(F) {
+  return F.source === "unity" ? "Unity records contacts as a count, so they are not drawn on the map; a cross marks each drone lost."
+    : "The replica draws each building contact where it happened and a cross where each drone was lost.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const order = ["F20", "A85", "A90", "A95", "F19", "F18", "F17", "F14", "L85", "L95", "F12", "F26", "H85"];
+  const head = ["", "d_ref", "in the streets (m/s)", "street one group", "cohesive speed", "progress", "surrounded", "past a building (s)", "spread in force",
+                "loss events", "per 100 km (95%)", "drones lost", "contacts /km", "ended in pieces", "vs 2.0 held: loses more"];
+  const line = c => {
+    const r = row(c), t = tab(c), v = V[c] || {};
+    if (!r) return "";
+    return `<tr${c === PICK ? ' class="pick"' : ""}><td class="l">${esc(r.label)}</td><td>${fmt(r.d, 1)}</td><td>${fmt(r.street_v_coh, 2)}</td><td>${pc(r.street_one)}</td><td>${fmt(r.v_coh, 2)}</td>
+      <td>${fmt(r.v_prog, 2)}</td><td>${pc(r.cross_wrapped)}</td><td>${fmt(r.cross_bld_pass, 1)}</td><td>${fmt(r.sigma, 3)}</td><td>${r.events}</td><td>${fmt(per100(r), 1)} (${ci100(r)})</td>
+      <td>${r.drones}</td><td>${fmt(r.contact_km, 2)}</td><td>${pc(r.open)}</td><td>${c === R.base ? "baseline" : pv(v.p_worse)}</td></tr>`;
+  };
+  const place = order.filter(c => row(c) && isAdapt(c)).map(c => { const r = row(c);
+    return `<tr><td class="l">${esc(r.label)}</td><td>${r.events}</td><td>${r.ev_narrowing}</td><td>${r.ev_widening}</td><td>${r.ev_steady}</td><td>${pc(r.events ? (r.ev_narrowing + r.ev_widening) / r.events : null)}</td><td>${pc(r.trans_time)}</td></tr>`; }).join("");
+  const seeds = D.seeds || {}, sl = D.flights.seeds || [];
+  const seedRows = order.filter(c => seeds[c]).map(c => `<tr><td class="l">${esc(short(c))}</td>${sl.map(s => { const x = seeds[c][String(s)] || {}; return `<td>${fmt(x.street_v_coh, 2)} · ${x.flights_lost ?? "–"}</td>`; }).join("")}</tr>`).join("");
+  const uh = ["", "flights", "in the streets (m/s)", "cohesive speed", "surrounded", "drones lost", "contacts", "replica twin: streets", "twin: drones lost"];
+  const ur = ["F20", "A85", "A90", "A95", "F17", "L85"].map(c => { const u = unity(c), tw = unity(c, "replica"), n = CNT(c);
+    return u ? `<tr><td class="l">${esc(row(c) ? row(c).label : c)}</td><td>${n ? n.flights : "–"}</td><td>${fmt(kind(u, "street", "v_coh"), 2)}</td><td>${fmt(u.v_coh, 2)}</td><td>${pc(kind(u, "cross", "wrapped"))}</td>
+      <td>${n ? n.lost : "–"}</td><td>${n ? n.contacts : "–"}</td><td>${fmt(kind(tw, "street", "v_coh"), 2)}</td><td>${tw ? fmt(tw.lost_km * tw.km, 0) : "–"}</td></tr>` : ""; }).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every table behind the answer. The run is the replica (S6's model of Unity on these prism buildings) on fresh routes,
+      ${D.flights.cross} straight lines, ${D.flights.pass_} blocks and ${D.flights.street} street routes in each of four cities; Unity is the headless bench in BlockShapedPatchCityWorld as baked,
+      with the replica's twins of the same flights beside it.</p></div>
+    <div class="box"><h3>The replica run: every row (the same routes for each)</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${order.map(line).join("")}</tbody></table></div>
+      <p class="small muted">"In the streets" and "street one group" are over the street routes; cohesive speed, progress, surrounded and seconds past a building over the straight lines and blocks;
+        losses and contacts over every flight. "Spread in force": the mean share of d_ref the adaptive spread held. "Loses more": the one-sided exact test that the row's loss events are
+        no more frequent than with 2.0 held (the conditional binomial on the two counts, on the same routes).</p></div>
+    <div class="box"><h3>Where the adaptive spread's losses fell</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th>loss events</th><th>while narrowing</th><th>while widening</th><th>spread steady</th><th>in a change</th><th>time spent changing</th></tr></thead><tbody>${place}</tbody></table></div>
+      <p class="small muted">A loss is in a change when the spread's share of d_ref moved by ${fmt(D.trans.ds, 2)} or more over the ${fmt(D.trans.window, 0)} s before it. "Time spent changing" is the share of all
+        flight time that was so, for comparison. A smaller factor swings further, so more of its time counts as changing.</p></div>
+    <div class="box"><h3>By city: in the streets (m/s) · flights that lost drones</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>${sl.map(s => `<th>${s === 1 ? "the scene's city" : `seed ${s}`}</th>`).join("")}</tr></thead><tbody>${seedRows}</tbody></table></div></div>
+    ${ur ? `<div class="box"><h3>Unity: the scene's city, the same routes for every set</h3><div class="tablewrap"><table class="dt"><thead><tr>${uh.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${ur}</tbody></table></div></div>` : '<div class="box"><p class="notrun">Unity not flown yet.</p></div>'}`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The settings", [
+    ["d_ref", "The formation's spacing, the pilot's spread dial (×10 m between neighbours, roughly). The trials' dial runs 1.4–2.6 (launch_sim_scripts.ps1 -SpreadRange 1.4,2.6); S6 chose 2.0, a ring about 31 m across that closes round a typical building."],
+    ["Adaptive spread (S7)", "One swarm-wide scale on d_ref: 1 while a building lies on the swarm's track within 40 m or no building is near, the street factor otherwise (in the streets). Low-passed with a 3 s filter, so the formation narrows and widens over several seconds."],
+    ["Street factor", "The share of d_ref the adaptive spread holds in the streets (streetSpreadFactor): 0.85 in the scene, so the dial's 2.0 becomes 1.7 there. It has no floor: the dial's 1.4 becomes 1.19."],
+    ["Held fixed", "The adaptive spread off and d_ref at a single value the whole flight: what the formation does at the narrowed spread without the narrowing and widening."],
+    ["Codes", "F20, F19, F18, F17, F14, F12, F26: d_ref held at 2.0, 1.9, … (F20 is S8's C35). A85, A90, A95: d_ref 2.0 with the adaptive spread at 0.85, 0.90, 0.95 (A85 is the scene, S8's C35a). L85, L95: the dial at 1.4 with 0.85 or 0.95. H85: the dial at 2.6 with 0.85."],
+    ["The law under them", "Every row flies the scene's force law: each building avoided as the smallest circle round its footprint (S8), the slide round buildings (S7), d_obs 0.35, route stragglers off."]]],
+  ["The measures", [
+    ["Cohesive speed", "Progress speed times the share of the flight the swarm was one group: route covered per second with the swarm together (S6's headline)."],
+    ["In the streets", "Cohesive speed on the street routes, where the adaptive spread narrows the formation."],
+    ["Loss event", "A moment drones are lost: nearly always two drones closer than 0.5 m (both lost), sometimes a drone left with no neighbour in range. Counted as events, not drones, because a pair is one collision."],
+    ["Exact interval, one-sided p", "Losses are rare, so each count is given with its exact 95% Poisson interval, and a row is compared with d_ref 2.0 held by the exact test on the two counts over the same routes."],
+    ["Surrounded", "Of the buildings a straight line aims at, the share whose centre was inside the drones' convex hull at some moment near it."],
+    ["Contact", "A drone touching a facade. In the simulation it does not cost the drone."]]],
+  ["The flights", [
+    ["A straight line across the city", "From one junction to another 250–420 m away at full stick: the formation meets building after building."],
+    ["Through one block", "Along a street to a block's corner, then aimed through the block to beyond its opposite corner."],
+    ["Along the streets", "The shortest street route between a straight line's two ends, junction by junction. S9 flies five times as many of these as straight lines, because the adaptive spread acts there."],
+    ["The replica, its twin", "The 2-D model of the swarm the studies use. A twin is the replica flying a Unity flight again from Unity's own start."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2><p>Every term the page uses, in plain words. The manual (docs/swarm_spread/README.md) has the method.</p></div>
+    <div class="terms">${TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join("")}</dl></div>`).join("")}</div>`;
+};
+
+$("#answer-box").innerHTML = ANSWER_BOX();
+if (!route(location.hash.slice(1))) {
+  let first = "answer";
+  try { const s = localStorage.getItem("s9tab"); if (TABS.some(t => t[0] === s)) first = s; } catch (e) { /* storage blocked */ }
+  show(first);
+}
+</script>
