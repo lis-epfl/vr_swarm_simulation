@@ -1193,7 +1193,8 @@ is silent, since neither side fails to compile, it just reads a float from the m
 ## City scenes and the ScaledCity assets
 
 Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
-(generated from ScaledCityWorld, below), `DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld`,
+(generated from ScaledCityWorld, below), `PracticeBlockWorld` (generated from BlockShapedPatchCityWorld, below),
+`DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld`,
 `BlockCityWorld`, `BlockShapedCityWorld` and `BlockShapedPatchCityWorld` (generated cities, below), `FactoryScene`,
 `RingChallenge`, `NBackExperiment`, and `DJIScene`
 (real drones, no sim swarm). All of them spawn the
@@ -1212,6 +1213,35 @@ width, verge trees — by the very tuners and planter that are then stripped (`S
 prefab's `WalkerPatrol`s and `GoalSpecialWalker`, so the hat changes between sessions. The copy is the point: the gains, the altitude ceiling, the spawn, the input, the screens,
 `PyUniSharingFast`, the Arena, the rig and the lighting all live on ScaledCityWorld's scene objects, so a retune
 there reaches the practice world only through a rebuild — which also discards hand edits made to it.
+
+**`PracticeBlockWorld` is generated the same way from BlockShapedPatchCityWorld — rebuild it after changing that
+scene** (`Tools/Swarm/Build practice block world`, `PracticeBlockWorldBuilder`, 2026-11-03). It is the training scene
+for the block-shaped trials: a file copy of BlockShapedPatchCityWorld with a 20-building city baked in place of the
+trial city, the recorder stripped, and PracticeWorld's start line and hat stations
+(`PracticeWorldBuilder.AddStartLineAndStations`, 30 and 45 m down ParkRoad). Points worth keeping:
+- **The copy is the only way the trial tuning gets there.** S6's, S8's and S10's SwarmManager values (d_ref, `d_shield`,
+  `d_obs`, the slide, the adaptive spread, the ellipse) were written into BlockShapedPatchCityWorld's YAML by
+  `swarmtune apply`, and no builder sets them, so a scene built through `ProceduralCityWorldBuilder.Build` would fly
+  DiamondCityWorld's gains. The first build carries the ellipse; it was checked field for field against the trial scene.
+- **The city is cut from the held-out seed-2 city, not from the trial city (seed 1)**, so no participant learns a piece of
+  it. `citysim.practicecity` keeps one goal block, its ring and the ring's own neighbours, all built (the user chose
+  buildings over parks for that outer row), where seed 2 has them. The goal (block 28) is 191 m from the spawn, two
+  blocks in from the west edge at x −365 where ParkRoad meets it, so the edge row is what the swarm flies round first.
+  The file `layouts/PracticeBlock__bbB_p40_s18_patch150_j0.15_sight487_seed2_cut_b28.json` is committed. Its source
+  is in the git-ignored `sweep~`, and the generator's docstring redraws it.
+- **The goal is drawn at Play, not written into the layout, and the cut makes the draw certain** (`goalsAtPlay` 1).
+  BlockGoals needs a goal and its whole ring to be interior and built. In the cut, the ring's neighbours touch its edge,
+  so neither they nor the ring qualify, and the goal is the only candidate. The hat and the target walker come from a
+  fresh seed, so they change between sessions as in PracticeWorld, while the building stays the same. Three things
+  hold the cut to this: the generator asserts it, the builder re-checks it in C# (one goal can be drawn, two cannot) and
+  refuses otherwise, and `test_practicecity.py` checks the committed file. A goal written into the layout would fix the
+  hat as well (`GoalSession` source `layout`).
+- **Each kept block keeps every street that names it**; the side outside the cut becomes −1, `edge`. This is because
+  `CityDressing.BuildBlocks` clips each block's kerb from its streets. Block and street ids are kept, so the dressing's
+  random streams dress each block as they would in seed 2.
+- `ProceduralCityProbe` checks it with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/PracticeBlockWorld.unity` and
+  `PROCEDURAL_PROBE_NO_RECORDER=1`. The first build passed twice: one goal (Block_B028), 96 walkers on the footpaths,
+  a different hat each run, the bake adopted.
 
 **`ScaledCityWorld` is a fork of `CityWorld` with its own prefab tree**, not a scaled instance of the
 original. `Assets/Prefabs/ScaledCity/` holds `City_Pack_01_Scaled`, `goal_patch_Scaled` and 48
@@ -2034,7 +2064,7 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
   - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6; below), **S8's pick from 2026-11-02**
     (`d_obs` 0.35, S7's slide and adaptive spread on; S8 below) **and since 2026-11-03 S10's ellipse** (`obstacleShape`
     Ellipse, `ellipseMaxAspect` 1.5, in place of S8's EnclosingCircle; S10 below), unlike BlockShapedCityWorld's, which
-    keeps BlockCityWorld's profile.
+    keeps BlockCityWorld's profile. `PracticeBlockWorld` is a copy of this scene, so rebuild it after any change here.
 
 ## S5 Block-Shaped Surround: the block-shaped study
 

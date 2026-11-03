@@ -12,18 +12,22 @@ using UnityEngine;
 /// costs nothing in the editor or a build. Like the bench it opens no named section, socket or camera; unlike the bench
 /// it keeps <see cref="ExperimentRecorder"/> running, redirected by <c>EXPERIMENT_RECORDER_DIR</c> to a scratch folder.
 ///
-/// <para>Checks, in order: the layout built three goals with three different hats, each with every walker its patrols
-/// ask for (64 in a citygen goal: 8 buildings of 8); goals drawn at Play from a block-shaped city (<see cref="BlockGoals"/>)
+/// <para>Checks, in order: the layout built three goals with three different hats (as many as were drawn, for goals
+/// drawn at Play: PracticeBlockWorld draws one), each with every walker its patrols ask for (64 in a citygen goal: 8
+/// buildings of 8); goals drawn at Play from a block-shaped city (<see cref="BlockGoals"/>)
 /// are spread, have rings of their own and are drawn again the same from the session seed; after the walkers have
 /// walked, none stands inside a building and every one is within a footpath's width of one; a swarm reset 70 m up is
 /// held under the altitude ceiling; an
 /// RC press far from every goal is scored out_of_zone and one beside a goal is scored (correct or false_alarm) with
 /// its camera distance and feed; and the session record carries the layout, the goal seed, the goals' geometry and
-/// the new hull / shown / gaze columns. The report is one JSON object; the process exits 0 if every check passed.</para>
+/// the new hull / shown / gaze columns. The report is one JSON object; the process exits 0 if every check passed.
+/// With <see cref="NoRecorderEnv"/> set to 1 a scene without a recorder (the practice scenes) is probed too, and the
+/// press and session checks, which need one, are reported as skipped.</para>
 /// </summary>
 public class ProceduralCityProbe : MonoBehaviour
 {
     public const string OutEnv = "PROCEDURAL_PROBE_OUT";
+    public const string NoRecorderEnv = "PROCEDURAL_PROBE_NO_RECORDER";
     /// <summary>m: CityDressing's footpath, kerb to facade (blockcity.INSET_M); a walker farther off every building is in
     /// the street.</summary>
     const float FootpathM = 3.5f;
@@ -60,7 +64,8 @@ public class ProceduralCityProbe : MonoBehaviour
         swarmSpawn spawner = FindObjectOfType<swarmSpawn>();
         ProceduralCityBuilder builder = FindObjectOfType<ProceduralCityBuilder>();
         ExperimentRecorder rec = FindObjectOfType<ExperimentRecorder>();
-        if (spawner == null || builder == null || rec == null)
+        bool noRecorder = Environment.GetEnvironmentVariable(NoRecorderEnv) == "1";
+        if (spawner == null || builder == null || (rec == null && !noRecorder))
         {
             Check("scene", false, $"spawner {spawner != null}, builder {builder != null}, recorder {rec != null}");
             yield return Finish(rec);
@@ -70,10 +75,11 @@ public class ProceduralCityProbe : MonoBehaviour
         // ---- goals, hats, walkers
         var goals = builder.PlacedGoals;
         var hats = goals.Select(g => g.GetComponent<GoalSpecialWalker>()?.DealtPrefab ?? "").ToList();
-        Check("three goals, three hats", goals.Count == 3 && hats.Distinct().Count() == 3 && hats.All(h => h != ""),
-              $"{goals.Count} goals, hats [{string.Join(", ", hats)}], seed {GoalSession.Seed} ({GoalSession.Source})");
         ProceduralCityBuilder.LayoutGoal[] drawn = builder.Layout.layout.goals ?? new ProceduralCityBuilder.LayoutGoal[0];
         bool atPlay = drawn.Length > 0 && drawn.All(g => g.kind == BlockGoals.Kind);
+        int want = atPlay ? drawn.Length : 3;
+        Check($"{want} goals, {want} hats", goals.Count == want && hats.Distinct().Count() == want && hats.All(h => h != ""),
+              $"{goals.Count} goals, hats [{string.Join(", ", hats)}], seed {GoalSession.Seed} ({GoalSession.Source})");
         if (atPlay) CheckDrawnGoals(builder, drawn);
         yield return new WaitForSeconds(3f);
         var walkerCounts = new List<int>();
@@ -122,7 +128,13 @@ public class ProceduralCityProbe : MonoBehaviour
         // ---- auto-scored presses: one far from every goal, one beside goal 0
         PropertyInfo marks = typeof(UDPReceiverManager).GetProperty("MarkPresses", BindingFlags.Public | BindingFlags.Static);
         MethodInfo setMarks = marks?.GetSetMethod(true);
-        if (setMarks == null)
+        if (rec == null)
+        {
+            lines.Add($"{{\"check\":\"press and session\",\"ok\":true,\"skipped\":true,\"detail\":\"the scene has no " +
+                      $"recorder ({NoRecorderEnv})\"}}");
+            Debug.Log("[Probe] SKIP press and session: the scene has no recorder");
+        }
+        else if (setMarks == null)
         {
             Check("press", false, "UDPReceiverManager.MarkPresses has no setter to simulate a press with");
         }
@@ -155,7 +167,7 @@ public class ProceduralCityProbe : MonoBehaviour
             for (int j = i + 1; j < centres.Count; j++) apart = Mathf.Min(apart, (centres[i] - centres[j]).magnitude);
         }
         Check("drawn goals spread", apart >= BlockGoals.MinSeparation && spawnDist >= BlockGoals.MinSpawnDistance,
-              $"closest pair {apart:F0} m apart, nearest {spawnDist:F0} m from the spawn; " +
+              $"{(centres.Count < 2 ? "one goal" : $"closest pair {apart:F0} m apart")}, nearest {spawnDist:F0} m from the spawn; " +
               $"spawn distances [{string.Join(", ", centres.Select(c => (c - home).magnitude.ToString("F0")))}]");
 
         var patches = drawn.Select(g => new HashSet<string>(g.ring_boxes) { g.centre_box }).ToList();

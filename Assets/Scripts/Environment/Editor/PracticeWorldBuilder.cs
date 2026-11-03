@@ -117,8 +117,9 @@ public static class PracticeWorldBuilder
         typeof(CityRowOffsetter),
     };
 
-    // What the build places, loaded and checked before anything on disk is touched.
-    private sealed class Parts
+    // What the build places, loaded and checked before anything on disk is touched. PracticeBlockWorldBuilder places
+    // the same.
+    internal sealed class Parts
     {
         public RuntimeAnimatorController Idle;
         public TMP_FontAsset Font;
@@ -212,7 +213,7 @@ public static class PracticeWorldBuilder
         return true;
     }
 
-    private static Parts LoadParts(out string error)
+    internal static Parts LoadParts(out string error)
     {
         Parts parts = new Parts
         {
@@ -311,7 +312,21 @@ public static class PracticeWorldBuilder
             }
         }
 
-        // StartLine's bootstrap only fires in a scene with a recorder, and the recorder has just gone; the
+        string stationSummary = AddStartLineAndStations(spawn, parts);
+
+        EditorSceneManager.MarkSceneDirty(scene);
+        return $"kept {KeptTileName} with its block centred at {tileCentre}, {goalSummary}, removed {leaving.Count} " +
+               $"tiles and loose objects and {stripped} experiment/tuning components, {stationSummary}.";
+    }
+
+    /// <summary>
+    /// The start line, and the four walkers standing under their hat signs down range of <paramref name="spawn"/>, in
+    /// the open scene. PracticeBlockWorldBuilder lays its practice area out the same way. Returns a fragment of the
+    /// build summary.
+    /// </summary>
+    internal static string AddStartLineAndStations(Vector3 spawn, Parts parts)
+    {
+        // StartLine's bootstrap only fires in a scene with a recorder, and the practice scenes have none; the
         // participants practise crossing the line all the same. It stands short of the walker row.
         new GameObject("StartLine").AddComponent<StartLine>().headingDeg =
             Mathf.Atan2(DownRange.x, DownRange.z) * Mathf.Rad2Deg;
@@ -359,11 +374,8 @@ public static class PracticeWorldBuilder
             labels.AddRange(BuildSign(Stations[i].Label, stations[i], boardBottom, boardMaterial, parts.Font));
         }
         float fontSize = MatchLabelSizes(labels);
-
-        EditorSceneManager.MarkSceneDirty(scene);
-        return $"kept {KeptTileName} with its block centred at {tileCentre}, {goalSummary}, removed {leaving.Count} " +
-               $"tiles and loose objects and {stripped} experiment/tuning components, stood {Stations.Length} walkers " +
-               $"at {rowCentre} under signs {boardBottom:F2} m up, lettered at font size {fontSize:F2}.";
+        return $"stood {Stations.Length} walkers at {rowCentre} under signs {boardBottom:F2} m up, lettered at font " +
+               $"size {fontSize:F2}";
     }
 
     /// <summary>
