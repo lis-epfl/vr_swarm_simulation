@@ -353071,6 +353071,7 @@ MonoBehaviour:
   surroundAimFraction: 0.8
   spreadFilterTime: 3
   obstacleShape: 1
+  ellipseMaxAspect: 1.5
   maxHeightAboveTerrain: 45
   SelectedAttitudeAlgorithm: 3
   numNeighbours: 9
