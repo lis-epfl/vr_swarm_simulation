@@ -1,0 +1,1581 @@
+<title>S9 Street Spread Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (swarmspread_review via swarmtune_report.s4_style),
+   then this page's additions. The settings keep S9's colours: 2.0 held the neutral, the scene green, 1.7 held blue,
+   the other adaptive rows purple; 1.8 held takes the family's one remaining slot. */
+
+/* Layout: the study pages' family (S3's report) -- a masthead (the question, the findings) over a sticky tab bar, each
+   tab a short intro over its tables and figures. Data colour: the two building variants (R teal, B violet), the
+   surround modes on one blue ramp with aim-and-turn in orange, envelopment on one green ramp; pass / fail pills. */
+:root {
+  --bg: #f2f4f5; --panel: #fbfcfc; --ink: #111c25; --ink-2: #44525e; --muted: #7c8893; --line: #d6dde2;
+  --grid: #e4e8eb; --chip: #e6ebee;
+  --var-r: #1a8f84; --var-b: #8a4fb8;
+  --m-soft: #7aaeea; --m-firm: #1f5fb6; --m-aim: #eb6834; --m-perim: #1a8f84; --m-other: #a9b3bb;
+  --seq-0: #e3f1ea; --seq-1: #0b5e41;
+  --good: #0c8a0c; --good-bg: #e2f3e2; --warn: #b77a00; --warn-bg: #fbf0d6; --bad: #c43535; --bad-bg: #f8e1e1;
+  /* Phase 2's six conditions: the validated categorical order (dataviz palette slots 1-6), assigned in the order the
+     page lists them, so neighbours in a legend or a bar list are the validated adjacent pairs */
+  --c-street: #2a78d6; --c-hop: #eb6834; --c-pass: #1baf7a; --c-hold: #eda100; --c-single: #e87ba4; --c-look: #008300;
+  --c-hop2: #6250d6;
+  /* the maps (the Cities tab): asphalt streets, pale blocks, slate buildings, plazas as lawn, R's cylinders in R's teal */
+  --map-street: #d9dfe3; --map-block: #f8f9f6; --map-edge: #eceeeb; --map-plaza: #e0ead6; --map-bldg: #6b7883;
+  --map-cyl: #1a8f84;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+    --grid: #1d262d; --chip: #1f2830;
+    --var-r: #33b3a6; --var-b: #b07ddb;
+    --m-soft: #649ff0; --m-firm: #bcd9fb; --m-aim: #f08a5d; --m-perim: #33b3a6; --m-other: #5d6b75;
+    --seq-0: #18241f; --seq-1: #6fd3a7;
+    --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+    --c-street: #3987e5; --c-hop: #d95926; --c-pass: #199e70; --c-hold: #c98500; --c-single: #d55181; --c-look: #008300;
+    --c-hop2: #9085e9;
+    --map-street: #0e1418; --map-block: #25303a; --map-edge: #1b242b; --map-plaza: #1f3829; --map-bldg: #66737e;
+    --map-cyl: #33b3a6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+  --grid: #1d262d; --chip: #1f2830;
+  --var-r: #33b3a6; --var-b: #b07ddb;
+  --m-soft: #649ff0; --m-firm: #bcd9fb; --m-aim: #f08a5d; --m-perim: #33b3a6; --m-other: #5d6b75;
+  --seq-0: #18241f; --seq-1: #6fd3a7;
+  --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+  --c-street: #3987e5; --c-hop: #d95926; --c-pass: #199e70; --c-hold: #c98500; --c-single: #d55181; --c-look: #008300;
+  --c-hop2: #9085e9;
+  --map-street: #0e1418; --map-block: #25303a; --map-edge: #1b242b; --map-plaza: #1f3829; --map-bldg: #66737e;
+  --map-cyl: #33b3a6;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 56px; }
+h1, h2, h3, h4 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 3.6vw, 2.7rem); font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 600; line-height: 1.15; margin-bottom: 0.4rem; }
+h3 { font-size: 1.1rem; font-weight: 600; line-height: 1.25; margin-bottom: 0.35rem; }
+p { margin: 0 0 0.65rem; max-width: 74ch; }
+p:last-child { margin-bottom: 0; }
+.eyebrow { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 0.45rem; }
+.muted { color: var(--muted); }
+.small { font-size: 0.86rem; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.code { font-family: var(--font-mono); font-weight: 500; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; font-size: 0.88em; }
+
+.masthead { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr); gap: 28px; padding-block: 28px 22px; align-items: start; }
+.lead { font-size: 1.03rem; color: var(--ink-2); margin-top: 0.7rem; }
+.back { display: inline-block; margin: 0 0 12px; font: 500 0.88rem/1.2 var(--font-body); color: var(--ink-2); text-decoration: none; }
+.back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.back:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { display: inline-flex; align-items: baseline; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 0.84rem; color: var(--ink-2); }
+.chip b { font: 600 0.92rem var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.findings { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; }
+.findings ul { margin: 0.3rem 0 0; padding-left: 1.1rem; display: grid; gap: 7px; }
+.findings li { font-size: 0.93rem; color: var(--ink-2); }
+.findings li b { color: var(--ink); font-weight: 600; }
+@media (max-width: 900px) { .masthead { grid-template-columns: minmax(0, 1fr); } }
+
+.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab-btn { appearance: none; border: 0; background: none; color: var(--ink-2); font: 600 0.98rem/1 var(--font-display); padding: 13px 12px 11px; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.tab-btn:hover { color: var(--ink); }
+.tab-btn[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tab-btn:focus-visible { outline: 2px solid var(--m-firm); outline-offset: -3px; }
+.tab { padding-top: 24px; display: grid; gap: 22px; }
+.intro { display: grid; gap: 4px; max-width: 82ch; }
+
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; }
+.grid2 > * { min-width: 0; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--grid); text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.l { text-align: left; font-family: var(--font-body); }
+tr.sep td { border-top: 1px solid var(--line); }
+.pill { display: inline-block; font: 600 0.72rem/1 var(--font-body); letter-spacing: 0.04em; border-radius: 999px; padding: 3px 8px; }
+.pill.ok { color: var(--good); background: var(--good-bg); }
+.pill.no { color: var(--bad); background: var(--bad-bg); }
+.pill.na { color: var(--muted); background: var(--chip); }
+.v-r { color: var(--var-r); font-weight: 600; }
+.v-b { color: var(--var-b); font-weight: 600; }
+.bad { color: var(--bad); }
+.good { color: var(--good); }
+
+.heat td.c { font-size: 0.8rem; min-width: 46px; position: relative; }
+.heat td.c.star { outline: 2px solid var(--ink); outline-offset: -2px; font-weight: 600; }
+.heat td.c .pred { position: absolute; left: 3px; top: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--m-aim); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--ink-2); align-items: center; }
+.legend .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.legend .ln { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid; margin-right: 5px; vertical-align: 3px; }
+td .ln { display: inline-block; width: 14px; height: 0; border-top: 2.5px solid; margin-right: 7px; vertical-align: 3px; }
+
+.picker { display: grid; gap: 10px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { font: 500 0.88rem/1 var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; cursor: pointer; }
+.seg button:hover { border-color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--m-firm); outline-offset: 1px; }
+.dgrid { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 4px; align-items: center; max-width: 420px; }
+.dgrid .h { font: 600 0.7rem/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: center; }
+.dgrid button { font: 500 0.85rem/1 var(--font-mono); padding: 7px 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink); cursor: pointer; }
+.dgrid button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--ink-2); font: 500 11px var(--font-body); }
+.chart .axis line, .chart .axis path { stroke: var(--line); }
+.chart .gridl { stroke: var(--grid); }
+.notrun { color: var(--muted); font-style: italic; }
+.big { font: 600 1.9rem/1.05 var(--font-display); color: var(--ink); margin: 2px 0 6px; }
+.verdict { font-weight: 600; color: var(--ink); }
+.chart .val { fill: var(--ink); font: 500 11px var(--font-mono); }
+.chart .lbl { fill: var(--ink-2); font: 500 12px var(--font-body); }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:focus-visible { outline: none; stroke: var(--ink); stroke-width: 1; }
+.chart .xh { stroke: var(--muted); stroke-width: 1; }
+.tip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; font-size: 0.82rem; box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 14%, transparent); min-width: 170px; max-width: 320px; }
+.tip .t { color: var(--ink-2); font-weight: 600; margin-bottom: 4px; }
+.tip .tr { display: flex; align-items: center; gap: 8px; line-height: 1.5; }
+.tip .tr b { font: 600 0.86rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); min-width: 3.4em; text-align: right; }
+.tip .tr span:last-child { color: var(--ink-2); }
+.tip .k { display: inline-block; width: 14px; height: 0; border-top: 2px solid; flex: none; }
+@media (prefers-reduced-motion: no-preference) { .tab { animation: fade 160ms ease-out; } }
+@keyframes fade { from { opacity: 0.4; } to { opacity: 1; } }
+
+/* the key under the masthead: what the design codes and the two variants mean */
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; padding-block: 0 20px; }
+.key > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; }
+.key svg { width: 92px; height: auto; display: block; }
+.key p { font-size: 0.88rem; color: var(--ink-2); margin: 0; }
+.key p b { color: var(--ink); }
+.key .eyebrow { margin-bottom: 3px; color: var(--ink); }
+.dcode { font-variant-numeric: tabular-nums; white-space: nowrap; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
+a { color: inherit; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+
+/* the Look down tab: one small chart per design */
+.ldgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 16px 24px; margin-top: 12px; }
+.ldgrid > * { min-width: 0; }
+
+/* the Cities tab */
+.figframe { position: relative; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--panel); }
+.figframe canvas { display: block; width: 100%; touch-action: none; }
+.thumbs { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; max-width: 960px; }
+.thumbs .h { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); text-align: center; }
+.thumbs .h.row { text-align: right; writing-mode: horizontal-tb; }
+.thumb { appearance: none; padding: 0; border: 2px solid transparent; border-radius: 7px; background: none; cursor: pointer; display: grid; gap: 3px; text-align: left; color: var(--ink-2); font: 500 0.78rem/1.25 var(--font-body); min-width: 0; }
+.thumb[aria-pressed="true"] { border-color: var(--ink); }
+.thumb .figframe { border-radius: 5px; }
+.thumb span { padding: 0 3px 3px; }
+.cmap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 290px); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .cmap { grid-template-columns: minmax(0, 1fr); } }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; margin: 0; font-size: 0.86rem; }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.kv .sub { grid-column: 1 / -1; font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+.mapbar { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.mapbar button, .rv-mapbar button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink); font: 600 16px/1 var(--font-body); cursor: pointer; }
+.headrow { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.headrow h3 { margin: 0; }
+
+/* the flight player (citysim/replay_view.js) */
+.rv { display: grid; gap: 12px; }
+.rv-head { display: grid; gap: 6px; }
+.rv-picks .seg button .ln { margin-right: 6px; }
+.rv-about p { color: var(--ink-2); max-width: 90ch; }
+.rv-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 290px); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .rv-work { grid-template-columns: minmax(0, 1fr); } }
+.rv-fig { min-width: 0; display: grid; gap: 8px; }
+.rv-frame { position: relative; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--panel); }
+.rv-frame canvas { display: block; width: 100%; touch-action: none; cursor: grab; }
+.rv-frame canvas:focus-visible { outline: 2px solid var(--m-firm); outline-offset: -2px; }
+.rv-mapbar { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.rv-loading { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--ink-2); }
+.rv-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.rv-ctl input[type="range"] { flex: 1 1 220px; min-width: 140px; accent-color: var(--ink); }
+.rv-ctl label { font-size: 0.86rem; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+.rv-ctl select { font: 500 0.86rem var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+.rv-play { font: 600 0.9rem/1 var(--font-body); color: var(--panel); background: var(--ink); border: 1px solid var(--ink); border-radius: 5px; padding: 8px 14px; cursor: pointer; min-width: 76px; }
+.rv-clock { font-size: 0.86rem; color: var(--ink-2); min-width: 92px; }
+.rv-layers { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--ink-2); }
+.rv-layers label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.rv-side { display: grid; gap: 12px; min-width: 0; }
+.rv-phase { font-weight: 600; color: var(--ink); margin: 2px 0 6px; font-size: 0.92rem; }
+.rv-kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; margin: 0; font-size: 0.85rem; }
+.rv-kv dt { color: var(--ink-2); }
+.rv-kv dd { margin: 0; text-align: right; max-width: 12em; }
+.rv-tip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; font-size: 0.82rem; color: var(--ink-2); box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 14%, transparent); max-width: 320px; }
+.rv-tip .t { color: var(--ink); font-weight: 600; margin-bottom: 3px; }
+
+/* the masthead's answer box */
+.answer-box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; }
+.answer-box .eyebrow { color: var(--ink); }
+.answer-box ol { margin: 0.3rem 0 0; padding-left: 1.2rem; display: grid; gap: 8px; }
+.answer-box li { font-size: 0.95rem; color: var(--ink-2); }
+.answer-box li b { color: var(--ink); font-weight: 600; }
+.answer-box .bottom { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.95rem; }
+
+/* the Answer tab: the idea, five questions, the reading */
+.ans { display: grid; gap: 22px; max-width: 1080px; }
+.q { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; display: grid; gap: 14px; min-width: 0; }
+.qhead { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: start; }
+.qn { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--panel); display: grid; place-items: center; font: 600 1rem/1 var(--font-display); margin-top: 1px; }
+.qhead h2 { margin-bottom: 4px; }
+.qa { margin: 0; font-size: 1.02rem; color: var(--ink); max-width: 80ch; }
+.vp { display: inline-block; font: 600 0.74rem/1 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; border-radius: 999px; padding: 4px 9px; margin-right: 6px; vertical-align: 1px; }
+.vp.yes { color: var(--good); background: var(--good-bg); }
+.vp.part { color: var(--warn); background: var(--warn-bg); }
+.vp.no { color: var(--bad); background: var(--bad-bg); }
+.qbody { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .qbody { grid-template-columns: minmax(0, 1fr); } }
+.qtext p, .qtext li { font-size: 0.93rem; color: var(--ink-2); }
+.qtext ul { margin: 0 0 0.6rem; padding-left: 1.1rem; display: grid; gap: 5px; }
+.qtext b { color: var(--ink); }
+.watch { display: inline-flex; align-items: center; gap: 6px; font: 600 0.88rem/1.2 var(--font-body); color: var(--ink); text-decoration: none; border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; background: var(--bg); }
+.watch:hover { border-color: var(--muted); }
+.watch::before { content: "▶"; font-size: 0.7rem; color: var(--ink-2); }
+.watches { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 760px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+.idea figure { margin: 0; display: grid; gap: 6px; min-width: 0; }
+.idea svg { width: 100%; height: auto; display: block; border-radius: 5px; }
+.idea figcaption { font-size: 0.88rem; color: var(--ink-2); }
+.idea figcaption b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; background: var(--bg); min-width: 0; }
+.tile .k { font-size: 0.84rem; color: var(--ink-2); }
+.tile .v { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 4px; font: 600 1.5rem/1.1 var(--font-display); color: var(--ink); font-variant-numeric: tabular-nums; }
+.tile .v span { font: 500 0.82rem var(--font-body); color: var(--ink-2); }
+.tile .v .arrow { color: var(--muted); font-size: 1.1rem; }
+.reading { border: 2px solid var(--ink); }
+.reading h3 { margin-top: 6px; }
+.reading ol, .reading ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; display: grid; gap: 7px; }
+.reading li { color: var(--ink-2); font-size: 0.95rem; max-width: 92ch; }
+.reading li b { color: var(--ink); }
+.sizes td, .sizes th { white-space: normal; }
+.sizes td.l b { font-weight: 600; }
+
+/* the All results tab: the detail tabs behind one sub-navigation, grouped by what each phase asked */
+.subnav { display: grid; gap: 10px; }
+.subnav .grp { display: grid; grid-template-columns: minmax(160px, 230px) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; }
+@media (max-width: 700px) { .subnav .grp { grid-template-columns: minmax(0, 1fr); } }
+.subnav .gl { font: 600 0.8rem/1.3 var(--font-body); color: var(--ink); }
+.subnav .gl span { display: block; font-weight: 400; color: var(--muted); }
+.subpane { display: grid; gap: 22px; }
+
+/* the Terms tab */
+.terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+.terms dl { margin: 0; display: grid; gap: 9px; }
+.terms dt { font-weight: 600; color: var(--ink); }
+.terms dd { margin: 1px 0 0; color: var(--ink-2); font-size: 0.9rem; }
+
+:root { --k-f20: var(--m-other); --k-a85: var(--c-pass); --k-a90: var(--c-hop); --k-a95: var(--c-hop2);
+        --k-f17: var(--c-street); --k-f18: var(--c-hold); --k-l85: var(--c-look); --k-adapt: var(--c-hop2);
+        --k-fixed: var(--m-firm); --k-other: var(--m-firm); }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 150px; font-family: var(--font-body); }
+table.dt tr.grp td { font-weight: 600; color: var(--ink); background: var(--chip); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+.seg { display: inline-flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 0.8rem/1 var(--font-body); padding: 6px 10px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--c-hop2) 18%, transparent); color: var(--ink); font-weight: 600; }
+.keyrow { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: var(--ink-2); margin: 2px 0 10px; }
+.keyrow span { display: inline-flex; align-items: center; gap: 6px; }
+.keyrow span.sw::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--sw); }
+.chart .keyrow svg { display: inline-block; width: 16px; height: 16px; flex: none; }
+svg .ref { stroke: var(--ink-2); stroke-width: 1.2; }
+svg .ref2 { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 3; }
+svg .gridl { stroke: var(--grid); stroke-width: 1; }
+svg .ival { stroke: var(--ink); stroke-width: 1.6; }
+svg text.note { font: 500 10.5px var(--font-body); fill: var(--muted); }
+.qbody.one { grid-template-columns: minmax(0, 1fr); }
+.qbody.one .qtext { max-width: 100ch; }
+.claims td.v { white-space: nowrap; }
+.claims .vp { margin: 0; }
+.plan { counter-reset: n; display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
+.plan > li { display: grid; grid-template-columns: 1.9rem 1fr; gap: 10px; align-items: start; }
+.plan > li::before { counter-increment: n; content: counter(n); font: 600 0.9rem/1.9rem var(--font-display); text-align: center; border-radius: 50%; background: var(--chip); color: var(--ink); height: 1.9rem; }
+.plan > li > div { min-width: 0; }
+.plan p { margin: 2px 0 0; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S9 · Street Spread · a second reading, for the human trials</p>
+      <h1>Does the adaptive spread help the swarm in the streets, and what does it cost?</h1>
+      <p class="lead" id="lead1"></p>
+      <p class="lead" id="lead2"></p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+
+<script>/* citysim/replay_view.js -- plays back the flights citysim/playback.py records, over the cities they flew in.
+   A study page's report builder inlines this file (split_report.py does); every study page has a Cities tab built
+   on it (docs/studies/lessons.md 30). The page supplies its colours as CSS custom properties (TOKENS) and its data
+   through RV.load(path): window.RV_INLINE[path] when the page carries the data itself (a page opened as a local
+   file, where fetch is refused), otherwise fetch(path) beside the page.
+
+   City: blocks and buildings (polygons), block flags (1 interior, 2 empty), the force law's avoidance cylinders,
+   the street centreline samples a flight's first-seen times index. Flight: frames every dt of every drone's position,
+   heading, shown-feed mask, the pilot's heading and waypoint; losses, contacts, decisions (a block's arrival, commit
+   and candidate streets with the time each was previewed), the drones apart from the formation's main group. */
+"use strict";
+const RV = (() => {
+  // ------------------------------------------------------------------ data
+  const cache = new Map();
+  function load(path) {
+    if (cache.has(path)) return cache.get(path);
+    const inl = window.RV_INLINE;
+    const p = inl && inl[path] ? Promise.resolve(inl[path])
+      : fetch(path).then(r => { if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`); return r.json(); });
+    cache.set(path, p);
+    p.catch(() => cache.delete(path));
+    return p;
+  }
+  function bytes(b64) { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+  const i16 = b => new Int16Array(bytes(b).buffer), u16 = b => new Uint16Array(bytes(b).buffer);
+  function polys(P) {
+    const n = u16(P.n), xz = i16(P.xz), out = [];
+    let k = 0;
+    for (let i = 0; i < n.length; i++) {
+      const a = new Float32Array(n[i] * 2);
+      for (let j = 0; j < a.length; j++) a[j] = xz[k + j] / 10;
+      k += a.length; out.push(a);
+    }
+    return out;
+  }
+  function bbox(a) { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (let j = 0; j < a.length; j += 2) { x0 = Math.min(x0, a[j]); x1 = Math.max(x1, a[j]); z0 = Math.min(z0, a[j + 1]); z1 = Math.max(z1, a[j + 1]); } return [x0, z0, x1, z1]; }
+  function centroid(a) { let x = 0, z = 0; const n = a.length / 2; for (let j = 0; j < a.length; j += 2) { x += a[j]; z += a[j + 1]; } return [x / n, z / n]; }
+  function area(a) { let s = 0; const n = a.length / 2; for (let i = 0; i < n; i++) { const j = (i + 1) % n; s += a[2 * i] * a[2 * j + 1] - a[2 * j] * a[2 * i + 1]; } return Math.abs(s) / 2; }
+  function inside(a, x, z) { let c = false; const n = a.length / 2; for (let i = 0, j = n - 1; i < n; j = i++) { const xi = a[2 * i], zi = a[2 * i + 1], xj = a[2 * j], zj = a[2 * j + 1]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; }
+  function city(c) {
+    if (c._d) return c._d;
+    const d = { id: c.id, arena: c.arena, v: c.variant, p: c.p, s: c.s, seed: c.seed, stats: c.stats || {}, anatomy: c.anatomy || null };
+    d.blocks = polys(c.blocks); d.bld = polys(c.buildings);
+    d.flags = c.block_flags ? bytes(c.block_flags) : new Uint8Array(d.blocks.length);
+    d.blockBld = c.block_building ? new Int16Array(bytes(c.block_building).buffer) : null;
+    d.cyl = c.cylinders ? Float32Array.from(i16(c.cylinders), v => v / 10) : null;
+    d.ell = c.ellipses ? Float32Array.from(i16(c.ellipses), v => v / 10) : null;   // S10: cx, cz, a, b, axis angle (deg)
+    d.samples = c.samples ? Float32Array.from(i16(c.samples), v => v / 10) : null;
+    d.blockBox = d.blocks.map(a => a.length ? bbox(a) : null);
+    d.bldBox = d.bld.map(bbox);
+    d.blockC = d.blocks.map(a => a.length ? centroid(a) : null);
+    c._d = d; return d;
+  }
+  function flight(f) {
+    if (f._d) return f._d;
+    const d = Object.assign({}, f);
+    d.xz = i16(f.xz); d.yaw = bytes(f.yaw); d.shown = u16(f.shown); d.body = bytes(f.body); d.wpi = u16(f.wp);
+    d.seen = f.seen ? u16(f.seen) : null;
+    d.apartMask = f.apart ? u16(f.apart.mask) : null;
+    d.tEnd = f.t0 + (f.frames - 1) * f.dt;
+    d.decisions = f.decisions || []; d.losses = f.losses || []; d.contacts = f.contacts || [];
+    // the formation's centre per frame (live drones), for its path
+    const n = f.n, C = new Float32Array(f.frames * 2);
+    for (let k = 0; k < f.frames; k++) {
+      let x = 0, z = 0, m = 0;
+      for (let i = 0; i < n; i++) if (k < f.alive_to[i]) { x += d.xz[(k * n + i) * 2]; z += d.xz[(k * n + i) * 2 + 1]; m++; }
+      C[2 * k] = m ? x / m / 10 : NaN; C[2 * k + 1] = m ? z / m / 10 : NaN;
+    }
+    d.centre = C;
+    // a flight may carry its own seen points (its pilot's map, e.g. the footpath round buildings); otherwise its first
+    // sights index the city's street samples
+    d.seenXZ = f.seen_xz ? Float32Array.from(i16(f.seen_xz), v => v / 10) : null;
+    if (d.seen) {                                   // the samples in order of first sight, for drawing a prefix
+      const idx = []; for (let i = 0; i < d.seen.length; i++) if (d.seen[i] !== 65535) idx.push(i);
+      idx.sort((a, b) => d.seen[a] - d.seen[b]); d.seenOrder = Uint32Array.from(idx);
+    }
+    f._d = d; return d;
+  }
+  const lerp = (a, b, t) => a + (b - a) * t;
+  function frameAt(F, t) { const x = Math.max(0, Math.min(F.frames - 1, (t - F.t0) / F.dt)), i0 = Math.floor(x); return { i0, i1: Math.min(i0 + 1, F.frames - 1), a: x - i0 }; }
+  function droneAt(F, fr, i) {
+    if (fr.i0 >= F.alive_to[i]) return null;
+    const a = fr.i1 < F.alive_to[i] ? fr.a : 0, n = F.n, k0 = (fr.i0 * n + i) * 2, k1 = (fr.i1 * n + i) * 2;
+    const y0 = F.yaw[fr.i0 * n + i] * 360 / 256, y1 = F.yaw[fr.i1 * n + i] * 360 / 256;
+    let dy = ((y1 - y0 + 540) % 360) - 180;
+    return { i, x: lerp(F.xz[k0], F.xz[k1], a) / 10, z: lerp(F.xz[k0 + 1], F.xz[k1 + 1], a) / 10, yaw: y0 + dy * a,
+             shown: (F.shown[fr.i0] >> i) & 1 };
+  }
+  function drones(F, t) { const fr = frameAt(F, t), out = []; for (let i = 0; i < F.n; i++) { const d = droneAt(F, fr, i); if (d) out.push(d); } return out; }
+  function apartAt(F, t) { if (!F.apartMask) return 0; const A = F.apart, k = Math.max(0, Math.min(F.apartMask.length - 1, Math.floor((t - A.t0) / A.dt + 1e-6))); return F.apartMask[k]; }
+  function aliveCount(F, t) { const fr = frameAt(F, t); let m = 0; for (let i = 0; i < F.n; i++) if (fr.i0 < F.alive_to[i]) m++; return m; }
+  const popcount = n => { let c = 0; while (n) { n &= n - 1; c++; } return c; };
+  // a flight's find range (a run's sight setting; flights recorded before it existed are 80 m) and its find time
+  const findM = F => F.find_m || 80;
+  const foundAt = F => { const v = F.found && F.found[`r${findM(F)}`]; return v === null || v === undefined ? null : v; };
+  const fmtT = s => { s = Math.max(0, s); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
+
+  // ------------------------------------------------------------------ colours (CSS custom properties)
+  const TOKENS = ["bg", "panel", "ink", "ink-2", "muted", "line", "grid", "chip", "map-street", "map-block", "map-edge",
+    "map-plaza", "map-bldg", "map-cyl", "good", "warn", "bad"];
+  let T = {};
+  const themeFns = [];
+  function readTokens() { const cs = getComputedStyle(document.documentElement); T = {}; for (const k of TOKENS) T[k] = cs.getPropertyValue("--" + k).trim(); }
+  function colour(v) {          // a CSS colour or var(--x) to its value
+    const m = /^var\((--[\w-]+)\)$/.exec(String(v).trim());
+    return m ? getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() : v;
+  }
+  function rgba(c, a) {
+    c = colour(c);
+    let m = /^#([0-9a-f]{6})$/i.exec(c);
+    if (m) { const v = parseInt(m[1], 16); return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${a})`; }
+    m = /^#([0-9a-f]{3})$/i.exec(c);
+    if (m) { const h = m[1]; return `rgba(${parseInt(h[0] + h[0], 16)},${parseInt(h[1] + h[1], 16)},${parseInt(h[2] + h[2], 16)},${a})`; }
+    m = /^rgba?\(([^)]+)\)$/.exec(c);
+    if (m) { const p = m[1].split(",").map(x => x.trim()); return `rgba(${p[0]},${p[1]},${p[2]},${a})`; }
+    return c;
+  }
+  readTokens();
+  let themeTimer = 0;
+  const themeChanged = () => { clearTimeout(themeTimer); themeTimer = setTimeout(() => { readTokens(); themeFns.forEach(f => f()); }, 30); };
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeChanged); } catch (e) { /* old browser */ }
+  new MutationObserver(themeChanged).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
+  const onTheme = f => themeFns.push(f);
+
+  // ------------------------------------------------------------------ a canvas map with pan and zoom
+  class MapView {
+    constructor(canvas, o = {}) {
+      this.canvas = canvas; this.ctx = canvas.getContext("2d");
+      this.aspect = o.aspect || 0.7; this.minH = o.minH || 240; this.maxH = o.maxH || 720; this.minW = o.minW || 200;
+      this.onHover = o.onHover || null; this.onMove = o.onMove || null;
+      this.k = 1; this.cx = 0; this.cz = 0; this.W = 0; this.H = 0; this.dpr = 1;
+      this.bounds = null; this.pad = 12; this.userMoved = false; this.draw = null; this.raf = 0;
+      new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
+      if (o.interactive !== false) this.bind();
+      this.resize();
+    }
+    resize() {
+      const w = Math.max(this.minW, Math.floor(this.canvas.parentElement.clientWidth));
+      const h = Math.round(Math.min(this.maxH, Math.max(this.minH, w * this.aspect)));
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      if (w === this.W && h === this.H && dpr === this.dpr) return;
+      this.W = w; this.H = h; this.dpr = dpr;
+      this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
+      this.canvas.style.height = h + "px";
+      if (this.bounds && !this.userMoved) this.fit(this.bounds, this.pad);
+      this.request();
+    }
+    fit(b, pad = 12) {
+      this.bounds = b; this.pad = pad; this.userMoved = false;
+      this.k = Math.min((this.W - 2 * pad) / Math.max(1, b[1] - b[0]), (this.H - 2 * pad) / Math.max(1, b[3] - b[2]));
+      this.cx = (b[0] + b[1]) / 2; this.cz = (b[2] + b[3]) / 2; this.request();
+    }
+    look(x, z, k) { this.cx = x; this.cz = z; if (k) this.k = k; this.request(); }
+    sx(x) { return this.W / 2 + (x - this.cx) * this.k; }
+    sy(z) { return this.H / 2 - (z - this.cz) * this.k; }
+    wx(px) { return this.cx + (px - this.W / 2) / this.k; }
+    wz(py) { return this.cz - (py - this.H / 2) / this.k; }
+    visible(b, m = 0) { return b && !(this.sx(b[2] + m) < -2 || this.sx(b[0] - m) > this.W + 2 || this.sy(b[1] - m) < -2 || this.sy(b[3] + m) > this.H + 2); }
+    request() { if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.render(); }); }
+    render() { const c = this.ctx; c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.clearRect(0, 0, this.W, this.H); if (this.draw) this.draw(c, this); }
+    zoomBy(f, px = this.W / 2, py = this.H / 2) {
+      const x = this.wx(px), z = this.wz(py);
+      this.k = Math.max(0.05, Math.min(60, this.k * f));
+      this.cx = x - (px - this.W / 2) / this.k; this.cz = z + (py - this.H / 2) / this.k;
+      this.userMoved = true; this.request(); if (this.onMove) this.onMove();
+    }
+    bind() {
+      const c = this.canvas, pts = new Map();
+      let drag = null, pinch = null;
+      c.addEventListener("pointerdown", e => {
+        pts.set(e.pointerId, [e.clientX, e.clientY]); c.setPointerCapture(e.pointerId);
+        if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), k: this.k }; drag = null; }
+        else drag = { x: e.clientX, y: e.clientY, cx: this.cx, cz: this.cz, moved: false };
+      });
+      c.addEventListener("pointermove", e => {
+        const r = c.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+        if (pts.has(e.pointerId)) pts.set(e.pointerId, [e.clientX, e.clientY]);
+        if (pinch && pts.size === 2) {
+          const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          const mx = (a[0] + b[0]) / 2 - r.left, my = (a[1] + b[1]) / 2 - r.top;
+          this.zoomBy(pinch.k * d / Math.max(1, pinch.d) / this.k, mx, my); return;
+        }
+        if (drag) {
+          const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+          if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+          if (drag.moved) { this.cx = drag.cx - dx / this.k; this.cz = drag.cz + dy / this.k; this.userMoved = true; this.request(); tipHide(); if (this.onMove) this.onMove(); }
+          return;
+        }
+        if (this.onHover) this.onHover(this.wx(px), this.wz(py), e);
+      });
+      const end = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; drag = null; };
+      c.addEventListener("pointerup", end); c.addEventListener("pointercancel", end);
+      c.addEventListener("pointerleave", tipHide);
+      c.addEventListener("wheel", e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const r = c.getBoundingClientRect(); this.zoomBy(Math.exp(-e.deltaY * 0.0016), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+      c.addEventListener("dblclick", e => { const r = c.getBoundingClientRect(); this.zoomBy(2, e.clientX - r.left, e.clientY - r.top); });
+    }
+  }
+
+  // ------------------------------------------------------------------ the tooltip (built with textContent)
+  let TIP = null;
+  function tipShow(x, y, title, lines) {
+    if (!TIP) { TIP = document.createElement("div"); TIP.className = "rv-tip"; TIP.hidden = true; TIP.setAttribute("role", "status"); document.body.appendChild(TIP); }
+    TIP.replaceChildren();
+    const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+    for (const l of lines) { const d = document.createElement("div"); d.textContent = l; TIP.appendChild(d); }
+    TIP.hidden = false;
+    const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+    let px = x + pad, py = y + pad;
+    if (px + w > innerWidth - 8) px = x - w - pad;
+    if (py + h > innerHeight - 8) py = y - h - pad;
+    TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+  }
+  function tipHide() { if (TIP) TIP.hidden = true; }
+
+  // ------------------------------------------------------------------ drawing
+  function poly(c, v, a) { c.moveTo(v.sx(a[0]), v.sy(a[1])); for (let j = 2; j < a.length; j += 2) c.lineTo(v.sx(a[j]), v.sy(a[j + 1])); c.closePath(); }
+  function drawCity(c, v, C, o = {}) {
+    const a = C.arena;
+    c.fillStyle = T.panel; c.fillRect(0, 0, v.W, v.H);
+    c.fillStyle = T["map-street"]; c.fillRect(v.sx(a[0]), v.sy(a[3]), (a[1] - a[0]) * v.k, (a[3] - a[2]) * v.k);
+    for (const pass of ["map-edge", "map-block", "map-plaza"]) {
+      c.beginPath();
+      for (let b = 0; b < C.blocks.length; b++) {
+        const A = C.blocks[b]; if (!A.length || !v.visible(C.blockBox[b])) continue;
+        const f = C.flags[b], kind = (f & 2) ? "map-plaza" : (f & 1) ? "map-block" : "map-edge";
+        if (kind === pass) poly(c, v, A);
+      }
+      c.fillStyle = T[pass]; c.fill();
+    }
+    if (o.highlight !== undefined && o.highlight !== null && C.blocks[o.highlight] && C.blocks[o.highlight].length) {
+      c.beginPath(); poly(c, v, C.blocks[o.highlight]); c.fillStyle = rgba(T.ink, 0.07); c.fill();
+    }
+    c.beginPath();
+    for (let i = 0; i < C.bld.length; i++) if (v.visible(C.bldBox[i])) poly(c, v, C.bld[i]);
+    c.fillStyle = T["map-bldg"]; c.fill();
+    if (o.cylinders && C.cyl) {
+      c.setLineDash([4, 3]); c.lineWidth = 1; c.strokeStyle = T["map-cyl"]; c.beginPath();
+      for (let i = 0; i < C.cyl.length; i += 3) {
+        const x = C.cyl[i], z = C.cyl[i + 1], r = C.cyl[i + 2];
+        if (!v.visible([x - r, z - r, x + r, z + r])) continue;
+        c.moveTo(v.sx(x) + r * v.k, v.sy(z)); c.arc(v.sx(x), v.sy(z), r * v.k, 0, 2 * Math.PI);
+      }
+      c.stroke(); c.setLineDash([]);
+    }
+    if (o.cylinders && C.ell) {
+      // the map flips z, so an axis at angle th in the world (from +x towards +z) is at -th on the screen
+      c.setLineDash([4, 3]); c.lineWidth = 1; c.strokeStyle = T["map-cyl"]; c.beginPath();
+      for (let i = 0; i < C.ell.length; i += 5) {
+        const x = C.ell[i], z = C.ell[i + 1], a = C.ell[i + 2], b = C.ell[i + 3], th = C.ell[i + 4] * Math.PI / 180;
+        if (!v.visible([x - a, z - a, x + a, z + a])) continue;
+        const sx = v.sx(x), sy = v.sy(z);
+        c.moveTo(sx + a * v.k * Math.cos(-th), sy + a * v.k * Math.sin(-th));
+        c.ellipse(sx, sy, a * v.k, b * v.k, -th, 0, 2 * Math.PI);
+      }
+      c.stroke(); c.setLineDash([]);
+    }
+    c.strokeStyle = T.line; c.lineWidth = 1; c.setLineDash([4, 4]);
+    c.strokeRect(v.sx(a[0]), v.sy(a[3]), (a[1] - a[0]) * v.k, (a[3] - a[2]) * v.k); c.setLineDash([]);
+  }
+  function label(c, x, y, text, o = {}) {
+    c.font = o.font || "600 11px Barlow, system-ui, sans-serif"; c.textAlign = o.align || "left"; c.textBaseline = "middle";
+    if (o.halo !== false) { c.lineWidth = 3; c.strokeStyle = rgba(T.panel, 0.9); c.strokeText(text, x, y); }
+    c.fillStyle = o.color || T["ink-2"]; c.fillText(text, x, y);
+  }
+  function drawScale(c, v) {
+    const raw = Math.min(140, v.W * 0.22) / v.k, steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500];
+    let m = steps[0]; for (const s of steps) if (s <= raw) m = s;
+    const L = m * v.k, x = 14, y = v.H - 16;
+    c.strokeStyle = T.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y - 4); c.lineTo(x, y); c.lineTo(x + L, y); c.lineTo(x + L, y - 4); c.stroke();
+    label(c, x + L + 6, y - 2, `${m} m`, { color: T.ink, font: "500 11px 'IBM Plex Mono', monospace" });
+    label(c, v.W - 12, v.H - 16, "N ↑", { color: T["ink-2"], align: "right" });
+  }
+  function arrowHead(c, x0, y0, x1, y1, s) {
+    const a = Math.atan2(y1 - y0, x1 - x0);
+    c.beginPath(); c.moveTo(x1, y1); c.lineTo(x1 - s * Math.cos(a - 0.45), y1 - s * Math.sin(a - 0.45)); c.lineTo(x1 - s * Math.cos(a + 0.45), y1 - s * Math.sin(a + 0.45)); c.closePath(); c.fill();
+  }
+  function star(c, x, y, r) {
+    c.beginPath();
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; c.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); }
+    c.closePath();
+  }
+  const HFOV = 74.4, WEDGE_M = 40;
+
+  // ------------------------------------------------------------------ the player
+  /* el: an empty element; library: index.json's groups; o: { labels: {cond: text}, colors: {cond: css}, path: {
+     city(id), flight(id) }, notes(flight) -> extra lines for the live panel } */
+  function Player(el, library, o) {
+    const label_ = c => (o.labels && o.labels[c]) || c, col = c => (o.colors && o.colors[c]) || "var(--ink)";
+    el.classList.add("rv");
+    el.innerHTML = `<div class="rv-groups seg" role="group" aria-label="Flight sets"></div>
+      <div class="rv-head"><div class="rv-picks"></div><div class="rv-about small"></div></div>
+      <div class="rv-work"><div class="rv-fig"><div class="rv-frame"><canvas aria-label="The flight from above"></canvas>
+        <div class="rv-mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div>
+        <div class="rv-loading" hidden>Loading…</div></div>
+        <div class="rv-ctl"><button type="button" class="rv-play">Play</button>
+          <input type="range" class="rv-t" min="0" max="100" step="0.1" value="0" aria-label="Time">
+          <span class="rv-clock mono">0:00</span>
+          <label>Speed <select class="rv-speed"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="25">25×</option><option value="50">50×</option></select></label></div>
+        <div class="rv-tl"></div>
+        <div class="rv-layers small"></div>
+        <div class="legend rv-legend"></div></div>
+        <div class="rv-side"><div class="box rv-now"></div><div class="box rv-sum"></div></div></div>`;
+    const $ = s => el.querySelector(s);
+    const canvas = $("canvas"), slider = $(".rv-t"), clock = $(".rv-clock"), btn = $(".rv-play"), spd = $(".rv-speed");
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const layers = { seen: true, route: true, trails: true, wedges: true, cylinders: false, other: true, follow: true };
+    const LAYER_TEXT = [["follow", "follow the formation"], ["seen", "streets seen so far"], ["route", "the pilot's route ahead"],
+      ["trails", "trails"], ["wedges", "feeds' view (zoomed in)"], ["cylinders", "avoidance cylinders"], ["other", "the other source's drones"]];
+    let G = null, entry = null, F = null, C = null, OTHER = null, t = 0, playing = false, last = 0, raf = 0, cam = null, visible = true;
+    let shownGroup = null;
+    const view = new MapView(canvas, { aspect: 0.66, minH: 300, maxH: 760, onHover: hover, onMove: () => { if (layers.follow) { layers.follow = false; drawLayers(); } } });
+    el.querySelectorAll(".rv-mapbar button").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.z === "in") view.zoomBy(1.5); else if (b.dataset.z === "out") view.zoomBy(1 / 1.5);
+      else { layers.follow = false; drawLayers(); if (C) view.fit(C.arena, 10); }
+    }));
+
+    // ---- the library
+    const groupsEl = $(".rv-groups");
+    groupsEl.innerHTML = library.map((g, i) => `<button type="button" aria-pressed="false" data-g="${i}">${esc(g.short || g.title)}</button>`).join("");
+    groupsEl.querySelectorAll("button").forEach(b => b.addEventListener("click", () => selectGroup(+b.dataset.g)));
+    function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch])); }
+    function selectGroup(i, keep) {
+      G = library[i];
+      groupsEl.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.g === i)));
+      const listed = G.kind === "manoeuvres" || G.kind === "block";   // flights picked by title, not by condition
+      spd.value = listed ? "2" : "10";       // a manoeuvre lasts under a minute, a walk ten
+      const picks = $(".rv-picks");
+      if (listed) {
+        picks.innerHTML = `<div class="seg">${G.flights.map((f, k) => `<button type="button" aria-pressed="false" data-f="${k}"><span class="ln" style="border-color:${col(f.cond)}"></span>${esc(f.title)}</button>`).join("")}</div>`;
+        picks.querySelectorAll("button").forEach(b => b.addEventListener("click", () => selectFlight(G.flights[+b.dataset.f])));
+        selectFlight(keep || G.flights[0]);
+      } else {
+        const conds = [...new Set(G.flights.map(f => f.cond))];
+        const hasUnity = G.flights.some(f => f.source === "unity");
+        picks.innerHTML = `<div class="seg rv-conds">${conds.map(c => `<button type="button" aria-pressed="false" data-c="${c}"><span class="ln" style="border-color:${col(c)}"></span>${esc(label_(c))}</button>`).join("")}</div>
+          ${hasUnity ? `<div class="seg rv-src" style="margin-top:6px"><button type="button" aria-pressed="true" data-s="replica">The replica</button><button type="button" aria-pressed="false" data-s="unity">Unity (headless bench)</button></div>` : ""}`;
+        picks.querySelectorAll(".rv-conds button").forEach(b => b.addEventListener("click", () => pickCond(b.dataset.c, entry ? entry.source : "replica")));
+        picks.querySelectorAll(".rv-src button").forEach(b => b.addEventListener("click", () => pickCond(entry ? entry.cond : conds[0], b.dataset.s)));
+        pickCond(keep ? keep.cond : (G.first && conds.includes(G.first) ? G.first : conds.includes("swarm_hop") ? "swarm_hop" : conds[0]), keep ? keep.source : "replica");
+      }
+    }
+    function pickCond(cond, source) {
+      let f = G.flights.find(x => x.cond === cond && x.source === source) || G.flights.find(x => x.cond === cond);
+      selectFlight(f);
+    }
+    async function selectFlight(e) {
+      entry = e;
+      const picks = $(".rv-picks");
+      if (G.kind === "manoeuvres" || G.kind === "block") picks.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(G.flights[+b.dataset.f] === e)));
+      else {
+        picks.querySelectorAll(".rv-conds button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === e.cond)));
+        const both = G.flights.filter(x => x.cond === e.cond).map(x => x.source);
+        picks.querySelectorAll(".rv-src button").forEach(b => { b.setAttribute("aria-pressed", String(b.dataset.s === e.source)); b.disabled = !both.includes(b.dataset.s); b.title = b.disabled ? "Not flown in Unity (the bench's lone drone cannot look round at zero stick)" : ""; });
+      }
+      $(".rv-about").innerHTML = G.kind === "block" ? `<p>${esc(G.about)}</p><p>${esc(e.about || "")}</p>` : `<p>${esc(G.kind === "manoeuvres" ? e.about : G.about)}</p>`;
+      $(".rv-loading").hidden = false;
+      try {
+        const other = G.flights.find(x => x.cond === e.cond && x.source !== e.source);
+        const [fj, cj, oj] = await Promise.all([load(o.path.flight(e.id)), load(o.path.city(e.city)), other ? load(o.path.flight(other.id)) : null]);
+        if (entry !== e) return;                          // a later click won
+        const newCity = !C || C.id !== cj.id;
+        // another condition of the same walk or search keeps the moment; anything else starts from the beginning
+        const same = G.kind !== "manoeuvres" && shownGroup === G.id;      // a "block" group is one block: keep the moment
+        F = flight(fj); C = city(cj); OTHER = oj ? flight(oj) : null;
+        shownGroup = G.id;
+        t = same ? Math.min(t, F.tEnd) : 0;
+        slider.max = String(F.tEnd);
+        if (!same) cam = null;
+        if (newCity && !layers.follow) view.fit(C.arena, 10);
+        $(".rv-loading").hidden = true;
+        drawLayers(); legend(); summary(); timeline(); sync();
+      } catch (err) {
+        $(".rv-loading").textContent = `Could not load the flight: ${err.message}`;
+      }
+    }
+
+    // ---- layers and legend
+    function drawLayers() {
+      const show = LAYER_TEXT.filter(([k]) => k !== "cylinders" || (C && (C.cyl || C.ell))).filter(([k]) => k !== "other" || OTHER);
+      $(".rv-layers").innerHTML = show.map(([k, txt]) => `<label><input type="checkbox" data-l="${k}" ${layers[k] ? "checked" : ""}> ${txt}</label>`).join("");
+      $(".rv-layers").querySelectorAll("input").forEach(i => i.addEventListener("change", () => {
+        layers[i.dataset.l] = i.checked;
+        if (i.dataset.l === "follow") { cam = null; view.userMoved = false; if (!i.checked && C) view.fit(C.arena, 10); }
+        sync();
+      }));
+    }
+    function legend() {
+      const cc = colour(col(F.cond));
+      const items = [
+        `<span><span class="sw" style="background:${cc};border-radius:50%;width:10px"></span>drone with its feed shown</span>`,
+        F.n > 1 ? `<span><span class="sw" style="background:var(--panel);border:1.6px solid ${cc};border-radius:50%;width:10px"></span>inside the formation, not shown</span>` : "",
+        F.apartMask ? `<span><span class="sw" style="background:transparent;border:2px solid var(--warn);border-radius:50%;width:12px;height:12px"></span>apart from the main group</span>` : "",
+        `<span><span class="sw" style="background:${cc};width:6px;height:6px;border-radius:1px"></span>street seen</span>`,
+        F.decisions.length ? `<span><span class="ln" style="border-color:var(--ink-2);border-top-style:dashed"></span>block's street, not yet entered</span><span><span class="ln" style="border-color:${cc}"></span>entered (the old preview)</span>` : "",
+        F.decisions.some(d => d.opts.some(op => op.end)) ? `<span><span class="sw" style="background:var(--panel);border:1.8px solid var(--ink-2);width:9px;height:9px"></span>building at a street's end, filled once looked down</span>` : "",
+        `<span><b style="color:var(--bad);margin-right:5px">×</b>drone lost</span>`,
+        F.contacts.length ? `<span><span class="sw" style="background:var(--warn);width:7px;height:7px;transform:rotate(45deg)"></span>building contact</span>` : "",
+        F.target ? `<span>★ the target (dashed: ${findM(F)} m)</span>` : "",
+        OTHER ? `<span><span class="sw" style="background:transparent;border:1.5px solid var(--ink-2);width:9px;height:9px"></span>${OTHER.source === "unity" ? "Unity's" : "the replica's"} flight of the same ${F.unit || (F.kind === "search" ? "route" : "walk")}</span>` : ""];
+      $(".rv-legend").innerHTML = items.filter(Boolean).join("");
+    }
+
+    // ---- the decisions
+    function decisionAt(tt) {
+      const D = F.decisions; let k = -1;
+      for (let i = 0; i < D.length; i++) { const s = D[i].t0 !== null ? D[i].t0 : D[i].t; if (s !== null && s <= tt + 1e-6) k = i; }
+      return k;
+    }
+
+    // ---- drawing
+    view.draw = (c, v) => {
+      if (!C) return;
+      const k = decisionAt(t), Dk = k >= 0 ? F.decisions[k] : null;
+      drawCity(c, v, C, { cylinders: layers.cylinders, highlight: Dk ? Dk.block : null });
+      const cc = colour(col(F.cond));
+      // streets (or the pilot's own map) seen so far
+      const SXZ = F.seenXZ || C.samples;
+      if (layers.seen && F.seenOrder && SXZ) {
+        const lim = t / 0.5, s = Math.max(1.6, Math.min(3.2, 1.2 * v.k)); c.fillStyle = rgba(cc, 0.72);
+        for (let j = 0; j < F.seenOrder.length; j++) {
+          const i = F.seenOrder[j]; if (F.seen[i] > lim) break;
+          const x = v.sx(SXZ[2 * i]), y = v.sy(SXZ[2 * i + 1]);
+          if (x < -4 || y < -4 || x > v.W + 4 || y > v.H + 4) continue;
+          c.fillRect(x - s / 2, y - s / 2, s, s);
+        }
+      }
+      // visited blocks: their order along the flight
+      F.decisions.forEach((d, i) => {
+        if ((d.t0 !== null ? d.t0 : d.t) > t || !C.blockC[d.block] || i === k) return;
+        const [x, z] = C.blockC[d.block];
+        label(c, v.sx(x), v.sy(z), String(i + 1), { color: T["ink-2"], align: "center", font: "600 10px Barlow, system-ui, sans-serif" });
+      });
+      // the block being taken: its streets, previewed or not
+      if (Dk) {
+        c.lineCap = "round";
+        for (const op of Dk.opts) {
+          const x0 = v.sx(op.xz[0]), y0 = v.sy(op.xz[1]), x1 = v.sx(op.xz[2]), y1 = v.sy(op.xz[3]);
+          const seen = op.t !== null && op.t <= t + 1e-6, chosen = op.chosen && Dk.t !== null && t >= Dk.t;
+          c.lineWidth = Math.max(3, Math.min(7, 0.45 * v.k * 6)); c.setLineDash(seen ? [] : [5, 5]);
+          c.strokeStyle = seen ? rgba(cc, 0.8) : rgba(T["ink-2"], 0.55);
+          c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.setLineDash([]);
+          if (chosen) { c.fillStyle = T.ink; c.strokeStyle = T.ink; c.lineWidth = 2; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); arrowHead(c, x0, y0, x1, y1, 9); }
+          if (op.end) {                                   // what stands at the street's far end: looked down yet?
+            const ex = v.sx(op.end[0]), ey = v.sy(op.end[1]), down = op.te !== null && op.te !== undefined && op.te <= t + 1e-6;
+            c.lineWidth = 1.2; c.strokeStyle = T.ink; c.setLineDash([2, 3]);
+            c.beginPath(); c.moveTo(x1, y1); c.lineTo(ex, ey); c.stroke(); c.setLineDash([]);
+            c.beginPath(); c.rect(ex - 5, ey - 5, 10, 10); c.fillStyle = down ? cc : T.panel; c.fill(); c.lineWidth = 1.8; c.strokeStyle = down ? T.ink : T["ink-2"]; c.stroke();
+          }
+        }
+        c.lineCap = "butt";
+        if (C.blocks[Dk.block] && C.blocks[Dk.block].length) { c.beginPath(); poly(c, v, C.blocks[Dk.block]); c.strokeStyle = T.ink; c.lineWidth = 1.6; c.stroke(); }
+      }
+      // the block it is heading for (on the way to the first, or once this one is decided)
+      const nx = k < 0 ? F.decisions[0] : (Dk && Dk.t !== null && t >= Dk.t ? F.decisions[k + 1] : null);
+      if (nx && C.blocks[nx.block] && C.blocks[nx.block].length) {
+        c.beginPath(); poly(c, v, C.blocks[nx.block]); c.setLineDash([4, 3]); c.strokeStyle = rgba(T.ink, 0.7); c.lineWidth = 1.4; c.stroke(); c.setLineDash([]);
+      }
+      // the route ahead
+      if (layers.route && F.wps && F.wps.length) {
+        const fr = frameAt(F, t), w0 = Math.min(F.wpi[fr.i0], F.wps.length - 1), ctr = [F.centre[2 * fr.i0], F.centre[2 * fr.i0 + 1]];
+        c.strokeStyle = rgba(T["ink-2"], 0.55); c.lineWidth = 1.3; c.setLineDash([3, 4]); c.beginPath();
+        if (Number.isFinite(ctr[0])) c.moveTo(v.sx(ctr[0]), v.sy(ctr[1]));
+        for (let j = w0; j < Math.min(F.wps.length, w0 + 8); j++) c.lineTo(v.sx(F.wps[j][0]), v.sy(F.wps[j][1]));
+        c.stroke(); c.setLineDash([]);
+      }
+      // the target
+      if (F.target) {
+        const x = v.sx(F.target[0]), y = v.sy(F.target[1]), tf = foundAt(F), found = tf !== null && t >= tf;
+        c.setLineDash([4, 4]); c.strokeStyle = rgba(T.ink, 0.45); c.lineWidth = 1; c.beginPath(); c.arc(x, y, findM(F) * v.k, 0, 2 * Math.PI); c.stroke(); c.setLineDash([]);
+        star(c, x, y, 9); c.fillStyle = found ? T.good : T.panel; c.fill(); c.strokeStyle = found ? T.good : T.ink; c.lineWidth = 1.6; c.stroke();
+        label(c, x + 12, y - 10, found ? `found at ${fmtT(tf)}` : "target", { color: found ? T.good : T.ink });
+      }
+      // the other source's flight of the same walk / route
+      if (layers.other && OTHER) {
+        const ods = drones(OTHER, t);
+        c.strokeStyle = rgba(T["ink-2"], 0.9); c.lineWidth = 1.4;
+        for (const d of ods) { const x = v.sx(d.x), y = v.sy(d.z); c.strokeRect(x - 4, y - 4, 8, 8); }
+      }
+      // the formation's path and the drones' trails
+      const fr = frameAt(F, t);
+      c.strokeStyle = rgba(cc, 0.42); c.lineWidth = 1.6; c.beginPath();
+      let pen = false;
+      for (let j = 0; j <= fr.i0; j++) { const x = F.centre[2 * j], z = F.centre[2 * j + 1]; if (!Number.isFinite(x)) { pen = false; continue; } if (!pen) { c.moveTo(v.sx(x), v.sy(z)); pen = true; } else c.lineTo(v.sx(x), v.sy(z)); }
+      c.stroke();
+      if (layers.trails) {
+        const back = Math.round(8 / F.dt); c.strokeStyle = rgba(cc, 0.35); c.lineWidth = 1;
+        for (let i = 0; i < F.n; i++) {
+          c.beginPath(); let on = false;
+          for (let j = Math.max(0, fr.i0 - back); j <= fr.i0; j++) { if (j >= F.alive_to[i]) break; const x = v.sx(F.xz[(j * F.n + i) * 2] / 10), y = v.sy(F.xz[(j * F.n + i) * 2 + 1] / 10); if (!on) { c.moveTo(x, y); on = true; } else c.lineTo(x, y); }
+          c.stroke();
+        }
+      }
+      const ds = drones(F, t), apart = apartAt(F, t);
+      if (layers.wedges && v.k >= 1.1) {
+        for (const d of ds) if (d.shown || F.n === 1) {
+          const sx = v.sx(d.x), sy = v.sy(d.z), r = WEDGE_M * v.k, h = HFOV / 2 * Math.PI / 180, th = (d.yaw - 90) * Math.PI / 180;
+          c.beginPath(); c.moveTo(sx, sy); c.arc(sx, sy, r, th - h, th + h); c.closePath();
+          c.fillStyle = rgba(cc, 0.045); c.fill(); c.strokeStyle = rgba(cc, 0.2); c.lineWidth = 1; c.stroke();
+        }
+      }
+      // contacts and losses so far
+      for (const e of F.contacts) if (e.t <= t) {
+        const x = v.sx(e.x), y = v.sy(e.z), age = t - e.t;
+        c.fillStyle = T.warn; c.beginPath(); c.moveTo(x, y - 4); c.lineTo(x + 4, y); c.lineTo(x, y + 4); c.lineTo(x - 4, y); c.closePath(); c.fill();
+        if (age < 2) { c.strokeStyle = rgba(T.warn, 1 - age / 2); c.lineWidth = 2; c.beginPath(); c.arc(x, y, 6 + 10 * age, 0, 2 * Math.PI); c.stroke(); }
+      }
+      for (const e of F.losses) if (e.t <= t) {
+        const x = v.sx(e.x), y = v.sy(e.z), s = 5;
+        c.strokeStyle = T.bad; c.lineWidth = 2.4; c.beginPath(); c.moveTo(x - s, y - s); c.lineTo(x + s, y + s); c.moveTo(x - s, y + s); c.lineTo(x + s, y - s); c.stroke();
+      }
+      for (const d of ds) {
+        const x = v.sx(d.x), y = v.sy(d.z), on = d.shown || F.n === 1;
+        if ((apart >> d.i) & 1) { c.strokeStyle = T.warn; c.lineWidth = 2; c.beginPath(); c.arc(x, y, 8, 0, 2 * Math.PI); c.stroke(); }
+        if (on) {                                         // the feed's heading
+          const th = (d.yaw - 90) * Math.PI / 180;
+          c.strokeStyle = cc; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y); c.lineTo(x + 9 * Math.cos(th), y + 9 * Math.sin(th)); c.stroke();
+        }
+        c.beginPath(); c.arc(x, y, on ? 4.4 : 3.8, 0, 2 * Math.PI); c.fillStyle = on ? cc : T.panel; c.fill(); c.lineWidth = 1.6; c.strokeStyle = cc; c.stroke();
+      }
+      drawScale(c, v);
+    };
+    function placeCamera() {
+      if (!layers.follow || !F) return;
+      const fr = frameAt(F, t), x = F.centre[2 * fr.i0], z = F.centre[2 * fr.i0 + 1];
+      if (!Number.isFinite(x)) return;
+      const span = F.span || (F.kind === "M4" || F.kind === "M3" || F.kind === "M3b" ? 170 : 240), kWant = Math.min(view.W, view.H) / span;
+      if (!cam) cam = { x, z, k: kWant };
+      cam.x = lerp(cam.x, x, 0.15); cam.z = lerp(cam.z, z, 0.15); cam.k = lerp(cam.k, kWant, 0.08);
+      view.cx = cam.x; view.cz = cam.z; view.k = cam.k;
+    }
+
+    // ---- the readouts
+    function phaseText() {
+      const k = decisionAt(t), D = F.decisions;
+      if (t >= F.tEnd - 1e-6) return "the flight has ended";
+      if (k < 0) return D.length ? "on the way to the first block" : "";
+      const d = D[k], n = k + 1, what = d.plaza ? "a plaza, crossed by the streets" : TAKE[F.cond] || "taking the block";
+      if (d.t !== null && t < d.t) return `block ${n}: ${what}`;
+      if (d.plaza) return `block ${n}, a plaza crossed by the streets: on to the next`;
+      if (d.look !== null && d.look !== undefined)
+        return `block ${n} done: ${Math.round(100 * d.look)}% of its exits looked down at the decision${d.prev !== null && d.prev !== undefined ? ` (${Math.round(100 * d.prev)}% entered)` : ""}; on to the next`;
+      return `block ${n} done: ${d.prev !== null && d.prev !== undefined ? `${Math.round(100 * d.prev)}% of its streets previewed at the decision; ` : ""}on to the next`;
+    }
+    const TAKE = { single: "decides on arrival at the corner", single_look: "holds at the corner and looks down each street",
+      swarm_street: "decides on arrival at the corner", swarm_hold: "holds at the corner", swarm_pass: "passes round the block",
+      swarm_hop: "surrounds the block", swarm_hop_p2: "surrounds the block (Phase 2's setting)" };
+    function live() {
+      const n = aliveCount(F, t), fr = frameAt(F, t), sh = popcount(F.shown[fr.i0]);
+      const lost = F.losses.filter(e => e.t <= t).length, cont = F.contacts.filter(e => e.t <= t).length;
+      let seenKm = null;
+      if (F.seen) { let m = 0; const lim = t / 0.5; for (let i = 0; i < F.seen.length; i++) if (F.seen[i] <= lim) m++; seenKm = m * 2 / 1000; }
+      const k = decisionAt(t), d = k >= 0 ? F.decisions[k] : null;
+      const nDown = d ? d.opts.filter(op => op.end && op.te !== null && op.te !== undefined && op.te <= t + 1e-6).length : 0;
+      const nEnds = d ? d.opts.filter(op => op.end).length : 0;
+      const nPrev = d ? d.opts.filter(op => op.t !== null && op.t <= t + 1e-6).length : 0;
+      let near = null;
+      if (F.target) { for (const dd of drones(F, t)) { const r = Math.hypot(dd.x - F.target[0], dd.z - F.target[1]); near = near === null ? r : Math.min(near, r); } }
+      const rows = [["drones flying", `${n} / ${F.n}`], F.n > 1 ? ["feeds shown", String(sh)] : null,
+        ["drones lost so far", String(lost)], F.source === "replica" ? ["building contacts so far", String(cont)] : null,
+        seenKm !== null ? [F.seenXZ ? "footpath seen so far" : "street seen so far", `${seenKm.toFixed(2)} km`] : null,
+        d && !d.plaza ? ["this block's streets entered", `${nPrev} of ${d.opts.length}`] : null,
+        d && !d.plaza && nEnds ? ["... looked down to the building at the end", `${nDown} of ${nEnds}`] : null,
+        near !== null ? ["nearest drone to the target", `${Math.round(near)} m`] : null].filter(Boolean);
+      $(".rv-now").innerHTML = `<p class="eyebrow">Now, ${fmtT(t)}</p><p class="rv-phase">${esc(phaseText())}</p>
+        <dl class="rv-kv">${rows.map(([a, b]) => `<dt>${a}</dt><dd class="mono">${esc(b)}</dd>`).join("")}</dl>`;
+    }
+    function summary() {
+      const s = F.summary || {}, rows = (o.summaryRows ? o.summaryRows(F, s) : []).filter(Boolean);
+      $(".rv-sum").innerHTML = `<p class="eyebrow">The whole flight · ${F.source === "unity" ? "Unity" : "the replica"}</p>
+        <dl class="rv-kv">${rows.map(([a, b]) => `<dt>${a}</dt><dd class="mono">${esc(b)}</dd>`).join("")}</dl>
+        ${o.summaryNote ? `<p class="small muted">${o.summaryNote(F)}</p>` : ""}`;
+    }
+
+    // ---- the timeline
+    let tl = null;
+    function timeline() {
+      const host = $(".rv-tl"); host.innerHTML = "";
+      const W = Math.max(300, host.clientWidth || 600), H = 84, m = { l: 18, r: 18, t: 6, b: 18 };
+      const x = s => m.l + (W - m.l - m.r) * s / Math.max(1e-6, F.tEnd), cc = colour(col(F.cond));
+      let g = "";
+      const rowY = [m.t, m.t + 18, m.t + 34];
+      for (const d of F.decisions) {
+        const a = d.t0 !== null ? d.t0 : d.t, b = d.t;
+        if (a === null || b === null) continue;
+        g += `<rect x="${x(a).toFixed(1)}" y="${rowY[0]}" width="${Math.max(1.5, x(b) - x(a)).toFixed(1)}" height="14" rx="2" fill="${d.plaza ? rgba(T.muted, 0.35) : rgba(cc, 0.45)}"/>`;
+        g += `<line x1="${x(b).toFixed(1)}" x2="${x(b).toFixed(1)}" y1="${rowY[0] - 2}" y2="${rowY[0] + 16}" stroke="${T.ink}" stroke-width="1.2"/>`;
+      }
+      if (F.apart) {
+        for (const [a, b] of F.apart.apart || []) g += `<rect x="${x(a).toFixed(1)}" y="${rowY[1]}" width="${Math.max(1.5, x(b) - x(a)).toFixed(1)}" height="10" fill="${rgba(T.warn, 0.4)}"/>`;
+        for (const [a, b] of F.apart.split || []) g += `<rect x="${x(a).toFixed(1)}" y="${rowY[1]}" width="${Math.max(1.5, x(b) - x(a)).toFixed(1)}" height="10" fill="${T.warn}"/>`;
+      }
+      for (const e of F.contacts) g += `<rect x="${(x(e.t) - 2.5).toFixed(1)}" y="${rowY[2]}" width="5" height="5" transform="rotate(45 ${x(e.t).toFixed(1)} ${rowY[2] + 2.5})" fill="${T.warn}"/>`;
+      for (const e of F.losses) g += `<text x="${x(e.t).toFixed(1)}" y="${rowY[2] + 16}" text-anchor="middle" fill="${T.bad}" style="font:700 12px var(--font-body, sans-serif)">×</text>`;
+      if (foundAt(F) !== null) g += `<text x="${x(foundAt(F)).toFixed(1)}" y="${rowY[2] + 16}" text-anchor="middle" fill="${T.good}" style="font:700 13px var(--font-body, sans-serif)">★</text>`;
+      const step = F.tEnd > 900 ? 120 : F.tEnd > 300 ? 60 : F.tEnd > 90 ? 15 : 5;
+      for (let s = 0; s <= F.tEnd + 1e-6; s += step) g += `<line x1="${x(s)}" x2="${x(s)}" y1="${H - m.b}" y2="${H - m.b + 3}" stroke="${T.line}"/><text x="${x(s)}" y="${H - 4}" text-anchor="middle" fill="${T["ink-2"]}" style="font:500 10px var(--font-mono, monospace)">${fmtT(s)}</text>`;
+      g += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="${T.line}"/>`;
+      g += `<line class="rv-ph" x1="0" x2="0" y1="${m.t - 4}" y2="${H - m.b}" stroke="${T.ink}" stroke-width="1.5"/>`;
+      g += `<rect class="rv-hit" x="${m.l}" y="0" width="${W - m.l - m.r}" height="${H}" fill="transparent" tabindex="0" aria-label="Timeline: arrow keys move through the flight"/>`;
+      host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Timeline of the flight">${g}</svg>`;
+      const svg = host.querySelector("svg"), ph = host.querySelector(".rv-ph"), hit = host.querySelector(".rv-hit");
+      const seek = ev => { const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width; setT((px - m.l) / (W - m.l - m.r) * F.tEnd); };
+      let down = false;
+      hit.addEventListener("pointerdown", ev => { down = true; hit.setPointerCapture(ev.pointerId); seek(ev); });
+      hit.addEventListener("pointermove", ev => {
+        if (down) { seek(ev); return; }
+        const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width, s = (px - m.l) / (W - m.l - m.r) * F.tEnd;
+        const lines = [];
+        const d = F.decisions.findIndex(dd => dd.t !== null && Math.abs(x(dd.t) - px) < 4);
+        if (d >= 0) lines.push(F.decisions[d].plaza ? `block ${d + 1}: a plaza, crossed by the streets` : `block ${d + 1}: decided${F.decisions[d].prev !== null && F.decisions[d].prev !== undefined ? `, ${Math.round(100 * F.decisions[d].prev)}% of its streets previewed` : ""}`);
+        for (const e of F.losses) if (Math.abs(x(e.t) - px) < 5) lines.push(`drone ${e.i + 1} lost${e.why && e.why !== "lost" ? ` (${WHY[e.why] || e.why})` : ""}`);
+        for (const e of F.contacts) if (Math.abs(x(e.t) - px) < 4) lines.push(`drone ${e.i + 1} touches a building`);
+        if (F.apart) for (const [a, b] of F.apart.split || []) if (s >= a && s <= b) { lines.push("the formation is split in two groups"); break; }
+        tipShow(ev.clientX, ev.clientY, fmtT(s), lines.length ? lines : ["click to go here"]);
+      });
+      hit.addEventListener("pointerup", () => { down = false; });
+      hit.addEventListener("pointerleave", () => { down = false; tipHide(); });
+      hit.addEventListener("keydown", keys);
+      tl = { ph, x };
+    }
+    const WHY = { drone: "collided with another drone", isolated: "too far from the others", building: "inside a building" };
+
+    // ---- the clock
+    function setT(s) { t = Math.max(0, Math.min(F.tEnd, s)); cam = null; sync(); }
+    function sync() {
+      if (!F) return;
+      slider.value = String(t); clock.textContent = `${fmtT(t)} / ${fmtT(F.tEnd)}`;
+      if (tl) { tl.ph.setAttribute("x1", tl.x(t)); tl.ph.setAttribute("x2", tl.x(t)); }
+      placeCamera(); live(); view.request();
+    }
+    function tick(ts) {
+      raf = 0; if (!playing || !visible) return;
+      const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts;
+      t = Math.min(F.tEnd, t + dt * +spd.value); if (t >= F.tEnd) play(false);
+      sync(); if (playing) raf = requestAnimationFrame(tick);
+    }
+    function play(on) {
+      if (!F) return;
+      if (on && t >= F.tEnd - 1e-6) t = 0;
+      playing = on; btn.textContent = on ? "Pause" : "Play"; last = 0;
+      if (on && !raf && visible) raf = requestAnimationFrame(tick);
+    }
+    function keys(ev) {
+      if (!F) return;
+      if (ev.key === " ") { ev.preventDefault(); play(!playing); }
+      else if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") { ev.preventDefault(); setT(t + (ev.key === "ArrowRight" ? 1 : -1) * (ev.shiftKey ? 30 : 5)); }
+    }
+    btn.addEventListener("click", () => play(!playing));
+    slider.addEventListener("input", () => setT(+slider.value));
+    canvas.tabIndex = 0; canvas.addEventListener("keydown", keys);
+    function hover(xw, zw, ev) {
+      if (!F) return;
+      for (const d of drones(F, t)) if (Math.hypot(d.x - xw, d.z - zw) * view.k < 8) {
+        const ap = (apartAt(F, t) >> d.i) & 1;
+        return tipShow(ev.clientX, ev.clientY, `Drone ${d.i + 1}`, [F.n > 1 ? (d.shown ? "on the formation's edge: its feed is on the pilot's ring" : "inside the formation: its feed is not shown") : "the single drone",
+          ap ? "apart from the formation's main group (more than 30 m of free path)" : "", `heading ${Math.round(((d.yaw % 360) + 360) % 360)}°`].filter(Boolean));
+      }
+      for (const e of F.losses) if (e.t <= t && Math.hypot(e.x - xw, e.z - zw) * view.k < 8) return tipShow(ev.clientX, ev.clientY, `Drone ${e.i + 1} lost at ${fmtT(e.t)}`, [WHY[e.why] || ""].filter(Boolean));
+      const k = decisionAt(t);
+      if (k >= 0) for (const op of F.decisions[k].opts) if (op.end && Math.hypot(op.end[0] - xw, op.end[1] - zw) * view.k < 8) {
+        return tipShow(ev.clientX, ev.clientY, "What stands at this street's far end", [op.te === null || op.te === undefined ? "never looked down in this flight"
+          : `looked down at ${fmtT(op.te)}${F.decisions[k].t !== null && op.te > F.decisions[k].t ? ", after the decision" : ""}`,
+          // a flight that does not score the far end (a search's) carries no tf at all
+          op.tf === undefined ? "" : op.tf === null ? "the street's far end never seen" : `the street's far end seen at ${fmtT(op.tf)}`].filter(Boolean));
+      }
+      if (k >= 0) for (const op of F.decisions[k].opts) {
+        const ax = op.xz[0], az = op.xz[1], bx = op.xz[2], bz = op.xz[3], L2 = (bx - ax) ** 2 + (bz - az) ** 2;
+        const u = Math.max(0, Math.min(1, ((xw - ax) * (bx - ax) + (zw - az) * (bz - az)) / Math.max(L2, 1e-9)));
+        if (Math.hypot(ax + u * (bx - ax) - xw, az + u * (bz - az) - zw) * view.k < 6) {
+          return tipShow(ev.clientX, ev.clientY, `One of block ${k + 1}'s streets`, [op.t === null ? "never previewed in this flight" : `previewed at ${fmtT(op.t)}${F.decisions[k].t !== null && op.t > F.decisions[k].t ? ", after the decision" : ""}`,
+            op.chosen ? "the exit taken" : "", op.score !== undefined && op.score !== null ? `unseen street nearby: ${op.score.toFixed(2)} m per m of travel` : ""].filter(Boolean));
+        }
+      }
+      tipHide();
+    }
+    new ResizeObserver(() => { if (F) { timeline(); sync(); } }).observe($(".rv-tl"));
+    onTheme(() => { if (F) { legend(); timeline(); sync(); } });
+    return {
+      selectGroup, show() { visible = true; if (F) { timeline(); sync(); } if (playing && !raf) { last = 0; raf = requestAnimationFrame(tick); } },
+      hide() { visible = false; if (raf) cancelAnimationFrame(raf); raf = 0; },
+      start(i = 0) {
+        selectGroup(i);
+        if (reduced) return;
+        // play the first time the player comes into view, not while it is still below the fold
+        if (!("IntersectionObserver" in window)) { setTimeout(() => play(true), 400); return; }
+        const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { io.disconnect(); if (!playing) play(true); } }, { threshold: 0.3 });
+        io.observe(canvas);
+      },
+      play, get flight() { return F; }
+    };
+  }
+
+  return { load, city, flight, drones, frameAt, MapView, drawCity, drawScale, label, rgba, colour, onTheme, tokens: () => T,
+           Player, tipShow, tipHide, fmtT, area, inside, centroid, poly };
+})();
+</script>
+<script id="data" type="application/json">{"built":"2026-11-02 18:00","original":"https://claude.ai/artifact/M6fGKgM1WvMVw3mRSusMwK","near_m":0.75,"replica":{"rows":{"F20":{"label":"F20 fixed d_ref 2.0 (C35)","n":1100,"km":431.1543,"events":24,"ci":[15.3773,35.7101],"flights_lost":24,"drones":48,"contacts":324,"contact_km":0.7515,"st_vcoh":5.363,"st_vprog":5.9176,"st_one":0.9047,"near":0.0327,"hull":0.5743,"wrap":0.9045,"cov":263.989,"by_seed":{"1":3,"2":8,"3":6,"4":7}},"A95":{"label":"A95 d_ref 2.0, adaptive 0.95 (1.9 in the streets)","n":1100,"km":431.1543,"events":36,"ci":[25.214,49.8392],"flights_lost":36,"drones":72,"contacts":324,"contact_km":0.7515,"st_vcoh":5.5059,"st_vprog":5.9739,"st_one":0.92,"near":0.0391,"hull":0.5887,"wrap":0.9045,"cov":262.744,"by_seed":{"1":6,"2":13,"3":11,"4":6}},"A90":{"label":"A90 d_ref 2.0, adaptive 0.9 (1.8 in the streets)","n":1100,"km":431.1543,"events":35,"ci":[24.3788,48.6765],"flights_lost":35,"drones":70,"contacts":297,"contact_km":0.6888,"st_vcoh":5.6494,"st_vprog":6.0268,"st_one":0.9359,"near":0.04,"hull":0.6025,"wrap":0.8883,"cov":259.146,"by_seed":{"1":7,"2":8,"3":12,"4":8}},"A85":{"label":"A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene","n":1100,"km":431.1543,"events":48,"ci":[35.3914,63.641],"flights_lost":47,"drones":96,"contacts":260,"contact_km":0.603,"st_vcoh":5.7915,"st_vprog":6.0875,"st_one":0.9502,"near":0.0518,"hull":0.6203,"wrap":0.891,"cov":257.137,"by_seed":{"1":11,"2":12,"3":14,"4":11}},"F18":{"label":"F18 fixed d_ref 1.8","n":1100,"km":431.1543,"events":43,"ci":[31.1193,57.9207],"flights_lost":42,"drones":86,"contacts":213,"contact_km":0.494,"st_vcoh":5.7932,"st_vprog":6.0902,"st_one":0.95,"near":0.0364,"hull":0.6167,"wrap":0.8936,"cov":254.081,"by_seed":{"1":7,"2":11,"3":13,"4":12}},"F17":{"label":"F17 fixed d_ref 1.7","n":1100,"km":431.1543,"events":48,"ci":[35.3914,63.641],"flights_lost":47,"drones":96,"contacts":141,"contact_km":0.327,"st_vcoh":5.973,"st_vprog":6.18,"st_one":0.9655,"near":0.0527,"hull":0.6401,"wrap":0.8939,"cov":250.293,"by_seed":{"1":11,"2":10,"3":19,"4":8}}},"rows1":{"F20":{"label":"F20 fixed d_ref 2.0 (C35)","n":336,"km":117.0158,"events":9,"ci":[4.1154,17.0848],"flights_lost":9,"drones":18,"contacts":97,"contact_km":0.8289,"st_vcoh":5.3931,"st_vprog":5.9241,"st_one":0.9085,"near":0.0298,"hull":0.5851,"wrap":0.933,"cov":268.0713,"by_seed":{"1":2,"2":2,"3":3,"4":2}},"A95":{"label":"A95 d_ref 2.0, adaptive 0.95 (1.9 in the streets)","n":336,"km":117.0158,"events":6,"ci":[2.2019,13.0595],"flights_lost":6,"drones":12,"contacts":78,"contact_km":0.6666,"st_vcoh":5.5291,"st_vprog":5.9712,"st_one":0.9244,"near":0.0327,"hull":0.5984,"wrap":0.9124,"cov":266.3816,"by_seed":{"1":3,"2":1,"3":2,"4":0}},"A90":{"label":"A90 d_ref 2.0, adaptive 0.9 (1.8 in the streets)","n":336,"km":117.0158,"events":10,"ci":[4.7954,18.3904],"flights_lost":10,"drones":20,"contacts":95,"contact_km":0.8119,"st_vcoh":5.6309,"st_vprog":6.0212,"st_one":0.9337,"near":0.0208,"hull":0.6132,"wrap":0.9072,"cov":264.3506,"by_seed":{"1":4,"2":3,"3":3,"4":0}},"A85":{"label":"A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene","n":336,"km":117.0158,"events":14,"ci":[7.6539,23.4896],"flights_lost":14,"drones":28,"contacts":70,"contact_km":0.5982,"st_vcoh":5.8352,"st_vprog":6.0931,"st_one":0.9568,"near":0.0417,"hull":0.6292,"wrap":0.9124,"cov":263.0391,"by_seed":{"1":2,"2":4,"3":7,"4":1}},"F19":{"label":"F19 fixed d_ref 1.9","n":336,"km":117.0158,"events":13,"ci":[6.922,22.2304],"flights_lost":13,"drones":26,"contacts":90,"contact_km":0.7691,"st_vcoh":5.5896,"st_vprog":6.0012,"st_one":0.93,"near":0.0417,"hull":0.6041,"wrap":0.9227,"cov":263.8966,"by_seed":{"1":3,"2":3,"3":4,"4":3}},"F18":{"label":"F18 fixed d_ref 1.8","n":336,"km":117.0158,"events":6,"ci":[2.2019,13.0595],"flights_lost":6,"drones":12,"contacts":67,"contact_km":0.5726,"st_vcoh":5.7687,"st_vprog":6.0871,"st_one":0.9462,"near":0.0208,"hull":0.6198,"wrap":0.9072,"cov":259.2184,"by_seed":{"1":1,"2":1,"3":3,"4":1}},"F17":{"label":"F17 fixed d_ref 1.7","n":336,"km":117.0158,"events":12,"ci":[6.2006,20.9616],"flights_lost":12,"drones":24,"contacts":41,"contact_km":0.3504,"st_vcoh":5.9452,"st_vprog":6.1779,"st_one":0.9615,"near":0.0565,"hull":0.6449,"wrap":0.9227,"cov":256.8701,"by_seed":{"1":3,"2":3,"3":2,"4":4}},"F14":{"label":"F14 fixed d_ref 1.4: the dial at its lowest","n":336,"km":117.0158,"events":17,"ci":[9.9031,27.2186],"flights_lost":17,"drones":34,"contacts":25,"contact_km":0.2136,"st_vcoh":6.3651,"st_vprog":6.4178,"st_one":0.9915,"near":0.0506,"hull":0.7237,"wrap":0.8144,"cov":233.2138,"by_seed":{"1":6,"2":5,"3":1,"4":5}},"L85":{"label":"L85 d_ref 1.4, adaptive 0.85 (1.19 in the streets)","n":336,"km":117.0158,"events":14,"ci":[7.6539,23.4896],"flights_lost":13,"drones":28,"contacts":10,"contact_km":0.0855,"st_vcoh":6.4694,"st_vprog":6.5031,"st_one":0.9946,"near":0.0565,"hull":0.7615,"wrap":0.8093,"cov":228.4494,"by_seed":{"1":0,"2":2,"3":2,"4":10}},"L95":{"label":"L95 d_ref 1.4, adaptive 0.95 (1.33 in the streets)","n":336,"km":117.0158,"events":9,"ci":[4.1154,17.0848],"flights_lost":9,"drones":18,"contacts":24,"contact_km":0.2051,"st_vcoh":6.3889,"st_vprog":6.4464,"st_one":0.9908,"near":0.0506,"hull":0.7338,"wrap":0.8144,"cov":232.0264,"by_seed":{"1":2,"2":3,"3":0,"4":4}},"F12":{"label":"F12 fixed d_ref 1.2","n":336,"km":117.0158,"events":11,"ci":[5.4912,19.682],"flights_lost":10,"drones":22,"contacts":8,"contact_km":0.0684,"st_vcoh":6.5267,"st_vprog":6.5479,"st_one":0.9966,"near":0.0357,"hull":0.7762,"wrap":0.7887,"cov":218.4356,"by_seed":{"1":2,"2":1,"3":3,"4":5}},"F26":{"label":"F26 fixed d_ref 2.6: the dial at its highest","n":336,"km":117.0158,"events":2,"ci":[0.2422,7.2247],"flights_lost":2,"drones":4,"contacts":105,"contact_km":0.8973,"st_vcoh":3.6363,"st_vprog":5.6418,"st_one":0.6432,"near":0.0149,"hull":0.5369,"wrap":0.9742,"cov":290.0253,"by_seed":{"1":0,"2":2,"3":0,"4":0}},"H85":{"label":"H85 d_ref 2.6, adaptive 0.85 (2.21 in the streets)","n":336,"km":117.0158,"events":10,"ci":[4.7954,18.3904],"flights_lost":9,"drones":20,"contacts":96,"contact_km":0.8204,"st_vcoh":4.4412,"st_vprog":5.7106,"st_one":0.7758,"near":0.0179,"hull":0.5479,"wrap":0.9588,"cov":283.4368,"by_seed":{"1":3,"2":1,"3":1,"4":5}}},"ratios":{"A95":{"k":36,"k0":24,"ratio":1.5,"lo":0.8706,"hi":2.6282,"p":0.155},"A90":{"k":35,"k0":24,"ratio":1.4583,"lo":0.8432,"hi":2.5626,"p":0.1925},"A85":{"k":48,"k0":24,"ratio":2.0,"lo":1.2012,"hi":3.4138,"p":0.0063},"F18":{"k":43,"k0":24,"ratio":1.7917,"lo":1.0631,"hi":3.0867,"p":0.0271},"F17":{"k":48,"k0":24,"ratio":2.0,"lo":1.2012,"hi":3.4138,"p":0.0063},"F17-A85":{"k":48,"k0":48,"ratio":1.0,"lo":0.6561,"hi":1.5241,"p":1.0}},"paired":{"A95-F20":{"vprog":{"n":1000,"pct":0.0095,"lo":0.0086,"hi":0.0104,"p":0.0,"higher":0.789,"diff":0.0562},"vcoh":{"n":1000,"pct":0.0266,"lo":0.0203,"hi":0.033,"p":0.0,"higher":0.678,"diff":0.1429},"one":0.0154,"one_p":0.0},"A90-F20":{"vprog":{"n":1000,"pct":0.0185,"lo":0.0175,"hi":0.0194,"p":0.0,"higher":0.908,"diff":0.1092},"vcoh":{"n":1000,"pct":0.0534,"lo":0.0463,"hi":0.0604,"p":0.0,"higher":0.781,"diff":0.2863},"one":0.0312,"one_p":0.0},"A85-F20":{"vprog":{"n":1000,"pct":0.0287,"lo":0.0276,"hi":0.0297,"p":0.0,"higher":0.961,"diff":0.1698},"vcoh":{"n":1000,"pct":0.0799,"lo":0.0724,"hi":0.0874,"p":0.0,"higher":0.847,"diff":0.4285},"one":0.0455,"one_p":0.0},"F18-F20":{"vprog":{"n":1000,"pct":0.0292,"lo":0.0282,"hi":0.0302,"p":0.0,"higher":0.973,"diff":0.1725},"vcoh":{"n":1000,"pct":0.0802,"lo":0.073,"hi":0.0875,"p":0.0,"higher":0.86,"diff":0.4302},"one":0.0453,"one_p":0.0},"F17-F20":{"vprog":{"n":1000,"pct":0.0443,"lo":0.0432,"hi":0.0454,"p":0.0,"higher":0.991,"diff":0.2624},"vcoh":{"n":1000,"pct":0.1137,"lo":0.1059,"hi":0.1216,"p":0.0,"higher":0.913,"diff":0.61},"one":0.0608,"one_p":0.0},"F17-A85":{"vprog":{"n":1000,"pct":0.0152,"lo":0.0144,"hi":0.016,"p":0.0,"higher":0.909,"diff":0.0925},"vcoh":{"n":1000,"pct":0.0313,"lo":0.026,"hi":0.0367,"p":0.0,"higher":0.804,"diff":0.1815},"one":0.0154,"one_p":0.0},"F18-A85":{"vprog":{"n":1000,"pct":0.0004,"lo":-0.0003,"hi":0.0012,"p":0.2547,"higher":0.481,"diff":0.0027},"vcoh":{"n":1000,"pct":0.0003,"lo":-0.0049,"hi":0.0055,"p":0.9097,"higher":0.5,"diff":0.0017},"one":-0.0002,"one_p":0.9337}},"flights":{"n":6600,"street":6000,"cross":600,"n1":4368}},"unity":{"rows":{"A85":{"n":440,"km":172.5985,"events":30,"ci":[20.2409,42.8269],"coll":29,"crashed":1,"flights_lost":29,"contacts":104,"contact_km":0.6026,"vprog":6.029,"vcoh":5.6853,"one":0.9414,"near":0.0727,"min_pair":1.48,"near_ticks":104.1136,"hull":0.6215,"split":0.0958,"look":13.1968,"blind":0.004,"twin_flights_lost":17,"twin_contacts":119,"twin_near":0.0591,"both_lost":4,"benches":["bench_spread","bench_spread2","bench_spread3"]},"A90":{"n":40,"km":15.2889,"events":3,"ci":[0.6187,8.7673],"coll":3,"crashed":0,"flights_lost":3,"contacts":12,"contact_km":0.7849,"vprog":5.9417,"vcoh":5.4153,"one":0.9095,"near":0.075,"min_pair":1.575,"near_ticks":71.15,"hull":0.5944,"split":0.1416,"look":13.2776,"blind":0.0051,"twin_flights_lost":2,"twin_contacts":21,"twin_near":0.05,"both_lost":0,"benches":["bench_spread"]},"A95":{"n":40,"km":15.2889,"events":1,"ci":[0.0253,5.5716],"coll":1,"crashed":0,"flights_lost":1,"contacts":12,"contact_km":0.7849,"vprog":5.8977,"vcoh":5.4366,"one":0.9203,"near":0.0,"min_pair":1.74,"near_ticks":67.1,"hull":0.5847,"split":0.1416,"look":13.0592,"blind":0.0052,"twin_flights_lost":3,"twin_contacts":17,"twin_near":0.175,"both_lost":0,"benches":["bench_spread"]},"F17":{"n":140,"km":54.0615,"events":9,"ci":[4.1154,17.0848],"coll":8,"crashed":1,"flights_lost":9,"contacts":24,"contact_km":0.4439,"vprog":6.1007,"vcoh":5.8037,"one":0.9494,"near":0.0357,"min_pair":1.595,"near_ticks":98.0857,"hull":0.6411,"split":0.075,"look":13.1871,"blind":0.0044,"twin_flights_lost":8,"twin_contacts":21,"twin_near":0.0357,"both_lost":2,"benches":["bench_spread","bench_spread2"]},"F20":{"n":440,"km":172.5985,"events":28,"ci":[18.6058,40.4678],"coll":25,"crashed":3,"flights_lost":28,"contacts":173,"contact_km":1.0023,"vprog":5.8722,"vcoh":5.3125,"one":0.9029,"near":0.0523,"min_pair":1.71,"near_ticks":68.3864,"hull":0.5735,"split":0.1657,"look":13.077,"blind":0.0063,"twin_flights_lost":16,"twin_contacts":160,"twin_near":0.0273,"both_lost":4,"benches":["bench_spread","bench_spread2","bench_spread3"]},"L85":{"n":40,"km":15.2889,"events":2,"ci":[0.2422,7.2247],"coll":2,"crashed":0,"flights_lost":2,"contacts":0,"contact_km":0.0,"vprog":6.428,"vcoh":6.428,"one":1.0,"near":0.1,"min_pair":1.32,"near_ticks":206.275,"hull":0.7513,"split":0.0,"look":12.9158,"blind":0.001,"twin_flights_lost":2,"twin_contacts":0,"twin_near":0.025,"both_lost":0,"benches":["bench_spread"]}},"paired":{"n":440,"vprog":{"n":440,"pct":0.0267,"lo":0.0249,"hi":0.0285,"p":0.0,"higher":0.9273,"diff":0.1568},"vcoh":{"n":440,"pct":0.0702,"lo":0.0562,"hi":0.0841,"p":0.0,"higher":0.8136,"diff":0.3727},"one":0.0385,"twin_vprog":{"n":440,"pct":0.0278,"lo":0.0262,"hi":0.0295,"p":0.0,"higher":0.9364,"diff":0.1649},"contacts":{"ratio":0.6012,"lo":0.4568,"hi":0.7755,"p":0.0002,"flights_a":85,"flights_b":125},"min_pair":{"diff":-0.165,"p":0.0},"near_ticks":{"ratio":1.5224,"p":0.0},"near":{"a_only":29,"b_only":20,"both":3,"p":0.2529},"hull":{"diff":0.048,"p":0.0},"split":{"diff":-0.07,"p":0.0},"look":{"diff":0.1197,"p":0.1378}},"paired_f17":{"n":140,"vprog":{"n":140,"pct":0.0145,"lo":0.0116,"hi":0.0174,"p":0.0,"higher":0.8357,"diff":0.0872},"vcoh":{"n":140,"pct":0.0371,"lo":0.01,"hi":0.0642,"p":0.0076,"higher":0.7643,"diff":0.2076},"one":0.0212,"twin_vprog":{"n":140,"pct":0.0159,"lo":0.0135,"hi":0.0183,"p":0.0,"higher":0.9214,"diff":0.0965},"contacts":{"ratio":0.7742,"lo":0.4166,"hi":1.3336,"p":0.4601,"flights_a":19,"flights_b":27},"min_pair":{"diff":0.025,"p":0.3325},"near_ticks":{"ratio":0.9435,"p":0.3122},"near":{"a_only":5,"b_only":12,"both":0,"p":0.1435},"hull":{"diff":0.0204,"p":0.0},"split":{"diff":-0.0397,"p":0.0},"look":{"diff":-0.1456,"p":0.2424}},"paired_f17_f20":{"n":140,"vprog":{"n":140,"pct":0.0393,"lo":0.0361,"hi":0.0425,"p":0.0,"higher":0.9643,"diff":0.231},"vcoh":{"n":140,"pct":0.0856,"lo":0.0613,"hi":0.11,"p":0.0,"higher":0.8786,"diff":0.4577},"one":0.04,"twin_vprog":{"n":140,"pct":0.0431,"lo":0.04,"hi":0.0462,"p":0.0,"higher":0.9643,"diff":0.2547},"contacts":{"ratio":0.4444,"lo":0.2407,"hi":0.75,"p":0.0052,"flights_a":19,"flights_b":38},"min_pair":{"diff":-0.235,"p":0.0001},"near_ticks":{"ratio":1.6377,"p":0.0001},"near":{"a_only":5,"b_only":8,"both":0,"p":0.5811},"hull":{"diff":0.0652,"p":0.0},"split":{"diff":-0.0871,"p":0.0},"look":{"diff":0.1563,"p":0.4054}},"ratio":{"k":30,"k0":28,"ratio":1.0714,"lo":0.6186,"hi":1.8611,"p":0.8957},"ratio_fresh":{"k":18,"k0":18,"ratio":1.0,"lo":0.4908,"hi":2.0375,"p":1.0},"ratio_earlier":{"k":12,"k0":10,"ratio":1.2,"lo":0.4752,"hi":3.1007,"p":0.8318},"ratio_coll":{"k":29,"k0":25,"ratio":1.16,"lo":0.6559,"hi":2.0654,"p":0.6835},"ratio_flights":{"k":29,"k0":28,"ratio":1.0357,"lo":0.5946,"hi":1.8067,"p":1.0},"ratio_twin":{"k":17,"k0":16,"ratio":1.0625,"lo":0.5048,"hi":2.2471,"p":1.0},"ratio_f17":{"k":9,"k0":10,"ratio":0.9,"lo":0.3236,"hi":2.4645,"p":1.0},"ratio_f17_a85":{"k":9,"k0":12,"ratio":0.75,"lo":0.2791,"hi":1.9394,"p":0.6636},"f17_benches":["bench_spread","bench_spread2"],"fresh":"bench_spread3","by_bench":{"bench_spread":{"F20":1,"A85":4,"F17":1},"bench_spread2":{"F20":9,"A85":8,"F17":8},"bench_spread3":{"F20":18,"A85":18}}},"timing":{"cut":15.0,"unity":{"A85":{"early":8,"late":22,"first10":6,"n":30,"median":23.7},"A90":{"early":0,"late":3,"first10":0,"n":3,"median":56.1},"A95":{"early":0,"late":1,"first10":0,"n":1,"median":40.0},"F17":{"early":1,"late":8,"first10":0,"n":9,"median":27.9},"F20":{"early":8,"late":20,"first10":5,"n":28,"median":27.0},"L85":{"early":0,"late":2,"first10":0,"n":2,"median":34.9}},"replica":{"F20":{"early":7,"late":17,"first10":1,"n":24,"median":25.3},"A85":{"early":10,"late":36,"first10":5,"n":46,"median":27.5},"F17":{"early":8,"late":39,"first10":3,"n":47,"median":34.7}},"unity_late":{"k":22,"k0":20,"ratio":1.1,"lo":0.5728,"hi":2.1246,"p":0.8776},"replica_late":{"k":36,"k0":17,"ratio":2.1176,"lo":1.1591,"hi":4.0204,"p":0.0127}},"combined":{"ratio":1.4868,"lo":1.0425,"hi":2.1204,"q_p":0.0853,"fisher_p":0.1055},"twin_own":{"F20":{"own":3,"own_n":250,"twin":16,"twin_n":440,"test":{"k":16,"k0":3,"ratio":3.0303,"lo":0.8674,"hi":16.2289,"p":0.0921}},"A85":{"own":11,"own_n":250,"twin":17,"twin_n":440,"test":{"k":17,"k0":11,"ratio":0.8781,"lo":0.388,"hi":2.074,"p":0.8445}}},"phases":{"replica":{"omnibus_p":0.1353,"contrast_p":0.8331,"wide":{"a":1,"b":4},"narrowing":{"a":22,"b":12}},"unity":{"omnibus_p":0.0322,"contrast_p":0.7077,"wide":{"a":5,"b":0},"narrowing":{"a":12,"b":10}}},"power":{"rows":[{"R":1.3,"routes":440,"km":172.5985,"detect":0.1516,"exclude":0.1276},{"R":1.3,"routes":1000,"km":392.2693,"detect":0.3222,"exclude":0.2853},{"R":1.3,"routes":1500,"km":588.404,"detect":0.4629,"exclude":0.4124},{"R":1.3,"routes":2000,"km":784.5386,"detect":0.586,"exclude":0.5262},{"R":1.3,"routes":3000,"km":1176.808,"detect":0.7678,"exclude":0.7075},{"R":1.5,"routes":440,"km":172.5985,"detect":0.3447,"exclude":0.2809},{"R":1.5,"routes":1000,"km":392.2693,"detect":0.6893,"exclude":0.5923},{"R":1.5,"routes":1500,"km":588.404,"detect":0.8596,"exclude":0.7743},{"R":1.5,"routes":2000,"km":784.5386,"detect":0.9417,"exclude":0.8824},{"R":1.5,"routes":3000,"km":1176.808,"detect":0.9915,"exclude":0.9724},{"R":2.0,"routes":440,"km":172.5985,"detect":0.8467,"exclude":0.6777},{"R":2.0,"routes":1000,"km":392.2693,"detect":0.9959,"exclude":0.9615},{"R":2.0,"routes":1500,"km":588.404,"detect":0.9999,"exclude":0.9957},{"R":2.0,"routes":2000,"km":784.5386,"detect":1.0,"exclude":0.9996},{"R":2.0,"routes":3000,"km":1176.808,"detect":1.0,"exclude":1.0}],"rate":0.1622,"km_route":0.3923,"min_per_flight":0.0833},"replay":{"built":"2026-11-02 10:33","conds":{"f20":"d_ref 2.0 held (adaptive off, C35)","a85":"adaptive 0.85: 1.7 in the streets (the scene)","a90":"adaptive 0.90: 1.8 in the streets","a95":"adaptive 0.95: 1.9 in the streets","f17":"d_ref 1.7 held","l85":"dial at 1.4, adaptive 0.85: 1.19 in the streets"},"groups":[{"id":"s9_street","kind":"route","title":"Along the streets","about":"Route 11013 (along the streets, 433 m) in the scene's city, picked as the typical street route: its difference in cohesive speed, adaptive 0.95 minus 0.85, -0.14 m/s, is the nearest to the median of its kind (-0.14 m/s, 40 routes). Each way starts from the same spot after Unity's 15 s settle; switch between Unity's flight and the replica's twin flown from Unity's recorded start (the other's drones are drawn as outlines). Every way avoids the enclosing circles.","first":"a85","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","route":{"kind":"street","k":11013,"L":433.3},"why":"the typical street route: its difference in cohesive speed, adaptive 0.95 minus 0.85, -0.14 m/s, is the nearest to the median of its kind (-0.14 m/s, 40 routes)","flights":[{"id":"s9_street_f20_replica","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f20","n":10,"identical":true,"duration":81.8,"summary":{"v_prog":6.029,"one_frac":0.979,"v_coh":5.903,"T":71.88,"L":433.3,"finished":true,"n_eps":2,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":2.47,"stall_s":1.0,"hull_frac":0.603,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_street_f20_unity","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f20","n":10,"identical":null,"duration":81.6,"summary":{"v_prog":6.035,"one_frac":0.993,"v_coh":5.993,"T":71.8,"L":433.3,"finished":true,"n_eps":1,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.33,"stall_s":1.0,"hull_frac":0.587,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_street_a85_replica","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a85","n":10,"identical":true,"duration":80.8,"summary":{"v_prog":6.119,"one_frac":0.958,"v_coh":5.86,"T":70.82,"L":433.3,"finished":true,"n_eps":2,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":2.94,"stall_s":0.5,"hull_frac":0.615,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_street_a85_unity","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a85","n":10,"identical":null,"duration":81.6,"summary":{"v_prog":6.035,"one_frac":0.993,"v_coh":5.993,"T":71.8,"L":433.3,"finished":true,"n_eps":1,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.58,"stall_s":1.0,"hull_frac":0.594,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":true,"street_factor":0.85}},{"id":"s9_street_a90_replica","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a90","n":10,"identical":true,"duration":80.6,"summary":{"v_prog":6.131,"one_frac":0.993,"v_coh":6.088,"T":70.68,"L":433.3,"finished":true,"n_eps":1,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.24,"stall_s":1.0,"hull_frac":0.603,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.9}},{"id":"s9_street_a90_unity","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a90","n":10,"identical":null,"duration":81.0,"summary":{"v_prog":6.086,"one_frac":0.986,"v_coh":6.001,"T":71.2,"L":433.3,"finished":true,"n_eps":1,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.88,"stall_s":1.0,"hull_frac":0.592,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":true,"street_factor":0.9}},{"id":"s9_street_a95_replica","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a95","n":10,"identical":true,"duration":80.8,"summary":{"v_prog":6.112,"one_frac":0.993,"v_coh":6.069,"T":70.9,"L":433.3,"finished":true,"n_eps":1,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.7,"stall_s":1.0,"hull_frac":0.568,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.95}},{"id":"s9_street_a95_unity","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a95","n":10,"identical":null,"duration":81.4,"summary":{"v_prog":6.061,"one_frac":0.965,"v_coh":5.85,"T":71.5,"L":433.3,"finished":true,"n_eps":2,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":2.37,"stall_s":1.0,"hull_frac":0.61,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":true,"street_factor":0.95}},{"id":"s9_street_f17_replica","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f17","n":10,"identical":true,"duration":79.2,"summary":{"v_prog":6.248,"one_frac":0.986,"v_coh":6.158,"T":69.36,"L":433.3,"finished":true,"n_eps":2,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":2.1,"stall_s":1.0,"hull_frac":0.617,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_street_f17_unity","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f17","n":10,"identical":null,"duration":80.2,"summary":{"v_prog":6.155,"one_frac":0.979,"v_coh":6.024,"T":70.4,"L":433.3,"finished":true,"n_eps":2,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.24,"stall_s":1.0,"hull_frac":0.638,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_street_l85_replica","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"l85","n":10,"identical":true,"duration":75.8,"summary":{"v_prog":6.578,"one_frac":1.0,"v_coh":6.578,"T":65.88,"L":433.3,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.5,"stall_s":0.5,"hull_frac":0.773,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_street_l85_unity","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"l85","n":10,"identical":null,"duration":76.4,"summary":{"v_prog":6.516,"one_frac":1.0,"v_coh":6.516,"T":66.5,"L":433.3,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":0.98,"stall_s":1.0,"hull_frac":0.731,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":true,"street_factor":0.85}}]},{"id":"s9_cross","kind":"route","title":"A straight line across the city","about":"Route 11000 (a straight line across the city, 399 m) in the scene's city, picked as the typical straight line (of those meeting three buildings): its difference in cohesive speed, adaptive 0.95 minus 0.85, -0.03 m/s, is the nearest to the median of its kind (-0.06 m/s, 8 routes). Each way starts from the same spot after Unity's 15 s settle; switch between Unity's flight and the replica's twin flown from Unity's recorded start (the other's drones are drawn as outlines). Every way avoids the enclosing circles.","first":"a85","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","route":{"kind":"cross","k":11000,"L":399.1},"why":"the typical straight line (of those meeting three buildings): its difference in cohesive speed, adaptive 0.95 minus 0.85, -0.03 m/s, is the nearest to the median of its kind (-0.06 m/s, 8 routes)","flights":[{"id":"s9_cross_f20_replica","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f20","n":10,"identical":true,"duration":76.4,"summary":{"v_prog":6.003,"one_frac":0.955,"v_coh":5.732,"T":66.48,"L":399.1,"finished":true,"n_eps":3,"ep_max":2.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":275.3,"lost":0,"contacts":0,"min_pair":3.43,"stall_s":0.5,"hull_frac":0.68,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":0.75,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_cross_f20_unity","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f20","n":10,"identical":null,"duration":77.2,"summary":{"v_prog":5.93,"one_frac":0.941,"v_coh":5.578,"T":67.3,"L":399.1,"finished":true,"n_eps":3,"ep_max":2.5,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":276.1,"lost":0,"contacts":0,"min_pair":3.19,"stall_s":1.0,"hull_frac":0.682,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":1.125,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_cross_a85_replica","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a85","n":10,"identical":true,"duration":75.8,"summary":{"v_prog":6.048,"one_frac":0.977,"v_coh":5.911,"T":65.98,"L":399.1,"finished":true,"n_eps":2,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":275.3,"lost":0,"contacts":0,"min_pair":3.14,"stall_s":0.5,"hull_frac":0.706,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.75,"bld_frag":0.625,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_cross_a85_unity","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a85","n":10,"identical":null,"duration":76.6,"summary":{"v_prog":5.983,"one_frac":0.985,"v_coh":5.894,"T":66.7,"L":399.1,"finished":true,"n_eps":2,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":275.8,"lost":0,"contacts":0,"min_pair":2.24,"stall_s":1.0,"hull_frac":0.72,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.125,"bld_frag":0.375,"deaths":{},"adaptive":true,"street_factor":0.85}},{"id":"s9_cross_a90_replica","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a90","n":10,"identical":true,"duration":76.0,"summary":{"v_prog":6.034,"one_frac":0.977,"v_coh":5.897,"T":66.14,"L":399.1,"finished":true,"n_eps":2,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":275.1,"lost":0,"contacts":0,"min_pair":2.99,"stall_s":0.5,"hull_frac":0.691,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.875,"bld_frag":0.625,"deaths":null,"adaptive":true,"street_factor":0.9}},{"id":"s9_cross_a90_unity","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a90","n":10,"identical":null,"duration":76.8,"summary":{"v_prog":5.965,"one_frac":0.978,"v_coh":5.831,"T":66.9,"L":399.1,"finished":true,"n_eps":2,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":276.1,"lost":0,"contacts":0,"min_pair":3.1,"stall_s":1.0,"hull_frac":0.7,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.25,"bld_frag":0.625,"deaths":{},"adaptive":true,"street_factor":0.9}},{"id":"s9_cross_a95_replica","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a95","n":10,"identical":true,"duration":76.2,"summary":{"v_prog":6.023,"one_frac":0.977,"v_coh":5.887,"T":66.26,"L":399.1,"finished":true,"n_eps":2,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":276.0,"lost":0,"contacts":0,"min_pair":3.01,"stall_s":0.5,"hull_frac":0.68,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.125,"bld_frag":0.625,"deaths":null,"adaptive":true,"street_factor":0.95}},{"id":"s9_cross_a95_unity","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a95","n":10,"identical":null,"duration":77.0,"summary":{"v_prog":5.956,"one_frac":0.985,"v_coh":5.868,"T":67.0,"L":399.1,"finished":true,"n_eps":2,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":273.7,"lost":0,"contacts":0,"min_pair":3.06,"stall_s":1.0,"hull_frac":0.68,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.25,"bld_frag":0.375,"deaths":{},"adaptive":true,"street_factor":0.95}},{"id":"s9_cross_f17_replica","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f17","n":10,"identical":true,"duration":76.0,"summary":{"v_prog":6.043,"one_frac":0.97,"v_coh":5.861,"T":66.04,"L":399.1,"finished":true,"n_eps":2,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":266.1,"lost":0,"contacts":0,"min_pair":2.79,"stall_s":0.5,"hull_frac":0.7,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.875,"bld_frag":0.75,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_cross_f17_unity","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f17","n":10,"identical":null,"duration":76.6,"summary":{"v_prog":5.974,"one_frac":0.963,"v_coh":5.751,"T":66.8,"L":399.1,"finished":true,"n_eps":2,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":263.5,"lost":0,"contacts":0,"min_pair":2.78,"stall_s":1.0,"hull_frac":0.7,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":1.0,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_cross_l85_replica","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"l85","n":10,"identical":true,"duration":75.2,"summary":{"v_prog":6.107,"one_frac":0.939,"v_coh":5.734,"T":65.34,"L":399.1,"finished":true,"n_eps":2,"ep_max":2.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":252.3,"lost":0,"contacts":0,"min_pair":2.08,"stall_s":0.5,"hull_frac":0.724,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.125,"bld_frag":1.5,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_cross_l85_unity","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"l85","n":10,"identical":null,"duration":76.0,"summary":{"v_prog":6.046,"one_frac":0.94,"v_coh":5.683,"T":66.0,"L":399.1,"finished":true,"n_eps":2,"ep_max":2.0,"open_end":false,"reform_end":0.0,"met":4,"wrapped":4,"coverage":251.4,"lost":0,"contacts":0,"min_pair":2.02,"stall_s":1.0,"hull_frac":0.711,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.125,"bld_frag":1.5,"deaths":{},"adaptive":true,"street_factor":0.85}}]},{"id":"s9_a85","kind":"route","title":"Problem: the scene's setting","about":"Route 11001 (along the streets, 414 m) in the scene's city, picked as the route where adaptive 0.85: 1.7 in the streets (the scene) lost the most drones in Unity (2). Each way starts from the same spot after Unity's 15 s settle; switch between Unity's flight and the replica's twin flown from Unity's recorded start (the other's drones are drawn as outlines). Every way avoids the enclosing circles.","first":"a85","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","route":{"kind":"street","k":11001,"L":414.5},"why":"the route where adaptive 0.85: 1.7 in the streets (the scene) lost the most drones in Unity (2)","flights":[{"id":"s9_a85_f20_replica","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f20","n":10,"identical":true,"duration":78.8,"summary":{"v_prog":6.007,"one_frac":0.978,"v_coh":5.877,"T":69.0,"L":414.5,"finished":true,"n_eps":1,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":0.85,"stall_s":1.0,"hull_frac":0.539,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_a85_f20_unity","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f20","n":10,"identical":null,"duration":79.2,"summary":{"v_prog":5.981,"one_frac":0.986,"v_coh":5.895,"T":69.3,"L":414.5,"finished":true,"n_eps":1,"ep_max":1.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.81,"stall_s":1.0,"hull_frac":0.564,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_a85_a85_replica","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a85","n":10,"identical":true,"duration":77.2,"summary":{"v_prog":6.157,"one_frac":0.978,"v_coh":6.02,"T":67.32,"L":414.5,"finished":true,"n_eps":1,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.68,"stall_s":0.5,"hull_frac":0.602,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_a85_a85_unity","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a85","n":10,"identical":null,"duration":76.2,"summary":{"v_prog":6.252,"one_frac":0.932,"v_coh":5.829,"T":66.3,"L":414.5,"finished":true,"n_eps":1,"ep_max":4.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":2,"contacts":0,"min_pair":0.49,"stall_s":1.0,"hull_frac":0.658,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{"CollidingWithAnotherDrone":1,"ExternallyKilled":1},"adaptive":true,"street_factor":0.85}},{"id":"s9_a85_a90_replica","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a90","n":10,"identical":true,"duration":77.4,"summary":{"v_prog":6.139,"one_frac":0.978,"v_coh":6.003,"T":67.52,"L":414.5,"finished":true,"n_eps":1,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.83,"stall_s":0.5,"hull_frac":0.564,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.9}},{"id":"s9_a85_a90_unity","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a90","n":10,"identical":null,"duration":78.6,"summary":{"v_prog":6.025,"one_frac":0.971,"v_coh":5.85,"T":68.8,"L":414.5,"finished":true,"n_eps":1,"ep_max":2.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":0.98,"stall_s":1.0,"hull_frac":0.578,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":true,"street_factor":0.9}},{"id":"s9_a85_a95_replica","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a95","n":10,"identical":true,"duration":77.8,"summary":{"v_prog":6.097,"one_frac":0.978,"v_coh":5.963,"T":67.98,"L":414.5,"finished":true,"n_eps":1,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":2.29,"stall_s":0.5,"hull_frac":0.552,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.95}},{"id":"s9_a85_a95_unity","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a95","n":10,"identical":null,"duration":79.2,"summary":{"v_prog":5.981,"one_frac":0.978,"v_coh":5.852,"T":69.3,"L":414.5,"finished":true,"n_eps":1,"ep_max":1.5,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.99,"stall_s":1.0,"hull_frac":0.574,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":true,"street_factor":0.95}},{"id":"s9_a85_f17_replica","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f17","n":10,"identical":true,"duration":75.8,"summary":{"v_prog":6.284,"one_frac":0.97,"v_coh":6.093,"T":65.96,"L":414.5,"finished":true,"n_eps":1,"ep_max":2.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":1.51,"stall_s":0.5,"hull_frac":0.614,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_a85_f17_unity","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f17","n":10,"identical":null,"duration":77.8,"summary":{"v_prog":6.104,"one_frac":0.662,"v_coh":4.04,"T":67.9,"L":414.5,"finished":true,"n_eps":2,"ep_max":19.0,"open_end":false,"reform_end":0.1,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":1,"min_pair":2.53,"stall_s":1.0,"hull_frac":0.571,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_a85_l85_replica","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"l85","n":10,"identical":true,"duration":72.4,"summary":{"v_prog":6.628,"one_frac":1.0,"v_coh":6.628,"T":62.54,"L":414.5,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":2.0,"stall_s":0.5,"hull_frac":0.739,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_a85_l85_unity","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"l85","n":10,"identical":null,"duration":73.2,"summary":{"v_prog":6.538,"one_frac":1.0,"v_coh":6.538,"T":63.4,"L":414.5,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":0,"wrapped":0,"coverage":null,"lost":0,"contacts":0,"min_pair":0.95,"stall_s":1.0,"hull_frac":0.726,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":null,"bld_frag":null,"deaths":{},"adaptive":true,"street_factor":0.85}}]},{"id":"s9_l85","kind":"route","title":"Problem: the dial at its lowest","about":"Route 11002 (through one block, 156 m) in the scene's city, picked as the route where dial at 1.4, adaptive 0.85: 1.19 in the streets lost the most drones in Unity (2). Each way starts from the same spot after Unity's 15 s settle; switch between Unity's flight and the replica's twin flown from Unity's recorded start (the other's drones are drawn as outlines). Every way avoids the enclosing circles.","first":"l85","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","route":{"kind":"pass","k":11002,"L":155.8},"why":"the route where dial at 1.4, adaptive 0.85: 1.19 in the streets lost the most drones in Unity (2)","flights":[{"id":"s9_l85_f20_replica","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f20","n":10,"identical":true,"duration":37.8,"summary":{"v_prog":5.568,"one_frac":0.982,"v_coh":5.469,"T":27.98,"L":155.8,"finished":true,"n_eps":1,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":283.2,"lost":0,"contacts":0,"min_pair":2.7,"stall_s":1.0,"hull_frac":0.579,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.5,"bld_frag":0.0,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_l85_f20_unity","title":"d_ref 2.0 held (adaptive off, C35)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f20","n":10,"identical":null,"duration":38.2,"summary":{"v_prog":5.505,"one_frac":0.982,"v_coh":5.408,"T":28.3,"L":155.8,"finished":true,"n_eps":1,"ep_max":0.5,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":279.1,"lost":0,"contacts":0,"min_pair":2.35,"stall_s":1.0,"hull_frac":0.577,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.5,"bld_frag":0.0,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_l85_a85_replica","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a85","n":10,"identical":true,"duration":37.4,"summary":{"v_prog":5.653,"one_frac":1.0,"v_coh":5.653,"T":27.56,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":277.0,"lost":0,"contacts":0,"min_pair":2.27,"stall_s":0.5,"hull_frac":0.629,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.5,"bld_frag":0.0,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_l85_a85_unity","title":"adaptive 0.85: 1.7 in the streets (the scene)","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a85","n":10,"identical":null,"duration":38.2,"summary":{"v_prog":5.525,"one_frac":1.0,"v_coh":5.525,"T":28.2,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":278.2,"lost":0,"contacts":0,"min_pair":1.42,"stall_s":1.0,"hull_frac":0.612,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":0.0,"deaths":{},"adaptive":true,"street_factor":0.85}},{"id":"s9_l85_a90_replica","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a90","n":10,"identical":true,"duration":37.0,"summary":{"v_prog":5.757,"one_frac":1.0,"v_coh":5.757,"T":27.06,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":278.5,"lost":0,"contacts":0,"min_pair":2.37,"stall_s":1.0,"hull_frac":0.602,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":0.0,"deaths":null,"adaptive":true,"street_factor":0.9}},{"id":"s9_l85_a90_unity","title":"adaptive 0.90: 1.8 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a90","n":10,"identical":null,"duration":37.2,"summary":{"v_prog":5.728,"one_frac":1.0,"v_coh":5.728,"T":27.2,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":277.4,"lost":0,"contacts":0,"min_pair":2.92,"stall_s":1.0,"hull_frac":0.629,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":0.0,"deaths":{},"adaptive":true,"street_factor":0.9}},{"id":"s9_l85_a95_replica","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"a95","n":10,"identical":true,"duration":37.0,"summary":{"v_prog":5.728,"one_frac":1.0,"v_coh":5.728,"T":27.2,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":279.4,"lost":0,"contacts":0,"min_pair":2.93,"stall_s":1.0,"hull_frac":0.582,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.5,"bld_frag":0.0,"deaths":null,"adaptive":true,"street_factor":0.95}},{"id":"s9_l85_a95_unity","title":"adaptive 0.95: 1.9 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"a95","n":10,"identical":null,"duration":37.4,"summary":{"v_prog":5.665,"one_frac":1.0,"v_coh":5.665,"T":27.5,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":280.3,"lost":0,"contacts":0,"min_pair":3.5,"stall_s":1.0,"hull_frac":0.58,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":2.0,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":0.0,"deaths":{},"adaptive":true,"street_factor":0.95}},{"id":"s9_l85_f17_replica","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"f17","n":10,"identical":true,"duration":37.2,"summary":{"v_prog":5.686,"one_frac":1.0,"v_coh":5.686,"T":27.4,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":269.1,"lost":0,"contacts":0,"min_pair":1.61,"stall_s":0.5,"hull_frac":0.636,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.5,"bld_frag":0.0,"deaths":null,"adaptive":false,"street_factor":0.85}},{"id":"s9_l85_f17_unity","title":"d_ref 1.7 held","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"f17","n":10,"identical":null,"duration":37.6,"summary":{"v_prog":5.624,"one_frac":1.0,"v_coh":5.624,"T":27.7,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":271.8,"lost":0,"contacts":0,"min_pair":2.23,"stall_s":1.0,"hull_frac":0.636,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.7,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.5,"bld_frag":0.0,"deaths":{},"adaptive":false,"street_factor":0.85}},{"id":"s9_l85_l85_replica","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"replica","kind":"route","cond":"l85","n":10,"identical":true,"duration":36.6,"summary":{"v_prog":5.835,"one_frac":1.0,"v_coh":5.835,"T":26.7,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":263.4,"lost":0,"contacts":0,"min_pair":1.12,"stall_s":0.5,"hull_frac":0.746,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":11.0,"bld_frag":0.0,"deaths":null,"adaptive":true,"street_factor":0.85}},{"id":"s9_l85_l85_unity","title":"dial at 1.4, adaptive 0.85: 1.19 in the streets","city":"bbB_p40_s18_patch150_j0.15_sight487_seed1__enc","source":"unity","kind":"route","cond":"l85","n":10,"identical":null,"duration":35.8,"summary":{"v_prog":6.015,"one_frac":1.0,"v_coh":6.015,"T":25.9,"L":155.8,"finished":true,"n_eps":0,"ep_max":0.0,"open_end":false,"reform_end":0.0,"met":1,"wrapped":1,"coverage":258.9,"lost":2,"contacts":0,"min_pair":0.72,"stall_s":1.0,"hull_frac":0.78,"face_off":null,"face_L":null,"arrived":null,"t_side":null,"t_split":null,"t_wrap":null,"t_through":null,"d":1.4,"shape":"EnclosingCircle","slide":true,"d_obs":0.35,"bld_pass":10.5,"bld_frag":0.0,"deaths":{"CollidingWithAnotherDrone":1,"ExternallyKilled":1},"adaptive":true,"street_factor":0.85}}]}],"gallery":[{"seed":1,"city":"bbB_p40_s18_patch150_j0.15_sight487_seed1","stats":{"bounds":{"blocks":308,"interior":189,"buildings":289,"plazas":1,"plaza_share_interior":0.005,"block_m":23.9,"street_m":30.4,"cyl_r":15.4,"sides":5.04,"exits":7.15,"closed":3,"pairs":794,"narrow":69,"gap_median":13.9},"__enc":{"blocks":308,"interior":189,"buildings":289,"plazas":1,"plaza_share_interior":0.005,"block_m":23.9,"street_m":30.4,"cyl_r":12.8,"sides":5.04,"exits":7.15,"closed":0,"pairs":794,"narrow":15,"gap_median":20.1},"__fp":{"blocks":308,"interior":189,"buildings":289,"plazas":1,"plaza_share_interior":0.005,"block_m":23.9,"street_m":30.4,"cyl_r":15.4,"sides":5.04,"exits":7.15,"closed":0,"pairs":794,"narrow":0,"gap_median":25.0}},"what":"the scene's city (BlockShapedPatchCityWorld)"},{"seed":2,"city":"bbB_p40_s18_patch150_j0.15_sight487_seed2","stats":{"bounds":{"blocks":312,"interior":186,"buildings":293,"plazas":0,"plaza_share_interior":0.0,"block_m":24.2,"street_m":30.4,"cyl_r":15.4,"sides":5.03,"exits":7.19,"closed":8,"pairs":808,"narrow":50,"gap_median":13.8},"__enc":{"blocks":312,"interior":186,"buildings":293,"plazas":0,"plaza_share_interior":0.0,"block_m":24.2,"street_m":30.4,"cyl_r":12.9,"sides":5.03,"exits":7.19,"closed":0,"pairs":808,"narrow":10,"gap_median":19.7},"__fp":{"blocks":312,"interior":186,"buildings":293,"plazas":0,"plaza_share_interior":0.0,"block_m":24.2,"street_m":30.4,"cyl_r":15.4,"sides":5.03,"exits":7.19,"closed":0,"pairs":808,"narrow":0,"gap_median":25.0}},"what":"held out (seed 2)"},{"seed":3,"city":"bbB_p40_s18_patch150_j0.15_sight487_seed3","stats":{"bounds":{"blocks":311,"interior":188,"buildings":298,"plazas":2,"plaza_share_interior":0.011,"block_m":23.7,"street_m":29.8,"cyl_r":15.3,"sides":5.11,"exits":7.02,"closed":3,"pairs":824,"narrow":46,"gap_median":14.2},"__enc":{"blocks":311,"interior":188,"buildings":298,"plazas":2,"plaza_share_interior":0.011,"block_m":23.7,"street_m":29.8,"cyl_r":12.6,"sides":5.11,"exits":7.02,"closed":1,"pairs":824,"narrow":8,"gap_median":19.9},"__fp":{"blocks":311,"interior":188,"buildings":298,"plazas":2,"plaza_share_interior":0.011,"block_m":23.7,"street_m":29.8,"cyl_r":15.3,"sides":5.11,"exits":7.02,"closed":0,"pairs":824,"narrow":0,"gap_median":25.0}},"what":"held out (seed 3)"},{"seed":4,"city":"bbB_p40_s18_patch150_j0.15_sight487_seed4","stats":{"bounds":{"blocks":305,"interior":183,"buildings":287,"plazas":0,"plaza_share_interior":0.0,"block_m":24.1,"street_m":30.2,"cyl_r":15.6,"sides":5.11,"exits":7.09,"closed":6,"pairs":791,"narrow":70,"gap_median":13.9},"__enc":{"blocks":305,"interior":183,"buildings":287,"plazas":0,"plaza_share_interior":0.0,"block_m":24.1,"street_m":30.2,"cyl_r":13.0,"sides":5.11,"exits":7.09,"closed":2,"pairs":791,"narrow":13,"gap_median":19.7},"__fp":{"blocks":305,"interior":183,"buildings":287,"plazas":0,"plaza_share_interior":0.0,"block_m":24.1,"street_m":30.2,"cyl_r":15.6,"sides":5.11,"exits":7.09,"closed":0,"pairs":791,"narrow":0,"gap_median":25.0}},"what":"held out (seed 4)"}]}}</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const f = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const pct = (x, nd = 1) => ok(x) ? `${(100 * x).toFixed(nd)}%` : "–";
+const pc0 = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const pv = p => !ok(p) ? "–" : p < 0.001 ? "p &lt; 0.001" : `p = ${p < 0.01 ? p.toFixed(3) : p.toFixed(2)}`;
+const rr = r => r && ok(r.ratio) ? `×${f(r.ratio)} (95%: ${f(r.lo)}–${ok(r.hi) ? f(r.hi) : "∞"})` : "–";
+const rrs = r => r && ok(r.ratio) ? `×${f(r.ratio)} (${f(r.lo)}–${ok(r.hi) ? f(r.hi) : "∞"})` : "–";
+const fewer = x => ok(x) ? `${Math.round(100 * (1 - x))}%` : "–";
+
+// ---------------------------------------------------------------- the data
+const RP = D.replica.rows, RPP = D.replica.paired, RRT = D.replica.ratios, R1 = D.replica.rows1, RF = D.replica.flights;
+const UN = D.unity, UR = UN.rows, UP = UN.paired, UF = UN.paired_f17, UFF = UN.paired_f17_f20;
+const TM = D.timing, CB = D.combined, TO = D.twin_own, PW = D.power, PHS = D.phases;
+const NAME = {F20: "2.0 held", A95: "adaptive 0.95", A90: "adaptive 0.90", A85: "adaptive 0.85 (the scene)", F19: "1.9 held",
+              F18: "1.8 held", F17: "1.7 held", F14: "1.4 held", L85: "dial 1.4, adaptive 0.85", L95: "dial 1.4, adaptive 0.95",
+              F12: "1.2 held", F26: "2.6 held", H85: "dial 2.6, adaptive 0.85"};
+const STREET = {F20: 2.0, A95: 1.9, A90: 1.8, A85: 1.7, F19: 1.9, F18: 1.8, F17: 1.7, F14: 1.4, L85: 1.19, L95: 1.33, F12: 1.2, F26: 2.6, H85: 2.21};
+const nm = c => NAME[c] || c;
+const COL = c => c === "A85" ? "var(--k-a85)" : c === "F17" ? "var(--k-f17)" : c === "F20" ? "var(--k-f20)" : c === "F18" ? "var(--k-f18)"
+  : /^[AHL]/.test(c) ? "var(--k-adapt)" : "var(--k-fixed)";
+const per100 = r => r && r.km ? 100 * r.events / r.km : null;
+const ci100 = r => r && r.km && r.ci ? [100 * r.ci[0] / r.km, 100 * r.ci[1] / r.km] : null;
+const dial = ["F14", "L85", "L95", "F12"].map(c => R1[c]).filter(Boolean);
+const DIAL = {events: dial.reduce((s, r) => s + r.events, 0), km: dial.reduce((s, r) => s + r.km, 0),
+              wrapLo: Math.min(...dial.map(r => r.wrap)), wrapHi: Math.max(...dial.map(r => r.wrap))};
+const F20U = UR.F20, A85U = UR.A85, F17U = UR.F17;
+const kmPerEvent = F20U.km / F20U.events;
+const pw = (R, n) => (PW.rows || []).find(x => x.R === R && x.routes === n);
+const share = (a, b) => ok(a) && ok(b) && a ? (a - b) / a : null;   // the part of a that is not b
+
+// ---------------------------------------------------------------- tooltip and chart helpers (S5's)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (W, H, label, g) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+const swatches = cs => `<div class="keyrow">${cs.map(c => `<span class="sw" style="--sw:${COL(c)}">${esc(nm(c))}</span>`).join("")}</div>`;
+const SHORTL = {F20: "2.0 held", A85: "0.85 (the scene)", F17: "1.7 held"};
+
+// Small-multiple horizontal bars from zero: one panel per measure, one bar per row; an optional interval per bar.
+function barPanels(el, rows, panels, legend) {
+  const W = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 16, gap = 7, m = {l: 122, r: 60, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x.r)), iv = rows.map(x => p.ci ? p.ci(x.r) : null);
+    const vmax = Math.max(1e-9, ...vals.filter(ok), ...iv.filter(Boolean).map(v => v[1])) * 1.05;
+    const xx = v => m.l + (W - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = `<line class="gridl" x1="${m.l}" x2="${m.l}" y1="0" y2="${H}"/>`;
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(x.lab || nm(x.c))}</text>`;
+      if (ok(v)) {
+        g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${COL(x.c)}"/>`;
+        const ci = iv[i];
+        if (ci) g += `<line class="ival" x1="${xx(ci[0]).toFixed(1)}" x2="${xx(ci[1]).toFixed(1)}" y1="${yy + bh / 2}" y2="${yy + bh / 2}"/>
+          <line class="ival" x1="${xx(ci[1]).toFixed(1)}" x2="${xx(ci[1]).toFixed(1)}" y1="${yy + 4}" y2="${yy + bh - 4}"/>`;
+        g += `<text class="val" x="${(xx(ci ? Math.max(v, ci[1]) : v) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      } else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${W}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(W, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `${legend || ""}<div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100], ci = p.ci ? p.ci(x.r) : null;
+    return [x.tip || x.lab || nm(x.c), [[COL(x.c), p.f(p.get(x.r)) + (ci ? ` (95%: ${p.f(ci[0])} to ${p.f(ci[1])})` : ""), p.title]]]; });
+}
+
+// Rate ratios against 2.0 held on a log axis, each with its exact 95% interval. Shape says where the number comes from.
+const SHAPE = {
+  replica: (x, y, c) => `<circle cx="${x}" cy="${y}" r="5.5" fill="${c}" stroke="var(--panel)" stroke-width="2"/>`,
+  unity: (x, y, c) => `<rect x="${x - 5.5}" y="${y - 5.5}" width="11" height="11" rx="1.5" fill="${c}" stroke="var(--panel)" stroke-width="2"/>`,
+  both: (x, y, c) => `<path d="M${x} ${y - 7}L${x + 7} ${y}L${x} ${y + 7}L${x - 7} ${y}Z" fill="${c}" stroke="var(--panel)" stroke-width="2"/>`};
+const shapeKey = () => `<div class="keyrow">${[["replica", "the replica's own flights"], ["unity", "Unity (or its replica twins, where named)"], ["both", "the two combined"]]
+  .map(([k, l]) => `<span class="sh"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">${SHAPE[k](8, 8, "var(--ink-2)")}</svg>${esc(l)}</span>`).join("")}</div>`;
+function forest(el, rows) {
+  const W = cw(el, 300, 760), narrow = W < 560;
+  const m = {l: narrow ? 128 : 238, r: narrow ? 96 : 124, t: 26, b: 30}, rh = 25;
+  const H = m.t + rows.length * rh + m.b, L0 = Math.log(0.25), L1 = Math.log(4);
+  const xx = v => m.l + (W - m.l - m.r) * (Math.log(Math.min(4, Math.max(0.25, v))) - L0) / (L1 - L0);
+  let g = "";
+  for (const t of [0.25, 0.5, 1, 2, 4]) g += `<line class="gridl" x1="${xx(t)}" x2="${xx(t)}" y1="${m.t - 4}" y2="${H - m.b + 4}"/><text class="lbl" x="${xx(t)}" y="${H - m.b + 18}" text-anchor="middle">×${t}</text>`;
+  g += `<line class="ref" x1="${xx(1)}" x2="${xx(1)}" y1="${m.t - 4}" y2="${H - m.b + 4}"/><line class="ref2" x1="${xx(2)}" x2="${xx(2)}" y1="${m.t - 4}" y2="${H - m.b + 4}"/>`;
+  g += `<text class="note" x="${xx(1) - 4}" y="${m.t - 10}" text-anchor="end">no change</text><text class="note" x="${xx(2) + 4}" y="${m.t - 10}">the replica's doubling</text>`;
+  rows.forEach((x, i) => {
+    const y = m.t + i * rh + rh / 2, r = x.r, c = COL(x.c);
+    g += `<text class="lbl" x="${m.l - 10}" y="${y + 4}" text-anchor="end">${esc(narrow ? x.short : x.lab)}</text>`;
+    if (r && ok(r.ratio)) {
+      const hi = ok(r.hi) ? r.hi : 4;
+      g += `<line class="ival" x1="${xx(r.lo).toFixed(1)}" x2="${xx(hi).toFixed(1)}" y1="${y}" y2="${y}"/>`;
+      g += SHAPE[x.src](+xx(r.ratio).toFixed(1), y, c);
+      g += `<text class="val" x="${W - m.r + 10}" y="${y + 4}">${esc(rrs(r))}</text>`;
+    }
+    g += `<rect class="hit" data-i="${i}" tabindex="0" x="0" y="${y - rh / 2}" width="${W}" height="${rh}"/>`;
+  });
+  el.innerHTML = `${shapeKey()}${svgOf(W, H, "Loss-event ratios against 2.0 held", g)}`;
+  hoverMarks(el, i => { const x = rows[i], r = x.r;
+    return [x.lab, [[COL(x.c), rr(r), x.what || "loss events, the narrower setting over 2.0 held"], ...(r && ok(r.k) ? [[COL(x.c), `${r.k} against ${r.k0}`, "the two counts"]] : [])]]; });
+}
+
+// ---------------------------------------------------------------- the masthead
+$("#lead1").innerHTML = `The trials have pilots search BlockShapedPatchCityWorld with a swarm of ten drones or with one drone. Since S8 the scene flies S7's
+  <b>adaptive spread</b> at 0.85: the pilot's d_ref 2.0 narrowed to 1.7 in the streets and widened back when the swarm flies at a building. S9 asked whether
+  it narrows too much, and concluded after the replica and three Unity benches that it flies the streets 8% faster, touches buildings 39% less and costs no drones.`;
+$("#lead2").innerHTML = `This page reads the same flights again from the per-flight records (${(RF.n + RF.n1).toLocaleString("en")} replica flights and
+  ${A85U.n + F20U.n + F17U.n + UR.A90.n + UR.A95.n + UR.L85.n} Unity street flights, each with its replica twin) without the study's own summaries, and checks each
+  of those claims. Nothing was flown again. <a href="${esc(D.original)}" target="_blank" rel="noopener">S9's own page</a> has the method and every run.`;
+
+function ANSWER_BOX() {
+  return `<p class="eyebrow">The short answer</p><ol>
+    <li><b>Narrower in the streets is quicker, by about 3%.</b> Progress speed is up ${pct(UP.vprog.pct)} in Unity (${pct(RPP["A85-F20"].vprog.pct)} in the replica), on ${pc0(UP.vprog.higher)} of routes.
+      S9's 8% is cohesive speed, which also counts the swarm staying one group ${f(100 * UP.one, 0)} points more of the time.</li>
+    <li><b>It touches buildings less and splits less.</b> In Unity it has ${fewer(UP.contacts.ratio)} fewer building contacts (95%: ${fewer(UP.contacts.hi)}–${fewer(UP.contacts.lo)}), and the swarm is split ${pc0(A85U.split)} of the time against ${pc0(F20U.split)}.</li>
+    <li><b>Whether it costs drones is open.</b> Unity: ${rrs(UN.ratio)}. The replica's own flights: ${rrs(RRT.A85)}. The two do not differ significantly
+      (p = ${f(CB.q_p, 2)}), and Unity's own near-miss measures lean the replica's way. "Costs no drones" is more than ${F20U.n} routes can show.</li>
+    <li><b>It has not beaten holding 1.7.</b> 1.7 held loses no more (replica ${RP.F17.events} against ${RP.A85.events}, Unity ${F17U.events} against ${UN.ratio_f17_a85.k0}),
+      is ${pct(RPP["F17-A85"].vprog.pct)} quicker again and surrounds as many buildings.</li></ol>
+    <p class="bottom"><b>My reading:</b> keep the scene's setting for the trials. Its gains are real, and no alternative has been shown to be better.
+      What is not established is that it helps more than holding 1.7, or that it is safe to within ×1.5. One overnight Unity run would settle both. <a href="#q7">What to fly</a>.</p>`;
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["flights", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s9rtab", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (h === "reading" || h === "claims" || /^q\d$/.test(h)) { show("answer", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? D.replay.groups[gi].flights.find(fl => fl.cond === cond && fl.source === "unity") : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (gid, cond, text) => D.replay && D.replay.groups.some(g => g.id === gid) ? `<a class="watch" href="#watch:${gid}:${cond}">${esc(text)}</a>` : "";
+const pill = (cls, text) => `<span class="vp ${cls}">${esc(text)}</span>`;
+
+// ---------------------------------------------------------------- the answer
+function claimsTable() {
+  const T = TM, uf = UN.ratio_fresh, ue = UN.ratio_earlier, cl = [
+    ["“Narrower is faster: 8% in the streets.”",
+     `Progress speed +${pct(UP.vprog.pct)} in Unity, +${pct(RPP["A85-F20"].vprog.pct)} in the replica. About ${pc0(share(RPP["A85-F20"].vcoh.pct, RPP["A85-F20"].vprog.pct))} of the 8% is the one-group share, which is a gain in cohesion, not speed.`,
+     ["part", "Overstated"]],
+    ["“In Unity the narrower street spread costs no drones.”",
+     `${rr(UN.ratio)}. A rise of 50% fits the data as well as no rise does, and Unity's close calls are more frequent at 0.85.`,
+     ["part", "Overstated"]],
+    ["“The settling run rules out the replica's doubling.”",
+     `Only with the two benches seen before its rule was written (${ue.k} against ${ue.k0}). The fresh bench alone is ${uf.k} against ${uf.k0}, ${rr(uf)}, which does not exclude a doubling.`,
+     ["part", "Weaker than stated"]],
+    ["“The doubling lies in the replica's own flights, not the law; the start is the likely difference.”",
+     `The replica's rows climb steadily as the spread narrows, the replica and Unity do not differ significantly (p = ${f(CB.q_p, 2)}), and the gap persists after the first ${f(T.cut, 0)} s
+      (Unity ${rrs(T.unity_late)}, replica ${rrs(T.replica_late)}), so the start does not explain it. The twins' gap at 2.0 held is p = ${f(TO.F20.test.p, 2)}.`,
+     ["no", "Not shown"]],
+    ["“It touches buildings 39% less.”",
+     `${fewer(UP.contacts.ratio)} fewer on S9's three benches together, ${fewer(UP.contacts.hi)}–${fewer(UP.contacts.lo)} by a bootstrap over routes; the replica agrees (${fewer(RP.A85.contact_km / RP.F20.contact_km)} fewer).`,
+     ["yes", "Holds"]],
+    ["“The adaptive spread's changes cost nothing.”",
+     `No sign that they add losses, but the tests cannot see a 50% effect at these counts, and Unity's omnibus phase test, which S9 computed and did not report, is p = ${f(PHS.unity.omnibus_p, 2)}.`,
+     ["part", "Overstated"]],
+    ["“1.7 held is not cleared.”",
+     `True: Unity flew it ${F17U.n} times. But it is level with or ahead of 0.85 on every measure in both simulators, so the same caution applies to choosing 0.85 over it.`,
+     ["part", "Holds, both ways"]],
+    ["“The replays look alike because the effects are small per flight.”",
+     `Yes: a few percent of speed, and a loss in ${pc0(RP.F20.flights_lost / RP.F20.n)}–${pc0(RP.A85.flights_lost / RP.A85.n)} of replica flights and ${pc0(F20U.flights_lost / F20U.n)}–${pc0(A85U.flights_lost / A85U.n)} of Unity's.`,
+     ["yes", "Holds"]]];
+  return `<div class="tablewrap"><table class="dt claims"><thead><tr><th class="l">S9's claim</th><th class="l">What the flights show</th><th class="l">Verdict</th></tr></thead><tbody>
+    ${cl.map(([c, w, [k, v]]) => `<tr><td class="l">${c}</td><td class="l">${w}</td><td class="l v">${pill(k, v)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function powerLine(R) {
+  return [1000, 1500, 2000].map(n => { const p = pw(R, n); return p ? `${n.toLocaleString("en")} routes: ${pc0(p.detect)} / ${pc0(p.exclude)}` : ""; }).filter(Boolean).join(" · ");
+}
+RENDER.answer = el => {
+  const a = RPP["A85-F20"], t15 = TM.unity_late, r15 = TM.replica_late;
+  const hours = n => Math.round(n * PW.min_per_flight / 60 * 10) / 10;
+  const plan = 3 * 1500 + 3 * 100;
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>Is the narrower street spread faster?</h2>
+      <p class="qa">${pill("part", "By about 3%")}Route by route it is quicker, beyond doubt. The 8% S9 reports also counts cohesion.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-speed"></div>
+      <div class="qtext"><ul>
+        <li><b>Progress speed</b>, the route's length over the time taken, is up ${pct(a.vprog.pct)} at 0.85 in the replica (${RF.street.toLocaleString("en")} street flights per row, faster on ${pc0(a.vprog.higher)} of routes)
+          and ${pct(UP.vprog.pct)} in Unity (${UP.n} routes, ${pc0(UP.vprog.higher)}). Holding 1.7: ${pct(RPP["F17-F20"].vprog.pct)} in the replica, ${pct(UFF.vprog.pct)} in Unity.</li>
+        <li><b>S9's figure is cohesive speed</b>: progress speed times the share of the flight the swarm is one group (drones linked within 30 m round the buildings).
+          The narrower formation is one group ${f(100 * a.one, 1)} points more often in the replica and ${f(100 * UP.one, 1)} in Unity, and that is about
+          ${pc0(share(a.vcoh.pct, a.vprog.pct))} of the headline (${pct(a.vcoh.pct)} in the replica, ${pct(UP.vcoh.pct)} in Unity on these routes).</li>
+        <li><b>Both are gains; neither is large.</b> At full stick a ${f(1000 * PW.km_route, 0)} m street route takes about ${f(1000 * PW.km_route / F20U.vprog * UP.vprog.pct, 1)} s less. Pilots searching
+          for a target fly slower and spend their time looking, so a 3% progress gain may not show in the time to find one at all. S9 did not measure that.</li></ul>
+        <div class="watches">${watch("s9_street", "a85", "A typical street route, every setting")}</div></div></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Does it cost drones?</h2>
+      <p class="qa">${pill("part", "Open")}No cost is detected in Unity, but a 50% rise is not excluded, and the other evidence leans towards one.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-loss"></div>
+      <div class="qtext"><ul>
+        <li><b>Unity</b>, all three benches (${A85U.n} street routes a row, ${f(A85U.km, 0)} km): ${A85U.events} loss events at 0.85 against ${F20U.events} at 2.0 held, ${rr(UN.ratio)}.
+          Collisions between drones alone: ${A85U.coll} against ${F20U.coll}, ${rrs(UN.ratio_coll)}. The rest are drones that flipped after hitting a building.</li>
+        <li><b>The settling run's verdict needs the benches seen before its rule.</b> The fresh bench, flown after the rule was written, is ${UN.ratio_fresh.k} against ${UN.ratio_fresh.k0}
+          (${rr(UN.ratio_fresh)}) and does not rule out a doubling by itself. The rule pooled in the first two benches (${UN.ratio_earlier.k} against ${UN.ratio_earlier.k0}), whose counts were known when it was written.</li>
+        <li><b>The replica's own flights</b> (${RP.A85.n} per row, ${f(RP.A85.km, 0)} km): ${RP.A85.events} against ${RP.F20.events}, ${rr(RRT.A85)}. The rows climb with the narrowing:
+          ${RP.F20.events} at 2.0, ${RP.A95.events} at 1.9, ${RP.A90.events} and ${RP.F18.events} at 1.8 (adaptive, held), ${RP.A85.events} and ${RP.F17.events} at 1.7. That is a dose-response, not one low count at 2.0 held.</li>
+        <li><b>The two do not differ significantly</b> (heterogeneity p = ${f(CB.q_p, 2)}). Combined they put the ratio at ${rr(CB)}. That leans on the replica being a fair model of Unity's collisions, which is the open question.</li>
+        <li><b>Unity's own close calls go the replica's way.</b> At 0.85 the closest pair comes ${f(-UP.min_pair.diff, 2)} m nearer (median paired difference, ${pv(UP.min_pair.p)}), pairs spend
+          ${pc0(UP.near_ticks.ratio - 1)} more time within 2 m (${pv(UP.near_ticks.p)}), and ${pct(A85U.near)} of flights bring a pair within ${f(D.near_m, 2)} m against ${pct(F20U.near)} (${pv(UP.near.p)}).
+          A narrower formation is expected to fly closer, so this shows more chances of a collision, not more collisions.</li>
+        <li><b>The start does not explain the gap.</b> S9 put the replica's doubling down to its flights' starts. After the first ${f(TM.cut, 0)} s of every flight Unity is still ${rrs(t15)}
+          and the replica still ${rrs(r15)}, and Unity's early losses are the same in both rows (${TM.unity.F20.early} and ${TM.unity.A85.early}).</li>
+        <li><b>In a trial</b>: at 2.0 held Unity loses one event (nearly always a pair) per ${f(kmPerEvent, 1)} km of full-stick street flight. A 50% rise would be one more pair per ${f(kmPerEvent * 2, 0)} km.</li></ul>
+        <div class="watches">${watch("s9_a85", "a85", "The route where 0.85 lost the most in Unity")}</div></div></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>Does it touch buildings less and hold together better?</h2>
+      <p class="qa">${pill("yes", "Yes")}The clearest effects in the study, in Unity and the replica alike.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-hold"></div>
+      <div class="qtext"><ul>
+        <li><b>Contacts</b>: ${A85U.contacts} against ${F20U.contacts} on the same ${UP.n} Unity routes, ${fewer(UP.contacts.ratio)} fewer (bootstrap over routes ${fewer(UP.contacts.hi)}–${fewer(UP.contacts.lo)}, paired ${pv(UP.contacts.p)});
+          ${UP.contacts.flights_a} flights with a contact against ${UP.contacts.flights_b}. The replica agrees (${fewer(RP.A85.contact_km / RP.F20.contact_km)} fewer), and 1.7 held touches least
+          (${fewer(RP.F17.contact_km / RP.F20.contact_km)} fewer). A contact costs no drone in the simulation, but in Unity friction can pin a drone against a facade.</li>
+        <li><b>Splitting</b>: in Unity the swarm is in more than one group ${pc0(A85U.split)} of the flight against ${pc0(F20U.split)} (${pv(UP.split.p)}).</li>
+        <li><b>What the pilot sees</b>: ${f(100 * UP.hull.diff, 0)} points more of the drones sit on the hull, whose feeds the ring shows (${pc0(A85U.hull)} against ${pc0(F20U.hull)}: about half a feed more),
+          and the pilot's look direction is as well covered (the nearest shown feed ${f(A85U.look, 1)}° off it against ${f(F20U.look, 1)}°, ${pv(UP.look.p)}).</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>Is the adaptive spread better than holding 1.7?</h2>
+      <p class="qa">${pill("no", "No sign")}On every measure the study took, holding 1.7 the whole flight does at least as well.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-f17"></div>
+      <div class="qtext"><ul>
+        <li><b>What the adaptive spread is for</b>: narrowing in the streets for speed, and widening back at buildings so the formation can surround them. The comparison that tests the widening is against 1.7 held, not 2.0 held.</li>
+        <li><b>Replica</b> (${RP.A85.n} flights each): the same loss events (${RP.F17.events} and ${RP.A85.events}), 1.7 held ${pct(RPP["F17-A85"].vprog.pct)} quicker on the street routes (on ${pc0(RPP["F17-A85"].vprog.higher)} of them),
+          ${fewer(RP.F17.contacts / RP.A85.contacts)} fewer contacts (${RP.F17.contacts} against ${RP.A85.contacts}), and buildings surrounded ${pct(RP.F17.wrap)} against ${pct(RP.A85.wrap)}.
+          The widening buys ${f(RP.A85.cov - RP.F17.cov, 0)}° more of the bearing round a building covered (${f(RP.A85.cov, 0)}° against ${f(RP.F17.cov, 0)}°).</li>
+        <li><b>Unity</b> (${UF.n} street routes each, the first two benches): ${F17U.events} loss events against ${UN.ratio_f17_a85.k0}, 1.7 held ${pct(UF.vprog.pct)} quicker (${pv(UF.vprog.p)}), contacts ${rrs(UF.contacts)}.</li>
+        <li>S9 says 1.7 held "is not cleared" because Unity flew it only ${F17U.n} times. That is fair, but the same evidence shows no advantage for the adaptive spread over it,
+          while the adaptive spread adds moving parts: the narrowing has no floor under the pilot's dial (<a href="#q6">question 6</a>).</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q5">
+    <div class="qhead"><span class="qn">5</span><div><h2>Do the narrowing and widening themselves cost drones?</h2>
+      <p class="qa">${pill("part", "No sign")}Nothing points to it, but the test cannot see a moderate effect.</p></div></div>
+    <div class="qbody one"><div class="qtext"><ul>
+        <li><b>The strongest evidence is the held rows</b>: in the replica the adaptive 0.85 loses exactly what 1.7 held loses (${RP.A85.events} and ${RP.F17.events}), though it only reaches 1.7 once settled in a street.</li>
+        <li><b>S9's timing test</b> asks whether losses crowd into the moments the spread is changing, using the shadow of what the adaptive spread would be doing in every row. It finds the place matters
+          (the first seconds in a street, in every row) and the change does not (narrowing against the rest: replica p = ${f(PHS.replica.contrast_p, 2)}, Unity p = ${f(PHS.unity.contrast_p, 2)}).
+          That reading is reasonable, but at ${RP.F20.events}–${RP.A85.events} events a row a 50% extra cost in the changing moments would not be detected.</li>
+        <li><b>S9 did not report Unity's omnibus test</b> (do the four phases share one ratio?): p = ${f(PHS.unity.omnibus_p, 2)}, driven by ${PHS.unity.wide.a} losses against ${PHS.unity.wide.b} in the moments the adaptive spread is held wide.
+          The replica shows the opposite there (${PHS.replica.wide.a} against ${PHS.replica.wide.b}). Read as noise either way; neither supports "cost nothing" or its opposite.</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q6">
+    <div class="qhead"><span class="qn">6</span><div><h2>What about the pilot's dial?</h2>
+      <p class="qa">${pill("part", "Not tested")}Every conclusion above is at d_ref 2.0. Pilots turn the dial, and the adaptive spread multiplies whatever they set.</p></div></div>
+    <div class="qbody one"><div class="qtext"><ul>
+        <li><b>The narrowing has no floor</b> (<code>OlfatiSaber.EffectiveDRef</code>): the trials' lowest dial setting, 1.4, becomes ${f(STREET.L85, 2)} in the streets.</li>
+        <li><b>Only the first replica run flew it</b> (${f(R1.F20.km, 0)} km a row): the four rows with 1.2–1.4 in the streets lost ${DIAL.events} events in ${f(DIAL.km, 0)} km against ${R1.F20.events} in ${f(R1.F20.km, 0)} at 2.0 held
+          (×${f((DIAL.events / DIAL.km) / (R1.F20.events / R1.F20.km), 2)}), and surrounded ${pc0(DIAL.wrapLo)}–${pc0(DIAL.wrapHi)} of the buildings they met against ${pc0(R1.F20.wrap)}. Unity flew the dial at 1.4 with 0.85 on ${UR.L85.n} street routes (${UR.L85.events} loss events).</li>
+        <li>Whether it matters depends on how often pilots sit there, which the internal tests' dial logs can answer without flying anything.</li></ul>
+        <div class="watches">${watch("s9_l85", "l85", "The dial at 1.4 with the adaptive spread")}</div></div></div>
+  </section>
+
+  <section class="q" id="q7">
+    <div class="qhead"><span class="qn">7</span><div><h2>Is further study needed?</h2>
+      <p class="qa">${pill("part", "To claim either way")}Not to keep flying the trials as they are; yes, before saying the adaptive spread helps or that it is harmless.</p></div></div>
+    <div class="qbody one"><div class="qtext">
+      <ol class="plan">
+        <li><div><b>One Unity run, three settings head to head.</b> The scene (0.85), 1.7 held and 2.0 held, about 1,500 fresh street routes and 100 straight lines each
+          (${plan.toLocaleString("en")} flights, about ${f(hours(plan), 0)} hours on the bench at the settling run's pace: one night). Primary: loss events per km, 0.85 against 2.0 held and against 1.7 held,
+          judged on this run alone by a rule written first. Secondary: near misses under ${f(D.near_m, 2)} m, contacts, progress speed, buildings surrounded.
+          <p class="small muted">Chance of detecting a 50% rise, and of excluding one when there is none: ${powerLine(1.5)}. A 30% rise is out of reach in one night (${powerLine(1.3)}).</p></div></li>
+        <li><div><b>Find out why the replica and Unity disagree on losses</b>, before the replica's loss counts choose another setting (S6–S9 all did). Replica only, about an hour:
+          fly the twins' routes from the replica's own settled start to see whether the 2.0-held gap closes (${TO.F20.twin} twin flights with losses in ${TO.F20.twin_n} against ${TO.F20.own} in ${TO.F20.own_n} of its own in the same city),
+          and attribute the forces at each loss in both.</div></li>
+        <li><div><b>Look at the dial before flying it.</b> If the internal tests' logs show pilots below about 1.6 for long, fly 1.4 with and without the adaptive spread in Unity, or give
+          <code>EffectiveDRef</code> a floor (a law change, which means the replica and the bench with it).</div></li>
+        <li><div><b>Optional: does any of it reach the trial?</b> A hidden-target search in this city (S2's harness) would show whether a 3% progress gain and fewer splits change how soon the swarm finds a target. Without it, the speed gain's value to the trials is assumed.</div></li></ol>
+      <p>If the first run is not flown, the scene's setting is a reasonable default: its gains are measured, its loss cost is somewhere between none and moderate, and 1.7 held has the same uncertainty with fewer Unity flights behind it.</p></div></div>
+  </section>
+
+  <section class="q reading" id="reading">
+    <div><h2>My reading</h2>
+      <p class="qa">S9's data are sound and plentiful, and most of its measurements hold. Its write-up is stronger than the data in three places: it reports cohesive speed as speed,
+        it reads "no significant difference in ${F20U.n} routes" as "no cost", and it explains away the replica's loss doubling with a cause the flights do not support. The
+        conclusion it reached, to keep the scene as it is, survives as a reasonable default. Its justification does not.</p></div>
+    <div class="grid2">
+      <div><h3>What S9 settles</h3><ol>
+        <li><b>A narrower street spread is quicker</b>, by about 3% in progress, and keeps the swarm together more of the time.</li>
+        <li><b>It touches buildings less</b>, by about 40% in Unity, and keeps more drones on the hull.</li>
+        <li><b>The adaptive spread at 0.85 flies the streets like 1.8 held</b>, and loses like 1.7 held.</li></ol></div>
+      <div><h3>What it cannot settle</h3><ol>
+        <li><b>Whether narrower costs drones in Unity</b>: anywhere from ${f(UN.ratio.lo, 1)} to ${f(UN.ratio.hi, 1)} times as many.</li>
+        <li><b>Whether the adaptive spread beats holding 1.7</b>: no advantage measured, ${F17U.n} Unity routes.</li>
+        <li><b>People</b>: scripted pilots at full stick, the dial fixed at 2.0.</li></ol></div></div>
+    <div id="claims"><h3>S9's claims, checked against the flights</h3>${claimsTable()}</div>
+  </section></div>`;
+
+  const sp = [["A95", "0.95 · replica", RPP["A95-F20"]], ["A90", "0.90 · replica", RPP["A90-F20"]], ["A85", "0.85 · replica", RPP["A85-F20"]],
+              ["F18", "1.8 held · replica", RPP["F18-F20"]], ["F17", "1.7 held · replica", RPP["F17-F20"]], ["A85", "0.85 · Unity", UP], ["F17", "1.7 held · Unity", UFF]]
+    .map(([c, lab, r]) => ({c, lab, r, tip: `${nm(c)} against 2.0 held, ${lab.split(" · ")[1]} (${r.n || r.vprog.n} routes)`}));
+  const lossRows = [
+    {c: "A95", src: "replica", lab: "Adaptive 0.95 · replica", short: "0.95 · replica", r: RRT.A95},
+    {c: "A90", src: "replica", lab: "Adaptive 0.90 · replica", short: "0.90 · replica", r: RRT.A90},
+    {c: "F18", src: "replica", lab: "1.8 held · replica", short: "1.8 held · rep.", r: RRT.F18},
+    {c: "A85", src: "replica", lab: "Adaptive 0.85 · replica", short: "0.85 · replica", r: RRT.A85},
+    {c: "F17", src: "replica", lab: "1.7 held · replica", short: "1.7 held · rep.", r: RRT.F17},
+    {c: "A85", src: "unity", lab: "Adaptive 0.85 · Unity, three benches", short: "0.85 · Unity", r: UN.ratio},
+    {c: "A85", src: "unity", lab: "Adaptive 0.85 · Unity, fresh bench only", short: "0.85 · fresh", r: UN.ratio_fresh},
+    {c: "A85", src: "unity", lab: `Adaptive 0.85 · Unity, after ${f(TM.cut, 0)} s`, short: `0.85 · after ${f(TM.cut, 0)} s`, r: TM.unity_late},
+    {c: "A85", src: "unity", lab: "Adaptive 0.85 · Unity's twins", short: "0.85 · twins", r: UN.ratio_twin, what: "flights that lost drones, the replica flying Unity's flights from Unity's start"},
+    {c: "F17", src: "unity", lab: "1.7 held · Unity, two benches", short: "1.7 held · Unity", r: UN.ratio_f17},
+    {c: "A85", src: "both", lab: "Adaptive 0.85 · replica and Unity", short: "0.85 · combined", r: CB, what: "the fixed-effect combination of the two log ratios"}];
+  const draws = [
+    ["#ans-speed", () => barPanels($("#ans-speed", el), sp, [
+      {title: "Progress speed, vs 2.0 held", get: r => 100 * r.vprog.pct, ci: r => [100 * r.vprog.lo, 100 * r.vprog.hi], f: v => `+${f(v, 1)}%`, unit: "the street routes, route by route; the line is the 95% interval"},
+      {title: "One group, vs 2.0 held", get: r => 100 * r.one, f: v => `+${f(v, 1)} pts`, unit: "share of the flight the swarm was one group"},
+      {title: "S9's cohesive speed, vs 2.0 held", get: r => 100 * r.vcoh.pct, ci: r => [100 * r.vcoh.lo, 100 * r.vcoh.hi], f: v => `+${f(v, 1)}%`, unit: "progress speed times the one-group share"}],
+      swatches(["A85", "F17", "F18", "A90"]).replace(esc(nm("A90")), "the other adaptive factors"))],
+    ["#ans-loss", () => forest($("#ans-loss", el), lossRows)],
+    ["#ans-hold", () => barPanels($("#ans-hold", el), ["F20", "A85", "F17"].map(c => ({c, lab: SHORTL[c], r: UR[c], tip: `${nm(c)}, Unity, ${UR[c].n} street routes`})), [
+      {title: "Building contacts per km", get: r => r.contact_km, f: v => f(v, 2), unit: `Unity's street routes (1.7 held: ${F17U.n} routes, the first two benches)`},
+      {title: "Time split into groups", get: r => 100 * r.split, f: v => `${f(v, 0)}%`, unit: "Unity's own split measure"},
+      {title: "Drones on the hull", get: r => 100 * r.hull, f: v => `${f(v, 0)}%`, unit: "whose feeds the pilot's ring shows"}], swatches(["F20", "A85", "F17"]))],
+    ["#ans-f17", () => barPanels($("#ans-f17", el), ["F20", "A85", "F17"].map(c => ({c, lab: SHORTL[c], r: RP[c], tip: `${nm(c)}, replica, ${RP[c].n} flights`})), [
+      {title: "Progress in the streets (m/s)", get: r => r.st_vprog, f: v => f(v, 2), unit: "the replica's street routes"},
+      {title: "Loss events per 100 km", get: per100, ci: ci100, f: v => f(v, 1), unit: "every flight; the line is the exact 95% interval"},
+      {title: "Building contacts per km", get: r => r.contact_km, f: v => f(v, 2), unit: "every flight"},
+      {title: "Buildings surrounded", get: r => 100 * r.wrap, f: v => `${f(v, 0)}%`, unit: "of those the straight lines aimed at"}], swatches(["F20", "A85", "F17"]))]];
+  for (const [sel, draw] of draws) { const c = $(sel, el); if (c) { draw(); observe(c, draw); } }
+};
+
+// ---------------------------------------------------------------- flights (S9's replays, as its page shows them)
+const RPL = D.replay;
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+const WAYS = [["f20", "d_ref 2.0 held (adaptive off, C35)"], ["a85", "adaptive 0.85: 1.7 in the streets (the scene)"], ["a90", "adaptive 0.90: 1.8 in the streets"],
+              ["a95", "adaptive 0.95: 1.9 in the streets"], ["f17", "d_ref 1.7 held"], ["l85", "dial at 1.4, adaptive 0.85: 1.19 in the streets"]];
+RENDER.flights = el => {
+  if (!RPL || !RPL.groups || !RPL.groups.length) { el.innerHTML = `<div class="intro"><h2>Cities and flights</h2></div><p class="notrun">The Unity flights have not been replayed yet.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Cities and flights</h2><p>S9's own replays. The scene's city, where Unity and the replays fly, and the three cities of the same design held
+      out (S6's). Every S9 setting avoids each building as the smallest circle round its footprint (S8's enclosing circle); choose the shape to draw round the buildings.</p></div>
+    <div class="gal" id="gal"></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3><div class="seg" role="group" aria-label="Shape drawn">
+        <button type="button" data-s="__enc" aria-pressed="true">enclosing circles</button><button type="button" data-s="" aria-pressed="false">bounds circles</button><button type="button" data-s="__fp" aria-pressed="false">footprints only</button></div></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div></div>
+    <div class="intro" id="flightsx"><h2>Flights</h2><p>Routes from the first Unity bench's set in the scene's city, each flown the six ways that bench flew them: d_ref 2.0 held, the adaptive
+      spread narrowing to 0.85, 0.90 and 0.95 of it, d_ref 1.7 held, and the dial at its lowest (1.4) with the adaptive spread. Unity's own
+      trajectories, and the replica's twins flown from Unity's recorded start. Drones are dots in the setting's colour,
+      filled while their feed is on the pilot's ring; a ring round a dot marks a drone apart from the main group; a cross marks a drone lost. Space plays or pauses, ← and → step 5 s.
+      A few flights cannot show a difference that takes hundreds to measure (<a href="#q2">question 2</a>).</p></div><div id="c-player"></div>`;
+  const gal = $("#gal", el), thumbs = [];
+  gal.innerHTML = RPL.gallery.map((g, i) => `<button type="button" class="thumb" data-i="${i}" aria-pressed="${i === 0}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span>${esc(g.seed === 1 ? "the scene's city" : `held out, seed ${g.seed}`)}</span></button>`).join("");
+  const CM = new RV.MapView($("#c-map", el), {aspect: 0.8, minH: 320, maxH: 760});
+  let city = null, sel = 0, suf = "__enc";
+  CM.draw = (c, v) => { if (city) { RV.drawCity(c, v, city, {cylinders: true}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => { if (b.dataset.z === "in") CM.zoomBy(1.5); else if (b.dataset.z === "out") CM.zoomBy(1 / 1.5); else if (city) CM.fit(city.arena, 10); }));
+  const load = keepView => {
+    const g = RPL.gallery[sel], st = (g.stats || {})[suf || "bounds"] || {}, i = sel;
+    $("#c-title").textContent = g.what.charAt(0).toUpperCase() + g.what.slice(1);
+    $("#c-stats").innerHTML = [["buildings", st.buildings], ["circle radius (median)", suf === "__fp" ? "–" : `${f(st.cyl_r, 1)} m`],
+      ["street left between two buildings (median)", `${f(st.gap_median, 1)} m`], ["streets closed", st.pairs ? `${st.closed} of ${st.pairs}` : "–"], ["… narrowed below 6 m", st.narrow]]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v === undefined ? "–" : v}</dd>`).join("");
+    RV.load(RPATH.city(g.city + suf)).then(RV.city).then(C => { if (sel !== i) return; city = C; if (keepView) CM.request(); else CM.fit(C.arena, 10); });
+  };
+  el.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    suf = b.dataset.s; el.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); load(true);
+  }));
+  const pick = i => { sel = i; gal.querySelectorAll(".thumb").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i))); load(false); };
+  gal.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 400, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); };
+    thumbs.push(v);
+    RV.load(RPATH.city(RPL.gallery[+b.dataset.i].city)).then(RV.city).then(C => { v.city = C; v.fit([-150, 150, -150, 150], 0); }).catch(() => {});
+    b.addEventListener("click", () => pick(+b.dataset.i));
+  });
+  RV.onTheme(() => { thumbs.forEach(v => v.request()); CM.request(); });
+  pick(0);
+  const labels = {}, colors = {};
+  for (const [k, l] of WAYS) { labels[k] = l; colors[k] = `var(--k-${k})`; }
+  PLAYER = RV.Player($("#c-player", el), RPL.groups.map(g => Object.assign({short: g.title.replace(/^Problem: /, "Problem · ")}, g)),
+    {labels, colors, path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function flightSummaryRows(F, s) {
+  const n = x => ok(x) ? String(x) : "–", r = [];
+  r.push(["d_ref (the dial)", f(s.d, 1)], ["adaptive spread", s.adaptive ? `on, ${f(s.street_factor, 2)} in the streets (${f(s.d * s.street_factor, 2)})` : "off"]);
+  const k = F.route ? F.route.kind : "";
+  r.push(["route", F.route ? `${k === "cross" ? "a straight line" : k === "pass" ? "through a block" : "along the streets"}, ${f(F.route.L, 0)} m` : "–"]);
+  r.push(["progress speed", `${f(s.v_prog, 2)} m/s`], ["flight as one group", pc0(s.one_frac)], ["cohesive speed", `${f(s.v_coh, 2)} m/s`], ["ended in pieces", s.open_end ? "yes" : "no"]);
+  if (s.met) r.push(["buildings met / surrounded", `${s.met} / ${n(s.wrapped)}`], ["seconds past each, on average", f(s.bld_pass, 1)]);
+  r.push(["closest pair (m)", f(s.min_pair, 2)], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  return r;
+}
+function flightSummaryNote(F) {
+  return F.source === "unity" ? "Unity records contacts as a count, so they are not drawn on the map; a cross marks each drone lost."
+    : "The replica draws each building contact where it happened and a cross where each drone was lost.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const tbl = (title, head, body, note = "") => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>${note ? `<p class="small muted">${note}</p>` : ""}</div>`;
+  const rep = ["F20", "A95", "A90", "A85", "F18", "F17"].map(c => { const r = RP[c], ci = ci100(r);
+    return `<tr><td class="l">${esc(nm(c))}</td><td>${f(STREET[c], 2)}</td><td>${f(r.st_vprog, 2)}</td><td>${pc0(r.st_one)}</td><td>${f(r.st_vcoh, 2)}</td><td>${r.events}</td><td>${f(per100(r), 1)} (${f(ci[0], 1)}–${f(ci[1], 1)})</td>
+      <td>${c === "F20" ? "–" : rrs(RRT[c])}</td><td>${r.flights_lost}</td><td>${f(r.contact_km, 2)}</td><td>${pct(r.near)}</td><td>${pc0(r.hull)}</td><td>${pct(r.wrap)}</td><td>${f(r.cov, 0)}°</td>
+      <td>${["1", "2", "3", "4"].map(s => r.by_seed[s] ?? "–").join(" · ")}</td></tr>`; }).join("");
+  const pairs = ["A95-F20", "A90-F20", "A85-F20", "F18-F20", "F17-F20", "F17-A85", "F18-A85"].map(k => { const p = RPP[k], [a, b] = k.split("-");
+    return `<tr><td class="l">${esc(nm(a))} against ${esc(nm(b))}</td><td>${p.vprog.n}</td><td>${pct(p.vprog.pct)} (${pct(p.vprog.lo)} to ${pct(p.vprog.hi)})</td><td>${pc0(p.vprog.higher)}</td>
+      <td>${f(100 * p.one, 1)}</td><td>${pct(p.vcoh.pct)} (${pct(p.vcoh.lo)} to ${pct(p.vcoh.hi)})</td><td>${pc0(p.vcoh.higher)}</td></tr>`; }).join("");
+  const uni = ["F20", "A95", "A90", "A85", "F17", "L85"].filter(c => UR[c]).map(c => { const r = UR[c], ci = ci100(r);
+    return `<tr><td class="l">${esc(nm(c))}</td><td>${r.n}</td><td>${f(r.km, 0)}</td><td>${r.events} (${r.coll} · ${r.crashed})</td><td>${f(per100(r), 1)} (${f(ci[0], 1)}–${f(ci[1], 1)})</td><td>${r.flights_lost}</td>
+      <td>${f(r.contact_km, 2)}</td><td>${f(r.vprog, 2)}</td><td>${pc0(r.one)}</td><td>${f(r.vcoh, 2)}</td><td>${pct(r.near)}</td><td>${f(r.min_pair, 2)}</td><td>${f(r.near_ticks, 0)}</td>
+      <td>${pc0(r.hull)}</td><td>${pc0(r.split)}</td><td>${f(r.look, 1)}°</td><td>${r.twin_flights_lost} (${r.both_lost})</td></tr>`; }).join("");
+  const cmp = [["Unity, three benches, loss events", UN.ratio], ["Unity, the fresh bench only (flown after the settling rule)", UN.ratio_fresh],
+    ["Unity, the first two benches (seen before the rule)", UN.ratio_earlier], ["Unity, collisions between drones only", UN.ratio_coll],
+    ["Unity, flights that lost drones", UN.ratio_flights], [`Unity, loss events after the first ${f(TM.cut, 0)} s`, TM.unity_late],
+    ["Unity's replica twins, flights that lost drones", UN.ratio_twin], ["The replica's own flights (run2), loss events", RRT.A85],
+    [`The replica's own flights, after the first ${f(TM.cut, 0)} s (street routes)`, TM.replica_late], ["Replica and Unity combined (fixed effect)", CB],
+    ["1.7 held against 2.0 held, Unity (two benches)", UN.ratio_f17], ["1.7 held against 0.85, Unity (two benches)", UN.ratio_f17_a85],
+    ["1.7 held against 0.85, the replica (run2)", RRT["F17-A85"]]]
+    .map(([l, r]) => `<tr><td class="l">${esc(l)}</td><td>${ok(r.k) ? `${r.k} · ${r.k0}` : "–"}</td><td>${rrs(r)}</td><td>${ok(r.p) ? pv(r.p) : ok(r.q_p) ? `heterogeneity ${pv(r.q_p)}` : "–"}</td></tr>`).join("");
+  const bb = Object.entries(UN.by_bench).map(([b, x]) => `<tr><td class="l">${esc(b)}${b === UN.fresh ? " (the settling run)" : ""}</td><td>${x.F20 ?? "–"}</td><td>${x.A85 ?? "–"}</td><td>${x.F17 ?? "–"}</td></tr>`).join("");
+  const tim = [["unity", "F20"], ["unity", "A85"], ["unity", "F17"], ["replica", "F20"], ["replica", "A85"], ["replica", "F17"]].map(([s, c]) => { const x = TM[s][c];
+    return x ? `<tr><td class="l">${s === "unity" ? "Unity" : "Replica"} · ${esc(nm(c))}</td><td>${x.n}</td><td>${x.first10}</td><td>${x.early}</td><td>${x.late}</td><td>${f(x.median, 0)}</td></tr>` : ""; }).join("");
+  const r1 = ["F20", "A95", "A90", "A85", "F19", "F18", "F17", "F14", "L85", "L95", "F12", "F26", "H85"].filter(c => R1[c]).map(c => { const r = R1[c];
+    return `<tr><td class="l">${esc(nm(c))}</td><td>${f(STREET[c], 2)}</td><td>${f(r.st_vprog, 2)}</td><td>${f(r.st_vcoh, 2)}</td><td>${r.events}</td><td>${f(per100(r), 1)}</td><td>${f(r.contact_km, 2)}</td><td>${pc0(r.wrap)}</td><td>${f(r.cov, 0)}°</td></tr>`; }).join("");
+  const pwr = (PW.rows || []).map(p => `<tr><td class="l">×${f(p.R, 1)}</td><td>${p.routes.toLocaleString("en")}</td><td>${f(p.km, 0)}</td><td>${pc0(p.detect)}</td><td>${pc0(p.exclude)}</td><td>${f(p.routes * 2 * PW.min_per_flight / 60, 1)}</td></tr>`).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every number on the page, computed from the per-flight records by <code>citysim/swarmspread_review.py</code> (built ${esc(D.built)}).
+      The replica is S6's model of Unity on these prism buildings; Unity is the headless bench in BlockShapedPatchCityWorld as baked, with the replica's twin of each flight beside it.</p></div>
+    ${tbl("The replica's follow-up run (run2): 1,100 flights a row, the same routes for every row", ["", "spread in the streets", "progress (m/s)", "one group", "cohesive (m/s)", "loss events", "per 100 km (95%)", "vs 2.0 held", "flights with losses", "contacts /km", `pair within ${f(D.near_m, 2)} m`, "on the hull", "surrounded", "bearing covered", "events by city 1 · 2 · 3 · 4"], rep,
+      `Speeds and one group over the ${RF.street.toLocaleString("en")} street routes a row; surrounded and bearing covered over the ${RF.cross} straight lines; everything else over every flight. City 1 is the scene's.`)}
+    ${tbl("The replica: street speed route by route", ["", "routes", "progress speed (95%)", "faster on", "one group (points)", "cohesive speed (95%)", "faster on"], pairs,
+      "Paired differences over the same street routes, as a share of the second setting's mean.")}
+    ${tbl("Unity: the street routes of all three benches", ["", "routes", "km", "loss events (collisions · flips)", "per 100 km (95%)", "flights with losses", "contacts /km", "progress (m/s)", "one group", "cohesive (m/s)", `pair within ${f(D.near_m, 2)} m`, "closest pair, median (m)", "pair-ticks within 2 m", "on the hull", "split", "look gap", "twins: flights with losses (both)"], uni,
+      "A loss event is the drones lost at one moment: a colliding pair, or one drone flipped after hitting a building (Crashed). 1.7 held, 0.90, 0.95 and the dial at 1.4 flew only the first one or two benches. \"Both\": flights where Unity and its twin both lost drones.")}
+    ${tbl("Loss ratios: the narrower setting over the wider", ["", "counts", "ratio (95%)", "two-sided"], cmp,
+      "Exact intervals on the ratio of two counts (Clopper-Pearson on one given their sum), with equal exposure where the routes are the same. The combination is inverse-variance on the log ratios; its p tests whether the replica and Unity differ.")}
+    ${tbl("Unity loss events by bench", ["", "2.0 held", "0.85", "1.7 held"], bb, "The settling rule was written after the first two benches had flown.")}
+    ${tbl("When in a flight the losses came (street routes)", ["", "events", "first 10 s", `first ${f(TM.cut, 0)} s`, "after", "median (s)"], tim,
+      "Seconds from the end of the 15 s settle. Unity's from each trajectory's alive mask, a pair merged within 0.3 s; the replica's from its loss log.")}
+    ${tbl("The first replica run (run1): every row, including the dial's ends", ["", "spread in the streets", "progress (m/s)", "cohesive (m/s)", "loss events", "per 100 km", "contacts /km", "surrounded", "bearing covered"], r1,
+      `${f(R1.F20.km, 0)} km a row. Surrounded and bearing covered over the straight lines and blocks.`)}
+    ${tbl("Power of a further Unity run: two settings, street routes", ["true ratio", "routes each", "km each", "detects it", "excludes it when there is none", "bench hours"], pwr,
+      `Exact (not simulated), at Unity's 2.0-held rate of ${f(PW.rate, 3)} events per km and ${f(1000 * PW.km_route, 0)} m per route. "Detects": two-sided exact test at 0.05. "Excludes": the 95% upper bound falls below the ratio. Hours at the settling run's pace for both settings.`)}`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The settings", [
+    ["d_ref", "The formation's spacing, the pilot's spread dial (×10 m between neighbours, roughly). The trials' dial runs 1.4–2.6; 2.0 is a ring about 31 m across that closes round a typical building."],
+    ["Adaptive spread (S7)", "One swarm-wide scale on d_ref: 1 while a building lies on the swarm's track, the street factor otherwise. Low-passed with a 3 s filter, so the formation narrows and widens over several seconds."],
+    ["Street factor", "The share of d_ref the adaptive spread holds in the streets: 0.85 in the scene, so the dial's 2.0 becomes 1.7 there. It has no floor: the dial's 1.4 becomes 1.19."],
+    ["Held", "The adaptive spread off and d_ref at one value the whole flight."],
+    ["Codes", "F20, F18, F17, …: d_ref held at 2.0, 1.8, 1.7 (F20 is S8's C35). A85, A90, A95: d_ref 2.0 with the adaptive spread at 0.85, 0.90, 0.95 (A85 is the scene, S8's C35a). L85, L95: the dial at 1.4 with 0.85 or 0.95. H85: the dial at 2.6 with 0.85."],
+    ["The law under them", "Every row flies the scene's force law: each building avoided as the smallest circle round its footprint (S8), the slide round buildings (S7), d_obs 0.35, route stragglers off."]]],
+  ["The measures", [
+    ["Progress speed", "The route's length over the time taken to fly it. What a shorter or longer flight means."],
+    ["One group", "The share of the flight the drones were one group: each linked to the rest by a free-space path of at most 30 m round the buildings."],
+    ["Cohesive speed", "Progress speed times the one-group share: S6's headline, and the speed S9 reports. It rises when the swarm is quicker or when it splits less."],
+    ["Loss event", "A moment drones are lost: nearly always two drones closer than 0.5 m (both lost), sometimes a drone flipped after hitting a building. Counted as events, because a pair is one collision."],
+    ["Near miss, close-pair time", `A flight whose closest pair came within ${f(D.near_m, 2)} m; the number of physics ticks any pair spent within 2 m. Unity records both on every flight, so they have many more events than the losses.`],
+    ["Contact", "A drone touching a facade. In the simulation it does not cost the drone."],
+    ["Surrounded, bearing covered", "Of the buildings a straight line aims at, the share whose centre was inside the drones' convex hull at some moment near it; and how much of the 360° round it the drones' bearings covered."],
+    ["On the hull", "The share of live drones on the formation's convex hull: the drones whose feeds the pilot's ring shows."]]],
+  ["The statistics", [
+    ["Exact interval", "Losses are rare, so each count or ratio of counts gets an exact 95% interval rather than one from a normal approximation."],
+    ["Route by route", "Every setting flew the same routes, so speeds are compared on each route and the differences averaged."],
+    ["Heterogeneity", "A test of whether the replica's ratio and Unity's differ by more than chance. p = 0.09 here: they may, but the data do not show it."],
+    ["Fixed-effect combination", "The two log ratios averaged, each weighted by how precisely it is known. Only meaningful if both measure the same thing."],
+    ["Power", "The chance a run of a given size detects a true effect, or excludes one that is not there."]]],
+  ["The flights", [
+    ["Along the streets", "The shortest street route between two junctions 250–420 m apart, junction by junction, at full stick."],
+    ["A straight line", "From one junction to another at full stick, through whatever buildings lie between: the formation meets building after building."],
+    ["The replica, its twin", "The 2-D model of the swarm the studies use. A twin is the replica flying a Unity flight again from Unity's own start, on the same route."],
+    ["The benches", "Three Unity runs: the first (56 flights a setting, six settings), the follow-up (100 street routes, three settings) and the settling run (300 street routes, 2.0 held and 0.85), whose rule was written before it flew."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2><p>Every term the page uses, in plain words. S9's manual (docs/swarm_spread/README.md) has the method.</p></div>
+    <div class="terms">${TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join("")}</dl></div>`).join("")}</div>`;
+};
+
+$("#answer-box").innerHTML = ANSWER_BOX();
+if (!route(location.hash.slice(1))) {
+  let first = "answer";
+  try { const s = localStorage.getItem("s9rtab"); if (TABS.some(t => t[0] === s)) first = s; } catch (e) { /* storage blocked */ }
+  show(first);
+}
+</script>

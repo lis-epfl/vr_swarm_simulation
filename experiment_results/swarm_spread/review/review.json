@@ -1,0 +1,1472 @@
+{
+ "built": "2026-11-02 18:00",
+ "original": "https://claude.ai/artifact/M6fGKgM1WvMVw3mRSusMwK",
+ "near_m": 0.75,
+ "replica": {
+  "rows": {
+   "F20": {
+    "label": "F20 fixed d_ref 2.0 (C35)",
+    "n": 1100,
+    "km": 431.1543,
+    "events": 24,
+    "ci": [
+     15.3773,
+     35.7101
+    ],
+    "flights_lost": 24,
+    "drones": 48,
+    "contacts": 324,
+    "contact_km": 0.7515,
+    "st_vcoh": 5.363,
+    "st_vprog": 5.9176,
+    "st_one": 0.9047,
+    "near": 0.0327,
+    "hull": 0.5743,
+    "wrap": 0.9045,
+    "cov": 263.989,
+    "by_seed": {
+     "1": 3,
+     "2": 8,
+     "3": 6,
+     "4": 7
+    }
+   },
+   "A95": {
+    "label": "A95 d_ref 2.0, adaptive 0.95 (1.9 in the streets)",
+    "n": 1100,
+    "km": 431.1543,
+    "events": 36,
+    "ci": [
+     25.214,
+     49.8392
+    ],
+    "flights_lost": 36,
+    "drones": 72,
+    "contacts": 324,
+    "contact_km": 0.7515,
+    "st_vcoh": 5.5059,
+    "st_vprog": 5.9739,
+    "st_one": 0.92,
+    "near": 0.0391,
+    "hull": 0.5887,
+    "wrap": 0.9045,
+    "cov": 262.744,
+    "by_seed": {
+     "1": 6,
+     "2": 13,
+     "3": 11,
+     "4": 6
+    }
+   },
+   "A90": {
+    "label": "A90 d_ref 2.0, adaptive 0.9 (1.8 in the streets)",
+    "n": 1100,
+    "km": 431.1543,
+    "events": 35,
+    "ci": [
+     24.3788,
+     48.6765
+    ],
+    "flights_lost": 35,
+    "drones": 70,
+    "contacts": 297,
+    "contact_km": 0.6888,
+    "st_vcoh": 5.6494,
+    "st_vprog": 6.0268,
+    "st_one": 0.9359,
+    "near": 0.04,
+    "hull": 0.6025,
+    "wrap": 0.8883,
+    "cov": 259.146,
+    "by_seed": {
+     "1": 7,
+     "2": 8,
+     "3": 12,
+     "4": 8
+    }
+   },
+   "A85": {
+    "label": "A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene",
+    "n": 1100,
+    "km": 431.1543,
+    "events": 48,
+    "ci": [
+     35.3914,
+     63.641
+    ],
+    "flights_lost": 47,
+    "drones": 96,
+    "contacts": 260,
+    "contact_km": 0.603,
+    "st_vcoh": 5.7915,
+    "st_vprog": 6.0875,
+    "st_one": 0.9502,
+    "near": 0.0518,
+    "hull": 0.6203,
+    "wrap": 0.891,
+    "cov": 257.137,
+    "by_seed": {
+     "1": 11,
+     "2": 12,
+     "3": 14,
+     "4": 11
+    }
+   },
+   "F18": {
+    "label": "F18 fixed d_ref 1.8",
+    "n": 1100,
+    "km": 431.1543,
+    "events": 43,
+    "ci": [
+     31.1193,
+     57.9207
+    ],
+    "flights_lost": 42,
+    "drones": 86,
+    "contacts": 213,
+    "contact_km": 0.494,
+    "st_vcoh": 5.7932,
+    "st_vprog": 6.0902,
+    "st_one": 0.95,
+    "near": 0.0364,
+    "hull": 0.6167,
+    "wrap": 0.8936,
+    "cov": 254.081,
+    "by_seed": {
+     "1": 7,
+     "2": 11,
+     "3": 13,
+     "4": 12
+    }
+   },
+   "F17": {
+    "label": "F17 fixed d_ref 1.7",
+    "n": 1100,
+    "km": 431.1543,
+    "events": 48,
+    "ci": [
+     35.3914,
+     63.641
+    ],
+    "flights_lost": 47,
+    "drones": 96,
+    "contacts": 141,
+    "contact_km": 0.327,
+    "st_vcoh": 5.973,
+    "st_vprog": 6.18,
+    "st_one": 0.9655,
+    "near": 0.0527,
+    "hull": 0.6401,
+    "wrap": 0.8939,
+    "cov": 250.293,
+    "by_seed": {
+     "1": 11,
+     "2": 10,
+     "3": 19,
+     "4": 8
+    }
+   }
+  },
+  "rows1": {
+   "F20": {
+    "label": "F20 fixed d_ref 2.0 (C35)",
+    "n": 336,
+    "km": 117.0158,
+    "events": 9,
+    "ci": [
+     4.1154,
+     17.0848
+    ],
+    "flights_lost": 9,
+    "drones": 18,
+    "contacts": 97,
+    "contact_km": 0.8289,
+    "st_vcoh": 5.3931,
+    "st_vprog": 5.9241,
+    "st_one": 0.9085,
+    "near": 0.0298,
+    "hull": 0.5851,
+    "wrap": 0.933,
+    "cov": 268.0713,
+    "by_seed": {
+     "1": 2,
+     "2": 2,
+     "3": 3,
+     "4": 2
+    }
+   },
+   "A95": {
+    "label": "A95 d_ref 2.0, adaptive 0.95 (1.9 in the streets)",
+    "n": 336,
+    "km": 117.0158,
+    "events": 6,
+    "ci": [
+     2.2019,
+     13.0595
+    ],
+    "flights_lost": 6,
+    "drones": 12,
+    "contacts": 78,
+    "contact_km": 0.6666,
+    "st_vcoh": 5.5291,
+    "st_vprog": 5.9712,
+    "st_one": 0.9244,
+    "near": 0.0327,
+    "hull": 0.5984,
+    "wrap": 0.9124,
+    "cov": 266.3816,
+    "by_seed": {
+     "1": 3,
+     "2": 1,
+     "3": 2,
+     "4": 0
+    }
+   },
+   "A90": {
+    "label": "A90 d_ref 2.0, adaptive 0.9 (1.8 in the streets)",
+    "n": 336,
+    "km": 117.0158,
+    "events": 10,
+    "ci": [
+     4.7954,
+     18.3904
+    ],
+    "flights_lost": 10,
+    "drones": 20,
+    "contacts": 95,
+    "contact_km": 0.8119,
+    "st_vcoh": 5.6309,
+    "st_vprog": 6.0212,
+    "st_one": 0.9337,
+    "near": 0.0208,
+    "hull": 0.6132,
+    "wrap": 0.9072,
+    "cov": 264.3506,
+    "by_seed": {
+     "1": 4,
+     "2": 3,
+     "3": 3,
+     "4": 0
+    }
+   },
+   "A85": {
+    "label": "A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene",
+    "n": 336,
+    "km": 117.0158,
+    "events": 14,
+    "ci": [
+     7.6539,
+     23.4896
+    ],
+    "flights_lost": 14,
+    "drones": 28,
+    "contacts": 70,
+    "contact_km": 0.5982,
+    "st_vcoh": 5.8352,
+    "st_vprog": 6.0931,
+    "st_one": 0.9568,
+    "near": 0.0417,
+    "hull": 0.6292,
+    "wrap": 0.9124,
+    "cov": 263.0391,
+    "by_seed": {
+     "1": 2,
+     "2": 4,
+     "3": 7,
+     "4": 1
+    }
+   },
+   "F19": {
+    "label": "F19 fixed d_ref 1.9",
+    "n": 336,
+    "km": 117.0158,
+    "events": 13,
+    "ci": [
+     6.922,
+     22.2304
+    ],
+    "flights_lost": 13,
+    "drones": 26,
+    "contacts": 90,
+    "contact_km": 0.7691,
+    "st_vcoh": 5.5896,
+    "st_vprog": 6.0012,
+    "st_one": 0.93,
+    "near": 0.0417,
+    "hull": 0.6041,
+    "wrap": 0.9227,
+    "cov": 263.8966,
+    "by_seed": {
+     "1": 3,
+     "2": 3,
+     "3": 4,
+     "4": 3
+    }
+   },
+   "F18": {
+    "label": "F18 fixed d_ref 1.8",
+    "n": 336,
+    "km": 117.0158,
+    "events": 6,
+    "ci": [
+     2.2019,
+     13.0595
+    ],
+    "flights_lost": 6,
+    "drones": 12,
+    "contacts": 67,
+    "contact_km": 0.5726,
+    "st_vcoh": 5.7687,
+    "st_vprog": 6.0871,
+    "st_one": 0.9462,
+    "near": 0.0208,
+    "hull": 0.6198,
+    "wrap": 0.9072,
+    "cov": 259.2184,
+    "by_seed": {
+     "1": 1,
+     "2": 1,
+     "3": 3,
+     "4": 1
+    }
+   },
+   "F17": {
+    "label": "F17 fixed d_ref 1.7",
+    "n": 336,
+    "km": 117.0158,
+    "events": 12,
+    "ci": [
+     6.2006,
+     20.9616
+    ],
+    "flights_lost": 12,
+    "drones": 24,
+    "contacts": 41,
+    "contact_km": 0.3504,
+    "st_vcoh": 5.9452,
+    "st_vprog": 6.1779,
+    "st_one": 0.9615,
+    "near": 0.0565,
+    "hull": 0.6449,
+    "wrap": 0.9227,
+    "cov": 256.8701,
+    "by_seed": {
+     "1": 3,
+     "2": 3,
+     "3": 2,
+     "4": 4
+    }
+   },
+   "F14": {
+    "label": "F14 fixed d_ref 1.4: the dial at its lowest",
+    "n": 336,
+    "km": 117.0158,
+    "events": 17,
+    "ci": [
+     9.9031,
+     27.2186
+    ],
+    "flights_lost": 17,
+    "drones": 34,
+    "contacts": 25,
+    "contact_km": 0.2136,
+    "st_vcoh": 6.3651,
+    "st_vprog": 6.4178,
+    "st_one": 0.9915,
+    "near": 0.0506,
+    "hull": 0.7237,
+    "wrap": 0.8144,
+    "cov": 233.2138,
+    "by_seed": {
+     "1": 6,
+     "2": 5,
+     "3": 1,
+     "4": 5
+    }
+   },
+   "L85": {
+    "label": "L85 d_ref 1.4, adaptive 0.85 (1.19 in the streets)",
+    "n": 336,
+    "km": 117.0158,
+    "events": 14,
+    "ci": [
+     7.6539,
+     23.4896
+    ],
+    "flights_lost": 13,
+    "drones": 28,
+    "contacts": 10,
+    "contact_km": 0.0855,
+    "st_vcoh": 6.4694,
+    "st_vprog": 6.5031,
+    "st_one": 0.9946,
+    "near": 0.0565,
+    "hull": 0.7615,
+    "wrap": 0.8093,
+    "cov": 228.4494,
+    "by_seed": {
+     "1": 0,
+     "2": 2,
+     "3": 2,
+     "4": 10
+    }
+   },
+   "L95": {
+    "label": "L95 d_ref 1.4, adaptive 0.95 (1.33 in the streets)",
+    "n": 336,
+    "km": 117.0158,
+    "events": 9,
+    "ci": [
+     4.1154,
+     17.0848
+    ],
+    "flights_lost": 9,
+    "drones": 18,
+    "contacts": 24,
+    "contact_km": 0.2051,
+    "st_vcoh": 6.3889,
+    "st_vprog": 6.4464,
+    "st_one": 0.9908,
+    "near": 0.0506,
+    "hull": 0.7338,
+    "wrap": 0.8144,
+    "cov": 232.0264,
+    "by_seed": {
+     "1": 2,
+     "2": 3,
+     "3": 0,
+     "4": 4
+    }
+   },
+   "F12": {
+    "label": "F12 fixed d_ref 1.2",
+    "n": 336,
+    "km": 117.0158,
+    "events": 11,
+    "ci": [
+     5.4912,
+     19.682
+    ],
+    "flights_lost": 10,
+    "drones": 22,
+    "contacts": 8,
+    "contact_km": 0.0684,
+    "st_vcoh": 6.5267,
+    "st_vprog": 6.5479,
+    "st_one": 0.9966,
+    "near": 0.0357,
+    "hull": 0.7762,
+    "wrap": 0.7887,
+    "cov": 218.4356,
+    "by_seed": {
+     "1": 2,
+     "2": 1,
+     "3": 3,
+     "4": 5
+    }
+   },
+   "F26": {
+    "label": "F26 fixed d_ref 2.6: the dial at its highest",
+    "n": 336,
+    "km": 117.0158,
+    "events": 2,
+    "ci": [
+     0.2422,
+     7.2247
+    ],
+    "flights_lost": 2,
+    "drones": 4,
+    "contacts": 105,
+    "contact_km": 0.8973,
+    "st_vcoh": 3.6363,
+    "st_vprog": 5.6418,
+    "st_one": 0.6432,
+    "near": 0.0149,
+    "hull": 0.5369,
+    "wrap": 0.9742,
+    "cov": 290.0253,
+    "by_seed": {
+     "1": 0,
+     "2": 2,
+     "3": 0,
+     "4": 0
+    }
+   },
+   "H85": {
+    "label": "H85 d_ref 2.6, adaptive 0.85 (2.21 in the streets)",
+    "n": 336,
+    "km": 117.0158,
+    "events": 10,
+    "ci": [
+     4.7954,
+     18.3904
+    ],
+    "flights_lost": 9,
+    "drones": 20,
+    "contacts": 96,
+    "contact_km": 0.8204,
+    "st_vcoh": 4.4412,
+    "st_vprog": 5.7106,
+    "st_one": 0.7758,
+    "near": 0.0179,
+    "hull": 0.5479,
+    "wrap": 0.9588,
+    "cov": 283.4368,
+    "by_seed": {
+     "1": 3,
+     "2": 1,
+     "3": 1,
+     "4": 5
+    }
+   }
+  },
+  "ratios": {
+   "A95": {
+    "k": 36,
+    "k0": 24,
+    "ratio": 1.5,
+    "lo": 0.8706,
+    "hi": 2.6282,
+    "p": 0.155
+   },
+   "A90": {
+    "k": 35,
+    "k0": 24,
+    "ratio": 1.4583,
+    "lo": 0.8432,
+    "hi": 2.5626,
+    "p": 0.1925
+   },
+   "A85": {
+    "k": 48,
+    "k0": 24,
+    "ratio": 2.0,
+    "lo": 1.2012,
+    "hi": 3.4138,
+    "p": 0.0063
+   },
+   "F18": {
+    "k": 43,
+    "k0": 24,
+    "ratio": 1.7917,
+    "lo": 1.0631,
+    "hi": 3.0867,
+    "p": 0.0271
+   },
+   "F17": {
+    "k": 48,
+    "k0": 24,
+    "ratio": 2.0,
+    "lo": 1.2012,
+    "hi": 3.4138,
+    "p": 0.0063
+   },
+   "F17-A85": {
+    "k": 48,
+    "k0": 48,
+    "ratio": 1.0,
+    "lo": 0.6561,
+    "hi": 1.5241,
+    "p": 1.0
+   }
+  },
+  "paired": {
+   "A95-F20": {
+    "vprog": {
+     "n": 1000,
+     "pct": 0.0095,
+     "lo": 0.0086,
+     "hi": 0.0104,
+     "p": 0.0,
+     "higher": 0.789,
+     "diff": 0.0562
+    },
+    "vcoh": {
+     "n": 1000,
+     "pct": 0.0266,
+     "lo": 0.0203,
+     "hi": 0.033,
+     "p": 0.0,
+     "higher": 0.678,
+     "diff": 0.1429
+    },
+    "one": 0.0154,
+    "one_p": 0.0
+   },
+   "A90-F20": {
+    "vprog": {
+     "n": 1000,
+     "pct": 0.0185,
+     "lo": 0.0175,
+     "hi": 0.0194,
+     "p": 0.0,
+     "higher": 0.908,
+     "diff": 0.1092
+    },
+    "vcoh": {
+     "n": 1000,
+     "pct": 0.0534,
+     "lo": 0.0463,
+     "hi": 0.0604,
+     "p": 0.0,
+     "higher": 0.781,
+     "diff": 0.2863
+    },
+    "one": 0.0312,
+    "one_p": 0.0
+   },
+   "A85-F20": {
+    "vprog": {
+     "n": 1000,
+     "pct": 0.0287,
+     "lo": 0.0276,
+     "hi": 0.0297,
+     "p": 0.0,
+     "higher": 0.961,
+     "diff": 0.1698
+    },
+    "vcoh": {
+     "n": 1000,
+     "pct": 0.0799,
+     "lo": 0.0724,
+     "hi": 0.0874,
+     "p": 0.0,
+     "higher": 0.847,
+     "diff": 0.4285
+    },
+    "one": 0.0455,
+    "one_p": 0.0
+   },
+   "F18-F20": {
+    "vprog": {
+     "n": 1000,
+     "pct": 0.0292,
+     "lo": 0.0282,
+     "hi": 0.0302,
+     "p": 0.0,
+     "higher": 0.973,
+     "diff": 0.1725
+    },
+    "vcoh": {
+     "n": 1000,
+     "pct": 0.0802,
+     "lo": 0.073,
+     "hi": 0.0875,
+     "p": 0.0,
+     "higher": 0.86,
+     "diff": 0.4302
+    },
+    "one": 0.0453,
+    "one_p": 0.0
+   },
+   "F17-F20": {
+    "vprog": {
+     "n": 1000,
+     "pct": 0.0443,
+     "lo": 0.0432,
+     "hi": 0.0454,
+     "p": 0.0,
+     "higher": 0.991,
+     "diff": 0.2624
+    },
+    "vcoh": {
+     "n": 1000,
+     "pct": 0.1137,
+     "lo": 0.1059,
+     "hi": 0.1216,
+     "p": 0.0,
+     "higher": 0.913,
+     "diff": 0.61
+    },
+    "one": 0.0608,
+    "one_p": 0.0
+   },
+   "F17-A85": {
+    "vprog": {
+     "n": 1000,
+     "pct": 0.0152,
+     "lo": 0.0144,
+     "hi": 0.016,
+     "p": 0.0,
+     "higher": 0.909,
+     "diff": 0.0925
+    },
+    "vcoh": {
+     "n": 1000,
+     "pct": 0.0313,
+     "lo": 0.026,
+     "hi": 0.0367,
+     "p": 0.0,
+     "higher": 0.804,
+     "diff": 0.1815
+    },
+    "one": 0.0154,
+    "one_p": 0.0
+   },
+   "F18-A85": {
+    "vprog": {
+     "n": 1000,
+     "pct": 0.0004,
+     "lo": -0.0003,
+     "hi": 0.0012,
+     "p": 0.2547,
+     "higher": 0.481,
+     "diff": 0.0027
+    },
+    "vcoh": {
+     "n": 1000,
+     "pct": 0.0003,
+     "lo": -0.0049,
+     "hi": 0.0055,
+     "p": 0.9097,
+     "higher": 0.5,
+     "diff": 0.0017
+    },
+    "one": -0.0002,
+    "one_p": 0.9337
+   }
+  },
+  "flights": {
+   "n": 6600,
+   "street": 6000,
+   "cross": 600,
+   "n1": 4368
+  }
+ },
+ "unity": {
+  "rows": {
+   "A85": {
+    "n": 440,
+    "km": 172.5985,
+    "events": 30,
+    "ci": [
+     20.2409,
+     42.8269
+    ],
+    "coll": 29,
+    "crashed": 1,
+    "flights_lost": 29,
+    "contacts": 104,
+    "contact_km": 0.6026,
+    "vprog": 6.029,
+    "vcoh": 5.6853,
+    "one": 0.9414,
+    "near": 0.0727,
+    "min_pair": 1.48,
+    "near_ticks": 104.1136,
+    "hull": 0.6215,
+    "split": 0.0958,
+    "look": 13.1968,
+    "blind": 0.004,
+    "twin_flights_lost": 17,
+    "twin_contacts": 119,
+    "twin_near": 0.0591,
+    "both_lost": 4,
+    "benches": [
+     "bench_spread",
+     "bench_spread2",
+     "bench_spread3"
+    ]
+   },
+   "A90": {
+    "n": 40,
+    "km": 15.2889,
+    "events": 3,
+    "ci": [
+     0.6187,
+     8.7673
+    ],
+    "coll": 3,
+    "crashed": 0,
+    "flights_lost": 3,
+    "contacts": 12,
+    "contact_km": 0.7849,
+    "vprog": 5.9417,
+    "vcoh": 5.4153,
+    "one": 0.9095,
+    "near": 0.075,
+    "min_pair": 1.575,
+    "near_ticks": 71.15,
+    "hull": 0.5944,
+    "split": 0.1416,
+    "look": 13.2776,
+    "blind": 0.0051,
+    "twin_flights_lost": 2,
+    "twin_contacts": 21,
+    "twin_near": 0.05,
+    "both_lost": 0,
+    "benches": [
+     "bench_spread"
+    ]
+   },
+   "A95": {
+    "n": 40,
+    "km": 15.2889,
+    "events": 1,
+    "ci": [
+     0.0253,
+     5.5716
+    ],
+    "coll": 1,
+    "crashed": 0,
+    "flights_lost": 1,
+    "contacts": 12,
+    "contact_km": 0.7849,
+    "vprog": 5.8977,
+    "vcoh": 5.4366,
+    "one": 0.9203,
+    "near": 0.0,
+    "min_pair": 1.74,
+    "near_ticks": 67.1,
+    "hull": 0.5847,
+    "split": 0.1416,
+    "look": 13.0592,
+    "blind": 0.0052,
+    "twin_flights_lost": 3,
+    "twin_contacts": 17,
+    "twin_near": 0.175,
+    "both_lost": 0,
+    "benches": [
+     "bench_spread"
+    ]
+   },
+   "F17": {
+    "n": 140,
+    "km": 54.0615,
+    "events": 9,
+    "ci": [
+     4.1154,
+     17.0848
+    ],
+    "coll": 8,
+    "crashed": 1,
+    "flights_lost": 9,
+    "contacts": 24,
+    "contact_km": 0.4439,
+    "vprog": 6.1007,
+    "vcoh": 5.8037,
+    "one": 0.9494,
+    "near": 0.0357,
+    "min_pair": 1.595,
+    "near_ticks": 98.0857,
+    "hull": 0.6411,
+    "split": 0.075,
+    "look": 13.1871,
+    "blind": 0.0044,
+    "twin_flights_lost": 8,
+    "twin_contacts": 21,
+    "twin_near": 0.0357,
+    "both_lost": 2,
+    "benches": [
+     "bench_spread",
+     "bench_spread2"
+    ]
+   },
+   "F20": {
+    "n": 440,
+    "km": 172.5985,
+    "events": 28,
+    "ci": [
+     18.6058,
+     40.4678
+    ],
+    "coll": 25,
+    "crashed": 3,
+    "flights_lost": 28,
+    "contacts": 173,
+    "contact_km": 1.0023,
+    "vprog": 5.8722,
+    "vcoh": 5.3125,
+    "one": 0.9029,
+    "near": 0.0523,
+    "min_pair": 1.71,
+    "near_ticks": 68.3864,
+    "hull": 0.5735,
+    "split": 0.1657,
+    "look": 13.077,
+    "blind": 0.0063,
+    "twin_flights_lost": 16,
+    "twin_contacts": 160,
+    "twin_near": 0.0273,
+    "both_lost": 4,
+    "benches": [
+     "bench_spread",
+     "bench_spread2",
+     "bench_spread3"
+    ]
+   },
+   "L85": {
+    "n": 40,
+    "km": 15.2889,
+    "events": 2,
+    "ci": [
+     0.2422,
+     7.2247
+    ],
+    "coll": 2,
+    "crashed": 0,
+    "flights_lost": 2,
+    "contacts": 0,
+    "contact_km": 0.0,
+    "vprog": 6.428,
+    "vcoh": 6.428,
+    "one": 1.0,
+    "near": 0.1,
+    "min_pair": 1.32,
+    "near_ticks": 206.275,
+    "hull": 0.7513,
+    "split": 0.0,
+    "look": 12.9158,
+    "blind": 0.001,
+    "twin_flights_lost": 2,
+    "twin_contacts": 0,
+    "twin_near": 0.025,
+    "both_lost": 0,
+    "benches": [
+     "bench_spread"
+    ]
+   }
+  },
+  "paired": {
+   "n": 440,
+   "vprog": {
+    "n": 440,
+    "pct": 0.0267,
+    "lo": 0.0249,
+    "hi": 0.0285,
+    "p": 0.0,
+    "higher": 0.9273,
+    "diff": 0.1568
+   },
+   "vcoh": {
+    "n": 440,
+    "pct": 0.0702,
+    "lo": 0.0562,
+    "hi": 0.0841,
+    "p": 0.0,
+    "higher": 0.8136,
+    "diff": 0.3727
+   },
+   "one": 0.0385,
+   "twin_vprog": {
+    "n": 440,
+    "pct": 0.0278,
+    "lo": 0.0262,
+    "hi": 0.0295,
+    "p": 0.0,
+    "higher": 0.9364,
+    "diff": 0.1649
+   },
+   "contacts": {
+    "ratio": 0.6012,
+    "lo": 0.4568,
+    "hi": 0.7755,
+    "p": 0.0002,
+    "flights_a": 85,
+    "flights_b": 125
+   },
+   "min_pair": {
+    "diff": -0.165,
+    "p": 0.0
+   },
+   "near_ticks": {
+    "ratio": 1.5224,
+    "p": 0.0
+   },
+   "near": {
+    "a_only": 29,
+    "b_only": 20,
+    "both": 3,
+    "p": 0.2529
+   },
+   "hull": {
+    "diff": 0.048,
+    "p": 0.0
+   },
+   "split": {
+    "diff": -0.07,
+    "p": 0.0
+   },
+   "look": {
+    "diff": 0.1197,
+    "p": 0.1378
+   }
+  },
+  "paired_f17": {
+   "n": 140,
+   "vprog": {
+    "n": 140,
+    "pct": 0.0145,
+    "lo": 0.0116,
+    "hi": 0.0174,
+    "p": 0.0,
+    "higher": 0.8357,
+    "diff": 0.0872
+   },
+   "vcoh": {
+    "n": 140,
+    "pct": 0.0371,
+    "lo": 0.01,
+    "hi": 0.0642,
+    "p": 0.0076,
+    "higher": 0.7643,
+    "diff": 0.2076
+   },
+   "one": 0.0212,
+   "twin_vprog": {
+    "n": 140,
+    "pct": 0.0159,
+    "lo": 0.0135,
+    "hi": 0.0183,
+    "p": 0.0,
+    "higher": 0.9214,
+    "diff": 0.0965
+   },
+   "contacts": {
+    "ratio": 0.7742,
+    "lo": 0.4166,
+    "hi": 1.3336,
+    "p": 0.4601,
+    "flights_a": 19,
+    "flights_b": 27
+   },
+   "min_pair": {
+    "diff": 0.025,
+    "p": 0.3325
+   },
+   "near_ticks": {
+    "ratio": 0.9435,
+    "p": 0.3122
+   },
+   "near": {
+    "a_only": 5,
+    "b_only": 12,
+    "both": 0,
+    "p": 0.1435
+   },
+   "hull": {
+    "diff": 0.0204,
+    "p": 0.0
+   },
+   "split": {
+    "diff": -0.0397,
+    "p": 0.0
+   },
+   "look": {
+    "diff": -0.1456,
+    "p": 0.2424
+   }
+  },
+  "paired_f17_f20": {
+   "n": 140,
+   "vprog": {
+    "n": 140,
+    "pct": 0.0393,
+    "lo": 0.0361,
+    "hi": 0.0425,
+    "p": 0.0,
+    "higher": 0.9643,
+    "diff": 0.231
+   },
+   "vcoh": {
+    "n": 140,
+    "pct": 0.0856,
+    "lo": 0.0613,
+    "hi": 0.11,
+    "p": 0.0,
+    "higher": 0.8786,
+    "diff": 0.4577
+   },
+   "one": 0.04,
+   "twin_vprog": {
+    "n": 140,
+    "pct": 0.0431,
+    "lo": 0.04,
+    "hi": 0.0462,
+    "p": 0.0,
+    "higher": 0.9643,
+    "diff": 0.2547
+   },
+   "contacts": {
+    "ratio": 0.4444,
+    "lo": 0.2407,
+    "hi": 0.75,
+    "p": 0.0052,
+    "flights_a": 19,
+    "flights_b": 38
+   },
+   "min_pair": {
+    "diff": -0.235,
+    "p": 0.0001
+   },
+   "near_ticks": {
+    "ratio": 1.6377,
+    "p": 0.0001
+   },
+   "near": {
+    "a_only": 5,
+    "b_only": 8,
+    "both": 0,
+    "p": 0.5811
+   },
+   "hull": {
+    "diff": 0.0652,
+    "p": 0.0
+   },
+   "split": {
+    "diff": -0.0871,
+    "p": 0.0
+   },
+   "look": {
+    "diff": 0.1563,
+    "p": 0.4054
+   }
+  },
+  "ratio": {
+   "k": 30,
+   "k0": 28,
+   "ratio": 1.0714,
+   "lo": 0.6186,
+   "hi": 1.8611,
+   "p": 0.8957
+  },
+  "ratio_fresh": {
+   "k": 18,
+   "k0": 18,
+   "ratio": 1.0,
+   "lo": 0.4908,
+   "hi": 2.0375,
+   "p": 1.0
+  },
+  "ratio_earlier": {
+   "k": 12,
+   "k0": 10,
+   "ratio": 1.2,
+   "lo": 0.4752,
+   "hi": 3.1007,
+   "p": 0.8318
+  },
+  "ratio_coll": {
+   "k": 29,
+   "k0": 25,
+   "ratio": 1.16,
+   "lo": 0.6559,
+   "hi": 2.0654,
+   "p": 0.6835
+  },
+  "ratio_flights": {
+   "k": 29,
+   "k0": 28,
+   "ratio": 1.0357,
+   "lo": 0.5946,
+   "hi": 1.8067,
+   "p": 1.0
+  },
+  "ratio_twin": {
+   "k": 17,
+   "k0": 16,
+   "ratio": 1.0625,
+   "lo": 0.5048,
+   "hi": 2.2471,
+   "p": 1.0
+  },
+  "ratio_f17": {
+   "k": 9,
+   "k0": 10,
+   "ratio": 0.9,
+   "lo": 0.3236,
+   "hi": 2.4645,
+   "p": 1.0
+  },
+  "ratio_f17_a85": {
+   "k": 9,
+   "k0": 12,
+   "ratio": 0.75,
+   "lo": 0.2791,
+   "hi": 1.9394,
+   "p": 0.6636
+  },
+  "f17_benches": [
+   "bench_spread",
+   "bench_spread2"
+  ],
+  "fresh": "bench_spread3",
+  "by_bench": {
+   "bench_spread": {
+    "F20": 1,
+    "A85": 4,
+    "F17": 1
+   },
+   "bench_spread2": {
+    "F20": 9,
+    "A85": 8,
+    "F17": 8
+   },
+   "bench_spread3": {
+    "F20": 18,
+    "A85": 18
+   }
+  }
+ },
+ "timing": {
+  "cut": 15.0,
+  "unity": {
+   "A85": {
+    "early": 8,
+    "late": 22,
+    "first10": 6,
+    "n": 30,
+    "median": 23.7
+   },
+   "A90": {
+    "early": 0,
+    "late": 3,
+    "first10": 0,
+    "n": 3,
+    "median": 56.1
+   },
+   "A95": {
+    "early": 0,
+    "late": 1,
+    "first10": 0,
+    "n": 1,
+    "median": 40.0
+   },
+   "F17": {
+    "early": 1,
+    "late": 8,
+    "first10": 0,
+    "n": 9,
+    "median": 27.9
+   },
+   "F20": {
+    "early": 8,
+    "late": 20,
+    "first10": 5,
+    "n": 28,
+    "median": 27.0
+   },
+   "L85": {
+    "early": 0,
+    "late": 2,
+    "first10": 0,
+    "n": 2,
+    "median": 34.9
+   }
+  },
+  "replica": {
+   "F20": {
+    "early": 7,
+    "late": 17,
+    "first10": 1,
+    "n": 24,
+    "median": 25.3
+   },
+   "A85": {
+    "early": 10,
+    "late": 36,
+    "first10": 5,
+    "n": 46,
+    "median": 27.5
+   },
+   "F17": {
+    "early": 8,
+    "late": 39,
+    "first10": 3,
+    "n": 47,
+    "median": 34.7
+   }
+  },
+  "unity_late": {
+   "k": 22,
+   "k0": 20,
+   "ratio": 1.1,
+   "lo": 0.5728,
+   "hi": 2.1246,
+   "p": 0.8776
+  },
+  "replica_late": {
+   "k": 36,
+   "k0": 17,
+   "ratio": 2.1176,
+   "lo": 1.1591,
+   "hi": 4.0204,
+   "p": 0.0127
+  }
+ },
+ "combined": {
+  "ratio": 1.4868,
+  "lo": 1.0425,
+  "hi": 2.1204,
+  "q_p": 0.0853,
+  "fisher_p": 0.1055
+ },
+ "twin_own": {
+  "F20": {
+   "own": 3,
+   "own_n": 250,
+   "twin": 16,
+   "twin_n": 440,
+   "test": {
+    "k": 16,
+    "k0": 3,
+    "ratio": 3.0303,
+    "lo": 0.8674,
+    "hi": 16.2289,
+    "p": 0.0921
+   }
+  },
+  "A85": {
+   "own": 11,
+   "own_n": 250,
+   "twin": 17,
+   "twin_n": 440,
+   "test": {
+    "k": 17,
+    "k0": 11,
+    "ratio": 0.8781,
+    "lo": 0.388,
+    "hi": 2.074,
+    "p": 0.8445
+   }
+  }
+ },
+ "phases": {
+  "replica": {
+   "omnibus_p": 0.1353,
+   "contrast_p": 0.8331,
+   "wide": {
+    "a": 1,
+    "b": 4
+   },
+   "narrowing": {
+    "a": 22,
+    "b": 12
+   }
+  },
+  "unity": {
+   "omnibus_p": 0.0322,
+   "contrast_p": 0.7077,
+   "wide": {
+    "a": 5,
+    "b": 0
+   },
+   "narrowing": {
+    "a": 12,
+    "b": 10
+   }
+  }
+ },
+ "power": {
+  "rows": [
+   {
+    "R": 1.3,
+    "routes": 440,
+    "km": 172.5985,
+    "detect": 0.1516,
+    "exclude": 0.1276
+   },
+   {
+    "R": 1.3,
+    "routes": 1000,
+    "km": 392.2693,
+    "detect": 0.3222,
+    "exclude": 0.2853
+   },
+   {
+    "R": 1.3,
+    "routes": 1500,
+    "km": 588.404,
+    "detect": 0.4629,
+    "exclude": 0.4124
+   },
+   {
+    "R": 1.3,
+    "routes": 2000,
+    "km": 784.5386,
+    "detect": 0.586,
+    "exclude": 0.5262
+   },
+   {
+    "R": 1.3,
+    "routes": 3000,
+    "km": 1176.808,
+    "detect": 0.7678,
+    "exclude": 0.7075
+   },
+   {
+    "R": 1.5,
+    "routes": 440,
+    "km": 172.5985,
+    "detect": 0.3447,
+    "exclude": 0.2809
+   },
+   {
+    "R": 1.5,
+    "routes": 1000,
+    "km": 392.2693,
+    "detect": 0.6893,
+    "exclude": 0.5923
+   },
+   {
+    "R": 1.5,
+    "routes": 1500,
+    "km": 588.404,
+    "detect": 0.8596,
+    "exclude": 0.7743
+   },
+   {
+    "R": 1.5,
+    "routes": 2000,
+    "km": 784.5386,
+    "detect": 0.9417,
+    "exclude": 0.8824
+   },
+   {
+    "R": 1.5,
+    "routes": 3000,
+    "km": 1176.808,
+    "detect": 0.9915,
+    "exclude": 0.9724
+   },
+   {
+    "R": 2.0,
+    "routes": 440,
+    "km": 172.5985,
+    "detect": 0.8467,
+    "exclude": 0.6777
+   },
+   {
+    "R": 2.0,
+    "routes": 1000,
+    "km": 392.2693,
+    "detect": 0.9959,
+    "exclude": 0.9615
+   },
+   {
+    "R": 2.0,
+    "routes": 1500,
+    "km": 588.404,
+    "detect": 0.9999,
+    "exclude": 0.9957
+   },
+   {
+    "R": 2.0,
+    "routes": 2000,
+    "km": 784.5386,
+    "detect": 1.0,
+    "exclude": 0.9996
+   },
+   {
+    "R": 2.0,
+    "routes": 3000,
+    "km": 1176.808,
+    "detect": 1.0,
+    "exclude": 1.0
+   }
+  ],
+  "rate": 0.1622,
+  "km_route": 0.3923,
+  "min_per_flight": 0.0833
+ }
+}

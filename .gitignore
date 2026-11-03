@@ -124,10 +124,11 @@ experiment_results/swarm_shape/**/gate.jsonl
 experiment_results/swarm_shape/s7_events/flights.jsonl
 experiment_results/swarm_shape/swarm_shape.html
 # S9 Street Spread: the same; the tables, analyses, timing (temporal.json), the rule, the candidate files and the
-# bench gate tables committed.
+# bench gate tables committed. The review's page is the same: its bare page and files list committed, the inlined copy not.
 experiment_results/swarm_spread/**/results.jsonl
 experiment_results/swarm_spread/**/gate.jsonl
 experiment_results/swarm_spread/swarm_spread.html
+experiment_results/swarm_spread/review/swarm_spread_review.html
 # S10 Ellipse Avoidance: the same; walls.csv, gaps.csv, the tables, the rule, the candidate files and the bench gate
 # tables committed.
 experiment_results/swarm_ellipse/**/results.jsonl
