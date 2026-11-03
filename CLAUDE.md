@@ -1600,6 +1600,14 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
     are the scene's own `Assets/Materials/VoronoiRoad.mat`/`VoronoiJunction.mat` at tint 0.5 (made if missing): the
     pack's tint 0.196 renders the paint at ~15% and reads black from a drone. ParkRoad is moved onto the road copy in
     this scene only. ProceduralCityWorld keeps `Flat`, the study's look.
+  - **No point of the road is drawn twice** (`StreetSurface.Lay`, 2026-11-03). Every piece sits at `streetHeight`, so
+    an overlap z-fights, and a merged junction's convex hull spreads over its streets' crossings: the first bakes drew
+    ~9,300 m² twice in BlockShapedPatchCityWorld (14,500 in BlockCityWorld and BlockShapedCityWorld, whose small blocks
+    merge more junctions; 180 here), and the zebra stripes flickered through the asphalt. Each piece is now cut to the
+    ground no earlier piece covers, crossings first, then stretches, then junctions as filler; the analysis
+    (`Stretches`, which the dressing reads) is unchanged. The mesh is named with `StreetSurface.Version`, a bake with
+    an older road is redrawn at Play by `Adopt`, and `Tools/Swarm/Redraw baked streets` puts the new road in the open
+    scenes without a rebake. **Bump `Version` whenever the drawn road changes.**
   - A mix and even placement draw from the same RNG, so the study's path must draw nothing extra:
     `test_one_design_layouts_are_unchanged_by_the_mix` regenerates a committed trial layout byte for byte.
   - **Its coverage levels are S3 City Roaming's** (2026-10-21): 0.0227 (DiamondCityWorld's), **0.04**, 0.06 and 0.10,

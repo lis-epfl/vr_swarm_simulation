@@ -19,9 +19,22 @@ using UnityEngine;
 /// <para><b>Voronoi diagrams have very short edges</b> (two vertices a few metres apart). A street with less than
 /// <see cref="Settings.minStrip"/> left between its setbacks and crossings is not drawn: its two junctions merge into one,
 /// drawn as the convex hull of everything meeting there (the merged street's own rectangle included).</para>
+///
+/// <para><b>No point of the road is drawn twice</b> (<see cref="Lay"/>). Every piece lies at one height, so two that
+/// overlap z-fight, and the overlap is not rare: a merged junction's hull spreads over the crossings of the streets
+/// leaving it, and streets meeting at an acute angle overlap past <see cref="Settings.maxSetback"/>. The first road of
+/// BlockShapedPatchCityWorld drew 9,300 m² twice, at nearly every merged junction, and the zebra stripes flickered
+/// through the asphalt there. So each piece is cut down to the ground no earlier piece covers, crossings first, then the
+/// stretches, then the junctions, which only fill what the streets leave: a street keeps its whole crossing however far
+/// its junction's hull reaches. The cut changes what is drawn, not the analysis: <see cref="Stretches"/> is unchanged.</para>
 /// </summary>
 public static class StreetSurface
 {
+    /// <summary>Stamped on the mesh's name, so a road baked into a scene by an older version is known and redrawn
+    /// (<see cref="ProceduralCityBuilder"/>). 2: no piece overlaps another.</summary>
+    public const int Version = 2;
+    public static readonly string MeshName = $"Procedural roads v{Version}";
+
     public struct Settings
     {
         public float height;           // m above y = 0
@@ -37,6 +50,25 @@ public static class StreetSurface
     /// <summary>Its plain asphalt (the rest of the content: u, v 0.02 to 0.88; u past 0.9 is black).</summary>
     public static readonly Rect PlainUV = Rect.MinMaxRect(0.02f, 0.02f, 0.88f, 0.88f);
     private const float JunctionMetresPerUV = 60f;    // plain asphalt at 34 px/m, unless a junction is bigger
+    private const float Eps = 1e-3f;                  // m: pieces this close to a line are on it (they only touch)
+    private const float MinArea = 1e-4f;              // m²: a smaller piece is not drawn
+    private const float Cell = 16f;                   // m: the grid Lay finds earlier pieces by
+
+    /// <summary>One convex piece of road (counter-clockwise in (x, z)), mapped affinely: a point p has
+    /// uv = t0 + ((p - p0)·su) du + ((p - p0)·sr) dr, so a piece cut down keeps its texture where it was.</summary>
+    private sealed class Piece
+    {
+        public List<Vector2> poly;
+        public int sub;
+        public Vector2 p0, su, sr, t0, du, dr;
+        public Rect bounds;
+
+        public Vector2 Uv(Vector2 p)
+        {
+            Vector2 q = p - p0;
+            return t0 + Vector2.Dot(q, su) * du + Vector2.Dot(q, sr) * dr;
+        }
+    }
 
     private class Edge
     {
@@ -119,16 +151,39 @@ public static class StreetSurface
 
     public static Mesh Build(IEnumerable<(Vector2 a, Vector2 b, float width)> segments, Settings s)
     {
+        var verts = new List<Vector3>();
+        var uvs = new List<Vector2>();
+        var road = new List<int>();
+        var junction = new List<int>();
+        Draw(segments, s, verts, uvs, road, junction);
+
+        var mesh = new Mesh { name = MeshName, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+        mesh.SetVertices(verts);
+        mesh.SetUVs(0, uvs);
+        mesh.subMeshCount = 2;
+        mesh.SetTriangles(road, 0);
+        mesh.SetTriangles(junction, 1);
+        var normals = new Vector3[verts.Count];
+        for (int i = 0; i < normals.Length; i++) normals[i] = Vector3.up;
+        mesh.normals = normals;
+        mesh.RecalculateTangents();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    /// <summary>The road's vertices, uvs and two submeshes' triangles (<see cref="Build"/> without the Mesh).</summary>
+    private static void Draw(IEnumerable<(Vector2 a, Vector2 b, float width)> segments, Settings s, List<Vector3> verts,
+                             List<Vector2> uvs, List<int> road, List<int> junction)
+    {
         Graph g = Analyse(segments, s);
         List<Vector2> nodes = g.nodes;
         List<Edge> edges = g.edges;
         List<Incident>[] inc = g.inc;
         int Find(int i) => g.Find(i);
 
-        var verts = new List<Vector3>();
-        var uvs = new List<Vector2>();
-        var road = new List<int>();
-        var junction = new List<int>();
+        var crossings = new List<Piece>();
+        var stretches = new List<Piece>();
+        var junctions = new List<Piece>();
 
         // ---- the straight stretches and their crossings
         foreach (Edge e in edges)
@@ -140,10 +195,10 @@ public static class StreetSurface
             Vector2 p0 = a + d * (e.setback[0] + ca), p1 = b - d * (e.setback[1] + cb);
             float tile = e.width / Mathf.Max(s.tilesAcross, 1);
             float v1 = (p1 - p0).magnitude / tile;
-            Quad(verts, uvs, road, s.height, p0 - left, p0 + left, p1 + left, p1 - left,
-                 new Vector2(0f, 0f), new Vector2(s.tilesAcross, 0f), new Vector2(s.tilesAcross, v1), new Vector2(0f, v1));
-            if (e.crossing[0]) Crossing(verts, uvs, junction, s.height, a + d * e.setback[0], d, left, s.crossingDepth);
-            if (e.crossing[1]) Crossing(verts, uvs, junction, s.height, b - d * e.setback[1], -d, -left, s.crossingDepth);
+            Quad(stretches, 0, p0 - left, p0 + left, p1 + left, p1 - left,
+                 new Vector2(0f, 0f), new Vector2(s.tilesAcross, 0f), new Vector2(0f, v1));
+            if (e.crossing[0]) Crossing(crossings, a + d * e.setback[0], d, left, s.crossingDepth);
+            if (e.crossing[1]) Crossing(crossings, b - d * e.setback[1], -d, -left, s.crossingDepth);
         }
 
         // ---- junctions
@@ -158,26 +213,181 @@ public static class StreetSurface
         {
             if (group.Count == 1)
             {
-                Star(verts, uvs, junction, s.height, nodes[group[0]], inc[group[0]], edges);
+                Star(junctions, nodes[group[0]], inc[group[0]], edges);
             }
             else
             {
-                Merged(verts, uvs, junction, s.height, group, nodes, inc, edges);
+                Merged(junctions, group, nodes, inc, edges);
             }
         }
 
-        var mesh = new Mesh { name = "Procedural roads", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
-        mesh.SetVertices(verts);
-        mesh.SetUVs(0, uvs);
-        mesh.subMeshCount = 2;
-        mesh.SetTriangles(road, 0);
-        mesh.SetTriangles(junction, 1);
-        var normals = new Vector3[verts.Count];
-        for (int i = 0; i < normals.Length; i++) normals[i] = Vector3.up;
-        mesh.normals = normals;
-        mesh.RecalculateTangents();
-        mesh.RecalculateBounds();
-        return mesh;
+        var pieces = new List<Piece>(crossings);
+        pieces.AddRange(stretches);
+        pieces.AddRange(junctions);
+        Lay(pieces, s.height, verts, uvs, new[] { road, junction });
+    }
+
+    /// <summary>Writes <paramref name="pieces"/> into the mesh in order, each cut down to the ground no earlier piece
+    /// covers, so no point is drawn twice (see the class summary). A piece that only touches an earlier one along an
+    /// edge is written whole.</summary>
+    private static void Lay(List<Piece> pieces, float y, List<Vector3> verts, List<Vector2> uvs, List<int>[] tris)
+    {
+        var grid = new Dictionary<(int, int), List<int>>();
+        var seen = new HashSet<int>();
+        var near = new List<int>();
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            Piece p = pieces[i];
+            int x0 = Mathf.FloorToInt(p.bounds.xMin / Cell), x1 = Mathf.FloorToInt(p.bounds.xMax / Cell);
+            int z0 = Mathf.FloorToInt(p.bounds.yMin / Cell), z1 = Mathf.FloorToInt(p.bounds.yMax / Cell);
+            seen.Clear();
+            near.Clear();
+            for (int x = x0; x <= x1; x++)
+            {
+                for (int z = z0; z <= z1; z++)
+                {
+                    if (!grid.TryGetValue((x, z), out List<int> list)) continue;
+                    foreach (int j in list)
+                    {
+                        if (seen.Add(j) && p.bounds.Overlaps(pieces[j].bounds)) near.Add(j);
+                    }
+                }
+            }
+            near.Sort();
+            var parts = new List<List<Vector2>> { p.poly };
+            foreach (int j in near)
+            {
+                var rest = new List<List<Vector2>>();
+                foreach (List<Vector2> part in parts) Subtract(part, pieces[j].poly, rest);
+                parts = rest;
+                if (parts.Count == 0) break;
+            }
+            foreach (List<Vector2> part in parts)
+            {
+                int i0 = verts.Count;
+                foreach (Vector2 q in part)
+                {
+                    verts.Add(new Vector3(q.x, y, q.y));
+                    uvs.Add(p.Uv(q));
+                }
+                for (int k = 1; k + 1 < part.Count; k++) Tri(verts, tris[p.sub], i0, i0 + k, i0 + k + 1);
+            }
+            for (int x = x0; x <= x1; x++)
+            {
+                for (int z = z0; z <= z1; z++)
+                {
+                    if (!grid.TryGetValue((x, z), out List<int> list)) grid[(x, z)] = list = new List<int>();
+                    list.Add(i);
+                }
+            }
+        }
+    }
+
+    /// <summary>Adds to <paramref name="into"/> the part of convex <paramref name="a"/> outside convex
+    /// <paramref name="b"/>, as convex pieces: <paramref name="a"/> itself when the two only touch.</summary>
+    private static void Subtract(List<Vector2> a, List<Vector2> b, List<List<Vector2>> into)
+    {
+        if (Apart(a, b) || Apart(b, a))
+        {
+            into.Add(a);
+            return;
+        }
+        // Outside b means outside one of its edges: peel off what lies beyond each edge in turn, and keep the rest.
+        List<Vector2> rest = a;
+        for (int k = 0; k < b.Count; k++)
+        {
+            Vector2 p = b[k], q = b[(k + 1) % b.Count];
+            List<Vector2> beyond = Clip(rest, p, q, -1f);
+            if (Area(beyond) > MinArea) into.Add(beyond);
+            rest = Clip(rest, p, q, 1f);
+            if (Area(rest) <= MinArea) return;
+        }
+        // what is left lies inside b, which is drawn already
+    }
+
+    /// <summary>Whether all of <paramref name="a"/> lies outside one edge of <paramref name="b"/> (to within
+    /// <see cref="Eps"/>): a separating line, so the two do not overlap.</summary>
+    private static bool Apart(List<Vector2> a, List<Vector2> b)
+    {
+        for (int k = 0; k < b.Count; k++)
+        {
+            Vector2 p = b[k], q = b[(k + 1) % b.Count];
+            bool outside = true;
+            foreach (Vector2 v in a)
+            {
+                if (Side(p, q, v) > Eps)
+                {
+                    outside = false;
+                    break;
+                }
+            }
+            if (outside) return true;
+        }
+        return false;
+    }
+
+    /// <summary>The part of convex <paramref name="poly"/> left of the line p -> q (<paramref name="keep"/> 1) or right of
+    /// it (-1). Corners within <see cref="Eps"/> of the line count as on it.</summary>
+    private static List<Vector2> Clip(List<Vector2> poly, Vector2 p, Vector2 q, float keep)
+    {
+        var o = new List<Vector2>(poly.Count + 1);
+        for (int k = 0; k < poly.Count; k++)
+        {
+            Vector2 u = poly[k], v = poly[(k + 1) % poly.Count];
+            float du = keep * Side(p, q, u), dv = keep * Side(p, q, v);
+            if (Mathf.Abs(du) < Eps) du = 0f;
+            if (Mathf.Abs(dv) < Eps) dv = 0f;
+            if (du >= 0f) o.Add(u);
+            if ((du > 0f && dv < 0f) || (du < 0f && dv > 0f)) o.Add(u + (v - u) * (du / (du - dv)));
+        }
+        return o;
+    }
+
+    /// <summary>The signed distance of <paramref name="v"/> from the line p -> q, positive on its left.</summary>
+    private static float Side(Vector2 p, Vector2 q, Vector2 v)
+    {
+        Vector2 e = q - p;
+        return (e.x * (v.y - p.y) - e.y * (v.x - p.x)) / e.magnitude;
+    }
+
+    /// <summary>The polygon's area, positive counter-clockwise.</summary>
+    private static float Area(List<Vector2> poly)
+    {
+        float a = 0f;
+        for (int k = 0; k < poly.Count; k++)
+        {
+            Vector2 u = poly[k], v = poly[(k + 1) % poly.Count];
+            a += u.x * v.y - v.x * u.y;
+        }
+        return 0.5f * a;
+    }
+
+    /// <summary>A convex piece from its corners in either order, mapped as given, or nothing if it has no area. Corners a
+    /// hair apart are merged, so every edge has a direction.</summary>
+    private static void AddPiece(List<Piece> into, int sub, List<Vector2> corners, Vector2 p0, Vector2 su, Vector2 sr,
+                            Vector2 t0, Vector2 du, Vector2 dr)
+    {
+        var poly = new List<Vector2>(corners.Count);
+        foreach (Vector2 c in corners)
+        {
+            if (poly.Count == 0 || (c - poly[poly.Count - 1]).sqrMagnitude > 1e-8f) poly.Add(c);
+        }
+        while (poly.Count > 1 && (poly[0] - poly[poly.Count - 1]).sqrMagnitude <= 1e-8f) poly.RemoveAt(poly.Count - 1);
+        if (poly.Count < 3) return;
+        float area = Area(poly);
+        if (Mathf.Abs(area) <= MinArea) return;
+        if (area < 0f) poly.Reverse();
+        Vector2 lo = poly[0], hi = poly[0];
+        foreach (Vector2 c in poly)
+        {
+            lo = Vector2.Min(lo, c);
+            hi = Vector2.Max(hi, c);
+        }
+        into.Add(new Piece
+        {
+            poly = poly, sub = sub, p0 = p0, su = su, sr = sr, t0 = t0, du = du, dr = dr,
+            bounds = Rect.MinMaxRect(lo.x, lo.y, hi.x, hi.y),
+        });
     }
 
     /// <summary>The street graph with every street's setbacks and crossings, and the streets too short to draw merged
@@ -269,8 +479,7 @@ public static class StreetSurface
 
     /// <summary>One junction: its streets' end corners and the kerb corners between them, in angular order, fanned
     /// from the junction's point (star-shaped from it by construction).</summary>
-    private static void Star(List<Vector3> verts, List<Vector2> uvs, List<int> tris, float y, Vector2 c,
-                             List<Incident> list, List<Edge> edges)
+    private static void Star(List<Piece> into, Vector2 c, List<Incident> list, List<Edge> edges)
     {
         int deg = list.Count;
         if (deg == 0) return;
@@ -299,13 +508,13 @@ public static class StreetSurface
             bool outer = gap > Mathf.PI && ti < 0f && tj < 0f;
             if (inner || outer) ring.Add(c + left + i.dir * ti);
         }
-        Fan(verts, uvs, tris, y, c, ring);
+        Fan(into, c, ring);
     }
 
     /// <summary>A merged junction: the convex hull of its nodes, the rectangles of the streets merged into it and the
     /// end corners of the streets leaving it.</summary>
-    private static void Merged(List<Vector3> verts, List<Vector2> uvs, List<int> tris, float y, List<int> group,
-                               List<Vector2> nodes, List<Incident>[] inc, List<Edge> edges)
+    private static void Merged(List<Piece> into, List<int> group, List<Vector2> nodes, List<Incident>[] inc,
+                               List<Edge> edges)
     {
         var pts = new List<Vector2>();
         foreach (int n in group)
@@ -325,55 +534,41 @@ public static class StreetSurface
         List<Vector2> hull = Hull(pts);
         Vector2 c = Vector2.zero;
         foreach (Vector2 p in hull) c += p;
-        Fan(verts, uvs, tris, y, c / hull.Count, hull);
+        Fan(into, c / hull.Count, hull);
     }
 
     /// <summary>A crossing across a street: depth along <paramref name="d"/> from <paramref name="start"/>, the zebra
     /// strip's stripes running along the street.</summary>
-    private static void Crossing(List<Vector3> verts, List<Vector2> uvs, List<int> tris, float y, Vector2 start,
-                                 Vector2 d, Vector2 left, float depth)
+    private static void Crossing(List<Piece> into, Vector2 start, Vector2 d, Vector2 left, float depth)
     {
         Vector2 end = start + d * depth;
-        Quad(verts, uvs, tris, y, start - left, start + left, end + left, end - left,
+        Quad(into, 1, start - left, start + left, end + left, end - left,
              new Vector2(ZebraUV.xMin, ZebraUV.yMin), new Vector2(ZebraUV.xMax, ZebraUV.yMin),
-             new Vector2(ZebraUV.xMax, ZebraUV.yMax), new Vector2(ZebraUV.xMin, ZebraUV.yMax));
+             new Vector2(ZebraUV.xMin, ZebraUV.yMax));
     }
 
-    private static void Fan(List<Vector3> verts, List<Vector2> uvs, List<int> tris, float y, Vector2 c, List<Vector2> ring)
+    /// <summary>A junction's polygon as the triangles fanned from <paramref name="c"/> (one piece each: the ring is
+    /// star-shaped from it, not convex), mapped onto the plain asphalt.</summary>
+    private static void Fan(List<Piece> into, Vector2 c, List<Vector2> ring)
     {
         if (ring.Count < 2) return;
         float radius = 0f;
         foreach (Vector2 p in ring) radius = Mathf.Max(radius, (p - c).magnitude);
         float k = Mathf.Min(1f / JunctionMetresPerUV, 0.5f * PlainUV.width / Mathf.Max(radius, 1e-3f));
-        Vector2 Uv(Vector2 p) => PlainUV.center + (p - c) * k;
-        int i0 = verts.Count;
-        verts.Add(new Vector3(c.x, y, c.y));
-        uvs.Add(Uv(c));
-        foreach (Vector2 p in ring)
-        {
-            verts.Add(new Vector3(p.x, y, p.y));
-            uvs.Add(Uv(p));
-        }
         for (int k2 = 0; k2 < ring.Count; k2++)
         {
-            Tri(verts, tris, i0, i0 + 1 + k2, i0 + 1 + (k2 + 1) % ring.Count);
+            AddPiece(into, 1, new List<Vector2> { c, ring[k2], ring[(k2 + 1) % ring.Count] },
+                c, new Vector2(k, 0f), new Vector2(0f, k), PlainUV.center, Vector2.right, Vector2.up);
         }
     }
 
-    private static void Quad(List<Vector3> verts, List<Vector2> uvs, List<int> tris, float y,
-                             Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, Vector2 t0, Vector2 t1, Vector2 t2, Vector2 t3)
+    /// <summary>A rectangle p0 p1 p2 p3 whose corners p0, p1 and p3 map to t0, t1 and t3 (p2 to t1 + t3 - t0).</summary>
+    private static void Quad(List<Piece> into, int sub, Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3,
+                             Vector2 t0, Vector2 t1, Vector2 t3)
     {
-        int i = verts.Count;
-        verts.Add(new Vector3(p0.x, y, p0.y));
-        verts.Add(new Vector3(p1.x, y, p1.y));
-        verts.Add(new Vector3(p2.x, y, p2.y));
-        verts.Add(new Vector3(p3.x, y, p3.y));
-        uvs.Add(t0);
-        uvs.Add(t1);
-        uvs.Add(t2);
-        uvs.Add(t3);
-        Tri(verts, tris, i, i + 1, i + 2);
-        Tri(verts, tris, i, i + 2, i + 3);
+        Vector2 u = p1 - p0, r = p3 - p0;
+        AddPiece(into, sub, new List<Vector2> { p0, p1, p2, p3 }, p0, u / Mathf.Max(u.sqrMagnitude, 1e-12f),
+            r / Mathf.Max(r.sqrMagnitude, 1e-12f), t0, t1 - t0, t3 - t0);
     }
 
     /// <summary>A triangle wound to face up (Unity: front faces wind clockwise seen from above).</summary>

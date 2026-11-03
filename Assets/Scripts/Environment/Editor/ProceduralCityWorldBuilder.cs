@@ -96,6 +96,32 @@ public static class ProceduralCityWorldBuilder
     [MenuItem("Tools/Swarm/Build procedural city from layout…", true)]
     private static bool CanBuildLayout() => !EditorApplication.isPlayingOrWillChangePlaymode;
 
+    /// <summary>Draws the baked streets of every open scene's city again (<see cref="ProceduralCityBuilder.RedrawBakedStreets"/>),
+    /// leaving its buildings and dressing alone: a road baked by an older <see cref="StreetSurface"/> is redrawn at Play
+    /// anyway, and this puts the new one in the saved scene.</summary>
+    [MenuItem("Tools/Swarm/Redraw baked streets")]
+    private static void RedrawStreetsInOpenScenes()
+    {
+        ProceduralCityBuilder[] builders = Object.FindObjectsByType<ProceduralCityBuilder>(FindObjectsInactive.Include,
+                                                                                           FindObjectsSortMode.None);
+        if (builders.Length == 0) Debug.LogError("ProceduralCityWorldBuilder: no open scene has a ProceduralCityBuilder.");
+        foreach (ProceduralCityBuilder builder in builders)
+        {
+            if (builder.RedrawBakedStreets(out string summary))
+            {
+                Debug.Log($"ProceduralCityWorldBuilder: {builder.gameObject.scene.name}: {summary} -- save the scene to keep it.",
+                          builder);
+            }
+            else
+            {
+                Debug.LogWarning($"ProceduralCityWorldBuilder: {builder.gameObject.scene.name}: {summary}", builder);
+            }
+        }
+    }
+
+    [MenuItem("Tools/Swarm/Redraw baked streets", true)]
+    private static bool CanRedrawStreets() => !EditorApplication.isPlayingOrWillChangePlaymode;
+
     /// <summary>Batchmode: builds the scene (CITY_LAYOUT, else the first layout in the folder) and exits 0 / 1.</summary>
     public static void Run()
     {

@@ -424,6 +424,13 @@ public class ProceduralCityBuilder : MonoBehaviour
         DrawGoals(file);           // after the checks: a drawn goal's buildings are baked under Buildings, as city
         Layout = file;
         ResolvedPath = path;
+        string streets = "";
+        if (!BakedStreetsCurrent())
+        {
+            RedrawStreets(file);
+            streets = $"the baked road is older than StreetSurface v{StreetSurface.Version}, so it was redrawn at Play " +
+                      "(Tools/Swarm/Redraw baked streets puts it in the scene); ";
+        }
         placedGoals.Clear();
         Transform goalsRoot = transform.Find(GoalsName);
         if (goalsRoot == null) goalsRoot = Child(GoalsName);
@@ -443,9 +450,59 @@ public class ProceduralCityBuilder : MonoBehaviour
             : dressing.IsCurrent(file, RoadSettings) ? "kept the baked dressing; " + dressing.MergeForPlay()
             : "the bake's dressing is stale or missing, so it was dressed at Play (rebake to see it in the editor): " +
               dressing.Dress(this, file);
-        Finish(file, path, buildings, nCity, "adopted the baked", dressed);
+        Finish(file, path, buildings, nCity, "adopted the baked", streets + dressed);
         return true;
     }
+
+    /// <summary>Whether the baked streets are drawn as a build would draw them now: false for a Textured road from an
+    /// older <see cref="StreetSurface"/>, whose mesh name lacks the current <see cref="StreetSurface.Version"/>.</summary>
+    private bool BakedStreetsCurrent()
+    {
+        if (streetStyle != StreetStyle.Textured || junctionMaterial == null || streetMaterial == null) return true;
+        Transform surface = transform.Find(StreetsName + "/Street surface");
+        MeshFilter filter = surface != null ? surface.GetComponent<MeshFilter>() : null;
+        return filter != null && filter.sharedMesh != null && filter.sharedMesh.name == StreetSurface.MeshName;
+    }
+
+    /// <summary>Replaces the streets with the layout's, drawn afresh; the buildings and the dressing are left alone (the
+    /// dressing depends on the road's analysis, which a redraw does not change).</summary>
+    private void RedrawStreets(LayoutFile file)
+    {
+        Transform old = transform.Find(StreetsName);
+        if (old != null)
+        {
+            old.SetParent(null);        // out of the way of the new one before Destroy, which waits for the frame's end
+            DestroyNow(old.gameObject);
+        }
+        BuildStreets(file.streets, Child(StreetsName));
+    }
+
+#if UNITY_EDITOR
+    /// <summary>Edit mode: draws the baked city's streets again, leaving its buildings and dressing as they are -- what
+    /// a scene baked by an older <see cref="StreetSurface"/> needs, without a rebake. False with the reason in
+    /// <paramref name="summary"/>.</summary>
+    public bool RedrawBakedStreets(out string summary)
+    {
+        if (Application.isPlaying || !HasBake)
+        {
+            summary = Application.isPlaying ? "redraw in edit mode." : "nothing is baked to redraw.";
+            return false;
+        }
+        if (!Load(bakedLayout, out LayoutFile file, out string path, out summary)) return false;
+        bool current = BakedStreetsCurrent();
+        RedrawStreets(file);
+        summary = $"redrew the streets of {file.layout.id}" + (current ? " (they were current)" : $" as {StreetSurface.MeshName}");
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gameObject.scene);
+        return true;
+    }
+
+    [ContextMenu("Redraw the baked streets")]
+    private void RedrawStreetsFromMenu()
+    {
+        if (RedrawBakedStreets(out string summary)) Debug.Log("ProceduralCityBuilder: " + summary, this);
+        else Debug.LogError("ProceduralCityBuilder: " + summary, this);
+    }
+#endif
 
     /// <summary>Resolves, reads and checks the layout to build (<see cref="LayoutName"/>).</summary>
     private bool Load(out LayoutFile file, out string path, out string error) => Load(LayoutName, out file, out path, out error);
