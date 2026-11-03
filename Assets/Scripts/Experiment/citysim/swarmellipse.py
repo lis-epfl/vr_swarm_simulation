@@ -30,7 +30,7 @@ every wall should be avoided at a more even distance, and the narrow streets sho
           drone also the facade distance where avoidance takes hold (`onset`: its speed towards the building first
           below ONSET_FRAC of its run-in speed) and the closest it comes.
 plus S8's four flights (cross, pass, street, face) and measures. Every row names every law field: an empty override is
-the scene, which has been C35a since S8. Route indices: screens from K_SCREEN, the confirmation from K_CONFIRM, the
+the scene, which was C35a from S8 and is E15_35a since S10's adoption (2026-11-03). Route indices: screens from K_SCREEN, the confirmation from K_CONFIRM, the
 probes' own from K_PROBE, the bench from K_BENCH; S6-S9 used 0-14299.
 """
 if __name__ == "__main__" and __package__ in (None, ""):
@@ -58,7 +58,7 @@ from citysim import swarmtune as T  # noqa: E402
 
 rep = T.rep
 OUT = REPO / "experiment_results" / "swarm_ellipse"
-# The scene's shape before S10's pick, for when it is adopted: an empty override then means the ellipse, so merge this
+# The scene's shape before S10's pick was adopted (2026-11-03): an empty override now means the ellipse, so merge this
 # under the `over` of any candidate flown against the scene as it was (S8's and S9's rows, and S10's own circle rows,
 # which all name obstacleShape anyway). S8's PRE_S8 trap, again.
 PRE_S10 = dict(obstacleShape=1)

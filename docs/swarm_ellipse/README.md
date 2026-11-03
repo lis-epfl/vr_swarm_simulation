@@ -83,7 +83,7 @@ An ellipse flown through this code with a = b equals the circle to 1e-15 in ever
 S8's harness: `ContactSim` on the prism city (`PolyCity`), settled starts, the bench's waypoint pilot at full stick,
 d_ref 2.0, the scene's city (seed 1) for the screen and seeds 1–4 for the confirmation. Every candidate names every
 law field (`obstacleShape`, `ellipseMaxAspect`, `d_obs`, the slide, route stragglers, the adaptive spread, its factor
-and filter): since S8 an empty override is the scene, C35a.
+and filter): an empty override is the scene, which was C35a while S10 flew and is E15_35a since its adoption.
 
 Flights (route indices: screen from 15000, confirmation from 16000, the probes from 17000 / 17500, the bench from
 18000; S6–S9 used 0–14299):
@@ -223,18 +223,28 @@ for any collider, box buildings included, but no other scene was flown).
 
 ## Adopting it
 
-Everything is in the code (`b1f826f9`), off by default, so adoption is scene values only:
+**Adopted on 2026-11-03, at the user's word: BlockShapedPatchCityWorld flies E15_35a.** Everything is in the code
+(`b1f826f9`), off by default, so adoption was scene values only:
 
 ```
 python -B -m citysim.swarmtune apply --cand ../../../experiment_results/swarm_ellipse/confirm_cands.json \
     --label "E15_35a ellipse, aspect cap 1.5, d_obs 0.35, adaptive spread 0.85" [--dry-run]
 ```
 
-The dry run shows exactly `obstacleShape: 1 -> 3` and `ellipseMaxAspect` inserted after it at 1.5 (the field's C#
-default, so a scene without the key flies it too); every other field already matches. Run it with the scene not held
-open in the editor (an open scene is re-serialised from memory on save), or pick Ellipse in SwarmManager's inspector
-and save. After adoption an empty override in the harnesses means the ellipse: merge `swarmellipse.PRE_S10` under an
-old candidate's `over` to fly it against the scene as it was.
+It changed exactly `obstacleShape: 1 -> 3`. `ellipseMaxAspect: 1.5` (the field's C# default, so a scene without the
+key flies it too) was already in the file: the editor wrote it when it re-saved the scene after the field appeared
+(`6bdcd8ed`), and `cmd_apply` would have inserted it otherwise. Every other field already matched. It was run with
+the scene not held open in the editor (an open scene is re-serialised from memory on save); picking Ellipse in
+SwarmManager's inspector and saving does the same.
+
+**Checked:** `swarm_params.resolve_swarm` reads the scene as shape 3, cap 1.5, and nine stored E15_35a confirmation
+flights (street, cross, pass, face and angled at d_ref 2.0, face at 1.2, and one along probe with only the spread held)
+re-flew identical with an empty override.
+
+**Since then an empty override in the harnesses means the ellipse**: merge `swarmellipse.PRE_S10`
+(`obstacleShape=1`) under an old candidate's `over` to fly it against the scene as it was (C35a). S10's own
+candidates name every law field and are unaffected. Watch Unity's contacts in the first trial sessions (the one
+dissent, 17 against 12).
 
 ## Running it
 

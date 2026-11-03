@@ -2031,9 +2031,10 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     the channels cross bring the median under 200 m but need one in nearly every junction and narrow almost all of
     them below 6 m for the cylinders; building the boundary blocks out to the arena edge only removes the straight
     730 m strip along its sides.
-  - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6; below) **and since 2026-11-02 S8's pick**
-    (`obstacleShape` EnclosingCircle, `d_obs` 0.35, S7's slide and adaptive spread on; S8 below), unlike
-    BlockShapedCityWorld's, which keeps BlockCityWorld's profile.
+  - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6; below), **S8's pick from 2026-11-02**
+    (`d_obs` 0.35, S7's slide and adaptive spread on; S8 below) **and since 2026-11-03 S10's ellipse** (`obstacleShape`
+    Ellipse, `ellipseMaxAspect` 1.5, in place of S8's EnclosingCircle; S10 below), unlike BlockShapedCityWorld's, which
+    keeps BlockCityWorld's profile.
 
 ## S5 Block-Shaped Surround: the block-shaped study
 
@@ -2063,9 +2064,10 @@ is the manual**; the code is `citysim/swarmtune.py`, the outputs `experiment_res
 - **The scene's SwarmManager is S6's pick (T3): d_ref 2.0, `d_shield` 1.6 (was 2.5), `d_obs` 0.16 (was 0.4)**, every
   other value as BlockCityWorld's profile left it (`a` 0.8, `r0_coh` 30). So in swarmtune, the replica and the bench a
   candidate with no overrides was T3: re-create the scene as it was with `d_shield=2.5,d_obs=0.4,d_ref=1.08`. **Since
-  S8 wrote its pick into the scene (2026-11-02), an empty override is that pick**, not T3; `swarmshape.PRE_S8`
-  (`obstacleShape=0, d_obs=0.16`, slide and adaptive spread off) gives T3 back, and every S7 and S8 candidate file
-  with an empty `over` (S7's T3, S8's A0) was flown against T3.
+  S8 wrote its pick into the scene (2026-11-02), an empty override is that pick**, not T3, and **since
+  S10 wrote its own (2026-11-03), S10's** (E15_35a); `swarmshape.PRE_S8` (`obstacleShape=0, d_obs=0.16`, slide and adaptive spread off)
+  gives T3 back, `swarmellipse.PRE_S10` (`obstacleShape=1`) gives C35a back, and every S7 and S8 candidate file with an
+  empty `over` (S7's T3, S8's A0) was flown against T3.
   `swarmtune apply --cand <file> --label <L>` writes a candidate into the scene, those fields of that one component only.
 - **Why 2.0**: the formation's ring at hover is then 31 m across, as wide as a typical building's avoidance cylinder
   (radius 15.4 m), so it closes round a building without stretching the lattice (94–98% of the buildings met are
@@ -2155,10 +2157,10 @@ manual**; the harness is `citysim/swarmshape.py` on S7's, the outputs `experimen
   the replica and +17% in Unity, a tenth of the losses, the split round a wall as quick; in Unity no drone lost and 5
   contacts in 100 flights (bounds circles 2 and 14). At `d_obs` 0.16 it touches buildings twice as often. The rule's
   pick added the adaptive spread (C35a: +20% in the replica's streets with no extra losses), but in Unity that lost 3
-  pairs in 100 flights against none, so it was the user's call. **The user chose C35a, and it is in
-  BlockShapedPatchCityWorld's SwarmManager since 2026-11-02** (`obstacleShape` 1, `d_obs` 0.35, `slideRoundBuildings`
-  and `adaptiveSpread` on, route off, d_ref 2.0); every other scene is still `Cylinder` with S7's switches off. Watch the
-  adaptive spread's collisions in the trials' Unity flights.
+  pairs in 100 flights against none, so it was the user's call. **The user chose C35a, and BlockShapedPatchCityWorld's
+  SwarmManager flew it from 2026-11-02** (`obstacleShape` 1, `d_obs` 0.35, `slideRoundBuildings` and `adaptiveSpread`
+  on, route off, d_ref 2.0) **until S10's ellipse replaced its shape on 2026-11-03**; every other scene is still
+  `Cylinder` with S7's switches off. Watch the adaptive spread's collisions in the trials' Unity flights.
 - **The head-on flight (`swarmshape` kind `face`) is the test for any obstacle shape**: from open ground 50 m out along
   a straight edge face's normal, aimed through the building, timed from arrival to the split round both ends. The
   city's interior has no 50 m run-in, so the faces are on its edge.
@@ -2227,10 +2229,13 @@ harness is `citysim/swarmellipse.py` on S8's (the bench `swarmellipse_bench.py`)
 - **The ellipse at cap 1.5 is the recommendation (E15_35a, the scene's law otherwise)**: one drone's standoff spread
   across walls ×0.55 (Unity ×0.56), corridors under 6 m 376 → 57 over four cities at the same d_obs, the streets 7.5%
   faster, fewer losses and contacts in the replica, the square-on split as fast (faster at d_ref 1.2). Unity's
-  contacts with the adaptive spread are the one dissent (17 against 12 in 37 km, ×1.42, p ≈ 0.23). **Adoption is the
-  user's call**: `swarmtune apply --cand experiment_results/swarm_ellipse/confirm_cands.json --label "E15_35a ..."`
-  writes `obstacleShape: 3` and inserts `ellipseMaxAspect: 1.5` (`cmd_apply` now inserts a field the scene lacks),
-  nothing else. After adoption an empty override means the ellipse: `swarmellipse.PRE_S10` restores the circle.
+  contacts with the adaptive spread are the one dissent (17 against 12 in 37 km, ×1.42, p ≈ 0.23): watch them in the
+  first trial sessions. **BlockShapedPatchCityWorld flies it since 2026-11-03, at the user's word**: `swarmtune apply
+  --cand experiment_results/swarm_ellipse/confirm_cands.json --label "E15_35a ..."` changed `obstacleShape` 1 → 3 and
+  nothing else (`ellipseMaxAspect: 1.5` was already serialised; `cmd_apply` inserts a field the scene lacks). Nine
+  stored E15_35a flights re-flew identical with an empty override, so the scene is the pick. **An empty override now
+  means the ellipse**: `swarmellipse.PRE_S10` (`obstacleShape=1`) restores the circle, C35a. Every other scene is
+  still `Cylinder`.
 - **The question is measured with a one-drone probe** (`along`: down a street parallel to one wall, 6/9/12.5 m off
   it), because 71% of formation flights' closest approaches to a facade are at a corner, where every enclosing shape
   touches (lesson 49). The angled run-ins (`angle`) leave their target building out of the clearance test (lesson 50),

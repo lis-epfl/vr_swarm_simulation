@@ -1,7 +1,7 @@
 # S10 Ellipse Avoidance
 
-**Code name:** the ellipse study · **Dates:** 2026-11-02 · **Status:** done; the ellipse recommended (E15_35a: the
-scene's law with `obstacleShape` Ellipse, cap 1.5), adoption waiting on the user · **Builds on:** S8 (the shape
+**Code name:** the ellipse study · **Dates:** 2026-11-02, adopted 2026-11-03 · **Status:** done; the ellipse
+(E15_35a: the scene's law with `obstacleShape` Ellipse, cap 1.5) is in BlockShapedPatchCityWorld · **Builds on:** S8 (the shape
 setting, its harness, the head-on flight), S7 (the slide and the rules that aim by a building), S9 (the two spread
 settings, the loss statistics)
 
@@ -71,10 +71,12 @@ only the scene's values.
   - a censored split counting a formation that stayed whole;
   - a rule carried into unit space bringing back the stall.
 
+**Adopted** (2026-11-03, the user's word). `swarmtune apply` changed `obstacleShape` 1 → 3 and nothing else
+(`ellipseMaxAspect: 1.5` was already serialised). Nine stored E15_35a flights re-flew identical from the scene with an
+empty override, which now means the ellipse; `swarmellipse.PRE_S10` gives back the circle (C35a).
+
 **Open decisions.**
-- **Adoption** is the user's call. `swarmtune apply` writes `obstacleShape: 3` and inserts `ellipseMaxAspect: 1.5`,
-  nothing else (dry run checked).
-- **After adoption**, watch Unity's contacts in the first trial sessions.
+- Watch Unity's contacts in the first trial sessions.
 
 **Where.**
 - Manual: [docs/swarm_ellipse/](../swarm_ellipse/README.md).

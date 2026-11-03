@@ -276,7 +276,7 @@ tr:last-child td { border-bottom: 0; }
         </div>
       </article>
       <article class="study">
-        <header><span class="id">S10</span><h3>Ellipse Avoidance</h3><span class="was">the ellipse study · 2 Nov 2026</span><span class="status done">Done · adoption waiting</span></header>
+        <header><span class="id">S10</span><h3>Ellipse Avoidance</h3><span class="was">the ellipse study · 2 Nov 2026</span><span class="status done">Done · in the scene</span></header>
         <div>
           <p class="q">The enclosing circle the scene avoids each building as lies very close to some of its walls and far from others, so how far a drone is pushed off a wall depends on which wall it is. Does an ellipse fitted to each footprint (its aspect capped) keep the swarm at a more even distance from every wall, how much street does it give back, and what does it cost?</p>
           <h4>Limits</h4>
@@ -292,7 +292,7 @@ tr:last-child td { border-bottom: 0; }
             <li>It fits the walls more evenly: the median building's farthest wall stands 5.7 m further from the circle than its nearest, and 3.3 m from the ellipse (cap 1.5); 173 of 289 buildings have a wall more than 6 m from the circle, 47 from the ellipse.</li>
             <li>A drone then meets every wall at a more even distance: flown along a wall, the distance it keeps varies about half as much from wall to wall (×0.55 in the replica, ×0.56 in Unity).</li>
             <li>The narrow streets come back at the same standoff: corridors under 6 m go from 376 to 57 over four cities, and the formation is 7.5% faster in the streets (Unity 5%), faster in every city, with fewer losses and contacts in the replica and no stall at flat sides.</li>
-            <li>For the trials: fly the ellipse at cap 1.5 with everything else as the scene has it (E15_35a); one setting, <code>obstacleShape</code> Ellipse, and adoption is the user's call. Unity's contacts are the one dissent (17 against 12 in 37 km); watch them in the first sessions.</li>
+            <li>For the trials: fly the ellipse at cap 1.5 with everything else as the scene has it (E15_35a); one setting, <code>obstacleShape</code> Ellipse, in BlockShapedPatchCityWorld since 3 Nov 2026. Unity's contacts are the one dissent (17 against 12 in 37 km); watch them in the first sessions.</li>
           </ul>
         </div>
       </article>

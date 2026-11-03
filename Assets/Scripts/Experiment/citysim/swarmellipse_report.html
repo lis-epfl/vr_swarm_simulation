@@ -356,8 +356,8 @@ function READING() {
      with no cost the rule or Unity could find beyond a handful of contacts in Unity that the replica, flying ten times the distance, does not show. The rule picked the cap of 1.5 over
      1.25 because it fits closer (the adaptive rows' standoff spread ${times((RW.E15_35a || {}).along_spread, (RW.E125_35a || {}).along_spread)} the 1.25's) and over 2 because 2 fits no closer
      and has flatter sides. It needs no thicker standoff, so the corridor question never arises. The single drone shares the shape, so both trial conditions get it; watch the contacts
-     in the first Unity sessions. <b>To adopt it</b>: <code>python -B -m citysim.swarmtune apply --cand experiment_results/swarm_ellipse/confirm_cands.json --label "${esc(PICK)} ${esc(LABEL(PICK))}"</code>
-     with the scene closed in the editor (it writes <code>obstacleShape: 3</code>; the cap is the field's default), or pick Ellipse in SwarmManager's inspector and save.`;
+     in the first Unity sessions. <b>Adopted on 3 November 2026</b>: BlockShapedPatchCityWorld flies it, written by <code>python -B -m citysim.swarmtune apply --cand experiment_results/swarm_ellipse/confirm_cands.json --label "${esc(PICK)} ${esc(LABEL(PICK))}"</code>,
+     which changed <code>obstacleShape</code> 1 → 3 and nothing else (the cap of 1.5 is the field's default). Nine of the pick's stored flights re-flew identical from the scene as saved.`;
 }
 
 // ---------------------------------------------------------------- flights
