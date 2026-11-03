@@ -59,8 +59,10 @@ $EnvName   = 'stitching'
 # Without --rc the bridge tries the last RC this PC used, plus a broadcast on the switch.
 $rcArg = if ($RcIP) { " --rc $RcIP" } else { '' }
 # The right dial is the spread: Unity takes it as d_ref every frame (over SwarmManager.d_ref), linearly over the
-# sim profile's 0.4-1.6, centre 1.0. BlockShapedPatchCityWorld is tuned for 2.0 (S6), which that range cannot reach;
-# -SpreadRange 1.4,2.6 keeps the dial's sensitivity and puts its centre there.
+# sim profile's 0.4-1.6, from 1.0 at launch -- except in a scene with SwarmManager.adaptiveSpread on
+# (BlockShapedPatchCityWorld), where Unity ignores the dial and flies the scene's d_ref. The left dial is the gimbal,
+# from level at launch; Unity moves the cameras only once it is turned. -SpreadRange must contain 1.0, the bridge's
+# start value, or the bridge refuses to start.
 if ($SpreadRange) { $rcArg += " --ax-range $($SpreadRange[0]),$($SpreadRange[1])" }
 
 # Single Windows Terminal window, two vertical panes. `;` separates wt.exe

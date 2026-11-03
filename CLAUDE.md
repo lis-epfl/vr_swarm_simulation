@@ -2105,8 +2105,15 @@ is the manual**; the code is `citysim/swarmtune.py`, the outputs `experiment_res
   1.7–1.9 drones per km (Unity: 32 in 64 flights). Wider than ~2.2 it no longer fits the 25 m between facades and spends
   more of each flight in pieces.
 - **The RC's spread dial overrides `SwarmManager.d_ref` every frame** (input mode ANY; `rcjoy bridge --profile sim` maps
-  it to 0.4–1.6), so 2.0 is reachable only with `launch_sim_scripts.ps1 -SpreadRange 1.4,2.6` (the bridge's
-  `--ax-range`: the old sensitivity, centred on 2.0). The scene's value applies on the keyboard until A/D is pressed.
+  it to 0.4–1.6 from 1.0 at launch) **except while `adaptiveSpread` is on**, which it is in this scene since S8
+  (`InputManager`, 2026-11-03): the dial then sends no override and the scene's 2.0 is flown, scaled by the adaptive
+  spread. Before that, connecting the controller replaced 2.0 with the knob's 1.0. The keyboard's A/D still sets
+  d_ref. `-SpreadRange` cannot recentre the dial on 2.0: the bridge refuses a range that excludes its 1.0 start.
+- **The RC's gimbal dial moves the cameras only once it is turned** (`InputManager.gimbalDial`, 2026-11-03), and
+  its centre is level (`SetGimbalPitchNormalized`: −1 → −90°, 0 → 0°, +1 → +60°, linear on each side). Before, it
+  was linear over the whole range, so the bridge's knob, which starts at 0 every launch, tilted every camera to
+  −15° the moment the controller connected. The first packet, and the first after a stale stream (a restarted
+  bridge's knob starts over), is only a baseline; the inspector can set the pitch between turns.
 - **The speed lever is `d_shield`, and its floor is ~1.6**: flown straight at a building a drone stalls (the shield
   removes the stick into it and leaves nothing to slide it round), so the old 2.5 held even one drone to 4.0 m/s (its
   longest stall 9–10 s a flight). 1.6 brakes later; below it drones arrive too fast and collide at the building (1.4: 0.2–0.5 lost

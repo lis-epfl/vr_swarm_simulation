@@ -225,8 +225,9 @@ public class SwarmManager : MonoBehaviour
 
     [Header("Adaptive Spread")]
     [Tooltip("Narrow the formation among buildings and widen it back when the swarm flies at one, so it fits the " +
-             "streets and can still surround what it meets. The spread in force is d_ref (the scene's, or the " +
-             "pilot's dial) times one swarm-wide scale: streetSpreadFactor among buildings, 1 while a building lies " +
+             "streets and can still surround what it meets. The spread in force is the scene's d_ref (the RC's " +
+             "spread dial is ignored while this is on; the keyboard's A/D still sets it) times one swarm-wide " +
+             "scale: streetSpreadFactor among buildings, 1 while a building lies " +
              "on the swarm's track within surroundLookAhead, and 1 with no building near at all (open ground). " +
              "The lattice needs ~5 s to follow a change, so the look-ahead is what buys time to widen.\n\n" +
              "Its cost is drone collisions: a narrower formation is squeezed together in the tight gaps between " +
@@ -423,14 +424,14 @@ public class SwarmManager : MonoBehaviour
     }
 
     // Drives the swarm-wide FPV gimbal pitch from a normalized dial input in [-1, 1]
-    // (e.g. the joystick pitch dial), mapping linearly across the full gimbal range
-    // (dial -1 = straight down, +1 = up). Updates the Inspector field so the value is
-    // visible/tunable, then pushes it to every drone's camera.
+    // (e.g. the joystick pitch dial): -1 = straight down, 0 = level, +1 = fully up, linear
+    // on each side. Centre is level, not the middle of the range (-15 deg), because the
+    // rcjoy bridge's knob starts at 0 every launch. Updates the Inspector field so the value
+    // is visible/tunable, then pushes it to every drone's camera.
     public void SetGimbalPitchNormalized(float dial)
     {
         dial = Mathf.Clamp(dial, -1f, 1f);
-        gimbalPitch = Mathf.Lerp(FPVCameraScript.MinPitch, FPVCameraScript.MaxPitch,
-                                 (dial + 1f) * 0.5f);
+        gimbalPitch = dial * (dial < 0f ? -FPVCameraScript.MinPitch : FPVCameraScript.MaxPitch);
         ApplyGimbalPitch();
     }
 

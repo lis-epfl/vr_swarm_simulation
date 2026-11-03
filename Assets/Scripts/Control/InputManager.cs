@@ -36,6 +36,11 @@ public class InputManager : MonoBehaviour
     [SerializeField] private float spreadRate    = 0.5f;   // units per second while a key is held
     private float keyboardSpread = -1.0f;                  // -1 ⇒ no override yet
 
+    // The gimbal dial (s2) as last received; NaN until a packet has arrived, and again once the stream has gone
+    // stale. The dial commands the gimbal only when it moves from this value, so connecting the controller (or a
+    // restarted bridge, whose knob starts over at 0) never moves the cameras by itself.
+    private float gimbalDial = float.NaN;
+
     // Frame the user velocity command is expressed in. Read by SwarmAlgorithm each tick.
     public CommandFrame ActiveCommandFrame => commandFrame;
 
@@ -121,6 +126,8 @@ public class InputManager : MonoBehaviour
             // The sender stopped (RC dropped, bridge stopped). In ANY mode that is no joystick at all,
             // so the keyboard keeps control instead of being overwritten.
             bool stale = UDPReceiverManager.IsStale;
+            if (stale)
+                gimbalDial = float.NaN;
             if (joystickData != null && !(stale && inputMode == InputMode.ANY))
             {
                 // Stale in JOYSTICK mode: neutral sticks, so the swarm holds instead of flying the last
@@ -130,13 +137,29 @@ public class InputManager : MonoBehaviour
                 inputStatus["yaw"]        = stale ? 0.0f : joystickData.angular.z;
                 inputStatus["pitch"]      = stale ? 0.0f : joystickData.linear.x;
                 inputStatus["roll"]       = stale ? 0.0f : joystickData.linear.y;
-                inputStatus["spread"]     = joystickData.angular.x;
+                // Under the adaptive spread the swarm sets its own spread about the scene's d_ref, so the spread
+                // dial is ignored: written into d_ref, it replaced the value the scene was tuned at the moment the
+                // controller connected (the bridge's knob starts at 1.0; BlockShapedPatchCityWorld flies 2.0).
+                // -1 is "no override", which the recorder logs and analyse.py reads as the scene's d_ref. In ANY
+                // mode the keyboard's A/D value, written above, stands.
+                bool adaptiveSpread = SwarmManager.Instance != null && SwarmManager.Instance.GetAdaptiveSpread();
+                if (!adaptiveSpread)
+                    inputStatus["spread"] = joystickData.angular.x;
+                else if (inputMode == InputMode.JOYSTICK)
+                    inputStatus["spread"] = -1.0f;
                 inputStatus["userSwitch"] = joystickData.switches.s1;
                 inputStatuRaw = new Dictionary<string, float>(inputStatus);
 
-                // Pitch dial (s2, raw -1..1) drives the swarm-wide FPV gimbal pitch.
-                if (SwarmManager.Instance != null)
-                    SwarmManager.Instance.SetGimbalPitchNormalized(joystickData.switches.s2);
+                // Pitch dial (s2, raw -1..1) drives the swarm-wide FPV gimbal pitch, but only when it moves: the
+                // first value is a baseline, so the scene's (or the inspector's) pitch holds until the pilot turns
+                // the dial, and the inspector can still set it between turns.
+                float dial = joystickData.switches.s2;
+                if (!stale)
+                {
+                    if (!float.IsNaN(gimbalDial) && dial != gimbalDial && SwarmManager.Instance != null)
+                        SwarmManager.Instance.SetGimbalPitchNormalized(dial);
+                    gimbalDial = dial;
+                }
             }
         }
     }

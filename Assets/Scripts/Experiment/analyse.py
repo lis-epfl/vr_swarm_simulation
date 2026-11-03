@@ -562,7 +562,8 @@ def command_family(run, legs, cfg):
 #   spread   _head.csv inSpread: the dial value, written straight into the Olfati-Saber d_ref, 0.4 tightest
 #            .. 1.6 widest. -1 means "no override": it appears before the first joystick packet and as
 #            single-sample dropouts, where the swarm keeps the last value, so it is forward-filled and the
-#            leading gap back-filled with the first transmitted value.
+#            leading gap back-filled with the first transmitted value. It is the whole run with
+#            SwarmManager.adaptiveSpread on (since 2026-11-03 the dial is ignored there), and the scene's d_ref is used.
 #   spacing  _shape.csv meanNNm: the achieved mean nearest-neighbour distance (m), the formation's answer to
 #            the spread command, lagging it by seconds. Needs >= 2 alive drones: NaN for SingleDrone. (The
 #            dial is still scored there; it does nothing to a lone drone, so any use of it is the pilot's.)
