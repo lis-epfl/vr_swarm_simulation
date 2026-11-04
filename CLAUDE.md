@@ -841,9 +841,9 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     against 66.8 in the take-off hover, frames over 13.9 ms 3.5% against 1.1%, video memory 5.2 GB against
     3.5. The two were not flown apart, but the clothing alone is ~0.05 ms per render.
   - **The walkers are the reason more pixels show so little: they have no surface.** The body is Unity's
-    `Default-Material` (white, no texture; the pack's mannequin) and the hat a flat 77% grey, so hat and body
-    merge. Measured on the same views, walkers on against walkers off: pixels clearly changed (ΔE > 20)
-    against today, saturated mid-lightness clothing +57%, the same with a soft ground shadow +65%, footpath 50%
+    `Default-Material` (white, no texture; the pack's mannequin) and the hat a flat 77% grey (69% since 2026-11-04,
+    below; these measurements are at 77%), so hat and body merge. Measured on the same views, walkers on against
+    walkers off: pixels clearly changed (ΔE > 20) against today, saturated mid-lightness clothing +57%, the same with a soft ground shadow +65%, footpath 50%
     darker +24% (nothing more on top of clothing), real sun shadow from the walkers alone +1%, a dark
     clothing mix +16% but −61% at 60 m, where it vanishes against the glass. Saturated clothing also roughly
     doubles the hat's contrast against what it covers (ΔE 14 → 28–34, depending on the colour drawn). Cost per FPV
@@ -2567,6 +2567,11 @@ worth keeping:
   over the tallest walker it placed, so a resize reaches that scene's signs through a rebuild. Two things do not
   follow the dial, deliberately: `citysim/camera.py`'s `HAT_HEIGHT_M` / `HAT_SIZE_M`, the target S1–S9 modelled,
   and `identifyRangeM`, a recognition limit that is the experimenter's to change.
+- **The hats' colour has one dial too, `Assets/Materials/WalkerHat.mat`**, which all three wear: `cowboy_hat.fbx`
+  remaps its embedded `pasted__M_Hat` to it (`externalObjects`), and the cap and bucket prefabs override their
+  renderers with it. A flat grey, sRGB 0.689 (RGB 176) since 2026-11-04, the user's request for 10% darker than the
+  FBX's 0.766 (195) every earlier run flew. The FBX material no longer exists once remapped, so a renderer pointed
+  back at it renders magenta.
 - The count is cumulative on the wire, not a flag, because a press carried in one datagram is lost with
   it and a count is not. The first packet, and a restarted bridge counting from 0, are only a baseline —
   which is also why a press made before Play never lands late.
