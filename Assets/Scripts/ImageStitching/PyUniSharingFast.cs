@@ -689,6 +689,11 @@ public class PyUniSharingFast : MonoBehaviour
     public int BlockImageWidth => bridge.blockImageWidth;
     public int BlockImageHeight => bridge.blockImageHeight;
 
+    // False once both boxes are unticked: nothing is captured, no section is mapped and Python has no
+    // part in the session, so the feeds are free of the block envelope. Either one on still counts: the
+    // DJI scene writes no blocks here (ImageSharing does) and reads the panorama.
+    public bool StitchingEnabled => bridge.enableImageWriting || bridge.enablePanoramaReading;
+
     // Appended to all three section names, exactly as StitcherThreading.py's shm_name() does.
     // Named sections are machine-global, so a benchmark copy of the project running beside a
     // live editor needs sections of its own or it becomes a second producer inside that

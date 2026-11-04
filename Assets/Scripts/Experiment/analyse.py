@@ -207,6 +207,17 @@ def read_events(path):
     return rows
 
 
+def session_finalized(folder, stem):
+    """False for a session JSON the recorder wrote early and never finished: a crash, or a run still flying, or a crash
+    in the middle of writing it. A file with no such field is from before 2026-11-03, when it was only ever written at
+    the end."""
+    try:
+        with open(os.path.join(folder, f"{stem}_session.json"), encoding="utf-8") as f:
+            return json.load(f).get("finalized", True)
+    except ValueError:
+        return False
+
+
 class Run:
     """One recorded run with every file read once. Optional files that are missing are None."""
 
@@ -277,6 +288,9 @@ def load_test(root, test):
     stems = [s for s in files if f"{s}_session.json" in files[s]]
     for s in sorted(set(files) - set(stems)):
         warn(f"{s}: no _session.json (aborted before finalize); not analysed")
+    for s in [s for s in stems if not session_finalized(folder, s)]:
+        warn(f"{s}: its session never finished (finalized false: a crash?); not analysed")
+        stems.remove(s)
     for e in entries:
         if not any(matches(s, e) for s in stems):
             warn(f"{MANIFEST}: practice entry {e!r} matches no run")
@@ -291,6 +305,9 @@ def load_test(root, test):
     seen = {}
     for r in runs:
         seen.setdefault((r.pid, r.trial), []).append(r.stem)
+        n = r.session.get("droneCount")
+        if n and (n == 1) != (r.condition == "SingleDrone"):
+            warn(f"{r.stem}: labelled {r.condition} but flew {n} drone(s); analysed under its label")
     for (pid, trial), group in seen.items():
         if len(group) > 1:
             warn(f"{pid} t{trial} has {len(group)} runs ({', '.join(group)}); all are analysed")
@@ -1439,7 +1456,10 @@ def segments_from_events(events, duration):
 
 
 def stitch_family(run, log_runs):
-    """(row, segments, timed anchors) for a swarm run, None if neither source covers it."""
+    """(row, segments, timed anchors) for a swarm run, None if neither source covers it, or the run had no stitching
+    to cover (stitchingEnabled false, since 2026-11-03: a choice, not a stitcher that failed to start)."""
+    if run.session.get("stitchingEnabled") is False:
+        return None
     n_ch = {}
     if any(k in ("stitch_on", "stitch_off") for _, k, _ in run.events):
         source, segs, anchors = "recorder", segments_from_events(run.events, run.duration), []
@@ -1479,8 +1499,19 @@ def stitch_family(run, log_runs):
 # ============================================================================= crashes
 #
 # A death is the last sample a drone was alive in _drones.csv; its reason (CollidingWithAnotherDrone,
-# ExternallyKilled, ...) comes from the editor log when there is one. A drone-drone collision kills both
-# drones on one tick, so deaths within 0.5 s of each other are one *crash* (one red line on the timelines).
+# ExternallyKilled, ...) comes from the recorder's drone_lost event (since 2026-11-03, with the other drone of a
+# collision and the speed at the loss), or else from the editor log when there is one. A drone-drone collision kills
+# both drones on one tick, so deaths within 0.5 s of each other are one *crash* (one red line on the timelines).
+
+def lost_events(run):
+    """[(droneId, reason, t, partner, speed)]: the run's drone_lost events; partner is -1 for a loss with none."""
+    out = []
+    for t, kind, note in run.events:
+        if kind == "drone_lost":
+            f = dict(kv.split("=", 1) for kv in note.split())
+            out.append((int(f["drone"]), f["reason"], t, int(f["partner"]), float(f["speed"])))
+    return out
+
 
 def crash_family(run, log_runs, merge_s=0.5):
     """([death rows], [crash times])."""
@@ -1488,12 +1519,19 @@ def crash_family(run, log_runs, merge_s=0.5):
     a, ids = dr.alive.values, dr.droneId.values
     died = np.flatnonzero((ids[1:] == ids[:-1]) & (a[:-1] == 1) & (a[1:] == 0))
     logged = log_runs.get((run.pid, run.timestamp), {}).get("deaths", [])
+    lost = lost_events(run)
     rows = []
     for i in died:
         t, did = float(dr.t.values[i]), int(ids[i])
+        ev = [e for e in lost if e[0] == did and abs(e[2] - t) <= 1.0]
         cand = [(abs(lt - t), r) for lid, r, lt in logged if lid == did and abs(lt - t) <= 1.0]
+        reason, partner, speed = "", np.nan, np.nan
+        if ev:
+            _, reason, _, partner, speed = min(ev, key=lambda e: abs(e[2] - t))
+        elif cand:
+            reason = min(cand)[1]
         rows.append(dict(run=run.stem, droneId=did, t=t, x=float(dr.gtX.values[i]), y=float(dr.gtY.values[i]),
-                         z=float(dr.gtZ.values[i]), reason=min(cand)[1] if cand else ""))
+                         z=float(dr.gtZ.values[i]), reason=reason, partner=partner, speed=speed))
     crashes = []
     for x in np.sort(dr.t.values[died]):
         if not crashes or x - crashes[-1] > merge_s:
@@ -2195,6 +2233,8 @@ def build_tables(runs, res):
         if "identifyMode" in r.session:     # runs from 2026-10-12 on
             row.update(identifyMode=r.session["identifyMode"], falseAlarms=r.session.get("falseAlarms", 0),
                        layout=r.layout_id)
+        if "gitCommit" in r.session:        # runs from 2026-11-03 on
+            row.update(gitCommit=r.session["gitCommit"][:8], gitDirty=r.session.get("gitDirty"))
         row.update(res["task"][r.stem])
         row.update(res["cmd"].get(r.stem, {}))
         row.update(res["dial"].get(r.stem, {}))
@@ -2245,7 +2285,7 @@ def build_tables(runs, res):
     death_rows = [dict(ident(stem), **{k: v for k, v in d.items() if k != "run"})
                   for stem, ds in res["deaths"].items() for d in ds]
     deaths_df = pd.DataFrame(death_rows, columns=["run", "pid", "trial", "condition", "date", "practice",
-                                                  "droneId", "t", "x", "y", "z", "reason"])
+                                                  "droneId", "t", "x", "y", "z", "reason", "partner", "speed"])
     return runs_df, legs_df, goals_df, deaths_df
 
 
@@ -2465,7 +2505,9 @@ def cmd_quicklook(a):
         drones = pd.read_csv(base + "_drones.csv", sep=";")
         head = pd.read_csv(base + "_head.csv", sep=";") if os.path.exists(base + "_head.csv") else None
         walkers = pd.read_csv(base + "_walkers.csv", sep=";") if os.path.exists(base + "_walkers.csv") else None
-        events = pd.read_csv(base + "_events.csv", sep=";") if os.path.exists(base + "_events.csv") else None
+        # read_events, not read_csv: the session_start note of a run before 2026-11-03 holds ';', which read_csv takes
+        # for extra columns, shifting every event in the file and silently matching none below.
+        events = pd.DataFrame(read_events(base + "_events.csv"), columns=["t", "eventType", "note"])
         session = None
         if os.path.exists(base + "_session.json"):
             with open(base + "_session.json", encoding="utf-8") as f:

@@ -19,8 +19,11 @@ using UnityEngine;
 /// walked, none stands inside a building and every one is within a footpath's width of one; a swarm reset 70 m up is
 /// held under the altitude ceiling; an
 /// RC press far from every goal is scored out_of_zone and one beside a goal is scored (correct or false_alarm) with
-/// its camera distance and feed; and the session record carries the layout, the goal seed, the goals' geometry and
-/// the new hull / shown / gaze columns. The report is one JSON object; the process exits 0 if every check passed.
+/// its camera distance and feed; a hat seen only through a feed hidden into the live panorama scores, and not with the
+/// panorama down; a colliding pair is logged as two drone_lost events naming each other; and the session record is on
+/// disk, unfinished, while the run goes, and ends carrying the layout, the goal seed, the goals' geometry, the commit,
+/// the scoring constants, the screen settings and the hull / shown / stitched / gaze columns. The report is one JSON
+/// object; the process exits 0 if every check passed.
 /// With <see cref="NoRecorderEnv"/> set to 1 a scene without a recorder (the practice scenes) is probed too, and the
 /// press and session checks, which need one, are reported as skipped.</para>
 /// </summary>
@@ -35,6 +38,7 @@ public class ProceduralCityProbe : MonoBehaviour
     static string outPath;
     readonly List<string> lines = new List<string>();
     bool allOk = true;
+    int lostA = -1, lostB = -1;   // the swarm-list indices of the pair flown into each other
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot()
@@ -82,6 +86,7 @@ public class ProceduralCityProbe : MonoBehaviour
               $"{goals.Count} goals, hats [{string.Join(", ", hats)}], seed {GoalSession.Seed} ({GoalSession.Source})");
         if (atPlay) CheckDrawnGoals(builder, drawn);
         yield return new WaitForSeconds(3f);
+        if (rec != null) CheckSessionWrittenEarly();
         var walkerCounts = new List<int>();
         var walkers = new List<Transform>();
         foreach (GameObject g in goals)
@@ -150,8 +155,64 @@ public class ProceduralCityProbe : MonoBehaviour
             yield return new WaitForSeconds(10f);
             setMarks.Invoke(null, new object[] { UDPReceiverManager.MarkPresses + 1 });
             yield return new WaitForSeconds(1f);
+            CheckPanoramaScoring(rec, spawner);
+
+            // ---- a collision: last, since it costs the swarm two drones
+            List<Transform> pair = Alive(spawner).Take(2).ToList();
+            if (pair.Count == 2)
+            {
+                lostA = spawner.swarm.IndexOf(pair[0].parent.gameObject);
+                lostB = spawner.swarm.IndexOf(pair[1].parent.gameObject);
+                pair[0].position = pair[1].position + Vector3.right * 0.2f;
+                yield return new WaitForSeconds(1f);
+            }
         }
         yield return Finish(rec);
+    }
+
+    /// <summary>A crash must not cost the session record: it is on disk, unfinished, with the goals in it, from the
+    /// first frame.</summary>
+    void CheckSessionWrittenEarly()
+    {
+        string dir = Environment.GetEnvironmentVariable("EXPERIMENT_RECORDER_DIR");
+        string session = string.IsNullOrEmpty(dir) ? null :
+            Directory.GetFiles(dir, "*_session.json").OrderBy(File.GetLastWriteTimeUtc).LastOrDefault();
+        string json = session != null ? File.ReadAllText(session) : "";
+        Check("session written early", json.Contains("\"finalized\": false") && json.Contains("\"goalIndex\": 0"),
+              session != null ? Path.GetFileName(session) : $"no *_session.json in {dir}");
+    }
+
+    /// <summary>A hat seen only through one camera, whose own feed is hidden: it scores while that view is in the live
+    /// panorama, and not once the panorama is down. All in one frame, before a layout can bring a screen back; nothing
+    /// here runs the bridge, so the panorama's state is set by hand.</summary>
+    void CheckPanoramaScoring(ExperimentRecorder rec, swarmSpawn spawner)
+    {
+        const BindingFlags Private = BindingFlags.NonPublic | BindingFlags.Instance;
+        Type type = typeof(ExperimentRecorder);
+        FieldInfo functional = type.GetField("stitchFunctional", Private);
+        MethodInfo hatOnFeed = type.GetMethod("HatOnShownFeed", Private);
+        object goal = ((IList)type.GetField("goals", Private).GetValue(rec))[0];
+        var marker = (SpecialWalker)goal.GetType().GetField("marker").GetValue(goal);
+        ScreenSpawn screens = FindObjectOfType<ScreenSpawn>();
+        GameObject drone = Alive(spawner).First().parent.gameObject;
+        Transform fpv = drone.transform.Find("FPV");
+
+        foreach (GameObject s in screens.Screens) s.SetActive(false);
+        screens.SetStitchedDronesHidden(new[] { drone });
+        fpv.position = marker.HatCentre + new Vector3(0.5f, 10f, 0f);
+        fpv.LookAt(marker.HatCentre);
+
+        object[] args = { goal, -1, -1f };
+        functional.SetValue(rec, false);
+        bool down = (bool)hatOnFeed.Invoke(rec, args);
+        functional.SetValue(rec, true);
+        bool up = (bool)hatOnFeed.Invoke(rec, args);
+        int feed = (int)args[1];
+        functional.SetValue(rec, false);
+        screens.SetStitchedDronesHidden(null);
+
+        Check("a hat in the live panorama scores", up && !down && feed == spawner.swarm.IndexOf(drone),
+              $"panorama up {up} (feed {feed}, {args[2]} m), panorama down {down}");
     }
 
     /// <summary>Goals drawn at Play: citygen's spread, no ring building shared or holding another goal, and the same
@@ -231,12 +292,33 @@ public class ProceduralCityProbe : MonoBehaviour
                       json.Contains("\"zoneShape\": \"disc\"") && json.Contains("\"identifyMode\": \"AutoScore\"") &&
                       (lg == null || lg.All(g => json.Contains($"\"centreBox\": \"{g.centre_box}\""))),
                       $"{Path.GetFileName(session)} (goal seed source {source})");
-                Check("csv columns", drones.EndsWith(";hull;shown") && head.EndsWith(";gazeX;gazeY;gazeZ;gazeConf;gazeFeed"),
+                Check("csv columns", drones.EndsWith(";hull;shown;stitched") && head.EndsWith(";gazeX;gazeY;gazeZ;gazeConf;gazeFeed"),
                       $"drones [{drones}] head ends [{head.Substring(Math.Max(0, head.Length - 40))}]");
                 bool outZone = events.Contains(";identify;-1;out_of_zone;");
                 bool scored = events.Contains(";identify;0;correct;") || events.Contains(";identify;0;false_alarm;");
                 Check("auto-scored presses", outZone && scored && events.Contains("camDist=") && events.Contains("gazeFeed="),
                       $"out_of_zone {outZone}, goal-0 press scored {scored}");
+
+                string[] eventLines = File.ReadAllLines(stem + "_events.csv");
+                Check("event columns", eventLines.All(l => l.Count(c => c == ';') == 6),
+                      $"{eventLines.Count(l => l.Count(c => c == ';') != 6)} of {eventLines.Length} lines without 7 fields");
+                bool Lost(int a, int b, string reason) =>
+                    eventLines.Any(l => l.Contains($";drone_lost;") && l.Contains($"drone={a} reason={reason} partner={b} "));
+                bool pair = (Lost(lostA, lostB, "CollidingWithAnotherDrone") && Lost(lostB, lostA, "ExternallyKilled")) ||
+                            (Lost(lostB, lostA, "CollidingWithAnotherDrone") && Lost(lostA, lostB, "ExternallyKilled"));
+                Check("a colliding pair names each other", pair && json.Contains("\"dronesLost\": "),
+                      $"pair {lostA}, {lostB}: [{string.Join(" | ", eventLines.Where(l => l.Contains(";drone_lost;")).Select(l => l.Substring(l.LastIndexOf(';') + 1)))}]");
+
+                string gitLine = json.Split('\n').FirstOrDefault(l => l.Contains("\"gitCommit\"")) ?? "";
+                string gitError = json.Split('\n').FirstOrDefault(l => l.Contains("\"gitError\"")) ?? "";
+                string swarm = File.ReadAllText(stem + "_swarm.json");
+                Check("what the run flew",
+                      json.Contains("\"finalized\": true") && json.Contains("\"endReason\": \"probe\"") &&
+                      json.Contains("\"identifyRangeM\"") && json.Contains("\"stitchingEnabled\"") &&
+                      json.Contains("\"screenScale\"") && events.Contains(";display;") &&
+                      swarm.Contains("\"swarmManager\"") && swarm.Contains("\"interfaceManager\"") &&
+                      swarm.Contains("\"screenSpawn\"") && swarm.Contains("\"stitching\""),
+                      $"{gitLine.Trim()} {gitError.Trim()}; _swarm.json {swarm.Length} bytes");
             }
         }
         File.WriteAllText(outPath, "{\"ok\":" + (allOk ? "true" : "false") + ",\"checks\":[\n" + string.Join(",\n", lines) + "\n]}\n");

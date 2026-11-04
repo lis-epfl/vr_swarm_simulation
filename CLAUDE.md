@@ -514,6 +514,13 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     the frames that miss. The setting belongs to the Oculus service and resets when it restarts.
   - `ExperimentRecorder` writes `_perf.csv` per run (frames, fps, longest frame, FPV renders per
     10 Hz row): measure there, not by interval forensics. `dtMaxMs` near 27.8 is a missed frame.
+    Don't regress frame time on renders per frame across its rows: that is renders/s ÷ fps, so a
+    slow row reads as a busy one, and the fit (~3 ms per render) is well above the measured cost.
+  - **A desktop run's frame rate says nothing about the headset, so check which one a run was.**
+    Since 2026-11-03 `_perf.csv` has `hmdActive` / `hmdWorn` per row and `_session.json` has
+    `headsetActive`, `headsetActiveSec`, `headsetWornSec`, `xrDevice`, `displayRefreshHz`, and
+    `feedWidth` / `feedHeight`. For older runs, a head position that never moves in `_head.csv` means
+    no headset (its std is 0.00 m on desktop runs, 0.03–0.12 m in the headset; the head *yaw* moves in both).
   - `VrFramePacing` caps `Time.maximumDeltaTime` at 0.1 s (the project setting is 0.333), so one
     hitch cannot cash out as 16 catch-up physics steps in the next frame — itself a missed frame.
   - **Run experiments with the Game view on *Play Maximized*.** The saved layout docks the Scene view
@@ -2439,3 +2446,41 @@ worth keeping:
 - The count is cumulative on the wire, not a flag, because a press carried in one datagram is lost with
   it and a count is not. The first packet, and a restarted bridge counting from 0, are only a baseline —
   which is also why a press made before Play never lands late.
+
+**A run records what it flew, and its session file exists from the first frame** (since 2026-11-03). Points worth
+keeping:
+- **A loss is a `drone_lost` event, at its physics tick** (`DroneHealthMonitor.DroneLost`): `drone=3
+  reason=CollidingWithAnotherDrone partner=7 x= y= z= vx= vy= vz= speed=`. `alive` in `_drones.csv` is a 10 Hz flag on a
+  drone already parked, and the reason used to live only in `Editor.log`, which the editor overwrites: all 10 deaths in
+  internal_3 have blank reasons because no log was kept. A colliding pair is two events naming each other,
+  `CollidingWithAnotherDrone` (whichever detected it) and `ExternallyKilled`. analyse.py's `crashes.csv` reads them
+  first (`partner`, `speed`), and the editor log only for older runs.
+- **The session JSON carries the software and the rules:** `gitCommit`, `gitDirty`, `gitChanges` (porcelain lines over
+  Assets, Packages and ProjectSettings; UserSettings nearly always differs), `gitError` when git could not answer (no
+  repository in a bench copy); `identifyZoneM`, `identifyRangeM`, `identifyCentralFraction`, `rcIdentifyDebounceSec`;
+  `stitchingEnabled`; the screen style, radius and scale. Git runs on a worker thread with `--no-optional-locks`, so it
+  can neither hitch a frame nor hold the index lock against a commit. It keeps file names, not diffs: a scene's diff
+  can run to megabytes, and `_swarm.json` has the values that matter most.
+- **`_swarm.json` also dumps `interfaceManager`, `screenSpawn` and `stitching`**, as authored at the start of the run;
+  `swarm_params.py` reads only `swarmManager`. **A style change resets `ScreenSpawn`'s radius and scale**, so what was
+  in force later is in the `display` events, which read ScreenSpawn (AUTO and the panorama fallback resolve there) at
+  the start of the run and on every change.
+- **`_session.json` is written from the first frame, `finalized` false until the run ends** (`endReason` then), and
+  rewritten on a press, a loss, the start line and git's answer. A crash used to lose the goals and the hats with it,
+  and a goal seed drawn fresh at Play cannot give them back. analyse.py does not analyse an unfinished one, as it did
+  not analyse a run with no session file: protocol §8 excludes a run a technical failure ended. The data is there to
+  read by hand.
+- **`condition_mismatch`:** the label is typed by hand and the count is set on `swarmSpawn`, so a stale label goes
+  unnoticed (6 of the first 102 sessions, one in a test: `ERIP_t1_SingleDrone_20260706_222450` in internal_1 flew 10
+  drones). The recorder logs an error at Play and sets `conditionMismatch`; analyse.py warns on any run, old ones too,
+  and still goes by the label.
+- **A view in the live panorama counts as on screen** (`_drones.csv` `stitched`, `InLivePanorama`). The stitched
+  drones' quads are hidden under the panorama, so `shown` is 0 for the very views the pilot is looking through, and a
+  hat seen only there used to score a false alarm. A frozen panorama does not count (`UpdateStitchState`). Only the hide
+  makes this necessary: with `hideStitchedDroneScreens` off those quads stay `shown`. `citysim.replay.shown_mask` ORs
+  the column in, so the hat and discovery measures agree with the scoring; runs before it keep the old mask, which
+  undercounts while the panorama is up.
+- **No `;` in an event's note.** `session_start`'s held them until 2026-11-03, which a plain `pandas.read_csv` takes for
+  extra columns, shifting every row of the file: read older files with `analyse.read_events`.
+- `ProceduralCityProbe` checks all of it headless, except the `stitched` column itself (its `InLivePanorama` is checked
+  through the scoring) and the label check, which the probe's correctly labelled scenes never trip.

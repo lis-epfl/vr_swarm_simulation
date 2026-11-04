@@ -1,9 +1,24 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 public class DroneHealthMonitor : MonoBehaviour
 {
+    /// <summary>One lost drone, as <see cref="DroneLost"/> reports it. Position and velocity are from just before it
+    /// was parked, which moves the one underground and zeroes the other.</summary>
+    public struct Loss
+    {
+        public GameObject drone;     // the "Drone N" root: the swarm list's entry
+        public string reason;
+        public GameObject partner;   // the other drone of a collision, whichever of the two detected it; else null
+        public Vector3 position, velocity;
+    }
+
+    /// <summary>Raised once per loss, for ExperimentRecorder: until it listened, the reason and the partner were only in
+    /// Editor.log, which the editor overwrites, and a colliding pair could only be matched up by the time.</summary>
+    public static event Action<Loss> DroneLost;
+
     public StateFinder State;
     private VelocityControl velocityControl;
     private List<GameObject> swarm;
@@ -43,6 +58,7 @@ public class DroneHealthMonitor : MonoBehaviour
     private float stuckDetectionTimer = 0f;
     private int k_ObstacleLayerMask;
     private bool stuckDetectionEnabled = false;
+    private GameObject collisionPartner;
 
     void Start()
     {
@@ -105,6 +121,15 @@ public class DroneHealthMonitor : MonoBehaviour
         Debug.Log($"[DroneHealthMonitor] Parking {transform.parent.name} ({gameObject.name}) at y={parkingY}. " +
                   $"Reason: {reason}. Position was {transform.position}, t={elapsedTime:F2}s");
 
+        var loss = new Loss
+        {
+            drone = transform.parent.gameObject,
+            reason = reason,
+            partner = collisionPartner,
+            position = transform.position,
+            velocity = rb != null ? rb.velocity : Vector3.zero,
+        };
+
         if (rb != null)
         {
             rb.velocity = Vector3.zero;
@@ -120,6 +145,8 @@ public class DroneHealthMonitor : MonoBehaviour
         {
             if (r != null) r.enabled = false;
         }
+
+        DroneLost?.Invoke(loss);
     }
 
     private void UnparkDrone()
@@ -152,6 +179,10 @@ public class DroneHealthMonitor : MonoBehaviour
             if (dist < droneCollisionRadius)
             {
                 vc.State.IsAlive = false;
+                collisionPartner = drone;
+                // Its own FixedUpdate parks it, as ExternallyKilled, without knowing why.
+                DroneHealthMonitor other = droneParent.GetComponent<DroneHealthMonitor>();
+                if (other != null) other.collisionPartner = transform.parent.gameObject;
                 Debug.LogWarning($"{gameObject.name} collided with {droneParent.parent.name}");
                 return true;
             }
@@ -277,6 +308,7 @@ public class DroneHealthMonitor : MonoBehaviour
         State.IsAlive = true;
         elapsedTime = 0.0f;
         wasAlive = true;
+        collisionPartner = null;
         stuckTimer = 0f;
         stuckDetectionTimer = 0f;
     }

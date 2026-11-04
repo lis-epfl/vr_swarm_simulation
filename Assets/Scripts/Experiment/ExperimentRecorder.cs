@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.XR;
 
 /// <summary>
 /// Captures all per-run data for the city search task (find three goal patches, identify the
@@ -36,8 +38,15 @@ using UnityEngine;
 /// it (<c>start_line_centroid</c>, <c>startCentroidSec</c>). <c>totalTaskTime</c> keeps its old meaning, Play → last
 /// identify; <c>taskTimeFromStartLine</c> is the timed task. analyse.py times from the line when there is one.</para>
 ///
+/// <para><b>What a run flew is part of its record.</b> <c>drone_lost</c> events give each loss's reason and, for a
+/// collision, the other drone; the session JSON has the commit and the uncommitted changes, the scoring constants and
+/// the screen settings; <c>_swarm.json</c> dumps the components behind them; <c>display</c> events give the layout in
+/// force whenever it changes. The session JSON is written from the first frame on (see
+/// <see cref="FlushSessionJson"/>), with <c>finalized</c> false until the run ends.</para>
+///
 /// Condition is a recorded label only: this component does not change the drone count — the
-/// experimenter still configures <see cref="swarmSpawn"/> as usual.
+/// experimenter still configures <see cref="swarmSpawn"/> as usual, and a label that disagrees with the count is an
+/// error in the console and a <c>condition_mismatch</c> event (see <see cref="CheckConditionLabel"/>).
 ///
 /// Output (one set per run) goes to <c>Application.persistentDataPath/experiment/</c> as ';'-delimited
 /// CSVs (long format, so a variable drone count needs no schema change) plus a session JSON summary.
@@ -91,6 +100,7 @@ public class ExperimentRecorder : MonoBehaviour
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
     private ScreenSpawn screenSpawn;   // which drones' feeds are on screen, and where the quads hang
+    private PyUniSharingFast stitching;
     private StartLine startLine;       // null in a scene without one (or with it removed)
     private bool startLineLogged, startCentroidLogged;
     private Transform headTransform;   // OVRCameraRig.centerEyeAnchor (fallback Camera.main)
@@ -141,6 +151,12 @@ public class ExperimentRecorder : MonoBehaviour
     private int perfFrames;
     private float perfDtSum, perfDtMax;
     private long perfLastRenders = -1;
+    // Seconds with an XR device running and with the headset on someone's head, and the last device seen.
+    private float headsetActiveSec, headsetWornSec;
+    private string xrDeviceName = "";
+    private float displayRefreshHz;
+    private int eyeTextureWidth, eyeTextureHeight;
+    private float eyeTextureScale;
 
     // ---- stitching (see UpdateStitchState) ----
     // A panorama on screen with no new frame for this long is frozen, not stitching. Python writes
@@ -156,6 +172,20 @@ public class ExperimentRecorder : MonoBehaviour
     private float nextSampleTime;
     private bool sessionOpen = false;   // files open, sampling active
     private bool finalized = false;     // summary written, files closed
+    private string endReason = "";
+    private bool sessionJsonDirty;      // something the session JSON holds has changed (see FlushSessionJson)
+
+    // ---- what the run flew ----
+    private Task<GitState> gitQuery;    // see StartGitQuery
+    private GitState git = new GitState();
+    private bool conditionChecked, conditionMismatch;
+    private int dronesLost;
+    // The layout last logged (see LogDisplay).
+    private bool displayLogged;
+    private ScreenSpawn.ScreenStyle loggedStyle;
+    private float loggedRadius, loggedScale;
+    private Vector3 loggedOffset;
+    private int loggedWidth, loggedHeight;
 
     // ---- RC identify (see PollRcIdentify) ----
     private int rcPressesSeen;
@@ -192,11 +222,14 @@ public class ExperimentRecorder : MonoBehaviour
             ResolveGoalsAndWalkers();
             startLine = FindObjectOfType<StartLine>();
             referencesResolved = true;
+            sessionJsonDirty = true;
         }
+        CheckConditionLabel();
 
         // Every frame, not at sampleHz, so transitions are timed to the frame.
         UpdateStitchState();
         LogStartLine();
+        LogDisplay();
 
         float dt = Time.unscaledDeltaTime;
         perfFrames++;
@@ -228,10 +261,19 @@ public class ExperimentRecorder : MonoBehaviour
         else if (Input.GetKeyDown(skipKey)) RecordOutcome("skip");
 
         if (Input.GetKeyDown(endSessionKey)) Finalize("manual_end");
+
+        if (finalized) return;
+        CollectGitQuery(0);
+        FlushSessionJson();
     }
 
     void OnApplicationQuit() => Finalize("app_quit");
-    void OnDestroy() => Finalize("destroyed");
+
+    void OnDestroy()
+    {
+        DroneHealthMonitor.DroneLost -= OnDroneLost;
+        Finalize("destroyed");
+    }
 
     // ------------------------------------------------------------------ setup
 
@@ -239,6 +281,7 @@ public class ExperimentRecorder : MonoBehaviour
     {
         spawner = FindObjectOfType<swarmSpawn>();
         screenSpawn = FindObjectOfType<ScreenSpawn>();
+        stitching = FindObjectOfType<PyUniSharingFast>();
         headTransform = ResolveHeadTransform();
         obstacleMask = LayerMask.GetMask("Obstacle");
 
@@ -251,7 +294,7 @@ public class ExperimentRecorder : MonoBehaviour
         wallStart = DateTime.Now;
         fileStem = $"{pid}_t{trialNumber}_{condition}_{wallStart:yyyyMMdd_HHmmss}";
 
-        dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive;hull;shown");
+        dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive;hull;shown;stitched");
         headWriter = NewWriter("head",
             "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread;" +
             "gimbalPitch;gazeX;gazeY;gazeZ;gazeConf;gazeFeed");
@@ -261,15 +304,18 @@ public class ExperimentRecorder : MonoBehaviour
             "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
             "lookGapDeg;lookGapRawDeg;lookGapFill;spreadScale");
         stitchWriter = NewWriter("stitch", "t;unixMs;stitcher;shown;qualityOk;pilotOn;reasonBits;panoAgeSec;functional");
-        perfWriter = NewWriter("perf", "t;unixMs;frames;fps;dtMaxMs;fpvRenders");
+        perfWriter = NewWriter("perf", "t;unixMs;frames;fps;dtMaxMs;fpvRenders;hmdActive;hmdWorn");
         WriteSwarmSettings();
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
         rcPressesSeen = UDPReceiverManager.MarkPresses;   // a press before the session is not an answer
         sessionOpen = true;
+        DroneHealthMonitor.DroneLost += OnDroneLost;
+        StartGitQuery();
 
-        WriteEvent("session_start", -1, "", -1f, $"pid={pid};trial={trialNumber};condition={condition};identify={identifyMode}");
+        // No ';' in the note: pandas readers of _events.csv split on it.
+        WriteEvent("session_start", -1, "", -1f, $"pid={pid} trial={trialNumber} condition={condition} identify={identifyMode}");
         Debug.Log($"ExperimentRecorder: logging to {dirPath} ({fileStem}_*.csv)", this);
     }
 
@@ -288,6 +334,9 @@ public class ExperimentRecorder : MonoBehaviour
     /// internal_2 and is off now), so without this an offline replay has to be told by hand what a run
     /// flew. Read by <c>Assets/Scripts/swarm/Bench/swarm_params.py</c>. Its d_ref is the starting value;
     /// the spread stick moves it, and shape.csv has it per sample.
+    ///
+    /// The display and stitching components are dumped beside it, as authored at the start of the run. A style
+    /// change resets ScreenSpawn's radius and scale, so what is in force later is in the <c>display</c> events.
     /// </summary>
     private void WriteSwarmSettings()
     {
@@ -296,7 +345,11 @@ public class ExperimentRecorder : MonoBehaviour
         {
             string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
             string json = "{\n\"scene\": \"" + scene + "\",\n\"swarmManager\": "
-                        + JsonUtility.ToJson(SwarmManager.Instance, true) + "\n}\n";
+                        + JsonUtility.ToJson(SwarmManager.Instance, true)
+                        + SettingsBlock("interfaceManager", FindObjectOfType<InterfaceManager>())
+                        + SettingsBlock("screenSpawn", screenSpawn)
+                        + SettingsBlock("stitching", stitching)
+                        + "\n}\n";
             File.WriteAllText(Path.Combine(dirPath, $"{fileStem}_swarm.json"), json, new UTF8Encoding(false));
         }
         catch (Exception e)
@@ -304,6 +357,145 @@ public class ExperimentRecorder : MonoBehaviour
             // The run's own data matters more than this summary of its settings.
             Debug.LogWarning($"ExperimentRecorder: could not write {fileStem}_swarm.json. {e.Message}", this);
         }
+    }
+
+    private static string SettingsBlock(string key, MonoBehaviour component) =>
+        component != null ? ",\n\"" + key + "\": " + JsonUtility.ToJson(component, true) : "";
+
+    /// <summary>What git says about the project as the run started; <c>error</c> says why it could not say.</summary>
+    private class GitState
+    {
+        public string commit = "", error = "";
+        public string[] changes = new string[0];
+    }
+
+    /// <summary>
+    /// The commit this run flew and what differed from it, on a worker thread because it starts processes; the answer
+    /// reaches the session JSON a moment into the run. Limited to what decides how the sim behaves: UserSettings (the
+    /// editor's layouts) differs nearly always, and would make every run look modified. A file's name is all it keeps,
+    /// since <c>_swarm.json</c> has the values that matter most and a scene's diff can run to megabytes.
+    /// </summary>
+    private void StartGitQuery()
+    {
+        string root = Path.GetDirectoryName(Application.dataPath);   // main thread only, so read here
+        gitQuery = Task.Run(() => QueryGit(root));
+    }
+
+    private static GitState QueryGit(string root)
+    {
+        var state = new GitState();
+        try
+        {
+            state.commit = RunGit(root, "rev-parse HEAD").Trim();
+            string[] lines = RunGit(root, "status --porcelain -- Assets Packages ProjectSettings")
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            state.changes = lines;
+        }
+        catch (Exception e)
+        {
+            state.error = e.Message;   // no git on PATH, or a project copy with no repository
+        }
+        return state;
+    }
+
+    private static string RunGit(string root, string args)
+    {
+        // --no-optional-locks: this must never hold the index lock against a commit being made in the same tree.
+        var info = new System.Diagnostics.ProcessStartInfo("git", "--no-optional-locks " + args)
+        {
+            WorkingDirectory = root,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(info))
+        {
+            // Read on the side: a child blocked on a full stderr pipe would never finish its stdout.
+            Task<string> stderr = p.StandardError.ReadToEndAsync();
+            string stdout = p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            if (p.ExitCode != 0) throw new InvalidOperationException($"git {args}: {stderr.Result.Trim()}");
+            return stdout;
+        }
+    }
+
+    /// <summary>Takes git's answer if it has arrived, waiting up to <paramref name="waitMs"/> for it.</summary>
+    private void CollectGitQuery(int waitMs)
+    {
+        if (gitQuery == null || !gitQuery.Wait(waitMs)) return;
+        git = gitQuery.Result;
+        gitQuery = null;
+        sessionJsonDirty = true;
+        if (git.error != "") Debug.LogWarning($"ExperimentRecorder: no commit recorded for this run. {git.error}", this);
+    }
+
+    /// <summary>
+    /// Whether the label agrees with what spawned. The label is typed by hand and the count is set on another
+    /// component, so one left over from the previous run went unnoticed: 6 of the first 102 sessions disagree, one of
+    /// them in internal_1. Waits for the swarm to exist, which it does by the first frame in every scene so far.
+    /// </summary>
+    private void CheckConditionLabel()
+    {
+        if (conditionChecked) return;
+        int n = spawner != null && spawner.swarm != null ? spawner.swarm.Count : 0;
+        if (n == 0) return;
+        conditionChecked = true;
+        conditionMismatch = condition == Condition.SingleDrone ? n != 1 : n < 2;
+        if (!conditionMismatch) return;
+        sessionJsonDirty = true;
+        WriteEvent("condition_mismatch", -1, "", -1f, $"condition={condition} drones={n}");
+        Debug.LogError($"ExperimentRecorder: this run is labelled {condition} but {n} drone(s) spawned. Fix the label " +
+                       "or the count before flying: analyse.py goes by the label.", this);
+    }
+
+    /// <summary>
+    /// A loss, at the physics tick it happened, with what _drones.csv cannot show: alive there is a 10 Hz flag, and a
+    /// parked drone has lost its velocity and its place. Must not throw: <see cref="DroneHealthMonitor"/> is
+    /// mid-FixedUpdate.
+    /// </summary>
+    private void OnDroneLost(DroneHealthMonitor.Loss loss)
+    {
+        try
+        {
+            List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+            int drone = swarm != null ? swarm.IndexOf(loss.drone) : -1;
+            int partner = swarm != null && loss.partner != null ? swarm.IndexOf(loss.partner) : -1;
+            dronesLost++;
+            sessionJsonDirty = true;
+            Vector3 p = loss.position, v = loss.velocity;
+            WriteEvent("drone_lost", -1, "", -1f,
+                $"drone={drone} reason={loss.reason} partner={partner} x={F(p.x)} y={F(p.y)} z={F(p.z)} " +
+                $"vx={F(v.x)} vy={F(v.y)} vz={F(v.z)} speed={F(v.magnitude)}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"ExperimentRecorder: could not log a drone loss. {e.Message}", this);
+        }
+    }
+
+    /// <summary>
+    /// The screen layout in force, at the start of the run and whenever it changes. Read off ScreenSpawn, not
+    /// InterfaceManager's inspector fields: AUTO and the panorama fallback resolve there, and the identify rule and
+    /// analyse.py's head visibility both assume a screen scale. Compared rather than formatted, since this runs every
+    /// frame.
+    /// </summary>
+    private void LogDisplay()
+    {
+        if (screenSpawn == null) return;
+        ScreenSpawn s = screenSpawn;
+        if (displayLogged && s.screenStyle == loggedStyle && s.radius == loggedRadius && s.scale == loggedScale &&
+            s.offset == loggedOffset && s.width == loggedWidth && s.height == loggedHeight) return;
+        displayLogged = true;
+        loggedStyle = s.screenStyle;
+        loggedRadius = s.radius;
+        loggedScale = s.scale;
+        loggedOffset = s.offset;
+        loggedWidth = s.width;
+        loggedHeight = s.height;
+        WriteEvent("display", -1, "", -1f,
+            $"style={s.screenStyle} radius={F(s.radius)} scale={F(s.scale)} " +
+            $"offset={F(s.offset.x)},{F(s.offset.y)},{F(s.offset.z)} feed={s.width}x{s.height}");
     }
 
     private Transform ResolveHeadTransform()
@@ -419,12 +611,15 @@ public class ExperimentRecorder : MonoBehaviour
             }
             float yaw = dp.eulerAngles.y;
             // hull: AttitudeAlgorithm's debounced boundary flag; shown: the drone's feed quad is on screen (interior
-            // drones, a feed held back while it turns, and the stitched triplet under the panorama all are not).
+            // drones, a feed held back while it turns, and the stitched triplet under the panorama all are not);
+            // stitched: that last case, its view in the live panorama instead. Appended last, so runs recorded before
+            // it simply lack the column.
             AttitudeAlgorithm att = dp.GetComponent<AttitudeAlgorithm>();
             bool hull = att != null && att.BoundaryEstimate;
             bool shown = FeedShown(drone);
             dronesWriter.WriteLine(
-                $"{F(t)};{ms};{i};{F(pos.x)};{F(pos.y)};{F(pos.z)};{F(yaw)};{(alive ? 1 : 0)};{(hull ? 1 : 0)};{(shown ? 1 : 0)}");
+                $"{F(t)};{ms};{i};{F(pos.x)};{F(pos.y)};{F(pos.z)};{F(yaw)};{(alive ? 1 : 0)};{(hull ? 1 : 0)};{(shown ? 1 : 0)};" +
+                $"{(InLivePanorama(drone) ? 1 : 0)}");
         }
     }
 
@@ -573,13 +768,36 @@ public class ExperimentRecorder : MonoBehaviour
     /// frame time is quantised to the refresh (13.9 ms at 72 Hz), so <c>dtMaxMs</c> near 27.8
     /// means a frame was missed, and a run of rows at ~36 fps is the runtime's half-rate lock.
     /// Unscaled time, so a time-scaled session still reports real frame rates.
+    ///
+    /// <c>hmdActive</c> says an XR device was running at this row and <c>hmdWorn</c> that it was on
+    /// someone's head. A desktop run's frame rate says nothing about the headset (no 72 Hz lock, no
+    /// eye pass, no compositor), and a Link session can be up with the headset on the desk, so the two
+    /// are separate. Both are per row because XR starts a moment after this session opens and the
+    /// headset can come off mid-run. Appended last, so older runs simply lack the columns; for those,
+    /// a head position that never moves in <c>_head.csv</c> marks a run flown without the headset.
     /// </summary>
     private void WritePerfSample(float t, long ms)
     {
         long renders = FPVCameraScript.TotalRenders;
         long rendersSince = perfLastRenders >= 0 ? renders - perfLastRenders : 0;
         float fps = perfDtSum > 0f ? perfFrames / perfDtSum : 0f;
-        perfWriter.WriteLine($"{F(t)};{ms};{perfFrames};{F(fps)};{F(perfDtMax * 1000f)};{rendersSince}");
+
+        bool hmdActive = XRSettings.isDeviceActive;
+        bool hmdWorn = hmdActive && OVRPlugin.userPresent;
+        if (hmdActive)
+        {
+            headsetActiveSec += perfDtSum;
+            xrDeviceName = XRSettings.loadedDeviceName;
+            displayRefreshHz = XRDevice.refreshRate;
+            eyeTextureWidth = XRSettings.eyeTextureWidth;
+            eyeTextureHeight = XRSettings.eyeTextureHeight;
+            eyeTextureScale = XRSettings.eyeTextureResolutionScale;
+        }
+        if (hmdWorn) headsetWornSec += perfDtSum;
+
+        perfWriter.WriteLine(
+            $"{F(t)};{ms};{perfFrames};{F(fps)};{F(perfDtMax * 1000f)};{rendersSince};" +
+            $"{(hmdActive ? 1 : 0)};{(hmdWorn ? 1 : 0)}");
 
         perfLastRenders = renders;
         perfFrames = 0;
@@ -635,6 +853,7 @@ public class ExperimentRecorder : MonoBehaviour
     /// </summary>
     private void ScorePress()
     {
+        sessionJsonDirty = true;
         Vector3 centroid = AliveCentroid();
         int gazeFeed = EyeGazeTracker.EyeTrackingActive && EyeGazeTracker.Combined.IsValid ? GazeFeed(EyeGazeTracker.Combined) : -1;
         float t = Time.time - sessionStartTime;
@@ -700,7 +919,8 @@ public class ExperimentRecorder : MonoBehaviour
 
     /// <summary>
     /// Whether the goal's hat is inside the central part of an alive drone's shown feed, within range, with no
-    /// building between camera and hat. The nearest such camera is reported (index in the swarm list, distance).
+    /// building between camera and hat. The nearest such camera is reported (index in the swarm list, distance). A view
+    /// in the live panorama counts as shown: its own quad is hidden only because the pilot is looking at it there.
     /// </summary>
     private bool HatOnShownFeed(GoalInfo g, out int feed, out float camDist)
     {
@@ -714,7 +934,7 @@ public class ExperimentRecorder : MonoBehaviour
         for (int i = 0; i < swarm.Count; i++)
         {
             GameObject drone = swarm[i];
-            if (drone == null || !FeedShown(drone)) continue;
+            if (drone == null || !(FeedShown(drone) || InLivePanorama(drone))) continue;
             Transform dp = drone.transform.Find("DroneParent");
             VelocityControl vc = dp != null ? dp.GetComponent<VelocityControl>() : null;
             if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
@@ -740,6 +960,11 @@ public class ExperimentRecorder : MonoBehaviour
         GameObject screen = screenSpawn.ScreenFor(drone);
         return screen != null && screen.activeInHierarchy;
     }
+
+    /// <summary>Whether a drone's feed is hidden because its view is in the panorama, and that panorama is still being
+    /// refreshed. A frozen one (<see cref="UpdateStitchState"/>) shows the pilot nothing new from this camera.</summary>
+    private bool InLivePanorama(GameObject drone) =>
+        stitchFunctional && screenSpawn != null && drone != null && screenSpawn.IsHiddenInPanorama(drone);
 
     /// <summary>
     /// The swarm-list index of the drone whose feed quad the gaze ray meets first, or -1. The quads carry no
@@ -775,6 +1000,7 @@ public class ExperimentRecorder : MonoBehaviour
     /// </summary>
     private void RecordOutcome(string outcome)
     {
+        sessionJsonDirty = true;
         if (identifyMode == IdentifyMode.AutoScore)
         {
             OverrideLatestPress(outcome);
@@ -824,6 +1050,7 @@ public class ExperimentRecorder : MonoBehaviour
     /// <summary>Answers the nearest unanswered goal; false if none remain.</summary>
     private bool RecordIdentify(string outcome, string source)
     {
+        sessionJsonDirty = true;
         int idx = NearestUnansweredGoal(out float dist, out Vector3 centroid);
         if (idx < 0)
         {
@@ -946,6 +1173,7 @@ public class ExperimentRecorder : MonoBehaviour
         if (!startLineLogged && startLine.Crossed)
         {
             startLineLogged = true;
+            sessionJsonDirty = true;
             Vector3 p = startLine.CrossedPosition;
             WriteEventAt(startLine.CrossedTime, "start_line", -1, "", -1f,
                 $"drone={startLine.CrossedDrone} x={F(p.x)} z={F(p.z)} centroidBehindM={F(startLine.CentroidBehindAtCross)}");
@@ -964,9 +1192,11 @@ public class ExperimentRecorder : MonoBehaviour
     {
         if (!sessionOpen || finalized) return;
         finalized = true;
+        endReason = reason;
 
         try
         {
+            CollectGitQuery(2000);   // only waits on a run a moment long
             WriteEvent("session_end", -1, "", -1f, reason);
             WriteSessionJson();
         }
@@ -982,14 +1212,43 @@ public class ExperimentRecorder : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Rewrites the session JSON if anything in it has changed: first as the goals are resolved, then on a press, a
+    /// loss, the start line and git's answer. The final write is <see cref="Finalize"/>'s. Otherwise a crash would lose
+    /// the file, and with it the goals, the hats and the seed, which a goal seed drawn fresh at Play cannot give back;
+    /// the CSVs alone do not say where a goal was. Until the end <c>finalized</c> is false, and analyse.py does not
+    /// analyse such a run. It costs a handful of ~5 KB writes a run, each on a frame where something else happened.
+    /// </summary>
+    private void FlushSessionJson()
+    {
+        if (!sessionJsonDirty) return;
+        sessionJsonDirty = false;
+        try
+        {
+            WriteSessionJson();
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"ExperimentRecorder: could not write {fileStem}_session.json. {e.Message}", this);
+        }
+    }
+
     private void WriteSessionJson()
     {
         var data = new SessionData
         {
+            finalized = finalized,
+            endReason = endReason,
             participantId = participantId,
             trialNumber = trialNumber,
             condition = condition.ToString(),
+            conditionMismatch = conditionMismatch,
             droneCount = (spawner != null && spawner.swarm != null) ? spawner.swarm.Count : 0,
+            dronesLost = dronesLost,
+            gitCommit = git.commit,
+            gitDirty = git.changes.Length > 0,
+            gitChanges = git.changes,
+            gitError = git.error,
             sampleHz = sampleHz,
             wallStartIso = wallStart.ToString("o"),
             wallEndIso = DateTime.Now.ToString("o"),
@@ -999,7 +1258,25 @@ public class ExperimentRecorder : MonoBehaviour
             goalSeed = GoalSession.HasSeed ? GoalSession.Seed : 0,
             goalSeedSource = GoalSession.HasSeed ? GoalSession.Source : "",
             identifyMode = identifyMode.ToString(),
+            identifyZoneM = identifyZoneM,
+            identifyRangeM = identifyRangeM,
+            identifyCentralFraction = identifyCentralFraction,
+            rcIdentifyDebounceSec = rcIdentifyDebounceSec,
+            stitchingEnabled = stitching != null && stitching.StitchingEnabled,
+            screenStyle = screenSpawn != null ? screenSpawn.screenStyle.ToString() : "",
+            screenRadius = screenSpawn != null ? screenSpawn.radius : 0f,
+            screenScale = screenSpawn != null ? screenSpawn.scale : 0f,
             layout = CityLayoutInfo.Current ?? new CityLayoutInfo.Record(),
+            headsetActive = headsetActiveSec > 0f,
+            headsetActiveSec = headsetActiveSec,
+            headsetWornSec = headsetWornSec,
+            xrDevice = xrDeviceName,
+            displayRefreshHz = displayRefreshHz,
+            eyeTextureWidth = eyeTextureWidth,
+            eyeTextureHeight = eyeTextureHeight,
+            eyeTextureScale = eyeTextureScale,
+            feedWidth = screenSpawn != null ? screenSpawn.width : 0,
+            feedHeight = screenSpawn != null ? screenSpawn.height : 0,
         };
 
         int nCorrect = 0, falseAlarms = 0;
@@ -1109,10 +1386,22 @@ public class ExperimentRecorder : MonoBehaviour
     [Serializable]
     private class SessionData
     {
+        // false: the run has not ended, or never did (see FlushSessionJson). Absent = a run before 2026-11-03, whose
+        // file was only ever written at the end. endReason is session_end's note.
+        public bool finalized;
+        public string endReason;
         public string participantId;
         public int trialNumber;
         public string condition;
+        public bool conditionMismatch;     // the label disagrees with droneCount (see CheckConditionLabel)
         public int droneCount;
+        public int dronesLost;             // drone_lost events
+        // The commit, and whether Assets, Packages or ProjectSettings differed from it (gitChanges: porcelain lines).
+        // An empty gitCommit is explained by gitError.
+        public string gitCommit;
+        public bool gitDirty;
+        public string[] gitChanges;
+        public string gitError;
         public float sampleHz;
         public string wallStartIso;
         public string wallEndIso;
@@ -1131,8 +1420,24 @@ public class ExperimentRecorder : MonoBehaviour
         public int goalSeed;
         public string goalSeedSource;
         public string identifyMode;        // AutoScore or Legacy (absent = Legacy: runs before 2026-10-12)
+        // The identify rule this run was scored by (absent = a run before 2026-11-03: the 15 / 40 / 0.8 / 1 defaults,
+        // unless a scene overrode them).
+        public float identifyZoneM, identifyRangeM, identifyCentralFraction, rcIdentifyDebounceSec;
         public int falseAlarms;            // AutoScore presses scored wrong, over every goal
+        // False: no stitcher had any part in this run, so _stitch.csv's zeros are not a stitcher that failed to start.
+        public bool stitchingEnabled;
+        // The layout in force when this file was written; display events have every change.
+        public string screenStyle;
+        public float screenRadius, screenScale;
         public CityLayoutInfo.Record layout;   // the generated layout the city was built from (empty id in tile cities)
+        // Was this flown in the headset? Absent = a run before 2026-11-03 (see WritePerfSample for those).
+        public bool headsetActive;
+        public float headsetActiveSec, headsetWornSec;
+        public string xrDevice;
+        public float displayRefreshHz;
+        public int eyeTextureWidth, eyeTextureHeight;   // the eye buffer: what the screens are drawn into
+        public float eyeTextureScale;
+        public int feedWidth, feedHeight;  // each drone's feed render texture
         public int nCorrect;
         public int nGoals;
         public List<GoalResult> goals = new List<GoalResult>();

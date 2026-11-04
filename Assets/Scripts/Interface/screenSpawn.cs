@@ -334,6 +334,10 @@ public class ScreenSpawn : MonoBehaviour
         return null;
     }
 
+    /// <summary>Whether a sim drone's feed is hidden because its view is in the panorama: not on a screen of its own, but
+    /// still in front of the pilot. ExperimentRecorder reads it, with whether that panorama is still live.</summary>
+    public bool IsHiddenInPanorama(GameObject drone) => stitchedDronesToHide.Contains(drone);
+
     // Set which drones' individual feeds to hide because they already appear in
     // the stitched panorama. Called by PyUniSharingFast; null/empty restores all.
     public void SetStitchedDronesHidden(IEnumerable<GameObject> drones)

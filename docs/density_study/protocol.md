@@ -114,7 +114,7 @@ L1/L2, 48 at L3) and presses **C2** on the RC when the hat is on screen. `Experi
 
 - the goal is the one whose zone (the patch grown by 15 m) holds the live drones' centroid; with none,
   the press is `out_of_zone`;
-- it is **correct** when that goal's hat is inside the central 80 % of a shown feed's image, within 40 m of
+- it is **correct** when that goal's hat is inside the central 80 % of a shown feed's image (a view in the live panorama counts as shown), within 40 m of
   that feed's camera, with no building in the way; otherwise a **false alarm**, logged, with the goal left
   open and the search going on;
 - every press is logged with the scoring camera's distance, its feed and the feed the pilot's gaze was on.

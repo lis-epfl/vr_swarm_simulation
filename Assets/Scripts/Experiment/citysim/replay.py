@@ -30,13 +30,18 @@ FEED_TOLERANCE_DEG = 5.0        # SwarmManager.feedHeadingToleranceDeg
 
 
 def shown_mask(run):
-    """(T, n) bool on the drone-log clock: which drones' feeds were on the ring (see the module docstring)."""
+    """(T, n) bool on the drone-log clock: which drones' feeds were on the ring (see the module docstring), or, in runs
+    that log `stitched` (since 2026-11-03), in the live panorama in its place, as the recorder's press scoring counts."""
     dr = run.drones
     T = run.ct
     ids = sorted(dr.droneId.unique())
     if "shown" in dr:
         piv = dr.pivot_table(index="t", columns="droneId", values="shown").reindex(T).fillna(0)
-        return piv[ids].values > 0.5
+        out = piv[ids].values > 0.5
+        if "stitched" in dr:
+            piv = dr.pivot_table(index="t", columns="droneId", values="stitched").reindex(T).fillna(0)
+            out |= piv[ids].values > 0.5
+        return out
     piv = {k: dr.pivot_table(index="t", columns="droneId", values=k).reindex(T) for k in ("gtX", "gtZ", "yawDeg", "alive")}
     X, Z, Y, A = (piv[k][ids].values for k in ("gtX", "gtZ", "yawDeg", "alive"))
     A = np.nan_to_num(A) > 0.5
