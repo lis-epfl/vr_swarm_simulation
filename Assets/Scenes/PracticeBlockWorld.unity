@@ -5,11 +5,12 @@ OcclusionCullingSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_OcclusionBakeSettings:
-    smallestOccluder: 5
-    smallestHole: 0.25
+    smallestOccluder: 8
+    smallestHole: 0.5
     backfaceThreshold: 100
-  m_SceneGUID: 00000000000000000000000000000000
-  m_OcclusionCullingData: {fileID: 0}
+  m_SceneGUID: f07624fab456d794b9c87ae7889da20f
+  m_OcclusionCullingData: {fileID: 36300000, guid: f5c612595322724498ea43cb758fabcf,
+    type: 2}
 --- !u!104 &2
 RenderSettings:
   m_ObjectHideFlags: 0
@@ -4812,7 +4813,7 @@ MonoBehaviour:
   flowerBed: {fileID: 5084166871976809401, guid: 14a58dc8c132f41c9b499aa06c50462f,
     type: 3}
   cutoutLeaves: {fileID: 2100000, guid: 0a530f4aa3f1e6e499c56f2c90b3e674, type: 2}
-  pavementMaterial: {fileID: 2100000, guid: a27ddb6b44522416ab26780967566211, type: 2}
+  pavementMaterial: {fileID: 2100000, guid: b135d5de957e4f139434658e4d9a4c7a, type: 2}
   grassMaterial: {fileID: 2100000, guid: 3c358bfa6c355ad4a851182370b0925f, type: 2}
   pavementUvMetres: 2.4384
   grassUvMetres: 76
@@ -4952,6 +4953,9 @@ MonoBehaviour:
   useFixedGoalSeed: 0
   goalSeed: 0
   prismWalkers: 16
+  walkerShadowMaterial: {fileID: 2100000, guid: b77e47becd6b49c68a7e0adc966810ee, type: 2}
+  walkerSleepDistance: 350
+  occlusionCitySignature: 20:-5234.4:-181.7:931.5
   prismWalkOffset: {x: 1.1, y: 1.5}
   bakedLayout: PracticeBlock__bbB_p40_s18_patch150_j0.15_sight487_seed2_cut_b28.json
 --- !u!4 &277018502
@@ -8293,6 +8297,16 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
+      propertyPath: bridge.enableImageWriting
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.enablePanoramaReading
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
       propertyPath: bridge.blockImageWidth
       value: 1152
       objectReference: {fileID: 0}
@@ -9606,7 +9620,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: a27ddb6b44522416ab26780967566211, type: 2}
+  - {fileID: 2100000, guid: b135d5de957e4f139434658e4d9a4c7a, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -32863,8 +32877,8 @@ MonoBehaviour:
   displayMode: 0
   screenStyle: 1
   autoStyle: 1
-  width: 640
-  height: 360
+  width: 1920
+  height: 1080
   radius: 2
   scale: 1
   offset: {x: 0.5, y: -0.3, z: 0}
@@ -32993,7 +33007,7 @@ MonoBehaviour:
   dronePrefab: {fileID: 1609574399469962, guid: aae8f18569ac02744b35fa3cefdc360b,
     type: 3}
   swarm: []
-  spawnPattern: 1
+  spawnPattern: 2
   dronesAlongX: 3
   dronesAlongZ: 3
   droneSpacing: 5
