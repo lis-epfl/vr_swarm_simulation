@@ -573,6 +573,10 @@ public class ScreenSpawn : MonoBehaviour
                 cam.allowHDR = false;
                 cam.stereoTargetEye = StereoTargetEyeMask.None;
 
+                // Baked occlusion halves an FPV render in the scenes that have it (the culling and submission
+                // of buildings and walkers no feed could see), and is wrong in a city it was not baked for.
+                cam.useOcclusionCulling = ProceduralCityBuilder.OcclusionUsable;
+
                 Transform droneParent = drone.transform.Find("DroneParent");
                 bindings.Add(new DroneScreenBinding
                 {

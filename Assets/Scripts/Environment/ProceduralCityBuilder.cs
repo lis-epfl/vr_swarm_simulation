@@ -112,6 +112,58 @@ public class ProceduralCityBuilder : MonoBehaviour
     public int goalSeed;
     [Tooltip("Pedestrians walking each patrolled prism's footpath.")]
     public int prismWalkers = 16;
+    [Tooltip("A soft shadow under every pedestrian, drawn as one mesh (WalkerGroundShadows). Leave empty for none.")]
+    public Material walkerShadowMaterial;
+    [Tooltip("m: a patrol farther than this from every drone stops animating and drawing its walkers until one comes " +
+             "back (WalkerPatrol.SleepDistance). A 1.8 m figure is ~4 headset pixels tall at 350 m on an OUTER_CIRCLE screen. 0: never.")]
+    public float walkerSleepDistance = 0f;
+    [Tooltip("Written by Tools/Swarm/Bake flight occlusion: the city the scene's occlusion data was baked for " +
+             "(CitySignature). A city at Play that does not match it turns occlusion culling off on the FPV cameras, " +
+             "because data baked for buildings that have since moved hides what stands where they used to be.")]
+    public string occlusionCitySignature = "";
+
+    /// <summary>
+    /// Whether the FPV cameras may use the scene's baked occlusion data (ScreenSpawn reads it). False only when this
+    /// city was baked for occlusion and the one at Play is a different one: a layout picked at Play that is not the
+    /// bake, or a city rebaked since the occlusion was.
+    /// </summary>
+    public static bool OcclusionUsable { get; private set; } = true;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetOcclusionUsable() => OcclusionUsable = true;
+
+    /// <summary>
+    /// The buildings as an occlusion bake sees them: every collider on Obstacle, by count and by where they stand, to
+    /// the decimetre. Order-free, so it reads the same in edit mode and at Play, whatever parent a goal's buildings
+    /// are moved under.
+    /// </summary>
+    public static string CitySignature()
+    {
+        int obstacle = LayerMask.NameToLayer("Obstacle");
+        int n = 0;
+        double sx = 0, sz = 0, se = 0;
+        foreach (Collider c in FindObjectsByType<Collider>(FindObjectsSortMode.None))
+        {
+            if (c.gameObject.layer != obstacle) continue;
+            Bounds b = c.bounds;
+            n++;
+            sx += Math.Round(b.center.x, 1);
+            sz += Math.Round(b.center.z, 1);
+            se += Math.Round(b.extents.x + b.extents.y + b.extents.z, 1);
+        }
+        return string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}:{1:F1}:{2:F1}:{3:F1}", n, sx, sz, se);
+    }
+
+    private void CheckOcclusionBake()
+    {
+        if (string.IsNullOrEmpty(occlusionCitySignature)) return;
+        string now = CitySignature();
+        OcclusionUsable = now == occlusionCitySignature;
+        if (!OcclusionUsable)
+            Debug.LogWarning("ProceduralCityBuilder: the scene's occlusion data was baked for another city " +
+                             $"({occlusionCitySignature}, this one is {now}), so the drone cameras fly without it. " +
+                             "Run Tools/Swarm/Bake flight occlusion and save the scene.", this);
+    }
     [Tooltip("m from the facade: each pedestrian walks at a distance drawn in this range, round every corner, in the lane " +
              "the dressing leaves on a 3.5 m footpath -- benches, bins and corner props stand within 0.9 m of the wall, " +
              "border-tree trunks from 1.6 m at a walker's height (1.4 m at their foot), hydrants by the kerb.")]
@@ -155,6 +207,14 @@ public class ProceduralCityBuilder : MonoBehaviour
     void Awake()
     {
         if (!Application.isPlaying) return;
+        if (walkerShadowMaterial != null) gameObject.AddComponent<WalkerGroundShadows>().Init(walkerShadowMaterial);
+        WalkerPatrol.SleepDistance = walkerSleepDistance;
+        MakeCity();
+        CheckOcclusionBake();
+    }
+
+    private void MakeCity()
+    {
         bool baked = HasBake;
         if (!baked && !buildOnAwake) return;
         string error;

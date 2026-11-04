@@ -60,9 +60,29 @@ public class WalkerPatrol : MonoBehaviour
     private int seed;
     private bool seeded;
 
+    // Beyond this many metres from every drone a patrol sleeps: its walkers stop where they are, their bodies undrawn and
+    // unanimated, and carry on when a drone comes back. Animating and skinning the pedestrians is the largest single cost in a frame
+    // once the feeds are drawn, and with no occlusion data a walker behind fifty buildings counts as visible, so they all
+    // pay it. 0: never (every scene but those that ask, through ProceduralCityBuilder.walkerSleepDistance).
+    public static float SleepDistance;
+    private const float SleepMargin = 20f;      // so a patrol on the line does not flicker in and out
+    private const float SleepCheckPeriod = 0.5f;
+    private static Transform[] droneCameras;
+    private bool asleep;
+    private float nextSleepCheck;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        SleepDistance = 0f;
+        droneCameras = null;
+    }
+
     private class WalkerInfo
     {
         public GameObject walker;
+        public Animator[] animators;
+        public Renderer[] renderers;
         public Vector3 previousPosition;
         public bool clockwise;
         public float speed;          // linear speed (m/s)
@@ -229,8 +249,56 @@ public class WalkerPatrol : MonoBehaviour
                 marker.EnsureHatId(prefab.name);
             }
             info.previousPosition = position;
+            if (SleepDistance > 0f)
+            {
+                info.animators = info.walker.GetComponentsInChildren<Animator>(true);
+                // The bodies only. A hat stays drawn (under a pixel from 350 m) because SpecialWalker.HatCentre reads its
+                // mesh's bounds, which the recorder logs and scores against, and a disabled renderer's are empty.
+                info.renderers = info.walker.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            }
 
             walkers.Add(info);
+        }
+
+        // Spread over the check period by instance, not by a random draw: a walker's start comes off the goal seed's
+        // stream, and drawing from it here would deal different walkers on the same seed.
+        nextSleepCheck = Time.time + ((GetInstanceID() & 7) / 8f) * SleepCheckPeriod;
+    }
+
+    private void UpdateSleep(Vector3 center)
+    {
+        if (SleepDistance <= 0f || Time.time < nextSleepCheck) return;
+        nextSleepCheck = Time.time + SleepCheckPeriod;
+
+        if (droneCameras == null || droneCameras.Length == 0)
+        {
+            swarmSpawn spawner = FindObjectOfType<swarmSpawn>();
+            if (spawner == null || spawner.swarm.Count == 0) return;
+            droneCameras = new Transform[spawner.swarm.Count];
+            for (int i = 0; i < droneCameras.Length; i++) droneCameras[i] = spawner.swarm[i].transform.Find("FPV");
+        }
+
+        float limit = asleep ? SleepDistance : SleepDistance + SleepMargin;
+        float limitSq = limit * limit;
+        bool far = true;
+        foreach (Transform cam in droneCameras)
+        {
+            if (cam == null) continue;
+            float dx = cam.position.x - center.x, dz = cam.position.z - center.z;
+            if (dx * dx + dz * dz < limitSq)
+            {
+                far = false;
+                break;
+            }
+        }
+        if (far == asleep) return;
+
+        asleep = far;
+        foreach (WalkerInfo info in walkers)
+        {
+            if (info.walker == null) continue;
+            foreach (Animator animator in info.animators) animator.enabled = !asleep;
+            foreach (Renderer walkerRenderer in info.renderers) walkerRenderer.enabled = !asleep;
         }
     }
 
@@ -243,6 +311,9 @@ public class WalkerPatrol : MonoBehaviour
     void Update()
     {
         Vector3 center = GetCenter();
+
+        UpdateSleep(center);
+        if (asleep) return;
 
         // Re-read every frame so the path follows a building resized after Start — BuildingWidthTuner
         // sizes goal patches on their first frame, and its goal width can be dragged during Play.
@@ -278,14 +349,11 @@ public class WalkerPatrol : MonoBehaviour
                 newPosition = center + GetCircleXZ(info, info.currentAngle);
             }
 
-            // Face the direction of travel.
+            // Face the direction of travel. Set in one call: two would mark every bone under the walker dirty twice.
             Vector3 moveDirection = (newPosition - info.previousPosition).normalized;
-            if (moveDirection != Vector3.zero)
-            {
-                info.walker.transform.rotation = Quaternion.LookRotation(moveDirection);
-            }
-
-            info.walker.transform.position = newPosition;
+            Transform walkerTransform = info.walker.transform;
+            walkerTransform.SetPositionAndRotation(newPosition,
+                moveDirection != Vector3.zero ? Quaternion.LookRotation(moveDirection) : walkerTransform.rotation);
             info.previousPosition = newPosition;
         }
     }

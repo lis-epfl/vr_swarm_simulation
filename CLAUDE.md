@@ -482,7 +482,9 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     deactivates static tiles at runtime and puts a differently built goal patch in their place, so
     the baked occluders of the removed buildings would keep hiding whatever stands behind where
     they used to be — around the goals, which is where the participants are searching. It would
-    need occluder data that knows about the swap, not a bake.
+    need occluder data that knows about the swap, not a bake. **The generated block cities are the
+    exception, and BlockShapedPatchCityWorld and PracticeBlockWorld are baked** (below, "Speed-ups in
+    the patch city"): their buildings never move, BlockGoals only re-parents them.
   - **The city scenes cast no shadows** (their one directional light has `m_Shadows` 0), so an FPV
     render is a single forward pass and the Ultra quality level's 4 cascades at 150 m cost nothing
     there; only RingChallenge, NBackExperiment and FactoryScene (22 soft-shadowed lights) pay for
@@ -848,6 +850,36 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     render: clothing ~0.05 ms, ground shadow ~0.10, sun shadow ~0.35. **Not adopted**: it makes the hat task
     easier, so `identifyRangeM` / `R_ID_M` and every earlier run's comparability are at stake.
   - The bench is `D:\claude_feedres_bench` (`probe\` has the sources and `final.py`; not in the repo).
+- **Speed-ups in the patch city (2026-11-04): baked occlusion and sleeping patrols halve the main thread.**
+  BlockShapedPatchCityWorld, by the same replay, two interleaved pairs on one machine (before → after): main thread
+  7.4–8.8 → 3.9–4.3 ms a frame, rows at 72 fps 39–75% → 100%, frames over 13.9 ms 1.8–8.3% → 0, the worst 1% of
+  frames 14.7–18.0 → 6.8–7.7 ms. The profiler put the cost before in culling (~2.5 ms) and in animating and
+  skinning all ~290 pedestrians whether any feed could see them (~2.8 ms). Points worth keeping:
+  - **Occlusion is baked by `Tools/Swarm/Bake flight occlusion` (`FlightOcclusionBaker`), not the Occlusion window.**
+    Only the Obstacle buildings and the Terrains occlude: CityDressing marks its props occluder-static, and leaves as
+    occluders hide walkers behind the gaps in a canopy. The area exists only while baking (the buildings + 150 m and
+    the spawn, up to the ceiling + 25 m). 6 s and 2.5 MB for the patch city, 3 s for the practice city. Checked: 160
+    random poses per scene render identically with it on and off. One FPV render with the GPU drained: 1.36 → 0.91
+    ms of main thread.
+  - **Rebake after rebaking the city.** The bake records `ProceduralCityBuilder.occlusionCitySignature` (Obstacle
+    colliders by count and position, `CitySignature`); a city at Play that differs — another layout picked at Play,
+    or a city rebaked since — sets `OcclusionUsable` false, and ScreenSpawn flies the FPV cameras without occlusion,
+    with a warning. `PracticeBlockWorldBuilder` rebakes itself, since its copy carries the trial city's data.
+  - **`WalkerPatrol.SleepDistance` (`ProceduralCityBuilder.walkerSleepDistance`, 350 in both scenes, 0 elsewhere):**
+    a patrol farther than that from every drone camera stops animating and hides its walkers' bodies until one comes
+    within it (20 m hysteresis, checked every 0.5 s). A 1.8 m figure is ~4 headset pixels at 350 m, and the scene's
+    longest street views are rarely over 400 m. In recorded flights ~45% of patrols are past 350 m. **Hats stay
+    drawn**: `SpecialWalker.HatCentre` reads the hat mesh's bounds, which a disabled renderer leaves empty, and the
+    recorder logs and scores against it. A sleeping walker's logged position is where it stopped.
+  - **The walkers' ground shadow (`WalkerGroundShadows`, `Swarm/Walker Ground Shadow`, the scene's
+    `walkerShadowMaterial`) is one mesh rewritten each frame**: 0.01 ms per FPV render, against 0.35 for the sun's
+    real shadow on the walkers alone. Its quads follow each walker's Animator and vanish while the patrol sleeps;
+    nothing is parented under a walker (`HatCentre` would take it for the hat). The footpath is
+    `PatchCityFootpath.mat`, the pack's at 0.9 grey; the pack's own is shared with other scenes. Measured paired
+    (same frames, nothing asleep): clearly visible walker pixels +8% for the shadow, +2% for the footpath, +8% both.
+  - **Tried and not adopted:** `-force-gfx-mt` (no gain, GPU latency up); terrain trees off (−1 ms, but the
+    landmarks' woods are terrain trees); feed MSAA (above).
+  - Both scenes now spawn `HollowCircle` (10 drones on the ring, none at the centre).
 - **The TPS field is evaluated once per warp update on a lattice of at most 512 samples** along the
   canvas' longer side (`_field_lattice_size`, `STABSTITCH_FLOW_GRID`, 0 = exact) and resampled
   for each consumer: the canvas (blend masks), the panorama (`_field_to_image_grid`, with

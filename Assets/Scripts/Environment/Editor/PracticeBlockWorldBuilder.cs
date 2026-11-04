@@ -103,6 +103,14 @@ public static class PracticeBlockWorldBuilder
         try
         {
             summary = Populate(scene, parts, out error);
+            // The copy carries the trial city's occlusion data, which the practice city would fly without (its signature
+            // does not match), so it gets its own.
+            if (summary != null)
+            {
+                summary += FlightOcclusionBaker.BakeForOpenScene(out string occlusion)
+                    ? $"; occlusion: {occlusion}"
+                    : $"; occlusion NOT baked ({occlusion}): run Tools/Swarm/Bake flight occlusion";
+            }
             if (summary != null && !EditorSceneManager.SaveScene(scene))
             {
                 summary = null;
