@@ -174,6 +174,7 @@ public static class VoronoiCityWorldBuilder
         if (d.trafficSignal == null) d.trafficSignal = Prop("MC_Traffic_Signal");
         if (d.frontageBench == null) d.frontageBench = Prop("MC_Bench_Single");
         if (d.bollard == null) d.bollard = Prop("MC_Street_Lamp_Small");
+        if (d.phoneBooth == null) d.phoneBooth = Prop("MC_Telephone_Booth");
         if (d.planters == null || d.planters.Length == 0 || d.planters.Any(p => p == null))
         {
             d.planters = new[] { "MC_Plant", "MC_Plant2", "MC_Plant3" }.Select(Prop).Where(p => p != null).ToArray();

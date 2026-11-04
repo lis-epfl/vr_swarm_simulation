@@ -58,8 +58,9 @@ using UnityEngine.Rendering;
 ///
 /// <para><b>More furniture</b> (<see cref="Extras"/>, off unless a scene turns it on; BlockShapedCityWorld does): traffic
 /// signals on every approach of some junctions, rows of potted plants (some with backless benches) along the building
-/// line, bollards at the kerb by the crossings, and speed-limit signs and taxi poles. Placed after the furniture above,
-/// which keeps its places, and before the border trees.</para>
+/// line, bollards at the kerb by the crossings, speed-limit signs and taxi poles, and (BlockShapedPatchCityWorld and
+/// PracticeBlockWorld) trash cans at the kerb by the crossings and telephone booths at the kerb. Placed after the
+/// furniture above, which keeps its places, and before the border trees.</para>
 ///
 /// <para><b>Cost</b>. An FPV render is CPU culling and submission (CLAUDE.md), so the props are the pack's cheap ones
 /// (MC_Tree is 537 triangles, against Tree9's 8.7k; every other prop shares one material) and cast no shadows; the
@@ -87,11 +88,14 @@ public class CityDressing : MonoBehaviour
     /// <summary>m off a block-shaped building's facade a planter or a frontage bench may reach: a goal's walkers take the
     /// lane 1.1-1.5 m off it (<c>ProceduralCityBuilder.prismWalkOffset</c>), less a walker's half-width.</summary>
     private const float FrontageReach = 0.8f;
+    /// <summary>m a kerb bin (<see cref="Extras.binShare"/>) keeps from any other bin.</summary>
+    private const float BinSpacing = 3f;
     /// <summary>Bump when the defaults in <see cref="Rules"/> change. A scene keeps the rules it was saved with, so without
     /// this a changed default never reaches it: <c>VoronoiCityWorldBuilder.EnsureDressing</c> resets older rules to the
     /// current defaults, and says so (a rule set by hand is lost). 4: <see cref="Extras"/>, so BlockShapedCityWorld's
-    /// builder sets them on the scene's next redress.</summary>
-    public const int RulesVersion = 4;
+    /// builder sets them on the scene's next redress. 5: the extras' kerb bins and telephone booths, so
+    /// BlockShapedPatchCityWorld and PracticeBlockWorld take their denser furniture on theirs.</summary>
+    public const int RulesVersion = 5;
 
     [Tooltip("Off: no footpaths, medians or props -- the bare city the studies modelled.")]
     public bool dress = true;
@@ -128,6 +132,8 @@ public class CityDressing : MonoBehaviour
     public GameObject bollard;
     [Tooltip("MC_Speed_Limit_Sign, MC_Taxi_Pole: one near some street ends, at the kerb, facing along the street.")]
     public GameObject[] kerbProps = new GameObject[0];
+    [Tooltip("MC_Telephone_Booth: at the kerb on some street sides (Extras.phoneShare), besides the one the corner props draw.")]
+    public GameObject phoneBooth;
 
     [Header("Lawns (inside the footpaths)")]
     [Tooltip("The trees planted on the lawns, a grove of one species at a time: the pack's green-belt models, each a bark " +
@@ -206,9 +212,15 @@ public class CityDressing : MonoBehaviour
         [Tooltip("Of each street end, each side: one of the kerb props (a speed-limit sign, a taxi pole), facing along " +
                  "the street.")]
         [Range(0f, 1f)] public float kerbShare;
+        [Tooltip("Of each street end, each side: a trash can at the kerb just past the crossing, besides the ones beside " +
+                 "the benches and bus stops.")]
+        [Range(0f, 1f)] public float binShare;
+        [Tooltip("Of each street side: a telephone booth at the kerb, somewhere along its middle half.")]
+        [Range(0f, 1f)] public float phoneShare;
 
         /// <summary>Whether any of it is placed.</summary>
-        public bool Any => signalShare > 0f || planterShare > 0f || bollardShare > 0f || kerbShare > 0f;
+        public bool Any => signalShare > 0f || planterShare > 0f || bollardShare > 0f || kerbShare > 0f || binShare > 0f ||
+                           phoneShare > 0f;
     }
 
     [Serializable]
@@ -474,7 +486,7 @@ public class CityDressing : MonoBehaviour
         if (extras != null && extras.Any)     // off, it places nothing: a bake made before it existed stays current
         {
             Add(JsonUtility.ToJson(extras));
-            foreach (GameObject o in new[] { trafficSignal, frontageBench, bollard }) Add(o != null ? o.name : "-");
+            foreach (GameObject o in new[] { trafficSignal, frontageBench, bollard, phoneBooth }) Add(o != null ? o.name : "-");
             foreach (GameObject o in planters ?? new GameObject[0]) Add(o != null ? o.name : "-");
             foreach (GameObject o in kerbProps ?? new GameObject[0]) Add(o != null ? o.name : "-");
         }
@@ -742,6 +754,8 @@ public class CityDressing : MonoBehaviour
         private readonly Footprints prisms = new Footprints();
         private readonly List<(Obb box, bool city, string name)> boxes = new List<(Obb, bool, string)>();
         private readonly Grid props = new Grid();
+        /// <summary>The bins placed so far, which a kerb bin keeps <see cref="BinSpacing"/> from.</summary>
+        private readonly Grid bins = new Grid();
         private readonly List<GoalZone> goals = new List<GoalZone>();
         private readonly Dictionary<string, Transform> folders = new Dictionary<string, Transform>();
         private readonly Dictionary<string, int> placed = new Dictionary<string, int>();
@@ -844,6 +858,8 @@ public class CityDressing : MonoBehaviour
                 EndProps("Kerb props", 3, x.kerbShare, 3.5f, Measure(d.kerbProps, Facing.Across), false, Facing.Across);
             }
             Bollards();
+            KerbBins(bin);
+            PhoneBooths();
             BorderTrees(d.borderTree != null ? Measure(d.borderTree, Facing.Any) : tree);
             var lawnTrees = new List<Proto>();
             foreach (PropModel m in d.lawnTrees ?? new PropModel[0])
@@ -1188,7 +1204,7 @@ public class CityDressing : MonoBehaviour
                 {
                     float along = Mathf.Abs(Vector2.Dot(body.u, s.Dir)) + Mathf.Abs(Vector2.Dot(body.v, s.Dir));
                     float tb = Vector2.Dot(body.c - s.a, s.Dir) + along + 0.9f;
-                    OnFootpath("Bins", bin, s, side, block, tb, Back, 0f, Facing.Along, rng, 1f);
+                    if (OnFootpath("Bins", bin, s, side, block, tb, Back, 0f, Facing.Along, rng, 1f, out Obb can)) bins.Add(can);
                 }
             }
         }
@@ -1213,7 +1229,7 @@ public class CityDressing : MonoBehaviour
                     float along = Mathf.Abs(Vector2.Dot(body.u, s.Dir)) + Mathf.Abs(Vector2.Dot(body.v, s.Dir));
                     float sign = rng.NextDouble() < 0.5 ? 1f : -1f;
                     float tb = Vector2.Dot(body.c - s.a, s.Dir) + sign * (along + 0.9f);
-                    OnFootpath("Bins", bin, s, side, block, tb, Back, 0f, Facing.Along, rng, 1f);
+                    if (OnFootpath("Bins", bin, s, side, block, tb, Back, 0f, Facing.Along, rng, 1f, out Obb can)) bins.Add(can);
                 }
             }
         }
@@ -1371,6 +1387,54 @@ public class CityDressing : MonoBehaviour
                                        Facing.Any, rng, 1f);
                         }
                     }
+                }
+            }
+        }
+
+        /// <summary>At extras.binShare of the street ends, each side: a trash can at the kerb 2.5 m past the crossing, unless
+        /// another bin (beside a bench or a bus stop, or at the kerb) already stands within <see cref="BinSpacing"/> of
+        /// it: two cans side by side read as a mistake.</summary>
+        private void KerbBins(Proto bin)
+        {
+            if (x.binShare <= 0f || bin == null) return;
+            for (int k = 0; k < stretches.Count; k++)
+            {
+                StreetSurface.Stretch s = stretches[k];
+                foreach (var (side, block) in Sides(k))
+                {
+                    for (int end = 0; end < 2; end++)
+                    {
+                        var rng = Rng(64, k, 2 * side + end);
+                        if (rng.NextDouble() >= x.binShare || Usable(s) < 5f) continue;
+                        float t = end == 0 ? s.start + r.junctionGap + 2.5f : s.end - r.junctionGap - 2.5f;
+                        if (OnFootpath("Kerb bins", bin, s, side, block, t, Kerb, 1.5f, Facing.Along, rng, 1f, out Obb can,
+                                       bas => !bins.Near(bas, BinSpacing)))
+                        {
+                            bins.Add(can);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>On extras.phoneShare of the street sides, a telephone booth (the pack's is a payphone on a post) at the
+        /// kerb somewhere along the middle half of the plain road, its back to the road and its handset to the footpath:
+        /// <see cref="Facing.Back"/> reads its back off the box, which hangs forward of the post.</summary>
+        private void PhoneBooths()
+        {
+            if (x.phoneShare <= 0f) return;
+            Proto booth = Measure(d.phoneBooth, Facing.Back);
+            if (booth == null) return;
+            for (int k = 0; k < stretches.Count; k++)
+            {
+                StreetSurface.Stretch s = stretches[k];
+                foreach (var (side, block) in Sides(k))
+                {
+                    var rng = Rng(104, k, side);
+                    bool pick = rng.NextDouble() < x.phoneShare;
+                    float t = s.start + r.junctionGap + Usable(s) * (0.25f + 0.5f * (float)rng.NextDouble());
+                    if (!pick || Usable(s) < 4f) continue;
+                    OnFootpath("Telephone booths", booth, s, side, block, t, Kerb, 2f, Facing.Back, rng, 1f);
                 }
             }
         }

@@ -160,7 +160,9 @@ public static class BlockShapedCityWorldBuilder
 
     /// <summary>The builder's dressing (<see cref="VoronoiCityWorldBuilder.EnsureDressing"/>), with
     /// <see cref="ShortStreetRules"/> and <see cref="Furniture"/> whenever its rules are new or were reset to the
-    /// defaults (a RulesVersion bump: the window's Redress then brings a saved scene up to date).</summary>
+    /// defaults (a RulesVersion bump: the window's Redress then brings a saved scene up to date), and then in
+    /// BlockShapedPatchCityWorld and PracticeBlockWorld their denser furniture
+    /// (<see cref="BlockShapedPatchCityWorldBuilder.MoreProps"/>).</summary>
     public static CityDressing EnsureDressing(ProceduralCityBuilder builder)
     {
         CityDressing existing = builder.GetComponent<CityDressing>();
@@ -170,6 +172,10 @@ public static class BlockShapedCityWorldBuilder
         {
             ShortStreetRules(d.rules);
             Furniture(d.extras);
+            if (BlockShapedPatchCityWorldBuilder.HasMoreProps(builder.gameObject.scene))
+            {
+                BlockShapedPatchCityWorldBuilder.MoreProps(d);
+            }
         }
         return d;
     }

@@ -2182,6 +2182,28 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     (`d_obs` 0.35, S7's slide and adaptive spread on; S8 below) **and since 2026-11-03 S10's ellipse** (`obstacleShape`
     Ellipse, `ellipseMaxAspect` 1.5, in place of S8's EnclosingCircle; S10 below), unlike BlockShapedCityWorld's, which
     keeps BlockCityWorld's profile. `PracticeBlockWorld` is a copy of this scene, so rebuild it after any change here.
+  - **Its streets, and PracticeBlockWorld's, are furnished more densely than BlockShapedCityWorld's** (2026-11-04, the
+    user's request: more trees, bus stops, benches, trash cans, hydrants and phones, and no more signals or signs).
+    `BlockShapedPatchCityWorldBuilder.MoreProps` sets it, and `BlockShapedCityWorldBuilder.EnsureDressing` applies it in
+    these two scenes only (by scene path). It sets border rows round 60% of the blocks (was 33%), 3 m short of the
+    corners (was 5) and 1.1 m from the kerb (was 1.4). It puts a tree on the plaza lawns (`singleTreeArea` 40), bus
+    stops on 35% of the streets long enough, benches with their bins on 60% of street sides, and hydrants at 25% of
+    street ends. It also adds two new `Extras`: a bin at the kerb by 15% of the crossings, at least 3 m from any other
+    bin (`binShare`, `BinSpacing`), and the pack's payphone (`MC_Telephone_Booth`, a 1.6 m post) at the kerb on 12% of
+    street sides, handset to the footpath (`phoneShare`, `phoneBooth`). In the trial city that takes 3,563 props to
+    4,964: border trees 259 → 675, bus stops 15 → 46, benches 257 → 506, bins 259 → 696, hydrants 209 → 530, payphones
+    ~54 → ~170. Planters and frontage benches drop by about a seventh, because benches now take some of their places.
+    In the practice city it takes 244 props to 333. Points worth keeping:
+    - Merged at Play, the extra props cost nothing measurable per FPV render (0.51 ms against 0.51 ms of main thread,
+      60 views, headless).
+    - **The bus shelters cannot keep out of the walkers' lane.** `MC_Bus_Stop` is 5 × 2.25 m on a 3.5 m footpath, so a
+      goal's walkers walk through any shelter on its ring, about three times as often as before. The kerb bins and
+      payphones stand 2.7 m or more from the facade, out of the lane. The 1.1 m inset moved the tree trunks out of it
+      too; the lowest leaves still reach a walker's head.
+    - `RulesVersion` 5 carries the change into a saved scene: *Redress the streets* in the block-shaped window, then
+      save, in each scene. Until then the extras' signature has grown, so each bake reads stale and Play redresses it
+      at start with the scene's old rules (the same props as before). VoronoiCityWorld, BlockCityWorld and
+      BlockShapedCityWorld stay current and redress object for object as before; BlockShapedCityWorld's extras are off.
 
 ## S5 Block-Shaped Surround: the block-shaped study
 

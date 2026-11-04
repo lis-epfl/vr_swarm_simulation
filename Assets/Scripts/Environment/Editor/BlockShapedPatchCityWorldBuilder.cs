@@ -3,6 +3,7 @@ using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// <c>Tools/Swarm/Build block-shaped patch city world</c>: makes <c>BlockShapedPatchCityWorld.unity</c>,
@@ -19,6 +20,9 @@ using UnityEngine;
 /// from the buildings (<see cref="BlockGoals"/>), as there. The Block-shaped city window changes this scene's design
 /// too when it is the open one. Batch: <c>-executeMethod BlockShapedPatchCityWorldBuilder.Run</c> (CITY_LAYOUT names
 /// another layout).</para>
+///
+/// <para>Its streets, and PracticeBlockWorld's, are furnished more densely than BlockShapedCityWorld's
+/// (<see cref="MoreProps"/>).</para>
 /// </summary>
 public static class BlockShapedPatchCityWorldBuilder
 {
@@ -38,8 +42,7 @@ public static class BlockShapedPatchCityWorldBuilder
         {
             return;
         }
-        if (!ProceduralCityWorldBuilder.Build(ScenePath, Layout, true, out string summary,
-                                              BlockShapedCityWorldBuilder.Configure))
+        if (!ProceduralCityWorldBuilder.Build(ScenePath, Layout, true, out string summary, Configure))
         {
             Debug.LogError("BlockShapedPatchCityWorldBuilder: " + summary);
         }
@@ -53,10 +56,41 @@ public static class BlockShapedPatchCityWorldBuilder
     {
         string layout = Environment.GetEnvironmentVariable(ProceduralCityBuilder.LayoutEnv);
         if (string.IsNullOrEmpty(layout)) layout = Layout;
-        bool ok = ProceduralCityWorldBuilder.Build(ScenePath, layout, true, out string summary,
-                                                   BlockShapedCityWorldBuilder.Configure);
+        bool ok = ProceduralCityWorldBuilder.Build(ScenePath, layout, true, out string summary, Configure);
         if (ok) Debug.Log("BlockShapedPatchCityWorldBuilder: " + summary);
         else Debug.LogError("BlockShapedPatchCityWorldBuilder: " + summary);
         EditorApplication.Exit(ok ? 0 : 1);
+    }
+
+    /// <summary>BlockShapedCityWorld's configuration, then <see cref="MoreProps"/>.</summary>
+    private static void Configure(ProceduralCityBuilder builder)
+    {
+        BlockShapedCityWorldBuilder.Configure(builder);
+        CityDressing d = builder.GetComponent<CityDressing>();
+        if (d != null) MoreProps(d);
+    }
+
+    /// <summary>Whether <paramref name="scene"/> is dressed with <see cref="MoreProps"/>: this scene and
+    /// PracticeBlockWorld, which is built from a copy of it.</summary>
+    internal static bool HasMoreProps(Scene scene) =>
+        scene.path == ScenePath || scene.path == PracticeBlockWorldBuilder.PracticeScenePath;
+
+    /// <summary>The user asked (2026-11-04) for more trees, bus stops, benches, trash cans, fire hydrants and phones in
+    /// this scene and its practice copy, and no more traffic signals or signs. Over BlockShapedCityWorld's short-street
+    /// rules and furniture: border-tree rows round more of the blocks, more bus stops, benches (each with its bin) and
+    /// hydrants, a bin at the kerb by some crossings, and telephone booths at the kerb. Everything new stands at the kerb
+    /// or against the facade, out of the lane a goal's walkers take (1.1-1.5 m off it).</summary>
+    internal static void MoreProps(CityDressing d)
+    {
+        CityDressing.Rules r = d.rules;
+        r.borderShare = 0.6f;
+        r.borderCornerClearance = 3f;
+        r.borderInset = 1.1f;
+        r.singleTreeArea = 40f;
+        r.busStopShare = 0.35f;
+        r.benchShare = 0.6f;
+        r.hydrantShare = 0.25f;
+        d.extras.binShare = 0.15f;
+        d.extras.phoneShare = 0.12f;
     }
 }
