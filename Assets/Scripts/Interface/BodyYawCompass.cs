@@ -36,8 +36,9 @@ public class BodyYawCompass : MonoBehaviour
     [Tooltip("Tip-to-tail length of the arrow, in metres.")]
     public float arrowLength = 0.45f;
 
-    [Tooltip("Arrow colour at the tip. Blended over the black arena, so alpha sets how bright it " +
-             "reads; a low value keeps it a faint shadow rather than a bright mark.")]
+    [Tooltip("Arrow colour at the tip. Blended over the dark background (CockpitRoom's floor, or the " +
+             "black arena without it), so alpha sets how bright it reads; a low value keeps it a faint " +
+             "shadow rather than a bright mark.")]
     public Color color = new Color(1f, 1f, 1f, 0.3f);
 
     [Tooltip("Brightness at the tail as a fraction of the tip's. The arrow fades linearly from " +

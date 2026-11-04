@@ -186,6 +186,7 @@ public class ExperimentRecorder : MonoBehaviour
     private float loggedRadius, loggedScale;
     private Vector3 loggedOffset;
     private int loggedWidth, loggedHeight;
+    private string loggedRoom;
 
     // ---- RC identify (see PollRcIdentify) ----
     private int rcPressesSeen;
@@ -349,6 +350,7 @@ public class ExperimentRecorder : MonoBehaviour
                         + SettingsBlock("interfaceManager", FindObjectOfType<InterfaceManager>())
                         + SettingsBlock("screenSpawn", screenSpawn)
                         + SettingsBlock("stitching", stitching)
+                        + SettingsBlock("cockpitRoom", FindObjectOfType<CockpitRoom>())
                         + "\n}\n";
             File.WriteAllText(Path.Combine(dirPath, $"{fileStem}_swarm.json"), json, new UTF8Encoding(false));
         }
@@ -485,8 +487,10 @@ public class ExperimentRecorder : MonoBehaviour
         if (screenSpawn == null) return;
         ScreenSpawn s = screenSpawn;
         if (displayLogged && s.screenStyle == loggedStyle && s.radius == loggedRadius && s.scale == loggedScale &&
-            s.offset == loggedOffset && s.width == loggedWidth && s.height == loggedHeight) return;
+            s.offset == loggedOffset && s.width == loggedWidth && s.height == loggedHeight &&
+            CockpitRoom.InForce == loggedRoom) return;
         displayLogged = true;
+        loggedRoom = CockpitRoom.InForce;
         loggedStyle = s.screenStyle;
         loggedRadius = s.radius;
         loggedScale = s.scale;
@@ -495,7 +499,8 @@ public class ExperimentRecorder : MonoBehaviour
         loggedHeight = s.height;
         WriteEvent("display", -1, "", -1f,
             $"style={s.screenStyle} radius={F(s.radius)} scale={F(s.scale)} " +
-            $"offset={F(s.offset.x)},{F(s.offset.y)},{F(s.offset.z)} feed={s.width}x{s.height}");
+            $"offset={F(s.offset.x)},{F(s.offset.y)},{F(s.offset.z)} feed={s.width}x{s.height} " +
+            $"room={loggedRoom}");
     }
 
     private Transform ResolveHeadTransform()
@@ -1266,6 +1271,8 @@ public class ExperimentRecorder : MonoBehaviour
             screenStyle = screenSpawn != null ? screenSpawn.screenStyle.ToString() : "",
             screenRadius = screenSpawn != null ? screenSpawn.radius : 0f,
             screenScale = screenSpawn != null ? screenSpawn.scale : 0f,
+            cockpitRoom = CockpitRoom.Active,
+            cockpitRoomStyle = CockpitRoom.InForce,
             layout = CityLayoutInfo.Current ?? new CityLayoutInfo.Record(),
             headsetActive = headsetActiveSec > 0f,
             headsetActiveSec = headsetActiveSec,
@@ -1429,6 +1436,10 @@ public class ExperimentRecorder : MonoBehaviour
         // The layout in force when this file was written; display events have every change.
         public string screenStyle;
         public float screenRadius, screenScale;
+        // The room-fixed backdrop (CockpitRoom) was drawn when this file was written; display events have every
+        // change. Absent = a run before 2026-11-04: the screens hung in a black, world-fixed Arena box.
+        public bool cockpitRoom;
+        public string cockpitRoomStyle;        // FloorAndWall, FloorAndCeiling, or "off"
         public CityLayoutInfo.Record layout;   // the generated layout the city was built from (empty id in tile cities)
         // Was this flown in the headset? Absent = a run before 2026-11-03 (see WritePerfSample for those).
         public bool headsetActive;

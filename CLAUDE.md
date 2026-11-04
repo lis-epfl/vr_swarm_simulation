@@ -384,6 +384,36 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   value is written into `curvedScreenFast.prefab`, where no scene overrides it. Where `PyUniSharingFast`
   is disabled (the headless bench) the lone drone keeps the full airframe rate, and `citysim/camera.py`
   keeps the 90 / 75 that S1–S10 modelled, so stored flights re-fly identically.
+- **The pilot sits in a dim room fixed to the real room, `CockpitRoom`** (2026-11-04, the user's request,
+  an anchor against motion sickness). It has two styles (`style`, switchable in Play): `FloorAndCeiling`,
+  the default and the user's pick, is a 1 m grid floor and the same grid as a ceiling 1.8 m above the eyes,
+  both fading smoothly into the base colour by 15 m (`fadeDistance`) so the room has no edge;
+  `FloorAndWall`, the first version, is the grid floor inside a ring wall at 9 m with a vertical rib every
+  15°. The grid holds yaw through its lines' vanishing points, the wall through its ribs. Every stick turn
+  rotates the rig, so the screens sweep round a pilot who is sitting still. Behind them there used to be
+  only the Arena box, uniform and world-fixed, so the screens were the only structure
+  in view, and a turn read as the pilot turning. A background that holds still is what the eye takes as the
+  frame of reference (Ohmi, Howard and Landolt 1987), so the room should make the screens read as moving
+  objects. Not yet flown in the headset, and nothing records sickness. Points worth keeping:
+  - **It hangs under the rig's `trackingSpace`, never under the Arena.** Rig yaw and `CalibrateToCentre`'s
+    height shift carry it along, so it never moves relative to the real room. With one drone the rig turns
+    with the drone and its screen, so during a turn nothing in view moves but the feed's own picture.
+  - **It is drawn first (Background queue) and writes no depth** (`Sprites/Default`, as `BodyYawCompass`
+    uses, which is also stereo-instanced), so no layout can be covered by it. A depth-writing floor would cut
+    the bottom off the panorama (−1.5 m at 5 m) and off a four-row `FORMATION_WALL` (−1.46 m at 2 m).
+    Where a screen hangs below the floor line, occlusion and stereo disagree there; that is accepted. The
+    ceiling has no such place at its default height: every layout's top at its default size is lower (the
+    panorama's +1.5 m at 5 m, a rolled `FORMATION_MAP`'s ~+1.65 m), so lower `ceilingAboveEyes` with that in mind.
+  - **Two things would hide a room drawn that way, and it undoes both while on.** The eye camera clears to
+    the skybox, which the built-in pipeline draws after the opaque queue wherever there is no depth, so it
+    clears to `baseColor` instead. The Arena box encloses everything and is drawn after it, so the box's
+    renderers are off; its colliders and transform stay. Disabling the component restores both.
+  - `baseColor` is the box as it renders (sRGB 19/21/26: its black Standard material still reflects the
+    ambient sky), so the lines are the only thing it adds. The floor is `floorBelowEyes` (1.2 m, seated)
+    under the EyeLevel tracking origin, i.e. under the eye height at recenter.
+  - Added to every scene with an Arena, like `BodyYawCompass`, so no scene or builder carries it. Runs record
+    it (`_session.json` `cockpitRoom` and `cockpitRoomStyle`, a `cockpitRoom` block in `_swarm.json`, and
+    `room=<style>|off` on every `display` event). Runs recorded before it flew inside the black box.
 - **The stitcher and the screen layout follow the configuration, and there are three of them**
   (`SwarmPlaneController.RefreshDisplayConfiguration`): vertical plane ⇒ `PLANAR` +
   `FORMATION_WALL`, horizontal with the gimbal down ⇒ `PLANAR` + `FORMATION_MAP`, horizontal
@@ -405,7 +435,7 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   hit the `ERROR_ACCESS_DENIED` that a non-resizable named section guarantees.
 - **The FPV cameras are the entire rendering cost, and they are driven manually.** The pilot's eye
   cameras are culling-masked to the feed-screen layer (`ScreenSpawn.screenLayerName`, "UI"), so the
-  stereo pass draws the screens and the curved panorama and *not* the world — every full pass over
+  stereo pass draws the screens, the curved panorama and `CockpitRoom` and *not* the world — every full pass over
   the city is one drone's FPV camera rendering into its feed RenderTexture. Left `enabled`, the
   visible ones redraw the city at the headset's rate: at 10 drones, 90 Hz and `STABSTITCH` (which
   hides 3), that is 7x90 + 3x30 = **720 full-city renders per second**, and the eye pass is a
