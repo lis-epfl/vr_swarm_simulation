@@ -539,11 +539,21 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("HMD head transform (OVRCameraRig.centerEyeAnchor). Auto-found from the OVRPlayerController if left empty.")]
         public Transform headTransform;
 
-        [Tooltip("Degrees/second the body yaws at full controller yaw-stick deflection. The panorama " +
-                 "heading integrates this command and the OVRCameraRig is rotated by the same amount " +
-                 "to mimic body motion. Head tracking is excluded, so the pilot can look around at the " +
-                 "side screens without moving the panorama.")]
-        public float bodyYawRate = 90f;
+        [Tooltip("Degrees/second the pilot turns at full controller yaw-stick deflection. In the hull " +
+                 "modes the panorama heading integrates this command and the OVRCameraRig is rotated by " +
+                 "the same amount to mimic body motion; with a lone drone (or NONE/SIMPLE) AttitudeAlgorithm " +
+                 "turns the drone at it, capped at maxYawRate, and the body follows the drone, so both " +
+                 "conditions turn the pilot alike. Vertical-plane mode turns at SwarmPlaneController's own " +
+                 "rate. Head tracking is excluded, so the pilot can look around at the side screens " +
+                 "without moving the panorama. 40 is the real fleet's yaw clamp.")]
+        public float bodyYawRate = 40f;
+
+        [Tooltip("Expo on the yaw stick: 0 is linear, 1 is cubic. Only an analog stick feels it -- the " +
+                 "keyboard is either centred or at full deflection -- so it slows the controller's small " +
+                 "deflections without lowering the full-stick rate. At 0.5, half stick turns at 31% of " +
+                 "bodyYawRate.")]
+        [Range(0f, 1f)]
+        public float bodyYawExpo = 0.5f;
 
         [Tooltip("Rotate the OVRCameraRig by the controller yaw-rate command to mimic body motion. " +
                  "Disable to advance the panorama heading only, leaving the rig untouched.")]
@@ -669,6 +679,7 @@ public class PyUniSharingFast : MonoBehaviour
     private float planarHeight { get => vr.planarHeight; set => vr.planarHeight = value; }
     private Transform headTransform { get => vr.headTransform; set => vr.headTransform = value; }
     private float bodyYawRate { get => vr.bodyYawRate; set => vr.bodyYawRate = value; }
+    private float bodyYawExpo { get => vr.bodyYawExpo; set => vr.bodyYawExpo = value; }
     private bool driveCameraRigYaw { get => vr.driveCameraRigYaw; set => vr.driveCameraRigYaw = value; }
     private KeyCode calibrateKey { get => vr.calibrateKey; set => vr.calibrateKey = value; }
     private bool calibrateOnStart { get => vr.calibrateOnStart; set => vr.calibrateOnStart = value; }
@@ -1400,6 +1411,22 @@ public class PyUniSharingFast : MonoBehaviour
     // AttitudeAlgorithm's look-direction gap fill -- would otherwise pull the swarm's front round to
     // face north. Mirrors the private bodyYawInitialized.
     public static bool BodyYawValid { get; private set; }
+
+    // bodyYawRate and bodyYawExpo, for AttitudeAlgorithm: a lone drone's heading is what the body is
+    // locked to, so the stick has to turn that drone at the rate it turns the body in the hull modes, or
+    // the single-drone condition turns the pilot faster than the swarm does. Published while this
+    // component is enabled; the headless bench disables it, and AttitudeAlgorithm then keeps the full
+    // airframe rate it always had there.
+    public static bool PilotYawRateValid { get; private set; }
+    public static float PilotYawRateDegPerSec { get; private set; }
+    public static float PilotYawExpo { get; private set; }
+
+    // Yaw stick [-1, 1] -> fraction of the full-stick rate, with RC-style expo: (1 - e) x + e x^3.
+    // Keeps 0 and +-1 where they are, so the keyboard's digital axis is unaffected.
+    public static float ShapeYawStick(float stick, float expo)
+    {
+        return stick * (1f - expo + expo * stick * stick);
+    }
 
     // Whether the PLANAR stitcher is the selected one. Static because ImageSharing.cs (the
     // DJI scene's block producer) has to know: PLANAR mosaics every drone that can see the
@@ -2492,7 +2519,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Hull modes: the drones hold their heading and the stick steers the view.
         bodyLockInitialized = false; // reseed if we later switch back to a body-locked mode
         float normYaw = InputManager.Instance != null ? InputManager.Instance.InputStatus["yaw"] : 0f;
-        float deltaYaw = normYaw * bodyYawRate * Time.deltaTime;
+        float deltaYaw = ShapeYawStick(normYaw, bodyYawExpo) * bodyYawRate * Time.deltaTime;
         if (deltaYaw == 0f) return;
 
         bodyYaw = Mathf.Repeat(bodyYaw + deltaYaw, 360f);
@@ -3974,8 +4001,27 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
+    private void OnEnable()
+    {
+        PublishPilotYawRate();
+    }
+
+    private void OnDisable()
+    {
+        PilotYawRateValid = false;
+    }
+
+    private void PublishPilotYawRate()
+    {
+        PilotYawRateDegPerSec = bodyYawRate;
+        PilotYawExpo = bodyYawExpo;
+        PilotYawRateValid = true;
+    }
+
     private void OnValidate()
     {
+        if (isActiveAndEnabled) PublishPilotYawRate();
+
         if(hasStarted)
         {
             CalculateMemorySizes();

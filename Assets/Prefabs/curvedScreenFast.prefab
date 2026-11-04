@@ -99,3 +99,6 @@ MonoBehaviour:
   typeOfStitcher: 0
   camerasToCapture: []
   camerasToStitch: 
+  vr:
+    bodyYawRate: 40
+    bodyYawExpo: 0.5

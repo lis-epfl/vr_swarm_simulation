@@ -1185,7 +1185,15 @@ public class AttitudeAlgorithm : MonoBehaviour
         if (InputManager.Instance != null)
         {
             float normYaw = InputManager.Instance.InputStatus["yaw"];
-            inputYawRate = normYaw * vc.maxYawRate;
+            // The pilot's turn rate (PyUniSharingFast.bodyYawRate, with its expo), capped at what the
+            // airframe can fly: wherever this rate is flown (a lone drone, NONE/SIMPLE) the body is locked
+            // to the drone, so it must match the rate the hull modes turn the body at. Without that
+            // component (the headless bench) the stick keeps the full airframe rate.
+            inputYawRate = PyUniSharingFast.PilotYawRateValid
+                ? Mathf.Clamp(PyUniSharingFast.ShapeYawStick(normYaw, PyUniSharingFast.PilotYawExpo)
+                              * PyUniSharingFast.PilotYawRateDegPerSec * Mathf.Deg2Rad,
+                              -vc.maxYawRate, vc.maxYawRate)
+                : normYaw * vc.maxYawRate;
         }
     }
 }

@@ -374,6 +374,16 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   feed — no stitched-hide, no boundary gate, placed as `OUTER_CIRCLE` even under `OFF` — counted over
   its bindings so a single live real feed qualifies too. Python cannot stitch one view, so the curved
   screen is holding a stale panorama by then.
+- **The yaw stick turns the pilot at one rate in both conditions: `bodyYawRate`, 40 °/s at full stick,
+  with `bodyYawExpo` 0.5** (2026-11-04, the user's request: the controller turned too fast). The hull
+  modes turn the body at it; a lone drone (and NONE/SIMPLE) is turned at it by `AttitudeAlgorithm`,
+  capped at `maxYawRate`, through `PyUniSharingFast.PilotYawRate*`, and the body follows the drone.
+  Before, the swarm turned at 90 and the single drone at its airframe's 75. 40 is the real fleet's PC
+  clamp. The expo, `(1 − e)x + e x³`, keeps 0 and ±1 fixed, so only an analog stick feels it (half stick
+  is 31% of the rate); the keyboard is digital. Plane mode keeps `targetYawRateDegPerSec` (60). The
+  value is written into `curvedScreenFast.prefab`, where no scene overrides it. Where `PyUniSharingFast`
+  is disabled (the headless bench) the lone drone keeps the full airframe rate, and `citysim/camera.py`
+  keeps the 90 / 75 that S1–S10 modelled, so stored flights re-fly identically.
 - **The stitcher and the screen layout follow the configuration, and there are three of them**
   (`SwarmPlaneController.RefreshDisplayConfiguration`): vertical plane ⇒ `PLANAR` +
   `FORMATION_WALL`, horizontal with the gimbal down ⇒ `PLANAR` + `FORMATION_MAP`, horizontal

@@ -72,7 +72,7 @@ public class SwarmBenchRunner : MonoBehaviour
         // look-direction gap fill reads it, so without it the fill is forced off; with it, each flight
         // also reports the look-gap metrics.
         public bool pilotHeading = false;
-        public float pilotYawRate = 90f;     // deg/s: PyUniSharingFast's default bodyYawRate
+        public float pilotYawRate = 90f;     // deg/s: bodyYawRate as the studies modelled it (the scenes fly 40 since 2026-11-04)
         // A recorded session (stem or path) whose goal layout GoalPatchReplacer replays, so the bench
         // flies that run's city. Empty = no goals: GoalPatchReplacer is disabled, as a random layout per
         // run would make flights incomparable.

@@ -63,6 +63,8 @@ def theta_min_for(range_m, hat_m=HAT_SIZE_M, display_scale=DISPLAY_SCALE):
 
 
 # ----------------------------------------------------------------------------------------- turning
+# The two turn rates S1-S10 modelled. Since 2026-11-04 the scenes turn the pilot at bodyYawRate 40 deg/s in
+# both conditions (a lone drone's stick is capped to it too); these stay so stored flights re-fly identically.
 DRONE_MAX_YAW_RATE_DEG = 75.0    # VelocityControl.maxYawRate 1.309 rad/s (Mini 3 Pro)
 BODY_YAW_RATE_DEG = 90.0         # PyUniSharingFast bodyYawRate: rotates the whole rig (swarm)
 HEAD_TURN_RATE_DEG = 180.0       # a comfortable head turn, used by the swarm's reveal model
