@@ -1753,7 +1753,7 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
       and logs that it did, at the cost of any rule set by hand.
   - **Landmarks stand round it, one per side, for orientation** (2026-10-26; `LandmarkBuilder`,
     `Tools/Swarm/Landmarks/…`, all of it in `Assets/Landmarks/Landmarks.prefab`, shared by VoronoiCityWorld and the
-    three block cities): a snow-capped mountain range S (main peak ~560 m, 1.45 km out), a ~1.4 km lake from
+    four block scenes): a snow-capped mountain range S (main peak ~610 m, 1.45 km out), a ~1.4 km lake from
     ~110–200 m beyond the city's north edge to the foot of wooded hills (~310 m) N,
     eight turbines turning on a ridge E, and a
     red-and-white TV mast with a blinking beacon W, in line with ParkRoad behind the spawn (fly towards it to get
@@ -1785,6 +1785,12 @@ protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` 
       floor anyway. **The paint and the woods are laid out on the design shape** (`DesignHeight` and its slope), so
       the look the user approved is the same, only taller; the faces are steeper than the paint thresholds read.
       *Regenerate ground* now places the models again, since the spots stand on the ground.
+      **The mountain and the turbines' ridge are a further 1.1× taller** (`MountainScale`, `RidgeScale`, 2026-11-04,
+      the user's request for BlockShapedPatchCityWorld and PracticeBlockWorld, applied to all five scenes at their
+      choice): the relief only, so the turbines stand on the taller ridge at their old size. Measured the same way:
+      the mountain's top 559 → 614 m, the ridge's 270 → 295 m (the turbine tips 497 → 522 m); at a 20 m eye
+      mountain 74 → 79% (the far half 61 → 69%), ridge 56 → 63%, turbines 75 → 76%, at 40 m 94 → 95% and
+      89 → 90%. From the near edge S 25.8° → 28.2° and E 26.6° → 27.9°.
     - **The mountain's near face is broken up on purpose** (`MountainCover`): rock starts at a height that wanders
       between ~50 and ~250 m and on slopes from ~20° to ~40°, meadows break it up to ~300 m, and woods sit in
       patches on the lower, gentler slopes: ~1,000 terrain trees (`Tree9_3`) at the city tiles' own size and

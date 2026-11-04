@@ -33,7 +33,8 @@ using UnityEngine.Splines;
 /// down a street, past facades 25 m apart, and they showed over the roofs from too little of it. The tops are now cut
 /// off by the frame from the side of the city facing them, which is the price: from there their flanks fill the upper
 /// frame instead. The paint and the woods are laid out on the design shape (<see cref="DesignHeight"/>), so the look is
-/// the same, only taller.</para>
+/// the same, only taller. Since 2026-11-04 the mountain and the turbines' ridge are a further 1.1 times taller
+/// (<see cref="MountainScale"/>, <see cref="RidgeScale"/>), the turbines themselves not.</para>
 ///
 /// <para><b>The ground is a ring of twelve 1000 m Terrain tiles</b> round the city scenes' own four (±1000 m), out to
 /// ±2000 m, each with its own TerrainData in <see cref="TerrainFolder"/>. The four city tiles are shared with five other
@@ -101,6 +102,9 @@ public static class LandmarkBuilder
     /// <summary>How much taller than its design every landmark is built: the ground's relief, the mast and the turbines.
     /// </summary>
     public const float HeightScale = 1.5f;
+    /// <summary>How much taller again the mountain's and the ridge's relief are built (2026-11-04, the user's request):
+    /// the ground only, not the turbines on the ridge.</summary>
+    private const float MountainScale = 1.1f, RidgeScale = 1.1f;
     /// <summary>The mountain range's peaks: bearing, radius, height, radial and tangential half-widths. The first is
     /// the main peak.</summary>
     private static readonly (float bearing, float radius, float height, float radial, float tangential)[] Peaks =
@@ -129,8 +133,9 @@ public static class LandmarkBuilder
     /// an older generator (<see cref="LakeOutline.generatorVersion"/>). 2: twice as wide, out to the hills' foot.</summary>
     private const int LakeGeneratorVersion = 2;
     /// <summary>Likewise for the ring's ground (<see cref="LandmarkSet.groundVersion"/>). 2: the hills lowered to 210 m.
-    /// 3: every height <see cref="HeightScale"/> times its design.</summary>
-    private const int GroundGeneratorVersion = 3;
+    /// 3: every height <see cref="HeightScale"/> times its design. 4: the mountain and the ridge 1.1 times taller again.
+    /// </summary>
+    private const int GroundGeneratorVersion = 4;
     /// <summary>How far beyond the shore the city tiles' trees are cleared (m).</summary>
     private const float TreeClearance = 6f;
     private const string CityCopyPrefix = "City_";
@@ -339,7 +344,7 @@ public static class LandmarkBuilder
 
         bool regenerate = oldGround && EditorUtility.DisplayDialog("Landmarks: newer ground",
             $"The generated ground has changed since the prefab's was made (every landmark is {HeightScale}x its " +
-            "design height). Regenerate the ring's Terrain tiles and place the models on them again? Every bit of " +
+            $"design height, the mountain and the ridge {MountainScale}x taller again). Regenerate the ring's Terrain tiles and place the models on them again? Every bit of " +
             "sculpting and painting on the tiles is lost.", "Regenerate", "Keep mine");
         bool replace = oldLake && EditorUtility.DisplayDialog("Landmarks: newer lake",
             "The generated lake has changed since the prefab's was made (it is twice as wide and runs to the hills' " +
@@ -499,21 +504,25 @@ public static class LandmarkBuilder
     // ================================================================ the ground
 
     /// <summary>The generated ground height (m above the city's ground) at world (x, z): the design shape
-    /// (<see cref="DesignHeight"/>) <see cref="HeightScale"/> times as tall.</summary>
-    public static float GroundHeight(float x, float z) => HeightScale * DesignHeight(x, z);
+    /// (<see cref="DesignHeight"/>) <see cref="HeightScale"/> times as tall, the mountain and the ridge
+    /// <see cref="MountainScale"/> and <see cref="RidgeScale"/> times taller again.</summary>
+    public static float GroundHeight(float x, float z) => HeightScale * Shape(x, z, MountainScale, RidgeScale);
 
-    /// <summary>The ground's design height (m) at world (x, z): zero over the city tiles, rising from a flat start at the
-    /// joint, with the four features on arcs round the centre, each on its side, and falling away behind
-    /// <see cref="BackStart"/>. The paint and the woods read this shape, so scaling the heights leaves them where they
-    /// were.</summary>
-    private static float DesignHeight(float x, float z)
+    /// <summary>The ground's design height (m) at world (x, z), <see cref="Shape"/> with no feature scaled. The paint and
+    /// the woods read this shape, so scaling the heights leaves them where they were.</summary>
+    private static float DesignHeight(float x, float z) => Shape(x, z, 1f, 1f);
+
+    /// <summary>The ground's shape (m) at world (x, z): zero over the city tiles, rising from a flat start at the joint,
+    /// with the four features on arcs round the centre, each on its side, the mountain's and the ridge's relief times
+    /// <paramref name="mountain"/> and <paramref name="ridge"/>, and falling away behind <see cref="BackStart"/>.</summary>
+    private static float Shape(float x, float z, float mountain, float ridge)
     {
         float d = Mathf.Max(Mathf.Abs(x), Mathf.Abs(z)) - Inner;
         if (d <= 0f) return 0f;
         float r = Mathf.Sqrt(x * x + z * z);
         float bearing = Mathf.Atan2(x, z) * Mathf.Rad2Deg;
-        float relief = Mathf.Max(Mathf.Max(Mountains(x, z, r, bearing), Hills(x, z, r, bearing)),
-                                 Mathf.Max(Ridge(x, z, r, bearing), MastHill(x, z)));
+        float relief = Mathf.Max(Mathf.Max(mountain * Mountains(x, z, r, bearing), Hills(x, z, r, bearing)),
+                                 Mathf.Max(ridge * Ridge(x, z, r, bearing), MastHill(x, z)));
         relief *= 1f - Smooth01((r - BackStart) / BackWidth);
         float rolling = 18f * Fbm(x, z, 500f, 3);
         return Smooth01(d / ApronMetres) * (rolling + relief);
