@@ -126,8 +126,10 @@ public class PyUniSharingFast : MonoBehaviour
         [Tooltip("Enable reading panorama from PanoramaSharedMemory")]
         public bool enablePanoramaReading = true;
 
-        [Tooltip("Stitch input width AND the feed screens' render-texture width: ScreenSpawn adopts " +
-                 "this for every FPV camera. Size it to what the headset can show, not above: a Quest " +
+        [Tooltip("Stitch input width AND, while stitching, the feed screens' render-texture width: " +
+                 "ScreenSpawn adopts this for every FPV camera. With enableImageWriting and " +
+                 "enablePanoramaReading both off the feeds take InterfaceManager's width/height instead, " +
+                 "and this is ignored. Size it to what the headset can show, not above: a Quest " +
                  "Pro resolves ~22 px/deg and an OUTER_CIRCLE feed screen (radius 2 m, scale 1) spans " +
                  "~48 deg, so ~1024 is the useful maximum; more cannot be seen and only costs FPV " +
                  "render time. Envelope max 1280x720. Must be 800 in the DJI scene to match " +
@@ -3713,7 +3715,10 @@ public class PyUniSharingFast : MonoBehaviour
     // before the ScreenSpawn guard, so the toggle reaches it whatever this half can do.
     private void UpdateStitchedScreenHiding(int[] selected)
     {
-        bool hide = hideStitchedDroneScreens && panoramaDisplayActive;
+        // Tested alongside panoramaDisplayActive, not instead of it: that starts true and only
+        // ApplyQualityFallback clears it, which never runs with panorama reading off, so on its own
+        // it would hide the three front feeds for a whole session with no panorama in their place.
+        bool hide = hideStitchedDroneScreens && enablePanoramaReading && panoramaDisplayActive;
         HideStitchedFeeds = hide;
 
         if (screenSpawn == null) screenSpawn = FindObjectOfType<ScreenSpawn>();

@@ -794,6 +794,60 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   The `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`) are canvas pixels, so
   they scale with the block width: 41/15/60 suit 768, 55/20/80 suit 1024, 61/22.5/90 suit 1152 (what
   the sim scenes use), and 69/25/100 suit 1280. DJIScene stays 800×450, the real feed's size.
+- **Without stitching the feeds can run at 1920×1080 for no measured frame-rate cost; it is the
+  stitching that sets the frame rate, not the resolution** (measured 2026-11-03 in
+  BlockShapedPatchCityWorld, headless). **That scene and PracticeBlockWorld have flown this way since:
+  stitching off, feeds 1920×1080**; every other scene still stitches at 1152×648. The
+  bench replays a recorded headset flight's sticks, head and body yaw (`BBCC_t4_Swarm_20261103_172549`,
+  with its goal seed) on a 72 Hz grid where an overrun waits for the next point as a missed vsync
+  does, with a stand-in eye pass. Stitching on at 1152 it reproduces that flight: altitude within 0.1 m,
+  position within ~30 m after 3 minutes, 59.8 fps against the headset's 63.8, and 63.4 against 64.9 in
+  cruise in the run that lost two drones as the real flight did (~30 s later; the other run kept all
+  ten, 60.5 fps there). Over 305 s of flight (fps; share of 10 Hz rows at 72; frames over 13.9 ms):
+  stitching on, 1152: 59.4–59.8, 29–33%, 13%. Off, 1152: 70.5, 87%, 0.8%. Off, 1600: 71.1, 92%, 0.3%.
+  Off, 1920: 70.7–71.2, 89–93%, 0.3–0.6%. Off, 1920, every feed at 30 Hz wherever the pilot looks: 67.5,
+  65%, 2.5%. The worst phase is the take-off and hover round the start line (66–69 fps off), at every size. One
+  render with the GPU drained is 0.81 ms at 1152 and 0.97 ms at 1920 (0.76 + 0.14 per megapixel; this
+  city is far cheaper to draw than ScaledCityWorld) and 1.8–2.0 ms of main thread in flight at either,
+  and 1920 costs 0.2 GB more VRAM. Not yet confirmed in the headset. Points worth keeping:
+  - **At scale 1 the extra pixels do not reach the eye.** A feed at 1152 is 22.6 px/deg at the screen's
+    centre against the Quest Pro's ~22; at 1920 it is 37.7, which the mips filter down, so it buys less
+    shimmer and no more detail (the hat at 40 m is ~4 headset pixels at both). 1920 is 22 px/deg at
+    `OUTER_CIRCLE` scale 1.71, the orthoscopic size, so the feed size and the screen size are one decision.
+  - **The off switch is `bridge.enableImageWriting` and `bridge.enablePanoramaReading`, both unticked**
+    (`PyUniSharingFast.StitchingEnabled`), and the feed size is then `InterfaceManager.width/height`, not
+    the block size, so the 1280×720 envelope does not apply. Either one on still counts as stitching,
+    because the DJI scene writes no blocks here and does read the panorama. `PyUniSharingFast` stays in
+    the scene with both off: it owns the body yaw. `launch_sim_scripts.ps1` starts the stitcher only with
+    `-Stitcher` since then; a stitching scene flown without it just shows its feeds.
+  - **`hideStitchedDroneScreens` has to test `enablePanoramaReading` as well as
+    `panoramaDisplayActive`.** That flag starts true and only `ApplyQualityFallback` clears it, which
+    never runs with reading off, so the three front feeds would stay hidden all session with no panorama
+    in their place. Both these scenes have the hide on.
+  - **At scale 1 the screen, not the feed, sets the sharpness, and aliasing is the part 1920 does fix.**
+    A 1920 feed on a ~1056 px screen samples mostly its 960-wide mip, so it can look softer than 1152
+    in a still. Against a 4K 8× MSAA reference through the same screen size (9 views of goal walkers,
+    25–60 m, 9 m up; error / frame-to-frame flicker, 0–255): 1152 7.0 / 2.11,
+    1152 MSAA 4× 5.5 / 1.61, 1920 5.2 / 1.57, 1920 MSAA 2× 4.1 / 1.40, 1920 MSAA 4× 3.6 / 1.23. So the
+    feeds have no anti-aliasing (the project's 2× reaches only the eye buffers) and most of what 1920 buys
+    on today's screen is what MSAA would buy at 1152.
+  - **MSAA on the feeds is not a free switch, and it is off.** A `RenderTexture` with `antiAliasing` > 1
+    silently has no mips (`mipmapCount` 1 against 11, `useMipMap` is ignored and `GenerateMips` does
+    nothing), which is why it looks sharper at scale 1: it samples level 0. Eight times minified it keeps
+    49% more high-frequency energy, i.e. it aliases, so the grid layouts and obliquely viewed screens would
+    shimmer. 1920 at 4× with saturated walkers flew 67.9 fps against 69.9 over the whole replay and 55.6
+    against 66.8 in the take-off hover, frames over 13.9 ms 3.5% against 1.1%, video memory 5.2 GB against
+    3.5. The two were not flown apart, but the clothing alone is ~0.05 ms per render.
+  - **The walkers are the reason more pixels show so little: they have no surface.** The body is Unity's
+    `Default-Material` (white, no texture; the pack's mannequin) and the hat a flat 77% grey, so hat and body
+    merge. Measured on the same views, walkers on against walkers off: pixels clearly changed (ΔE > 20)
+    against today, saturated mid-lightness clothing +57%, the same with a soft ground shadow +65%, footpath 50%
+    darker +24% (nothing more on top of clothing), real sun shadow from the walkers alone +1%, a dark
+    clothing mix +16% but −61% at 60 m, where it vanishes against the glass. Saturated clothing also roughly
+    doubles the hat's contrast against what it covers (ΔE 14 → 28–34, depending on the colour drawn). Cost per FPV
+    render: clothing ~0.05 ms, ground shadow ~0.10, sun shadow ~0.35. **Not adopted**: it makes the hat task
+    easier, so `identifyRangeM` / `R_ID_M` and every earlier run's comparability are at stake.
+  - The bench is `D:\claude_feedres_bench` (`probe\` has the sources and `final.py`; not in the repo).
 - **The TPS field is evaluated once per warp update on a lattice of at most 512 samples** along the
   canvas' longer side (`_field_lattice_size`, `STABSTITCH_FLOW_GRID`, 0 = exact) and resampled
   for each consumer: the canvas (blend masks), the panorama (`_field_to_image_grid`, with

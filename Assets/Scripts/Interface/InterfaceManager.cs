@@ -30,6 +30,9 @@ public class InterfaceManager : MonoBehaviour
     [SerializeField] private ScreenSpawn.ScreenStyle autoStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
     
     [Header("Screen Parameters")]
+    [Tooltip("Each feed's render-texture size, used only with stitching off (PyUniSharingFast's " +
+             "enableImageWriting and enablePanoramaReading both unticked). While stitching, the feeds " +
+             "adopt its blockImageWidth/Height, because the same texture is the stitcher's input.")]
     public int width = 640;
     public int height = 360;
     

@@ -378,8 +378,10 @@ public class ScreenSpawn : MonoBehaviour
         // captures for the stitcher. PyUniSharingFast is the single source of truth:
         // if its block resolution differs, adopt it here once, at spawn time (done
         // before the render textures / aspect ratios below are built from width/height).
+        // With stitching off nothing reads these textures but the screens, so InterfaceManager's
+        // size stands and the block envelope (1280x720) does not apply.
         PyUniSharingFast stitchSharing = FindObjectOfType<PyUniSharingFast>();
-        if (stitchSharing != null &&
+        if (stitchSharing != null && stitchSharing.StitchingEnabled &&
             (width != stitchSharing.BlockImageWidth || height != stitchSharing.BlockImageHeight))
         {
             Debug.Log($"[ScreenSpawn] Overriding feed resolution {width}x{height} with " +

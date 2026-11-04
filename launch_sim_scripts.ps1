@@ -1,17 +1,19 @@
 # launch_sim_scripts.ps1
 # Launches the Python helper processes for the VR swarm simulation in a single
-# Windows Terminal window, split into two panes:
-#   left  : StitcherThreading.py -> 'stitching' conda env (needs torch/StabStitch++)
-#   right : rcjoy bridge          -> the RC Pro joystick (DJI_Swarm/rc-joystick) to Unity over UDP
+# Windows Terminal window:
+#   rcjoy bridge         -> the RC Pro joystick (DJI_Swarm/rc-joystick) to Unity over UDP
+#   StitcherThreading.py -> 'stitching' conda env, a second pane, only with -Stitcher
 #
 # Usage:  .\launch_sim_scripts.ps1                        # finds the RC by itself
 #         .\launch_sim_scripts.ps1 -RcIP 192.168.100.50   # once, if it keeps "searching"
 #         .\launch_sim_scripts.ps1 -Asw Auto              # leave Oculus ASW on (see below)
 #         .\launch_sim_scripts.ps1 -SpreadRange 1.4,2.6   # the spread dial's d_ref range (see below)
+#         .\launch_sim_scripts.ps1 -Stitcher              # for a scene that still stitches (see below)
 param(
     [string]$RcIP = '',
     [ValidateSet('Off', 'Auto', 'Keep')][string]$Asw = 'Off',
-    [ValidateCount(2, 2)][double[]]$SpreadRange
+    [ValidateCount(2, 2)][double[]]$SpreadRange,
+    [switch]$Stitcher
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,6 +66,17 @@ $rcArg = if ($RcIP) { " --rc $RcIP" } else { '' }
 # from level at launch; Unity moves the cameras only once it is turned. -SpreadRange must contain 1.0, the bridge's
 # start value, or the bridge refuses to start.
 if ($SpreadRange) { $rcArg += " --ax-range $($SpreadRange[0]),$($SpreadRange[1])" }
+
+# The stitcher is opt-in: BlockShapedPatchCityWorld and PracticeBlockWorld fly without it, and left running it
+# holds ~5 GB of video memory for nothing. A scene that does stitch still flies without it, on its feeds alone.
+if (-not $Stitcher) {
+    Write-Host 'Stitcher not started. Pass -Stitcher for a scene that still stitches.'
+    wt.exe --size 100,50 `
+      new-tab --title "controller" `
+        -d "$rcjoyDir" `
+        PowerShell -NoExit -Command "python -m rcjoy bridge --profile sim$rcArg"
+    return
+}
 
 # Single Windows Terminal window, two vertical panes. `;` separates wt.exe
 # sub-commands, so the `;` INSIDE each PowerShell -Command is escaped as `\;`.
