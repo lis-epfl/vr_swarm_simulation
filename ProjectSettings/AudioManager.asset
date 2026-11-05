@@ -15,6 +15,6 @@ AudioManager:
   m_EnableOutputSuspension: 1
   m_SpatializerPlugin: Meta XR Audio
   m_AmbisonicDecoderPlugin: Meta XR Audio
-  m_DisableAudio: 0
+  m_DisableAudio: 1
   m_VirtualizeEffects: 1
   m_RequestedDSPBufferSize: 1024
