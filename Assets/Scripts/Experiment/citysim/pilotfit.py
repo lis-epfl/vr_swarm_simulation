@@ -209,6 +209,8 @@ def fit(test="internal_3", root=DEFAULT_ROOT):
     pools = {c: dict(runs=[], turns=[], small_turns=[], pauses=[], turn_rates=[], offsets=[], stick=[], seconds=0.0,
                      legs=0, dwells=[], moves=[], spread=[], by_pilot={}) for c in CONDITIONS}
     for r, t0, t1, leg in wins:
+        if r.condition not in pools:     # the pilots fitted are the two the search study flies (not SingleSphere)
+            continue
         sig = signals(r)
         seg = segment(sig, t0, t1)
         p = pools[r.condition]

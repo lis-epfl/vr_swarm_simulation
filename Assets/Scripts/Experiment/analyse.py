@@ -95,8 +95,11 @@ PITCH = 90.8304           # CityTiles.Pitch: the city's tile grid
 TILE_HALF = PITCH / 2     # goal patch = one city tile
 AXES = ["inPitch", "inRoll", "inYaw", "inThrottle"]
 AXIS_NAMES = ["pitch", "roll", "yaw", "throttle"]
-CONDS = ["SingleDrone", "Swarm"]
-COLOURS = {"SingleDrone": "#d1603d", "Swarm": "#3d7dd1"}
+# SingleSphere (since 2026-11-06): one drone's 360 camera on a sphere round the pilot (InterfaceManager's SPHERE
+# display), the third condition. Letters only, as STEM_RE needs.
+CONDS = ["SingleDrone", "Swarm", "SingleSphere"]
+COLOURS = {"SingleDrone": "#d1603d", "Swarm": "#3d7dd1", "SingleSphere": "#4f9a5c"}
+ONE_DRONE = ("SingleDrone", "SingleSphere")
 SPREAD_RANGE = (0.4, 1.6)       # joystick dial -> d_ref
 PITCH_RANGE = (-90.0, 60.0)     # FPVCameraScript.MinPitch / MaxPitch
 
@@ -306,7 +309,7 @@ def load_test(root, test):
     for r in runs:
         seen.setdefault((r.pid, r.trial), []).append(r.stem)
         n = r.session.get("droneCount")
-        if n and (n == 1) != (r.condition == "SingleDrone"):
+        if n and (n == 1) != (r.condition in ONE_DRONE):
             warn(f"{r.stem}: labelled {r.condition} but flew {n} drone(s); analysed under its label")
     for (pid, trial), group in seen.items():
         if len(group) > 1:
@@ -894,6 +897,8 @@ def hat_family(run, cfg):
     ts, dt = run.ct, run.cdt
     boxes = scene_boxes(run.goals, run.city, run.goal_width)
     r_id = cfg.range
+    from citysim import replay
+    sphere, _ = replay.sphere_view(run)
     rows = []
     for gi, g in enumerate(run.goals):
         w = wk[wk.goalIndex == g["goalIndex"]][["t", "hatX", "hatY", "hatZ"]]
@@ -905,7 +910,9 @@ def hat_family(run, cfg):
         hd = np.hypot(rel[:, 0], rel[:, 2])
         off = (np.degrees(np.arctan2(rel[:, 0], rel[:, 2])) - m.yawDeg.to_numpy() + 180) % 360 - 180
         dep = np.degrees(np.arctan2(-rel[:, 1], hd))
-        cand = (dist <= r_id) & (np.abs(off) <= math.degrees(HFOV_HALF))
+        cand = dist <= r_id
+        if not sphere:      # a 360 camera has no heading to be inside
+            cand &= np.abs(off) <= math.degrees(HFOV_HALF)
         vis = cand.copy()
         if cand.any():
             near = [b for b in boxes if np.linalg.norm(b[1][[0, 2]] - hat[cand][:, [0, 2]].mean(0)) < r_id + 80]
@@ -1760,7 +1767,7 @@ def fig_timeline(runs, series, out, name, keys=("spread", "spacing", "pitch"), t
             y = sr[key]
             if np.isnan(y).all():
                 missing(ax, "not logged" if key == "pitch" else
-                        "one drone" if run.condition == "SingleDrone" else "no data")
+                        "one drone" if run.condition in ONE_DRONE else "no data")
             else:
                 ax.plot(sr["t"], y, color=colour, lw=1.5, drawstyle="steps-post" if key != "spacing" else None)
             ax.grid(alpha=0.3)

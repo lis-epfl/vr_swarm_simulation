@@ -150,7 +150,9 @@ def run_expected(run, boxes, pts, w, r_goal=R_GOAL_M, every_s=0.5, band=True):
     """Walkers expected per sample of a recorded run on its shown feeds, and on those inside the HMD's field of view
     about the recorded head yaw: (t (S,), any (S,), head (S,), centroid (S, 2)), on the drone-log clock thinned to
     `every_s`. 3-D sight lines (citysim.los.Boxes) from each camera's recorded height, its recorded yaw, and -- when
-    `band` and the run logged it -- the vertical band of the recorded gimbal pitch (replay.hat_bases' cameras)."""
+    `band` and the run logged it -- the vertical band of the recorded gimbal pitch (replay.hat_bases' cameras). A
+    SPHERE run's one camera sees every way (replay.sphere_view): no heading test, the band only where the view was
+    masked to one, and the head sees what lies within the HMD's field of view of where it faced in the city."""
     from citysim import replay
     from citysim.los import Boxes
     dr = run.drones
@@ -164,6 +166,11 @@ def run_expected(run, boxes, pts, w, r_goal=R_GOAL_M, every_s=0.5, band=True):
     hi = np.clip(np.searchsorted(h.t.values, T), 0, len(h) - 1)
     body = h.bodyYaw.values[hi]
     head_rel = wrap_deg(h.headYaw.values[hi] - body - 90.0)
+    sphere, band_half = replay.sphere_view(run)
+    if sphere:
+        head_city = wrap_deg(h.headYaw.values[hi] - h.sphereYaw.values[hi])
+        band = band and band_half > 0
+    vfov = 2 * band_half if sphere else camera.VFOV_DEG
     pitch = h.gimbalPitch.values[hi] if (band and "gimbalPitch" in h) else np.full(len(T), np.nan)
     single = run.condition != "Swarm" or len(ids) == 1
     keep = np.r_[0, np.flatnonzero(np.diff(np.floor(T / every_s)) > 0) + 1]
@@ -188,10 +195,13 @@ def run_expected(run, boxes, pts, w, r_goal=R_GOAL_M, every_s=0.5, band=True):
             rel = np.c_[pts[:, 0] - c[0], np.full(len(pts), TARGET_H - c[1]), pts[:, 1] - c[2]]
             dist = np.linalg.norm(rel, axis=1)
             hd = np.hypot(rel[:, 0], rel[:, 2])
-            off = wrap_deg(np.degrees(np.arctan2(rel[:, 0], rel[:, 2])) - piv["yawDeg"][k, d_i])
-            ok = (dist <= r_goal) & (np.abs(off) <= camera.HFOV_DEG / 2)
+            bearing = np.degrees(np.arctan2(rel[:, 0], rel[:, 2]))
+            off = wrap_deg(bearing - piv["yawDeg"][k, d_i])
+            ok = dist <= r_goal
+            if not sphere:
+                ok &= np.abs(off) <= camera.HFOV_DEG / 2
             if np.isfinite(pitch[k]):
-                ok &= vertical_band(c[1], pitch[k], hd)
+                ok &= vertical_band(c[1], pitch[k], hd, vfov_deg=vfov)
             idx = np.flatnonzero(ok)
             if not len(idx):
                 continue
@@ -200,7 +210,9 @@ def run_expected(run, boxes, pts, w, r_goal=R_GOAL_M, every_s=0.5, band=True):
             vis = np.zeros(len(pts), bool)
             vis[idx[clear]] = True
             seen_any |= vis
-            if single:
+            if sphere:
+                seen_head |= vis & (np.abs(wrap_deg(bearing - head_city[k])) <= camera.HMD_HALF_FOV_DEG)
+            elif single:
                 seen_head |= vis
             else:
                 az = wrap_deg(piv["yawDeg"][k, d_i] - body[k] + off * camera.DISPLAY_SCALE)

@@ -58,7 +58,7 @@ public class FPVCameraScript : MonoBehaviour {
 	public float LastRenderRealtime { get; private set; }
 
 	// Swarm-wide render counters. Every FPV render in the project goes through
-	// EnsureRenderedThisFrame, so these see all of them: the per-frame count is what ScreenSpawn
+	// EnsureRenderedThisFrame or CountRenders, so these see all of them: the per-frame count is what ScreenSpawn
 	// levels its feed refresh against (captures land first, in Update, and the feeds make way), and
 	// the running total is what ExperimentRecorder logs as renders per sample.
 	private static int renderCountFrame = -1;
@@ -143,14 +143,22 @@ public class FPVCameraScript : MonoBehaviour {
 		LastRenderRealtime = Time.realtimeSinceStartup;
 		LastRenderPosition = transform.position;
 		LastRenderRotation = transform.rotation;
+		CountRenders(1);
+		cam.Render();
+		return true;
+	}
+
+	/// <summary>
+	/// Counts renders of the city made outside <see cref="EnsureRenderedThisFrame"/>, so the counters still see every
+	/// one. Sphere360Display's cube camera counts one per face it draws.
+	/// </summary>
+	public static void CountRenders (int n) {
 		if (renderCountFrame != Time.frameCount) {
 			renderCountFrame = Time.frameCount;
 			rendersThisFrame = 0;
 		}
-		rendersThisFrame++;
-		TotalRenders++;
-		cam.Render();
-		return true;
+		rendersThisFrame += n;
+		TotalRenders += n;
 	}
 
 	// Use this for initialization
@@ -222,7 +230,8 @@ public class FPVCameraScript : MonoBehaviour {
 		SetOwnBodyHidden(false);
 	}
 
-	private void SetOwnBodyHidden (bool hidden) {
+	// Public for Sphere360Display, whose cube camera renders from this drone with its own camera.
+	public void SetOwnBodyHidden (bool hidden) {
 		if (ownBodyRenderers == null) return;
 		for (int i = 0; i < ownBodyRenderers.Length; i++) {
 			if (ownBodyRenderers[i] != null) {

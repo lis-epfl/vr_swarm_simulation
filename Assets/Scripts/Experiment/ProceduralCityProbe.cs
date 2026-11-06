@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 /// <summary>
 /// A headless Play-mode check of the procedural city and the recorder's new fields, run in batchmode on the bench's
@@ -26,16 +27,25 @@ using UnityEngine;
 /// object; the process exits 0 if every check passed.
 /// With <see cref="NoRecorderEnv"/> set to 1 a scene without a recorder (the practice scenes) is probed too, and the
 /// press and session checks, which need one, are reported as skipped.</para>
+/// <para>With <see cref="SphereEnv"/> set to 1 the scene is flown as the SingleSphere condition instead: one drone,
+/// <see cref="InterfaceManager.DisplayMode.SPHERE"/>, the matching label. The panorama and colliding-pair checks, which
+/// need feeds or two drones, give way to the sphere's: the cube is created, refreshed, counted six renders a refresh
+/// and lit on every face; the sphere shows the city the right way round (the view through the sphere against a camera
+/// at the drone, at three headings, and against the turns a sign or 90 deg slip would give); a hat straight below the
+/// drone scores, and one out of range or behind a building does not; and the run records the display mode, the
+/// sphere's settings, its yaw on every head sample and the drone's view as shown.</para>
 /// </summary>
 public class ProceduralCityProbe : MonoBehaviour
 {
     public const string OutEnv = "PROCEDURAL_PROBE_OUT";
     public const string NoRecorderEnv = "PROCEDURAL_PROBE_NO_RECORDER";
+    public const string SphereEnv = "PROCEDURAL_PROBE_SPHERE";
     /// <summary>m: CityDressing's footpath, kerb to facade (blockcity.INSET_M); a walker farther off every building is in
     /// the street.</summary>
     const float FootpathM = 3.5f;
 
     static string outPath;
+    static bool sphereRun;
     readonly List<string> lines = new List<string>();
     bool allOk = true;
     int lostA = -1, lostB = -1;   // the swarm-list indices of the pair flown into each other
@@ -49,6 +59,23 @@ public class ProceduralCityProbe : MonoBehaviour
         foreach (var c in FindObjectsOfType<UDPReceiverManager>(true)) c.enabled = false;
         foreach (var c in FindObjectsOfType<ImageSharing>(true)) c.enabled = false;
         foreach (var cam in FindObjectsOfType<Camera>(true)) cam.enabled = false;
+
+        // After every Awake and before any Start, so the spawn and the display are set before they are read.
+        sphereRun = Environment.GetEnvironmentVariable(SphereEnv) == "1";
+        if (sphereRun)
+        {
+            swarmSpawn spawner = FindObjectOfType<swarmSpawn>();
+            if (spawner != null)
+            {
+                // One drone at the start position itself, so ResetToPos puts it exactly where it is sent.
+                spawner.spawnPattern = SpawnPattern.CircleWithCentre;
+                spawner.circleDroneCount = 1;
+            }
+            InterfaceManager im = FindObjectOfType<InterfaceManager>();
+            if (im != null) im.displayMode = InterfaceManager.DisplayMode.SPHERE;
+            ExperimentRecorder rec = FindObjectOfType<ExperimentRecorder>();
+            if (rec != null) rec.condition = ExperimentRecorder.Condition.SingleSphere;
+        }
         new GameObject("ProceduralCityProbe").AddComponent<ProceduralCityProbe>();
     }
 
@@ -123,6 +150,13 @@ public class ProceduralCityProbe : MonoBehaviour
               $"{offPath} of {walkers.Count} walkers under 0.3 m or over {FootpathM - 0.1f:0.0} m from the nearest building " +
               $"(farthest {far:F2} m)");
 
+        // ---- the 360 sphere: its cube, and which way round it shows the city
+        if (sphereRun)
+        {
+            yield return CheckSphereCube();
+            yield return CheckSphereOrientation();
+        }
+
         // ---- the altitude ceiling
         Vector3 spawn = new Vector3(spawner.start_x, 0f, spawner.start_z);
         spawner.ResetToPos(spawn + Vector3.up * 70f);
@@ -155,6 +189,12 @@ public class ProceduralCityProbe : MonoBehaviour
             yield return new WaitForSeconds(10f);
             setMarks.Invoke(null, new object[] { UDPReceiverManager.MarkPresses + 1 });
             yield return new WaitForSeconds(1f);
+            if (sphereRun)
+            {
+                yield return CheckSphereScoring(rec, spawner);
+                yield return Finish(rec);
+                yield break;
+            }
             CheckPanoramaScoring(rec, spawner);
 
             // ---- a collision: last, since it costs the swarm two drones
@@ -215,6 +255,209 @@ public class ProceduralCityProbe : MonoBehaviour
               $"panorama up {up} (feed {feed}, {args[2]} m), panorama down {down}");
     }
 
+    /// <summary>SPHERE: the cube exists at its size, refreshes, counts six renders a refresh, and every face has
+    /// something on it (a cube that failed to create still "renders", black).</summary>
+    IEnumerator CheckSphereCube()
+    {
+        Sphere360Display s = Sphere360Display.Instance;
+        if (!Sphere360Display.Active || s == null || s.Cube == null)
+        {
+            Check("sphere cube up", false, "Sphere360Display is not active");
+            yield break;
+        }
+        long r0 = FPVCameraScript.TotalRenders, f0 = s.Refreshes;
+        yield return new WaitForSecondsRealtime(1f);
+        long dr = FPVCameraScript.TotalRenders - r0, df = s.Refreshes - f0;
+        bool counted = s.Config.splitFaces ? Math.Abs(dr - 6 * df) <= 3 : dr == 6 * df;
+
+        int w = s.CubeEdge;
+        var means = new float[6];
+        for (int face = 0; face < 6; face++)
+        {
+            AsyncGPUReadbackRequest req = AsyncGPUReadback.Request(s.Cube, 0, 0, w, 0, w, face, 1, TextureFormat.RGBA32);
+            req.WaitForCompletion();
+            if (req.hasError)
+            {
+                means[face] = -1f;
+                continue;
+            }
+            var data = req.GetData<Color32>();
+            double sum = 0;
+            for (int i = 0; i < data.Length; i++) sum += data[i].r + data[i].g + data[i].b;
+            means[face] = (float)(sum / (3.0 * data.Length));
+        }
+        bool lit = means.All(m => m > 2f);
+        Check("sphere cube up", s.Cube.IsCreated() && w == (int)s.Config.cubeSize && df > 0 && counted && lit,
+              $"{w} px, {df} refreshes and {dr} counted renders in 1 s of real time; face means (0-255) " +
+              $"[{string.Join(", ", means.Select(m => m.ToString("F1")))}]");
+    }
+
+    /// <summary>
+    /// SPHERE: the view through the sphere at display yaw phi must be the city at yaw phi - sphereYaw, seen from where
+    /// the cube was rendered. Compared with a camera rendering the city directly, at a matched pixel density (30 deg on
+    /// 512 px, ~17 px/deg against the cube's ~18), and with the views a sign slip or a 90 deg slip would show instead,
+    /// which must all be far worse. Right after a refresh, so the cube and the direct render are one frame apart.
+    /// </summary>
+    IEnumerator CheckSphereOrientation()
+    {
+        Sphere360Display s = Sphere360Display.Instance;
+        GameObject sphereObj = GameObject.Find("Sphere360");
+        GameObject cubeObj = GameObject.Find("Camera360");
+        if (s == null || sphereObj == null || cubeObj == null)
+        {
+            Check("sphere faces the right way", false, $"sphere {sphereObj != null}, cube camera {cubeObj != null}");
+            yield break;
+        }
+        long f0 = s.Refreshes;
+        while (s.Refreshes == f0) yield return null;
+
+        const int N = 512;
+        const float Fov = 30f;
+        var throughSphere = new RenderTexture(N, N, 24);
+        var direct = new RenderTexture(N, N, 24);
+        Camera view = new GameObject("ProbeSphereView").AddComponent<Camera>();
+        view.enabled = false;
+        view.cullingMask = 1 << sphereObj.layer;
+        view.clearFlags = CameraClearFlags.SolidColor;
+        view.backgroundColor = Color.magenta;
+        view.allowHDR = false;
+        view.allowMSAA = false;
+        view.nearClipPlane = 0.1f;
+        view.farClipPlane = 1000f;
+        view.fieldOfView = Fov;
+        view.aspect = 1f;
+        view.targetTexture = throughSphere;
+        view.transform.position = sphereObj.transform.position;
+        Camera city = new GameObject("ProbeCityView").AddComponent<Camera>();
+        city.CopyFrom(cubeObj.GetComponent<Camera>());
+        city.enabled = false;
+        city.fieldOfView = Fov;
+        city.aspect = 1f;
+        city.targetTexture = direct;
+        city.transform.position = s.LastRenderPosition;
+        FPVCameraScript body = s.Drone.transform.Find("FPV").GetComponent<FPVCameraScript>();
+
+        float sYaw = Sphere360Display.SphereYawDegrees;
+        bool ok = true;
+        var detail = new List<string>();
+        foreach (float phi in new[] { 0f, 130f, 250f })
+        {
+            view.transform.rotation = Quaternion.Euler(0f, phi, 0f);
+            view.Render();
+            float right = 0f, worstWrong = float.PositiveInfinity;
+            var errs = new List<string>();
+            foreach (var (label, cityYaw) in new[] { ("right", phi - sYaw), ("sign", phi + sYaw),
+                                                    ("+90", phi - sYaw + 90f), ("-90", phi - sYaw - 90f) })
+            {
+                if (label != "right" && Mathf.Abs(Mathf.DeltaAngle(cityYaw, phi - sYaw)) < 20f) continue;
+                city.transform.rotation = Quaternion.Euler(0f, cityYaw, 0f);
+                body.SetOwnBodyHidden(true);
+                city.Render();
+                body.SetOwnBodyHidden(false);
+                float e = MeanAbsDiff(throughSphere, direct);
+                errs.Add($"{label} {e:F1}");
+                if (label == "right") right = e;
+                else worstWrong = Mathf.Min(worstWrong, e);
+            }
+            bool here = right < 6f && right < 0.5f * worstWrong;
+            ok &= here;
+            detail.Add($"phi {phi:F0}: {string.Join(", ", errs)}");
+        }
+        Destroy(view.gameObject);
+        Destroy(city.gameObject);
+        throughSphere.Release();
+        direct.Release();
+        Check("sphere faces the right way", ok,
+              $"sphereYaw {sYaw:F1}; mean |diff| (0-255) against the city at phi - sphereYaw and its slips: " +
+              string.Join("; ", detail));
+    }
+
+    static float MeanAbsDiff(RenderTexture a, RenderTexture b)
+    {
+        Color32[] pa = ReadBack(a), pb = ReadBack(b);
+        double sum = 0;
+        for (int i = 0; i < pa.Length; i++)
+        {
+            sum += Math.Abs(pa[i].r - pb[i].r) + Math.Abs(pa[i].g - pb[i].g) + Math.Abs(pa[i].b - pb[i].b);
+        }
+        return (float)(sum / (3.0 * pa.Length));
+    }
+
+    static Color32[] ReadBack(RenderTexture rt)
+    {
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = rt;
+        var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+        tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+        tex.Apply();
+        RenderTexture.active = previous;
+        Color32[] pixels = tex.GetPixels32();
+        Destroy(tex);
+        return pixels;
+    }
+
+    /// <summary>
+    /// SPHERE: a hat counts within range with a clear line, at any bearing: straight below the drone, where no level
+    /// feed could see it, it scores; from beyond the range, or from behind the building its walker walks round, it
+    /// does not. Each case is read after the cube has refreshed from the new position, since the sphere scores from
+    /// where its picture was taken.
+    /// </summary>
+    IEnumerator CheckSphereScoring(ExperimentRecorder rec, swarmSpawn spawner)
+    {
+        const BindingFlags Private = BindingFlags.NonPublic | BindingFlags.Instance;
+        Type type = typeof(ExperimentRecorder);
+        MethodInfo hatOnFeed = type.GetMethod("HatOnShownFeed", Private);
+        object goal = ((IList)type.GetField("goals", Private).GetValue(rec))[0];
+        var marker = (SpecialWalker)goal.GetType().GetField("marker").GetValue(goal);
+        Sphere360Display s = Sphere360Display.Instance;
+        float range = (float)(type.GetField("identifyMaxRangeM")?.GetValue(rec) ?? type.GetField("identifyRangeM").GetValue(rec));
+        int obstacle = LayerMask.GetMask("Obstacle");
+
+        bool Score(out float dist)
+        {
+            object[] args = { goal, -1, -1f };
+            bool seen = (bool)hatOnFeed.Invoke(rec, args);
+            dist = Vector3.Distance(s.LastRenderPosition, marker.HatCentre);
+            return seen;
+        }
+        IEnumerator FlyTo(Vector3 p)
+        {
+            spawner.ResetToPos(p);
+            long f = s.Refreshes;
+            yield return new WaitForSeconds(0.5f);
+            while (s.Refreshes < f + 2) yield return null;
+        }
+
+        yield return FlyTo(marker.HatCentre + Vector3.up * 12f);
+        bool below = Score(out float dBelow);
+
+        yield return FlyTo(marker.HatCentre + Vector3.up * (range + 15f));
+        bool far = Score(out float dFar);
+
+        // Behind the nearest building, low, on the side away from the hat.
+        Vector3 hat = marker.HatCentre;
+        Collider wall = Physics.OverlapSphere(hat, 15f, obstacle)
+            .OrderBy(c => (c.ClosestPoint(hat) - hat).sqrMagnitude).FirstOrDefault();
+        bool behind = false, blocked = false;
+        float dBehind = -1f;
+        if (wall != null)
+        {
+            Vector3 away = wall.bounds.center - hat;
+            away.y = 0f;
+            away.Normalize();
+            Vector3 p = wall.bounds.center + away * (Mathf.Max(wall.bounds.extents.x, wall.bounds.extents.z) + 6f);
+            p.y = hat.y + 3f;
+            yield return FlyTo(p);
+            behind = Score(out dBehind);
+            blocked = Physics.Linecast(s.LastRenderPosition, marker.HatCentre, obstacle, QueryTriggerInteraction.Ignore);
+        }
+
+        Check("a hat on the sphere scores at any bearing, in range and in sight",
+              below && !far && wall != null && blocked && !behind,
+              $"straight below at {dBelow:F1} m: {below}; from {dFar:F1} m (range {range:F0}): {far}; " +
+              $"behind {(wall != null ? wall.name : "no building")} at {dBehind:F1} m (line blocked {blocked}): {behind}");
+    }
+
     /// <summary>Goals drawn at Play: citygen's spread, no ring building shared or holding another goal, and the same
     /// buildings drawn again from the session seed on a fresh read of the layout file.</summary>
     void CheckDrawnGoals(ProceduralCityBuilder builder, ProceduralCityBuilder.LayoutGoal[] drawn)
@@ -248,6 +491,23 @@ public class ProceduralCityProbe : MonoBehaviour
                     redrawn.Select(g => string.Join(",", g.ring_boxes)).SequenceEqual(drawn.Select(g => string.Join(",", g.ring_boxes)));
         Check("drawn again from the seed", same,
               redrawn == null ? error : $"seed {GoalSession.Seed}: [{string.Join(", ", redrawn.Select(g => g.centre_box))}]");
+    }
+
+    /// <summary>SPHERE: the run says what it showed. The label agrees with the one drone and the display; the session
+    /// carries the mode and the sphere; every head sample has the sphere's yaw; and the drone's view is logged as shown,
+    /// so the analysis's shown basis is the sphere.</summary>
+    void CheckSphereRecord(string json, string events, string stem)
+    {
+        string[] head = File.ReadAllLines(stem + "_head.csv");
+        string[] drones = File.ReadAllLines(stem + "_drones.csv");
+        bool yawLogged = head.Length > 1 && head.Skip(1).All(l => l.Substring(l.LastIndexOf(';') + 1).Length > 0);
+        bool shown = drones.Length > 1 && drones.Skip(1).All(l => l.Split(';')[9] == "1");
+        Check("sphere record",
+              json.Contains("\"condition\": \"SingleSphere\"") && json.Contains("\"conditionMismatch\": false") &&
+              json.Contains("\"displayMode\": \"SPHERE\"") && json.Contains("\"active\": true") &&
+              events.Contains("mode=SPHERE") && yawLogged && shown,
+              $"{head.Length - 1} head rows with sphereYaw {yawLogged}, {drones.Length - 1} drone rows shown {shown}, " +
+              $"display event {events.Contains("mode=SPHERE")}");
     }
 
     static IEnumerable<Transform> Alive(swarmSpawn spawner)
@@ -292,7 +552,8 @@ public class ProceduralCityProbe : MonoBehaviour
                       json.Contains("\"zoneShape\": \"disc\"") && json.Contains("\"identifyMode\": \"AutoScore\"") &&
                       (lg == null || lg.All(g => json.Contains($"\"centreBox\": \"{g.centre_box}\""))),
                       $"{Path.GetFileName(session)} (goal seed source {source})");
-                Check("csv columns", drones.EndsWith(";hull;shown;stitched") && head.EndsWith(";gazeX;gazeY;gazeZ;gazeConf;gazeFeed"),
+                Check("csv columns", drones.EndsWith(";hull;shown;stitched") &&
+                      head.EndsWith(";gazeX;gazeY;gazeZ;gazeConf;gazeFeed;sphereYaw"),
                       $"drones [{drones}] head ends [{head.Substring(Math.Max(0, head.Length - 40))}]");
                 bool outZone = events.Contains(";identify;-1;out_of_zone;");
                 bool scored = events.Contains(";identify;0;correct;") || events.Contains(";identify;0;false_alarm;");
@@ -306,8 +567,18 @@ public class ProceduralCityProbe : MonoBehaviour
                     eventLines.Any(l => l.Contains($";drone_lost;") && l.Contains($"drone={a} reason={reason} partner={b} "));
                 bool pair = (Lost(lostA, lostB, "CollidingWithAnotherDrone") && Lost(lostB, lostA, "ExternallyKilled")) ||
                             (Lost(lostB, lostA, "CollidingWithAnotherDrone") && Lost(lostA, lostB, "ExternallyKilled"));
-                Check("a colliding pair names each other", pair && json.Contains("\"dronesLost\": "),
-                      $"pair {lostA}, {lostB}: [{string.Join(" | ", eventLines.Where(l => l.Contains(";drone_lost;")).Select(l => l.Substring(l.LastIndexOf(';') + 1)))}]");
+                if (sphereRun)
+                {
+                    lines.Add("{\"check\":\"a colliding pair names each other\",\"ok\":true,\"skipped\":true," +
+                              "\"detail\":\"one drone (SPHERE)\"}");
+                    Debug.Log("[Probe] SKIP a colliding pair names each other: one drone (SPHERE)");
+                    CheckSphereRecord(json, events, stem);
+                }
+                else
+                {
+                    Check("a colliding pair names each other", pair && json.Contains("\"dronesLost\": "),
+                          $"pair {lostA}, {lostB}: [{string.Join(" | ", eventLines.Where(l => l.Contains(";drone_lost;")).Select(l => l.Substring(l.LastIndexOf(';') + 1)))}]");
+                }
 
                 string gitLine = json.Split('\n').FirstOrDefault(l => l.Contains("\"gitCommit\"")) ?? "";
                 string gitError = json.Split('\n').FirstOrDefault(l => l.Contains("\"gitError\"")) ?? "";

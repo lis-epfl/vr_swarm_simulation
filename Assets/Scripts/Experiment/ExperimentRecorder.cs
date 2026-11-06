@@ -54,7 +54,12 @@ using UnityEngine.XR;
 /// </summary>
 public class ExperimentRecorder : MonoBehaviour
 {
-    public enum Condition { Swarm, SingleDrone }
+    public enum Condition
+    {
+        Swarm = 0,
+        SingleDrone = 1,
+        SingleSphere = 2    // one drone's 360 camera on a sphere (InterfaceManager.DisplayMode.SPHERE)
+    }
 
     [Header("Session (set before Play)")]
     [Tooltip("Participant code. Convention is a 4-letter code; trimmed/upper-cased for the filename.")]
@@ -100,6 +105,7 @@ public class ExperimentRecorder : MonoBehaviour
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
     private ScreenSpawn screenSpawn;   // which drones' feeds are on screen, and where the quads hang
+    private InterfaceManager interfaceManager;   // the display mode: feed screens or a 360 sphere
     private PyUniSharingFast stitching;
     private StartLine startLine;       // null in a scene without one (or with it removed)
     private bool startLineLogged, startCentroidLogged;
@@ -137,6 +143,9 @@ public class ExperimentRecorder : MonoBehaviour
         public int scoredFeed = -1;
         public float scoredCamDist = -1f;
         public int gazeFeedAtAnswer = -1;
+        // SPHERE: the angles from the hat to the head's and the gaze's direction in the city at that press (-1 none).
+        public float headHatDegAtAnswer = -1f;
+        public float gazeHatDegAtAnswer = -1f;
     }
     private readonly List<GoalInfo> goals = new List<GoalInfo>();
     private bool referencesResolved = false;
@@ -187,6 +196,9 @@ public class ExperimentRecorder : MonoBehaviour
     private Vector3 loggedOffset;
     private int loggedWidth, loggedHeight;
     private string loggedRoom;
+    private bool loggedSphere, loggedSplit;
+    private Sphere360Display.HeadingMode loggedHeading;
+    private float loggedRefreshHz, loggedBand;
 
     // ---- RC identify (see PollRcIdentify) ----
     private int rcPressesSeen;
@@ -282,6 +294,7 @@ public class ExperimentRecorder : MonoBehaviour
     {
         spawner = FindObjectOfType<swarmSpawn>();
         screenSpawn = FindObjectOfType<ScreenSpawn>();
+        interfaceManager = FindObjectOfType<InterfaceManager>();
         stitching = FindObjectOfType<PyUniSharingFast>();
         headTransform = ResolveHeadTransform();
         obstacleMask = LayerMask.GetMask("Obstacle");
@@ -298,7 +311,7 @@ public class ExperimentRecorder : MonoBehaviour
         dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive;hull;shown;stitched");
         headWriter = NewWriter("head",
             "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread;" +
-            "gimbalPitch;gazeX;gazeY;gazeZ;gazeConf;gazeFeed");
+            "gimbalPitch;gazeX;gazeY;gazeZ;gazeConf;gazeFeed;sphereYaw");
         walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ;hat;hatX;hatY;hatZ");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
         shapeWriter = NewWriter("shape",
@@ -436,6 +449,8 @@ public class ExperimentRecorder : MonoBehaviour
     /// Whether the label agrees with what spawned. The label is typed by hand and the count is set on another
     /// component, so one left over from the previous run went unnoticed: 6 of the first 102 sessions disagree, one of
     /// them in internal_1. Waits for the swarm to exist, which it does by the first frame in every scene so far.
+    /// SingleSphere is the one condition set in three places (the label, the count and InterfaceManager's display
+    /// mode), so the display is checked too: one drone on the feed screens is SingleDrone, on the sphere SingleSphere.
     /// </summary>
     private void CheckConditionLabel()
     {
@@ -443,13 +458,20 @@ public class ExperimentRecorder : MonoBehaviour
         int n = spawner != null && spawner.swarm != null ? spawner.swarm.Count : 0;
         if (n == 0) return;
         conditionChecked = true;
-        conditionMismatch = condition == Condition.SingleDrone ? n != 1 : n < 2;
+        InterfaceManager.DisplayMode mode = DisplayModeInForce();
+        bool sphere = mode == InterfaceManager.DisplayMode.SPHERE;
+        conditionMismatch = condition == Condition.Swarm ? n < 2 || sphere
+                          : n != 1 || sphere != (condition == Condition.SingleSphere);
         if (!conditionMismatch) return;
         sessionJsonDirty = true;
-        WriteEvent("condition_mismatch", -1, "", -1f, $"condition={condition} drones={n}");
-        Debug.LogError($"ExperimentRecorder: this run is labelled {condition} but {n} drone(s) spawned. Fix the label " +
-                       "or the count before flying: analyse.py goes by the label.", this);
+        WriteEvent("condition_mismatch", -1, "", -1f, $"condition={condition} drones={n} display={mode}");
+        Debug.LogError($"ExperimentRecorder: this run is labelled {condition} but {n} drone(s) spawned with the {mode} " +
+                       "display. Fix the label, the count or InterfaceManager's displayMode before flying: analyse.py " +
+                       "goes by the label.", this);
     }
+
+    private InterfaceManager.DisplayMode DisplayModeInForce() =>
+        interfaceManager != null ? interfaceManager.displayMode : InterfaceManager.DisplayMode.SCREENS;
 
     /// <summary>
     /// A loss, at the physics tick it happened, with what _drones.csv cannot show: alive there is a 10 Hz flag, and a
@@ -480,15 +502,20 @@ public class ExperimentRecorder : MonoBehaviour
     /// The screen layout in force, at the start of the run and whenever it changes. Read off ScreenSpawn, not
     /// InterfaceManager's inspector fields: AUTO and the panorama fallback resolve there, and the identify rule and
     /// analyse.py's head visibility both assume a screen scale. Compared rather than formatted, since this runs every
-    /// frame.
+    /// frame. Under the SPHERE display the screens are not spawned and their fields are only what would have been;
+    /// <c>mode=SPHERE</c> and the sphere's settings (which can be changed in Play, all but the cube size) say so.
     /// </summary>
     private void LogDisplay()
     {
         if (screenSpawn == null) return;
         ScreenSpawn s = screenSpawn;
+        bool sphere = Sphere360Display.Active;
+        Sphere360Display.Settings sc = sphere ? Sphere360Display.Instance.Config : null;
         if (displayLogged && s.screenStyle == loggedStyle && s.radius == loggedRadius && s.scale == loggedScale &&
             s.offset == loggedOffset && s.width == loggedWidth && s.height == loggedHeight &&
-            CockpitRoom.InForce == loggedRoom) return;
+            CockpitRoom.InForce == loggedRoom && sphere == loggedSphere &&
+            (!sphere || (sc.refreshHz == loggedRefreshHz && sc.splitFaces == loggedSplit &&
+                         sc.heading == loggedHeading && sc.bandHalfDeg == loggedBand))) return;
         displayLogged = true;
         loggedRoom = CockpitRoom.InForce;
         loggedStyle = s.screenStyle;
@@ -497,10 +524,22 @@ public class ExperimentRecorder : MonoBehaviour
         loggedOffset = s.offset;
         loggedWidth = s.width;
         loggedHeight = s.height;
+        loggedSphere = sphere;
+        string sphereNote = "";
+        if (sphere)
+        {
+            loggedRefreshHz = sc.refreshHz;
+            loggedSplit = sc.splitFaces;
+            loggedHeading = sc.heading;
+            loggedBand = sc.bandHalfDeg;
+            sphereNote = $" cube={Sphere360Display.Instance.CubeEdge} hz={F(sc.refreshHz)} split={sc.splitFaces} " +
+                         $"heading={sc.heading} band={F(sc.bandHalfDeg)}";
+        }
         WriteEvent("display", -1, "", -1f,
+            $"mode={(sphere ? "SPHERE" : DisplayModeInForce().ToString())} " +
             $"style={s.screenStyle} radius={F(s.radius)} scale={F(s.scale)} " +
             $"offset={F(s.offset.x)},{F(s.offset.y)},{F(s.offset.z)} feed={s.width}x{s.height} " +
-            $"room={loggedRoom}");
+            $"room={loggedRoom}{sphereNote}");
     }
 
     private Transform ResolveHeadTransform()
@@ -674,6 +713,9 @@ public class ExperimentRecorder : MonoBehaviour
     /// the joystick dial commands (<see cref="FPVCameraScript.SharedPitch"/>, degrees, 0 = level,
     /// -90 = straight down); the dial itself is not in <c>InputStatus</c>, and the pitch it sets is a
     /// linear map of it. Appended last, so runs recorded before it simply lack the column.
+    /// <c>sphereYaw</c> (empty unless the SPHERE display is on, since 2026-11-06) is
+    /// <see cref="Sphere360Display.SphereYawDegrees"/>: the head and the gaze are logged in the arena, and a direction
+    /// at yaw theta there shows the city at yaw theta - sphereYaw.
     /// </summary>
     private void WriteHeadSample(float t, long ms)
     {
@@ -706,7 +748,8 @@ public class ExperimentRecorder : MonoBehaviour
         headWriter.WriteLine(
             $"{F(t)};{ms};{F(hp.x)};{F(hp.y)};{F(hp.z)};{F(he.y)};{F(he.x)};{F(he.z)};{F(bodyYaw)};" +
             $"{F(thr)};{F(yaw)};{F(pit)};{F(rol)};{F(spr)};{F(FPVCameraScript.SharedPitch)};" +
-            $"{F(gd.x)};{F(gd.y)};{F(gd.z)};{F(gazeOk ? gaze.Confidence : 0f)};{gazeFeed}");
+            $"{F(gd.x)};{F(gd.y)};{F(gd.z)};{F(gazeOk ? gaze.Confidence : 0f)};{gazeFeed};" +
+            $"{(Sphere360Display.Active ? F(Sphere360Display.SphereYawDegrees) : "")}");
     }
 
     /// <summary>
@@ -877,6 +920,12 @@ public class ExperimentRecorder : MonoBehaviour
         float walkerDist = g.special != null ? Vector3.Distance(centroid, g.special.position) : -1f;
         bool seen = HatOnShownFeed(g, out int feed, out float camDist);
         string note = $"{where} feed={feed} camDist={F(camDist)} zoneDist={F(zoneDist)}";
+        float headHatDeg = -1f, gazeHatDeg = -1f;
+        if (Sphere360Display.Active)
+        {
+            SphereLookAngles(g, out headHatDeg, out gazeHatDeg);
+            note += $" headHatDeg={F(headHatDeg)} gazeHatDeg={F(gazeHatDeg)}";
+        }
         if (g.answered && g.outcome == "correct")
         {
             WriteEvent("identify", gi, "repeat", walkerDist, note);
@@ -899,6 +948,8 @@ public class ExperimentRecorder : MonoBehaviour
         g.scoredFeed = feed;
         g.scoredCamDist = camDist;
         g.gazeFeedAtAnswer = gazeFeed;
+        g.headHatDegAtAnswer = headHatDeg;
+        g.gazeHatDegAtAnswer = gazeHatDeg;
         WriteEvent("identify", gi, "correct", walkerDist, note);
         Debug.Log($"ExperimentRecorder: RC press at goal {gi} ({g.hat}) scored correct: feed {feed}, {F(camDist)} m.", this);
         FinalizeIfComplete();
@@ -934,6 +985,7 @@ public class ExperimentRecorder : MonoBehaviour
         List<GameObject> swarm = spawner != null ? spawner.swarm : null;
         if (g.special == null || swarm == null) return false;
         Vector3 hat = g.marker.HatCentre;
+        if (Sphere360Display.Active) return HatOnSphere(hat, swarm, out feed, out camDist);
         float half = 0.5f * identifyCentralFraction;
         float best = float.PositiveInfinity;
         for (int i = 0; i < swarm.Count; i++)
@@ -958,10 +1010,66 @@ public class ExperimentRecorder : MonoBehaviour
         return feed >= 0;
     }
 
-    /// <summary>Whether a drone's feed quad is on screen (false when there is no ScreenSpawn).</summary>
+    /// <summary>
+    /// SPHERE: <see cref="HatOnShownFeed"/> for the 360 camera, which shows every direction at once, so there is no
+    /// image frame to test: the hat counts within range of where the cube on the sphere was rendered, with no building
+    /// in the way, and inside the band when the view is masked to one (the feeds' central-fraction rule applied to the
+    /// band's height). Wherever the pilot was looking, as for the ring of feeds; the press logs the head's and the
+    /// gaze's angle to the hat (<see cref="SphereLookAngles"/>) for reading that afterwards.
+    /// </summary>
+    private bool HatOnSphere(Vector3 hat, List<GameObject> swarm, out int feed, out float camDist)
+    {
+        feed = -1;
+        camDist = -1f;
+        Sphere360Display s = Sphere360Display.Instance;
+        if (s == null || !s.HasRendered || s.Drone == null) return false;
+        Transform dp = s.Drone.transform.Find("DroneParent");
+        VelocityControl vc = dp != null ? dp.GetComponent<VelocityControl>() : null;
+        if (vc != null && vc.State != null && !vc.State.IsAlive) return false;
+        Vector3 cam = s.LastRenderPosition;
+        Vector3 rel = hat - cam;
+        float d = rel.magnitude;
+        if (d > identifyRangeM) return false;
+        float band = s.Config.bandHalfDeg;
+        if (band > 0f)
+        {
+            float elevation = Mathf.Atan2(rel.y, new Vector2(rel.x, rel.z).magnitude) * Mathf.Rad2Deg;
+            float limit = Mathf.Atan(identifyCentralFraction * Mathf.Tan(band * Mathf.Deg2Rad)) * Mathf.Rad2Deg;
+            if (Mathf.Abs(elevation - FPVCameraScript.SharedPitch) > limit) return false;
+        }
+        if (Physics.Linecast(cam, hat, obstacleMask, QueryTriggerInteraction.Ignore)) return false;
+        feed = swarm.IndexOf(s.Drone);
+        camDist = d;
+        return true;
+    }
+
+    /// <summary>
+    /// SPHERE: the angles (degrees) between the hat, seen from the 360 camera, and where the pilot's head and gaze
+    /// point in the city (turned through <see cref="Sphere360Display.DisplayToCity"/>); -1 where there is no reading.
+    /// </summary>
+    private void SphereLookAngles(GoalInfo g, out float headHatDeg, out float gazeHatDeg)
+    {
+        headHatDeg = -1f;
+        gazeHatDeg = -1f;
+        Sphere360Display s = Sphere360Display.Instance;
+        if (s == null || !s.HasRendered || g.marker == null) return;
+        Vector3 toHat = g.marker.HatCentre - s.LastRenderPosition;
+        if (toHat.sqrMagnitude < 1e-6f) return;
+        if (headTransform != null) headHatDeg = Vector3.Angle(Sphere360Display.DisplayToCity * headTransform.forward, toHat);
+        EyeGazeTracker.GazeSample gaze = EyeGazeTracker.Combined;
+        if (EyeGazeTracker.EyeTrackingActive && gaze.IsValid)
+        {
+            gazeHatDeg = Vector3.Angle(Sphere360Display.DisplayToCity * gaze.Direction, toHat);
+        }
+    }
+
+    /// <summary>Whether a drone's feed quad is on screen (false when there is no ScreenSpawn). Under the SPHERE
+    /// display the carrying drone's view is always on screen.</summary>
     private bool FeedShown(GameObject drone)
     {
-        if (screenSpawn == null || drone == null) return false;
+        if (drone == null) return false;
+        if (Sphere360Display.Active) return drone == Sphere360Display.Instance.Drone;
+        if (screenSpawn == null) return false;
         GameObject screen = screenSpawn.ScreenFor(drone);
         return screen != null && screen.activeInHierarchy;
     }
@@ -1284,6 +1392,8 @@ public class ExperimentRecorder : MonoBehaviour
             eyeTextureScale = eyeTextureScale,
             feedWidth = screenSpawn != null ? screenSpawn.width : 0,
             feedHeight = screenSpawn != null ? screenSpawn.height : 0,
+            displayMode = DisplayModeInForce().ToString(),
+            sphere360 = SphereRecord(),
         };
 
         int nCorrect = 0, falseAlarms = 0;
@@ -1325,6 +1435,8 @@ public class ExperimentRecorder : MonoBehaviour
                 scoredFeed = g.scoredFeed,
                 scoredCamDist = g.scoredCamDist,
                 gazeFeedAtAnswer = g.gazeFeedAtAnswer,
+                headHatDegAtAnswer = g.headHatDegAtAnswer,
+                gazeHatDegAtAnswer = g.gazeHatDegAtAnswer,
             });
         }
         data.nCorrect = nCorrect;
@@ -1449,6 +1561,10 @@ public class ExperimentRecorder : MonoBehaviour
         public int eyeTextureWidth, eyeTextureHeight;   // the eye buffer: what the screens are drawn into
         public float eyeTextureScale;
         public int feedWidth, feedHeight;  // each drone's feed render texture
+        // SCREENS (the feeds) or SPHERE (one drone's 360 camera on a sphere: the screen fields above are then what
+        // would have been, and sphere360 is what was shown). Absent = a run before 2026-11-06, all SCREENS.
+        public string displayMode;
+        public SphereInfo sphere360;
         public int nCorrect;
         public int nGoals;
         public List<GoalResult> goals = new List<GoalResult>();
@@ -1480,5 +1596,36 @@ public class ExperimentRecorder : MonoBehaviour
         public int scoredFeed;             // the swarm-list index of the camera that scored the correct press
         public float scoredCamDist;        // its distance to the hat (m)
         public int gazeFeedAtAnswer;       // the feed the pilot's gaze was on at that press (-1 none)
+        // SPHERE: the angle from the hat to the head's and to the gaze's direction in the city at that press (-1 none)
+        public float headHatDegAtAnswer, gazeHatDegAtAnswer;
+    }
+
+    // The sphere as shown when the file was written (all zero / empty without one); display events have every change.
+    [Serializable]
+    private class SphereInfo
+    {
+        public bool active;
+        public int cubeSize;               // pixels per cube face edge
+        public float refreshHz;
+        public bool splitFaces;
+        public string heading;             // TurnWithDrone or WorldFixed
+        public float bandHalfDeg;          // 0 = the whole sphere
+        public long refreshes;             // complete cube refreshes so far
+    }
+
+    private static SphereInfo SphereRecord()
+    {
+        Sphere360Display s = Sphere360Display.Instance;
+        if (!Sphere360Display.Active || s == null) return new SphereInfo { heading = "" };
+        return new SphereInfo
+        {
+            active = true,
+            cubeSize = s.CubeEdge,
+            refreshHz = s.Config.refreshHz,
+            splitFaces = s.Config.splitFaces,
+            heading = s.Config.heading.ToString(),
+            bandHalfDeg = s.Config.bandHalfDeg,
+            refreshes = s.Refreshes,
+        };
     }
 }

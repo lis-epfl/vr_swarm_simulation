@@ -1414,6 +1414,10 @@ public class PyUniSharingFast : MonoBehaviour
     // face north. Mirrors the private bodyYawInitialized.
     public static bool BodyYawValid { get; private set; }
 
+    // Bumped by every CalibrateToCentre (the startup recentre and the calibrate key), so a display that keeps its own
+    // frame against the room -- Sphere360Display's world-fixed heading -- can tell a recentre from a stick turn.
+    public static int CalibrationCount { get; private set; }
+
     // bodyYawRate and bodyYawExpo, for AttitudeAlgorithm: a lone drone's heading is what the body is
     // locked to, so the stick has to turn that drone at the rate it turns the body in the hull modes, or
     // the single-drone condition turns the pilot faster than the swarm does. Published while this
@@ -2752,6 +2756,7 @@ public class PyUniSharingFast : MonoBehaviour
         BodyYawDegrees = bodyYaw;
         bodyYawInitialized = true;
         BodyYawValid = true;
+        CalibrationCount++;
         WriteBodyYaw(bodyYaw);
     }
 

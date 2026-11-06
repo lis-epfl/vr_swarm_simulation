@@ -5,16 +5,24 @@ using UnityEngine;
 public class InterfaceManager : MonoBehaviour
 {
     
+    // Values spelled out: Unity serialises enum fields by integer, and every scene stores 0.
     public enum DisplayMode
     {
-        SCREENS,
-        SINGLE,
-        BIRDSEYE
+        SCREENS = 0,
+        SINGLE = 1,
+        BIRDSEYE = 2,
+        SPHERE = 3      // one drone's 360 camera on a sphere round the pilot (Sphere360Display)
     }
-    
+
     [Header("Interface Display Mode")]
+    [Tooltip("SCREENS: a feed screen per drone. SPHERE: one drone carries a 360 camera, shown on a sphere round the " +
+             "pilot (set the spawn count to 1 and the recorder's condition to SingleSphere). Read when the swarm " +
+             "spawns; changing it in Play does nothing.")]
     public DisplayMode displayMode = DisplayMode.SCREENS;
-    
+
+    [Tooltip("The 360 camera and its sphere, used only in the SPHERE display mode.")]
+    public Sphere360Display.Settings sphere360 = new Sphere360Display.Settings();
+
     [Header("Screen Display Settings")]
     [Tooltip("Layout for the per-drone feed screens. AUTO follows the configuration instead of " +
              "naming a layout: OUTER_CIRCLE for a horizontal swarm looking out, FORMATION_MAP " +
@@ -90,7 +98,9 @@ public class InterfaceManager : MonoBehaviour
 
     private List<GameObject> swarm;
     private bool screensSpawned = false;
-    
+    private Sphere360Display sphereDisplay;
+    private bool modeChangeWarned;
+
     /// <summary>
     /// The layout actually in force: <see cref="screenStyle"/> itself, or — while it is AUTO —
     /// the one the configuration resolves to. Everything that consumes the style must read this
@@ -141,8 +151,9 @@ public class InterfaceManager : MonoBehaviour
     {
         RefreshAutoScreenStyle();
 
-        // If screens are not spawned and display mode is SCREENS, spawn screens
-        if (displayMode == DisplayMode.SCREENS && !screensSpawned)
+        // If screens are not spawned and display mode is SCREENS, spawn screens (never beside a sphere: the mode
+        // is read once, when the swarm spawns)
+        if (displayMode == DisplayMode.SCREENS && !screensSpawned && sphereDisplay == null)
         {
             if (spawnScreens != null && spawnScreens.IsSpawned)
             {
@@ -297,6 +308,28 @@ public class InterfaceManager : MonoBehaviour
                 }
                 screensSpawned = true;
             }
+        }
+        StartSphere();
+    }
+
+    // SPHERE replaces the screens rather than sitting beside them: no screen is spawned, so ScreenSpawn never moves
+    // the rig or drives the FPV cameras, and Sphere360Display does both its own way.
+    private void StartSphere()
+    {
+        if (displayMode != DisplayMode.SPHERE || sphereDisplay != null || swarm == null || swarm.Count == 0) return;
+        sphereDisplay = GetComponent<Sphere360Display>();
+        if (sphereDisplay == null) sphereDisplay = gameObject.AddComponent<Sphere360Display>();
+        sphereDisplay.Begin(swarm, sphere360);
+    }
+
+    void LateUpdate()
+    {
+        if (swarm == null || modeChangeWarned) return;
+        if ((displayMode == DisplayMode.SPHERE) != (sphereDisplay != null))
+        {
+            modeChangeWarned = true;
+            Debug.LogWarning($"InterfaceManager: displayMode is read when the swarm spawns; the change to " +
+                             $"{displayMode} takes effect on the next Play.", this);
         }
     }
 }

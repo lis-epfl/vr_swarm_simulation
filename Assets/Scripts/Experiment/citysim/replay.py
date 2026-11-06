@@ -12,6 +12,11 @@ test); the other bases are what the plan's E_any / E_head mean when measured ins
           +-50 deg of the recorded head yaw (headYaw - bodyYaw - 90). The single drone's feed is in front.
   band    ... with the vertical field of view at the recorded gimbal pitch (analyse ignores pitch)
   gaze    ... and the recorded gaze ray hit that drone's feed quad (_head.csv gazeFeed; runs from 2026-10-12 on)
+
+A SPHERE run (sphere_view) shows one drone's 360 camera on a sphere round the pilot, so its camera has no heading to
+test: `all` and `shown` keep only the range and the sight line, `band` applies only when the view was masked to a band
+(its half-height in place of the feed's), `head` is the hat's bearing within +-50 deg of where the head faced in the
+city (headYaw - sphereYaw), and `gaze` is not measured (no quads to hit).
 """
 import sys
 
@@ -27,6 +32,16 @@ from citysim.los import Boxes, vertical_band, wrap_deg  # noqa: E402
 
 BOUNDARY_HYST_S = 0.5           # AttitudeAlgorithm.BoundaryHysteresisTime
 FEED_TOLERANCE_DEG = 5.0        # SwarmManager.feedHeadingToleranceDeg
+
+
+def sphere_view(run):
+    """(sphere, band_half_deg): whether the run showed one drone's 360 camera on a sphere (the session's displayMode
+    SPHERE, since 2026-11-06) rather than feed screens, and the half-height of the band its view was masked to (0: the
+    whole sphere)."""
+    s = getattr(run, "session", None) or {}
+    if s.get("displayMode") != "SPHERE":
+        return False, 0.0
+    return True, float((s.get("sphere360") or {}).get("bandHalfDeg", 0.0) or 0.0)
 
 
 def shown_mask(run):
@@ -93,6 +108,10 @@ def hat_bases(run, boxes, r_id=camera.R_ID_M, head=True):
     head_rel = wrap_deg(h.headYaw.values[hi] - body - 90.0)
     pitch = h.gimbalPitch.values[hi] if "gimbalPitch" in h else np.full(len(T), np.nan)
     gaze = h.gazeFeed.values[hi] if "gazeFeed" in h else None
+    sphere, band_half = sphere_view(run)
+    if sphere:
+        head_city = wrap_deg(h.headYaw.values[hi] - h.sphereYaw.values[hi])     # where the head faced, in the city
+        gaze = None
     out = []
     for gi, g in enumerate(run.goals):
         gidx = g.get("goalIndex", gi)
@@ -104,21 +123,32 @@ def hat_bases(run, boxes, r_id=camera.R_ID_M, head=True):
         rel = hat[:, None, :] - cam
         dist = np.linalg.norm(rel, axis=2)
         hd = np.hypot(rel[..., 0], rel[..., 2])
-        off = wrap_deg(np.degrees(np.arctan2(rel[..., 0], rel[..., 2])) - piv["yawDeg"])
-        cand = A & have[:, None] & (dist <= r_id) & (np.abs(off) <= camera.HFOV_DEG / 2)
+        bearing = np.degrees(np.arctan2(rel[..., 0], rel[..., 2]))
+        off = wrap_deg(bearing - piv["yawDeg"])
+        cand = A & have[:, None] & (dist <= r_id)
+        if not sphere:
+            cand &= np.abs(off) <= camera.HFOV_DEG / 2
         vis = cand.copy()
         if cand.any():
             ti, di = np.nonzero(cand)
             near = B.near(np.nanmean(hat[have][:, [0, 2]], axis=0), r_id + 80) if have.any() else np.arange(0)
             sub = B.subset(near)
             vis[ti, di] = ~sub.blocked(cam[ti, di], hat[ti])
-        az = wrap_deg(piv["yawDeg"] - body[:, None] + off * camera.DISPLAY_SCALE)
-        on_head = np.abs(wrap_deg(az - head_rel[:, None])) <= camera.HMD_HALF_FOV_DEG
-        if run.condition != "Swarm" or len(ids) == 1:
-            on_head[:] = True
+        if sphere:
+            on_head = np.abs(wrap_deg(bearing - head_city[:, None])) <= camera.HMD_HALF_FOV_DEG
+        else:
+            az = wrap_deg(piv["yawDeg"] - body[:, None] + off * camera.DISPLAY_SCALE)
+            on_head = np.abs(wrap_deg(az - head_rel[:, None])) <= camera.HMD_HALF_FOV_DEG
+            if run.condition != "Swarm" or len(ids) == 1:
+                on_head[:] = True
         target_h = hat[:, 1, None] if run.hat_logged else camera.HAT_HEIGHT_M
-        band = vertical_band(piv["gtY"], pitch[:, None], hd, target_h=target_h) if np.isfinite(pitch).any() \
-            else np.ones_like(vis)
+        if sphere and band_half <= 0:
+            band = np.ones_like(vis)
+        elif np.isfinite(pitch).any():
+            vfov = 2 * band_half if sphere else camera.VFOV_DEG
+            band = vertical_band(piv["gtY"], pitch[:, None], hd, target_h=target_h, vfov_deg=vfov)
+        else:
+            band = np.ones_like(vis)
         row = dict(goalIndex=gidx, t=T, dt=dtc, all=vis.any(1), shown=(vis & shown).any(1),
                    head=(vis & shown & on_head).any(1), band=(vis & band).any(1),
                    shown_band=(vis & shown & band).any(1), head_band=(vis & shown & on_head & band).any(1),

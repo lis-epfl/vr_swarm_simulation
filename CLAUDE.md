@@ -414,6 +414,29 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - Added to every scene with an Arena, like `BodyYawCompass`, so no scene or builder carries it. Runs record
     it (`_session.json` `cockpitRoom` and `cockpitRoomStyle`, a `cockpitRoom` block in `_swarm.json`, and
     `room=<style>|off` on every `display` event). Runs recorded before it flew inside the black box.
+- **One drone can carry a 360 camera, shown on a sphere round the pilot: `InterfaceManager.displayMode` `SPHERE`,
+  the condition `SingleSphere`** (2026-11-06, build B of [docs/single_drone_360_camera.md](docs/single_drone_360_camera.md):
+  `Sphere360Display`, `Assets/Shaders/Sphere360View.shader`, settings in `InterfaceManager.sphere360`). The
+  experimenter sets three things, one drone, the mode and the label, and the recorder's `condition_mismatch` checks
+  all three. No screens spawn: a hidden camera at the drone renders a cube (`RenderToCubemap`) at `refreshHz` (36),
+  and the sphere looks each pixel up in it. Not yet flown in the headset. Points worth keeping:
+  - **A cube RenderTexture must be a power of two.** At any other size it fails to create, yet `RenderToCubemap`
+    returns true and draws black, so `cubeSize` is an enum and creation is checked. 2048 is the default: about as
+    many pixels on a walker as a feed at scale 1.3, shown 1.3x larger.
+  - **`splitFaces` is on: half the faces each frame, from one position.** Measured by replaying a recorded
+    single-drone headset flight (`internal_4/ERKS_t1_SingleDrone_20261106_140556`) in BlockShapedPatchCityWorld on
+    the 72 Hz bench (`D:\claude_feedres_bench`, stand-in eye pass). The table gives the share of 10 Hz rows at
+    72 fps, then the main thread's mean / p95 / p99 in ms:
+
+    | arm | at 72 | mean / p95 / p99 |
+    |---|---|---|
+    | today's single drone | 100% | 1.3 / 2.3 / 3.2 |
+    | 2048 unsplit | 98% | 5.3 / 11.1 / 12.3 |
+    | 2048 split | 100% | 5.4 / 6.9 / 7.9 |
+    | 4096 split | 100% | 5.9 / 7.7 / 8.8 |
+
+    None missed a frame in flight. The flight itself held 71.8 fps in the headset as a feed. Headless means no Link
+    compositor or encode, so check `_perf.csv` on the first headset flight.
 - **The stitcher and the screen layout follow the configuration, and there are three of them**
   (`SwarmPlaneController.RefreshDisplayConfiguration`): vertical plane ⇒ `PLANAR` +
   `FORMATION_WALL`, horizontal with the gimbal down ⇒ `PLANAR` + `FORMATION_MAP`, horizontal
