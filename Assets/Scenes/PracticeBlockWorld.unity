@@ -32877,11 +32877,12 @@ MonoBehaviour:
   displayMode: 0
   screenStyle: 1
   autoStyle: 1
+  formationMapAtNadir: 0
   width: 1920
   height: 1080
   radius: 2
-  scale: 1
-  offset: {x: 0.5, y: -0.3, z: 0}
+  scale: 1.3
+  offset: {x: 0.5, y: 0, z: 0}
   lookAtOffset: {x: 0, y: 0, z: 0}
   invertBottomScreen: 0
   doubleView: 0

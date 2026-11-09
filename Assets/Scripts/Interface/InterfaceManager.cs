@@ -37,7 +37,11 @@ public class InterfaceManager : MonoBehaviour
     // is a mid-session dropout re-choosing the layout and resetting its tuned radius/scale.
     [Tooltip("Read-only: the layout AUTO has resolved to. Ignored unless the style above is AUTO.")]
     [SerializeField] private ScreenSpawn.ScreenStyle autoStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
-    
+
+    [Tooltip("Rearrange the feeds into FORMATION_MAP when the gimbal is pitched below -60 deg. " +
+             "Untick to keep OUTER_CIRCLE at any pitch; the vertical plane still gets FORMATION_WALL.")]
+    public bool formationMapAtNadir = true;
+
     [Header("Screen Parameters")]
     [Tooltip("Each feed's render-texture size, used only with stitching off (PyUniSharingFast's " +
              "enableImageWriting and enablePanoramaReading both unticked). While stitching, the feeds " +
@@ -213,7 +217,7 @@ public class InterfaceManager : MonoBehaviour
             return;
         }
 
-        ScreenSpawn.ScreenStyle resolved = SwarmPlaneController.StyleForConfiguration(vertical, nadir);
+        ScreenSpawn.ScreenStyle resolved = AllowedStyle(SwarmPlaneController.StyleForConfiguration(vertical, nadir));
         if (resolved == autoStyle) return;
 
         autoStyle = resolved;
@@ -238,12 +242,20 @@ public class InterfaceManager : MonoBehaviour
     /// </summary>
     public void SetScreenStyle(ScreenSpawn.ScreenStyle style)
     {
+        style = AllowedStyle(style);
         if (screenStyle == style || screenStyle == ScreenSpawn.ScreenStyle.AUTO) return;
 
         screenStyle = style;
         UpdateScreenSpawnParameters();
         interfaceParamsChanged?.Invoke();
     }
+
+    // The one place formationMapAtNadir is read, so AUTO and the SwarmPlaneController push agree.
+    // Swaps in OUTER_CIRCLE rather than refusing the request: a refusal would leave the wall up
+    // when the vertical plane is switched off with the gimbal already down.
+    private ScreenSpawn.ScreenStyle AllowedStyle(ScreenSpawn.ScreenStyle style)
+        => style == ScreenSpawn.ScreenStyle.FORMATION_MAP && !formationMapAtNadir
+            ? ScreenSpawn.ScreenStyle.OUTER_CIRCLE : style;
 
     // Called by ScreenSpawn to update display parameters with defaults
     public void UpdateDisplayParameters(float newRadius, float newScale, Vector3 newOffset, Vector3 newLookAtOffset)

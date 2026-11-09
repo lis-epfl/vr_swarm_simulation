@@ -243,8 +243,11 @@ public class ScreenSpawn : MonoBehaviour
     }
 
     // Default parameters for each display mode
+    // 1.3 rather than 1 (2026-11-05) so a walker 100-200 m out is big enough to stand out from
+    // the facade behind it. Every scene's InterfaceManager carries the same value; this default
+    // is what a style change resets to, so the two must move together.
     private float outerCircleRadius = 2.0f;
-    private float outerCircleScale = 1.0f;
+    private float outerCircleScale = 1.3f;
     private Vector3 outerCircleOffset = new Vector3(0.0f, 0.0f, 0.0f);
     private Vector3 outerCircleLookAtOffset = new Vector3(0.0f, 0.0f, 0.0f);
 

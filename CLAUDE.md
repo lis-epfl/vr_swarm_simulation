@@ -475,7 +475,11 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   `Update`, not taken off `swarmParamsChanged`**, because `SetGimbalPitchNormalized` — the joystick
   dial, the only one a pilot in a headset can reach — doesn't raise that event. It fires only
   on an actual change, so the inspector's choices stand until the first one, and
-  `driveDisplayConfiguration` turns it off for comparing two stitchers on one formation. Both setters
+  `driveDisplayConfiguration` turns it off for comparing two stitchers on one formation.
+  `InterfaceManager.formationMapAtNadir` (default on) keeps `OUTER_CIRCLE` at nadir instead: it is off in
+  BlockShapedPatchCityWorld and PracticeBlockWorld (2026-11-09, the user's request), so the screens stay put
+  however far the gimbal pitches, and it lives there because `SwarmPlaneController` is added at runtime and has no
+  per-scene values. Both setters
   go through the owning component (`PyUniSharingFast.SetStitcherType`,
   `InterfaceManager.SetScreenStyle`) rather than writing the fields: the stitcher switch has to
   republish metadata for Python to pick up, and the layout has to stay owned by `InterfaceManager` per
@@ -947,6 +951,21 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     render: clothing ~0.05 ms, ground shadow ~0.10, sun shadow ~0.35. **Not adopted**: it makes the hat task
     easier, so `identifyMaxRangeM` / `R_ID_M` and every earlier run's comparability are at stake.
   - The bench is `D:\claude_feedres_bench` (`probe\` has the sources and `final.py`; not in the repo).
+- **The `OUTER_CIRCLE` screens are at scale 1.3 in every scene, not 1** (2026-11-05, the user's request, for walkers
+  seen at a distance). At radius 2 m a screen is now 60° × 36° instead of 48° × 28°. Points worth keeping:
+  - **The scale lives in two places that must agree:** each scene's `InterfaceManager.scale` and the code default
+    `ScreenSpawn.outerCircleScale`. Any style change resets the scale to that default, including AUTO,
+    `SetScreenStyle` and the panorama fallback out of `OFF`.
+  - **What it fixes is camouflage, not resolution.** Measured on BlockShapedPatchCityWorld's views of walkers
+    100–200 m away, where 99.5% stand in front of a facade, the share whose contrast barely clears the shopfront
+    clutter around them falls from 24% to 15% (1.25: 20%). Scale 1.71 (orthoscopic) would take it to 10%, but the
+    user kept the screens smaller so the `CockpitRoom` anchors stay in view.
+  - Eye-buffer supersampling (`XRSettings.eyeTextureResolutionScale`) adds nothing at 1.3, where the feed is no
+    longer minified; it only helps below that (1.25 + 1.3× eye texture also reaches 15%). Unity renders
+    2160 × 2224 per eye whatever the Link app's resolution slider says.
+  - `FORMATION_WALL` / `FORMATION_MAP` keep 0.55 / 0.45.
+  - **Earlier runs flew at 1.0**, so walkers in them looked ~23% smaller. Compare across the change through
+    `screenScale` in `_session.json`, and keep the scale fixed within a series.
 - **Speed-ups in the patch city (2026-11-04): baked occlusion and sleeping patrols halve the main thread.**
   BlockShapedPatchCityWorld, by the same replay, two interleaved pairs on one machine (before → after): main thread
   7.4–8.8 → 3.9–4.3 ms a frame, rows at 72 fps 39–75% → 100%, frames over 13.9 ms 1.8–8.3% → 0, the worst 1% of

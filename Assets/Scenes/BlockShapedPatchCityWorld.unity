@@ -486425,13 +486425,20 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   displayMode: 0
+  sphere360:
+    cubeSize: 2048
+    refreshHz: 36
+    splitFaces: 1
+    heading: 0
+    bandHalfDeg: 0
   screenStyle: 1
   autoStyle: 1
+  formationMapAtNadir: 0
   width: 1920
   height: 1080
   radius: 2
-  scale: 1
-  offset: {x: 0.5, y: -0.3, z: 0}
+  scale: 1.3
+  offset: {x: 0.5, y: 0, z: 0}
   lookAtOffset: {x: 0, y: 0, z: 0}
   invertBottomScreen: 0
   doubleView: 0
@@ -486613,8 +486620,9 @@ MonoBehaviour:
   rcIdentifyDebounceSec: 1
   identifyMode: 0
   identifyZoneM: 15
-  identifyRangeM: 40
+  identifyMaxRangeM: 80
   identifyCentralFraction: 0.8
+  identifyLookbackSec: 3
 --- !u!1 &1839651663
 GameObject:
   m_ObjectHideFlags: 0

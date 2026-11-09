@@ -4126,8 +4126,8 @@ MonoBehaviour:
   width: 640
   height: 360
   radius: 2
-  scale: 1
-  offset: {x: 0.5, y: -0.3, z: 0}
+  scale: 1.3
+  offset: {x: 0.5, y: 0, z: 0}
   lookAtOffset: {x: 0, y: 0, z: 0}
   invertBottomScreen: 0
   doubleView: 0
