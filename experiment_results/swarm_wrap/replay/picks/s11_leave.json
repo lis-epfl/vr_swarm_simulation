@@ -1,0 +1,36 @@
+{
+ "pick": {
+  "key": "s11_leave",
+  "kind": "search",
+  "k": 21016,
+  "first": "hold",
+  "title": "Leaving wide: the cost",
+  "why": "the search Hold leaves widest against the scene (scale on leaving +0.03)",
+  "conds": [
+   "off",
+   "hold",
+   "leave",
+   "f20"
+  ]
+ },
+ "flights": {
+  "off": [
+   "s11_leave_off_replica",
+   "s11_leave_off_unity"
+  ],
+  "hold": [
+   "s11_leave_hold_replica",
+   "s11_leave_hold_unity"
+  ],
+  "leave": [
+   "s11_leave_leave_replica",
+   "s11_leave_leave_unity"
+  ],
+  "f20": [
+   "s11_leave_f20_replica",
+   "s11_leave_f20_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

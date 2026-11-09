@@ -258,6 +258,26 @@ public class SwarmManager : MonoBehaviour
              "feature turns on.")]
     public float spreadFilterTime = 3.0f;
 
+    // ---- S11 Wrap Hold (docs/swarm_wrap/README.md) ------------------------------------------------
+    // What the adaptive spread does while the formation is wrapped round a building. Values spelled out: Unity
+    // serialises enums by integer, and swarm_params maps the members by position.
+    public enum SpreadWrapRule
+    {
+        Off = 0,
+        Hold = 1,
+        HoldUntilLeaving = 2,
+    }
+
+    [Tooltip("S11, under adaptiveSpread: what the spread does while a building's centre lies inside the formation " +
+             "(the alive drones' bearings round it leave no gap of 180 degrees). Off is S7's rule exactly: full " +
+             "spread only while the stick's line ahead, or with no stick the centroid itself, is near a building's " +
+             "centre, so a formation still wrapped round one narrows as soon as its centroid drifts off the " +
+             "building's middle or the pilot steers (39% of the time ERKS's swarm was wrapped, internal_4). Hold: " +
+             "full spread while any building is wrapped. HoldUntilLeaving: the same, except while the pilot steers " +
+             "away from that building (its centre behind the centroid along the stick), so the formation starts " +
+             "narrowing as it leaves rather than in the next street.")]
+    public SpreadWrapRule spreadWrapRule = SpreadWrapRule.Off;
+
     // ---- S8 Footprint Avoidance (docs/swarm_shape/README.md) -------------------------------------
     // What each building is avoided as. Values spelled out: Unity serialises enums by integer, and swarm_params maps
     // the members by position, so a new one goes at the end with the next value.
@@ -499,6 +519,7 @@ public class SwarmManager : MonoBehaviour
     public float GetSurroundLookAhead() => surroundLookAhead;
     public float GetSurroundAimFraction() => surroundAimFraction;
     public float GetSpreadFilterTime() => spreadFilterTime;
+    public SpreadWrapRule GetSpreadWrapRule() => spreadWrapRule;
 
     /// <summary>Whether any S7 Building Flow switch is on, i.e. whether the swarm-wide aggregates are needed.</summary>
     public bool GetBuildingFlowActive() => slideRoundBuildings || routeStragglers || adaptiveSpread;

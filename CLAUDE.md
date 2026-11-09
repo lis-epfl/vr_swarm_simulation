@@ -1658,14 +1658,14 @@ status, dates), each study's page links, the code names, how to rebuild each pag
 work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
 output folders keep the code names, and so do the sections below.
 
-| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance | S9 Street Spread | S10 Ellipse Avoidance |
-|---|---|---|---|---|---|---|---|---|---|---|
-| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study | the spread study | the ellipse study |
-| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) | [S9_street_spread.md](docs/studies/S9_street_spread.md) | [S10_ellipse_avoidance.md](docs/studies/S10_ellipse_avoidance.md) |
-| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) | [docs/swarm_spread/](docs/swarm_spread/README.md) | [docs/swarm_ellipse/](docs/swarm_ellipse/README.md) |
-| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` | `swarmspread.py`, `swarmspread_replays.py`, `swarmspread_report.py` | `swarmellipse.py`, `swarmellipse_bench.py`, `swarmellipse_replays.py`, `swarmellipse_report.py` |
-| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` | `swarm_spread/` | `swarm_ellipse/` |
-| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) | [results](https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At) |
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance | S9 Street Spread | S10 Ellipse Avoidance | S11 Wrap Hold |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study | the spread study | the ellipse study | the wrap study |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) | [S9_street_spread.md](docs/studies/S9_street_spread.md) | [S10_ellipse_avoidance.md](docs/studies/S10_ellipse_avoidance.md) | [S11_wrap_hold.md](docs/studies/S11_wrap_hold.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) | [docs/swarm_spread/](docs/swarm_spread/README.md) | [docs/swarm_ellipse/](docs/swarm_ellipse/README.md) | [docs/swarm_wrap/](docs/swarm_wrap/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` | `swarmspread.py`, `swarmspread_replays.py`, `swarmspread_report.py` | `swarmellipse.py`, `swarmellipse_bench.py`, `swarmellipse_replays.py`, `swarmellipse_report.py` | `swarmwrap.py`, `swarmwrap_bench.py`, `swarmwrap_replays.py`, `swarmwrap_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` | `swarm_spread/` | `swarm_ellipse/` | `swarm_wrap/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) | [results](https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At) | [results](https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD) |
 
 All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
 (source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
@@ -2233,9 +2233,11 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     them below 6 m for the cylinders; building the boundary blocks out to the arena edge only removes the straight
     730 m strip along its sides.
   - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6; below), **S8's pick from 2026-11-02**
-    (`d_obs` 0.35, S7's slide and adaptive spread on; S8 below) **and since 2026-11-03 S10's ellipse** (`obstacleShape`
-    Ellipse, `ellipseMaxAspect` 1.5, in place of S8's EnclosingCircle; S10 below), unlike BlockShapedCityWorld's, which
-    keeps BlockCityWorld's profile. `PracticeBlockWorld` is a copy of this scene, so rebuild it after any change here.
+    (`d_obs` 0.35, S7's slide and adaptive spread on; S8 below), **since 2026-11-03 S10's ellipse** (`obstacleShape`
+    Ellipse, `ellipseMaxAspect` 1.5, in place of S8's EnclosingCircle; S10 below) **and since 2026-11-09 S11's wrap
+    rule** (`spreadWrapRule` Hold; S11 below), unlike BlockShapedCityWorld's, which keeps BlockCityWorld's profile.
+    `PracticeBlockWorld` is a copy of this scene, so rebuild it after any change here (or, for SwarmManager fields
+    alone, `swarmtune apply --scene PracticeBlockWorld`, as S11 did).
   - **Its streets, and PracticeBlockWorld's, are furnished more densely than BlockShapedCityWorld's** (2026-11-04, the
     user's request: more trees, bus stops, benches, trash cans, hydrants and phones, and no more signals or signs).
     `BlockShapedPatchCityWorldBuilder.MoreProps` sets it, and `BlockShapedCityWorldBuilder.EnsureDressing` applies it in
@@ -2288,10 +2290,12 @@ is the manual**; the code is `citysim/swarmtune.py`, the outputs `experiment_res
   other value as BlockCityWorld's profile left it (`a` 0.8, `r0_coh` 30). So in swarmtune, the replica and the bench a
   candidate with no overrides was T3: re-create the scene as it was with `d_shield=2.5,d_obs=0.4,d_ref=1.08`. **Since
   S8 wrote its pick into the scene (2026-11-02), an empty override is that pick**, not T3, and **since
-  S10 wrote its own (2026-11-03), S10's** (E15_35a); `swarmshape.PRE_S8` (`obstacleShape=0, d_obs=0.16`, slide and adaptive spread off)
-  gives T3 back, `swarmellipse.PRE_S10` (`obstacleShape=1`) gives C35a back, and every S7 and S8 candidate file with an
-  empty `over` (S7's T3, S8's A0) was flown against T3.
-  `swarmtune apply --cand <file> --label <L>` writes a candidate into the scene, those fields of that one component only.
+  S10 wrote its own (2026-11-03), S10's** (E15_35a), **and since S11's (2026-11-09), E15_35a with Hold** (H15_35a);
+  `swarmshape.PRE_S8` (`obstacleShape=0, d_obs=0.16`, slide and adaptive spread off) gives T3 back,
+  `swarmellipse.PRE_S10` (`obstacleShape=1`) gives C35a back, `swarmwrap.PRE_S11` (`spreadWrapRule=0`) gives E15_35a
+  back, and every S7 and S8 candidate file with an empty `over` (S7's T3, S8's A0) was flown against T3.
+  `swarmtune apply --cand <file> --label <L> [--scene <S>]` writes a candidate into the scene (default
+  BlockShapedPatchCityWorld), those fields of that one component only.
 - **Why 2.0**: the formation's ring at hover is then 31 m across, as wide as a typical building's avoidance cylinder
   (radius 15.4 m), so it closes round a building without stretching the lattice (94–98% of the buildings met are
   surrounded). Below ~1.4 the formation is squeezed between the cylinders and drones collide: the scene's old 1.08 lost
@@ -2470,6 +2474,38 @@ harness is `citysim/swarmellipse.py` on S8's (the bench `swarmellipse_bench.py`)
   it), because 71% of formation flights' closest approaches to a facade are at a corner, where every enclosing shape
   touches (lesson 49). The angled run-ins (`angle`) leave their target building out of the clearance test (lesson 50),
   and the split is judged square on only: at 60° a formation going round one side whole reads as never splitting.
+
+## S11 Wrap Hold: the full spread while a building is wrapped
+
+`SwarmManager.spreadWrapRule` (`Off` 0, `Hold` 1, `HoldUntilLeaving` 2), under `adaptiveSpread`: while a building's
+centre lies inside the alive drones' convex hull, the adaptive spread's target is 1, whatever the stick's look-ahead
+says (the user's question from ERKS's first trial in internal_4, 2026-11-06: the swarm narrowed while still wrapped
+round a building). **[docs/swarm_wrap/README.md](docs/swarm_wrap/README.md) is the manual**; the harness is
+`citysim/swarmwrap.py` on S8's, the bench `swarmwrap_bench.py`, the outputs `experiment_results/swarm_wrap/`.
+Invariants:
+- **`Off` is S7's rule exactly**: the check is guarded on the rule, and 40 of S10's stored flights re-flew bit for bit.
+  The enum's values are spelled out (Unity serialises enums by integer; `swarm_params` maps members by position).
+- **Wrapped is one test on both sides**: the building's centre (the ellipse's under S10's shape, else the circle S7's
+  rules aim by) has no bearing gap of 180° or more among the alive drones round it (`SwarmPlaneController.
+  InsideFormation`, `swarm_replica.inside_formation`). Fewer than three drones wrap nothing; a building farther from
+  the centroid than the farthest drone is skipped before the test. The aggregates pass caches the drones' (x, z) for it.
+- **HoldUntilLeaving releases while a stick above 0.1 points away from the building** (its centre behind the centroid
+  along the stick). It delivered about half of Hold and missed the rule's bars by a hair.
+- **The bench's trajectories carry the spread scale** (`spread` column, `SwarmBenchRunner`; `tierc.read_traj` reads it,
+  ones when absent), so Unity's wrapped measures and loss placement come from the same file as the track.
+- **Hold is the rule's pick, and BlockShapedPatchCityWorld and PracticeBlockWorld fly it since 2026-11-09, at the
+  user's word.** It holds the spread while wrapped at 0.982 against 0.941 (Unity 0.979 against 0.938) at no measured
+  cost (45 against 45 loss events over 30 h of replica flight; Unity's 9 against 6 all fell where Hold was not
+  acting), but the ring round a building grows only ~2%: the building sets the formation's size while it is wrapped
+  (lesson 52). `swarmtune apply --cand experiment_results/swarm_wrap/confirm_cands.json --label "H15_35a ..."` (the
+  full label is in the manual), once per scene with `--scene`, inserted `spreadWrapRule: 1` and changed nothing else:
+  the two scenes' SwarmManagers were identical before, so the practice scene needed no rebuild. Twenty stored S11
+  flights re-flew identical (H15_35a with an empty override, E15_35a with `PRE_S11`). **An empty harness override now
+  means Hold**: `swarmwrap.PRE_S11` (`spreadWrapRule=0`) restores E15_35a. Every other scene has the adaptive spread
+  off, where the rule does nothing, and holds no `spreadWrapRule` (Off).
+- **The goal-search flight (`search`)** is the street circuit of a random building's block at full stick, with pauses
+  beside the building 0.4–1.2 of its radius off its centre and a hold on it, calibrated against ERKS's wrapped moments
+  (`swarmwrap_calib`). Route indices: screen 19000, confirmation 20000, bench 21000.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 

@@ -752,13 +752,14 @@ def cmd_apply(a):
     """Write one candidate (d_ref and its overrides) into the scene's SwarmManager, editing only those fields of that
     one component in the scene file. The editor must reload the scene (it asks) for the values to take effect. A field
     the scene was saved before (S10's ellipseMaxAspect) is inserted after the nearest earlier field in SwarmManager.cs's
-    order: Unity matches serialised fields by name, so where it goes only keeps the diff readable."""
+    order: Unity matches serialised fields by name, so where it goes only keeps the diff readable. `--scene` writes it
+    into another scene instead (PracticeBlockWorld, the trial scene's copy, when a rebuild is not wanted)."""
     import re
     spec = {c["label"]: c for c in json.loads(open(a.cand, encoding="utf-8").read())}
     c = spec[a.label]
     vals = dict(c["over"], d_ref=c["d"])
     fields = sp.swarm_manager_fields()
-    path = sp.scene_path(SCENE)
+    path = sp.scene_path(a.scene or SCENE)
     text = path.read_text(encoding="utf-8")
     docs = text.split("\n--- ")
     hits = [i for i, dd in enumerate(docs) if f"guid: {SWARM_MANAGER_GUID}" in dd]
@@ -1027,6 +1028,7 @@ def main():
     p = sub.add_parser("apply")
     p.add_argument("--cand", required=True)
     p.add_argument("--label", required=True)
+    p.add_argument("--scene", help=f"the scene to write into (default {SCENE})")
     p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("bench-plan")
     p.add_argument("--name", required=True)

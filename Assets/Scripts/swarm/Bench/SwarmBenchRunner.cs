@@ -688,7 +688,9 @@ public class SwarmBenchRunner : MonoBehaviour
                     traj.Append(',').Append(parents[i].eulerAngles.y.ToString("F2", Inv));
                 for (int i = 0; i < vcs.Count; i++)
                     traj.Append(',').Append(parents[i].position.y.ToString("F2", Inv));
-                traj.Append(',').Append(wp).Append(',').Append(pilotYaw.ToString("F2", Inv)).Append('\n');
+                float spreadScale = SwarmPlaneController.Instance != null ? SwarmPlaneController.Instance.SpreadScale : 1f;
+                traj.Append(',').Append(wp).Append(',').Append(pilotYaw.ToString("F2", Inv))
+                    .Append(',').Append(spreadScale.ToString("F4", Inv)).Append('\n');
             }
             tick++;
             Vector3 step = c - prevC; step.y = 0f;
@@ -912,6 +914,7 @@ public class SwarmBenchRunner : MonoBehaviour
         for (int i = 0; i < vcs.Count; i++) sb.Append(",y").Append(i);
         sb.Append(",wp");      // the waypoint being flown (holds included), for scoring a goal's hold window
         sb.Append(",bodyYaw"); // the scripted pilot's heading, deg: the body yaw it injects under pilotHeading
+        sb.Append(",spread");  // the adaptive spread's scale on d_ref (SwarmPlaneController.SpreadScale; 1 when off): S11
         return sb.ToString();
     }
 

@@ -3,7 +3,7 @@
 Refinements the studies identified, for whoever designs the next one. Each says what went wrong or what to watch,
 what to do instead, and the study it came from (S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming, S4 Split
 and Surround, S5 Block-Shaped Surround, S6 Patch City Tuning, S7 Building Flow, S8 Footprint Avoidance, S9 Street
-Spread, S10 Ellipse Avoidance). Add new ones with the study's ID; mark one **Applied** once the code does it by
+Spread, S10 Ellipse Avoidance, S11 Wrap Hold). Add new ones with the study's ID; mark one **Applied** once the code does it by
 default.
 
 ## Measures
@@ -131,6 +131,12 @@ default.
     rather than one level against the base. **Pool within a platform, not across**: Unity's benches had the same two
     settings at 15 against 10 and lose about twice the replica's twins on the same routes, so a pooled replica-and-Unity
     count hides the disagreement that matters. (S9)
+53. **Before reading a difference in losses between two rows, check the losses fell where the rows differ.** A rule that
+    acts only in some moments cannot cause a loss outside them. In S11's Unity bench, Hold lost 9 events against the
+    scene's 6. Located one by one, none fell while Hold was acting (the spread scale at each was the scene's own to
+    0.01), and 7 came before the flight had wrapped any building, where the two rows fly the same law. The twins lost
+    8 against 6 on the same starts and the replica 45 against 45 over 30 h a row: run-to-run divergence. Log the rule's
+    own state with every loss (`swarmwrap_bench losses`) and report where each fell. (S11; S9's phases, lesson 47)
 
 ## Running studies on this machine
 
@@ -252,6 +258,12 @@ default.
     it was held narrow, and the adaptive rows' excess over the held rows was the same in every phase (equal-ratio test
     p = 0.69). When a loss is timed against an event, time the control rows against the same event, computed but not
     applied, and count exposure per phase; a cluster that appears in every row is where, not what. (S9)
+52. **Measure the formation, not the setting.** S11's Hold raised the spread scale while the swarm was wrapped round
+    a building from 0.94 to 0.98, and holding 2.0 everywhere raised it to 1; the ring round the building grew by 0.30 m
+    and 0.56 m (2–3.5%). Wrapped, the drones sit at the standoff on the building's avoidance shape, so the building, not
+    d_ref, sets the formation's size. The question had come from a map whose track was coloured by the scale, which
+    overstates what the pilot saw. Report the formation's own size (its radius or the drones' standoff) beside any change to a spread
+    setting, and judge by it. (S11)
 
 ## Pilots and outcomes
 

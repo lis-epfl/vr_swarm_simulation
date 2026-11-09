@@ -190,6 +190,8 @@ OBSTACLE_MODELS = ("cylinder", "closest")
 # aspect is under ELLIPSE_MIN_ASPECT is avoided as its enclosing circle, bit for bit as under EnclosingCircle.
 CYLINDER, ENCLOSING, FOOTPRINT, ELLIPSE = 0, 1, 2, 3
 ELLIPSE_MIN_ASPECT = 1.02
+# SwarmManager.SpreadWrapRule (S11 Wrap Hold): what the adaptive spread does while a building lies inside the formation
+WRAP_OFF, WRAP_HOLD, WRAP_UNTIL_LEAVING = 0, 1, 2
 ELL_ITERS = 5          # iterations of the closest-point solve on an ellipse (ell_closest): ~1e-5 m at aspect 2
 
 
@@ -267,6 +269,10 @@ class Model:
         self.look_ahead = float(swarm.get("surroundLookAhead", 4.0))
         self.aim_fraction = float(swarm.get("surroundAimFraction", 0.8))
         self.spread_filter = float(swarm.get("spreadFilterTime", 3.0))
+        # S11 Wrap Hold (.get, as S7's): 0 Off, 1 Hold, 2 HoldUntilLeaving
+        self.wrap_rule = int(swarm.get("spreadWrapRule", WRAP_OFF))
+        if self.wrap_rule not in (WRAP_OFF, WRAP_HOLD, WRAP_UNTIL_LEAVING):
+            raise ValueError(f"spreadWrapRule {self.wrap_rule}: 0 Off, 1 Hold or 2 HoldUntilLeaving")
         # S8 Footprint Avoidance (.get, as S7's)
         self.obstacle_shape = int(swarm.get("obstacleShape", CYLINDER))
         if self.obstacle_shape not in (CYLINDER, ENCLOSING, FOOTPRINT, ELLIPSE):
@@ -771,13 +777,47 @@ def aim_miss(m, city, cand, cen, cmdv):
     return out
 
 
-def spread_target(m, city, cand, cen, miss):
+def inside_formation(P, pts):
+    """S11 (SwarmPlaneController.InsideFormation): whether each point (k, 2) lies inside the convex hull of the drones
+    P (n, 2): their bearings round it leave no gap of 180 degrees or more. Fewer than three drones enclose nothing."""
+    pts = np.atleast_2d(np.asarray(pts, float)).reshape(-1, 2)
+    if len(P) < 3 or not len(pts):
+        return np.zeros(len(pts), bool)
+    d = P[None] - pts[:, None]
+    b = np.sort(np.arctan2(d[..., 1], d[..., 0]), axis=1)
+    gap = np.maximum(np.diff(b, axis=1).max(1), b[:, 0] + 2 * np.pi - b[:, -1])
+    return gap < np.pi
+
+
+def wrap_holds(m, city, cand, P, cen, cmdv):
+    """S11 Wrap Hold (SwarmManager.spreadWrapRule; SwarmPlaneController.WrapHolds): per candidate, whether it holds the
+    full spread. Its centre (the ellipse's, else the circle the S7 rules aim by) lies inside the formation, and under
+    HoldUntilLeaving the pilot is not steering away from it (its centre behind the centroid along a held stick)."""
+    E = ell_rules(m, city)
+    c = E.c[cand] if E is not None else aim_circle(m, city)[0][cand]
+    rel = c - cen[None]
+    ok = np.linalg.norm(rel, axis=1) <= np.linalg.norm(P - cen[None], axis=1).max()
+    if ok.any():
+        ok[ok] = inside_formation(P, c[ok])
+    cn = float(np.linalg.norm(cmdv))
+    if m.wrap_rule == WRAP_UNTIL_LEAVING and cn > 0.1 * m.max_speed:
+        ok &= rel @ (cmdv / cn) >= 0.0
+    return ok
+
+
+def spread_target(m, city, cand, cen, miss, P=None, cmdv=None):
     """S7 adaptive spread (SwarmManager.adaptiveSpread; SwarmPlaneController): the share of d_ref the formation should
     hold. 1 while the swarm flies at a building (aim_miss under surroundAimFraction) or has no building within
     surroundLookAhead of its centroid at all (open ground); streetSpreadFactor otherwise, i.e. among buildings with
-    none ahead: in the streets."""
+    none ahead: in the streets. Under S11's spreadWrapRule also 1 while wrap_holds for a building (P, the alive drones,
+    and cmdv, the world stick, are needed then)."""
     if not len(cand) or (miss < m.aim_fraction).any():
         return 1.0
+    if m.wrap_rule != WRAP_OFF:
+        if P is None or cmdv is None:
+            raise ValueError("spread_target: spreadWrapRule needs the drones' positions and the stick")
+        if wrap_holds(m, city, cand, P, cen, cmdv).any():
+            return 1.0
     ac, aR = aim_circle(m, city)
     gap = np.linalg.norm(ac[cand] - cen[None], axis=1) - aR[cand]
     E = ell_rules(m, city)
@@ -1217,7 +1257,7 @@ class Sim:
         miss = aim_miss(m, self.city, self.cand, cen, cmd) if (m.adaptive or m.slide) else None
         if m.adaptive:
             # SwarmPlaneController.UpdateFlowState: seeded, then low-passed, as the core radius is
-            target = spread_target(m, self.city, self.cand, cen, miss)
+            target = spread_target(m, self.city, self.cand, cen, miss, P, cmd)
             if self.sigma is None or m.spread_filter <= 0:
                 self.sigma = target
             else:

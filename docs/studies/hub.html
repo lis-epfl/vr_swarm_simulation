@@ -76,7 +76,7 @@ tr:last-child td { border-bottom: 0; }
     <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span><span><b>S10</b>Ellipse Avoidance</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span><span><b>S10</b>Ellipse Avoidance</span><span><b>S11</b>Wrap Hold</span></div>
   </header>
 
   <section>
@@ -296,6 +296,27 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+      <article class="study">
+        <header><span class="id">S11</span><h3>Wrap Hold</h3><span class="was">the wrap study · 6–8 Nov 2026</span><span class="status done">Done · in the scene</span></header>
+        <div>
+          <p class="q">In ERKS's first swarm trial the adaptive spread narrowed the swarm while it was still wrapped round a building. Does holding the full spread while a building lies inside the formation keep it wide there, and what does that cost in the streets?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>The goal search is scripted, calibrated against one participant's three flights; it is a little harder on the scene's rule than ERKS was.</li>
+            <li>Nothing measures what the cameras see of the building; "the pilot would see little change" rests on the formation's size.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S11_wrap_hold.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Hold does what was asked of the setting: while a building is wrapped, the spread scale averages 0.98 instead of 0.94 and is narrowed 15% of the time instead of 48% (4,352 replica flights in four cities; Unity agrees to 0.003). On ERKS's own flights, replayed, narrowed while wrapped falls from 39% to 9%.</li>
+            <li>It costs nothing measurable: 45 loss events against 45 over 30 h of flight, contacts 7% fewer, the streets 0.1% slower. Unity's 9 against 6 were all located, and none fell while Hold was acting.</li>
+            <li>The formation itself barely changes: the ring round a wrapped building is 2% wider (0.3 m), and only 3.5% even with the spread held at 2.0. The building, not the spread, sets its size while it is wrapped.</li>
+            <li>For the trials: Hold is cheap and harmless and stops the setting from pulsing round buildings, but expect little visible change. Adopted on 9 November 2026: BlockShapedPatchCityWorld and PracticeBlockWorld fly <code>spreadWrapRule</code> Hold.</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -334,6 +355,7 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Count rare events with exact intervals and pool every run of a setting, within a platform</b>: S9's first run called the adaptive spread safe (p 0.20); four times the distance made it 48 against 24, while Unity disagreed. <span class="tag">S9</span></li>
           <li><b>A timing claim needs a placebo of the same moments</b>: S9's "losses during the spread's change" appeared just as much in rows whose spread never changes. <span class="tag">S9</span></li>
           <li><b>When the replica and Unity disagree on a cost, ask the twins before flying more replica</b>: S9's twins sided with Unity (no doubling), so the replica's doubling was its own flights, not the law. <span class="tag">S9</span></li>
+          <li><b>Before reading a difference in losses, check they fell where the rows differ</b>: none of Unity's 9 Hold losses came while Hold was acting. <span class="tag">S11</span></li>
         </ol>
       </section>
       <section>
@@ -351,6 +373,7 @@ tr:last-child td { border-bottom: 0; }
           <li><b>A tighter obstacle shape must keep its curvature</b>: flat faces stall a formation without the slide and line drones up to collide with it. <span class="tag">S8</span></li>
           <li><b>Bound a safety measure by the configuration the scene flies</b>, and report every bar a candidate misses. <span class="tag">S8</span></li>
           <li><b>Before tuning a setting that moves between values in flight, fly those values held, far enough to compare costs</b>: 1.8 held flew exactly like the adaptive spread. <span class="tag">S9</span></li>
+          <li><b>Measure the formation, not the setting</b>: holding the spread round a building moved the ring 2%, because the building sets its size. <span class="tag">S11</span></li>
         </ol>
       </section>
       <section>
@@ -390,21 +413,22 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S8</b> Footprint Avoidance</td><td><code>docs/studies/S8_footprint_avoidance.md</code></td><td><code>docs/swarm_shape/</code></td><td><code>citysim/swarmshape.py</code>; <code>ObstacleFootprint.cs</code>, <code>OlfatiSaber.cs</code></td><td><code>experiment_results/swarm_shape/</code></td></tr>
         <tr><td><b class="mono">S9</b> Street Spread</td><td><code>docs/studies/S9_street_spread.md</code></td><td><code>docs/swarm_spread/</code></td><td><code>citysim/swarmspread.py</code></td><td><code>experiment_results/swarm_spread/</code></td></tr>
         <tr><td><b class="mono">S10</b> Ellipse Avoidance</td><td><code>docs/studies/S10_ellipse_avoidance.md</code></td><td><code>docs/swarm_ellipse/</code></td><td><code>citysim/swarmellipse.py</code></td><td><code>experiment_results/swarm_ellipse/</code></td></tr>
+        <tr><td><b class="mono">S11</b> Wrap Hold</td><td><code>docs/studies/S11_wrap_hold.md</code></td><td><code>docs/swarm_wrap/</code></td><td><code>citysim/swarmwrap.py</code>; <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_wrap/</code></td></tr>
       </tbody>
     </table></div>
-    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape, spread), so nothing that reads them broke.</p>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape, spread, ellipse, wrap), so nothing that reads them broke.</p>
   </section>
 
   <section>
     <h2>Starting a new study</h2>
     <ol class="steps">
       <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
-      <li>Take the next ID (S10), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S10_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Take the next ID (S12), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S12_&lt;slug&gt;.md</code> and add it to the table there.</li>
       <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
       <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
       <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>
     </ol>
   </section>
 
-  <footer class="foot">Last updated 2 November 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
+  <footer class="foot">Last updated 9 November 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
 </div>

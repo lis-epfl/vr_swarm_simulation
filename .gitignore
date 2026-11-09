@@ -134,3 +134,8 @@ experiment_results/swarm_spread/review/swarm_spread_review.html
 experiment_results/swarm_ellipse/**/results.jsonl
 experiment_results/swarm_ellipse/**/gate.jsonl
 experiment_results/swarm_ellipse/swarm_ellipse.html
+# S11 Wrap Hold: the same; ERKS's replay (human/), the calibration, the tables, the rule, the candidate files and the
+# bench gate tables committed.
+experiment_results/swarm_wrap/**/results.jsonl
+experiment_results/swarm_wrap/**/gate.jsonl
+experiment_results/swarm_wrap/swarm_wrap.html

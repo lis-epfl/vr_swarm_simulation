@@ -237,7 +237,8 @@ def read_traj(path):
                 Y=df[[f"y{i}" for i in range(n)]].values, yaw=df[[f"yaw{i}" for i in range(n)]].values,
                 alive=mask("alive_mask"), hull=mask("hull_mask"), shown=mask("shown_mask"),
                 wp=df.wp.values.astype(int), n=n,
-                body=df.bodyYaw.values if "bodyYaw" in df else np.full(len(df), np.nan))   # pre-column runs: NaN
+                body=df.bodyYaw.values if "bodyYaw" in df else np.full(len(df), np.nan),   # pre-column runs: NaN
+                spread=df.spread.values if "spread" in df else np.ones(len(df)))   # S11's column; before it, 1
 
 
 def hold_goals(sc, L):

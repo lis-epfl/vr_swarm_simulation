@@ -1,0 +1,36 @@
+{
+ "pick": {
+  "key": "s11_street",
+  "kind": "street",
+  "k": 21004,
+  "first": "hold",
+  "title": "A typical street route",
+  "why": "the typical street route: Hold's difference in cohesive speed nearest the median (-0.01 m/s)",
+  "conds": [
+   "off",
+   "hold",
+   "leave",
+   "f20"
+  ]
+ },
+ "flights": {
+  "off": [
+   "s11_street_off_replica",
+   "s11_street_off_unity"
+  ],
+  "hold": [
+   "s11_street_hold_replica",
+   "s11_street_hold_unity"
+  ],
+  "f20": [
+   "s11_street_f20_replica",
+   "s11_street_f20_unity"
+  ],
+  "leave": [
+   "s11_street_leave_replica",
+   "s11_street_leave_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

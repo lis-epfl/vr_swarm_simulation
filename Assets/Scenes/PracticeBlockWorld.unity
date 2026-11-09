@@ -32946,6 +32946,7 @@ MonoBehaviour:
   surroundLookAhead: 4
   surroundAimFraction: 0.8
   spreadFilterTime: 3
+  spreadWrapRule: 1
   obstacleShape: 3
   ellipseMaxAspect: 1.5
   maxHeightAboveTerrain: 45

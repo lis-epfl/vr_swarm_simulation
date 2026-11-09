@@ -105,6 +105,11 @@ public class SwarmPlaneController : MonoBehaviour
     // stand less than R inside its avoidance cylinder and contain its centre, so this finds every
     // building that matters to the rule as long as its avoidance radius is under 40 m.
     private const float SpreadQueryMargin = 40.0f;
+    // S11 wrap hold: the alive drones' (x, z) this tick, the farthest of them from the centroid, and scratch for the
+    // bearings InsideFormation sorts. Filled by UpdateSwarmAggregates.
+    private readonly List<Vector2> formationXZ = new List<Vector2>();
+    private float formationMaxRadius = 0.0f;
+    private float[] wrapBearings = new float[16];
 
     // Swarm roster. swarmSpawn owns the live list that every drone's SwarmAlgorithm and
     // AttitudeAlgorithm already share, so holding that reference tracks joins and losses for free.
@@ -446,8 +451,8 @@ public class SwarmPlaneController : MonoBehaviour
     /// stick, the centroid itself), or while no building stands within that look-ahead at all; and
     /// streetSpreadFactor otherwise, i.e. in the streets. Seeded, then low-passed at spreadFilterTime,
     /// as the core radius is. The lattice itself takes ~5 s to follow, which is why the look-ahead
-    /// starts widening before the formation reaches the building. Mirrored by
-    /// swarm_replica.spread_target.
+    /// starts widening before the formation reaches the building. Under S11's spreadWrapRule the target is also 1
+    /// while a building lies inside the formation (see WrapHolds). Mirrored by swarm_replica.spread_target.
     /// </summary>
     private void UpdateSpreadScale()
     {
@@ -490,6 +495,7 @@ public class SwarmPlaneController : MonoBehaviour
         Vector3 along = stickMagnitude > 1e-9f ? stick / stickMagnitude : Vector3.zero;
         Vector3 centroid = new Vector3(swarmCentroid.x, 0.0f, swarmCentroid.z);
         float aim = manager.GetSurroundAimFraction();
+        SwarmManager.SpreadWrapRule wrapRule = manager.GetSpreadWrapRule();
 
         bool amongBuildings = false;
         bool ellipses = manager.GetObstacleShape() == SwarmManager.ObstacleShape.Ellipse;
@@ -504,6 +510,9 @@ public class SwarmPlaneController : MonoBehaviour
                     ObstacleFootprint.Get(spreadQueryBuffer[i]), manager.GetEllipseMaxAspect());
                 if (!el.circle)
                 {
+                    if (wrapRule != SwarmManager.SpreadWrapRule.Off &&
+                        WrapHolds(el.centre, centroid, along, stickMagnitude, wrapRule))
+                        return 1.0f;
                     Vector2 c2 = new Vector2(centroid.x, centroid.z);
                     if (ObstacleFootprint.EllipseSignedDistance(el, c2) < lookAhead)
                         amongBuildings = true;
@@ -519,6 +528,9 @@ public class SwarmPlaneController : MonoBehaviour
             // smallest enclosing circle.
             OlfatiSaber.GetObstacleAimCircle(spreadQueryBuffer[i], manager.GetObstacleShape(),
                                              out Vector3 centre, out float radius);
+            if (wrapRule != SwarmManager.SpreadWrapRule.Off &&
+                WrapHolds(new Vector2(centre.x, centre.z), centroid, along, stickMagnitude, wrapRule))
+                return 1.0f;
             Vector3 rel = new Vector3(centre.x, 0.0f, centre.z) - centroid;
             if (rel.magnitude - radius < lookAhead)
                 amongBuildings = true;
@@ -527,6 +539,39 @@ public class SwarmPlaneController : MonoBehaviour
                 return 1.0f;
         }
         return amongBuildings ? manager.GetStreetSpreadFactor() : 1.0f;
+    }
+
+    /// <summary>
+    /// S11 wrap hold: whether a building centred at (x, z) holds the full spread -- it lies inside the formation and,
+    /// under HoldUntilLeaving, the pilot is not steering away from it (its centre behind the centroid along a held
+    /// stick). swarm_replica.wrap_holds.
+    /// </summary>
+    private bool WrapHolds(Vector2 centre, Vector3 centroid, Vector3 along, float stickMagnitude,
+                           SwarmManager.SpreadWrapRule rule)
+    {
+        Vector2 rel = centre - new Vector2(centroid.x, centroid.z);
+        if (rel.magnitude > formationMaxRadius || !InsideFormation(centre)) return false;
+        if (rule == SwarmManager.SpreadWrapRule.HoldUntilLeaving && stickMagnitude > 0.1f &&
+            rel.x * along.x + rel.y * along.z < 0.0f)
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// S11: whether a point lies inside the alive drones' convex hull: their bearings round it leave no gap of 180
+    /// degrees or more. Fewer than three drones enclose nothing. swarm_replica.inside_formation.
+    /// </summary>
+    private bool InsideFormation(Vector2 p)
+    {
+        int n = formationXZ.Count;
+        if (n < 3) return false;
+        if (wrapBearings.Length < n) wrapBearings = new float[n];
+        for (int i = 0; i < n; i++)
+            wrapBearings[i] = Mathf.Atan2(formationXZ[i].y - p.y, formationXZ[i].x - p.x);
+        System.Array.Sort(wrapBearings, 0, n);
+        float gap = wrapBearings[0] + 2.0f * Mathf.PI - wrapBearings[n - 1];
+        for (int i = 1; i < n; i++) gap = Mathf.Max(gap, wrapBearings[i] - wrapBearings[i - 1]);
+        return gap < Mathf.PI;
     }
 
     private void ClearSpreadScale()
@@ -699,12 +744,19 @@ public class SwarmPlaneController : MonoBehaviour
         // Mean distance from the centroid — how big the formation actually is right now. Needed as
         // a second pass because it is measured against the centroid the first pass produces.
         float radiusSum = 0.0f;
+        formationXZ.Clear();
+        formationMaxRadius = 0.0f;
         foreach (GameObject drone in roster)
         {
             if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
             VelocityControl droneControl = entry.velocityControl;
             if (droneControl == null || droneControl.State == null || !droneControl.State.IsAlive) continue;
-            radiusSum += Vector3.Distance(entry.droneParent.position, swarmCentroid);
+            Vector3 p = entry.droneParent.position;
+            float r = Vector3.Distance(p, swarmCentroid);
+            radiusSum += r;
+            formationXZ.Add(new Vector2(p.x, p.z));
+            formationMaxRadius = Mathf.Max(formationMaxRadius,
+                                           new Vector2(p.x - swarmCentroid.x, p.z - swarmCentroid.z).magnitude);
         }
         swarmMeanRadius = radiusSum / count;
         return true;

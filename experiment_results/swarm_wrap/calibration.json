@@ -1,0 +1,19 @@
+{
+ "erks": {
+  "n": 6172,
+  "narrowed": 0.38998703823720027,
+  "held": 0.5194426441996112,
+  "off_median": 0.7806456910887538,
+  "beyond": 0.48250162022035
+ },
+ "scripted": {
+  "n": 6745,
+  "narrowed": 0.4449221645663454,
+  "held": 0.6836174944403262,
+  "off_median": 1.0641759583479986,
+  "beyond": 0.7915492957746478
+ },
+ "scripted_n": 24,
+ "k0": 19000,
+ "note": "While a building was wrapped (ERKS: start line to last find; scripted: the search window). narrowed: scale < 0.95; held: |stick| > 0.1; off: the centroid's offset from the wrapped building's centre in its ellipse's unit space (the rule's aim test reads 0.8)."
+}

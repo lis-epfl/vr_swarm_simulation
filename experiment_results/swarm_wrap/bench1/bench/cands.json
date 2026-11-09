@@ -1,0 +1,62 @@
+[
+ {
+  "label": "E15_35a the scene: ellipse cap 1.5, d_obs 0.35, adaptive spread 0.85, wrap rule Off",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "spreadWrapRule": 0
+  }
+ },
+ {
+  "label": "H15_35a the scene with the wrap rule Hold: full spread while a building lies inside the formation",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "spreadWrapRule": 1
+  }
+ },
+ {
+  "label": "L15_35a the scene with the wrap rule HoldUntilLeaving: Hold, released while steering away from the building",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "spreadWrapRule": 2
+  }
+ },
+ {
+  "label": "F20 the scene with the spread held at 2.0 (S9 F20, the adaptive spread off): full spread everywhere",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "spreadWrapRule": 0
+  }
+ }
+]

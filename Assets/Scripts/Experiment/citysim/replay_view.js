@@ -59,6 +59,10 @@ const RV = (() => {
     d.apartMask = f.apart ? u16(f.apart.mask) : null;
     d.tEnd = f.t0 + (f.frames - 1) * f.dt;
     d.decisions = f.decisions || []; d.losses = f.losses || []; d.contacts = f.contacts || [];
+    // S11: optional per-frame series ({label, t0, dt, q: u8 base64, lo, hi, digits}) and timeline bands
+    // ({label, tone: a colour token, spans: [[a, b], ...]}); a flight without them draws exactly as before
+    d.series = (f.series || []).map(s => Object.assign({}, s, { v: Float32Array.from(bytes(s.q), q => s.lo + (s.hi - s.lo) * q / 255) }));
+    d.bands = f.bands || [];
     // the formation's centre per frame (live drones), for its path
     const n = f.n, C = new Float32Array(f.frames * 2);
     for (let k = 0; k < f.frames; k++) {
@@ -87,6 +91,7 @@ const RV = (() => {
              shown: (F.shown[fr.i0] >> i) & 1 };
   }
   function drones(F, t) { const fr = frameAt(F, t), out = []; for (let i = 0; i < F.n; i++) { const d = droneAt(F, fr, i); if (d) out.push(d); } return out; }
+  function seriesAt(s, t) { const k = Math.max(0, Math.min(s.v.length - 1, Math.round((t - s.t0) / s.dt))); return s.v[k]; }
   function apartAt(F, t) { if (!F.apartMask) return 0; const A = F.apart, k = Math.max(0, Math.min(F.apartMask.length - 1, Math.floor((t - A.t0) / A.dt + 1e-6))); return F.apartMask[k]; }
   function aliveCount(F, t) { const fr = frameAt(F, t); let m = 0; for (let i = 0; i < F.n; i++) if (fr.i0 < F.alive_to[i]) m++; return m; }
   const popcount = n => { let c = 0; while (n) { n &= n - 1; c++; } return c; };
@@ -561,6 +566,8 @@ const RV = (() => {
         d && !d.plaza ? ["this block's streets entered", `${nPrev} of ${d.opts.length}`] : null,
         d && !d.plaza && nEnds ? ["... looked down to the building at the end", `${nDown} of ${nEnds}`] : null,
         near !== null ? ["nearest drone to the target", `${Math.round(near)} m`] : null].filter(Boolean);
+      for (const s of F.series) rows.push([s.label, seriesAt(s, t).toFixed(s.digits === undefined ? 2 : s.digits)]);
+      for (const b of F.bands) if (b.spans.some(([a, z]) => t >= a && t <= z)) rows.push([b.label, "now"]);
       $(".rv-now").innerHTML = `<p class="eyebrow">Now, ${fmtT(t)}</p><p class="rv-phase">${esc(phaseText())}</p>
         <dl class="rv-kv">${rows.map(([a, b]) => `<dt>${a}</dt><dd class="mono">${esc(b)}</dd>`).join("")}</dl>`;
     }
@@ -575,10 +582,26 @@ const RV = (() => {
     let tl = null;
     function timeline() {
       const host = $(".rv-tl"); host.innerHTML = "";
-      const W = Math.max(300, host.clientWidth || 600), H = 84, m = { l: 18, r: 18, t: 6, b: 18 };
+      const extra = 14 * F.bands.length + 22 * F.series.length;      // S11's rows, below the usual three
+      const W = Math.max(300, host.clientWidth || 600), H = 84 + extra, m = { l: 18, r: extra ? 165 : 18, t: 6, b: 18 };
       const x = s => m.l + (W - m.l - m.r) * s / Math.max(1e-6, F.tEnd), cc = colour(col(F.cond));
       let g = "";
       const rowY = [m.t, m.t + 18, m.t + 34];
+      let yx = m.t + 52;
+      for (const b of F.bands) {
+        const tone = T[b.tone] || cc;
+        for (const [a, z] of b.spans) g += `<rect x="${x(a).toFixed(1)}" y="${yx}" width="${Math.max(1.5, x(z) - x(a)).toFixed(1)}" height="9" fill="${rgba(tone, 0.55)}"/>`;
+        g += `<text x="${W - m.r + 8}" y="${yx + 8}" fill="${T["ink-2"]}" style="font:500 10px var(--font-body, sans-serif)">${esc(b.label)}</text>`;
+        yx += 14;
+      }
+      for (const s of F.series) {
+        const yv = v => yx + 18 - 18 * (v - s.lo) / Math.max(1e-9, s.hi - s.lo);
+        let pts = "";
+        for (let k = 0; k < s.v.length; k += Math.max(1, Math.floor(s.v.length / 600))) pts += `${x(s.t0 + k * s.dt).toFixed(1)},${yv(s.v[k]).toFixed(1)} `;
+        g += `<polyline points="${pts}" fill="none" stroke="${cc}" stroke-width="1.5"/>`;
+        g += `<text x="${W - m.r + 8}" y="${yx + 12}" fill="${T["ink-2"]}" style="font:500 10px var(--font-body, sans-serif)">${esc(s.label)}</text>`;
+        yx += 22;
+      }
       for (const d of F.decisions) {
         const a = d.t0 !== null ? d.t0 : d.t, b = d.t;
         if (a === null || b === null) continue;
@@ -611,6 +634,8 @@ const RV = (() => {
         for (const e of F.losses) if (Math.abs(x(e.t) - px) < 5) lines.push(`drone ${e.i + 1} lost${e.why && e.why !== "lost" ? ` (${WHY[e.why] || e.why})` : ""}`);
         for (const e of F.contacts) if (Math.abs(x(e.t) - px) < 4) lines.push(`drone ${e.i + 1} touches a building`);
         if (F.apart) for (const [a, b] of F.apart.split || []) if (s >= a && s <= b) { lines.push("the formation is split in two groups"); break; }
+        for (const b of F.bands) if (b.spans.some(([a, z]) => s >= a && s <= z)) lines.push(b.label);
+        for (const sr of F.series) lines.push(`${sr.label}: ${seriesAt(sr, s).toFixed(sr.digits === undefined ? 2 : sr.digits)}`);
         tipShow(ev.clientX, ev.clientY, fmtT(s), lines.length ? lines : ["click to go here"]);
       });
       hit.addEventListener("pointerup", () => { down = false; });
