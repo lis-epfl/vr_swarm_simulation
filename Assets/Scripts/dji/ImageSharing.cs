@@ -175,6 +175,22 @@ public class ImageSharing : MonoBehaviour
     public static bool LiveFeedGimbalValid { get; private set; }
     public static float LiveFeedGimbalPitchDegrees { get; private set; }
 
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        FeedStandoffValid = false;
+        FeedStandoffMetres = 0f;
+        FeedStandoffFacadeId = -1;
+        FeedStandoffStatus = 0;
+        FeedSourcePresent = false;
+        LiveFeedCount = 0;
+        LiveFeedYawResultant = 0f;
+        LiveFeedHeadingsShared = false;
+        LiveFeedGimbalValid = false;
+        LiveFeedGimbalPitchDegrees = 0f;
+    }
+
     // Hysteresis band on the circular-mean resultant of the headings, in [0, 1]. The two
     // configurations sit at the ends of that range — a wall holds its aircraft within a
     // few degrees of each other (resultant > 0.99) and a ring of three or more cancels to

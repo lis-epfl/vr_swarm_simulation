@@ -618,6 +618,23 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - **Run experiments with the Game view on *Play Maximized*.** The saved layout docks the Scene view
     beside the Game view with gizmos on, so in Play the Editor renders the whole city a second time
     every frame, plus `SwarmSpawn`'s `Handles.Label`s and a repainting Inspector.
+- **Reload Domain stays on, the user's choice (2026-11-09), though it is the largest cost of entering Play**: 3.6–3.8 s
+  on 10 of the 16 Plays in the editor log and 15–19 s on the other 6, where `LoadAssemblies` alone took 10–14 s (cause
+  not found). Unticking it (Enter Play Mode Settings, Reload Scene left on) takes Enter to the first finished frame from
+  4.9–5.8 s to 1.0 s headless in BlockShapedPatchCityWorld (2.0 s on an editor's first Play). The reload is what
+  guarantees every trial a clean start, and every earlier series was flown with it. Off has not been flown in the
+  headset, and a run's files would not record it. Points worth keeping:
+  - **Off, a static keeps its value from one Play to the next**, so each needs a
+    `[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]` hook writing its initial value, or
+    an `OnDestroy` that clears it. The flight code's statics all had one as of 2026-11-09; under a reload they do nothing.
+    A stale one does not fail loudly: it starts the next trial from the last trial's body yaw, or compares a `Time.time`
+    from the last session against a clock that has restarted. The same goes for a static event's subscribers and for
+    anything left running on a thread. Meta's packages also log 26 duplicate-subsystem lines over three Plays when it is off.
+  - **`PlayModeRepeatProbe` checks that, so run it before turning the reload off.** Three Plays in one process on the
+    bench copy, every value-type static in Assembly-CSharp corrupted after the first, and each must be back before the
+    next scene loads (it found 28 on the code as it stood). References and collections are only as dirty as the flight
+    makes them, and it hovers clear of the buildings, so a cache like `ObstacleFootprint`'s stays empty there and needs
+    reading by hand. `PLAY_PROBE_RELOAD=1` reloads the domain every Play: the timing baseline and the control.
 - **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
   and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
 - **The look-direction gap fill (`SwarmManager.fillLookDirectionGap`, off by default) is the one

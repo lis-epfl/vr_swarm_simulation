@@ -6,6 +6,10 @@ public class SwarmManager : MonoBehaviour
 {
     public static SwarmManager Instance;
 
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics() => Instance = null;
+
     public enum SwarmAlgorithm
     {
         NONE,

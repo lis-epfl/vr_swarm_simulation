@@ -64,7 +64,10 @@ public static class ObstacleFootprint
         return fp;
     }
 
-    /// <summary>Drops every cached footprint (a scene that moves its obstacles at runtime would need this).</summary>
+    /// <summary>Drops every cached footprint (a scene that moves its obstacles at runtime would need this). Also run at
+    /// the start of every Play: statics survive one in the editor when domain reload is off, and the cache's keys are
+    /// instance ids, which can be reused.</summary>
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     public static void Clear() => cache.Clear();
 
     private static Footprint Build(Collider collider)

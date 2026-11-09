@@ -1470,6 +1470,26 @@ public class PyUniSharingFast : MonoBehaviour
     // not stitching is running, so systems that need "whatever the pilot is facing" can anchor on it.
     public static Transform CentreStitchDrone { get; private set; }
 
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        BodyYawDegrees = 0f;
+        BodyYawValid = false;
+        CalibrationCount = 0;
+        PilotYawRateValid = false;
+        PilotYawRateDegPerSec = 0f;
+        PilotYawExpo = 0f;
+        PlanarSelected = false;
+        HideStitchedFeeds = false;
+        PanoramaDisplayed = false;
+        PanoramaPilotEnabled = true;
+        PanoramaQualityWord = 0;
+        PanoramaLastNewTime = -1f;
+        ActiveStitcher = default;
+        CentreStitchDrone = null;
+    }
+
     private GameObject arena;
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 

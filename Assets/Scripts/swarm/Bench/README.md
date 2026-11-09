@@ -215,6 +215,9 @@ only the bump.
   nothing in the editor or a build.
 - `Editor/SwarmBenchLauncher.cs` holds the batchmode entry points: `Run` opens the config's scene and
   enters play mode; `CompileCheck`.
+- `PlayModeRepeatProbe.cs` checks that statics reset between Plays with Reload Domain off, and times entering Play.
+  After `run_bench.ps1 -SyncOnly`, run Unity on the copy with `-batchmode -executeMethod PlayModeRepeatProbe.Run` and
+  `PLAY_PROBE_OUT`, `EXPERIMENT_RECORDER_DIR` and `STITCH_SHM_SUFFIX` set. Exit 1 lists each `LEAK`.
 - `run_bench.ps1`: sync, Library seeding, ilpp.pid hygiene, one-Unity-per-copy guard, batchmode with
   timeout and retry, report.
 - `bench.py` has the `scenarios` (`--goals`: a layout's goal flights), `config` and `report` subcommands.

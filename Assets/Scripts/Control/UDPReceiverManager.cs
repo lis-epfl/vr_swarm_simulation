@@ -57,6 +57,7 @@ public class UDPReceiverManager : MonoBehaviour
         MarkPresses = 0;
         lastRawMarks = -1;
         lastPacketTime = -1f;
+        staleAfter = 0.5f;
     }
 
     void Start()

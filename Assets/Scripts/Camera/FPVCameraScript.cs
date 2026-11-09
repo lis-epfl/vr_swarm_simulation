@@ -69,11 +69,12 @@ public class FPVCameraScript : MonoBehaviour {
 	public static int RendersThisFrame => renderCountFrame == Time.frameCount ? rendersThisFrame : 0;
 
 	[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-	private static void ResetRenderCounters () {
+	private static void ResetStatics () {
 		// Statics survive a Play session in the editor when domain reload is off.
 		renderCountFrame = -1;
 		rendersThisFrame = 0;
 		TotalRenders = 0;
+		sharedPitch = 0f;
 	}
 
 	/// <summary>DJI-style gimbal tilt limits (degrees): straight down to slightly up.</summary>

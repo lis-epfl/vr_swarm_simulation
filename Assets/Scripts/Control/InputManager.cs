@@ -69,6 +69,11 @@ public class InputManager : MonoBehaviour
         {"userSwitch", -1.0f},
     };    
     public static InputManager Instance { get; private set; }
+
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics() => Instance = null;
+
     public Dictionary<string, float> InputStatus => inputStatus; // Expose inputStatus as a read-only property
     public Dictionary<string, float> InputStatusRaw => inputStatuRaw; // Expose inputStatus as a read-only property
     private bool isControlLocked = false; // Flag to lock/unlock control input

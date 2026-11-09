@@ -34,6 +34,10 @@ public class DroneBodyCombiner : MonoBehaviour
 {
     private static bool warnedUnreadable;
 
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics() => warnedUnreadable = false;
+
     private readonly List<Mesh> createdMeshes = new List<Mesh>();
 
     private struct Part

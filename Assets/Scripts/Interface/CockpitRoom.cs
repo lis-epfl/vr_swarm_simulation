@@ -141,10 +141,11 @@ public class CockpitRoom : MonoBehaviour
     // What the current meshes and textures were built with, so an inspector change in Play rebuilds them.
     private int builtShape;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void RegisterBootstrap()
     {
         Active = false;
+        ActiveStyle = default;
         // -= first so a disabled domain reload cannot stack the handler.
         SceneManager.sceneLoaded -= OnSceneLoaded;
         SceneManager.sceneLoaded += OnSceneLoaded;
