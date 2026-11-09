@@ -77,6 +77,7 @@ import pandas as pd  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from citysim.camera import HFOV_HALF, VFOV_HALF  # noqa: E402  (the one copy of the FPV field of view)
+from citysim.los import Prism  # noqa: E402  (a BlockShaped city's buildings: see city_building)
 
 # ============================================================================= constants
 
@@ -314,7 +315,56 @@ def load_test(root, test):
     for (pid, trial), group in seen.items():
         if len(group) > 1:
             warn(f"{pid} t{trial} has {len(group)} runs ({', '.join(group)}); all are analysed")
+    apply_identify_overrides(runs, manifest.get("identifyOverrides", []))
     return folder, manifest, runs
+
+
+def apply_identify_overrides(runs, overrides):
+    """test.json "identifyOverrides": RC presses the experimenter judged correct although the recorder's AutoScore
+    did not, as [{"run", "t", "goal", "outcome": "correct", "why"}] -- the press by its event time, the goal it
+    answered (an out_of_zone press names none). Applied to the run's session in memory; the files stay as recorded.
+    The goal is answered at the press, the press no longer counts as a false alarm, and nCorrect, falseAlarms and
+    totalTaskTime (Play -> the last answer) are recomputed. The goals table marks each one (scoredAs, the recorder's
+    outcome)."""
+    by_stem = {r.stem: r for r in runs}
+    for o in overrides:
+        r = by_stem.get(o["run"])
+        if r is None:
+            warn(f"{MANIFEST}: identify override for {o['run']}, which is not in the test")
+            continue
+        if o.get("outcome", "correct") != "correct":
+            raise SystemExit(f"{MANIFEST}: {o['run']} t={o['t']}: only 'correct' overrides are supported")
+        with open(r.path("events.csv"), encoding="utf-8") as f:
+            rows = [line.rstrip("\n").split(";", 6) for line in list(f)[1:]]
+        press = [p for p in rows if len(p) == 7 and p[2] == "identify" and abs(float(p[0]) - float(o["t"])) < 0.05]
+        if len(press) != 1:
+            raise SystemExit(f"{MANIFEST}: {o['run']} has {len(press)} identify events at t={o['t']}")
+        t, scored, note = float(press[0][0]), press[0][4], press[0][6]
+        g = next((g for g in r.goals if g.get("goalIndex") == int(o["goal"])), None)
+        if g is None:
+            raise SystemExit(f"{MANIFEST}: {o['run']} has no goal {o['goal']}")
+        m = re.search(r"centroid=(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)", note)
+        centroid = np.array([float(x) for x in m.groups()]) if m else np.full(3, np.nan)
+        w = r.walkers[r.walkers.goalIndex == g["goalIndex"]] if r.walkers is not None else None
+        walker_dist = -1.0
+        if w is not None and len(w) and m:
+            k = int(np.argmin(np.abs(w.t.to_numpy() - t)))
+            walker_dist = float(np.linalg.norm(w[["specialX", "specialY", "specialZ"]].to_numpy()[k] - centroid))
+        if scored == "false_alarm" and int(press[0][3]) == g["goalIndex"]:
+            g["falseAlarms"] = max(int(g.get("falseAlarms", 0)) - 1, 0)
+            r.session["falseAlarms"] = max(int(r.session.get("falseAlarms", 0)) - 1, 0)
+        g.update(answered=True, outcome="correct", identifySource="rc", decisionTimeSec=t, swarmToWalkerDist=walker_dist,
+                 centroidAtAnswerX=centroid[0], centroidAtAnswerY=centroid[1], centroidAtAnswerZ=centroid[2],
+                 scoredAs=scored, overrideWhy=o.get("why", ""))
+        r.session["nCorrect"] = sum(x.get("outcome") == "correct" for x in r.goals)
+        last = max([float(x["decisionTimeSec"]) for x in r.goals if x.get("answered") and
+                    float(x.get("decisionTimeSec", -1.0)) >= 0], default=0.0)
+        r.session["totalTaskTime"] = max(float(r.session.get("totalTaskTime", 0.0) or 0.0), last)
+        if float(r.session.get("startLineSec", -1.0)) >= 0:
+            r.session["taskTimeFromStartLine"] = r.session["totalTaskTime"] - float(r.session["startLineSec"])
+        r.session["identifyOverrides"] = r.session.get("identifyOverrides", 0) + 1
+        print(f"[info] {r.stem}: press at {t:.1f} s ({scored}) counted correct for goal {g['goalIndex']} "
+              f"({hat_name(g)}) -- {o.get('why', '')}")
 
 
 # ============================================================================= phases
@@ -730,9 +780,10 @@ def proximity_family(run, legs, cfg):
 # How long each goal's hat walker was observable in the drone feeds. Being over the tile is the wrong test
 # (hats were often identified on the approach, from outside it), so a goal is *in view* at a sample when at
 # least one alive drone passes all three tests:
-#   1. range   camera-to-hat distance <= --range (40 m). Calibrated on the data: five hats were identified
-#              although they never came closer than 27-34 m, so the true limit is >= ~35 m; at 40 m the
-#              walker is ~34 px tall in the 1152x648 feed and the hat ~6 px across.
+#   1. range   camera-to-hat distance <= --range (test.json "range", default 40 m). Calibrated on the data: five
+#              hats were identified although they never came closer than 27-34 m, so the true limit is >= ~35 m;
+#              at 40 m the walker is ~34 px tall in the 1152x648 feed and the hat ~6 px across. internal_4 on is
+#              80 m, as the recorder scores from 2026-11-06: ERKS named a hat at 43 m on a 1920x1080 feed.
 #   2. heading the hat is inside the camera's horizontal field of view (74.4 deg: the DJI Mini 3 Pro's
 #              82.1 deg diagonal at 16:9, as ScreenSpawn sets it; citysim/camera.py holds the number).
 #   3. sight   the line from the camera to the hat misses every building: the city's colliders
@@ -801,6 +852,15 @@ def is_layout(city):
     return city_file(city)[0] == "layout"
 
 
+def city_building(b):
+    """One building of a city file as (tile, centre, axes): an oriented box, or for a BlockShaped city's convex prism
+    (blockcity's ConvexPrism, which has no axes) a citysim.los.Prism in the axes' place."""
+    if b.get("type") == "ConvexPrism":
+        c, h = np.array(b["c"], float), float(b["height"]) / 2
+        return b["tile"], c, Prism(np.reshape(b["poly_xz"], (-1, 2)), c[1] - h, c[1] + h)
+    return b["tile"], np.array(b["c"]), np.array(b["ax"], dtype=float)
+
+
 def load_city(city):
     """(boxes [(tile, centre, axes)], kerbs {tile: kerb}) of a tile city or a generated layout. A layout's file is
     a city_obstacles file with no tiles (its goal buildings are boxes like any other), so kerbs is empty."""
@@ -808,7 +868,7 @@ def load_city(city):
         _, path = city_file(city)
         with open(path, encoding="utf-8-sig") as f:
             d = json.load(f)
-        boxes = [(b["tile"], np.array(b["c"]), np.array(b["ax"], dtype=float)) for b in d["boxes"]]
+        boxes = [city_building(b) for b in d["boxes"]]
         kerbs = {t["name"]: np.array(t["kerb"]) for t in d["tiles"] if t["kerb"]}
         _CITIES[city] = boxes, kerbs
     return _CITIES[city]
@@ -845,10 +905,16 @@ def scene_boxes(goals, city_name, goal_width=GOAL_PATCH_WIDTH):
 
 
 def segment_blocked(p0, p1, boxes):
-    """p0, p1: (N, 3). True where the segment p0->p1 passes through any oriented box."""
+    """p0, p1: (N, 3). True where the segment p0->p1 passes through any oriented box, or any prism (los.Boxes)."""
     blocked = np.zeros(len(p0), dtype=bool)
+    prisms = [b for b in boxes if isinstance(b[2], Prism)]
+    if prisms:
+        from citysim.los import Boxes
+        blocked |= Boxes(prisms).blocked(p0, p1)
     d = p1 - p0
     for _, c, ax in boxes:
+        if isinstance(ax, Prism):
+            continue
         lens = np.linalg.norm(ax, axis=1)
         u = ax / lens[:, None]                      # box axes (unit), rows
         o = (p0 - c) @ u.T                          # segment start in box frame
@@ -942,16 +1008,16 @@ def hat_family(run, cfg):
             levelCamPct=round(100 * level / in_view) if in_view else None,
             occludedSec=round(blocked_only, 1),
             episodes=" | ".join(f"{a:.0f}-{b:.0f} ({v:.0f}s)" for a, b, v in eps)))
-    add_study_bases(run, boxes, rows)
+    add_study_bases(run, boxes, rows, r_id)
     return rows
 
 
-def add_study_bases(run, boxes, rows):
+def add_study_bases(run, boxes, rows, r_id):
     """The shown / head / gaze columns of the hat family (see above), merged into the goal rows by goalIndex."""
     from citysim import replay
     shown_basis = "recorded" if "shown" in run.drones else "reconstructed"
     by_idx = {r["goalIndex"]: r for r in rows}
-    for b in replay.hat_bases(run, boxes):
+    for b in replay.hat_bases(run, boxes, r_id):
         row = by_idx.get(b["goalIndex"])
         if row is None:
             continue
@@ -989,6 +1055,30 @@ def add_study_bases(run, boxes, rows):
 
 COMMIT_DEG = 45.0
 DISCOVERY_EVERY_S = 0.5
+
+
+def goal_loop_points(run, g):
+    """Goal g's walker loops as citysim.discovery's weighted points: round its ring buildings' footprints for a block
+    goal, round goal_ring_rects otherwise."""
+    from citysim import discovery
+    polys = goal_ring_polys(run, g)
+    if polys is not None:
+        return discovery.polygon_loop_points(polys)
+    return discovery.loop_points(goal_ring_rects(run, g))
+
+
+def goal_ring_polys(run, g):
+    """A block goal's patrolled buildings as footprint polygons, or None for any other goal. A block goal (BlockGoals,
+    BlockShaped cities) is drawn at Play from the layout's own prisms, so only the session names its ring."""
+    names = g.get("ringBoxes") or []
+    if not names or not is_layout(run.city):
+        return None
+    from citysim import blockcity, layout as lay
+    by_name = {b.get("name"): b for b in lay.load(lay.resolve(run.city)).boxes}
+    ring = [by_name.get(n) for n in names]
+    if any(b is None or not blockcity.is_prism(b) for b in ring):
+        return None
+    return [blockcity.building_poly(b) for b in ring]
 
 
 def goal_ring_rects(run, g):
@@ -1031,7 +1121,7 @@ def discovery_family(run, legs, cfg):
     boxes = scene_boxes(run.goals, run.city, run.goal_width)
     first = {}
     for gi, g in enumerate(run.goals):
-        pts, w = discovery.loop_points(goal_ring_rects(run, g))
+        pts, w = goal_loop_points(run, g)
         for r in (discovery.R_GOAL_M,) + discovery.R_GOAL_SENSITIVITY:
             t, e_any, e_head, cen = discovery.run_expected(run, boxes, pts, w, r_goal=r, every_s=DISCOVERY_EVERY_S)
             ta, ia = discovery.first_sight(t, e_any)
@@ -2029,7 +2119,9 @@ MAP_MARGIN_M = 40.0
 
 
 def footprint(c, ax):
-    """XZ outline of an oriented box: the two half-axes that are closest to horizontal."""
+    """XZ outline of an oriented box: the two half-axes that are closest to horizontal. A prism's is its own."""
+    if isinstance(ax, Prism):
+        return ax.poly
     vert = np.abs(ax[:, 1]) / np.linalg.norm(ax, axis=1)
     a1, a2 = ax[np.argsort(vert)[:2]]
     return np.array([[p[0], p[2]] for p in (c + a1 + a2, c + a1 - a2, c - a1 - a2, c - a1 + a2)])
@@ -2152,7 +2244,8 @@ def add_tuning_args(p):
     p.add_argument("--spread-tol", type=float, default=d["spread_tol"], help="d_ref change that counts as an adjustment")
     p.add_argument("--pitch-tol", type=float, default=d["pitch_tol"], help="pitch change (deg) that counts as an adjustment")
     p.add_argument("--down", type=float, default=d["down"], help="pitch (deg) below which the camera counts as down")
-    p.add_argument("--range", type=float, default=d["range"], help="hat identification range (m)")
+    p.add_argument("--range", type=float, default=None,
+                   help=f"hat identification range (m); default the test's test.json \"range\", else {d['range']:g}")
     p.add_argument("--dist", dest="dists", nargs="+", type=float, default=d["dists"],
                    help="near-goal distances (m) for the dwell sweep")
     p.add_argument("--arrow-s", type=float, default=d["arrow_s"], help="seconds between arrows on the turning maps")
@@ -2163,6 +2256,13 @@ def add_tuning_args(p):
     p.add_argument("--start", choices=["auto", "line", "session"], default=d["start"],
                    help="task start: the recorded start line, else the first sample (auto); the same, deriving a "
                         "line crossing for runs recorded before the line (line); Play, ignoring the line (session)")
+
+
+def apply_test_settings(a, manifest):
+    """Settings a test's test.json may give where the command line does not: "range", the identification range the
+    test was scored at (ExperimentRecorder.identifyMaxRangeM; 80 m from internal_4 on, 40 before)."""
+    if getattr(a, "range", None) is None:
+        a.range = float(manifest.get("range", DEFAULTS["range"]))
 
 
 def apply_start(runs, mode):
@@ -2239,7 +2339,7 @@ def build_tables(runs, res):
                    nCorrect=r.session.get("nCorrect"), goalsReached=len(res["legs"][r.stem]))
         if "identifyMode" in r.session:     # runs from 2026-10-12 on
             row.update(identifyMode=r.session["identifyMode"], falseAlarms=r.session.get("falseAlarms", 0),
-                       layout=r.layout_id)
+                       identifyOverrides=r.session.get("identifyOverrides", 0), layout=r.layout_id)
         if "gitCommit" in r.session:        # runs from 2026-11-03 on
             row.update(gitCommit=r.session["gitCommit"][:8], gitDirty=r.session.get("gitDirty"))
         row.update(res["task"][r.stem])
@@ -2281,7 +2381,8 @@ def build_tables(runs, res):
                        decisionTimeSec=g.get("decisionTimeSec", -1.0),
                        identifySource=g.get("identifySource", ""))
             if "falseAlarms" in g:     # runs from 2026-10-12 on: the auto-scored identify and the goal's geometry
-                row.update(falseAlarms=g["falseAlarms"], zoneShape=g.get("zoneShape", "tile"),
+                row.update(falseAlarms=g["falseAlarms"], scoredAs=g.get("scoredAs", g.get("outcome", "")),
+                           zoneShape=g.get("zoneShape", "tile"),
                            r_g=g.get("r_g"), w_c=g.get("w_c"), c_g=g.get("c_g"))
             row.update({k: v for k, v in prox.get(idx, {}).items() if k not in ("run", "goalIndex")})
             row.update({k: v for k, v in hat.get(idx, {}).items() if k not in ("run", "goalIndex")})
@@ -2419,10 +2520,11 @@ def cmd_run(a):
     folder, manifest, runs = load_test(a.root, a.test)
     if not runs:
         raise SystemExit(f"no finalized runs in {folder}")
+    apply_test_settings(a, manifest)
     apply_start(runs, a.start)
     log_runs = parse_editor_logs(sorted(glob.glob(os.path.join(folder, "*.log"))))
     print(f"[info] {a.test}: {len(runs)} runs, {sum(r.practice for r in runs)} practice; "
-          f"zone {a.zone:g} m; {len(log_runs)} run(s) in the editor log(s)")
+          f"zone {a.zone:g} m; identification range {a.range:g} m; {len(log_runs)} run(s) in the editor log(s)")
     res = analyse_runs(runs, a, log_runs, {"cmd", "dial", "prox", "hat", "street", "disc", "stitch", "crash"})
     runs_df, legs_df, goals_df, deaths_df = build_tables(runs, res)
     tables = dict(runs=runs_df, legs=legs_df, goals=goals_df, crashes=deaths_df)
@@ -2471,6 +2573,7 @@ def cmd_run(a):
 
 def cmd_maps(a):
     folder, manifest, runs = load_test(a.root, a.test)
+    apply_test_settings(a, manifest)
     apply_start(runs, a.start)
     if not a.include_practice and not a.stem:
         runs = [r for r in runs if not r.practice]

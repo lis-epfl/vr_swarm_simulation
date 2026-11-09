@@ -2,8 +2,9 @@
 
 Two tests:
   * 3-D: a segment against oriented boxes, the slab test analyse.segment_blocked uses (`Boxes.blocked`), batched
-    over the boxes. Asserted identical on random segments (tests/test_los.py). Used for Tier C and wherever real
-    altitudes matter -- a camera above a roof sees over it.
+    over the boxes, and against upright convex prisms (`Prism`, a BlockShaped city's buildings) by the same test on
+    their edges' half-planes (tests/test_los.py). Used for Tier C and wherever real altitudes matter -- a camera
+    above a roof sees over it.
   * 2-D: footprints in (x, z) (`Footprints`): segment blocked / ray first-hit distance / isovist. The study's
     cities are uniform 50 m slabs and the swarm's ceiling (flown ~51.3 m) is the skyline, so a camera never sees
     over a roof to a hat at 1.8 m (the sight line clears a roof only within ~2.6 % of its length of the camera):
@@ -22,43 +23,93 @@ import numpy as np  # noqa: E402
 from citysim import camera  # noqa: E402
 
 CHUNK = 4096
+PRISM_CELLS = 2_000_000     # segments x prisms x edges per batch of the prism test
+
+
+class Prism:
+    """An upright convex prism: blockcity's ConvexPrism, a BlockShaped city's building. It stands in the third slot of
+    a building tuple where a box has its half-axis vectors -- (tile, centre (3,), Prism) -- which is how
+    analyse.load_city returns one. `poly` is the footprint in (x, z), either winding; the prism spans y0..y1."""
+
+    def __init__(self, poly, y0, y1):
+        p = np.asarray(poly, float).reshape(-1, 2)
+        if np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1]) < 0:
+            p = p[::-1]                                     # counter-clockwise in (x, z)
+        self.poly, self.y0, self.y1 = p, float(y0), float(y1)
+
+    def planes(self):
+        """(normals (k, 2), offsets (k,)): the footprint is n . p <= d for every edge."""
+        e = np.roll(self.poly, -1, axis=0) - self.poly
+        n = np.c_[e[:, 1], -e[:, 0]]                       # outward, the polygon being counter-clockwise
+        n /= np.maximum(np.linalg.norm(n, axis=1), 1e-12)[:, None]
+        return n, np.einsum("kj,kj->k", n, self.poly)
 
 
 class Boxes:
-    """Oriented boxes as analyse.load_city returns them: [(tile, centre (3,), half-axis vectors (3, 3))]."""
+    """Buildings as analyse.load_city returns them: [(tile, centre (3,), half-axis vectors (3, 3) or a Prism)].
+    Boxes take the slab test; prisms the same test against their edges' half-planes and their base and top. The
+    box arrays (c, u, L) hold the boxes alone, in order; c2 / R2 hold every building, in list order."""
 
     def __init__(self, boxes):
+        boxes = list(boxes)
         self.n = len(boxes)
-        if self.n == 0:
+        self.prism = np.array([isinstance(b[2], Prism) for b in boxes], bool)
+        self.pos = np.zeros(self.n, int)                    # each building's row in its own kind's arrays
+        self.pos[~self.prism] = np.arange(int((~self.prism).sum()))
+        self.pos[self.prism] = np.arange(int(self.prism.sum()))
+        bx = [b for b, p in zip(boxes, self.prism) if not p]
+        if bx:
+            self.c = np.array([b[1] for b in bx], float)
+            ax = np.array([b[2] for b in bx], float)
+            self.L = np.linalg.norm(ax, axis=2)
+            self.u = ax / np.maximum(self.L, 1e-12)[..., None]
+            ext = np.abs(ax).sum(axis=1)
+            box_r2 = np.hypot(ext[:, 0], ext[:, 2])        # horizontal circumradius of the AABB
+        else:
             self.c, self.u, self.L = np.zeros((0, 3)), np.zeros((0, 3, 3)), np.zeros((0, 3))
-            return
-        self.c = np.array([b[1] for b in boxes], float)
-        ax = np.array([b[2] for b in boxes], float)
-        self.L = np.linalg.norm(ax, axis=2)
-        self.u = ax / np.maximum(self.L, 1e-12)[..., None]
-        ext = np.abs(ax).sum(axis=1)
-        self.c2 = self.c[:, [0, 2]]
-        self.R2 = np.hypot(ext[:, 0], ext[:, 2])        # horizontal circumradius of the AABB
+            box_r2 = np.zeros(0)
+        px = [b[2] for b, p in zip(boxes, self.prism) if p]
+        k = max([len(p.poly) for p in px], default=0)
+        self.pn = np.zeros((len(px), k, 2))                 # padding edges (n = 0, d = 0) constrain nothing
+        self.pd = np.zeros((len(px), k))
+        for i, p in enumerate(px):
+            n, d = p.planes()
+            self.pn[i, :len(d)], self.pd[i, :len(d)] = n, d
+        self.py0 = np.array([p.y0 for p in px], float)
+        self.py1 = np.array([p.y1 for p in px], float)
+        self.c2 = np.array([np.asarray(b[1], float)[[0, 2]] for b in boxes]).reshape(-1, 2)
+        self.R2 = np.zeros(self.n)
+        self.R2[~self.prism] = box_r2
+        self.R2[self.prism] = [float(np.max(np.linalg.norm(p.poly - c2, axis=1)))
+                               for p, c2 in zip(px, self.c2[self.prism])]
 
     def subset(self, idx):
+        idx = np.asarray(idx, int)
         b = Boxes([])
         b.n = len(idx)
-        b.c, b.u, b.L = self.c[idx], self.u[idx], self.L[idx]
+        b.prism = self.prism[idx]
+        bi, pi = self.pos[idx[~b.prism]], self.pos[idx[b.prism]]
+        b.pos = np.zeros(b.n, int)
+        b.pos[~b.prism], b.pos[b.prism] = np.arange(len(bi)), np.arange(len(pi))
+        b.c, b.u, b.L = self.c[bi], self.u[bi], self.L[bi]
+        b.pn, b.pd, b.py0, b.py1 = self.pn[pi], self.pd[pi], self.py0[pi], self.py1[pi]
         b.c2, b.R2 = self.c2[idx], self.R2[idx]
         return b
 
     def near(self, xz, radius):
-        """Indices of boxes whose horizontal circumcircle comes within `radius` of the point."""
+        """Indices of buildings whose horizontal circumcircle comes within `radius` of the point."""
         if self.n == 0:
             return np.arange(0)
         return np.flatnonzero(np.hypot(*(self.c2 - np.asarray(xz, float)).T) - self.R2 < radius)
 
     def blocked(self, p0, p1):
-        """(N,) True where the segment p0 -> p1 passes through any box: analyse.segment_blocked's slab test,
-        batched over the boxes."""
+        """(N,) True where the segment p0 -> p1 passes through any building: analyse.segment_blocked's slab test,
+        batched over the boxes, and its half-plane form over the prisms."""
         p0, p1 = np.atleast_2d(np.asarray(p0, float)), np.atleast_2d(np.asarray(p1, float))
         out = np.zeros(len(p0), bool)
-        if self.n == 0:
+        if len(self.pd):
+            out |= self._prisms_blocked(p0, p1)
+        if not len(self.c):
             return out
         d = p1 - p0
         for k in range(0, len(p0), CHUNK):
@@ -74,7 +125,33 @@ class Boxes:
             hi = np.where(par, np.where(inside, np.inf, -np.inf), hi)
             t0 = np.maximum(lo.max(axis=2), 0.0)
             t1 = np.minimum(hi.min(axis=2), 1.0)
-            out[k:k + CHUNK] = (t0 <= t1).any(axis=1)
+            out[k:k + CHUNK] |= (t0 <= t1).any(axis=1)
+        return out
+
+    def _prisms_blocked(self, p0, p1):
+        """The prisms' part of `blocked`: p0 + t (p1 - p0) is inside a prism where every edge's n . x <= d holds and
+        y0 <= y <= y1, and the segment is blocked where that interval of t meets [0, 1]."""
+        out = np.zeros(len(p0), bool)
+        d = p1 - p0
+        step = max(1, PRISM_CELLS // max(self.pd.size, 1))
+        for k in range(0, len(p0), step):
+            a, v = p0[k:k + step], d[k:k + step]
+            num = self.pd[None] - np.einsum("nk,pjk->npj", a[:, [0, 2]], self.pn)     # (n, P, K)
+            den = np.einsum("nk,pjk->npj", v[:, [0, 2]], self.pn)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                t = num / den
+                ta, tb = (self.py0[None] - a[:, 1:2]) / v[:, 1:2], (self.py1[None] - a[:, 1:2]) / v[:, 1:2]
+            lo = np.where(den < 0, t, -np.inf)
+            lo = np.where((den == 0) & (num < 0), np.inf, lo)                         # parallel, outside the edge
+            hi = np.where(den > 0, t, np.inf)
+            ylo, yhi = np.minimum(ta, tb), np.maximum(ta, tb)
+            par = v[:, 1:2] == 0
+            inside = (a[:, 1:2] >= self.py0[None]) & (a[:, 1:2] <= self.py1[None])
+            ylo = np.where(par, np.where(inside, -np.inf, np.inf), ylo)
+            yhi = np.where(par, np.where(inside, np.inf, -np.inf), yhi)
+            t0 = np.maximum(np.maximum(lo.max(axis=2), ylo), 0.0)
+            t1 = np.minimum(np.minimum(hi.min(axis=2), yhi), 1.0)
+            out[k:k + step] = (t0 <= t1).any(axis=1)
         return out
 
 

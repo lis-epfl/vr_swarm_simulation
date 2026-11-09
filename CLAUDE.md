@@ -901,7 +901,7 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     clothing mix +16% but −61% at 60 m, where it vanishes against the glass. Saturated clothing also roughly
     doubles the hat's contrast against what it covers (ΔE 14 → 28–34, depending on the colour drawn). Cost per FPV
     render: clothing ~0.05 ms, ground shadow ~0.10, sun shadow ~0.35. **Not adopted**: it makes the hat task
-    easier, so `identifyRangeM` / `R_ID_M` and every earlier run's comparability are at stake.
+    easier, so `identifyMaxRangeM` / `R_ID_M` and every earlier run's comparability are at stake.
   - The bench is `D:\claude_feedres_bench` (`probe\` has the sources and `final.py`; not in the repo).
 - **Speed-ups in the patch city (2026-11-04): baked occlusion and sleeping patrols halve the main thread.**
   BlockShapedPatchCityWorld, by the same replay, two interleaved pairs on one machine (before → after): main thread
@@ -2173,8 +2173,8 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
     - `RulesVersion` 4 is what carries the extras into a saved scene: the block-shaped window's *Redress the streets*
       resets the rules and applies them.
     - Merged, they cost about 0.05–0.09 ms of main thread per FPV render (60 views at 1152×648, headless).
-  - **analyse.py and the bench's `Footprints` read box axes, which a prism lacks**: a run recorded here cannot be
-    analysed until they read `blockcity.footprints`.
+  - **analyse.py reads the prisms since 2026-11-06** (`citysim.los.Prism`, internal_4); **the bench's `Footprints`
+    still reads box axes, which a prism lacks**, until it reads `blockcity.footprints`.
   - **Its goals are drawn from its own buildings at every Play** (`BlockGoals`, 2026-10-29; `ProceduralCityBuilder.
     goalsAtPlay` 3), because blockcity writes no goals and the user wanted no city change and no new buildings. A goal
     is one building; its ring is every building across a street from it (`streets[].blocks`, so corner neighbours too:
@@ -2204,7 +2204,8 @@ Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experimen
       (~40 m patch).
     - `ProceduralCityProbe` checks all of this headless with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/
       BlockShapedCityWorld.unity`: the spread, the rings, the redraw from the seed, the walker counts, and walkers on a
-      footpath. The Python side (`walkers.py`, `discovery`, analyse.py) has no polygon loop and cannot read prisms yet.
+      footpath. On the Python side, analyse.py's discovery walks the polygon loops (`discovery.polygon_loop_points`, the
+      ring named by the session's `ringBoxes`, 16 walkers at the mean 1.3 m gap); `walkers.py` still has none.
 - **`BlockShapedPatchCityWorld`** (`Tools/Swarm/Build block-shaped patch city world`, `BlockShapedPatchCityWorldBuilder`,
   2026-10-29) is BlockShapedCityWorld on streets without its long sight lines: the same configuration
   (`BlockShapedCityWorldBuilder.Configure`), prisms, dressing and furniture, and goals and pedestrians drawn at Play, on
@@ -2559,7 +2560,14 @@ time a new series is ready to analyse:
    (internal_3 is `DiamondCityWorld`) and a `city_obstacles_<Scene>.json` beside `analyse.py`
    (`Tools/Swarm/Export city obstacles`, or `CityObstacleExport.Run<Scene>` in batchmode). Hat line of
    sight and the turning maps read the buildings from it; without it they use the wrong city. A
-   **ProceduralCityWorld** run needs neither: its session names its layout, and the layout is its city.
+   **ProceduralCityWorld** run needs neither: its session names its layout, and the layout is its city. So does a
+   BlockShaped city's (internal_4), whose prisms `analyse.load_city` returns as `citysim.los.Prism`s (the 3-D sight
+   test, the maps and its block goals' walker loops all take them; a box-only city analyses byte for byte as before).
+   **Set `"range"` for a test scored at another identification range** (internal_4: 80, the recorder's since
+   2026-11-06; absent, 40), and list in **`"identifyOverrides"`** any RC press the experimenter judged correct that
+   AutoScore refused (`{"run", "t", "goal", "outcome": "correct", "why"}`): analyse.py answers the goal at that
+   press in memory, recomputes nCorrect / falseAlarms / totalTaskTime, and marks it in goals.csv (`scoredAs`); the
+   run files stay as recorded.
    **Runs recorded before 2026-10-09 also need `"swarmParams"`** — the SwarmManager fields they flew that
    the scene may no longer hold (internal_2: `{"hollowSwarmCore": true, "coreRelativeVelocity": false,
    "c_damp": 0}`, where ScaledCityWorld now saves the core off). Since then `ExperimentRecorder` writes each
@@ -2586,12 +2594,19 @@ told which runs belong in it.
 **The pilot identifies with the RC's C2 button, and since 2026-10-12 the press is scored on the spot**
 (`ExperimentRecorder.identifyMode`, `AutoScore` by default). Under `rcjoy bridge --profile sim` (what
 `launch_sim_scripts.ps1` runs) C2 no longer resets the knobs: it counts into a cumulative `marks` field that
-`UDPReceiverManager.MarkPresses` turns into presses. A press answers the goal whose zone (`identifyZoneM`,
-analyse.py's 15 m) holds the **live** drones' centroid -- not merely the nearest goal -- and is `correct` when
-that goal's hat is inside the central `identifyCentralFraction` (80%) of a shown feed's image, within
-`identifyRangeM` (40 m) of its camera, with no building in the way; otherwise it is a `false_alarm`, logged,
-with the goal left open, or `out_of_zone` when no zone holds the centroid. Each press logs the scoring
-camera's distance, its feed and the feed the gaze was on. The experimenter's 1/2/3 keys override the latest
+`UDPReceiverManager.MarkPresses` turns into presses. A press is `correct` for an open goal whose hat is inside
+the central `identifyCentralFraction` (80%) of a shown feed's image, within `identifyMaxRangeM` (80 m) of its
+camera, with no building in the way, at the press or on any frame of the `identifyLookbackSec` (3 s) before it,
+wherever the centroid is (the goal at the centroid first, else the most recent pass). With no such hat it is a
+`false_alarm` at the goal whose zone (`identifyZoneM`, analyse.py's 15 m) holds the **live** drones' centroid,
+logged, with the goal left open, or `out_of_zone` when no zone holds it. Each press logs the scoring camera's
+distance, how long before the press the hat passed (`passAgo`), its feed and the feed the gaze was on. **The 80 m,
+the look-back and the zone-free attribution date from 2026-11-06**, before which it was 40 m, the press's frame
+and the centroid's zone: ERKS's five refused presses were all the right hat -- four slid out of the central 80% as
+the drone closed on the walker in the second before the press (one from 15 m past the zone's edge), one was named at
+43 m. One of the four had last passed 2.25 s before its press, which is why the look-back is 3 s, not 2. The range
+field was renamed from `identifyRangeM` so every scene takes 80 (their YAML still holds 40 under the old key, which
+is ignored); the session JSON keeps the key `identifyRangeM`. The experimenter's 1/2/3 keys override the latest
 press's score (`outcome_override`) and never create an identify, and the session ends once every goal is
 resolved, or on the end key. **`Legacy`** is the flow before that, kept for comparing older runs: a press
 answers the nearest unanswered goal with the outcome pending (`identify` event, `source=rc`), the next key
@@ -2619,7 +2634,7 @@ worth keeping:
   `newPos = anchor + k * (oldPos - anchor)`. `PracticeWorldBuilder` hangs its signs
   over the tallest walker it placed, so a resize reaches that scene's signs through a rebuild. Two things do not
   follow the dial, deliberately: `citysim/camera.py`'s `HAT_HEIGHT_M` / `HAT_SIZE_M`, the target S1–S9 modelled,
-  and `identifyRangeM`, a recognition limit that is the experimenter's to change.
+  and `identifyMaxRangeM`, a recognition limit that is the experimenter's to change.
 - **The hats' colour has one dial too, `Assets/Materials/WalkerHat.mat`**, which all three wear: `cowboy_hat.fbx`
   remaps its embedded `pasted__M_Hat` to it (`externalObjects`), and the cap and bucket prefabs override their
   renderers with it. A flat grey, sRGB 0.689 (RGB 176) since 2026-11-04, the user's request for 10% darker than the
@@ -2639,7 +2654,8 @@ keeping:
   first (`partner`, `speed`), and the editor log only for older runs.
 - **The session JSON carries the software and the rules:** `gitCommit`, `gitDirty`, `gitChanges` (porcelain lines over
   Assets, Packages and ProjectSettings; UserSettings nearly always differs), `gitError` when git could not answer (no
-  repository in a bench copy); `identifyZoneM`, `identifyRangeM`, `identifyCentralFraction`, `rcIdentifyDebounceSec`;
+  repository in a bench copy); `identifyZoneM`, `identifyRangeM` (from `identifyMaxRangeM`), `identifyCentralFraction`,
+  `identifyLookbackSec` (since 2026-11-06), `rcIdentifyDebounceSec`;
   `stitchingEnabled`; the screen style, radius and scale. Git runs on a worker thread with `--no-optional-locks`, so it
   can neither hitch a frame nor hold the index lock against a commit. It keeps file names, not diffs: a scene's diff
   can run to megabytes, and `_swarm.json` has the values that matter most.

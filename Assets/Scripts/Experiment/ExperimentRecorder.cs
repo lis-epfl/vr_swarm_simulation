@@ -17,13 +17,16 @@ using UnityEngine.XR;
 ///
 /// <para><b>Identify, AutoScore (<see cref="identifyMode"/>, the default since 2026-10-12).</b> The pilot presses
 /// the RC's C2 button (<c>rcjoy bridge --profile sim</c>, <see cref="UDPReceiverManager.MarkPresses"/>) when they
-/// believe the hat is on screen, and the press is scored on the spot. Its goal is the one whose zone — the patch
-/// grown by <see cref="identifyZoneM"/>, analyse.py's 15 m zone — contains the ALIVE drones' centroid (not merely
-/// the nearest goal); it is <c>correct</c> when that goal's hat is inside the central
-/// <see cref="identifyCentralFraction"/> of some shown feed's image, within <see cref="identifyRangeM"/> of its
-/// camera, with no building in the way; otherwise a <c>false_alarm</c> (logged, the goal stays open) or, with no
-/// zone round the centroid, <c>out_of_zone</c>. Every press is logged with the scoring camera's distance, its feed
-/// and the feed the pilot's gaze was on. The experimenter's keys override the latest press's score (an
+/// believe the hat is on screen, and the press is scored on the spot. It is <c>correct</c> for an open goal whose
+/// hat is inside the central <see cref="identifyCentralFraction"/> of some shown feed's image, within
+/// <see cref="identifyMaxRangeM"/> of its camera, with no building in the way — at the press, or on any frame in the
+/// <see cref="identifyLookbackSec"/> before it, wherever the centroid is (the goal at the centroid first, else the
+/// most recent). With no such hat it is a <c>false_alarm</c> at the goal whose zone — the patch grown by
+/// <see cref="identifyZoneM"/>, analyse.py's 15 m zone — contains the ALIVE drones' centroid (logged, the goal stays
+/// open), or <c>out_of_zone</c> with no zone round the centroid. Every press is logged with the scoring camera's
+/// distance, how long before the press the hat passed (<c>passAgo</c>), its feed and the feed the pilot's gaze was
+/// on. The range, the look-back and the zone-free attribution date from 2026-11-06 (40 m, the press's frame only, and
+/// the centroid's zone before): all five of ERKS's presses the old rule refused were the right hat. The experimenter's keys override the latest press's score (an
 /// <c>outcome_override</c> event) and never create an identify of their own. The session finishes once every goal
 /// is resolved — identified correctly, or overridden — or on the end key. The verbal hat report is a secondary
 /// check only: with three hats it is right by chance a third of the time.</para>
@@ -93,14 +96,19 @@ public class ExperimentRecorder : MonoBehaviour
              "keys only override it. Legacy: a press or key answers the nearest unanswered goal and the key gives " +
              "the outcome.")]
     public IdentifyMode identifyMode = IdentifyMode.AutoScore;
-    [Tooltip("A press is for a goal when the alive drones' centroid is within this many metres of its patch " +
-             "(analyse.py's zone).")]
+    [Tooltip("A press with no hat on screen is a false alarm at the goal whose patch the alive drones' centroid is " +
+             "within this many metres of (analyse.py's zone), and out of zone with none.")]
     public float identifyZoneM = 15f;
+    // 80 m since 2026-11-06 (40 before: ERKS named a hat at 43 m). Renamed from identifyRangeM then, so every scene
+    // takes the new value rather than the 40 its YAML still holds under the old name; the session JSON keeps the key.
     [Tooltip("The hat must be within this of the camera whose feed shows it (analyse.py --range).")]
-    public float identifyRangeM = 40f;
+    public float identifyMaxRangeM = 80f;
     [Tooltip("...and inside this central share of that feed's image, horizontally and vertically.")]
     [Range(0.1f, 1f)]
     public float identifyCentralFraction = 0.8f;
+    [Tooltip("A press also counts a hat that passed the test this many seconds before it: a drone closing on the " +
+             "walker carries the hat down its frame in the second the pilot takes to press. 0 = the press's frame only.")]
+    public float identifyLookbackSec = 3f;
 
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
@@ -146,6 +154,10 @@ public class ExperimentRecorder : MonoBehaviour
         // SPHERE: the angles from the hat to the head's and the gaze's direction in the city at that press (-1 none).
         public float headHatDegAtAnswer = -1f;
         public float gazeHatDegAtAnswer = -1f;
+        // AutoScore: the last frame the hat passed HatOnShownFeed (session clock), and through which camera.
+        public float lastPassTime = float.NegativeInfinity;
+        public int lastPassFeed = -1;
+        public float lastPassCamDist = -1f;
     }
     private readonly List<GoalInfo> goals = new List<GoalInfo>();
     private bool referencesResolved = false;
@@ -268,6 +280,7 @@ public class ExperimentRecorder : MonoBehaviour
         }
 
         // Identify actions: the pilot's RC press, then the experimenter's key (edge-detected).
+        TrackHatPasses();
         PollRcIdentify();
         if (Input.GetKeyDown(correctKey)) RecordOutcome("correct");
         else if (Input.GetKeyDown(incorrectKey)) RecordOutcome("incorrect");
@@ -896,6 +909,58 @@ public class ExperimentRecorder : MonoBehaviour
     }
 
     /// <summary>
+    /// AutoScore: note, every frame, when each open goal's hat passes <see cref="HatOnShownFeed"/>, so that a press
+    /// can count a hat that passed up to <see cref="identifyLookbackSec"/> before it (<see cref="SeenGoal"/>).
+    /// </summary>
+    private void TrackHatPasses()
+    {
+        if (identifyMode != IdentifyMode.AutoScore || !rcIdentify || identifyLookbackSec <= 0f) return;
+        float t = Time.time - sessionStartTime;
+        foreach (GoalInfo g in goals)
+        {
+            if (g.answered && g.outcome == "correct") continue;
+            if (!HatOnShownFeed(g, out int feed, out float camDist)) continue;
+            g.lastPassTime = t;
+            g.lastPassFeed = feed;
+            g.lastPassCamDist = camDist;
+        }
+    }
+
+    /// <summary>
+    /// The open goal whose hat is on a shown feed at the press or passed the test within
+    /// <see cref="identifyLookbackSec"/> before it, or -1: the goal at the centroid if it qualifies, else the most
+    /// recent pass. Its camera and how long before the press it passed (0 = at the press) come with it.
+    /// </summary>
+    private int SeenGoal(int zoneGoal, float t, out int feed, out float camDist, out float passAgo)
+    {
+        int best = -1;
+        feed = -1;
+        camDist = -1f;
+        passAgo = -1f;
+        for (int i = 0; i < goals.Count; i++)
+        {
+            GoalInfo g = goals[i];
+            if (g.answered && g.outcome == "correct") continue;
+            float ago;
+            if (HatOnShownFeed(g, out int f, out float d)) ago = 0f;
+            else if (t - g.lastPassTime <= identifyLookbackSec)
+            {
+                ago = t - g.lastPassTime;
+                f = g.lastPassFeed;
+                d = g.lastPassCamDist;
+            }
+            else continue;
+            bool better = best < 0 || (i == zoneGoal) || (best != zoneGoal && ago < passAgo);
+            if (!better) continue;
+            best = i;
+            feed = f;
+            camDist = d;
+            passAgo = ago;
+        }
+        return best;
+    }
+
+    /// <summary>
     /// AutoScore: score a press (see the class summary). Correct answers the goal; a false alarm is counted and
     /// leaves it open; out of zone touches no goal. The press is remembered for the experimenter's override.
     /// </summary>
@@ -905,7 +970,11 @@ public class ExperimentRecorder : MonoBehaviour
         Vector3 centroid = AliveCentroid();
         int gazeFeed = EyeGazeTracker.EyeTrackingActive && EyeGazeTracker.Combined.IsValid ? GazeFeed(EyeGazeTracker.Combined) : -1;
         float t = Time.time - sessionStartTime;
-        int gi = GoalAtCentroid(centroid, out float zoneDist);
+        int zoneGoal = GoalAtCentroid(centroid, out _);
+        // A hat on a shown feed answers its goal wherever the centroid is (ERKS pressed for one from 15 m past the
+        // zone's edge); the zone only decides which goal a press with no hat on screen is a false alarm at.
+        int seenGoal = SeenGoal(zoneGoal, t, out int feed, out float camDist, out float passAgo);
+        int gi = seenGoal >= 0 ? seenGoal : zoneGoal;
         lastPressGoal = gi;
         lastPressTime = t;
         lastPressCentroid = centroid;
@@ -918,8 +987,9 @@ public class ExperimentRecorder : MonoBehaviour
         }
         GoalInfo g = goals[gi];
         float walkerDist = g.special != null ? Vector3.Distance(centroid, g.special.position) : -1f;
-        bool seen = HatOnShownFeed(g, out int feed, out float camDist);
-        string note = $"{where} feed={feed} camDist={F(camDist)} zoneDist={F(zoneDist)}";
+        float zoneDist = g.goal != null ? GoalZones.DistanceToPatch(g.goal, centroid) : -1f;
+        bool seen = seenGoal >= 0;
+        string note = $"{where} feed={feed} camDist={F(camDist)} passAgo={F(passAgo)} zoneDist={F(zoneDist)}";
         float headHatDeg = -1f, gazeHatDeg = -1f;
         if (Sphere360Display.Active)
         {
@@ -999,7 +1069,7 @@ public class ExperimentRecorder : MonoBehaviour
             Camera cam = fpv != null ? fpv.GetComponent<Camera>() : null;
             if (cam == null) continue;
             float d = Vector3.Distance(cam.transform.position, hat);
-            if (d > identifyRangeM || d >= best) continue;
+            if (d > identifyMaxRangeM || d >= best) continue;
             Vector3 v = cam.WorldToViewportPoint(hat);
             if (v.z <= 0f || Mathf.Abs(v.x - 0.5f) > half || Mathf.Abs(v.y - 0.5f) > half) continue;
             if (Physics.Linecast(cam.transform.position, hat, obstacleMask, QueryTriggerInteraction.Ignore)) continue;
@@ -1029,7 +1099,7 @@ public class ExperimentRecorder : MonoBehaviour
         Vector3 cam = s.LastRenderPosition;
         Vector3 rel = hat - cam;
         float d = rel.magnitude;
-        if (d > identifyRangeM) return false;
+        if (d > identifyMaxRangeM) return false;
         float band = s.Config.bandHalfDeg;
         if (band > 0f)
         {
@@ -1372,8 +1442,9 @@ public class ExperimentRecorder : MonoBehaviour
             goalSeedSource = GoalSession.HasSeed ? GoalSession.Source : "",
             identifyMode = identifyMode.ToString(),
             identifyZoneM = identifyZoneM,
-            identifyRangeM = identifyRangeM,
+            identifyRangeM = identifyMaxRangeM,
             identifyCentralFraction = identifyCentralFraction,
+            identifyLookbackSec = identifyLookbackSec,
             rcIdentifyDebounceSec = rcIdentifyDebounceSec,
             stitchingEnabled = stitching != null && stitching.StitchingEnabled,
             screenStyle = screenSpawn != null ? screenSpawn.screenStyle.ToString() : "",
@@ -1542,6 +1613,7 @@ public class ExperimentRecorder : MonoBehaviour
         // The identify rule this run was scored by (absent = a run before 2026-11-03: the 15 / 40 / 0.8 / 1 defaults,
         // unless a scene overrode them).
         public float identifyZoneM, identifyRangeM, identifyCentralFraction, rcIdentifyDebounceSec;
+        public float identifyLookbackSec;
         public int falseAlarms;            // AutoScore presses scored wrong, over every goal
         // False: no stitcher had any part in this run, so _stitch.csv's zeros are not a stitcher that failed to start.
         public bool stitchingEnabled;

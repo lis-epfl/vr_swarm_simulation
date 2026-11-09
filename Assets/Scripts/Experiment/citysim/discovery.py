@@ -15,6 +15,7 @@ matched that turn best at ~200 m (median lag 0.4 s; at 80 m the turn came 19 s b
 flown the same city before, so knowing where goals could be is mixed into it (analyse.py's discovery range check).
 
     loop_points(ring_rects)            the goal's walker loops as weighted points
+    polygon_loop_points(ring_polys)    the same round a block goal's convex footprints (BlockShaped cities)
     sample_expected(...)               walkers expected at ONE instant of a simulated track, for several ranges and
                                        head yaws at once (the search study checks every sample as it flies)
     track_expected(...)                walkers expected per sample of a simulated camera track (2-D sight lines)
@@ -37,6 +38,10 @@ R_GOAL_SENSITIVITY = (40.0, 120.0, 200.0)
 SEEN_WALKERS = 1.0
 LOOP_STEP_M = 1.0
 LOOP_EXPAND_M = walkers.BASE_OFFSET + 0.25 * walkers.MARGIN    # mean of 0.5 + U(0, 3) x 0.5 = 1.25 m off the facade
+# A block goal's walkers (BlockGoals, BlockShaped cities): ProceduralCityBuilder.prismWalkers per ring building, each
+# walking the footprint at its own gap in prismWalkOffset (1.1-1.5 m), corners rounded at that gap.
+PRISM_WALKERS = 16
+PRISM_EXPAND_M = 1.3
 TARGET_H = camera.HAT_HEIGHT_M
 
 
@@ -48,6 +53,31 @@ def loop_points(ring_rects, n_walkers=walkers.NUM_WALKERS, step=LOOP_STEP_M, exp
         m = max(int(math.ceil(lp.perimeter / step)), 8)
         s = (np.arange(m) + 0.5) * lp.perimeter / m
         pts.append(lp.local_xz(s) + [lp.cx, lp.cz])
+        w.append(np.full(m, n_walkers / m))
+    if not pts:
+        return np.zeros((0, 2)), np.zeros(0)
+    return np.vstack(pts), np.concatenate(w)
+
+
+def polygon_loop_points(ring_polys, n_walkers=PRISM_WALKERS, step=LOOP_STEP_M, expand=PRISM_EXPAND_M):
+    """loop_points for convex footprints (k, 2): each one grown by `expand` with its corners rounded at that gap
+    (WalkerPatrol's Polygon path), sampled every `step` m."""
+    from citysim.los import Prism
+    pts, w = [], []
+    for poly in ring_polys:
+        pr = Prism(poly, 0.0, 1.0)
+        P, (n, _) = pr.poly, pr.planes()
+        path = []
+        for i in range(len(P)):          # the arc round vertex i, from the incoming edge's normal to the outgoing
+            a0 = math.atan2(n[i - 1, 1], n[i - 1, 0])
+            turn = (math.atan2(n[i, 1], n[i, 0]) - a0) % (2 * math.pi)
+            th = a0 + turn * np.linspace(0.0, 1.0, 9)
+            path.append(P[i] + expand * np.c_[np.cos(th), np.sin(th)])
+        path = np.vstack(path + [path[0][:1]])
+        cum = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1))]
+        m = max(int(math.ceil(cum[-1] / step)), 8)
+        s = (np.arange(m) + 0.5) * cum[-1] / m
+        pts.append(np.c_[np.interp(s, cum, path[:, 0]), np.interp(s, cum, path[:, 1])])
         w.append(np.full(m, n_walkers / m))
     if not pts:
         return np.zeros((0, 2)), np.zeros(0)
