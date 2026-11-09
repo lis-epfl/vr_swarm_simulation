@@ -57,6 +57,8 @@ using UnityEngine.XR;
 /// </summary>
 public class ExperimentRecorder : MonoBehaviour
 {
+    // Values spelled out: Unity serialises enum fields by integer. Names are letters only, because analyse.py reads
+    // the condition out of the file stem with [A-Za-z]+ and skips a run whose name does not match.
     public enum Condition
     {
         Swarm = 0,

@@ -191,8 +191,13 @@ public class Sphere360Display : MonoBehaviour
         }
         if (swarm.Count != 1)
         {
-            Debug.LogError($"Sphere360Display: SPHERE is a one-drone display, but {swarm.Count} drones spawned. " +
-                           $"Showing {Drone.name} only; set the spawn count to 1.", this);
+            // InterfaceManager never hands it a swarm (swarmSpawn spawns one drone under SPHERE); a 360 camera is a
+            // single-drone condition, so refuse rather than show one drone of many.
+            Debug.LogError($"Sphere360Display: SPHERE is a one-drone display, but was handed {swarm.Count} drones. " +
+                           "Not starting.", this);
+            Drone = null;
+            enabled = false;
+            return;
         }
 
         Transform droneParent = Drone.transform.Find("DroneParent");

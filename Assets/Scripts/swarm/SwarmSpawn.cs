@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.VisualScripting;
 using UnityEngine;
 
@@ -70,6 +71,12 @@ public class swarmSpawn : MonoBehaviour
         // Create an empty GameObject to serve as the parent for all drones
         swarmParent = new GameObject("SwarmParent");
 
+        if (SphereDisplay && GetSpawnPositions(ignoreSphere: true).Skip(1).Any())
+        {
+            Debug.LogWarning("swarmSpawn: the SPHERE display is one drone's 360 camera, so one drone spawns at the " +
+                             "start position and the pattern's other drones do not.", this);
+        }
+
         // Spawn drones in the chosen pattern
         foreach (Vector3 dronePosition in GetSpawnPositions())
         {
@@ -119,9 +126,16 @@ public class swarmSpawn : MonoBehaviour
     /// Grid: dronesAlongX × dronesAlongZ lattice anchored at (start_x, start_y, start_z).
     /// CircleWithCentre: one drone at the start position and the other circleDroneCount - 1 evenly spaced
     /// on a ring of circleRadius around it. HollowCircle: all circleDroneCount drones on the ring.
+    /// Under the SPHERE display, whatever the pattern, only the start position: a 360 camera is a single-drone
+    /// condition, never a swarm's. ResetToPos reads the same list, so a reset puts that drone on the start too.
     /// </summary>
-    private IEnumerable<Vector3> GetSpawnPositions()
+    private IEnumerable<Vector3> GetSpawnPositions(bool ignoreSphere = false)
     {
+        if (SphereDisplay && !ignoreSphere)
+        {
+            yield return new Vector3(start_x, start_y, start_z);
+            yield break;
+        }
         if (IsCirclePattern)
         {
             int count = Mathf.Max(1, circleDroneCount);
@@ -159,6 +173,10 @@ public class swarmSpawn : MonoBehaviour
 
     public bool IsCirclePattern =>
         spawnPattern == SpawnPattern.CircleWithCentre || spawnPattern == SpawnPattern.HollowCircle;
+
+    // InterfaceManager.DisplayMode.SPHERE: one drone with a 360 camera (Sphere360Display).
+    private bool SphereDisplay =>
+        interfaceManager != null && interfaceManager.displayMode == InterfaceManager.DisplayMode.SPHERE;
 
     /// <summary>
     /// Instantiates a single drone at the given position, applies yaw, and registers it in the swarm.

@@ -417,9 +417,13 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
 - **One drone can carry a 360 camera, shown on a sphere round the pilot: `InterfaceManager.displayMode` `SPHERE`,
   the condition `SingleSphere`** (2026-11-06, build B of [docs/single_drone_360_camera.md](docs/single_drone_360_camera.md):
   `Sphere360Display`, `Assets/Shaders/Sphere360View.shader`, settings in `InterfaceManager.sphere360`). The
-  experimenter sets three things, one drone, the mode and the label, and the recorder's `condition_mismatch` checks
-  all three. No screens spawn: a hidden camera at the drone renders a cube (`RenderToCubemap`) at `refreshHz` (36),
-  and the sphere looks each pixel up in it. Not yet flown in the headset. Points worth keeping:
+  experimenter sets the mode and the label, and the recorder's `condition_mismatch` checks they agree with each other
+  and with the drone count. No screens spawn: a hidden camera at the drone renders a cube (`RenderToCubemap`) at
+  `refreshHz` (36), and the sphere looks each pixel up in it. Not yet flown in the headset. Points worth keeping:
+  - **It is a single-drone condition, never a swarm's** (2026-11-09, the user's call). Under SPHERE, `swarmSpawn`
+    spawns one drone on its start position whatever its pattern and count say (`GetSpawnPositions`, which
+    `ResetToPos` reads too), with a warning. A swarm handed to `InterfaceManager` anyway gets its feed screens and
+    an error, and `Sphere360Display.Begin` refuses more than one drone.
   - **A cube RenderTexture must be a power of two.** At any other size it fails to create, yet `RenderToCubemap`
     returns true and draws black, so `cubeSize` is an enum and creation is checked. 2048 is the default: about as
     many pixels on a walker as a feed at scale 1.3, shown 1.3x larger.
@@ -437,6 +441,29 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
 
     None missed a frame in flight. The flight itself held 71.8 fps in the headset as a feed. Headless means no Link
     compositor or encode, so check `_perf.csv` on the first headset flight.
+  - **The faces stay aligned with the world, so the display does the turning.** `Sphere360Display.DisplayToCity`
+    includes the screens' 90 deg (a world heading psi sits at display yaw psi + 90). `_head.csv` logs it as
+    `sphereYaw`: a head at arena yaw theta looks at city yaw theta - sphereYaw.
+  - **The lookup is by each eye's own view ray**, so the view is mono and at infinity and leaning changes nothing, as
+    in a 360 video. The shader is the project's first stereo-instanced one; without its `UNITY_*` macros it draws in
+    one eye only.
+  - **The camera's position and the heading are interpolated** (physics is 50 Hz with no Rigidbody interpolation),
+    one physics step behind, which leaves the flight bit for bit. PyUniSharingFast's lone-drone lock still turns the
+    rig in 50 Hz steps, and the sphere takes each step back (`90 + (bodyYaw - h)`), so a turn is smooth at 72 Hz.
+    `WorldFixed` turns the sphere with the rig instead, re-latched at each recentre (`PyUniSharingFast.CalibrationCount`).
+  - **It owns the backdrop while on:** CockpitRoom is disabled, the Arena box is hidden and the eye cameras clear
+    to black. A sphere that writes no depth is otherwise drawn over by the skybox or the box. The FPV camera's
+    `Camera` component is disabled but its transform still moves, because WalkerPatrol's sleep test reads it.
+  - **Each face counts as one FPV render** (`FPVCameraScript.CountRenders`), so `_perf.csv` `fpvRenders` stays
+    honest. A 2048 cube costs about what ten feeds do: 6.9 ms of main thread, measured headless in the patch city.
+  - **Scoring:** a hat counts within the identify range of where the cube was rendered, with a clear line, at any
+    bearing. That is the ring's rule, which does not check where the pilot looks either. Each press logs
+    `headHatDeg` / `gazeHatDeg` (per goal `headHatDegAtAnswer` / `gazeHatDegAtAnswer`), so the stricter reading can be
+    computed afterwards. analyse.py and citysim read a SPHERE session (`replay.sphere_view`) as one camera with no
+    horizontal field of view. The head basis is the hat's bearing within +-50 deg of `headYaw - sphereYaw`, and gaze
+    is not measured.
+  - `ProceduralCityProbe` with `PROCEDURAL_PROBE_SPHERE=1` checks all of it headless, including that the sphere
+    shows the city the right way round: against direct renders, and against the views a sign or 90 deg slip would give.
 - **The stitcher and the screen layout follow the configuration, and there are three of them**
   (`SwarmPlaneController.RefreshDisplayConfiguration`): vertical plane ⇒ `PLANAR` +
   `FORMATION_WALL`, horizontal with the gimbal down ⇒ `PLANAR` + `FORMATION_MAP`, horizontal

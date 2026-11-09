@@ -27,9 +27,10 @@ using UnityEngine.Rendering;
 /// object; the process exits 0 if every check passed.
 /// With <see cref="NoRecorderEnv"/> set to 1 a scene without a recorder (the practice scenes) is probed too, and the
 /// press and session checks, which need one, are reported as skipped.</para>
-/// <para>With <see cref="SphereEnv"/> set to 1 the scene is flown as the SingleSphere condition instead: one drone,
-/// <see cref="InterfaceManager.DisplayMode.SPHERE"/>, the matching label. The panorama and colliding-pair checks, which
-/// need feeds or two drones, give way to the sphere's: the cube is created, refreshed, counted six renders a refresh
+/// <para>With <see cref="SphereEnv"/> set to 1 the scene is flown as the SingleSphere condition instead:
+/// <see cref="InterfaceManager.DisplayMode.SPHERE"/> and the matching label, the spawn left as the scene has it. The
+/// panorama and colliding-pair checks, which need feeds or two drones, give way to the sphere's: SPHERE alone spawns
+/// one drone, on the start position, whatever the pattern asks for; the cube is created, refreshed, counted six renders a refresh
 /// and lit on every face; the sphere shows the city the right way round (the view through the sphere against a camera
 /// at the drone, at three headings, and against the turns a sign or 90 deg slip would give); a hat straight below the
 /// drone scores, and one out of range or behind a building does not; and the run records the display mode, the
@@ -46,6 +47,7 @@ public class ProceduralCityProbe : MonoBehaviour
 
     static string outPath;
     static bool sphereRun;
+    static int sceneDrones;   // what the scene's spawn pattern asks for, before SPHERE makes it one
     readonly List<string> lines = new List<string>();
     bool allOk = true;
     int lostA = -1, lostB = -1;   // the swarm-list indices of the pair flown into each other
@@ -64,12 +66,13 @@ public class ProceduralCityProbe : MonoBehaviour
         sphereRun = Environment.GetEnvironmentVariable(SphereEnv) == "1";
         if (sphereRun)
         {
+            // The spawn is left as the scene has it: SPHERE alone must make it one drone, at the start position
+            // (which is also why ResetToPos then puts it exactly where it is sent).
             swarmSpawn spawner = FindObjectOfType<swarmSpawn>();
             if (spawner != null)
             {
-                // One drone at the start position itself, so ResetToPos puts it exactly where it is sent.
-                spawner.spawnPattern = SpawnPattern.CircleWithCentre;
-                spawner.circleDroneCount = 1;
+                sceneDrones = spawner.IsCirclePattern ? Mathf.Max(1, spawner.circleDroneCount)
+                                                      : spawner.dronesAlongX * spawner.dronesAlongZ;
             }
             InterfaceManager im = FindObjectOfType<InterfaceManager>();
             if (im != null) im.displayMode = InterfaceManager.DisplayMode.SPHERE;
@@ -150,9 +153,15 @@ public class ProceduralCityProbe : MonoBehaviour
               $"{offPath} of {walkers.Count} walkers under 0.3 m or over {FootpathM - 0.1f:0.0} m from the nearest building " +
               $"(farthest {far:F2} m)");
 
-        // ---- the 360 sphere: its cube, and which way round it shows the city
+        // ---- the 360 sphere: one drone whatever the scene asks for, its cube, and which way round it shows the city
         if (sphereRun)
         {
+            Vector3 start = new Vector3(spawner.start_x, spawner.start_y, spawner.start_z);
+            Transform only = spawner.swarm.Count > 0 ? spawner.swarm[0].transform.Find("DroneParent") : null;
+            float fromStart = only != null ? new Vector2(only.position.x - start.x, only.position.z - start.z).magnitude : -1f;
+            Check("SPHERE spawns one drone", spawner.swarm.Count == 1 && Sphere360Display.Active && fromStart < 3f,
+                  $"the scene's pattern asks for {sceneDrones}; {spawner.swarm.Count} spawned, {fromStart:F1} m from the " +
+                  $"start position (horizontally), sphere active {Sphere360Display.Active}");
             yield return CheckSphereCube();
             yield return CheckSphereOrientation();
         }

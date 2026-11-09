@@ -16,8 +16,9 @@ public class InterfaceManager : MonoBehaviour
 
     [Header("Interface Display Mode")]
     [Tooltip("SCREENS: a feed screen per drone. SPHERE: one drone carries a 360 camera, shown on a sphere round the " +
-             "pilot (set the spawn count to 1 and the recorder's condition to SingleSphere). Read when the swarm " +
-             "spawns; changing it in Play does nothing.")]
+             "pilot. SPHERE is single-drone only: swarmSpawn then spawns one drone at its start position whatever " +
+             "its pattern says. Set the recorder's condition to SingleSphere. Read when the swarm spawns; changing " +
+             "it in Play does nothing.")]
     public DisplayMode displayMode = DisplayMode.SCREENS;
 
     [Tooltip("The 360 camera and its sphere, used only in the SPHERE display mode.")]
@@ -99,6 +100,7 @@ public class InterfaceManager : MonoBehaviour
     private List<GameObject> swarm;
     private bool screensSpawned = false;
     private Sphere360Display sphereDisplay;
+    private bool sphereRefused;     // SPHERE was set but more than one drone spawned (see StartSphere)
     private bool modeChangeWarned;
 
     /// <summary>
@@ -313,10 +315,21 @@ public class InterfaceManager : MonoBehaviour
     }
 
     // SPHERE replaces the screens rather than sitting beside them: no screen is spawned, so ScreenSpawn never moves
-    // the rig or drives the FPV cameras, and Sphere360Display does both its own way.
+    // the rig or drives the FPV cameras, and Sphere360Display does both its own way. It is a single-drone condition:
+    // swarmSpawn spawns one drone under it, and a swarm handed here anyway gets its feed screens, never 360 cameras.
     private void StartSphere()
     {
-        if (displayMode != DisplayMode.SPHERE || sphereDisplay != null || swarm == null || swarm.Count == 0) return;
+        if (displayMode != DisplayMode.SPHERE || sphereDisplay != null || sphereRefused || swarm == null ||
+            swarm.Count == 0) return;
+        if (swarm.Count != 1)
+        {
+            sphereRefused = true;
+            Debug.LogError($"InterfaceManager: the SPHERE display is one drone's 360 camera, and {swarm.Count} drones " +
+                           "spawned; showing their feed screens instead.", this);
+            if (spawnScreens != null && !spawnScreens.IsSpawned) spawnScreens.SpawnScreens(swarm);
+            screensSpawned = true;
+            return;
+        }
         sphereDisplay = GetComponent<Sphere360Display>();
         if (sphereDisplay == null) sphereDisplay = gameObject.AddComponent<Sphere360Display>();
         sphereDisplay.Begin(swarm, sphere360);
@@ -324,7 +337,7 @@ public class InterfaceManager : MonoBehaviour
 
     void LateUpdate()
     {
-        if (swarm == null || modeChangeWarned) return;
+        if (swarm == null || modeChangeWarned || sphereRefused) return;
         if ((displayMode == DisplayMode.SPHERE) != (sphereDisplay != null))
         {
             modeChangeWarned = true;
