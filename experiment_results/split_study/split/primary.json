@@ -1,0 +1,9 @@
+{
+ "hypothesis": "H1",
+ "measure": "share of radiating streets previewed at the commit (search band)",
+ "contrast": "swarm_hop - swarm_hold at the profile's separation",
+ "n_cities": 48,
+ "mean_diff": 0.0715,
+ "t": 32.97658000932664,
+ "p_one_sided": 1.8973927189452635e-34
+}

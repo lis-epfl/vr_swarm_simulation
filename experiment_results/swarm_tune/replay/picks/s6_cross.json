@@ -1,0 +1,35 @@
+{
+ "pick": {
+  "key": "s6_cross",
+  "kind": "cross",
+  "k": 2002,
+  "title": "A straight line across the city",
+  "first": "tuned",
+  "why": "the typical straight line (of those meeting three buildings): its tuned-minus-old difference (0.64 m/s) is the nearest to the median of its kind (0.76 m/s, 30 routes)",
+  "met": 4
+ },
+ "flights": {
+  "single_new": [
+   "s6_cross_single_new_replica",
+   "s6_cross_single_new_unity"
+  ],
+  "single_old": [
+   "s6_cross_single_old_replica",
+   "s6_cross_single_old_unity"
+  ],
+  "tuned": [
+   "s6_cross_tuned_replica",
+   "s6_cross_tuned_unity"
+  ],
+  "old20": [
+   "s6_cross_old20_replica",
+   "s6_cross_old20_unity"
+  ],
+  "old108": [
+   "s6_cross_old108_replica",
+   "s6_cross_old108_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

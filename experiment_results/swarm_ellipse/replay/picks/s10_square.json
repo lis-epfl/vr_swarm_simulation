@@ -1,0 +1,37 @@
+{
+ "pick": {
+  "key": "s10_square",
+  "kind": "face",
+  "k": 18003,
+  "title": "Square on at a long building",
+  "conds": [
+   "c35a",
+   "e35a",
+   "c35",
+   "e35"
+  ],
+  "first": "e35a",
+  "met": 1,
+  "why": "the square-on approach at the longest building met square on (its footprint's aspect 1.90)"
+ },
+ "flights": {
+  "c35a": [
+   "s10_square_c35a_replica",
+   "s10_square_c35a_unity"
+  ],
+  "e35a": [
+   "s10_square_e35a_replica",
+   "s10_square_e35a_unity"
+  ],
+  "e35": [
+   "s10_square_e35_replica",
+   "s10_square_e35_unity"
+  ],
+  "c35": [
+   "s10_square_c35_replica",
+   "s10_square_c35_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

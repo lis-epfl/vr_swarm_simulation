@@ -1,0 +1,36 @@
+{
+ "part": "B",
+ "study": "S5",
+ "design": "s20",
+ "what": "20 m streets",
+ "city": {
+  "variant": "B"
+ },
+ "designs": [
+  [
+   40.0,
+   20.0
+  ]
+ ],
+ "city_seed0": 200,
+ "cities": 8,
+ "targets": 4,
+ "T_s": 1200.0,
+ "conditions": [
+  "single",
+  "swarm_street",
+  "swarm_hold",
+  "swarm_pass",
+  "swarm_hop"
+ ],
+ "chosen": {
+  "40|20": {
+   "mode": "firm",
+   "T": 20.0,
+   "d": 1.2
+  }
+ },
+ "sight_m": 250.0,
+ "d_street": 1.2,
+ "frontier_min_m": 20.0
+}

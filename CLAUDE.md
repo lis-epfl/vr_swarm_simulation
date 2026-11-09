@@ -13,8 +13,8 @@ Two largely independent subsystems — touching one rarely affects the other:
   swarm flight control          VR display / capture      |   real-time stitching
   SwarmManager → SwarmAlgorithm  PyUniSharingFast  ──MMF──>|   StitcherThreading
    → OlfatiSaber/Reynolds         screenSpawn     <─MMF────|    → StabStitcher (StabStitch++)
-   → AttitudeAlgorithm                                     |
-   → VelocityControl                                       |
+   → AttitudeAlgorithm                                     |    → PlanarStitcher (pose-driven)
+   → VelocityControl                                       |       → planar_geometry
   └──────────────────────────────────────────────┘       |  └─────────────────────────┘
 ```
 
@@ -26,51 +26,2549 @@ Four Windows named memory maps. **If you change a layout/offset, change both
 Every block-flag handshake is strictly **one producer + one consumer** — never add a second
 reader/writer to a map; that's why the feed and stitch maps are separate.
 
+**Every section has exactly one size, forever, and it is a compile-time constant on both sides.**
+A named Windows section cannot be resized: `CreateFileMapping` opens the existing one when the name is
+taken and denies a larger request. So no section size may depend on the drone count, the stitcher, or
+the resolution — only on constants that `tools/check_wire_layout.py` asserts equal across all three
+files. Sizes that varied at runtime are what produced the intermittent access-denied crashes.
+
 - `MetadataSharedMemory` — sizes + stitcher config + blur/border + quality settings + **body/pilot yaw**
-  (yaw also rewritten every frame at a fixed offset). This is the integrated *body heading*
+  (yaw **and** the PLANAR standoff + its resolved source are also rewritten every frame at fixed
+  offsets — 248, 364 and 396). This is the integrated *body heading*
   (`PyUniSharingFast.bodyYaw`): seeded from the HMD's initial yaw, then advanced only by the controller
   yaw-rate command — **not** live HMD direction, so head-look doesn't move the panorama.
-- `BlockSharedMemory` — the **stitcher input**: 3 slots ordered left/centre/right, one block per selected
-  drone: `int flag | int droneId | float heading | RGB24 image`. `flag` is the handshake (0 = ready,
-  1 = busy). Images are **640×360 BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole producer:
-  sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep `enableImageWriting`
-  off on `PyUniSharingFast` there).
+  It also carries a seqlocked **dynamic block** (scene plane, gimbal pitch, planar centre drone id,
+  planar canvas zoom/pan) — see the PLANAR section. Its total size is pinned at 412 bytes: new tail
+  fields come out of `metadataReservedGap`, because changing the size would strand an already-running
+  Python. The static tail's padding filled up at 311, so the estimator settings (344–367) sit *after*
+  the dynamic block, and the canvas zoom/pan/mode (368–380) after those — the zoom/pan are **seqlocked
+  despite not being contiguous with the block**, since pan is an offset from the origin the centre
+  drone defines. Both sides address every tail field by absolute offset, so the ordering is cosmetic,
+  but it is why `readMetadataMemory` and `read_dynamic_state` each seek more than once rather than
+  reading straight through. The tail ends with a **producer heartbeat** (384, bumped every Unity frame)
+  and the **section geometry** (388–395 capacity/stride, 404–411 the two section sizes) — see the
+  `BlockSharedMemory` entry for why both exist.
+- `BlockSharedMemory` — the **stitcher input**, one block per selected drone. `flag` is the handshake
+  (0 = ready, 1 = busy). Images are **BGR, top-down**. Sole consumer: `StitcherThreading.py`. Sole
+  producer: sim = `PyUniSharingFast`; real-drone mode (DJIScene) = `ImageSharing.cs` (so keep
+  `enableImageWriting` off on `PyUniSharingFast` there). Unity publishes the header size as
+  `blockHeaderSize` in metadata and Python reads that rather than assuming, so the size is declared in
+  exactly one place even though two components write blocks:
+  - **v1, 12 bytes** — `int flag | int droneId | float heading | RGB24 image`. Historical; **no
+    producer writes it any more**. Kept named because the constant is what `check_wire_layout.py`
+    asserts against, and because a v1 producer's blocks are still *readable* — they simply arrive with
+    `poseStatus == 0` and are dropped by the planar solve.
+  - **v2, 48 bytes** — appends `float camPos[3] | float camRot[4] (xyzw) | float captureTime |
+    int poseStatus`, all in **Unity world / left-handed**. Required by `PLANAR`, written by **both**
+    producers. The pose lives in the block, not in metadata, because it must be the pose of *that*
+    frame: it is snapshotted in `RequestBlockCapture` 1–2 frames before the readback completes, and
+    Python may re-serve a cached block, which then needs its own pose. On the real-drone path the same
+    argument is why the pose is computed in the DJI producer's `frame_sink` — the image bytes and the
+    telemetry come out of one `ds_wrapper` fetch there, which is the tightest pairing available.
+  - `captureTime` is **seconds since the producer started, not a wall clock**. The field is float32, in
+    which `time.time()` (~1.75e9) has ~128 s of resolution; it is only ever read as a difference
+    (`MAX_CAPTURE_SKEW_S`), so a since-start clock is both sufficient and the only one that works.
+
+  **The section is a fixed array of fixed-stride slots, created once and never recreated.**
+  `blockSlotCapacity` (24) × `blockSlotStride` (48 + 1280×720×3) = `blockSectionBytes`, all
+  compile-time constants mirrored in `PyUniSharingFast.cs`, `ImageSharing.cs` and
+  `StitcherThreading.py`. This is not a tuning choice — a named Windows section **cannot be
+  resized**. `CreateFileMapping` (and Python's `mmap.mmap(-1, size, tagname)`, which is the same
+  call) opens the *existing* section when the name is taken, and a request **larger** than it fails
+  with `ERROR_ACCESS_DENIED`. Sizing the section to the live drone count, as it used to be, therefore
+  deadlocked against whichever process held the old size; that was the "access denied on
+  BlockSharedMemory" failure, and because Unity's failure path left `blockPtr` null it silently
+  stopped publishing for the rest of the session. Three paths used to resize it — `SetStitcherType`
+  (3 slots ⇄ N), the 3 s `UpdateCameras` tick, and `OnValidate` — and all three are gone.
+  Consequences worth keeping:
+  - Slot `i` is **always** at `i * blockSlotStride`. Neither the fleet size, the stitcher, nor the
+    resolution moves a slot. Only the *payload length* (`blockImageWidth × blockImageHeight × 3`) is
+    live, and it is read from metadata; the rest of each slot is padding. The image envelope is
+    therefore load-bearing: `CalculateMemorySizes` clamps to 1280×720 with a `LogError`, and Python
+    refuses to run on a payload that would overrun the stride.
+  - `blockImageCount` (metadata) is now a **scan hint**, not a size — how many slots are worth
+    polling. `droneId == -1` is the only thing that marks a slot as carrying no view, set
+    **including at creation** over the whole capacity, because a fresh section is zero-filled and `0`
+    is a legal drone id: an unwritten slot would otherwise advertise a ready block from drone 0 with
+    an all-zero (degenerate) quaternion. Most slots stay at that sentinel for a whole session.
+  - Python's sufficiency test is a **floor** (`>= MIN_STITCH_IMAGES` / `>= MIN_PLANAR_IMAGES`), not
+    `len(views) == num_blocks`. The old equality only worked while the section was sized to exactly
+    the three slots STABSTITCH fills; against a fixed capacity it is permanently false.
+  - The readback pool is still sized to two full batches (`EnsureReadbackPool`): with a pool smaller
+    than the per-send slot count, `AcquirePendingSlot` starves the *same* tail slots every send, so
+    they are never written at all rather than merely late.
+  - **Each readback is converted straight into its block** (`bridge.inPlaceReadback`, default on):
+    the Burst RGBA→BGR job writes through a pointer into the mapped section while the flag is held,
+    instead of converting into scratch, copying that into a managed array and copying the array in —
+    three full-image passes on the main thread per block, ten blocks per PLANAR send. Same bytes on
+    the wire. It is the bridge's only pointer code (`ConvertReadback` / `ScratchBlockPtr`), enabled
+    for Assembly-CSharp by `Assets/csc.rsp` (`-unsafe`) rather than the Player setting, because an
+    editor holding the project open does not pick up a ProjectSettings edit made on disk.
+  - `PyUniSharingFast` appends `STITCH_SHM_SUFFIX` to its section names, as `StitcherThreading.py`'s
+    `shm_name()` does, so a benchmark copy of the project can run the real bridge and Python on
+    private sections beside a live editor.
+  - **There is no per-stitcher view knob.** `maxStitchViews` and `ImageSharing.stitchSlots` are gone;
+    `PLANAR` mosaics every alive drone that passes the plane-hit/range/obliquity tests, and
+    STABSTITCH still writes its three. Switching stitcher no longer touches the wire at all.
+
+  **`PyUniSharingFast` publishes `blockImageCount` + `blockHeaderSize` even when it is not the
+  producer**, because only this component writes metadata. In the DJI scene the section is created by
+  `ImageSharing.cs`, so `PublishedSlotCount()` advertises the whole capacity there rather than
+  clamping to `camerasToCapture` — that scene has no sim FPV cameras, and a hint of 0 makes Python
+  scan no slots at all, so the real-drone panorama silently never appears.
+  `create` and `describe` being split across two files that never reference each other is the
+  hazard, and it now cuts twice: both components request the *same named section*, so unequal sizes
+  deny whichever starts second. `tools/check_wire_layout.py` asserts the header size, the LRC count
+  and the full section geometry across both files, and — when the `DJI_Swarm` repo is checked out
+  beside this one — the feed header across both repos too.
+
+  **Python fails loudly rather than limping** (`_fatal`): an unmappable section, a geometry
+  disagreement with the producer, or a **heartbeat** that has not advanced for 5 s all print a
+  diagnostic and exit non-zero. The heartbeat is the only signal that distinguishes "Unity is idle"
+  from "Unity has crashed" — closing the producer's handle does not destroy the section while Python
+  holds it, so every block keeps its last contents and the stitcher would otherwise render a frozen
+  panorama forever.
 - `DroneFeedSharedMemory` — **all real-drone feeds** (DJIScene only), same per-block layout as above but
-  a fixed capacity of **10 blocks** indexed by zero-based drone id (must match `MAX_DRONES` in the
-  DJI_Swarm repo's `image_stream_feed.py`, which is the producer). Consumer: `ImageSharing.cs`, which
-  displays the feeds and re-publishes the 3 body-yaw-selected views into `BlockSharedMemory`
-  (`PublishStitchBlocks`). Unity marks unwritten **and already-consumed** blocks with `droneId == -1`
+  a fixed capacity of **10 blocks** indexed by zero-based drone id, followed by a **64-byte
+  scene-plane trailer**. Every constant lives in the DJI_Swarm repo's
+  `utils/imageSharingUtil.py` as `FEED_*` (not in `image_stream_feed.py` — `check_wire_layout.py`
+  parses the former and asserts it against `ImageSharing.cs`, and does not parse the latter).
+  Its per-block stride is fitted to the 800×450 feed and is **not** `blockSlotStride` — the two maps
+  are sized independently.
+  Consumer: `ImageSharing.cs`, which displays the feeds and re-publishes the selected views into
+  `BlockSharedMemory` (`PublishStitchBlocks`: the 3 body-yaw-selected ones under STABSTITCH, every
+  fresh feed under PLANAR). Unity marks unwritten **and already-consumed** blocks with `droneId == -1`
   (the producer rewrites `droneId` every write) — that marker is the new-frame detection, since the
   flag alone can't distinguish a fresh frame from a re-read.
+
+  **The trailer carries `planarStandoffMetres` from the PC**, seqlocked, and is the one place this
+  system grows a section that was already sized — which is normally how you earn
+  `ERROR_ACCESS_DENIED`. It is safe *only* because Windows compares **page-rounded** sizes: the block
+  array is 10,800,480 B, which rounds to 10,801,152 (2637 × 4 KB), leaving **672 already-backed
+  bytes**. Measured on Windows 11: create at the block size and open at +672 succeeds in either
+  order, +673 is denied. So a Unity carrying the trailer and a DJI_Swarm predating it interoperate in
+  both start orders, and the trailer just reads zero. `check_wire_layout.py` asserts
+  `page(FeedSectionBytes) == page(FeedBlocksBytes)` for that reason — **past 672 bytes both cross
+  orders become fatal and the feed dies**, so the bound is machine-checked, not a comment. Both sides
+  also carry a two-step fallback to the pre-trailer size; on the Python side that is not decoration,
+  because `ImageStreamPublisher.__init__` runs before the aircraft arm and an unhandled `OSError`
+  there takes down the flight controller rather than merely the mosaic.
+  Unity **never writes** the trailer (`Start`'s block-init loop stops at `MaxFeedBlocks`), and
+  `PyUniSharingFast` must never map this section — `ImageSharing` is its sole consumer and hands the
+  value over on `ImageSharing.FeedStandoff*` statics, the same shape as `PlanarSelected`/`BodyYawDegrees`.
 - `PanoramaSharedMemory` — `int flag | int quality_ok | RGB24 panorama`. `quality_ok == 0` ⇒ Unity shows
   individual feeds instead of the panorama. Panorama is **vertically flipped and converted BGR→RGB** by
   Python (Unity textures start bottom-left; Unity uploads the bytes straight into an RGB24 texture).
+  Fixed-size for the same reason as the block section: `panoramaSectionBytes` (8 + 4000×4000×3) on
+  both sides, with the live panorama written as a *prefix*. Unity always used the constant; Python
+  used to ask for `w*h*3 + 8`, so whichever process created the section first denied the other — and
+  unlike the block map that path had no retry, so the symptom was a curved screen that simply never
+  updated for the whole session.
+  **The quality word's upper 16 bits are a panorama sequence number** (`PANORAMA_SEQ_SHIFT` /
+  `panoramaSeqShift`, asserted by `check_wire_layout.py`), bumped on every image write and never 0.
+  Unity uploads the texture only when it changes, and after `readInterval` re-checks every frame
+  until it does. The old timer read beat against Python's own ~30 Hz cadence: on the bridge bench it
+  re-uploaded ~10% of panoramas already on screen and never showed another ~10%, and each upload is
+  a main-thread `LoadRawTextureData` + `Apply` whose RGB24→RGBA32 conversion (D3D11 has no 24-bit
+  format) grows with the panorama size. `0` is a producer without the counter and gets the old
+  upload-every-read behaviour, so either side can be updated first.
+  **Measured, not adopted (2026-09-29):** uploading the same bytes as an R8 texture three times as
+  wide (a format D3D11 takes as-is) and swizzling them into an sRGB RGBA target with a one-pass blit
+  is byte-exact and saves only ~0.65 ms of main-thread time per 2400×900 upload (1.30 → 0.66 ms;
+  frame time 2.50 → 1.78 ms), too little beside the FPV renders to justify a second texture path.
+  (The unpack is three `Load`s per pixel with the exact piecewise sRGB decode, so the target's
+  sRGB encode on write returns the uploaded byte.)
 
 ## Conventions & invariants (not enforced by code)
 
-- **Coupled 3-view selection:** the body-yaw-relative left/centre/right pick exists in C#
-  (`PyUniSharingFast.SelectStitchCameras` for sim, `ImageSharing.PublishStitchBlocks` for real drones)
-  and in Python (`get_drone_order` + `get_subsets_from_order`) and all three must agree.
-- **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Stitching and the
-  `OUTER_CIRCLE` screen layout only use boundary drones.
+- **Coupled 3-view selection** (all stitchers *except* `PLANAR`)**:** the body-yaw-relative
+  left/centre/right pick exists in C# (`PyUniSharingFast.SelectStitchCameras` for sim,
+  `ImageSharing.PublishStitchBlocks` for real drones) and in Python (`get_drone_order` +
+  `get_subsets_from_order`) and all three must agree. Those two Python functions are
+  left/centre/right-only — `PLANAR` does not use them.
+- **Planar selection is C#-only:** `PyUniSharingFast.SelectPlanarStitchCameras` picks the views and
+  Python consumes that selection rather than re-deriving it, so there is only one rule to keep in sync.
+  It deliberately does **not** filter on `BoundaryEstimate`: in vertical-plane mode the convex hull is
+  the *rim of the wall*, so boundary drones are exactly the wrong subset (every drone in the wall sees
+  the facade), and in nadir the interior drones tile the middle of the mosaic. The boundary rule exists
+  because the radially-outward config nests interior views inside other views.
+- **The planar centre drone is also C#-only**, and picked by a different rule from every other stitcher:
+  `SelectPlanarCentreCamera` takes the alive drone nearest the swarm centroid *measured in the swarming
+  plane* (`SwarmPlaneController.GetPlaneAxes`), with metre-valued hysteresis. It is **not**
+  `SelectStitchCameras`'s "camera yaw closest to body yaw" rule, which is only meaningful for the
+  radially-outward ring: in vertical-plane mode `AttitudeAlgorithm` drives every drone to one shared
+  target heading, so yaw proximity is a tie broken by jitter and the centre changes almost every frame.
+  That matters because the scene-plane raycast originates at this camera and `PlanarStitcher` frames the
+  canvas on it — a flickering centre both steps the published plane offset and slides the mosaic.
+  **A steadier heading is not grounds for reverting this to the yaw-proximity rule.** The argument is
+  structural, not about jitter: under a shared heading yaw proximity has no unique answer at all, and
+  it still has none however well `VelocityControl`'s heading hold holds the drones on it.
+- **Vertical-plane mode has no leader drone, and adding one back is a regression.** The plane's heading
+  is a setpoint `SwarmPlaneController` owns (`TargetYaw`, seeded from the swarm's circular-mean heading
+  on entry, then advanced only by the yaw stick), its offset along the normal is the swarm centroid
+  (`PlaneOrigin`), and the vertical leash centre is latched from that centroid and moved by the climb
+  stick (`ReferenceAltitude`). Every drone then converges on the heading through the *same* law —
+  `plane.TargetYawRate` as feed-forward plus `YawCorrectionFactor ×` its own error, summed and clamped
+  to `maxYawRate` in `VelocityControl`. This is the real fleet's scheme
+  (`DJI_Swarm joystick_controller.heading_hold_rate` + `swarm_plane.py`), and it is deliberate: the
+  earlier design nominated an *anchor* drone that took the stick directly, had its swarm force zeroed,
+  and supplied both the plane offset and the vertical reference, while the rest P-tracked its live
+  compass. That drone turned at the full stick rate and the wall trailed it through the yaw filter, the
+  inner rate loop and drag — one important drone and n−1 followers. Two consequences worth keeping:
+  - **`maxTargetLeadDeg` (25°), not the stick gain, is what holds the headings together through a
+    turn.** On the fleet, `YAW_RATE_DEG_S` (60) deliberately exceeds the PC's 40 °/s clamp, so a
+    full-stick turn is rate-saturated and the debt is guaranteed. **The sim does not reproduce that
+    clamp:** `maxYawRate` is the Mini 3 Pro airframe's 75 °/s (1.309 rad/s), *above*
+    `targetYawRateDegPerSec` (60), so here the debt comes only from the drones lagging the setpoint —
+    through every turn's entry, and indefinitely for a drone something is holding back. Clamping how far
+    the setpoint may lead the swarm's *measured* mean heading is what stops a sustained turn banking up
+    a heading debt the drones keep paying off after the stick is centred. The clamp acts only while the
+    stick is deflected, so at centre stick the hold keeps full authority and a disturbance never drags
+    the setpoint along with the wall. There is now a **second** lead clamp one level down
+    (`VelocityControl.maxHeadingHoldErrorDeg`); the two do not fight, because this one bounds the
+    shared setpoint against the swarm *mean* and that one bounds each drone's own setpoint against its
+    own heading, and they meet only through the measured heading this clamp already tracks.
+  - **The reference altitude is latched, not the live centroid.** A live centroid leaves the mean
+    altitude a free mode: the leash would bound each drone's spread about the mean while the mean drifted
+    on the net vertical bias the swarm forces carry (cohesion and the plane pull are zero-sum, ground
+    repulsion is not). It tracks the climb stick at the rate read off the drones' own `maxAltitudeRate`,
+    so the leash cannot clip a climb the pilot is commanding.
+- **The altitude ceiling is a hard cap on the height *setpoint*, measured from the Terrain, and it is
+  per scene.** `SwarmManager.maxHeightAboveTerrain` (0 = off) is pushed into every drone through
+  `SwarmAlgorithm`'s params update, and `VelocityControl` clamps `desired_height` to
+  `terrain + limit` — the symmetric counterpart of the `MinHeight` floor applied immediately after
+  it, with the floor winning if the two ever cross. Points worth keeping:
+  - **Clamping the setpoint rather than the stick is what keeps it free of windup.**
+    `desired_height` is clamped *in place*, so holding the climb stick at the ceiling stores nothing
+    and pushing back down moves the drone on the first tick. The same argument applies one level up,
+    which is why `SwarmPlaneController.IntegrateReferenceAltitude` clamps the wall's reference
+    altitude to the same ceiling at the centroid: left alone, a held stick walks that reference past
+    a ceiling the drones cannot follow it through, and every metre of it has to be flown back before
+    the stick does anything visible.
+  - **The swarm's upward force is dropped above the ceiling as well, and only in the horizontal
+    case.** In a tilted plane the swarm already drives the setpoint (`verticalSwarmAuthority`), which
+    the clamp bounds; in a horizontal formation its vertical force goes straight into thrust, where
+    the clamped setpoint does not reach it and a sustained upward pull from the lattice would simply
+    sit on top of the cap. Only the upward half is dropped, so a drone held at the ceiling still
+    settles back into the formation.
+  - **In plane mode a climb stick is dropped once the wall's reference altitude is pinned at the
+    ceiling, and the test has to be that reference rather than the drone's own setpoint.** A stick
+    left in the sum is added and clamped away every tick, which cancels the swarm's vertical term
+    exactly — so a wall flown up into the ceiling **pancakes flat against it** instead of re-forming
+    below, and drones end up in each other's cells. Measured on a headless ScaledCityWorld wall, 60 s
+    of full climb stick: plain clamp, the wall collapses to 51.24–51.33 m and **2 of 10 drones are
+    lost to a drone-drone collision at the cap**; with the stick dropped it keeps 37.9–51.3 m of
+    spread and loses none, the top still exactly at the ceiling. Gating on the drone's own setpoint
+    instead is worth nothing (it measured *worse*, 4 lost): the swarm pushes the setpoint a tick's
+    worth below the cap and that very dip re-enables the stick, which puts it straight back. The
+    same flattening is what the pre-existing `MinHeight` floor does at the bottom — the first bench
+    arm lost a pair that way at 1.8 m — and it is not addressed here.
+  - **Measured from the Unity Terrain under the drone, not from a downward raycast.** A raycast
+    ceiling rides up over the rooftops, which both defeats the point (a drone could sit at
+    `limit + 50` over a building) and shoves it down hard at every roof edge. Past the edge of the
+    terrain the nearest tile answers rather than nobody (`TerrainHeightSampler`), so flying off the
+    map is not a way out from under the ceiling; a scene with **no** Terrain — DJIScene,
+    FactoryScene — has no ground to measure from and gets no ceiling at all.
+  - **The flown ceiling is ~1.3 m above the number**, because the height PD holds each drone that far
+    above its setpoint (the `ForceMode.Acceleration` linear twin above). Fixing that is its own
+    change; do not compensate for it here, or the compensation becomes wrong the day it is fixed.
+  - The value belongs to the scene's geometry, so it is per scene: `ScaledCityWorld` 50, exactly its
+    uniform skyline, so the swarm must fly *around* a building rather than over it; `CityWorld` and
+    `CrowdWorld` 150, because the pack's unscaled buildings reach ~136; `RingChallenge` and
+    `NBackExperiment` 80, comfortably above their content (~47 and ~56); `VoronoiCityWorld` 45, under its
+    uniform 50 m roofs, because its coverage levels only mean something while the cameras cannot see over them.
+- **The heading loop is a cascade, and `AttitudeAlgorithm` is the PC, not the flight controller.**
+  On the real fleet the PC sends a yaw *rate* (`YawControlMode.ANGULAR_VELOCITY`) and the DJI FC holds
+  heading off its own IMU whenever that rate is zero. `AttitudeAlgorithm` is the analogue of the PC's
+  `heading_hold_rate`; the FC's half lives in `VelocityControl` (`headingSetpoint`, `headingHoldKp`),
+  and until it was added there was **no heading loop at all** below the outer one — only a rate loop.
+  Anything that knocked the nose off heading came back at well over a second, which is what made every
+  screen on the ring slide whenever the pilot changed the velocity command. Worth keeping:
+  - **The order in `VelocityControl` is load-bearing.** `yawFilterCoefficient` is a command prefilter
+    on the *outer* rate and nothing downstream of it — the heading-hold P term is disturbance rejection
+    and is added after, unlagged. The setpoint integrates the **post**-filter rate, or it runs
+    permanently ahead by `τ_EMA × rate` and owes all of it back at stick release. And `maxYawRate`
+    clamps the **sum**, as `heading_hold_rate` does, not the feed-forward alone.
+  - **The lead clamp is unconditional here and gated on the fleet.** The fleet gates on `ff_rate != 0`
+    because `KP_YAW × 25° = 20 °/s` is *below* its 40 °/s clamp, so a pinned setpoint would cap its
+    correction below the actuator limit. Here `headingHoldKp × maxHeadingHoldErrorDeg` (2.2 rad/s) is
+    above `maxYawRate` (1.309), so the rate clamp binds first and the clamp costs nothing. The invariant is
+    `headingHoldKp * maxHeadingHoldErrorDeg * Deg2Rad >= maxYawRate`; below it, restore the gate.
+  - **The setpoint is back-calculated: it advances only by the part of the rate the `maxYawRate` clamp
+    let through, and that correction may slow the advance but never reverse it.** Without it the
+    setpoint integrates a rate the airframe cannot fly — through every spin-up, and whenever the outer
+    command exceeds the limit — and the aircraft overshoots the target by the whole lead on arrival
+    (12–19° in a replica of the loop at outer gains of 2–3). This is what lets `YawCorrectionFactor`
+    be 3 rather than the fleet's `KP_YAW` 0.8. The one-sided limit is what keeps disturbance
+    rejection intact: an unlimited back-calculation drags the setpoint toward wherever a large enough
+    knock left the nose, and in a mode with no outer loop (`NONE`) that heading is then simply lost.
+  - **The yaw axis flies its real 75 °/s only because `angularDrag` is compensated on it.** PhysX
+    adds the torque's velocity change *before* damping by `(1 − drag·dt)` (measured in batchmode), so
+    at the prefab's drag of 5 holding 75 °/s needs 7.3 rad/s² against `maxAlpha` 3.38: until this was
+    added the airframe topped out at **34.9 °/s**, and below saturation delivered 0.58 of its command.
+    The yaw part of α is now `clamp((effectiveYawRate − ω_v)(1/τ + drag), ±maxAlpha)`, plus
+    `drag·ω_v`, divided by `(1 − drag·dt)` — exact to five decimals on a tilted body under
+    simultaneous tilt torque. `maxAlpha` is therefore the *net* yaw acceleration, `1/τ + drag` keeps
+    the closed-loop pole the droopy loop already had, and `headingHoldKp` went 8 → 5 because the loop
+    gain rose by 1/0.58 (5 reproduces the old hold's small-step response: 0.38 s rise, 0.5% overshoot).
+    Two consequences: a full-stick 60 °/s plane-mode turn is now actually flown (it used to be pinned
+    at the lead clamp, turning ~130° of a 4 s stick's 240°), and with the drag gone a stopped turn or
+    a knock is arrested by `maxAlpha` alone — stopping from 60 °/s passes the target by ~9°.
+  - **`yawFilterCoefficient = 1` (off) is the faithful setting, not an oversight.**
+    `joystick_controller` smooths pitch, roll and gimbal pitch (`STICK_SMOOTHING_ALPHA`) and feeds the
+    yaw stick in **raw**, because the heading hold is what makes smoothing unnecessary.
+  - **The disturbance it rejects is common-mode**, so no aggregate ever suppressed it: every drone
+    takes the same world-frame velocity command, tilts the same way at the same instant and gets the
+    same heading kick, and a circular mean of *n* identical excursions is the excursion. That is why
+    the screens slid *as a group*, and it is the cleanest confirmation of the diagnosis — if a
+    per-drone excursion and `swarmMeanYaw`'s ever differ materially, something else is going on.
+  - Seed the setpoint, never ramp it (`Start`, the dead branch, `ResetToPos`). `ResetToPos` must read
+    the **transform**, not `State.Angles.y`: `StateFinder.ResetToPos` has just written euler *degrees*
+    into a field everything else reads as radians, and it is only corrected by the next `GetState()`.
+- **`VelocityControl`'s angular gains used to be anisotropic by accident, and every yaw-vs-tilt
+  asymmetry traced to it.** `desiredTorque = Scale(desiredAlphaClamped, State.Inertia)` was applied
+  with `ForceMode.Acceleration`, which *ignores* the inertia tensor — so the pre-multiply was never
+  cancelled and the achieved angular acceleration was `α × I`: pitch/roll ×0.3893, yaw ×0.7688. It is
+  now `ForceMode.Force`, with `timeConstantAlphaRate` (one constant for all three axes, not two) and
+  `maxAlpha` rescaled by 0.3893 so the pitch/roll response is **unchanged**. Two things follow:
+  - **That anisotropy is what broke the `tiltHeadingLeak` cancellation.** The cancellation makes
+    `Dot(desiredOmega, upBody) == effectiveYawRate` exactly, but only in *commanded*-rate space; an
+    anisotropically scaled achieved rate is rotated off `upBody`, so a tilt change leaked heading
+    however carefully that line was written. `tiltHeadingLeak` is nonzero only while the tilt is
+    *changing*, which is exactly why the symptom appeared on velocity-command changes and never in
+    steady flight. **The three body axes must keep one time constant** or it comes back. The yaw
+    part's own law (drag compensation, above) does not break this: it acts on the world-vertical
+    component, which isotropic damping and an `alphaTilt` perpendicular to `upBody` leave decoupled
+    from the tilt part outright, whereas the rule is about the body axes the yaw command is spread over.
+  - **The α clamp is split about `upBody`, not about the body axes.** The old clamp scaled the `(x, z)`
+    pair circularly while clamping `y` independently, which rescales the tilt and yaw parts of
+    `desiredOmega` by different factors and destroys the cancellation exactly when tilt demand is
+    highest — and that is the common case, not an edge case: a full-stick step commands far more body
+    rate than `maxAlpha` can deliver, so pitch/roll sits at its clamp for most of a second on every
+    stick movement. The circular form is kept for the tilt part for its original rotation-invariance
+    reason. Fixing the cancellation analytically instead was considered and rejected: it would hard-code
+    the inertia tensor, `angularDrag` and the timestep into the yaw channel, would do nothing under
+    saturation, and would break silently the day this `ForceMode` was corrected. The heading-hold
+    integrator is the model-free version — which is why the real FC needs none of those numbers either.
+    The yaw drag compensation is not that fix coming back: it buys *authority* the α clamp refuses,
+    which no model-free loop can, and it reads `angularDrag` and the step live rather than baking them in.
+  - **The linear twin is still there and is deliberately untouched:** `desiredForce = thrust * Mass` is
+    also applied as an acceleration, so achieved vertical acceleration is 3× the computed thrust. The
+    height PD absorbs it by sitting at an offset setpoint (~1.3 m above `desired_height`) and the 2.7 g
+    clamp really bites at ~8 g. Fixing it means retuning `HeightKp`/`HeightKd` and re-reading the clamp
+    — its own change, with its own altitude-hold comparison.
+- **In vertical-plane mode the body/rig yaw is slaved to the plane, not to the yaw stick**
+  (`PyUniSharingFast.UpdateBodyYawFromPlane`). The stick already steers the plane's target heading and
+  the whole wall converges on it, so also integrating that stick into `bodyYaw` walks the view off the
+  wall — different gain, none of the drones' lag. Invisible in the radially-outward ring (the panorama
+  re-snaps to the nearest camera), but under a shared heading `bodyYaw` is what aims the VR velocity
+  frame at the wall. It follows `TargetYaw` rather than the drones' measured mean so the rig answers the
+  stick 1:1 instead of lagging it, and `maxTargetLeadDeg` bounds the resulting lead. The lock is
+  absolute, so entering plane mode also clears any pre-existing offset.
+- **A lone drone is not a swarm, and is detected, not configured** (`SwarmRegistry.TryGetLoneDrone`:
+  exactly one alive — one spawned, or the rest crashed). Outside plane mode `AttitudeAlgorithm` hands it
+  the yaw stick in every attitude mode (a hull needs three points, so the hull rule would otherwise
+  freeze its heading while the stick turned only the view), and `PyUniSharingFast.UpdateBodyYaw` locks
+  body yaw absolutely to its **commanded** heading (`VelocityControl.HeadingSetpointRad`), for the
+  same answers-the-stick reason the plane lock follows `TargetYaw`. `ScreenSpawn` always shows its
+  feed — no stitched-hide, no boundary gate, placed as `OUTER_CIRCLE` even under `OFF` — counted over
+  its bindings so a single live real feed qualifies too. Python cannot stitch one view, so the curved
+  screen is holding a stale panorama by then.
+- **The yaw stick turns the pilot at one rate in both conditions: `bodyYawRate`, 40 °/s at full stick,
+  with `bodyYawExpo` 0.5** (2026-11-04, the user's request: the controller turned too fast). The hull
+  modes turn the body at it; a lone drone (and NONE/SIMPLE) is turned at it by `AttitudeAlgorithm`,
+  capped at `maxYawRate`, through `PyUniSharingFast.PilotYawRate*`, and the body follows the drone.
+  Before, the swarm turned at 90 and the single drone at its airframe's 75. 40 is the real fleet's PC
+  clamp. The expo, `(1 − e)x + e x³`, keeps 0 and ±1 fixed, so only an analog stick feels it (half stick
+  is 31% of the rate); the keyboard is digital. Plane mode keeps `targetYawRateDegPerSec` (60). The
+  value is written into `curvedScreenFast.prefab`, where no scene overrides it. Where `PyUniSharingFast`
+  is disabled (the headless bench) the lone drone keeps the full airframe rate, and `citysim/camera.py`
+  keeps the 90 / 75 that S1–S10 modelled, so stored flights re-fly identically.
+- **The pilot sits in a dim room fixed to the real room, `CockpitRoom`** (2026-11-04, the user's request,
+  an anchor against motion sickness). It has two styles (`style`, switchable in Play): `FloorAndCeiling`,
+  the default and the user's pick, is a 1 m grid floor and the same grid as a ceiling 1.8 m above the eyes,
+  both fading smoothly into the base colour by 15 m (`fadeDistance`) so the room has no edge;
+  `FloorAndWall`, the first version, is the grid floor inside a ring wall at 9 m with a vertical rib every
+  15°. The grid holds yaw through its lines' vanishing points, the wall through its ribs. Every stick turn
+  rotates the rig, so the screens sweep round a pilot who is sitting still. Behind them there used to be
+  only the Arena box, uniform and world-fixed, so the screens were the only structure
+  in view, and a turn read as the pilot turning. A background that holds still is what the eye takes as the
+  frame of reference (Ohmi, Howard and Landolt 1987), so the room should make the screens read as moving
+  objects. Not yet flown in the headset, and nothing records sickness. Points worth keeping:
+  - **It hangs under the rig's `trackingSpace`, never under the Arena.** Rig yaw and `CalibrateToCentre`'s
+    height shift carry it along, so it never moves relative to the real room. With one drone the rig turns
+    with the drone and its screen, so during a turn nothing in view moves but the feed's own picture.
+  - **It is drawn first (Background queue) and writes no depth** (`Sprites/Default`, as `BodyYawCompass`
+    uses, which is also stereo-instanced), so no layout can be covered by it. A depth-writing floor would cut
+    the bottom off the panorama (−1.5 m at 5 m) and off a four-row `FORMATION_WALL` (−1.46 m at 2 m).
+    Where a screen hangs below the floor line, occlusion and stereo disagree there; that is accepted. The
+    ceiling has no such place at its default height: every layout's top at its default size is lower (the
+    panorama's +1.5 m at 5 m, a rolled `FORMATION_MAP`'s ~+1.65 m), so lower `ceilingAboveEyes` with that in mind.
+  - **Two things would hide a room drawn that way, and it undoes both while on.** The eye camera clears to
+    the skybox, which the built-in pipeline draws after the opaque queue wherever there is no depth, so it
+    clears to `baseColor` instead. The Arena box encloses everything and is drawn after it, so the box's
+    renderers are off; its colliders and transform stay. Disabling the component restores both.
+  - `baseColor` is the box as it renders (sRGB 19/21/26: its black Standard material still reflects the
+    ambient sky), so the lines are the only thing it adds. The floor is `floorBelowEyes` (1.2 m, seated)
+    under the EyeLevel tracking origin, i.e. under the eye height at recenter.
+  - Added to every scene with an Arena, like `BodyYawCompass`, so no scene or builder carries it. Runs record
+    it (`_session.json` `cockpitRoom` and `cockpitRoomStyle`, a `cockpitRoom` block in `_swarm.json`, and
+    `room=<style>|off` on every `display` event). Runs recorded before it flew inside the black box.
+- **One drone can carry a 360 camera, shown on a sphere round the pilot: `InterfaceManager.displayMode` `SPHERE`,
+  the condition `SingleSphere`** (2026-11-06, build B of [docs/single_drone_360_camera.md](docs/single_drone_360_camera.md):
+  `Sphere360Display`, `Assets/Shaders/Sphere360View.shader`, settings in `InterfaceManager.sphere360`). The
+  experimenter sets the mode and the label, and the recorder's `condition_mismatch` checks they agree with each other
+  and with the drone count. No screens spawn: a hidden camera at the drone renders a cube (`RenderToCubemap`) at
+  `refreshHz` (36), and the sphere looks each pixel up in it. Not yet flown in the headset. Points worth keeping:
+  - **It is a single-drone condition, never a swarm's** (2026-11-09, the user's call). Under SPHERE, `swarmSpawn`
+    spawns one drone on its start position whatever its pattern and count say (`GetSpawnPositions`, which
+    `ResetToPos` reads too), with a warning. A swarm handed to `InterfaceManager` anyway gets its feed screens and
+    an error, and `Sphere360Display.Begin` refuses more than one drone.
+  - **A cube RenderTexture must be a power of two.** At any other size it fails to create, yet `RenderToCubemap`
+    returns true and draws black, so `cubeSize` is an enum and creation is checked. 2048 is the default: about as
+    many pixels on a walker as a feed at scale 1.3, shown 1.3x larger.
+  - **`splitFaces` is on: half the faces each frame, from one position.** Measured by replaying a recorded
+    single-drone headset flight (`internal_4/ERKS_t1_SingleDrone_20261106_140556`) in BlockShapedPatchCityWorld on
+    the 72 Hz bench (`D:\claude_feedres_bench`, stand-in eye pass). The table gives the share of 10 Hz rows at
+    72 fps, then the main thread's mean / p95 / p99 in ms:
+
+    | arm | at 72 | mean / p95 / p99 |
+    |---|---|---|
+    | today's single drone | 100% | 1.3 / 2.3 / 3.2 |
+    | 2048 unsplit | 98% | 5.3 / 11.1 / 12.3 |
+    | 2048 split | 100% | 5.4 / 6.9 / 7.9 |
+    | 4096 split | 100% | 5.9 / 7.7 / 8.8 |
+
+    None missed a frame in flight. The flight itself held 71.8 fps in the headset as a feed. Headless means no Link
+    compositor or encode, so check `_perf.csv` on the first headset flight.
+  - **The faces stay aligned with the world, so the display does the turning.** `Sphere360Display.DisplayToCity`
+    includes the screens' 90 deg (a world heading psi sits at display yaw psi + 90). `_head.csv` logs it as
+    `sphereYaw`: a head at arena yaw theta looks at city yaw theta - sphereYaw.
+  - **The lookup is by each eye's own view ray**, so the view is mono and at infinity and leaning changes nothing, as
+    in a 360 video. The shader is the project's first stereo-instanced one; without its `UNITY_*` macros it draws in
+    one eye only.
+  - **The camera's position and the heading are interpolated** (physics is 50 Hz with no Rigidbody interpolation),
+    one physics step behind, which leaves the flight bit for bit. PyUniSharingFast's lone-drone lock still turns the
+    rig in 50 Hz steps, and the sphere takes each step back (`90 + (bodyYaw - h)`), so a turn is smooth at 72 Hz.
+    `WorldFixed` turns the sphere with the rig instead, re-latched at each recentre (`PyUniSharingFast.CalibrationCount`).
+  - **It owns the backdrop while on:** CockpitRoom is disabled, the Arena box is hidden and the eye cameras clear
+    to black. A sphere that writes no depth is otherwise drawn over by the skybox or the box. The FPV camera's
+    `Camera` component is disabled but its transform still moves, because WalkerPatrol's sleep test reads it.
+  - **Each face counts as one FPV render** (`FPVCameraScript.CountRenders`), so `_perf.csv` `fpvRenders` stays
+    honest. A 2048 cube costs about what ten feeds do: 6.9 ms of main thread, measured headless in the patch city.
+  - **Scoring:** a hat counts within the identify range of where the cube was rendered, with a clear line, at any
+    bearing. That is the ring's rule, which does not check where the pilot looks either. Each press logs
+    `headHatDeg` / `gazeHatDeg` (per goal `headHatDegAtAnswer` / `gazeHatDegAtAnswer`), so the stricter reading can be
+    computed afterwards. analyse.py and citysim read a SPHERE session (`replay.sphere_view`) as one camera with no
+    horizontal field of view. The head basis is the hat's bearing within +-50 deg of `headYaw - sphereYaw`, and gaze
+    is not measured.
+  - `ProceduralCityProbe` with `PROCEDURAL_PROBE_SPHERE=1` checks all of it headless, including that the sphere
+    shows the city the right way round: against direct renders, and against the views a sign or 90 deg slip would give.
+- **The stitcher and the screen layout follow the configuration, and there are three of them**
+  (`SwarmPlaneController.RefreshDisplayConfiguration`): vertical plane ⇒ `PLANAR` +
+  `FORMATION_WALL`, horizontal with the gimbal down ⇒ `PLANAR` + `FORMATION_MAP`, horizontal
+  looking out ⇒ `STABSTITCH` + `OUTER_CIRCLE`. No pairing is taste — a wall (or the ground under a
+  nadir view) is one dominant plane where the pose-driven homographies are exact and the shared
+  heading collapses `OUTER_CIRCLE` onto a single arc position, and the ring is the parallax-heavy
+  case StabStitch++ exists for. The configuration is the two bits (plane mode, gimbal ≤
+  `FPVCameraScript.NadirPitch`); the plane wins when both are set. The nadir bit is **polled in
+  `Update`, not taken off `swarmParamsChanged`**, because `SetGimbalPitchNormalized` — the joystick
+  dial, the only one a pilot in a headset can reach — doesn't raise that event. It fires only
+  on an actual change, so the inspector's choices stand until the first one, and
+  `driveDisplayConfiguration` turns it off for comparing two stitchers on one formation.
+  `InterfaceManager.formationMapAtNadir` (default on) keeps `OUTER_CIRCLE` at nadir instead: it is off in
+  BlockShapedPatchCityWorld and PracticeBlockWorld (2026-11-09, the user's request), so the screens stay put
+  however far the gimbal pitches, and it lives there because `SwarmPlaneController` is added at runtime and has no
+  per-scene values. Both setters
+  go through the owning component (`PyUniSharingFast.SetStitcherType`,
+  `InterfaceManager.SetScreenStyle`) rather than writing the fields: the stitcher switch has to
+  republish metadata for Python to pick up, and the layout has to stay owned by `InterfaceManager` per
+  the source-of-truth rule below. `SetStitcherType` deliberately does **not** touch
+  `BlockSharedMemory` any more — it used to resize it (3 slots for STABSTITCH, more for `PLANAR`), and
+  this call site, fired mid-flight by the `V` key with Python attached, was the most reliable way to
+  hit the `ERROR_ACCESS_DENIED` that a non-resizable named section guarantees.
+- **The FPV cameras are the entire rendering cost, and they are driven manually.** The pilot's eye
+  cameras are culling-masked to the feed-screen layer (`ScreenSpawn.screenLayerName`, "UI"), so the
+  stereo pass draws the screens, the curved panorama and `CockpitRoom` and *not* the world — every full pass over
+  the city is one drone's FPV camera rendering into its feed RenderTexture. Left `enabled`, the
+  visible ones redraw the city at the headset's rate: at 10 drones, 90 Hz and `STABSTITCH` (which
+  hides 3), that is 7x90 + 3x30 = **720 full-city renders per second**, and the eye pass is a
+  rounding error beside it. Consequences worth keeping:
+  - **`ScreenSpawn.feedRenderHz` (default 30) is the dial**, not the resolution. A feed screen is
+    video, so it is refreshed at `sendInterval`'s rate rather than the headset's — 720 to ~300
+    renders/s, measured against a replica of the schedule. `0` restores the pre-throttle behaviour
+    (cameras left `enabled`) and is the A/B control for any measurement.
+  - **The stagger is not a refinement.** Each camera carries a phase offset of its share of one
+    interval (`SeedFeedRenderTime`), so ~3 render per frame instead of all 10 landing together. The
+    average is identical; the peak is what drops a headset frame. That is also why a screen which
+    becomes visible is *re-phased* rather than made due now — seeding it to "due" would fire it
+    alongside every other screen doing the same (on the first frame, all of them) and they would
+    then advance in lockstep forever, which is precisely the spike the stagger removes.
+  - **Two independent schedules drive the same cameras**, so the render gate lives on the camera:
+    `FPVCameraScript.EnsureRenderedThisFrame` stamps `Time.frameCount` and both
+    `ScreenSpawn.StepFeedRenders` and `PyUniSharingFast.RequestBlockCapture` go through it. A
+    drone that is both displayed and stitched therefore costs one render, not two, and
+    `RequestBlockCapture` can no longer test `!camera.enabled` to mean "nobody else will draw it"
+    — under the throttle every FPV camera is disabled. A camera whose GameObject has no
+    `FPVCameraScript` falls back to being left `enabled`: with nothing to drive it manually,
+    disabling it would freeze that feed rather than merely slow it.
+  - **STABSTITCH's triplet is deliberately NOT staggered.** It stays synchronised at `sendInterval`,
+    because spreading a triplet across frames introduces exactly the capture skew
+    `MAX_CAPTURE_SKEW_S` exists to reject. **PLANAR's views are spread, but only their renders**
+    (`bridge.maxCapturesPerFrame`, default 4, 0 = off): it selects every alive drone, and ten
+    full-city renders in one frame is a frame the headset misses on every send. A send over the
+    limit renders over the frames one `sendInterval` spans (none at 36 fps, where that is one frame),
+    and its readbacks are issued **together** once the last view has rendered. That second half is
+    load-bearing: `StitcherThreading.first_thread` wakes the render on *any* fresh slot, floored at
+    `RENDER_MIN_PERIOD`, so two waves a frame apart would re-render the mosaic up to 40 Hz instead of
+    30 — a stitching-rate change. Each block carries the pose its pixels were drawn from
+    (`FPVCameraScript`'s render record: `LastRenderPosition/Rotation/Realtime`), not the transform at
+    request time, which is what makes a view rendered a frame before the wave still exact for the
+    pose-driven solve.
+  - **The stitched views never lose rate, whatever the pilot looks at.** Everything below that
+    thins the *feed* refresh lives in `ScreenSpawn.StepFeedRenders`; the capture path renders every
+    selected view every send and consults none of it, and captures run first in the frame, so feed
+    renders make way for them and never the reverse. The perf bench asserts it on the wire: each
+    stitched slot's `captureTime` advances at 30 Hz through head sweeps and with the panorama off.
+  - **A due feed slot can pass without rendering, and the schedule advances either way**, so every
+    screen keeps its `SeedFeedRenderTime` phase:
+    - *Already fresh* — rendered since the slot's previous due time by the capture, not by this
+      schedule's own last render (testing the window alone skips every other slot, since a slot's
+      own render lands up to a frame after its due time). A stitched drone's screen is shown
+      whenever the panorama is not, and the capture (0.033 s) and the feed (0.0333 s) periods are not
+      phase-locked, so the frame gate alone merged them only when they coincided: those drones
+      rendered about twice per interval, ~390 renders/s instead of 300.
+    - *Out of view* — outside `viewConeHalfAngleDeg` (80°, the Quest Pro's ~60–65° half-diagonal plus
+      margin, measured to the screen's nearest edge) of the head, a screen renders on one slot in
+      `feedRenderHz / offViewFeedRenderHz` (default 5 Hz; set it to `feedRenderHz` to disable). In the
+      recorded swarm flights 44% of the shown `OUTER_CIRCLE` feeds were outside that cone at any
+      moment. Because the schedule never stopped, a screen turning into view is at most one interval
+      from its next full-rate render.
+    - *Over budget* (`levelFeedRenders`) — when the frame already holds more FPV renders than the
+      running average, rounded up (a frame the capture has just filled — at 72 Hz the budget is 3,
+      exactly a STABSTITCH triplet), an in-view render waits one frame, never more.
+  - **The drone bodies are merged at spawn** (`DroneBodyCombiner`, `SwarmSpawn.combineDroneBodies`).
+    The DJI model is 96 MeshRenderers on 7 materials, ~139k triangles; every FPV render with another
+    drone in view drew each as its own call, and `FPVCameraScript` toggled all 96 around every render
+    of the drone's own camera. Merged it is one renderer per material plus the four propellers
+    `VelocityControl` spins. The originals are *destroyed*, not disabled —
+    `DroneHealthMonitor.UnparkDrone` re-enables everything it cached — and mirrored parts (two nodes
+    at scale −10) go on a second child at scale −1, so culling flips in a transform rather than
+    depending on how `CombineMeshes` treats winding.
+  - `allowHDR` is off and `stereoTargetEye` is `None` on every FPV camera, set both on
+    `DroneReduced.prefab` and again in `ScreenSpawn` beside `aspect`/`fieldOfView`/`targetTexture`
+    so a scene override cannot reintroduce them. There is no post-processing on these cameras and
+    the stitcher consumes 8-bit BGR, so the FP16 intermediate bought nothing; `Both` on a camera
+    that renders into a RenderTexture risks the built-in XR path treating the pass as stereo.
+  - **Do not bake occlusion culling in the city scenes, tempting as it is.** They ship with
+    `m_OcclusionCullingData: {fileID: 0}`, so each FPV camera submits everything in its frustum, and
+    the static flags look ready (Occluder and Occludee set). But `GoalPatchReplacer` destroys or
+    deactivates static tiles at runtime and puts a differently built goal patch in their place, so
+    the baked occluders of the removed buildings would keep hiding whatever stands behind where
+    they used to be — around the goals, which is where the participants are searching. It would
+    need occluder data that knows about the swap, not a bake. **The generated block cities are the
+    exception, and BlockShapedPatchCityWorld and PracticeBlockWorld are baked** (below, "Speed-ups in
+    the patch city"): their buildings never move, BlockGoals only re-parents them.
+  - **The city scenes cast no shadows** (their one directional light has `m_Shadows` 0), so an FPV
+    render is a single forward pass and the Ultra quality level's 4 cascades at 150 m cost nothing
+    there; only RingChallenge, NBackExperiment and FactoryScene (22 soft-shadowed lights) pay for
+    them. The GPU is not the constraint either: what an FPV render costs is CPU-side culling and
+    submission, which is why resolution was cheap to raise and draw calls are not. Attributed by
+    hiding one category at a time (headless bench, 1280×720, a hull drone looking out at 25 m in
+    ScaledCityWorld): one render is **~3.1 ms of main thread, ~1,830 batches, ~9.1 M triangles**;
+    hiding the **837 Tree Creator trees** saves the most (−27% main thread, −37% batches, −65%
+    triangles: 8.7k triangles each, two legacy materials, no LOD, and at 21k vertices each static
+    batching can merge almost none of them), then the buildings (−24%), the walkers when a goal is
+    in view (−11%, and ~1 ms of frame time per render with skinning), the terrain (−7%). Small props
+    and the (merged) drones cost nothing measurable, and terrain `drawInstanced` changes nothing.
+    **The trees are the next lever, and not a drop-in:** they are static-batched at load (so a
+    runtime merge cannot read their original mesh), they hang under tile containers that
+    `GoalPatchReplacer` swaps at runtime, and the goals' verge trees are planted at runtime. A merge
+    has to be per tile container, after the swap, from the prefab's mesh. The walkers' Animators are
+    already `CullUpdateTransforms` (the import default), so animation culling buys nothing.
+    The feed quads and the curved screen neither cast nor receive shadows (and the quads have no
+    collider — `CreatePrimitive` adds one, and a moving static collider is re-inserted into the
+    physics scene every frame for nothing), so the eye cameras stay out of the shadow pipeline in
+    the scenes that have one.
+- **Over Link the frame rate is 72 or 36, and a missed frame is what decides which.** The Quest Pro
+  runs at 72 Hz and Oculus ASW (the runtime default) locks an app that keeps missing the 13.9 ms
+  budget to exactly half rate. The recorded runs show nothing in between: `ExperimentRecorder`'s
+  10 Hz sample intervals are whole frames, ~97 ms only at 72 fps and ~83 ms only at 36. In the
+  2026-09-23 runs (1152×648) SingleDrone held 72 fps ~100% of the time and Swarm 62–83%, falling
+  from 92% with 3–4 hull drones to 41% with 10 — the number of feeds being refreshed is the driver.
+  So judge any change by its *worst* frames, not its average: one frame with nine FPV renders in it
+  costs the half-rate lock, however cheap the rest are. The 2026-09-29 render-scheduling pass was
+  measured headless (batchmode, no XR, real bridge + Python on `STITCH_SHM_SUFFIX` sections, same
+  flight program from the same spawn): against HEAD at 1152×648, the new code at 1280×720 took the
+  main thread from 12.4–15.8 to 5.4–8.1 ms per frame, the p95 frame from 17–24 to 15–18.5 ms, FPV
+  renders from 271/s (324 with the panorama off) to 186, and frames holding six or more FPV renders
+  from ~200 per 12 s phase to none, with every stitched slot still at 30.1–30.3 Hz. The remaining
+  p95 is the STABSTITCH capture frame (three renders by design). Consequences worth keeping:
+  - `launch_sim_scripts.ps1` turns ASW **off** on every launch (`-Asw Auto` restores it, `-Asw Keep`
+    leaves it), through `OculusDebugToolCLI.exe -f` with the bare commands `asw.Off` / `asw.Auto`
+    (the CLI's `help` lists them; there is no `server:` prefix). With ASW off an overrun costs only
+    the frames that miss. The setting belongs to the Oculus service and resets when it restarts.
+  - `ExperimentRecorder` writes `_perf.csv` per run (frames, fps, longest frame, FPV renders per
+    10 Hz row): measure there, not by interval forensics. `dtMaxMs` near 27.8 is a missed frame.
+    Don't regress frame time on renders per frame across its rows: that is renders/s ÷ fps, so a
+    slow row reads as a busy one, and the fit (~3 ms per render) is well above the measured cost.
+  - **A desktop run's frame rate says nothing about the headset, so check which one a run was.**
+    Since 2026-11-03 `_perf.csv` has `hmdActive` / `hmdWorn` per row and `_session.json` has
+    `headsetActive`, `headsetActiveSec`, `headsetWornSec`, `xrDevice`, `displayRefreshHz`, and
+    `feedWidth` / `feedHeight`. For older runs, a head position that never moves in `_head.csv` means
+    no headset (its std is 0.00 m on desktop runs, 0.03–0.12 m in the headset; the head *yaw* moves in both).
+  - `VrFramePacing` caps `Time.maximumDeltaTime` at 0.1 s (the project setting is 0.333), so one
+    hitch cannot cash out as 16 catch-up physics steps in the next frame — itself a missed frame.
+  - **Run experiments with the Game view on *Play Maximized*.** The saved layout docks the Scene view
+    beside the Game view with gizmos on, so in Play the Editor renders the whole city a second time
+    every frame, plus `SwarmSpawn`'s `Handles.Label`s and a repainting Inspector.
+- **Reload Domain stays on, the user's choice (2026-11-09), though it is the largest cost of entering Play**: 3.6–3.8 s
+  on 10 of the 16 Plays in the editor log and 15–19 s on the other 6, where `LoadAssemblies` alone took 10–14 s (cause
+  not found). Unticking it (Enter Play Mode Settings, Reload Scene left on) takes Enter to the first finished frame from
+  4.9–5.8 s to 1.0 s headless in BlockShapedPatchCityWorld (2.0 s on an editor's first Play). The reload is what
+  guarantees every trial a clean start, and every earlier series was flown with it. Off has not been flown in the
+  headset, and a run's files would not record it. Points worth keeping:
+  - **Off, a static keeps its value from one Play to the next**, so each needs a
+    `[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]` hook writing its initial value, or
+    an `OnDestroy` that clears it. The flight code's statics all had one as of 2026-11-09; under a reload they do nothing.
+    A stale one does not fail loudly: it starts the next trial from the last trial's body yaw, or compares a `Time.time`
+    from the last session against a clock that has restarted. The same goes for a static event's subscribers and for
+    anything left running on a thread. Meta's packages also log 26 duplicate-subsystem lines over three Plays when it is off.
+  - **`PlayModeRepeatProbe` checks that, so run it before turning the reload off.** Three Plays in one process on the
+    bench copy, every value-type static in Assembly-CSharp corrupted after the first, and each must be back before the
+    next scene loads (it found 28 on the code as it stood). References and collections are only as dirty as the flight
+    makes them, and it hovers clear of the buildings, so a cache like `ObstacleFootprint`'s stays empty there and needs
+    reading by hand. `PLAY_PROBE_RELOAD=1` reloads the domain every Play: the timing baseline and the control.
+- **Boundary drones** = `AttitudeAlgorithm.BoundaryEstimate` (convex-hull). Left/centre/right stitching
+  and the `OUTER_CIRCLE` screen layout only use boundary drones (see the planar exception above).
+- **The look-direction gap fill (`SwarmManager.fillLookDirectionGap`, off by default) is the one
+  place the hull heading rule knows where the pilot is looking.** The outward bisector rule leaves a
+  blind spot straight ahead when the swarm splits around a building: the front drone is swallowed,
+  its two neighbours pass either side ahead of the lagging swarm, and the sharp corners they form
+  point them 40–50° off the flight direction (the FPV camera is ~98° wide, so ±50° leaves no overlap
+  at all). `AttitudeAlgorithm.UpdateLookGapShift` takes the two hull vertices whose headings bracket
+  the body yaw ψ and turns each towards it by `clamp(d_near − lookGapCoverageDeg, 0,
+  lookGapMaxShiftDeg)`; every other drone gets exactly zero. Points worth keeping:
+  - **Body yaw (`PyUniSharingFast.BodyYawDegrees`), not the head.** Body yaw aims the panorama and
+    the VR velocity frame, so it is where the pilot is flying; the head moves on every glance at a
+    side screen. `BodyYawValid` exists for this consumer — 0° is north, and the bench disables
+    `PyUniSharingFast`, so an unseeded body yaw would swing the swarm's front round to face north.
+  - **Only the bracketing pair moves, and the one expression is its own gate.** s is 0 while a drone
+    already faces within the coverage angle; s ≤ d_near, so nothing crosses ψ or reorders; and the
+    pair only changes where ψ crosses a heading, i.e. where s is 0 — no new edge to dither across.
+    The shift is added to `rawTargetHeading` *before* the target low-pass, which smooths a change of
+    pair like any hull deformation.
+  - **Computed once per tick in the shared hull pass, not per drone**, so the drones, the
+    `SharedLookGap*`/`SharedMaxGapDeg` read-outs and the shape CSV columns cannot disagree.
+    `SharedMaxGapDeg` measures the *shifted* headings, so with the fill on it shows the price: the
+    gaps beside the pair widen by s.
+  - Acts only in `GLOBAL_CONVEXHULL` (a local hull makes nearly every drone a vertex), outside
+    vertical-plane mode (its own shared heading) and above `FPVCameraScript.NadirPitch` (a downward
+    camera has no direction to fill). The defaults (20°, 15°) take a ±50° front pair to ±35°.
+  - **It is not idle in cruise, and that is measured, not assumed.** An evenly spread ring of 9–10
+    hull drones keeps ψ within 18–20° of a heading, but a flying swarm averages ~7.7 of 10 on the
+    hull, so on ScaledCityWorld's 120 held-out flights (headless, pilot facing each waypoint) the
+    fill turned a pair ~27% of the time, by ~7° on average. What it bought: ψ more than 30° from
+    every shown drone's live heading 8.8% → 1.1% of the time, outside every shown image 0.4% → 0,
+    and 35° → 23° during the large gaps. Drones lost 18 → 16 and building contacts 1 → 1, with
+    every loss a single drone-drone collision in a different flight in each arm — heading does not
+    feed translation, so the flights merely diverge. Raise `lookGapCoverageDeg` to keep it for the
+    large gaps only.
+  - Off, the shift list is all exact zeros and the hull rule is skipped past untouched. Sim-only:
+    DJIScene has no `AttitudeAlgorithm`.
+- **Every screen style works off either feed source, and `ScreenStyle.REAL_DRONE` is gone.** A layout
+  needs four things per drone — display yaw, world position, the image-frame yaw the map's roll undoes,
+  and alive/visible — and `ScreenSpawn` reads all four through accessors (`TryGetDisplayYawRad`,
+  `TryGetSamplePosition`, `SampleYawDeg`, `IsFeedSuppressed`) that dispatch on
+  `DroneScreenBinding.feedIndex`: `-1` is a sim drone (Transforms and components), `>= 0` indexes
+  `realFeeds`, pushed by `ImageSharing.UpdateRealDroneFeed` as it consumes `DroneFeedSharedMemory`.
+  Nothing was added to the wire — the pose was already in the block beside the pixels. Points worth
+  keeping:
+  - **The real path only became reachable by giving it bindings.** `UpdateScreenPositions` returns
+    immediately on an empty `bindings` list, and `SpawnScreens` used to build bindings *only* when
+    handed a sim swarm — so in DJIScene no layout ran at all and the feeds were positioned by
+    `UpdateRealDroneScreen`, a push-driven style of its own. That was `OUTER_CIRCLE` with a zero
+    offset/lookAtOffset (exactly the `outerCircle*` defaults) and no boundary gate — and the gate is
+    inactive anyway wherever there is no `SwarmManager`, which is every real-drone scene. Hence the
+    removal rather than a deprecation: it had nothing left to express. Its enum value **5 is left
+    unused**, because Unity serialises enum fields by integer and reusing it would silently re-point
+    `FORMATION_WALL`/`FORMATION_MAP` in every scene that stores them.
+  - **The texture consumer must take its screens from `ScreenSpawn.Screens`, never from
+    `FindGameObjectsWithTag("Screen")`.** That search returns only *active* objects, and a layout
+    legitimately deactivates a screen whose feed has not arrived — at spawn time, all of them. The
+    two form a cycle: `ImageSharing` needs the screen to bind a texture, and binding the texture is
+    what lets the per-frame update push heading/position back into `ScreenSpawn` and un-hide it. Tag
+    search breaks that cycle permanently and the `screens.Count == 0` retry in `Update` cannot
+    recover it, because the objects it is looking for stay invisible to the search forever. The
+    symptom is a DJI scene that displays nothing at all, with no error — only a debug line reporting
+    0 screens found.
+  - **The display yaw is low-passed so a screen's position stays in phase with its own picture.**
+    `TryGetDisplayYawRad` is filtered at `InterfaceManager.displayYawSmoothTime` (0.1 s, = `1 /
+    FPVCameraScript.smoothSpeed`) and `TryGetRawDisplayYawRad` is the unfiltered read. This is a phase
+    fix, not cosmetic smoothing: the circle styles place a screen at its drone's yaw, read raw off a
+    50 Hz physics value the Rigidbody does not interpolate, while the *pixels* in that screen come
+    from the FPV camera, which Slerps onto the same heading — so the screen led its own imagery.
+    Points worth keeping:
+    - **The two formation grids deliberately take the raw value.** They never place a screen at a
+      per-drone yaw at all (`wallAnchorAzimuth` plus a cell offset), so the per-drone yaw only feeds
+      the aggregate circular mean and the tier-2 in-plane basis — where filtering moves no screen and
+      only perturbs the aggregate, which already has its own low-pass at `formationWallSmoothTime`.
+      Stacking the two would lengthen the wall's swing by stealth, and the tier-2 basis has to agree
+      with tier 1 (`GetPlaneAxes`), an unfiltered setpoint.
+    - **The filters are advanced in one pass per frame** (`StepDisplayYawFilters`), guarded on
+      `Time.frameCount`, because `UpdateScreenPositions` is *not* called once per frame — `Update`
+      calls it and so do `SpawnScreens`, `SetScreenStyle` and the stitch-hide setters. Filtering
+      inside the accessor would advance at a rate nobody controls.
+    - Circular (wrapped error, or it tears at ±π), seeded rather than ramped so a screen does not fly
+      in from azimuth 0, and **invalidated rather than held** when the raw read fails — a feed that
+      drops out and returns must re-seed, not sweep back from where it went quiet.
+    - Real feeds use the same filter and the same constant, with no `IsRealFeed` branch. Their yaw
+      arrives as a coarse staircase (pushed only on a new frame), and the gimbal has its own lag of
+      broadly this order — but that lag is **not measured**, so the number is a reuse, not a
+      derivation. Branching would also break the one-accessor-per-quantity rule above.
+  - **Aliveness is freshness, not a flag.** A real feed is suppressed once
+    `Time.time - lastUpdateTime` exceeds the timeout `ImageSharing` pushes from `stitchFrameMaxAge`,
+    so the screens and the stitch selection agree on what "still flying" means and a drone that stops
+    streaming leaves the layout instead of freezing in it. The staleness test lives in `TryGetFeed`,
+    so no accessor can hand a layout a dead drone's position either.
+  - **An unposed feed (`poseStatus == 0`) costs its own screen, not the layout.** It has no ranking
+    key, so the grid styles drop it, exactly as the planar solve drops an unposed block; the circle
+    styles still show it, since they need only the heading.
+  - **`hideStitchedDroneScreens` is split across two components, one per feed source, because the
+    toggle and the selection live in different places.** `PyUniSharingFast` owns the flag and the
+    panorama-displayed state and publishes their conjunction as `HideStitchedFeeds` (static, like
+    `PlanarSelected`, and set before the `ScreenSpawn` guard so it is honest in a scene with no
+    layout). Membership comes from whoever chose the views: the sim half resolves its camera indices
+    to `"Drone N"` GameObjects (`SetStitchedDronesHidden`), while `ImageSharing.PublishStitchBlocks`
+    pushes the ids it actually wrote to the stitcher (`SetStitchedRealFeedsHidden`), keyed by feed
+    index since a real aircraft has no GameObject to match on. `ScreenSpawn` keeps the two sets
+    apart and `IsFeedSuppressed` consults whichever the binding is. Doing it all in the sim half is
+    what used to fail: with no cameras in the DJI scene its set was always empty, so the checkbox
+    did nothing there and every real feed stayed visible on top of the panorama. Hiding a real
+    screen is safe in a way the tag-search deadlock above was not — the texture upload and the
+    `UpdateRealDroneFeed` push both key off `ImageSharing`'s own screen dictionary, not off the
+    GameObject being active, so the feed stays fresh and un-hides the moment the toggle goes off.
+  - **`headingOffsetDegrees` is applied to the pushed position and nowhere else**
+    (`ImageSharing.LayoutPosition`). That offset rotates the compass heading into the HMD's yaw
+    frame, and it is deliberately *not* applied to the pose on the stitcher path — there the pose
+    defines its own `+Z = North` frame that the scene plane is expressed in, and turning one without
+    the other yaws the mosaic off the facade. The layouts are the one place the two frames meet,
+    because `FORMATION_WALL` takes its basis from the headings and then projects the positions onto it.
+  - The screen material's white base colour is keyed on the **real-feed spawn path**, not on the
+    style: `ImageSharing` assigns the frame to `mainTexture` (albedo) as well as the emission map, and
+    a black base multiplies it away. Keyed on the style it would now never fire.
+- **`OUTER_CIRCLE` is only meaningful for the radially-outward ring**, and `ScreenStyle.FORMATION_WALL`
+  is its shared-heading counterpart (vertical plane; nadir gets `FORMATION_MAP`, below). Placing each screen at its own drone's
+  yaw works only because the ring *spreads* the yaws; under a shared heading every screen lands on the
+  same arc position and they stack. `FORMATION_WALL` keeps yaw as the thing that aims the display — the
+  circular mean of the yaws sets one azimuth for the wall, so turning the formation turns the wall — and
+  takes the *separation* from each drone's rank inside the swarming plane (`SwarmPlaneController.
+  GetPlaneAxes`, the same basis the planar centre-drone rule uses). Consequences worth knowing:
+  - **The basis has three tiers, and the second is what makes the style work without a swarm.**
+    `SwarmPlaneController.Instance` is first because it is *exact* — the plane is a setpoint the
+    controller owns, so it is right before the drones have converged on it. Where there is no such
+    component (every real-drone scene: DJIScene contains no swarm at all) the normal is the circular
+    mean of the drones' own headings, which `BuildFormationGridLayout` already accumulates for the
+    wall's azimuth — the style is contracted to a *vertical* plane, and for a vertical plane
+    `GetPlaneAxes` reduces to "up is world up, right is the horizontal perpendicular to the normal",
+    whose horizontal direction is just the shared heading because the drones face the facade. Third
+    is the world `(x, z)` pair, reached only when the yaws cancel — a radially-outward ring, where
+    there is no wall to aim at and `OUTER_CIRCLE` is the right style anyway. That collapse is one
+    threshold (`WallYawResultantMin`) gating both the basis and the azimuth, since they fail together.
+    Two things follow. The basis is resolved **between** the grid's two loops rather than before
+    them, because tier 2 is derived from what the first loop collects. And it is deliberately *not*
+    `PlanarStitcher._plane_from_formation`, which fits the camera positions: that plane has to be
+    metrically right to build homographies, whereas ranking drones into cells needs only the two
+    axes, and re-deriving it here would be a third copy of a rule that must agree with the other two.
+    `SwarmPlaneController.PlaneAxesFromNormal` is shared by tiers 1 and 2 so they cannot drift, and
+    the tier-2 normal is the mean heading *direction* — matching tier 1, where `planeNormal` is
+    `YawToForward(TargetYaw)` and not its opposite, so the two rank columns the same way round.
+  - **It ranks into a grid rather than scaling the true in-plane coordinates.** Proportional placement
+    preserves the formation's shape but guarantees nothing about spacing — two drones a metre apart in a
+    40 m wall still overlap — whereas ranking is non-overlapping by construction, and the reading that
+    actually matters ("that feed is the drone up and to the left") survives either way.
+  - **The whole grid is solved once per frame, before any screen is placed**, and over exactly the set
+    about to be shown (`IsFeedSuppressed`) — a cell index only means something relative to the others,
+    so a screen hidden into the panorama has to leave its cell rather than hold a gap.
+  - Unlike `OUTER_CIRCLE` it does **not** gate on `BoundaryEstimate`, for the same reason
+    `SelectPlanarStitchCameras` doesn't: in a wall the hull is the rim, and every drone in it is looking
+    at the facade.
+  - **Non-overlap is geometric, not a tuned constant:** the column pitch is the angle whose chord at
+    `radius` is one padded screen width, the row pitch one padded screen height, both recomputed each
+    frame from the live `scale`. `formationWallMaxSpanDeg` (default 120°) then caps how far the wall may
+    wrap, and overflow goes into extra rows — a screen beside the pilot's ear carries information in the
+    ring (a drone behind you) but none here. Lowering `scale` is what buys more columns.
+  - The auto grid estimates the **row** count from the formation's aspect and divides to get the columns.
+    Rounding the columns directly overshoots: a 5×2 wall reads as aspect 4, and `round(√(10·4))` is 6
+    columns, splitting ten drones 6/4 across rows that are really 5 and 5.
+- **`ScreenStyle.FORMATION_MAP` is the nadir counterpart of the wall** — same
+  `BuildFormationGridLayout`, same rank-into-a-grid, same span budget — and it hangs the grid on a
+  **vertical panel in front of the pilot, not on the floor**. A floor layout is geometrically honest
+  and useless: it puts the whole display outside the gaze cone and the pilot flies looking at their
+  feet. It differs from the wall in exactly three places, all following from what the cameras see:
+  - **The frame is the pilot's body yaw** (`PyUniSharingFast.BodyYawDegrees`), not the swarm's mean
+    heading and not `GetPlaneAxes`. In nadir the swarming plane is horizontal, so `GetPlaneAxes`
+    degenerates to the world `(X, Z)` pair and ranks the formation north-up — "ahead" then means
+    nothing to the pilot — while the wall's circular mean of the yaws *collapses* on a
+    radially-outward ring and merely holds its last azimuth. Body yaw has neither failure: it is
+    always defined, and it is what `CalibrateToCentre` aims the head at, so the panel is in front of
+    the pilot by construction. It is **snapped, not low-passed** — easing the pilot's own heading
+    slides the panel out of view during a turn — and the glide a cell swap needs moves to the *cell
+    offsets* instead. Rows are along-track distance, furthest ahead at the top.
+  - **Columns are subtracted, not added.** In this display frame azimuth increases to the pilot's
+    **left** (a screen sits at `r(cos a, 0, sin a)` with `a = −yaw`, and the head faces `a = −bodyYaw`),
+    which `OUTER_CIRCLE` demonstrates: a drone yawed clockwise of the view centre gets the more
+    negative azimuth and appears to the right. A mirrored map is not cosmetic — "the obstacle is on
+    the right" has to mean the pilot's right. **`FORMATION_WALL` still adds**, so its starboard drone
+    lands on the pilot's left; that looks like a latent mirror in the wall, unverified in a headset.
+  - **Each feed is rolled into the map frame** by `droneYaw − frameYaw`. A nadir image is already a
+    plan view drawn in its *own* drone's heading frame (at gimbal −90 the camera's up axis lands on
+    the drone's forward), so without the roll two feeds show the same ground rotated differently the
+    moment the headings disagree, and no grid placement fixes it. The wall has no such problem: its
+    cameras look along the plane normal, where a shared heading already means a shared image frame.
+    The roll makes each quad sweep its rotated bounding box, so the cell size is
+    `w|cos δ| + h|sin δ|` maxed **per screen** — the width term peaks at `atan(h/w)`, so the largest
+    roll is not always the widest cell.
+- **`InterfaceManager.screenStyle` is the single source of truth for the layout, and the panorama
+  fallback may not overwrite it.** `PyUniSharingFast.fallbackScreenStyle` is a substitute for a layout
+  that shows *nothing* — `ScreenSpawn.ShowFallbackFeeds` only applies it when the configured style is
+  `OFF`, and otherwise keeps the configured one. Overwriting it unconditionally was silently
+  layout-changing (toggle the panorama off and `FORMATION_WALL` feeds came back as `OUTER_CIRCLE`) and
+  it desyncs the two components: InterfaceManager pushes its style *into* `ScreenSpawn.screenStyle`
+  (which is `[HideInInspector]`), so the inspector goes on reading the configured style while the
+  screens are in the fallback's, and only nudging the style in the inspector pushes it down again.
+  For the same reason the restore reads InterfaceManager's field rather than a snapshot taken when the
+  fallback engaged, and `OnInterfaceParamsChanged` re-applies the substitution *after* the push.
+- **`ScreenStyle.AUTO` is a choice of rule, not a layout, and only `InterfaceManager` may hold it.**
+  It follows the configuration — `OUTER_CIRCLE` horizontal looking out, `FORMATION_MAP` once the
+  gimbal is at or below `FPVCameraScript.NadirPitch`, `FORMATION_WALL` in the vertical plane — through
+  `SwarmPlaneController.StyleForConfiguration`, the *same* function `driveDisplayConfiguration` pushes
+  through, so the automatic layout and the automatic stitcher cannot describe different
+  configurations. Consequences worth keeping:
+  - **InterfaceManager pushes the resolved style down; `AUTO` never reaches
+    `ScreenSpawn.screenStyle`.** Every consumer reads `InterfaceManager.ResolvedScreenStyle`, and the
+    one path that could smuggle it in (`fallbackScreenStyle`, a `ScreenStyle` field so the dropdown
+    offers it) is coerced to `OUTER_CIRCLE` in `ShowFallbackFeeds`. A style with no `case` in the
+    placement switches does not *fail*, it freezes the screens where they were — which is the
+    fallback appearing to half-engage. `SetScreenStyle` is likewise refused while in `AUTO`: it
+    writes a concrete style into the field, so the first configuration change would end `AUTO` for
+    the session.
+  - **`SwarmPlaneController.TryResolveDisplayConfiguration` answers for *both* feed sources**, because
+    the real-drone scene has neither of the sim's signals: no `SwarmPlaneController` (the wall is
+    commanded by the PC's `swarm_plane.py`) and no `FPVCameraScript`, whose swarm-wide `SharedPitch`
+    would sit at 0 and report a nadir fleet as looking out. Both come off the feed blocks instead
+    (`ImageSharing.LiveFeed*`), so nothing was added to the wire: the gimbal pitch is the elevation of
+    the block rotation's forward axis — that rotation *is* the gimbal's — and "vertical plane" becomes
+    "do the drones share a heading", hysteretic on the circular-mean resultant. That substitution is
+    not an approximation of the display's needs, it *is* them: `OUTER_CIRCLE` is only meaningful while
+    the yaws are spread, and a wall points every aircraft at one surface. Deliberately **not** a plane
+    fitted to the positions — a single-row wall (`_plane_from_formation`'s `forward` case) fits no
+    plane and is still a wall.
+  - **"No aircraft has streamed yet" is a third answer, not `false`.** Both readings are "horizontal,
+    looking out" on an empty fleet, so the resolver returns false and the caller *holds* rather than
+    flipping a DJI scene to `OUTER_CIRCLE` and back. A sim scene is never indeterminate: with no
+    controller in it, vertical-plane swarming is unreachable, so `false` is the answer and not a gap.
+  - **The enum values are spelled out.** Dropping `REAL_DRONE` without pinning them closed the gap at
+    5 that its comment claims to leave, moving `FORMATION_WALL` to 5 and `FORMATION_MAP` to 6 — and
+    DJIScene, which stores 6, silently became a nadir map layout. `FORMATION_WALL = 6`,
+    `FORMATION_MAP = 7`, `AUTO = 8`.
 - Image format across the bridge is **BGR + top-down** for stitch inputs; the returned panorama is
   flipped once and converted to RGB on the Python side.
 - **Resolution is metadata-driven:** `StitcherThreading.py` sizes inputs/outputs from the Unity metadata
   (`blockImageWidth/Height` + `panoramaImageWidth/Height` in `PyUniSharingFast`'s inspector); set those to
-  scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, so only the render + bridge
-  costs grow with resolution — not the warp pipeline.
-- **STABSTITCH render/warp are decoupled:** a ~21 Hz render loop uses cached warp params only (no neural
-  net); a separate ~6.6 Hz thread runs the nets and updates the cache. The render warp is a single
-  `grid_sample` over a **precomputed TPS sampling field** (`_compute_tps_flow`, cached per warp update) —
-  the float64 TPS solve + per-pixel RBF live in the warp thread, not the render loop.
+  scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, and the TPS field is
+  evaluated on a bounded lattice (below), so the warp update is ~21 ms whether blocks are 768 or
+  1280 px wide; only the uploads and copies grow with resolution.
+- **Size the resolution to the headset, and move the feeds and the panorama together.**
+  `blockImageWidth/Height` is also every feed screen's render-texture size (ScreenSpawn adopts it), so
+  the stitch input can never exceed what the feed screens show. The Quest Pro resolves ~22 px/deg: an
+  `OUTER_CIRCLE` feed (radius 2 m, scale 1) spans ~48°, so ~1024 px is its useful maximum, and the
+  curved screen (radius 5 m, 90°, 3 m) wants ~1980×735. The stitch canvas carries ~1.8× the block
+  width of detail, so **1024×576 blocks pair with a 1920×720 panorama** at ~21 texels/deg on both
+  screens; the sim scenes used 768×432 / 1600×600, ~16 texels/deg on both. The sim scenes now run
+  at **1152×648 / 2160×810** (same aspects): it went 1024 → 1152 → 1280 (the envelope maximum),
+  each step buying supersampling margin on screens viewed closer than their nominal distance, then
+  back 10% to 1152 on the user's request (2026-10-01). Only the scene overrides moved — the
+  envelope stays 1280×720, so returning to it needs no wire change, and there is no step past it
+  without one: 1280×720 is what `blockSlotStride` is sized for. What made the higher sizes affordable is that the GPU (an RTX
+  4090) was never the constraint — pixels are cheap, and the FPV cost is CPU-side submission (see
+  the FPV-render bullets above), which resolution does not touch. Feed render textures are
+  mipmapped, because the grid layouts show the same texture on screens half `OUTER_CIRCLE`'s size.
+  The `REFERENCE_BLEND` widths (`blurKernelSize`/`blurSigma`/`borderSize`) are canvas pixels, so
+  they scale with the block width: 41/15/60 suit 768, 55/20/80 suit 1024, 61/22.5/90 suit 1152 (what
+  the sim scenes use), and 69/25/100 suit 1280. DJIScene stays 800×450, the real feed's size.
+- **Without stitching the feeds can run at 1920×1080 for no measured frame-rate cost; it is the
+  stitching that sets the frame rate, not the resolution** (measured 2026-11-03 in
+  BlockShapedPatchCityWorld, headless). **That scene and PracticeBlockWorld have flown this way since:
+  stitching off, feeds 1920×1080**; every other scene still stitches at 1152×648. The
+  bench replays a recorded headset flight's sticks, head and body yaw (`BBCC_t4_Swarm_20261103_172549`,
+  with its goal seed) on a 72 Hz grid where an overrun waits for the next point as a missed vsync
+  does, with a stand-in eye pass. Stitching on at 1152 it reproduces that flight: altitude within 0.1 m,
+  position within ~30 m after 3 minutes, 59.8 fps against the headset's 63.8, and 63.4 against 64.9 in
+  cruise in the run that lost two drones as the real flight did (~30 s later; the other run kept all
+  ten, 60.5 fps there). Over 305 s of flight (fps; share of 10 Hz rows at 72; frames over 13.9 ms):
+  stitching on, 1152: 59.4–59.8, 29–33%, 13%. Off, 1152: 70.5, 87%, 0.8%. Off, 1600: 71.1, 92%, 0.3%.
+  Off, 1920: 70.7–71.2, 89–93%, 0.3–0.6%. Off, 1920, every feed at 30 Hz wherever the pilot looks: 67.5,
+  65%, 2.5%. The worst phase is the take-off and hover round the start line (66–69 fps off), at every size. One
+  render with the GPU drained is 0.81 ms at 1152 and 0.97 ms at 1920 (0.76 + 0.14 per megapixel; this
+  city is far cheaper to draw than ScaledCityWorld) and 1.8–2.0 ms of main thread in flight at either,
+  and 1920 costs 0.2 GB more VRAM. Not yet confirmed in the headset. Points worth keeping:
+  - **At scale 1 the extra pixels do not reach the eye.** A feed at 1152 is 22.6 px/deg at the screen's
+    centre against the Quest Pro's ~22; at 1920 it is 37.7, which the mips filter down, so it buys less
+    shimmer and no more detail (the hat at 40 m is ~4 headset pixels at both). 1920 is 22 px/deg at
+    `OUTER_CIRCLE` scale 1.71, the orthoscopic size, so the feed size and the screen size are one decision.
+  - **The off switch is `bridge.enableImageWriting` and `bridge.enablePanoramaReading`, both unticked**
+    (`PyUniSharingFast.StitchingEnabled`), and the feed size is then `InterfaceManager.width/height`, not
+    the block size, so the 1280×720 envelope does not apply. Either one on still counts as stitching,
+    because the DJI scene writes no blocks here and does read the panorama. `PyUniSharingFast` stays in
+    the scene with both off: it owns the body yaw. `launch_sim_scripts.ps1` starts the stitcher only with
+    `-Stitcher` since then; a stitching scene flown without it just shows its feeds.
+  - **`hideStitchedDroneScreens` has to test `enablePanoramaReading` as well as
+    `panoramaDisplayActive`.** That flag starts true and only `ApplyQualityFallback` clears it, which
+    never runs with reading off, so the three front feeds would stay hidden all session with no panorama
+    in their place. Both these scenes have the hide on.
+  - **At scale 1 the screen, not the feed, sets the sharpness, and aliasing is the part 1920 does fix.**
+    A 1920 feed on a ~1056 px screen samples mostly its 960-wide mip, so it can look softer than 1152
+    in a still. Against a 4K 8× MSAA reference through the same screen size (9 views of goal walkers,
+    25–60 m, 9 m up; error / frame-to-frame flicker, 0–255): 1152 7.0 / 2.11,
+    1152 MSAA 4× 5.5 / 1.61, 1920 5.2 / 1.57, 1920 MSAA 2× 4.1 / 1.40, 1920 MSAA 4× 3.6 / 1.23. So the
+    feeds have no anti-aliasing (the project's 2× reaches only the eye buffers) and most of what 1920 buys
+    on today's screen is what MSAA would buy at 1152.
+  - **MSAA on the feeds is not a free switch, and it is off.** A `RenderTexture` with `antiAliasing` > 1
+    silently has no mips (`mipmapCount` 1 against 11, `useMipMap` is ignored and `GenerateMips` does
+    nothing), which is why it looks sharper at scale 1: it samples level 0. Eight times minified it keeps
+    49% more high-frequency energy, i.e. it aliases, so the grid layouts and obliquely viewed screens would
+    shimmer. 1920 at 4× with saturated walkers flew 67.9 fps against 69.9 over the whole replay and 55.6
+    against 66.8 in the take-off hover, frames over 13.9 ms 3.5% against 1.1%, video memory 5.2 GB against
+    3.5. The two were not flown apart, but the clothing alone is ~0.05 ms per render.
+  - **The walkers are the reason more pixels show so little: they have no surface.** The body is Unity's
+    `Default-Material` (white, no texture; the pack's mannequin) and the hat a flat 77% grey (69% since 2026-11-04,
+    below; these measurements are at 77%), so hat and body merge. Measured on the same views, walkers on against
+    walkers off: pixels clearly changed (ΔE > 20) against today, saturated mid-lightness clothing +57%, the same with a soft ground shadow +65%, footpath 50%
+    darker +24% (nothing more on top of clothing), real sun shadow from the walkers alone +1%, a dark
+    clothing mix +16% but −61% at 60 m, where it vanishes against the glass. Saturated clothing also roughly
+    doubles the hat's contrast against what it covers (ΔE 14 → 28–34, depending on the colour drawn). Cost per FPV
+    render: clothing ~0.05 ms, ground shadow ~0.10, sun shadow ~0.35. **Not adopted**: it makes the hat task
+    easier, so `identifyMaxRangeM` / `R_ID_M` and every earlier run's comparability are at stake.
+  - The bench is `D:\claude_feedres_bench` (`probe\` has the sources and `final.py`; not in the repo).
+- **The `OUTER_CIRCLE` screens are at scale 1.3 in every scene, not 1** (2026-11-05, the user's request, for walkers
+  seen at a distance). At radius 2 m a screen is now 60° × 36° instead of 48° × 28°. Points worth keeping:
+  - **The scale lives in two places that must agree:** each scene's `InterfaceManager.scale` and the code default
+    `ScreenSpawn.outerCircleScale`. Any style change resets the scale to that default, including AUTO,
+    `SetScreenStyle` and the panorama fallback out of `OFF`.
+  - **What it fixes is camouflage, not resolution.** Measured on BlockShapedPatchCityWorld's views of walkers
+    100–200 m away, where 99.5% stand in front of a facade, the share whose contrast barely clears the shopfront
+    clutter around them falls from 24% to 15% (1.25: 20%). Scale 1.71 (orthoscopic) would take it to 10%, but the
+    user kept the screens smaller so the `CockpitRoom` anchors stay in view.
+  - Eye-buffer supersampling (`XRSettings.eyeTextureResolutionScale`) adds nothing at 1.3, where the feed is no
+    longer minified; it only helps below that (1.25 + 1.3× eye texture also reaches 15%). Unity renders
+    2160 × 2224 per eye whatever the Link app's resolution slider says.
+  - `FORMATION_WALL` / `FORMATION_MAP` keep 0.55 / 0.45.
+  - **Earlier runs flew at 1.0**, so walkers in them looked ~23% smaller. Compare across the change through
+    `screenScale` in `_session.json`, and keep the scale fixed within a series.
+- **Speed-ups in the patch city (2026-11-04): baked occlusion and sleeping patrols halve the main thread.**
+  BlockShapedPatchCityWorld, by the same replay, two interleaved pairs on one machine (before → after): main thread
+  7.4–8.8 → 3.9–4.3 ms a frame, rows at 72 fps 39–75% → 100%, frames over 13.9 ms 1.8–8.3% → 0, the worst 1% of
+  frames 14.7–18.0 → 6.8–7.7 ms. The profiler put the cost before in culling (~2.5 ms) and in animating and
+  skinning all ~290 pedestrians whether any feed could see them (~2.8 ms). Points worth keeping:
+  - **Occlusion is baked by `Tools/Swarm/Bake flight occlusion` (`FlightOcclusionBaker`), not the Occlusion window.**
+    Only the Obstacle buildings and the Terrains occlude: CityDressing marks its props occluder-static, and leaves as
+    occluders hide walkers behind the gaps in a canopy. The area exists only while baking (the buildings + 150 m and
+    the spawn, up to the ceiling + 25 m). 6 s and 2.5 MB for the patch city, 3 s for the practice city. Checked: 160
+    random poses per scene render identically with it on and off. One FPV render with the GPU drained: 1.36 → 0.91
+    ms of main thread.
+  - **Rebake after rebaking the city.** The bake records `ProceduralCityBuilder.occlusionCitySignature` (Obstacle
+    colliders by count and position, `CitySignature`); a city at Play that differs — another layout picked at Play,
+    or a city rebaked since — sets `OcclusionUsable` false, and ScreenSpawn flies the FPV cameras without occlusion,
+    with a warning. `PracticeBlockWorldBuilder` rebakes itself, since its copy carries the trial city's data.
+  - **`WalkerPatrol.SleepDistance` (`ProceduralCityBuilder.walkerSleepDistance`, 350 in both scenes, 0 elsewhere):**
+    a patrol farther than that from every drone camera stops animating and hides its walkers' bodies until one comes
+    within it (20 m hysteresis, checked every 0.5 s). A 1.8 m figure is ~4 headset pixels at 350 m, and the scene's
+    longest street views are rarely over 400 m. In recorded flights ~45% of patrols are past 350 m. **Hats stay
+    drawn**: `SpecialWalker.HatCentre` reads the hat mesh's bounds, which a disabled renderer leaves empty, and the
+    recorder logs and scores against it. A sleeping walker's logged position is where it stopped.
+  - **The walkers' ground shadow (`WalkerGroundShadows`, `Swarm/Walker Ground Shadow`, the scene's
+    `walkerShadowMaterial`) is one mesh rewritten each frame**: 0.01 ms per FPV render, against 0.35 for the sun's
+    real shadow on the walkers alone. Its quads follow each walker's Animator and vanish while the patrol sleeps;
+    nothing is parented under a walker (`HatCentre` would take it for the hat). The footpath is
+    `PatchCityFootpath.mat`, the pack's at 0.9 grey; the pack's own is shared with other scenes. Measured paired
+    (same frames, nothing asleep): clearly visible walker pixels +8% for the shadow, +2% for the footpath, +8% both.
+  - **Tried and not adopted:** `-force-gfx-mt` (no gain, GPU latency up); terrain trees off (−1 ms, but the
+    landmarks' woods are terrain trees); feed MSAA (above).
+  - Both scenes now spawn `HollowCircle` (10 drones on the ring, none at the centre).
+- **The TPS field is evaluated once per warp update on a lattice of at most 512 samples** along the
+  canvas' longer side (`_field_lattice_size`, `STABSTITCH_FLOW_GRID`, 0 = exact) and resampled
+  for each consumer: the canvas (blend masks), the panorama (`_field_to_image_grid`, with
+  cv2.resize's half-pixel geometry), and the quality canvas. The field over a 7×9 control grid is
+  smooth enough that the worst sampling error is 0.05 source px at every resolution (asserted), where
+  a half-size lattice cost 4 ms at 768-wide blocks and 10 ms at 1280. Resample through the
+  `align_corners=True` lattice helpers, never by hand, or the panorama shifts half a pixel.
+- **STABSTITCH render/warp are decoupled:** the render loop (`stab_pano`, paced by Unity's
+  `sendInterval`, 30 Hz) uses cached warp params only (no neural net); a separate warp thread
+  (`compute_warps`) runs the nets and updates the cache. The render warp is a single `grid_sample`
+  over a **precomputed TPS sampling field** (`_compute_tps_flow`, cached per warp update) — the
+  float64 TPS solve + per-pixel RBF live in the warp thread, not the render loop. The render costs
+  ~2 ms of CPU and <1 ms of GPU per frame; **its rate is Unity's publish rate**, so the lever is
+  `sendInterval` (+ `readInterval`), and the cost of raising it is the hidden stitched FPV cameras
+  being rendered on demand per send — the headset frame rate is the constraint.
+- **The nets run incrementally, and the temporal window has its own cadence.** SpatialNet's output
+  depends only on its frame and TemporalNet's only on a frame and its predecessor, so both are
+  computed once when a frame is *admitted* to the 7-frame buffer and cached beside it
+  (`_ingest`); each warp update runs the nets only on frames admitted since the last one and
+  re-runs the cheap SmoothNet over the window (`_window_params`). That is the paper's online
+  protocol without the 7× repetition (150 ms → ~40 ms per update, so the warp thread keeps pace
+  with admissions). Frames are admitted at `NET_FRAME_PERIOD` (0.05 s, the cadence the sim always
+  fed the nets at), **not** at the render rate — a faster render must not shorten the ~350 ms
+  smoothing window. The warp *updates* have a third cadence, `WARP_PERIOD` (0.1 s, 10 Hz,
+  `STABSTITCH_WARP_PERIOD`; 0 = one per admission, the old 20 Hz), on the user's request
+  (2026-10-01): `compute_warps` waits out the period and then ingests every frame admitted since,
+  so the window is unchanged and only the SmoothNet re-runs and the warp's freshness halve.
+  `STABSTITCH_LEGACY_WARP=1` restores the full-window recompute for comparison;
+  `tools/stabstitch_selftest.py` asserts the two agree (fp32/deterministic: ≤0.01 px; under
+  default TF32/autotuned cuDNN they drift by a few tenths of a pixel run to run, which is float
+  noise, not logic).
+- **A different drone triplet is a different video, and the window starts over** (`_restart_video`,
+  triggered by the `view_ids` `process_stitching` passes, or by `VIDEO_GAP_S` without admissions).
+  Left alone, the window kept the previous triplet's frames: TemporalNet read the jump between
+  unrelated images as motion and SmoothNet pulled the new warp towards the old drones' meshes, so
+  every new panorama warped for its first ~0.35 s (16–33 px off in panorama pixels, against 0.4 px
+  of normal jitter). A new video's window is **padded with its first frame repeated**
+  (`pad_new_video`), which is exactly what the nets compute for a still camera, so the panorama
+  appears on the first frame instead of after 7 admissions of side-by-side concat. Keep
+  `BUFFER_LEN` at 7: on replayed sim frames 5, 9 and 11 all jittered more than the trained value,
+  and `NET_FRAME_PERIOD` 0.033 did too.
+- **The nets' input is antialiased** (`lr_antialias`, `STABSTITCH_LR_ANTIALIAS=0` restores the
+  cv2-identical input). The paper downsamples with `cv2.resize` INTER_LINEAR, which skips source
+  pixels past 2×: harmless on lens-blurred camera footage, not on pixel-sharp renders. At 1024-wide
+  blocks (2.1×) the aliasing shimmers frame to frame, the nets track it, and the displayed warp
+  jittered ~30% more than at 768; antialiased, it jitters less than 768 did. No weights, layers or
+  maths change — only the filter that produces the 480×360 input.
+- **The quality debounce is timed, asymmetric, and has a PSNR dead band** (2026-10-01). Timed
+  (`QUALITY_HIDE_S` 0.5 s to hide, `QUALITY_SHOW_S` 1.5 s to show again) rather than a count of
+  warp updates: two updates was ~0.35 s at the old 5–6 Hz warp rate and only 0.1 s at 20 Hz. A
+  single symmetric 0.35 s timer still let a PSNR drifting across the threshold show the panorama
+  for a second or two at a time, which no timer of that length can stop — hence the band: a
+  hidden panorama must reach `quality_threshold + QUALITY_PSNR_MARGIN_DB` (1.5 dB) to count as
+  good. All three are `STABSTITCH_QUALITY_*` env overrides; the threshold itself is Unity's.
+- **Measure flicker on real frames, not by eye:** `tools/stabstitch_flicker_replay.py record`
+  captures the three stitch slots from a playing Unity without taking a block flag, and `replay`
+  runs them through the stitcher on a simulated clock and scores the displayed control points'
+  motion in panorama pixels (jitter, warp shape, the paper's roughness score, the start of each
+  segment; `--switch` simulates a triplet change).
+- **`StabStitch2_main` is gitignored, and the perf edits to it live in
+  `tools/stabstitch2_perf.patch`.** The vendored forwards used to build small constant tensors on
+  the host and `.cuda()` them every call, and `torch.inverse`'s singularity check is a host sync;
+  ~45 of the 99 device syncs per warp update were there. The patch caches the constants and uses
+  `inv_ex` — no maths, weights or layers change, and the self-test rebuilds the pristine copy by
+  reverse-applying the patch and checks the outputs match. After re-downloading StabStitch2,
+  re-apply it from `Codes/` with `git apply <repo>/Assets/Scripts/ImageStitching/tools/stabstitch2_perf.patch`.
+- **Never pass a 0-d CUDA tensor where a Python number will do** in the mesh maths: `float(t)` is
+  a device→host sync, and `_get_norm_mesh`/`_recover_mesh` were called 16× per update with the
+  canvas size still on the GPU. The canvas bounds come back in two `.tolist()` calls and the
+  quality metrics in one `.cpu()`; a warp update now performs 4 syncs (budgeted in the self-test).
+- **The render produces the wire layout directly** (`WireReadyPanorama`): per warp update the
+  TPS field and the blend weights are resampled to the panorama size with the rows reversed,
+  so the render's `grid_sample` lands RGB, bottom-up, at `panoramaImageWidth × Height`, and
+  `first_thread` writes it without the `cv2.resize`/`flip`/`cvtColor`/`tobytes` pass it still
+  applies to the other stitchers' BGR canvases. Inputs go up as uint8 through pinned staging and
+  are converted on the GPU; the low-res net input is `F.interpolate` on the GPU, which matches
+  `cv2.resize(INTER_LINEAR)` to within one uint8 step (asserted).
 - **The two threads share one GPU and one GIL**, so wasted render work directly slows the warp update.
-  The render signal is rate-limited to `RENDER_MIN_PERIOD` in `StitcherThreading.py`: the shared memory
-  is polled much faster than Unity refills it, and re-rendering an unchanged frame measurably halved the
-  warp rate. Keep that pacing just above Unity's `sendInterval` (20 Hz) rather than removing it.
+  `first_thread` wakes the render only for a **fresh** block — a slot whose header `captureTime`
+  advanced (peeked without the flag handshake, so an unchanged block costs no copy and never holds
+  the flag against Unity's readback callback) — floored at `RENDER_MIN_PERIOD` (0.025 s) in
+  `StitcherThreading.py`. Keep that floor just under Unity's `sendInterval` (0.0333 s); it bounds
+  the duplicate wake-ups when Unity's three readbacks complete on different frames.
 - **Never use `torchvision.transforms.GaussianBlur` on canvas-sized tensors here** — it convolves with a
   dense k×k kernel. At 1690×653 the 41×41 blur cost 125 ms and the 21×21 blur 38 ms, which was the single
   largest cost in the warp update. Use `SeparableGaussianBlur` in `StabStitcher.py` (two 1-D passes,
   same result to ~5e-5 relative). Likewise erode with two 1-D `max_pool2d` passes, not one k×k pass.
+
+## PLANAR stitcher (pose-driven, for the plane configurations)
+
+Selected via `typeOfStitcher = PLANAR`. Intended for the **vertical-plane / facade** configuration
+(`SwarmPlaneController`, key `V`) and the **nadir** one (`SwarmManager.gimbalPitch = -90`). In both the
+scene is one dominant plane and parallax is structurally absent, so **one homography per view is exact**
+and computable from intrinsics + pose + the plane with no image content — hence no feature matching, no
+neural net, and no failure on asphalt/water/uniform facades. It is an *alternative* to `STABSTITCH`, not
+an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radially-outward config work.
+
+- **`G = K R [e1 | e2 | (O − C)]`** (`planar_geometry.build_G`), not the textbook
+  `K(R − t nᵀ/d)K⁻¹` — no reference view, no `d` in a denominator, nothing to invert. Its **third
+  component is camera depth in metres**, so behind-camera rejection, max-range clipping and the sampling
+  coordinate all come out of one batched matmul.
+- **All handedness lives in `planar_geometry.unity_pose_to_cv` / `unity_dir_to_rh`.** Unity is
+  left-handed Y-up; CV is right-handed with +Y down and image row 0 at the top. Every world quantity
+  (plane normal, origin, basis) must go through the same conversion. This is the highest-risk area —
+  `tools/planar_selftest.py` cross-checks it against an independent implementation derived from Unity's
+  documented `worldToCameraMatrix`, which never calls into `planar_geometry`, so a shared sign error
+  cannot cancel out.
+- **Every block's pose is validated before use** (`PlanarStitcher.pose_is_usable`: `POSE_VALID` set,
+  finite, non-degenerate quaternion) and a failing view is *dropped*, not raised on. This is a
+  shared-memory handshake with no schema enforcement, so a stale or unwritten block must cost its own
+  view rather than the frame — an uncaught `degenerate quaternion` out of `quat_to_matrix` kills the
+  panorama and points the traceback at the geometry instead of at the producer. Dropped views are
+  counted as `unposed` on the periodic `[PLANAR]` line.
+- **The scene plane is a raycast** from the centre stitch drone (`UpdateScenePlane`), low-passed, sent
+  as unit normal + offset under a **seqlock** (a torn normal is neither unit length nor perpendicular to
+  anything). `scenePlaneMask` must exclude the feed screens and the curved panorama screen — those float
+  in world space near the pilot, and hitting one puts the "scene plane" a few metres away, which then
+  looks exactly like a geometry bug.
+- **The canvas is framed on the centre drone Unity nominates**, whose id rides in the *same seqlock* as
+  the plane (`centre_drone_id`; `-1` falls back to the median of the selection, for a pre-field v2
+  producer). Same reasoning as the plane normal: the canvas origin and axes are built from that view, so
+  a centre paired with another frame's plane tears exactly like a torn normal. `_build_geometry` must
+  never re-derive it — the median of the id-sorted selection is the median *drone id*, not the geometric
+  centre, and it jumps whenever the selection gains or loses a drone.
+- **The canvas extent is a mode, not a constant** (`planarCanvasMode`, default `Fixed`). `Fixed` is the
+  original framing — `planarMetresPerPixel` centred on that centre drone's principal-ray hit, so the
+  canvas covers the same patch of plane every frame and measurements stay comparable across runs, at the
+  cost of being correctly framed at exactly one standoff. `AutoFit` derives scale and centre from where
+  the views actually land (`PlanarStitcher._footprint_bbox` inverts each view's `G` rather than
+  re-casting rays, so it inherits whatever corrections `_build_geometry` already applied). Two things
+  keep `AutoFit` from breathing: the scale is **quantised to 1/3-octave steps** about
+  `planarMetresPerPixel` with hysteresis and a dwell time, and the centre is low-passed **in world
+  coordinates, not in plane `(a, b)`** — same reason `_pose_shift` is, since `e1` rotates with the
+  reference camera. `Fixed` + `zoom 1` + `pan 0` is asserted byte-identical to the pre-mode mosaic in
+  `planar_selftest.py`; that is what makes putting the dropdown back a guarantee rather than a hope.
+- **Zoom and pan are a viewing transform and must never reach the estimators.** `planarZoom` /
+  `planarPan` ride the seqlock (368–379) and are applied only in `planar_pano`;
+  `_estimator_geometry` follows the *fit* scale but never the zoom. The sweep tracks a minimum whose
+  basin is a few source-disparity pixels wide, so resizing or sliding its measurement window mid-
+  convergence is exactly the "sweep loses its lock" failure the ACQUIRE/TRACK split exists to prevent —
+  a pilot zooming in to look at something must not cost them their alignment. The selftest pins this by
+  requiring the refiner's correction to be *identical* at 1x and 4x. Following the auto-fit scale is
+  safe for the reason the split is necessary: corrections are stored in metres and scanned in disparity
+  pixels, so both are canvas-scale-invariant and a step in the fit resets nothing. `_fit_*` is written
+  only by the render thread and read by the warp thread — one writer, as with `_correction` the other way.
+  Past ~1:1 with the sharpest view's ground sample distance, zoom is **empty magnification**; the
+  `[PLANAR]` line prints the GSD and says so, because that limit moves with the standoff.
+- **The default blend is winner-take-all, not a cross-fade** (`planarBlendMode`, default `Nearest`).
+  Each canvas pixel goes to the single view seeing that plane point closest to the plane normal —
+  `cos = h_v / √((a−a_v)² + (b−b_v)² + h_v²)` from the camera's in-plane footprint `(a_v, b_v)` and
+  standoff `h_v`, which is a Voronoi partition of the plane by camera footprint. Cross-fading (`Feather`)
+  is only clean while the geometry is *exact*: any residual error (pose noise, a facade that isn't quite
+  planar) then superimposes two offset copies, and in a wall formation the views overlap over most of the
+  canvas, so the ghosting is everywhere rather than confined to a seam. Winner-take-all cannot ghost —
+  no pixel ever has two contributors — at the cost of a visible seam where the winner changes.
+- **Blending weights are an analytic distance-to-border feather** in *source* pixels, normalised per
+  pixel across all contributing views. A homography's alpha mask has a closed form, so unlike
+  `StabStitcher` this needs no blur or erosion, and it generalises to any N for free. Under `Nearest`
+  that falloff *multiplies* the obliquity score instead of blending, which keeps the seam off the
+  source-image edges: a view running out of frame loses to a neighbour before it runs out of pixels.
+- **`planarDebugView` colours each patch by its source drone** (`Tint` washes colour over the imagery,
+  `Flat` replaces it) — the quickest read on where the seams fall. The palette is keyed on **drone id**,
+  not on position in the selection, so a colour means the same thing frame to frame; the key is printed
+  on Python's periodic `[PLANAR]` line, because the selection changes as drones join or drop out. The
+  overlay is applied to the warped stack, so it works in both blend modes, and it is applied *after*
+  the PSNR measurement so the logged number still describes the real mosaic.
+- **Overlap PSNR is measured over geometric coverage, not blend weight.** Under `Nearest` the weights
+  are one-hot, so a weight-based overlap test finds no overlap anywhere and silently retires the one
+  diagnostic that quantifies pose error.
+- **The projective-sanity gate is local Jacobian anisotropy** (`homography_anisotropy`), not the SVD
+  condition number of the raw 3×3 — the latter is dominated by the metres-per-pixel unit scaling and
+  reads ~35 000 for a perfectly benign nadir view, where the Jacobian reads 1.000. Mesh-distortion
+  metrics are meaningless here: a homography cannot fold.
+- **With `poseSource = GroundTruth` the mosaic must be pixel-exact** on a truly planar scene. Nothing is
+  being estimated, so a visible seam is a bug, not a limitation. `StitchPoseSource.cs` injects
+  GNSS-magnitude error (Ornstein–Uhlenbeck, with a **common-mode fraction** — nearby receivers share most
+  of their error, and common-mode error translates the mosaic rigidly and costs nothing) for sizing how
+  much refinement real drones would need.
+- **`compute_warps` runs the two photometric estimators**, not the geometric solve — that costs
+  microseconds and stays inline in `planar_pano` every frame, because the poses change every frame.
+  What belongs on the warp thread is the *slowly-varying corrections*, which are what `_correction`
+  holds. Each is independently switchable from the inspector (`planarPlaneSweep` / `planarPoseRefine`),
+  and they move different parameters, so they are complementary rather than alternative.
+  In one line each: the **sweep** fixes *how far away the surface is* — get that wrong and every view is
+  drawn at the wrong size, so neighbours cannot line up however good the poses are; the **refiner** fixes
+  *where each drone thinks it is* — get that wrong and one view's patch lands sideways of where it
+  belongs. Both default **off**, so the pose-only backbone is unchanged until they are enabled.
+  - **`_correction["plane"]` — plane sweep.** One global scalar: an *additive* offset on the published
+    plane distance (additive so Unity's raycast keeps tracking the facade and the sweep only estimates
+    the residual), chosen by scanning candidates and keeping the lowest photometric disagreement, then
+    parabola-refined between samples. A plane-distance error appears in each view as a *scale* about its
+    own footprint, so no per-view translation can absorb it.
+  - **The sweep samples uniformly in disparity (`f·B/Z`), not in metres, and has two modes.** This is not
+    a refinement — a single metres-uniform scan was the cause of the "sweep gets stuck on a wrong plane
+    until you toggle it off and on" bug. Misalignment is linear in disparity, and the basin of attraction
+    is a roughly fixed *pixel* width (≈`L·Z/B`), so one step size in pixels is correct at every standoff
+    and no step size in metres is correct at two. The shipped defaults scanned ±4 m over 9 candidates —
+    **1.0 m apart, against a basin about a metre wide.** To be sure of landing a candidate inside a
+    minimum of width `W` the step must be ≤ `W/2`, so the minimum was never resolved: the argmin was
+    noise, the low-pass then walked the plane ~1 m per pass in an arbitrary direction, and toggling the
+    estimator merely re-rolled the dice. `planar_selftest.py` measures the real cost curve on two
+    textures and pins both halves of that (`[…] the fine scan step resolves the basin` / `… the old
+    metres-uniform step did not`).
+    - **ACQUIRE** — wide, coarse (`SWEEP_COARSE_STEP_PX`), spanning ±`planarSweepRange` metres, which
+      stays the honest way to say "how wrong could my prior be". It **snaps** on success rather than
+      low-passing: this is the initial lock, and damping it would leave the estimate outside the basin it
+      just found, where the fine scan has no signal. Rate-limited, since it costs several tracking scans.
+    - **TRACK** — a few pixels either side of the incumbent at `SWEEP_FINE_STEP_PX`, low-passed by
+      `planarRefineRate`, and it only moves for a measurable improvement on the incumbent so a converged
+      sweep sits still instead of dithering.
+    - A **contrast gate** (fractional cost drop from the median candidate to the best) is what separates
+      "a minimum" from "the lowest sample of a flat curve". A flat window must mean *no measurement*, not
+      *argmin of noise* — that distinction is the whole difference between tracking and random-walking.
+      A run of `SWEEP_LOST_PASSES` unusable scans, or an argmin pinned to the window edge, drops back to
+      ACQUIRE. That is the automatic form of the operator toggle that used to be the only cure.
+  - **`_correction["dpose"]` — pose refiner.** Two DoF per view: a per-drone translation recovered by
+    phase-correlating each view against the **leave-one-out** consensus of the others (not against the
+    finished mosaic — under winner-take-all a view *is* the mosaic where it wins, so it would correlate
+    against itself and report a confident zero). Differential GNSS and compass bias both appear at a
+    facade as a lateral shift, so one translation absorbs the bulk of both.
+  - **The sweep measures on `apply_dpose=False` geometry.** Not incidental: the refiner readily absorbs
+    part of a depth error as per-view translation, and a sweep measuring on already-refined geometry is
+    then hunting an error the refiner has hidden — it gets driven the wrong way.
+  - **Corrections are residuals and accumulate** (`prev + rate * measured`), because `_build_geometry`
+    has already applied the standing correction by the time the estimator sees the stack. Overwriting
+    instead of accumulating caps convergence at one step's worth and oscillates.
+  - **A gated-out measurement must not delete the correction that view already earned.** Rebuilding
+    `_pose_shift` from only the views accepted this pass meant one weak correlation peak wiped that
+    drone's history, snapped its patch back to the raw pose and left it to re-converge — which flaps.
+    Only genuine absence from the *selection* retires a correction. The old behaviour was backwards as
+    well as wrong: rejecting **all** views hit an early return that preserved everything, so only a
+    **partial** rejection destroyed anything, which is why the self-test now gates exactly one view.
+  - **The gauge is re-applied to the accumulated set, not just to each pass's residuals.** Each pass is
+    zero-meaned against whichever subset it accepted, so residual-only gauging lets the accumulated set
+    drift off zero mean as membership changes — a net translation that slides the whole mosaic.
+    Relatedly, the **reference view gets the same correction every other view gets**: building the canvas
+    frame from a raw pose the render then moves is a whole-image drift on top of the per-view alignment.
+  - **Estimator switches come from the live metadata, the frame comes from the snapshot.** They must have
+    independent freshness. When both were read out of `_frame_snapshot`, and the snapshot was only
+    published while an estimator was on, the "both off" reset branch was *unreachable by construction*
+    and turning an estimator off simply froze the last frame with the flag still set — the estimator kept
+    running on one dead frame forever. `StitcherManager.update_planar_metadata` now pushes the config via
+    `set_live_config` on every metadata read, which is the one path that keeps running while the render
+    path is failing. The snapshot is timestamped and older than `SNAPSHOT_MAX_AGE_S` stops the
+    estimators: every `planar_pano` path that skips the publish also returns a *blank* panorama, so a
+    frozen snapshot means the render is already down and converging onto it poisons the recovery.
+  - **Estimator logging lives on the warp thread** (`_maybe_log_estimators`), not on the `[PLANAR]` line.
+    That line is printed at the end of `planar_pano`, after every early return, so it goes silent in
+    exactly the situations worth diagnosing. What it prints is the cost curve's *shape* — mode, contrast,
+    step in disparity pixels, interior-vs-edge argmin — because shape means the same thing in the sim and
+    in the field, whereas the cost at zero offset measures how good the operator's prior was.
+  - **Views whose frame has stopped advancing are dropped** (`MAX_CAPTURE_SKEW_S`, measured as lag behind
+    the freshest block). `read_block_memory` re-serves a busy block's previous frame indefinitely, so one
+    view's pixels can freeze while the formation moves; `capture_time` and `cached` were already on the
+    wire and were being decoded and discarded. Never empties the solve — if every view is old they are
+    old together, which is a stalled producer, and a frozen panorama beats a vanished one.
+  - **Known degeneracy, asserted in the self-test so it cannot be "fixed" by accident:** a depth error
+    dilates each view about its own footprint, which over the overlap *is* a convergent translation
+    field — so convergent per-drone position error is indistinguishable from a plane-depth error. On
+    that case the sweep alone moves the plane and gains nothing (17.0 → 17.1 dB overlap PSNR) while the
+    refiner still recovers most of it (→ 24.9 dB). Turn the sweep on when the **plane** is what you are
+    unsure of (a map-drawn facade distance, a raycast onto geometry that may not be there); leave it off
+    when per-drone error dominates.
+  - The confidence gate rejects a *measurement* with no dominant correlation peak — most usefully in
+    early passes while the consensus is still a blur of misaligned views. It is **not** a guarantee
+    against a repetitive facade: run to convergence, a periodic scene can settle into a self-consistent
+    solution shifted by a whole period, and no per-measurement test can see that. `planarRefineMaxShift`
+    is what bounds the damage. Both estimators apodise before correlating — masking both inputs with the
+    same hard mask correlates the *mask*, which pins the answer at zero shift regardless of the pixels.
+  - Estimator passes run on a quarter-resolution canvas with their **own** grid cache; sharing the
+    render path's cache would miss on every call (different canvas size) and race across two threads.
+
+### PLANAR on real drones — there is no raycast out there
+
+Everything above assumes the sim. In the DJI scene the two things `PLANAR` depends on most — a
+per-frame camera pose and a scene plane — come from Unity internals that do not exist in the field, so
+both are supplied differently there. **Three settings and one flag** are what make it run:
+
+| Where | Setting |
+|---|---|
+| `PyUniSharingFast` | `useManualIntrinsics = true`, `manualVerticalFovDeg = 46.4` (Mini 3 Pro at 16:9) |
+| `PyUniSharingFast` | `scenePlaneMode = FormationRelative`; `planarStandoffMetres` is now only the **fallback** — see below |
+| DJI_Swarm | `-ImageStreamPose` / `ImageStreamPose = $true` / `--image-stream-pose` |
+
+**`planarStandoffMetres` is supplied by the PC and the inspector field is the fallback.**
+It used to be hand-typed, and a wrong value there is the single largest error in the mosaic — the
+2026-08-11 MED clips were replayed against a typed 30 m when the truth was 34.3 m, which at this
+geometry's 4.9 px per metre is ~21 px of seam, more than every other term combined. The PC now
+computes it (`clip_scene_plane.pick_facade` + `standoff_of`) and writes it into the feed map's
+trailer; `ImageSharing.ReadFeedTrailer` validates it and `PyUniSharingFast.ResolvePlanarStandoff`
+prefers it, writing the result to metadata offset 364 every frame via `WritePlanarStandoff` —
+per-frame because the standoff now *tracks the formation* rather than being a constant, and
+`WriteMetadata` only runs on Start/OnValidate/a stitcher switch. Four things must hold before the PC
+value is used (magic, version, status, and a **heartbeat** advanced within 2 s); the heartbeat is the
+load-bearing one, because closing the producer's handle leaves its last bytes readable forever and a
+finished `clip_replay` would otherwise pin its clip's standoff into every later editor session.
+The inspector field is still worth setting correctly: it is the only source in every **sim** scene,
+in the DJI scene before a controller starts, and again the moment one exits.
+
+**Three inspector fields carry a "plane distance" and none of them are the same quantity** —
+`scenePlaneMode` selects one and the other two are dead, which is why `PlanarSettings` groups them
+under per-mode headers. `fallbackPlaneDistance` (Nadir/Facade) is a distance **along the centre
+camera's ray**, used *only when the raycast misses*, and is unreachable on real drones because a
+facade has no collider. `manualPlaneDistance` (Manual) is the world plane offset **d** itself,
+paired with `manualPlaneNormal`. `planarStandoffMetres` (FormationRelative) is the **perpendicular**
+distance from the formation **centroid** to the surface. Different origins, different directions,
+different roles; they merely all read about 30.
+
+**`planarStandoffSource` (`Auto` | `Inspector`) is the operator's takeover**, and
+`planarStandoffInUse` is a read-only read-out of which one is actually in force. `Inspector` is
+absolute — it ignores a live PC value even when one is arriving — because an operator reaching for
+it is overriding an auto-pick they believe is wrong, and silently reverting the moment the PC looked
+healthy again would be the opposite of what they asked for. It is named `Inspector` rather than
+`Manual` so it cannot be read as `scenePlaneMode`'s unrelated `Manual`.
+**`planarStandoffMetres` deliberately does *not* mirror the live value**, which is the obvious thing
+to want and is a trap: that field is the *fallback*, so writing the live value into it means the
+instant the PC stops publishing the fallback becomes the last PC value rather than the operator's
+number — a finished `clip_replay` would leave its clip's standoff sitting in the inspector and every
+later session would inherit it silently. That is precisely the stale-value failure the heartbeat
+exists to prevent, reintroduced through the inspector. Hence a separate read-out.
+The **resolved** source (not the requested one — `Auto` still reads `inspector` whenever nothing is
+arriving) is published at metadata offset **396**, taken out of `metadataReservedGap`, which drops to
+7 with `metadataTailEnd` at 397; `metadataSize` stays 412 so no running Python is stranded. It exists
+because the value at 364 is a float either way: without it `clip_replay.py` goes on announcing that
+it drives the standoff while a `Manual` scene quietly ignores it, which is the same
+two-sources-one-number confusion the toggle was added to remove. `unity_stitch_meta.py` reports it
+(`standoff 34.26 m (from the PC)`) and watches it, so a mid-replay flip to `Manual` prints an
+`[unity]` line.
+
+There used to be a fourth: `ImageSharing.stitchSlots`, which defaulted to STABSTITCH's 3 and had to be
+raised to the fleet size by hand — and only took effect on a Play restart, because the section was
+created in `Start`. It is gone; `PublishStitchBlocks` now writes every aircraft with a fresh posed
+frame into the fixed-capacity section.
+
+- **The pose comes from `dji_camera_pose.CameraPoseSolver`** (DJI_Swarm repo), called inside
+  `image_stream_feed.py`'s `frame_sink` — where the image bytes and the telemetry come out of the *same*
+  `ds_wrapper` fetch, which is the tightest pose/frame pairing the system can offer. Position is metres
+  from a **latched** origin (the first valid fix), *not* the per-tick swarm centroid `swarm_flocking.py`
+  uses: that one drifts with the formation, which is right for flocking and wrong here, because a moving
+  origin puts every frame's poses in a different frame from the plane. Rotation is the **gimbal**
+  attitude, not the aircraft's. Frame is Unity-world left-handed, `+X = East, +Y = Up, +Z = North`.
+  `dji_pose_selftest.py` pins every sign against an independently derived construction — do not "tidy"
+  those signs without running it.
+- **The plane is derived from the poses, not raycast** (`ScenePlaneMode.FormationRelative` →
+  `PlanarStitcher._plane_from_formation`). The operator supplies one number, `planarStandoffMetres`, the
+  *perpendicular* distance from the formation to the surface. No georeferenced origin has to be agreed
+  between Unity and the drone telemetry, because the whole solve is invariant to a common translation.
+  The normal comes from a plane fitted to the camera **positions** when the formation spans a plane —
+  immune to gimbal pitch, and correct for nadir as well as facade — and falls back to the mean camera
+  **forward** when the drones are collinear (a single row), where no plane fits. The `[PLANAR]` log line
+  says which rule won; `forward` means the wall has collapsed to a row and the normal now follows the
+  gimbal.
+- **The other plane modes still exist and still work**, and `Manual` is now reachable in that scene at
+  all: it and `FormationRelative` are resolved *before* `UpdateScenePlane`'s camera guard, which used to
+  return early whenever `camerasToCapture` was empty — i.e. always, in the DJI scene.
+  - `ScenePlaneMode.Manual` + `manualPlaneNormal` / `manualPlaneDistance` — world coordinates, so it
+    needs an origin agreed with the pose frame. Prefer `FormationRelative` unless you have one.
+  - A facade traced on the DJI_Swarm GUI map (`shapes.json`) is the georeferenced route, and **is now
+    the default** — it is what supplies the standoff described above. The wall is chosen
+    automatically (`clip_scene_plane.pick_facade`: nearest positive ray-plane hit along the mean
+    camera forward, gated on look-off/range/lateral extent, with 3 m hysteresis and a 2.5 s dwell so
+    it cannot flap), and which wall won is reported on the controller console and the GUI chip. Verify
+    it offline against real footage with
+    `python clip_scene_plane.py --clip <dir> --pick [-v]`, which replays the rule over a clip's own
+    poses and prints every candidate's reject reason. Two traps remain: **trace the base** of the
+    building, not the roofline — satellite imagery displaces the roof from the footprint by
+    `height × tan(off-nadir)`, ~7 m for a 20 m building; and the behind-the-wall test is the
+    **look-off angle, not a negative standoff**, because `facade_from_line` orients the normal toward
+    the formation, so a wall traced on the far side comes back with a perfectly positive standoff.
+- **Test it without aircraft**: `python tools/planar_feed_bench.py --drones 6 --rows 2` writes real
+  `DroneFeedSharedMemory` blocks from a synthetic facade, so Unity and `StitcherThreading.py` run
+  unmodified. `--selftest` does the same headless, with no Unity at all, and `--pose-error` /
+  `--depth-error` / `--yaw-error` reproduce the field error budget on the bench. The two error knobs are
+  separate on purpose: the refiner recovers lateral error and structurally cannot recover depth error,
+  and lumping them together makes it look broken when it is working exactly as claimed.
+- **The plane is the least sensitive of the four error sources**, so a rough distance really is enough.
+  Budget for a ≤5 px seam at 30 m standoff / 8 m baseline (f ≈ 525 px at 800×450): plane distance
+  ≤ 1.07 m, differential position ≤ 0.29 m, differential yaw ≤ 0.55°, gimbal pitch ≤ 0.55°. Stock DJI
+  values land at 20–60 px (1–3.5 m on the facade) — a recognisable mosaic with visibly broken seams.
+  Two levers, both worth more than tightening the plane: plane error scales as `f·B·δZ/Z²`, so it is
+  **quadratic in standoff** (3 m plane error = 56 px at 15 m, 14 px at 30 m, 3.5 px at 60 m) and linear
+  in baseline; attitude error is `f·δθ` and therefore **range-invariant** (0.5° = 4.6 px at any
+  distance). Stand back, keep the formation tight, and expect no help from range on compass error.
+- **Pose/video sync is a first-order term, not a detail.** DJI telemetry is only ~5 Hz fresh and the
+  video has its own pipeline latency; at the 40 °/s yaw clamp, 300 ms of skew is ~55 px — larger than
+  everything else combined. Hold station and yaw slowly while capturing. `MAX_CAPTURE_SKEW_S` drops a
+  view that has fallen behind the freshest one, which bounds this but cannot remove a skew common to
+  every aircraft.
+- **Keep `planarBlendMode = Nearest`.** At 20–60 px of residual, `Feather` superimposes two offset
+  copies over most of the canvas; winner-take-all confines the error to a seam.
+- **The sweep's capture range is narrower than `planarSweepRange` suggests, and the field is where that
+  bites.** Its basin of attraction is roughly `L·Z/B`, where `L` is the scene texture's correlation
+  length — on brick at 30 m behind a 15 m wall that is ±0.2–0.6 m, not ±4 m. The ACQUIRE/TRACK split and
+  disparity-uniform sampling described above are the implemented half of the fix, and they matter *more*
+  here than in the sim: with no raycast the plane is static and wrong from frame one, so the sweep starts
+  outside its basin rather than being knocked out of a good one. There is no transient to ride out and
+  nothing for a watchdog to notice — `ScenePlaneMode.Manual` sets `scenePlaneValid = true`
+  unconditionally, so `REASON_PLANE_INVALID` and the 2 s grace never fire out there. What the field case
+  needs is **capture range**, not an escape hatch.
+- **Do not reason about the sweep by asking "is the correction better than zero?"** In the sim zero is
+  the raycast, which is a good prior; in the field zero is whatever standoff the operator typed, so that
+  test measures the guess rather than the lock. The deployment-invariant read-out is the cost curve's
+  shape, which is what `_maybe_log_estimators` prints.
+- **Cross-drone triangulation remains the stronger prior** and needs no new dependency: `BaseStitcher`
+  already loads SuperPoint plus BF/FLANN, and the formation's 8–25 m baselines put triangulated depth at
+  ~0.2 m at 30 m — inside the fine scan's basin directly, with no acquisition pass at all. **Not
+  implemented**; it is the next thing to build if ACQUIRE proves too slow or too easily fooled.
+
+Two checkers, both runnable without Unity:
+`python tools/planar_selftest.py` (geometry + end-to-end render) and
+`python tools/check_wire_layout.py` (asserts the C# and Python layout constants agree — a mismatch there
+is silent, since neither side fails to compile, it just reads a float from the middle of another field).
+
+## City scenes and the ScaledCity assets
+
+Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
+(generated from ScaledCityWorld, below), `PracticeBlockWorld` (generated from BlockShapedPatchCityWorld, below),
+`DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld`,
+`BlockCityWorld`, `BlockShapedCityWorld` and `BlockShapedPatchCityWorld` (generated cities, below), `FactoryScene`,
+`RingChallenge`, `NBackExperiment`, and `DJIScene`
+(real drones, no sim swarm). All of them spawn the
+same `Assets/Prefabs/DroneReduced.prefab`, so anything edited there — `maxPitch`, `maxSpeed`,
+`timeConstantAcceleration` — changes every scene at once. Per-scene tuning belongs on the scene's own
+`SwarmManager`, which is the only per-scene owner of those values.
+
+**`PracticeWorld` is generated, not authored — rebuild it after changing ScaledCityWorld**
+(`Tools/Swarm/Build practice world`, `PracticeWorldBuilder`). It is the participants' training scene: a copy of
+ScaledCityWorld keeping one tile (`MC_Patch_14`, moved 120 m down ParkRoad from the spawn), one goal patch directly
+behind it (the tile's far-side neighbour, one street between them), and the four walker prefabs standing on the idle
+loop under signs naming their hat, with the experiment recorder, goal replacer and city tuners stripped. The goal is
+finished at build time the way the experiment finishes one a frame into Play — block scale, the goals' own building
+width, verge trees — by the very tuners and planter that are then stripped (`StreetWidthTuner.MatchNewPatch`,
+`BuildingWidthTuner.SizeGoalPatch`); its pedestrians and the hat one of them wears are still dealt at runtime by the
+prefab's `WalkerPatrol`s and `GoalSpecialWalker`, so the hat changes between sessions. The copy is the point: the gains, the altitude ceiling, the spawn, the input, the screens,
+`PyUniSharingFast`, the Arena, the rig and the lighting all live on ScaledCityWorld's scene objects, so a retune
+there reaches the practice world only through a rebuild — which also discards hand edits made to it.
+
+**`PracticeBlockWorld` is generated the same way from BlockShapedPatchCityWorld — rebuild it after changing that
+scene** (`Tools/Swarm/Build practice block world`, `PracticeBlockWorldBuilder`, 2026-11-03). It is the training scene
+for the block-shaped trials: a file copy of BlockShapedPatchCityWorld with a 20-building city baked in place of the
+trial city, the recorder stripped, and PracticeWorld's start line and hat stations
+(`PracticeWorldBuilder.AddStartLineAndStations`, 30 and 45 m down ParkRoad). Points worth keeping:
+- **The copy is the only way the trial tuning gets there.** S6's, S8's and S10's SwarmManager values (d_ref, `d_shield`,
+  `d_obs`, the slide, the adaptive spread, the ellipse) were written into BlockShapedPatchCityWorld's YAML by
+  `swarmtune apply`, and no builder sets them, so a scene built through `ProceduralCityWorldBuilder.Build` would fly
+  DiamondCityWorld's gains. The first build carries the ellipse; it was checked field for field against the trial scene.
+- **The city is cut from the held-out seed-2 city, not from the trial city (seed 1)**, so no participant learns a piece of
+  it. `citysim.practicecity` keeps one goal block, its ring and the ring's own neighbours, all built (the user chose
+  buildings over parks for that outer row), where seed 2 has them. The goal (block 28) is 191 m from the spawn, two
+  blocks in from the west edge at x −365 where ParkRoad meets it, so the edge row is what the swarm flies round first.
+  The file `layouts/PracticeBlock__bbB_p40_s18_patch150_j0.15_sight487_seed2_cut_b28.json` is committed. Its source
+  is in the git-ignored `sweep~`, and the generator's docstring redraws it.
+- **The goal is drawn at Play, not written into the layout, and the cut makes the draw certain** (`goalsAtPlay` 1).
+  BlockGoals needs a goal and its whole ring to be interior and built. In the cut, the ring's neighbours touch its edge,
+  so neither they nor the ring qualify, and the goal is the only candidate. The hat and the target walker come from a
+  fresh seed, so they change between sessions as in PracticeWorld, while the building stays the same. Three things
+  hold the cut to this: the generator asserts it, the builder re-checks it in C# (one goal can be drawn, two cannot) and
+  refuses otherwise, and `test_practicecity.py` checks the committed file. A goal written into the layout would fix the
+  hat as well (`GoalSession` source `layout`).
+- **Each kept block keeps every street that names it**; the side outside the cut becomes −1, `edge`. This is because
+  `CityDressing.BuildBlocks` clips each block's kerb from its streets. Block and street ids are kept, so the dressing's
+  random streams dress each block as they would in seed 2.
+- `ProceduralCityProbe` checks it with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/PracticeBlockWorld.unity` and
+  `PROCEDURAL_PROBE_NO_RECORDER=1`. The first build passed twice: one goal (Block_B028), 96 walkers on the footpaths,
+  a different hat each run, the bake adopted.
+
+**`ScaledCityWorld` is a fork of `CityWorld` with its own prefab tree**, not a scaled instance of the
+original. `Assets/Prefabs/ScaledCity/` holds `City_Pack_01_Scaled`, `goal_patch_Scaled` and 48
+`Patches/MC_Patch_NN_Scaled` prefabs; nothing outside that scene references them. Across those patches
+sit **169 buildings, each at `localScale (0.25, 0.25, z)`** — a quarter of the pack's footprint, with a
+per-building `z` chosen so **every building is exactly 50 units tall**. Footprints run 3.5–17.9 by
+2.0–10.8 units. The point is a city whose streets are wide relative to its buildings and whose skyline
+is flat, so obstacle behaviour is comparable between runs instead of being dominated by whichever
+tower a drone happened to meet.
+
+Pack-geometry facts scripts depend on:
+
+- **Buildings are authored local `+Z` up, pivot at the base** — the `0.25/0.25/z` above is
+  width/width/**height**, not width/height/depth. `BoxCollider.m_Size` is the *unscaled* mesh bounds,
+  so world size is `m_Size` times `localScale` componentwise.
+- **The pack marks every building `Batching Static`**, in the ScaledCity forks as well as the
+  originals. Entering Play combines their meshes and the renderer stops reading the transform, so a
+  runtime scale or move shifts the **collider** without moving anything you can see — invisible walls.
+  `BuildingWidthTuner.ApplyWidth` refuses to run once batched and says so. **Tune in edit mode before
+  pressing Play**; the value carries into Play without saving the scene.
+- **`BuildingWidthTuner.widthScale` is relative, not absolute.** 1 always means "leave it alone", so
+  the component is inert until touched. ScaledCityWorld already bakes 0.25 into its prefabs and
+  CityWorld bakes 1, so an absolute scale would need a different baseline per scene and would silently
+  quadruple the wrong city; in ScaledCityWorld, 4 restores the original pack width. `StreetWidthTuner`
+  is the complementary knob — it widens streets by shrinking each tile's block content about its own
+  kerb pivot, leaving the `Road_Structure` plate and the 90.83 grid pitch alone. Buildings are moved,
+  never resized. **The widened strip is neither road nor plate**: `Road_Structure` is a *ring* from the
+  tile edge in to 38.1 u (`CityTiles.BlockHalfSpan`; its area is 0.297 of its bounds, which is exactly
+  the ring around a 76.2 block), empty inside where the footpath slab sits. Shrinking a block therefore
+  opens a band onto whatever is under the city — in ScaledCityWorld, four grass Terrains at y −0.017 —
+  so each block gains a grass verge (7.6 u wide at 0.8) and the carriageway does not widen at all.
+- **A tile's transform is not always where its block is — locate a tile by its kerb (`Carbs_NN`).**
+  `MC_Patch_32`, in the pack and in the fork, has its whole block baked ~318 u off its own pivot, so its
+  transform sits at the city centre while its buildings stand at the edge (seven other tiles carry a
+  baked vertical offset instead). `StreetWidthTuner` and `GoalPatchReplacer` both read the kerb. The
+  replacer used to copy the transform, which put a goal patch across the four middle tiles — it happened
+  in `AAAA_t1_SingleDrone_20260706_214605` and `ERIC_t7_Swarm_20260706_232027` (goal 2 in both) — and
+  shrank the pitch its adjacency test measures to ~64 u, so diagonal goals were allowed.
+- **Only the blocks live inside the tiles.** Straight under the city root sit 12 `Green_Belt_Tile`
+  groups, a `Garden`, six stray trees, and 48 `Road_Structure` plates that duplicate, to within 0.6 u, the
+  plate every tile already contains — and are pivoted on a tile *corner*, so assign them by mesh centre,
+  never by pivot. The green belts' 96 grass strips and 672 trees are the **street medians**: authored
+  44.9–45.8 u from a tile centre, i.e. on the line between two tiles, down the middle of every street;
+  nothing else is further out than 34.8 u. Moving a tile leaves all of it behind.
+- **Tied scenery hangs under one of three tile children, and the name is the behaviour**
+  (`CityTiles.BlockShare`, which `StreetWidthTuner` applies as a per-item scale `1 + share·(s − 1)` about
+  the tile centre): `Scenery` (on the block, share 1, moves with it), `Street` (the medians, share 0,
+  never moves, so it stays mid-street at every block scale) and `Verge` (share ½, stays mid-verge, since
+  the verge's inner edge moves with the block and its outer edge does not). Untied, the tuner scaled the
+  medians with the block about the nearer tile centre, which walked each one ~9 u onto a verge at 0.8.
+  `Tools/Swarm/Tie city scenery to tiles` (`CitySceneryParenter`) divides the tuning back out to get each
+  object's authored position (exact to 1e-4 u against the prefab), sorts it by the kerb-line test
+  (beyond `BlockHalfSpan` is street), **restores medians to their authored position**, and splits
+  straddling groups per tile. A median goes to the tile west of its line (south, for an east–west line),
+  never to the footprint test, which is a coin toss on the line — so a strip and its trees always share a
+  tile. It re-sorts already-tied scenery too, so it is safe to run again. It has to **unpack the city
+  prefab instance in the scene** first, because Unity will not reparent inside an instance (the tiles stay
+  linked to their patch prefabs); doing it inside the prefab would re-read the scene's thousands of
+  scenery position overrides relative to the wrong parent. `GoalPatchReplacer` hands all three containers
+  to the goal that replaces a tile, or every goal would sit in a gap in the medians, visible from the air.
+- **`VergeTreePlanter`** plants trees down the middle of that verge on a seeded subset of tiles (or a
+  list, or all), skipping spots within `clearance` of anything on the tile and keeping interior street
+  mouths clear across the verge. Deterministic per seed and tile *name*, scriptable (`Plant()`,
+  `Plant(tiles)`, `Clear()`), and it refuses at block scale ≥ 1, where there is no verge. Plant the city
+  in edit mode: it marks trees Batching Static and they are saved; a Play-mode plant is batched per tile
+  with `StaticBatchingUtility.Combine` and is gone at the end of the session.
+  **Every goal patch gets verge trees, whatever the subset** (`GoalPatchReplacer.plantVergeTrees`, on by
+  default). It replants each goal a frame after placing it, not in `Start`, because `StreetWidthTuner`
+  only matches a goal's block to the city's scale on its first `Update`, and the clearance test has to
+  see the block where it will stay. The verge a goal carries over from its tile is replaced, because
+  those trees were cleared around the *old* block's street mouths. The consequence: unless every tile
+  is planted (`TileChoice.All`), trees are a goal cue, since every goal has them and only
+  `tileFraction` of the other tiles do.
+  **This has only been true since 2026-09-30, so every experiment run recorded before then has goals
+  without it**: a goal kept only the verge carried over from the tile it replaced, trees included only
+  if that tile was one of the planter's picks. The planter, the replacer and the tuner all sit on
+  `gameManager`, which `SwarmManager.Awake` moves to DontDestroyOnLoad, so the planter looked for the
+  city in that scene, logged "found 0 tile kerbs" and planted nothing. It now finds the city by the
+  goals it is handed. Anything on `gameManager` that looks for city objects must not use its own
+  `gameObject.scene` at runtime.
+- **`CityRowOffsetter`** staggers alternate rows (kerb-derived, numbered from the south or west edge) by
+  a fraction of a tile, live in edit mode like the tuners, recording what it applied. It moves tile roots
+  only, so it **refuses while the city root still holds untied scenery** — tie first. A half-tile stagger
+  makes T-junctions whose mouths the other row's median strip runs across, leaves a half-tile notch at one
+  end of each shifted row (`centred` splits it), and stops earlier runs from replaying.
+- **A tile's block content is "every Renderer under the tile", and that rule only holds for authored
+  props.** An authored prop is one object carrying one renderer, so scaling the renderer's transform
+  about the kerb moves the prop. A *runtime-spawned composite* is not: a walker's renderers
+  (`HumanM_BodyMesh`, the hat's mesh node) are **children** of the object `WalkerPatrol` drives, so the
+  same operation pulls the walker apart rather than moving it. It is invisible on the body — a skinned
+  mesh renders from its bone matrices and ignores its own transform — and fully visible on the hat,
+  which is how it surfaced: hats ~6 m off their walkers, being `(1 − blockScale) ×` the walker's ~30 m
+  from the kerb. `StreetWidthTuner` is otherwise edit-mode only, but `MatchNewPatches` runs on the first
+  `Update` of a tuned play session — deliberately after every `Start`, i.e. exactly once the walkers
+  exist. Hence `SpawnedContentRoot`, which `WalkerPatrol` puts on its container and the tuner skips.
+  Anything else spawned under a tile during play needs the same marker.
+
+**The `Obstacle` layer is applied per scene, and the three city scenes disagree.** This is the largest
+scene-to-scene difference for swarm behaviour, because `OlfatiSaber` has exactly one membership rule —
+a collider on layer `Obstacle` — so name, tag and source prefab are all irrelevant:
+
+| scene | objects on `Obstacle` | state |
+|---|---|---|
+| `ScaledCityWorld` | 1934, buildings only | **clean** — `ObstacleLayerAuditor` has been run |
+| `CityWorld` | 4268, everything | roads, kerbs, lights, hydrants included |
+| `CrowdWorld` | 552, everything | same |
+
+The layer lives in scene-level `m_Layer` overrides, **not** in the prefabs: the original pack's patch
+prefabs carry no `Obstacle` layer at all, while the ScaledCity forks carry it on their 212 building
+objects. Inspecting a prefab therefore tells you nothing — check the scene.
+
+Why the dirty scenes matter: `OlfatiSaber.GetObstacleCylinder` takes the **circumradius of the
+axis-aligned bounds**, and a flat plate is the worst possible input to that. `Road_Structure_NNN` is
+90.83 × 90.83 × ~0 and becomes a cylinder of radius ~64 units standing over a whole patch — the giant
+circle in the gizmos, and a repulsion field with no gap between patches to fly through.
+`Tools/Swarm/Audit obstacle layer` reports it and `Tools/Swarm/Restrict obstacle layer to buildings`
+repairs it (`Assets/Scripts/Environment/Editor/ObstacleLayerAuditor.cs`). **Run the audit before
+concluding anything about obstacle avoidance in `CityWorld` or `CrowdWorld`** — their obstacle gains
+are the ones first tuned against `ScaledCityWorld`'s clean layer, which has since been retuned (below).
+
+Even on a clean layer the circumradius is conservative by construction: a 20 × 20 m building presents a
+14.14 m cylinder, i.e. ~4 m of phantom shell outside the facade. Every obstacle distance in the tuning
+(`d_obs`, `d_shield`) is measured to that cylinder, not to the wall. `ObstacleCylinderGizmos` with
+`drawBounds` shows the gap directly.
+
+**`ScaledCityWorld`'s Olfati-Saber gains are tuned for flying the swarm straight *through* the city while
+still following the spread stick quickly, and no longer match `CityWorld`/`CrowdWorld`.** Seven
+`SwarmManager` values moved together (was → now): `a` 1.4 → 0.8, `delta` 0.2 → 0.08, `c_obs` 2.2 → 14,
+`maxObstacleAccel` 4 → 4.57 (the tilt budget), `d_shield` 1.4 → 2.5, `c2_core` 1.6 → 0.6,
+`coreRadiusFilterTime` 2 → 0.5. `b` and `c_vm` are deliberately unchanged, and no code changed. On 120
+held-out flights in headless Unity (full-stick transits, waypoint tours, straight at a building, bang-bang
+reversals; frozen as `Assets/Scripts/swarm/Bench/scenarios/ScaledCityWorld_heldout.json`, flown with the
+hollow core on) drones lost went 88 → 16, building contacts 160 → 0, clean flights 22% → 95%, for 1% of
+progress speed. After a spread-stick step the formation settles in 4.5 s instead of 4.8 s with 7% overshoot
+instead of 25%, though a contraction takes ~1.3 s longer to reach 90%. The causes, found by attributing
+forces at every crash:
+- **Building contacts were cohesion, not the pilot.** `r0_coh` = 20 makes the α-lattice all-to-all, so a
+  drone the formation leaves behind a building is dragged through it by every other drone — a median
+  6.6 m/s² in the contact events, against an obstacle force that saturates at 4. Lowering `a` is the fix;
+  a lower `delta` also fades the pull beyond 16 m, and `c_obs` and the ceiling raise the other side.
+- **`a` is also the formation's stiffness, and it is the one dial between crash safety and the spread
+  response.** The σ₁ shape ties the slope of φ near `d_ref` to the attraction asymptote (`b` moves the ratio
+  by ~5% at most), and contraction is driven by attraction alone. A first pass at 0.7 (with `b` 3.6 and
+  `c_vm` 0.02) lost only 4 drones in the same Unity flights but took 7 s to reach 90% of a spread change,
+  twice the old time. With every other value above held, the replica measures (drones lost / contacts per
+  km, contraction t90, expansion overshoot): old tuning 1.65 / 2.25, 3.4 s, 27% — `a` 0.8: 0.36 / 0.008,
+  4.4 s, 8% — 0.9: 0.39 / 0.08, 4.0 s, 17% — 1.0: 0.46 / 0.27, 3.7 s, 24% — 1.2: 0.58 / 0.64, 3.1 s, 35%.
+- **The hollow core resists contraction.** Its radius is low-passed from the measured ring, so when the
+  pilot pulls the spread in, the core is still sized to the wider ring and pushes out. A 0.5 s filter cuts
+  settling by about a third with no change to crashes or the ring. A smaller `coreRadiusFraction` or a
+  lower `maxCoreAccel` does not help: both make the ring flip configuration slowly after an expansion,
+  and the lower ceiling also drops the hover hull fraction from 1.0 to 0.9.
+- **Drone-drone kills are momentum.** At the kill tick nothing pushes the pair together; the closing speed
+  (median 2 m/s, p90 5) was built up beside a building a second earlier, by the shield stopping one drone
+  while its neighbour flies on. The wider `d_shield` and the lower `delta` make that braking gradual. What
+  remains is mostly abrupt full-stick reversals (12 of the 16 Unity losses). `c_vm` would damp it but hands
+  a braking drone back the command the shield removed (0.1 cut drone-drone kills 4× and nearly tripled
+  contacts) and slows the spread response, so it stays 0. `d_shield` 3.0 saves a few more drones for 5% of
+  progress speed.
+- **The hollow core's velocity match is measured relative to the swarm** (`coreRelativeVelocity`, on:
+  `SwarmPlaneController.SwarmMeanVelocity` → `OlfatiSaber.CoreVelocity`). The core stands on the centroid
+  and moves with it, but `vel_obs` used to be built from each drone's *absolute* velocity, as for a static
+  obstacle. In cruise that braked every ring drone (about 0.7 m/s² at 1.6, which is why `c2_core` came
+  down to 0.6), and by a different amount for each, since how much of a drone's velocity counts as radial
+  depends on where it sits on the ring — at `d_ref` 0.4 that shear was the leading closing term in 7 of
+  internal_2's 8 drone-drone losses. Relative, it only damps motion relative to the formation and costs no
+  cruise speed (full stick 7.30–7.44 → 7.62 m/s, the drag-limited cruise). `CoreVelocity` zero is the old
+  form exactly, which is what unticking sends. `c2_core` has not been re-tuned since it stopped costing speed.
+- **In Unity a contact is worse than a bump.** PhysX friction (default material, μ 0.6) pins a drone that
+  cohesion is pressing into a facade; the swarm leaves it and it dies as `TooFarFromSwarm`, or flips as
+  `Crashed`. Baseline flights with no contact never split; flights with one were split 39% of the time.
+  `DroneHealthMonitor` has no contact check, so count contacts as well as deaths when tuning.
+- **At `d_ref` 0.4 the lattice cannot keep drones apart, so a close-range damper does** (`c_damp` 2 s⁻¹
+  within `d_damp` 0.3 = 3 m, `maxDampAccel`). That is the joystick's tightest spread: all-to-all cohesion
+  squeezes the flown spacing to ~2.1 m (half the commanded 4), and the σ₁ action function cannot push a
+  pair apart harder than **0.45 m/s² each even at the 0.5 m kill distance** (1.6–2.0 at `d_ref` ≥ 1.15) —
+  below the core's own 2 m/s² ceiling. In internal_2 it held 8 of the 9 losses, ~1 a minute of the 8.5
+  minutes flown there against 1 in 31 minutes at 1.0–1.6, and those pairs closed *slowly* (0.3–1.9 m/s
+  over 1–3 s) in steady cruise 8–33 m from buildings — not the reversal momentum of the bullet above.
+  Points worth keeping:
+  - It opposes only the **approaching** part of a pair's range rate, along the line between them, equally
+    and oppositely on both: `c_vm` cut down to the one component that causes collisions. So it cannot pull
+    drones together, resist expansion or move the lattice's equilibrium, and the spread step response is
+    unchanged. It needs room to shed a closing speed: 3 m beat 2 m.
+  - It inherits `c_vm`'s building hazard in miniature — half of every correction goes to the drone in
+    front, which may be the one the shield is braking — so it is saturated and then projected out of any
+    building within `d_shield` through the shield's own `RemoveInwardComponent`.
+  - Measured in the 2D replica (`swarm_replica.py sim`) driven by internal_2's recorded pilot inputs, which
+    reproduces Unity at 0.4 (0.82 vs 0.94 kills/min, 2.07 vs 2.12 m spacing): kills at 0.4 went 0.82 →
+    0.62/min with the relative core, → 0.18 with both. Speed limits would not help (recorded near-misses at
+    0.4 are almost as common at hover as in cruise), and neither did prioritising the swarm force in the
+    tilt clamp. **Those figures were flown on the edit-mode city.** With each run's goal patches swapped in
+    as they were at runtime (the replica has done so since 2026-10-09), the same inputs give 0.46/min with
+    both: the tight-spread minutes are flown searching among the goal patches' narrow pillars. internal_3
+    measured 0.58 in Unity (DiamondCityWorld). The damper does shed the slow closings; what remains are
+    fast ones (2–4.5 m/s) that something outside the lattice forced — shield braking, a straggler pulled
+    back, the pilot's own stops. The replica still cannot judge building contacts (no PhysX: a footprint
+    entry is a kill), so count them on the headless bench before trusting a change beside facades.
+- **The fleet size is a limit no tuning here removes.** The values are sized for 10 drones: cohesion sums
+  over neighbours, so at 15 contacts come back (0.8/km) until `a` is scaled by about 9/(N−1), and
+  drone-drone losses still rise with N.
+
+## Testing swarm changes offline (headless bench + replica)
+
+Two tools in `Assets/Scripts/swarm/Bench/`, described in full in its `README.md`. The **headless Unity
+bench** (`run_bench.ps1` + `SwarmBenchRunner.cs`) flies scripted flight sets through the real scene in
+batchmode. Use it for building contacts, Unity's own loss rules and step response. The **2D replica**
+(`swarm_replica.py`) drives a numpy model of the horizontal law with a test's recorded pilot inputs: fast
+A/B on how pilots actually flew, and per-term crash attribution (`forces`). Narrow a design on the replica and
+confirm it on the bench. Invariants:
+- **The bench always flies this working tree.** The live editor holds the project, so batchmode runs on a
+  copy on D:, and `run_bench.ps1` mirrors `Assets`/`Packages`/`ProjectSettings` into it before every run.
+  There is no separate bench code to keep in sync, which is what went stale before (the September copy
+  missed the damper, the relative core and the lone-drone handling). Its runners compile in the live editor
+  too, so `run_bench.ps1 -CompileOnly` after any C# change.
+- **Bench parameter sets are overrides on the scene as authored**, restored before every set: an empty set
+  is the scene, and an old config can never silently undo a retune. Names are validated before anything
+  flies. Don't write absolute value lists into configs.
+- **The look-direction gap fill is forced off in the bench unless `pilotHeading` is on**: it reads the
+  pilot's body yaw, which nothing sets headless, and the scenes save it on.
+- **The bench overrides `VrFramePacing`'s 0.1 s `maximumDeltaTime`** in `Start` and before every flight, or a
+  20x run silently crawls; every flight records `sim_per_wall`.
+- **The replica reads every number** from `SwarmManager.cs`, the scene, `DroneReduced.prefab`, the test's
+  `test.json` `swarmParams` and the run's `<stem>_swarm.json` (`swarm_params.py`), but **the structure of
+  the law is copied**: it mirrors OlfatiSaber, SwarmAlgorithm, SwarmPlaneController (core state),
+  VelocityControl and StateFinder as of `FORCE_LAW_COMMIT`, and refuses (exit 3) once git shows those
+  files changed. **When you change the horizontal force law, update `swarm_replica.py` in the same change
+  and bump the constant**; a change that leaves the law alone needs only the bump.
+- **The bench flies generated cities too** (`--scene ProceduralCityWorld --layout <id>`, `--drones N`), and
+  `bench.py scenarios --goals` writes the density study's goal flights, whose hold waypoints (a centring pilot
+  at a goal) the replica mirrors. A lone drone's heading is steered by the scripted pilot -- AttitudeAlgorithm
+  hands a lone drone the yaw stick, which the bench otherwise leaves at zero, so its feed would never turn.
+- **The replica has no heading, no altitude and no street furniture**, so it cannot judge what the pilot
+  sees, the ceiling or pole strikes. It does fly each run's runtime city (goal patches swapped in, or a
+  procedural run's own layout), which is worth 3x in predicted drone-drone kills at d_ref 0.4.
+- **Buildings come in two models, and which one a number came from matters.** `sim`, `forces` and `step`
+  fly `Sim`, where entering a footprint is a kill, so they cannot judge building contacts. `validate` and the
+  density study (`citysim`) fly `ContactSim`, where it is a contact as PhysX resolves it: the drone is put
+  back on the surface, loses its inward velocity and, through Coulomb friction 0.6 (PhysX's default
+  material, which every collider here has), part of its slide; contacts are counted as events, as the bench's
+  `OnCollisionEnter` counts them; and a drone whose nearest live neighbour is beyond the cohesion cutoff is
+  lost, as `DroneHealthMonitor.IsTooFarFromSwarm` loses it. **The gate chose that model, not taste**: on
+  17-flight bench runs in DiamondCityWorld and two generated cities (2026-10-12), kill-on-entry failed the
+  dense city (18 drones lost against Unity's 5), contacts without friction matched the losses but missed the
+  spacing limit (15.1% against 15%), and with friction every run passed. Friction is what pins a drone that
+  cohesion presses into a facade until the swarm leaves it behind -- the `TooFarFromSwarm` deaths.
+- **`swarm_replica.py validate` is the replica's gate against Unity**: it flies a bench run's recorded
+  flights again (record them with `bench.py config --record-all`) and compares the track, spacing, losses and
+  contacts against fixed limits. Run it before trusting the replica in a kind of city it has not been checked
+  in.
+
+## Studies: the registry (S1, S2, S3, …)
+
+Every simulation study has a permanent ID and name, and that is how the user refers to one in a chat that has no
+context ("see S3 City Roaming"). **Start at [docs/studies/README.md](docs/studies/README.md)**: the index (question,
+status, dates), each study's page links, the code names, how to rebuild each page and how to start the next study.
+**[docs/studies/lessons.md](docs/studies/lessons.md)** lists the refinements the studies identified, tagged by study;
+work through it before designing a new one, and add an entry (and any new lesson) for every new study. Code, specs and
+output folders keep the code names, and so do the sections below.
+
+| | S1 Goal Visibility | S2 Hidden Goal Search | S3 City Roaming | S4 Split and Surround | S5 Block-Shaped Surround | S6 Patch City Tuning | S7 Building Flow | S8 Footprint Avoidance | S9 Street Spread | S10 Ellipse Avoidance | S11 Wrap Hold |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| code name | the density study | the search study | the clutter study | the split study | the block-shaped study | the patch-city tuning | the flow study | the shape study | the spread study | the ellipse study | the wrap study |
+| summary: findings, limits, open decisions | [S1_goal_visibility.md](docs/studies/S1_goal_visibility.md) | [S2_hidden_goal_search.md](docs/studies/S2_hidden_goal_search.md) | [S3_city_roaming.md](docs/studies/S3_city_roaming.md) | [S4_split_and_surround.md](docs/studies/S4_split_and_surround.md) | [S5_block_shaped_surround.md](docs/studies/S5_block_shaped_surround.md) | [S6_patch_city_tuning.md](docs/studies/S6_patch_city_tuning.md) | [S7_building_flow.md](docs/studies/S7_building_flow.md) | [S8_footprint_avoidance.md](docs/studies/S8_footprint_avoidance.md) | [S9_street_spread.md](docs/studies/S9_street_spread.md) | [S10_ellipse_avoidance.md](docs/studies/S10_ellipse_avoidance.md) | [S11_wrap_hold.md](docs/studies/S11_wrap_hold.md) |
+| manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) | [docs/swarm_spread/](docs/swarm_spread/README.md) | [docs/swarm_ellipse/](docs/swarm_ellipse/README.md) | [docs/swarm_wrap/](docs/swarm_wrap/README.md) |
+| code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` | `swarmspread.py`, `swarmspread_replays.py`, `swarmspread_report.py` | `swarmellipse.py`, `swarmellipse_bench.py`, `swarmellipse_replays.py`, `swarmellipse_report.py` | `swarmwrap.py`, `swarmwrap_bench.py`, `swarmwrap_replays.py`, `swarmwrap_report.py` |
+| outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` | `swarm_spread/` | `swarm_ellipse/` | `swarm_wrap/` |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) | [results](https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At) | [results](https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD) |
+
+All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
+(source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
+(`← Swarm Study Index`, the user's requirement since 2026-10-28; a new page needs it too). The pages are private claude.ai artifacts: read one with the Artifact tool, never by
+web fetch, and update it by its URL, which keeps the link the user has. Every page is built from the repo, so a lost
+one can be rebuilt (the commands are in the index); the S2 dashboard had to be, and its rebuild is deliberately less
+in depth than the original.
+
+**Every study's page has a Cities tab and a key to its codes. This is the user's standing requirement (2026-10-28,
+lessons.md 30–31).**
+- **The cities:** every design at one scale, any city whole, and one block or goal drawn with what the design codes mean.
+- **The flights:** representative flights of every condition, played back with each drone, its feed, the streets seen,
+  the decisions, losses and contacts. Unity's flights of the same walks go beside them where the bench flew them.
+- **The tooling:** `citysim/playback.py` records a flight with a `Tape` wrapped round `sim.step` (it only reads, so a
+  taped flight is the flight bit for bit) and encodes cities and flights compactly. `citysim/replay_view.js` is the
+  player, which the page inlines.
+- **The worked example:** S4's `split_replays.py`, and the Cities and Terms tabs of `split_report.html`.
+- **The page opens on the study's purpose and its answer** (S4's redesign at the user's request, 2026-10-28, lesson
+  36): every study serves the human trials (swarm against one drone on a visual search), so the masthead says what the
+  study tests for them and answers in three lines, the first tab argues it in a few charts against one drone, read
+  from the runs (`split_report.answer_data`), with the author's reading of what it settles and what it cannot, and the
+  detail tabs sit behind one "All results" tab.
+- **The picks:** re-fly every pick from its job and keep it only if the job's rows come out identical to the stored
+  ones. Choose the picks when the study is designed, and check each caption against its flight: S4's first B caption
+  repeated a wrong finding that the replay disproved.
+
+## S1 Goal Visibility: the density study and ProceduralCityWorld
+
+The study that chooses the human trials' city levels: generated cities with controlled clutter and goal
+geometry, the swarm's and the single drone's view of a goal predicted by four tiers of model, and three
+levels picked by a rule fixed beforehand. **[docs/density_study/README.md](docs/density_study/README.md) is the
+manual** (tiers, gates, results, how to run), [protocol.md](docs/density_study/protocol.md) the trial
+protocol; the code is `Assets/Scripts/Experiment/citysim/` (Python, `stitching` env), the outputs
+`experiment_results/density_study/`. Invariants:
+- **A layout is a `city_obstacles` file plus streets and a generator record**, so `analyse.py`, the replica and
+  the bench read it as a city with no special case. Trial layouts are committed in
+  `Assets/Scripts/Experiment/layouts/` (`L1_…`, `L2_…`, `L3_…`); sweep layouts live in `layouts/sweep~/`,
+  which is git-ignored and which Unity's asset database skips (the trailing `~`).
+- **`ProceduralCityBuilder` sits on its own `ProceduralCity` root, never on `gameManager`** (which
+  `SwarmManager.Awake` moves to DontDestroyOnLoad -- the trap the goal verges fell into). It places buildings
+  by collider centre, builds each goal from `ProceduralGoalRoot.prefab` inactive and activates it after its
+  children, so `GoalSpecialWalker.Awake` sees the patrols before their `Start`, and lists `PlacedGoals` in
+  layout order, which the recorder uses. Streets have no colliders, and nothing on the Default layer is
+  placed: street furniture the force law cannot see kills drones (internal_3's pole).
+- **The goal seed is the layout's seed** (`GoalSession`): the hat deal and the target walker are drawn from it
+  (in a tile city, the goal choice too), so everyone who flies a layout searches for the same targets, and
+  Replay reproduces them.
+- **The camera's field of view has one source on each side**: `FpvCameraFov.cs` (scenes, bench) and
+  `citysim/camera.py` (analyse.py, the study) -- 82.1 deg diagonal, 74.4 x 46.2 at 16:9. Change them together.
+- **The levels are a rule's output, not a choice to revisit by hand.** `select_levels` applies the plan's
+  section-8 rule to the tiers' tables; rerun it when an input changes and record why the levels moved.
+- **Scripted transits fly pilot paths, not the street route** (`citysim/routing.py`, since 2026-10-13). The street
+  route is 1.35-1.64x the straight line in the trial cities, where internal_3's swarm pilots flew 1.06-1.12x, so it
+  stays only as the comparison. The swarm's pilot steers round WALLS only -- buildings closer than the gate
+  probe's `w_pass` (`vissim gates` -> `citysim/data/w_pass.json`; rerun it after any change to the force law or the
+  formation) -- and keeps a formation's radius off them; a lone building is left to the formation to morph round.
+  The single drone's pilot steers round every building. Tier B' (`dynamic`), Tier C (`bench.py scenarios --goals
+  --routing pilot`) and the capability study fly the same paths, and the replica was validated on them.
+- **A goal's first sight has one definition, `citysim/discovery.py`** (at least one walker expected on a shown
+  feed within `R_GOAL_M`): the simulator and analyse.py's discovery family both call it, so prediction and
+  measurement of the discovery co-primary cannot drift apart. Change it there.
+- **`VoronoiCityWorld` is DiamondCityWorld's buildings on the study's Voronoi streets**, not a study level
+  (2026-10-15). Same scene build as ProceduralCityWorld (`VoronoiCityWorldBuilder`, `Tools/Swarm/Build Voronoi city
+  world`: DiamondCityWorld minus its city), but with the city **baked** in; its layout is `citygen mixcity`'s
+  (`layouts/VoronoiCity__<id>.json`), where every building -- city, occluder, ring -- is drawn from a **building
+  mix**: DiamondCityWorld's 37 designs in the shares they stand there (`catalogue.city_mix`, counted off
+  `city_obstacles_DiamondCityWorld.json`), at size 1, by default to its coverage over its tile grid (α 0.0227) with
+  its tile pitch as p -- 248 buildings vs 239, ℓ 249 m vs 253. After restyling DiamondCityWorld: re-export its city
+  obstacles, regenerate, rebuild. Points worth keeping:
+  - **Density is tuned in `Tools/Swarm/Voronoi city…` (`VoronoiCityWindow`)**, which runs `mixcity` in the stitching
+    env and rebakes the open scene; every generation writes its own layout file (the id names α, p, s, g and the
+    seed), so delete the ones not kept -- but not one a recorded run flew, which analyse.py needs. At a 4 m facade gap
+    the blocks jam near α 0.12; past roughly 0.15 more than 56 buildings stand within 50 m of a point and
+    OlfatiSaber's 64-collider query starts missing some. Both are reported, by the generator and the window.
+  - **A bake is adopted at Play only while it is the layout to build and every building still stands on its box**
+    (`ProceduralCityBuilder.Adopt`); otherwise the city is rebuilt from the file, which stays the record. Goal roots
+    are never baked: `GoalSpecialWalker` deals hats in Awake from session-wide state, so a saved active goal root
+    would deal at scene load. A bake holds the goal *buildings* (`Goal buildings`), and Adopt makes the roots round
+    them exactly as a fresh build does. `Tools/Swarm/Build procedural city from layout…` bakes too, so saving after a
+    preview in ProceduralCityWorld is now safe.
+  - **`place="even"` (mixcity's default) fills every block to the same built fraction** and spreads each block's
+    buildings (best of 16 candidates, farthest from other buildings and, at twice the weight, from the kerb). The
+    study's RSA round robin gives every block the same *count* whatever its area -- uncorrelated with area
+    (r −0.02) -- which left big blocks mostly empty. It packs no denser or looser (both jam at α 0.122).
+  - **The streets are road** (`StreetStyle.Textured`, `StreetSurface`): ParkRoad's lane-marked asphalt on the
+    stretches, the pack's crossing texture for plain junctions and zebra crossings, each street stopped at the setback
+    where its kerb meets its neighbour's, and Voronoi edges too short to draw merged into one junction. The materials
+    are the scene's own `Assets/Materials/VoronoiRoad.mat`/`VoronoiJunction.mat` at tint 0.5 (made if missing): the
+    pack's tint 0.196 renders the paint at ~15% and reads black from a drone. ParkRoad is moved onto the road copy in
+    this scene only. ProceduralCityWorld keeps `Flat`, the study's look.
+  - **No point of the road is drawn twice** (`StreetSurface.Lay`, 2026-11-03). Every piece sits at `streetHeight`, so
+    an overlap z-fights, and a merged junction's convex hull spreads over its streets' crossings: the first bakes drew
+    ~9,300 m² twice in BlockShapedPatchCityWorld (14,500 in BlockCityWorld and BlockShapedCityWorld, whose small blocks
+    merge more junctions; 180 here), and the zebra stripes flickered through the asphalt. Each piece is now cut to the
+    ground no earlier piece covers, crossings first, then stretches, then junctions as filler; the analysis
+    (`Stretches`, which the dressing reads) is unchanged. The mesh is named with `StreetSurface.Version`, a bake with
+    an older road is redrawn at Play by `Adopt`, and `Tools/Swarm/Redraw baked streets` puts the new road in the open
+    scenes without a rebake. **Bump `Version` whenever the drawn road changes.**
+  - A mix and even placement draw from the same RNG, so the study's path must draw nothing extra:
+    `test_one_design_layouts_are_unchanged_by_the_mix` regenerates a committed trial layout byte for byte.
+  - **Its coverage levels are S3 City Roaming's** (2026-10-21): 0.0227 (DiamondCityWorld's), **0.04**, 0.06 and 0.10,
+    where S3's swarm found a hidden target 1.48x, 1.67x, 1.92x and 2.58x as fast as one drone, on today's 90.83 m
+    blocks and S3's **12 m streets** (`mixcity`'s default now; the scene was 15 m, which S3's spec wrongly described as
+    12). 0.04 was added on 2026-10-26, at the user's request, because the step from 0.0227 to 0.06 was too large to fly
+    as one (246 / 438 / 688 / 1,296 buildings, at most 13 / 16 / 22 / 38 within 50 m). The four are **one seed**, so
+    they share their streets and goals and differ only in clutter: the generator draws both before the city
+    (`test_coverage_levels_share_streets_and_goals`). The scene bakes 0.0227; the window's *Layouts* picks the level
+    Play flies, which is built from its file when it is not the bake.
+    `VoronoiCityWorldBuilder.Rebake` bakes `CITY_LAYOUT` into the scene as it stands, from batchmode.
+  - **Every goal keeps its ring 22 m clear** (`citygen` `c_min`, `mixcity`'s default): a ring phase whose nearest
+    face comes closer to the centre is rejected and a mix redraws the ring. S1 saw the formation surround the occluder
+    at 22 m and above and never at 16 m or below, and a ring drawn from the mix varies in depth: seed 1's third goal
+    had 21.0 m before the floor. `c_min` 0 (every other layout) draws exactly as before.
+  - **Every goal stands in a block of its own** (2026-10-26, `citygen` `goal_cell`, `mixcity`'s default and the
+    window's *Goal in its own block*; `_gcell` in the id). A goal used to stand on its block's centroid, and its patch
+    (a 42–45 m clear radius) is wider than a 90.83 m block (30–33 m from centroid to kerb), so the ring stood up to
+    4.8 m into the 12 m streets and the walkers' loops up to 7.6 m. Now the goals are placed before the streets
+    (`goal_cells`): each on a block seed, every other seed kept 2 (clear radius + s/2) off it, since a Voronoi cell
+    holds a disc exactly when every other seed is twice its radius away. Points worth keeping:
+    - **The ring of seeds is what keeps the goal's block ordinary.** Dropping the seeds within reach alone grew it to
+      wherever the next seeds happened to be: 1.3–2.2× the median block, and at seed 1 the city's three largest, a
+      cue a pilot could learn. So the band round the reach is cleared and six seeds are set just outside it, which
+      makes the block roughly the hexagon round the patch: seed 1's are 1.04 / 1.04 / 1.47× the median block (seeds
+      1–20: 1.11× median, 1.75× at most). The dropped seeds are redrawn elsewhere, so the city keeps its count of
+      blocks.
+    - **The patch does not shrink with the blocks**, so at a smaller spacing a goal's block stands out again: 1.7×
+      the median at p 75, 3.1× at p 60. Shrinking the goal instead takes it into S1's cramped regime (G6/G7, under
+      22 m clear), where the swarm loses its advantage at the goal.
+    - Goal buildings stand ≥ 6.4 m inside the kerb and walker loops ≥ 3.6 m, so the loops stay off the footpath's
+      outer half. `Layout.verify()` holds a `goal_cell` layout to it (`layout.goal_kerb_margin`), and the generator
+      prints each goal's margin.
+    - The four levels are regenerated as `..._cm22_gcell_...`: 238 / 419 / 686 / 1,259 buildings, at most 12 / 16 /
+      22 / 44 within 50 m. At 0.10 that count averages ~2 more than before (12 seeds), because the patch now takes
+      block area rather than street. The goals, their rings and their clearances (24.5 / 23.4 / 22.2 m) are unchanged.
+    - **The files without `_gcell` stay**: BBCC flew three of them on 2026-10-26, and analyse.py needs a run's own
+      layout. Off, the generator draws exactly as before (the trial and Voronoi layouts regenerate byte for byte).
+  - **A layout fixes its goals, so trials randomise them by flying another seed** (2026-10-27). Where the goals
+    stand, which hat each gets and which walker wears it all come from the layout's seed (`GoalSession`, source
+    `layout`), so every Play of a layout searches for the same targets, bake or no bake, and the four levels of one
+    seed share them. Unlike a tile city, where `GoalPatchReplacer` can draw fresh goal tiles each session, they
+    cannot be reshuffled at Play inside a fixed city: under `goal_cell` the streets are built round them. Points
+    worth keeping:
+    - **Every trial gets its own seed, and no participant flies a seed twice, not even at another level**: someone
+      who has flown seed 3 at 0.0227 knows where seed 3's goals are at 0.10. Rotate the seeds across levels rather
+      than drawing them at random (participant 1 flies the four levels on seeds 2 / 3 / 4 / 5, participant 2 on
+      3 / 4 / 5 / 2, …), so every seed is flown at every level and a hard seed cannot pass for a hard level. That is
+      S1's design ("every trial is a fresh layout", [protocol.md](docs/density_study/protocol.md) §3). **Seed 1 is
+      out of the trial pool**: it was flown about ten times in testing (BBCC, 2026-10-15 → 10-27).
+    - **Seeds 1–13 all build at all four levels** (`_gcell`, checked 2026-10-27; all 52 in ~30 s): 210–254
+      buildings at 0.0227 and 1,184–1,322 at 0.10, at most 44 within 50 m, none jammed, every goal 22.1–25.8 m clear
+      and inside its block's kerb.
+    - **Every seed spreads its three goals the same way**: one 180–400 m from the spawn, one 395–570 m, one
+      576–822 m. A pilot can learn that pattern, but not the places.
+    - **No bake is needed per trial.** In `Tools/Swarm/Voronoi city…`: set Seed, *Generate the 4 levels (no bake)*,
+      pick the level under Layouts, *Fly at Play*. Play builds a layout that is not the bake from its file, dressing
+      included, at the cost of a longer start (not timed), and the session records the layout for analyse.py. A bake
+      only puts the city in the editor and shortens the start; rebake after regenerating a layout or changing the
+      dressing (a stale bake is rebuilt or redressed at Play anyway, with a console warning). Before each run check
+      that Layouts marks the intended level *flown at Play*: the saved scene's `layoutPath` is what Play flies.
+    - Not built yet: a pool committed to `layouts/` with its rotation schedule, a level × seed picker (the popup
+      sorts by file name, so seed10 comes before seed2), or a random-at-Play mode that skips the seeds a participant
+      has flown (closer to the tile cities, but it cannot balance seeds across levels).
+  - **The streets are dressed by `CityDressing`, which is redrawn from the layout file every time the builder runs**
+    (2026-10-26). That means every Bake, every Build at Play (a level that is not the bake), and every Adopt whose
+    dressing signature no longer matches. It adds:
+    - a 3.5 m footpath round every block's kerb;
+    - grass medians planted with MC_Tree down ~20% of the long streets;
+    - street lights, tree-lined streets, hydrants, bus stops, benches with bins, and corner furniture;
+    - **border trees** (2026-10-26, the user's request): DiamondCityWorld's verge rows, a tree every 4 m on the
+      footpath all round a third of the blocks (`borderShare`) and every goal's block (`borderAtGoals`), after the
+      furniture so a lamp keeps its place;
+    - on each block's lawn (the kerb polygon less the footpath):
+      - groves of one species and single trees, drawn from the pack's seven green-belt models (bark+leaves pairs out
+        of City_Pack_01_Scaled) at 1.1–1.6×, larger than the street trees;
+      - hedges laid along the fronts of 15% of the buildings;
+      - sitting areas in 40% of the blocks (`sittingShare`, the user's choice). Each is a paved round with a bed and
+        a tree, three benches facing it, a bin and a park lamp. Its path to the footpath is lined as an avenue. Round
+        it stands one formal planting of one species:
+        - a ring of trees;
+        - a round hedge with two entrances on the path's axis, inside a ring of trees;
+        - a grid of trees (a bosque, 3×4 down to 2×3) behind or beside it.
+
+        Where no grid fits, it falls back to the hedged round. Half the placement draws are deep in the lawn, so the
+        paths are long enough to carry an avenue.
+
+    About 700 street props at every level, plus the lawns:
+
+    | α | lawn trees | sitting areas (hedged / bosque / ringed) |
+    |---|---|---|
+    | 0.0227 | ~1,100 | 25 (8 / 5 / 12) |
+    | 0.10 | ~470 | 2 |
+
+    Fewer sitting areas fit at 0.10 because the buildings take the room.
+    The blocks are rebuilt from the streets' `blocks` ids, and the street extents are `StreetSurface.Stretches`, the
+    road's own analysis, so nothing stands on a crossing. Every decision has its own random stream, keyed on its
+    street or block, with a fixed number of draws, so the levels share their dressing and lose only the spots their
+    extra buildings take. ProceduralCityWorld has no `CityDressing` and is unchanged. Points worth keeping:
+    - **Nothing in it has a collider and nothing is on `Obstacle`.** Meshes are copied onto fresh objects, never
+      instantiated, so a source's colliders cannot come along. A pole the force law cannot see is internal_3's lost
+      drone, and the probe asserts the Obstacle collider count equals the layout's boxes.
+    - **None of it is in the layout file, so the studies' line-of-sight models (citysim, analyse.py) do not see the
+      trees or lamps**, and nor does the recorder's identify scoring (it raycasts buildings).
+    - **Goals are kept clear by what their patches need.** On the lawns nothing stands within a goal's clear radius
+      + 3 m, so the ring and the ground round it stay as the studies modelled them. On the streets it depends on the
+      layout: a goal whose block holds its patch (every goal-cell layout) keeps street props off its walkers' loops
+      only, so its streets are lit, furnished and lined with trees like any others; a goal whose ring stands across
+      the streets (the layouts before) keeps them out of the whole disc, which left a bare stretch round each goal
+      that could give it away. `CityDressing` decides per goal from the geometry (the layout's `block_id`), not from
+      a flag. The footpath runs on through either way.
+    - **The border rows screen walkers only from low drones.** Trees 4 m tall hide little from a camera well above
+      their tops. Measured round seed 1's goals (stand-ins on the walkers' loops, drones on the goal's streets 40–80 m
+      off, looking at it): the rows hide 12% of what a drone at 8 m sees, 2% at 19.5 m (the swarm's transit median),
+      0% at 30 m. DiamondCityWorld's Tree9_2 hides 23% / 5% / 1% but costs ~1.3 ms of GPU per FPV render as rows
+      against MC_Tree's 0.05 ms (merged, 60 street views at 1152×648), so it is a `borderTree` slot, not the
+      default. As in DiamondCityWorld, a row is a goal cue unless `borderShare` is 1.
+    - **At Play the props are merged** (`MergeForPlay`) into one mesh per 120 m cell per material: about 110
+      renderers for about 3,400 prop meshes.
+      - Measured headless on 60 drone views at 1152×648, main-thread time per FPV render, with the landmarks in the
+        scene: the bare city costs 0.36 ms at α 0.0227 and 0.51 ms at 0.10. The dressing adds 0.045–0.06 ms merged,
+        and 0.16–0.28 ms as separate static-batched props, with or without a LODGroup each.
+      - The bake is saved unmerged and **not batching-static**. Unity's load-time static batching would replace the
+        meshes the merge reads. Each mesh is its own object, with no root per tree, to keep the scene file down: it
+        is about 10 MB with the dressing baked.
+    - **The trees' leaves are swapped for `VoronoiLeaves.mat`** (`Swarm/Double-sided Cutout`,
+      `Assets/Shaders/DoubleSidedCutout.shader`), for any prop material in the transparent queue. The pack's leaf
+      shader blends without writing depth. That is only correct while each tree is its own renderer, sorted by Unity;
+      merged, leaves draw in index order, and overlapping trees show through each other.
+    - **`MC_Bush` is a hedge segment, a long low block, not a shrub.** Scattered at random yaws on a lawn it reads as
+      litter, which is why it is only laid end to end along building fronts.
+    - Rules (shares, spacings, widths) are on the component. *Redress the streets* in `Tools/Swarm/Voronoi city…`
+      remakes only the dressing; a bake always redresses too.
+    - **Changing a default in `CityDressing.Rules` means bumping `RulesVersion`.** A scene keeps the rules it was
+      saved with, so a new default never reaches it otherwise. `EnsureDressing` resets older rules to the defaults
+      and logs that it did, at the cost of any rule set by hand.
+  - **Landmarks stand round it, one per side, for orientation** (2026-10-26; `LandmarkBuilder`,
+    `Tools/Swarm/Landmarks/…`, all of it in `Assets/Landmarks/Landmarks.prefab`, shared by VoronoiCityWorld and the
+    four block scenes): a snow-capped mountain range S (main peak ~610 m, 1.45 km out), a ~1.4 km lake from
+    ~110–200 m beyond the city's north edge to the foot of wooded hills (~310 m) N,
+    eight turbines turning on a ridge E, and a
+    red-and-white TV mast with a blinking beacon W, in line with ParkRoad behind the spawn (fly towards it to get
+    home). **Runs recorded before then had none**, so they are an orientation aid that differs between test series;
+    deactivate the `Landmarks` root to fly without them. `VoronoiCityWorldBuilder.Configure` adds the prefab, so a
+    rebuild keeps them. Points worth keeping:
+    - **Sized to the feeds, and *Check* says whether they still are.** A level gimbal sees ±23° and clips at
+      2000 m, and the drones fly under the 50 m roofs, so a landmark's top has to stand ≥ 8° up from the far edge of
+      the city to clear the roofs, and its skyline has to stay inside the far clip from every corner. That is why
+      each feature lies on an **arc round the city's centre** at 1.25–1.45 km, its relief falling away behind
+      1.5 km: laid along straight lines into the corner tiles, ~25° of each side's skyline was past the far clip
+      from the opposite corner and showed sliced. The mountain is south because the sun stands in the north-west:
+      placed north, it faced the city unlit.
+    - **Every height is built 1.5× its design** (`LandmarkBuilder.HeightScale`, 2026-11-02, the user's request for
+      BlockShapedPatchCityWorld, applied to all four scenes at their choice): the relief and the generated mast and
+      turbines (mast 450 m plus antenna on a ~105 m hill, turbine tips 225 m on a ~285 m ridge). Every other height
+      in these notes is a design height. The design kept each top ≤ 23° up from the city's near edge, i.e. always
+      in frame, which suited VoronoiCityWorld's open streets; in the patch city a drone sees out only down a street
+      between facades 25 m apart, and the tops showed over the roofs from too little of it. Measured over
+      BlockShapedPatchCityWorld's street points (10 m grid, some part of the landmark in a level frame with a clear
+      line; scratch probe, not in the repo), before → after, at a 20 m eye: mountain 49 → 74% (in the half of the
+      city away from it 24 → 61%), turbines 54 → 75%, ridge 35 → 56%, hills 39 → 52%, mast 18 → 27%; at 40 m
+      73–90 → 88–94%, mast 53 → 64%. The price is the frame: far → near edge from a 46.3 m eye, S 16.0° → 25.8°,
+      N 9.4° → 17.0°, E 15.8° → 26.6°, W 18.7° → 31.7°, so from the near edge the tops of S, E and W are cut off
+      and their flanks fill the upper frame instead; *Check* warns of that by design. It also warns of 2–3° of S
+      and W skyline past the far clip from the NE corner: the mountain's foot 1–2° up, exactly along the diagonal,
+      behind the corner's own buildings (checked in a render), so it was left. The hills, lowered at the user's call
+      on 2026-10-26 (`HillsHeight` 290 → 210, below the 8° floor), stay lowered in the design and now clear the
+      floor anyway. **The paint and the woods are laid out on the design shape** (`DesignHeight` and its slope), so
+      the look the user approved is the same, only taller; the faces are steeper than the paint thresholds read.
+      *Regenerate ground* now places the models again, since the spots stand on the ground.
+      **The mountain and the turbines' ridge are a further 1.1× taller** (`MountainScale`, `RidgeScale`, 2026-11-04,
+      the user's request for BlockShapedPatchCityWorld and PracticeBlockWorld, applied to all five scenes at their
+      choice): the relief only, so the turbines stand on the taller ridge at their old size. Measured the same way:
+      the mountain's top 559 → 614 m, the ridge's 270 → 295 m (the turbine tips 497 → 522 m); at a 20 m eye
+      mountain 74 → 79% (the far half 61 → 69%), ridge 56 → 63%, turbines 75 → 76%, at 40 m 94 → 95% and
+      89 → 90%. From the near edge S 25.8° → 28.2° and E 26.6° → 27.9°.
+    - **The mountain's near face is broken up on purpose** (`MountainCover`): rock starts at a height that wanders
+      between ~50 and ~250 m and on slopes from ~20° to ~40°, meadows break it up to ~300 m, and woods sit in
+      patches on the lower, gentler slopes: ~1,000 terrain trees (`Tree9_3`) at the city tiles' own size and
+      density, on grass only (never where the paint is rock or snow), with plain grass under them as round the city.
+      The user asked for that over 18 m trees on dark forest paint, which read as tall trees on shadow. As one sheet
+      of rock, its texture's tiling was plain from the city. The generated rock and forest textures are version 2 (256 px, five octaves, the rock with
+      strata and a normal map, tiled at 70 and 40 m); a layer still on a generated texture is upgraded when the
+      builder runs, and one retextured by hand is left alone.
+    - **The ground is twelve new 1000 m Terrain tiles round the city's four**, out to ±2000 m, each with its own
+      TerrainData (`Assets/Landmarks/Terrain`). The city's four are shared with five other scenes and are never
+      sculpted. The ring is grouping ID 1 (a Terrain Tools brush cannot spill onto the shared tiles) and rises from
+      exactly 0 at the joint. Inside ±1000 m nothing changes; past it the altitude ceiling follows this ground and
+      its TerrainColliders are solid (on Default, like the city's ground; the brushes need them). Nothing else in
+      the set has a collider, so no landmark is an obstacle, a raycast target or part of the analysis.
+    - **The hills and the ridge are wooded, not rocky, and that is forced.** To clear the roofs from across the city
+      and stay inside the far clip they rise ~300 m within ~350 m of the joint, so their faces are ~40°: painted by
+      slope they came out as rock. Rock and snow are painted on the mountain side only.
+    - **Hand edits are never overwritten**: TerrainData, terrain layers and materials are made only if missing, and
+      *Regenerate ground* is the one command that overwrites the ground (it asks). Sculpt and paint with the
+      ordinary Terrain tools; the lake's shoreline is a spline (`LakeOutline`) whose mesh follows its knots (delete the
+      lake and run *Add to open scene* to start it over: either way the prefab's lake is replaced by a freshly
+      generated one, so this *does* discard hand-moved knots, and the city tiles' trees are re-cleared round it).
+      **The prefab is the lake's and the ground's record, so a generator change reaches neither by itself**: deleting
+      the whole set and adding it back re-instantiates the prefab's old lake. Hence `LakeGeneratorVersion` /
+      `GroundGeneratorVersion`, stamped on `LakeOutline` / `LandmarkSet`: *Add to open scene* asks to replace an older
+      lake and regenerate older ground (declining stamps the version). **Bump them whenever the generated lake or
+      ground changes.** The mast
+      and the turbines take Asset Store models through `LandmarkSet`'s slots and *Place models*, which unpacks the
+      model, removes its colliders, puts it on Default and turns its shadows off. Edits belong in the prefab (or
+      applied to it): a rebuild re-instantiates it. **On a scene instance *Place models* applies *every* override
+      to the prefab first** (the editor asks; batchmode does not): a test that had swapped the lake's material on
+      the instance shipped the prefab with an invisible lake once.
+    - **The lake is not RingChallenge's AQUAS water**, though it uses its wave normal map. That shader fades with
+      the camera depth texture, which RingChallenge gets from its realtime shadows; with shadows off it rendered
+      fully transparent from a drone, leaving only the shore. A depth pass per FPV render is the cost the feeds
+      cannot take, so `LakeWater.mat` is glossy Standard, reflects the sky and costs the same as no lake.
+    - **The water stands 1 m above the ground on a narrow damp bank that slopes into it** (`LakeOutline.waterLevel`,
+      `shoreDepth`, `bankWidth`; the lake object sits on the ground and the mesh lifts the water). The city tiles under it are
+      flat and already at their lowest height, so no hollow can be dug, and water 0.1 m over flat grass showed as
+      grass in the editor. Nothing in the mesh lies flat on the ground, so nothing can fight it. **A scene override
+      on the lake's position wins over the prefab** (the live scene once carried y −26 and showed no lake through
+      every prefab fix): *Check* warns when the water stands under the ground or far above it, and *Add to open
+      scene* offers to revert such an override.
+    - **The beaches are terrain paint, not mesh** (2026-10-26, the user's call): a 12 m sand band in the mesh was one
+      solid colour of one width tracing the shoreline exactly. Now a Sand layer is painted into the tile copies below,
+      over roughly `beachShare` of the shore, each beach widening smoothly to `beachWidth` and back to nothing, with a
+      ragged, feathered outer edge; elsewhere the grass runs down to the bank, whose own width wanders ±35%. Both widths
+      are noise along the shore (`LandmarkBuilder.Profile`), so they move with the lake; `beachSeed` reshuffles them.
+      Editing any `LakeOutline` field in the inspector rebuilds it, as dragging a knot does. **No beach where the
+      ground beyond the shore rises**: the north shore runs along the hills' foot (the joint at z 1000, which the
+      generator cuts the lake off at, `LakeNorthGap`), only the city tiles take paint, and a beach there would end
+      in a straight line at the joint.
+    - **VoronoiCityWorld's northern city tiles are its own copies** (`Landmarks/Terrain/City_<GUID>.asset`):
+      the shared tiles carry ~30,000 painted terrain trees right out to ±1000 m, and trees stood in the lake. The
+      copies' trees and paint are rewritten from the shared tiles, minus every tree within the lake's reach (its
+      bank, its beaches and 6 m beyond) and plus its beaches' sand, every time the lake changes
+      (`ClearTreesUnderLakes`); heights are untouched. Neither is rewritten when it would not change. A tile no
+      lake reaches goes back to its shared data (a copy used to be kept for good once made, which is how the two
+      southern tiles got 2 MB copies they never needed); the copy file stays, since the saved scene may still name it. The editor
+      hook (`LakeOutlineHook`) redoes this 0.4 s after the last knot drag, field edit or undo, after the lake (or a
+      parent) is moved, and after any deletion in a scene with tile copies, so a deleted lake's trees come back.
+    - **Cost: ~0.07–0.1 ms of main thread per FPV render, all of it the terrain ring** (its tiles and the
+      mountain's trees), measured the same way as the dressing above (headless `Camera.Render` timing, noisy at
+      this size; the meshes do not register). The ring's heightmap is 257, not the city tiles' 513: at 513 the tiles alone cost ~0.12 ms,
+      and 3.9 m spacing is ~3 px at that range. Not yet measured in Play over Link: check `_perf.csv` on the first
+      flight.
+
+## S2 Hidden Goal Search: the search study
+
+A pilot who does not know where the goal is searches a generated city for it, with the swarm or one drone, and the
+clock stops at first sight: the density study's directed flights and sweep-width model replaced by the search itself.
+**[docs/search_study/README.md](docs/search_study/README.md) is the manual**; the code is `citysim/search.py`,
+`citysim/pilots.py` and `citysim/pilotfit.py`, the outputs `experiment_results/search_study/`. Invariants:
+- **An intent chain is laid target to target and never reads the flight.** Every arm of a scenario flies the same
+  chain from the same seed, which is what makes the arms paired, and the Unity spot check flies the same chain again.
+  A pilot that re-plans from where the formation ended up breaks both.
+- **Consecutive intent targets are at least `pilots.MIN_STEP_M` apart.** A target the mask snapped back onto the last
+  one is "reached" the moment it is set, and the pilot re-plans every tick: that hung the first full run.
+- **`swarm_steer` is the morphing counterfactual**: the swarm on the single drone's path rule (round every building),
+  not a pilot of its own. single -> swarm_steer is the cameras, swarm_steer -> swarm the morphing.
+- **The swarm's feeds come from `display.FeedLatch`** (hull debounce, heading low-pass, 75 deg/s yaw, the ready latch),
+  not the instant rule the density study's dynamic tier used; `--instant-feeds` is the upper bound.
+- **A swarm that falls under four drones has not found the goal** (censored at the cap), the conservative reading.
+- **The fitted pilot is fitted on searching windows only** (leg start -> first sight at 80 m), and course changes under
+  `pilotfit.THETA_MIN` are steering the planner does, not intent; `search-check` flies it in internal_3's city.
+- Each arm is retried on an exception: this machine's CPU throws the odd impossible numpy error under load, and a
+  flight is deterministic in its seed.
+- **A subset of searches is taken by `start_i` from the full scenario list, never by drawing fewer starts.** A goal's
+  start points, headings and seeds come off one random stream, so `scenarios(layouts, 4)` keeps the first four points
+  but gives them different headings and seeds: different searches. The first `--starts` did exactly that
+  (`search_streets_fresh/`, kept as an independent replicate).
+
+## S3 City Roaming: the clutter study
+
+The task-independent "what each sees" question on random walks with no goal, over a grid of Voronoi city designs
+(block spacing p x coverage alpha, built as VoronoiCityWorld is: DiamondCityWorld's mix, even fill, goal-free, 12 m
+streets), the
+single drone against the swarm at spreads 0.4 / 1.0 / 1.6, with the limit of a wide formation (neighbouring feeds that
+no longer share ground among buildings) measured. **[docs/clutter_study/README.md](docs/clutter_study/README.md) is the
+manual**; the code is `citysim/clutter.py`, `clutter_stats.py`, `clutter_report.py` (+ `.html`), the outputs
+`experiment_results/clutter_study/<name>/`. Invariants:
+- **The cities are the statistical units.** Walks in one city share its buildings, so every p value is a t test over
+  city means of the paired log ratio; the Wilcoxon over walks is kept only to show how much it overstates.
+- **Rounds are replicates and results are appended as they arrive**: a run stopped by its time budget covers every
+  design equally, and `--resume` skips every finished job. Never redraw scenarios with fewer walks; take rounds.
+- **Do not edit `clutter.py` or anything it imports while a run is going**: each round's pool re-imports them from
+  disk. `clutter_stats.py`, `clutter_report.py` and the page template are parent-only and safe to revise mid-run.
+- `citygen` `goals=0` is a goal-free city (id `..._nogoals_...`); it draws no random number for goals, so every goal
+  layout is unchanged. `transit.score`'s `ranges` / `on_sample` / `near_only` and `seen_from(los=False)` are the hooks
+  it uses; `near_only` is opt-in so the capability and Tier C paths stay byte-identical.
+- **Time to find has no goal on purpose**: the target is a point hidden at random, so P(found by t) is the share of the
+  arena's open ground seen by t, discovered at 200 m (`clutter.discovery_first`, a ray-cast isovist on a 4 m grid;
+  the other measures stay at the hat's 40 m). Whole-arena grids are built with `clutter.arena_cells` (footprint by
+  footprint), never `transit.Cells` (its all-pairs inside test is gigabytes there).
+
+## S4 Split and Surround: the split study
+
+Small Voronoi blocks with one large building each: can the swarm surround a block (S1's goal envelopment, repeated),
+show the pilot every street round it, and reform down the one chosen quickly enough to explore block by block?
+**[docs/split_study/README.md](docs/split_study/README.md) is the manual** (sections 6 and 7 are Phase 1's and Phase 2's
+results: surrounding shows the pilot more of a block's streets but finds a hidden target no sooner than the swarm kept
+in the streets, and the swarm's lead over one drone is its cameras; section 9 is Phase 3's short pilot: scored on
+looking *down* each street to the building at its end, the street-bound swarm knows far less than the old preview
+said, surrounding looks down most of a block's exits, and the more so the wider d_ref, up to about 1.8 at 18 m
+streets, where drones start touching the building they surround, yet in a search for a goal at a building the
+surround still takes ×1.48 the street-bound swarm's time); the code is
+`citysim/blockcity.py`, `polyfoot.py`, `streetnet.py`, `split_probe.py` / `split_tables.py` / `split_bench.py` (Phase 1),
+`split.py` / `split_stats.py` (Phase 2), `lookdown.py` / `lookdown_search.py` / `lookdown_contacts.py` (Phase 3, a
+short pilot on looking down the streets and on d_ref: manual section 9), `correspondence.py`, `split_replays.py` (the
+Cities tab's data) and `split_report.py` (+ `.html`); the outputs are `experiment_results/split_study/`. Invariants:
+- **Block cities are `bb{R|B}_p{p}_s{s}_seed{n}` layouts in `layouts/sweep~/split/`, and both variants of a seed share
+  every street** with each other and with citygen's goal-free city of the same p, s and seed (`streets_and_blocks`
+  draws citygen's stream; `test_split.py` asserts it). R's building is a catalogue box (`BnP_Large_Building_B`) scaled
+  so its avoidance cylinder fits the block's inscribed circle less 1 m, so every existing consumer reads it as it is;
+  B's is a `ConvexPrism` record (flat `poly_xz`, CCW) that only S4's accessors read (`blockcity.footprints`,
+  `replica_city`). A layout also carries a top-level `blocks` list, which JsonUtility ignores.
+- **The closest-point obstacle model is replica-only and opt-in** (`Model(extras=dict(obstacle_model="closest",
+  face_bend=κ))` with a `PolyCity`). It never reached the C#: in every setting B's drones were pressed into the
+  building they flowed round (87–97% of its contacts; not the buildings across the street, as first written), and the
+  face bend made it worse. With the option off the replica is the old law bit for bit.
+- **S4's profile is a scene value, not a law change**: `r0_coh` 30 on BlockCityWorld's SwarmManager. The plan raised it
+  to 40 so far-apart drones would stop repelling, and that dragged drones across a block into the building; 20 slows a
+  straggler's return. Phase 1's settings are `split_probe --setting` overrides, recorded with every job.
+- **Phase 1 flies the bench's own pilot**: `split_probe.Flight` is `SwarmBenchRunner`'s waypoint rule (10 m capture, a
+  negative stick is a centring hold at `holdGain`, the spread per waypoint via `wpSpread`, mirrored in
+  `swarm_replica.replay_flight`), so every replica trial is a bench scenario (`split_bench plan`) whose replica twin can
+  be re-flown from Unity's recorded start (`split_bench gate`).
+- **One cluster metric**, `streetnet.Network.clusters` (free-space path ≤ 30 m, round buildings by a visibility graph),
+  for replica samples and bench trajectories alike; a straight-line test calls every corner a split. Reform is one
+  cluster before the next junction, censored there.
+- **A confirmation flies fresh trials in fresh cities** (`split_probe --trial0 1000 --city-seeds 3 4 5`: new random
+  streams), and a run writes every missing layout before its pool starts, since workers would race on the file.
+- **The chain walk never reads the flight** (S2's invariant) and may cross a plaza by the streets, the same way in
+  every condition; per-block measures skip plazas. A chain ends where it reaches the arena's edge, and a flight that
+  has ended sees nothing more, so time outcomes charge a condition that finishes sooner (12% of walks; at most 0.3% on
+  the ratios). The informed pilot decides where its condition decides, from that flight's own knowledge.
+- **The informed pilot needs its fallback** (`split.fallback_exits`: a street at the entrance corner, then back the way
+  it came) for when the chain's exit rule leaves no move. Without it 12 of the first 40 routes stopped early, mostly at
+  p 40 s 24 where half the blocks are plazas, and each would have counted as unfound at the cap. The chain walks never
+  use it, so they lay exactly as before.
+- **Do not edit `split.py`, `split_probe.py` or anything they import while a run goes**: every round's pool re-imports
+  them. `split_stats.py`, `split_tables.py` and `split_report.py` are parent-only.
+- **The page's replays are the study's own flights** (`split_replays`, two stages):
+  - **`refly`** runs each pick's job (`split_probe.run_job`, `split.walk_job`, `split.search_job`) with
+    `split_probe.Flight` swapped for a taped subclass. For searches it also logs every `choose_exit` (read-only, beside
+    the real call). A pick is kept only if the job's rows come out identical to the stored ones. Rows map to tapes in
+    creation order; a walk's `same_as` rows fly nothing.
+  - **`assemble`** adds Unity's trajectories from the bench copy's `runs/`, the cities and `index.json`. The captions
+    come from the pick tables at this stage, so re-run `--stage assemble` after editing one, and check each against its
+    flight's numbers.
+  - The page fetches `replay/cities` and `replay/flights` beside itself. `split_phase1_files.json` lists what to
+    publish with it; the local `split_phase1.html` inlines them all.
+- **Phase 3 scores looking down a street, not entering it** (`citysim/lookdown.py`, manual section 9). An exit is
+  *looked down* once a shown feed has seen, within the run's sight range, half the footpath in front of the building
+  where it ends (2 m outside the footprint, within 12 m of its point nearest the far junction; a plaza's lawn when the
+  block ahead is one). Phases 1 and 2's preview (60% of the street's first 80 m) is the weakest of the three levels
+  and overstates what a pilot knows. **The pass is aimed by its decision, so it decides on arrival**: Part A's `look_c`
+  for the pass is at its aim point, after the decision. Compare the pass by the next junction (`look_F`), as the page
+  does.
+- **The sight range is a recorded run setting, and the page uses 250 m** (the user's call, 2026-10-28: the 80 m every
+  S4 run was first scored at, inherited from the goal's recognition distance, is too short to mean anything for
+  looking down a street). `sight_m` in a search spec (`lookdown_search choose --sight`, `split search --sight`) and
+  `look_range` in a Part A job (`lookdown manoeuvres|single --sight`) set what counts as seen, the first sight that
+  stops a search, and the radius within which a target starts out of sight; absent, 80 m, so every earlier run
+  reproduces bit for bit. The 250 m runs carry `_r250`; `split_report.SIGHT_M` and `sight_run` pick the runs the
+  answer, the Look down tab and the Phase 3 replays use. Phase 1 and Phase 2's walks were not re-run, and Phase 2's
+  own tabs stay its pre-registered 80 m record (manual 9.7). The answer did not change with the range.
+- **Every S4 flight reports both its spreads** (`d_block` round the block, `d_street` in the streets), in its row and
+  on the page. That is the user's requirement (2026-10-28): d_ref is a factor to study, not a setting to leave out.
+- **Part B's frontier rule is Phase 2's 20 m.** `blind_decisions` (`lookdown_search`) counts every decision with no
+  exit scored, which includes the moves towards the nearest junction with 20 m unseen. It is **not** a count of
+  random choices. Read as random walking, it had the rule changed mid-run to one footpath point (`lookdown_B_v2`,
+  stopped, not analysed). A per-decision log then showed no random choice at all, and the run resumed on the rule
+  fixed in advance. Log a pilot's decisions before redesigning it on a counter (lessons.md 32).
+- **`BlockCityWorld`** (`Tools/Swarm/Build block city world`, `BlockCityWorldBuilder`) is DiamondCityWorld's rig with
+  the R p 40 s 18 seed 1 city baked in (`layouts/BlockCity__bbR_p40_s18_seed1.json`, byte for byte the city Phase 1
+  flew), the landmarks, the dressing, `r0_coh` 30 and a 45 m ceiling. It has no goals, so it is for flying the
+  manoeuvres, not the identify task. Built in batchmode on the bench copy.
+- **`BlockShapedCityWorld`** (`Tools/Swarm/Build block-shaped city world`, `BlockShapedCityWorldBuilder`; the design is
+  changed in `Tools/Swarm/Block-shaped city…`) is variant B to fly: every block built over to the back of a 3.5 m
+  footpath, one simple prism each (`PrismBuilding`: windows, 10 colours dealt so neighbours differ, 3 patterns), on
+  BlockCityWorld's configuration (`ConfigureS4`) and by default S4's own `bbB_p40_s18_seed1` file, so it shares
+  BlockCityWorld's streets (2026-10-28). Points worth keeping:
+  - **Unity flies B through today's cylinder law, not the replica's closest-point model.** OlfatiSaber wraps each
+    prism in the circumradius of its axis-aligned bounds, which encloses the footprint, so the law keeps drones off the
+    facade (S4's B failed on facade contacts under the closest-point model). It bulges past it instead: at p 40 s 18 it
+    closes 8 and narrows below 6 m 71 of the 824 interior streets between two buildings (`blockcity one` prints it).
+    The footprint's enclosing circle would close 2 and narrow 19, but a declared radius is a force-law change: replica
+    and bench with it.
+  - **`blockcity`'s defaults are S4's, byte for byte**, and the id names any setting that is not (`_in5`, `_hex0.15`,
+    `_lloyd2`). `--inset` is the footpath; `--seeds hex --jitter J` and `--relax N` place the block seeds more evenly;
+    `--seeds patch` and `--sight-tries N` break up the long views hex leaves (`BlockShapedPatchCityWorld`, below).
+  - **A Voronoi block has about six sides, but a side shorter than its junctions' setbacks is not a street**
+    (StreetSurface and streetnet merge its junctions at about one street width). At p 40 s 18 S4's seeds keep 4.3
+    sides as streets with 8.2 streets leaving the corners; hex at jitter 0.15 keeps 5.7 with 6.3 leaving. Even blocks
+    give more corners to go round, merged junctions more streets to choose from at each.
+  - **p − s − 2 × footpath decides whether a block is built.** Under 8 m across it is a plaza: at p 35 s 20 only 32% of
+    S4's interior blocks keep a building.
+  - **The dressing measures the footpath off the prisms** and paves out to the facades, leaves a block they cover no
+    lawn, and lets a prop stand against a facade (`CityDressing.FacadeClearance`); a catalogue layout is unchanged.
+  - **It has more street furniture than any other dressed scene** (2026-10-29, `CityDressing.Extras`, set by
+    `BlockShapedCityWorldBuilder.Furniture`): the pack's unused props. That is traffic signals on every approach of 35%
+    of the junctions (arm over the road), rows of potted topiary along the shopfronts on 30% of the street sides (half
+    with backless benches between them), bollards along the kerb by 15% of the crossings, and a speed-limit sign or taxi
+    pole at 15% of the street ends. At p 40 s 18 that is 1,541 → 3,800 props. Points worth keeping:
+    - Every one stands at the kerb or within 0.8 m of the facade (`FrontageReach`), out of the lane `BlockGoals`'
+      walkers take; near a corner the back of the footpath runs past the facade's end, which is why planters test their
+      distance to the building and not just the footpath.
+    - **The extras are off by default and left out of the dressing's signature while off**, so VoronoiCityWorld and
+      BlockCityWorld are dressed exactly as before (checked object for object) and their bakes stay current.
+    - `RulesVersion` 4 is what carries the extras into a saved scene: the block-shaped window's *Redress the streets*
+      resets the rules and applies them.
+    - Merged, they cost about 0.05–0.09 ms of main thread per FPV render (60 views at 1152×648, headless).
+  - **analyse.py reads the prisms since 2026-11-06** (`citysim.los.Prism`, internal_4); **the bench's `Footprints`
+    still reads box axes, which a prism lacks**, until it reads `blockcity.footprints`.
+  - **Its goals are drawn from its own buildings at every Play** (`BlockGoals`, 2026-10-29; `ProceduralCityBuilder.
+    goalsAtPlay` 3), because blockcity writes no goals and the user wanted no city change and no new buildings. A goal
+    is one building; its ring is every building across a street from it (`streets[].blocks`, so corner neighbours too:
+    4–8, mean 6). Each ring building carries `prismWalkers` (16) pedestrians on its footpath. That is citygen's
+    occluder plus a patrolled ring, made of buildings that were already there. Points worth keeping:
+    - **Which buildings qualify.** The goal and its whole ring must be interior and built (194 of 333 blocks at p 40
+      s 18 seed 1). The three are spread by citygen's rule (≥ 100 m from the spawn, ≥ 150 m apart, one per third of the
+      spawn distances), and no ring building is shared with another goal.
+    - **Fresh at every Play, the user's call.** The goals, hats and target walkers are drawn from a fresh `GoalSession`
+      seed (source `fresh`; `useFixedGoalSeed` + `goalSeed` give `inspector`), as the tile cities draw theirs, not from
+      the layout's seed. The layout file therefore never says where the goals were. The session JSON does: its
+      `goalSeed`, and `centreBox` / `ringBoxes` per goal. Copying a session's `goalSeed` into the builder puts all of it
+      back.
+    - **Nothing else changes.** The draw is in memory only: roles change and buildings are reparented under the goal
+      roots. The bake is still adopted, and the dressing is skipped for these goals (`kind: "block"`) and stays exactly
+      the bake's. A dressing shaped round a goal that moves every session would mark it.
+    - **The draw is skipped with the pedestrians off**, i.e. on the headless bench.
+    - **The walkers follow the polygon** (`WalkerPatrol` `Polygon`). Each walks the footprint offset by its own gap,
+      with each corner rounded at that gap, so the footpath contains the path. The gap is `prismWalkOffset`, 1.1–1.5 m
+      from the facade: the lane the dressing leaves on a 3.5 m footpath. Measured over the whole city: benches, bins and
+      corner props stand within 0.9 m of the wall (at torso height, 0.7 m), border-tree trunks start 1.6 m out (1.4 m
+      at their foot), and hydrants stand by the kerb; at p 40 s 18 there are no street lights or street trees on these
+      short streets. In that lane a walker grazes the inner edge of some border-tree trunks (rows on a third of the
+      blocks) and walks through the 11 bus shelters. Opposite walkers in so narrow a lane also pass through each other.
+    - **The recorder's zone is the patch disc plus 15 m, as for citygen's goals.** The patch disc is the circle round
+      the ring's footprints (`patch_radius`, 58–72 m), so a block goal's zone is wider than a VoronoiCityWorld goal's
+      (~40 m patch).
+    - `ProceduralCityProbe` checks all of this headless with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/
+      BlockShapedCityWorld.unity`: the spread, the rings, the redraw from the seed, the walker counts, and walkers on a
+      footpath. On the Python side, analyse.py's discovery walks the polygon loops (`discovery.polygon_loop_points`, the
+      ring named by the session's `ringBoxes`, 16 walkers at the mean 1.3 m gap); `walkers.py` still has none.
+- **`BlockShapedPatchCityWorld`** (`Tools/Swarm/Build block-shaped patch city world`, `BlockShapedPatchCityWorldBuilder`,
+  2026-10-29) is BlockShapedCityWorld on streets without its long sight lines: the same configuration
+  (`BlockShapedCityWorldBuilder.Configure`), prisms, dressing and furniture, and goals and pedestrians drawn at Play, on
+  `layouts/BlockShaped__bbB_p40_s18_patch150_j0.15_sight487_seed1.json`. Points worth keeping:
+  - **Hex seeding trades sides for sight lines.** Its zigzag streets swing only ~12 m between two rows of blocks, while
+    the facades stand ~29 m apart across them, so a straight channel ~16 m wide runs across the whole city in each of
+    the lattice's three directions: from 98% of street midpoints the longest clear view is over 400 m (S4's RSA seeds:
+    3%). `citysim.sightline` measures it: rays every 2° from each interior street midpoint against the footprints, in
+    2D, which is right while the drones fly under the roofs; the dressing is not in it.
+  - **`--seeds patch` keeps the lattice inside ~150 m patches, each turned at random**, so every channel ends at its
+    patch's edge: 5.06 sides as streets (RSA 4.40, hex 5.68) with RSA's views (median 278 m, 7% over 400 m; seeds
+    1–3). 100 m patches shorten the views a little more but lose sides and close 17 streets to the cylinders.
+  - **`--sight-tries N` then nudges block seeds into the views that are left**, 3–8 m towards the line of sight, keeping
+    a move only if no sides, plazas or cylinder clearance are lost. 487 tries take the median to 251 m and the share
+    over 400 m to 1% (seeds 1–3). It is deterministic in the seed and the count but slow (~1.5–4 s a try; the scene's
+    layout took ~24 min), and the block-shaped window gives the generator 10 minutes, so it runs only short passes:
+    generate longer ones from the command line, then pick the file under *Layouts* and Bake.
+  - At seed 1 the scene has 289 buildings (19 plazas), 5.04 sides as streets, a median view of 253 m with
+    1% over 400 m, and its cylinders close 3 and narrow 72 interior streets (BlockShapedCityWorld: 300,
+    33, 4.31, 272 m, 3%, 8 and 71).
+  - Chosen from twelve options compared on maps on 2026-10-29. Worth knowing from the others: hex jitter 0.3 loses
+    most of hex's sides and keeps 41% of views over 400 m; Lloyd (full or half steps) changes RSA's views by
+    nothing; a smooth shear warp of the lattice either leaves channels or loses sides; 8 m islands on the junctions
+    the channels cross bring the median under 200 m but need one in nearly every junction and narrow almost all of
+    them below 6 m for the cylinders; building the boundary blocks out to the arena edge only removes the straight
+    730 m strip along its sides.
+  - **Its SwarmManager carries S6's tuning** (d_ref 2.0, `d_shield` 1.6; below), **S8's pick from 2026-11-02**
+    (`d_obs` 0.35, S7's slide and adaptive spread on; S8 below), **since 2026-11-03 S10's ellipse** (`obstacleShape`
+    Ellipse, `ellipseMaxAspect` 1.5, in place of S8's EnclosingCircle; S10 below) **and since 2026-11-09 S11's wrap
+    rule** (`spreadWrapRule` Hold; S11 below), unlike BlockShapedCityWorld's, which keeps BlockCityWorld's profile.
+    `PracticeBlockWorld` is a copy of this scene, so rebuild it after any change here (or, for SwarmManager fields
+    alone, `swarmtune apply --scene PracticeBlockWorld`, as S11 did).
+  - **Its streets, and PracticeBlockWorld's, are furnished more densely than BlockShapedCityWorld's** (2026-11-04, the
+    user's request: more trees, bus stops, benches, trash cans, hydrants and phones, and no more signals or signs).
+    `BlockShapedPatchCityWorldBuilder.MoreProps` sets it, and `BlockShapedCityWorldBuilder.EnsureDressing` applies it in
+    these two scenes only (by scene path). It sets border rows round 60% of the blocks (was 33%), 3 m short of the
+    corners (was 5) and 1.1 m from the kerb (was 1.4). It puts a tree on the plaza lawns (`singleTreeArea` 40), bus
+    stops on 35% of the streets long enough, benches with their bins on 60% of street sides, and hydrants at 25% of
+    street ends. It also adds two new `Extras`: a bin at the kerb by 15% of the crossings, at least 3 m from any other
+    bin (`binShare`, `BinSpacing`), and the pack's payphone (`MC_Telephone_Booth`, a 1.6 m post) at the kerb on 12% of
+    street sides, handset to the footpath (`phoneShare`, `phoneBooth`). In the trial city that takes 3,563 props to
+    4,964: border trees 259 → 675, bus stops 15 → 46, benches 257 → 506, bins 259 → 696, hydrants 209 → 530, payphones
+    ~54 → ~170. Planters and frontage benches drop by about a seventh, because benches now take some of their places.
+    In the practice city it takes 244 props to 333. Points worth keeping:
+    - Merged at Play, the extra props cost nothing measurable per FPV render (0.51 ms against 0.51 ms of main thread,
+      60 views, headless).
+    - **The bus shelters cannot keep out of the walkers' lane.** `MC_Bus_Stop` is 5 × 2.25 m on a 3.5 m footpath, so a
+      goal's walkers walk through any shelter on its ring, about three times as often as before. The kerb bins and
+      payphones stand 2.7 m or more from the facade, out of the lane. The 1.1 m inset moved the tree trunks out of it
+      too; the lowest leaves still reach a walker's head.
+    - `RulesVersion` 5 carries the change into a saved scene: *Redress the streets* in the block-shaped window, then
+      save, in each scene. Until then the extras' signature has grown, so each bake reads stale and Play redresses it
+      at start with the scene's old rules (the same props as before). VoronoiCityWorld, BlockCityWorld and
+      BlockShapedCityWorld stay current and redress object for object as before; BlockShapedCityWorld's extras are off.
+
+## S5 Block-Shaped Surround: the block-shaped study
+
+S4's question in BlockShapedCityWorld's city (each building filling its block to the back of a 3.5 m footpath), with a
+pre-study of the spread, footpaths, block size, street width and block layouts. **[docs/shaped_study/README.md](docs/shaped_study/README.md)
+is the manual**; the code is `citysim/shaped.py` (designs, the steps and their rules), `shaped_replays.py` and
+`shaped_report.py` (+ `.html`, which inlines S4's page styles at build); the outputs `experiment_results/shaped_study/`.
+Invariants:
+- **S5 flies today's force law on prisms, as Unity flies the scene**: `split_probe.model(st, "R")` on a `PolyCity`
+  (each prism avoided as the circle round its bounding box, contacts on the true prism), never `model(st, "B")`, whose
+  closest-point extras the C# never had.
+- **S4's Part A and Part B code flies S5's cities through opt-in job keys**: `city` (blockcity.Params fields; `lookdown.job_params`,
+  `split_probe.city_from`), `d_street` and `conds` in a Part A job, `city`, `conditions` and `d_street` in a Part B spec.
+  Without them S4 reproduces bit for bit (checked). `split_replays.p3_worker` takes a pick's `job` the same way.
+- **The scene's streets are too tight for the swarm at d_ref 1.0 under today's law**: the circles bulge into the street
+  and the formation is squeezed until drones collide (0.33 lost a block in the streets; S4's catalogue city, none).
+  Step 1b flew one spread for streets and block and picked d_ref 1.2 with a 20 s firm hold (no losses from 1.6 in the
+  streets). Step 1's first rule found nothing safe; its fallback pick is kept in `chosen.json` and not used (lesson 38).
+- **A footpath narrower than 3.5 m lets the circles close streets** (12% at 1.5 m, 33% with none), so S5's footpath
+  arms measure that as much as the footpath itself; p 30 uses a 1.5 m footpath, since at 3.5 m almost no block is built.
+
+## S6 Patch City Tuning: BlockShapedPatchCityWorld's gains
+
+The spread and the swarm and obstacle gains for flying the swarm through BlockShapedPatchCityWorld by surrounding each
+building it meets and re-forming beyond it, with metrics for that. **[docs/swarm_tune/README.md](docs/swarm_tune/README.md)
+is the manual**; the code is `citysim/swarmtune.py`, the outputs `experiment_results/swarm_tune/`. Invariants:
+- **The scene's SwarmManager is S6's pick (T3): d_ref 2.0, `d_shield` 1.6 (was 2.5), `d_obs` 0.16 (was 0.4)**, every
+  other value as BlockCityWorld's profile left it (`a` 0.8, `r0_coh` 30). So in swarmtune, the replica and the bench a
+  candidate with no overrides was T3: re-create the scene as it was with `d_shield=2.5,d_obs=0.4,d_ref=1.08`. **Since
+  S8 wrote its pick into the scene (2026-11-02), an empty override is that pick**, not T3, and **since
+  S10 wrote its own (2026-11-03), S10's** (E15_35a), **and since S11's (2026-11-09), E15_35a with Hold** (H15_35a);
+  `swarmshape.PRE_S8` (`obstacleShape=0, d_obs=0.16`, slide and adaptive spread off) gives T3 back,
+  `swarmellipse.PRE_S10` (`obstacleShape=1`) gives C35a back, `swarmwrap.PRE_S11` (`spreadWrapRule=0`) gives E15_35a
+  back, and every S7 and S8 candidate file with an empty `over` (S7's T3, S8's A0) was flown against T3.
+  `swarmtune apply --cand <file> --label <L> [--scene <S>]` writes a candidate into the scene (default
+  BlockShapedPatchCityWorld), those fields of that one component only.
+- **Why 2.0**: the formation's ring at hover is then 31 m across, as wide as a typical building's avoidance cylinder
+  (radius 15.4 m), so it closes round a building without stretching the lattice (94–98% of the buildings met are
+  surrounded). Below ~1.4 the formation is squeezed between the cylinders and drones collide: the scene's old 1.08 lost
+  1.7–1.9 drones per km (Unity: 32 in 64 flights). Wider than ~2.2 it no longer fits the 25 m between facades and spends
+  more of each flight in pieces.
+- **The RC's spread dial overrides `SwarmManager.d_ref` every frame** (input mode ANY; `rcjoy bridge --profile sim` maps
+  it to 0.4–1.6 from 1.0 at launch) **except while `adaptiveSpread` is on**, which it is in this scene since S8
+  (`InputManager`, 2026-11-03): the dial then sends no override and the scene's 2.0 is flown, scaled by the adaptive
+  spread. Before that, connecting the controller replaced 2.0 with the knob's 1.0. The keyboard's A/D still sets
+  d_ref. `-SpreadRange` cannot recentre the dial on 2.0: the bridge refuses a range that excludes its 1.0 start.
+- **The RC's gimbal dial moves the cameras only once it is turned** (`InputManager.gimbalDial`, 2026-11-03), and
+  its centre is level (`SetGimbalPitchNormalized`: −1 → −90°, 0 → 0°, +1 → +60°, linear on each side). Before, it
+  was linear over the whole range, so the bridge's knob, which starts at 0 every launch, tilted every camera to
+  −15° the moment the controller connected. The first packet, and the first after a stale stream (a restarted
+  bridge's knob starts over), is only a baseline; the inspector can set the pitch between turns.
+- **The speed lever is `d_shield`, and its floor is ~1.6**: flown straight at a building a drone stalls (the shield
+  removes the stick into it and leaves nothing to slide it round), so the old 2.5 held even one drone to 4.0 m/s (its
+  longest stall 9–10 s a flight). 1.6 brakes later; below it drones arrive too fast and collide at the building (1.4: 0.2–0.5 lost
+  per km; 1.25: 2.2). The thinner `d_obs` keeps the two halves of the formation closer round a building and in the
+  streets the cylinders narrow. Both are shared with the single-drone condition, which gains more (4.0 → 5.0 m/s).
+- **The cost is building contacts, and they are the force law's, not a gain's**: every remaining contact is a straggler
+  on the far side of a building pulled through the facade by cohesion, which `RemoveInwardComponent` does not shield
+  (the stick and the damper only). T3 touches ~0.5 per km in Unity against the old 0.2, none fatal (DroneHealthMonitor
+  has no contact rule). `a` 0.72 (T4) brings them back to ~0.1 for ~4% of cohesive speed and more flights ending split;
+  it is the dial if contacts matter. Shielding cohesion would be the law change to try.
+- **Measured on settled starts only**: swarmtune shrinks the hover formation to fit the start junction and settles 15 s
+  at zero stick before counting, as the bench does. The first screens did not, and drones pushed out beyond a building
+  at the start were dragged back through it, biasing every count against wide spreads (lesson 39; `sweep1`, `search1`,
+  `grid1` and `baseline` are kept as a record, not used).
+- **The rule found no candidate safe** (all above 0.1 contacts per km) and picked T3 by its fallback, the penalised
+  score (`rule.json`, fixed before the sweep's results were read). Confirmation: ~104 km per candidate on fresh routes in
+  the scene's city and three held-out ones (seeds 2–4 of the same design, `layouts/sweep~/split/`); Unity: 64 flights per
+  set, the replica's twins matching it on every measure.
+
+## S7 Building Flow: three switches for flying among buildings
+
+Three `SwarmManager` switches on how the Olfati-Saber law treats buildings, built for BlockShapedPatchCityWorld and off
+in every scene: **slide round buildings**, **route stragglers**, **adaptive spread**. The slide is the one recommended
+(+21% cohesive speed in the replica, +23% in Unity). **[docs/swarm_flow/README.md](docs/swarm_flow/README.md) is
+the manual**; the harness is `citysim/swarmflow.py` on S6's flights and measures, the outputs
+`experiment_results/swarm_flow/`. Invariants:
+- **Each switch off is the law exactly as before**: the replica re-flies stored S6 flights bit for bit with all three
+  off. All three act in horizontal swarming only (`SwarmAlgorithm.ApplyPlaneConstraint` holds `OlfatiSaber.FlowActive`
+  false in plane mode or without aggregates), and `SwarmPlaneController` now computes its aggregates whenever any is on.
+- **`slideRoundBuildings` lives in the stick's shield** (`OlfatiSaber.SlideRoundObstacles`, from
+  `ProjectCommandVelocity`): the part the shield removes is turned along the building's cylinder for head-on approaches
+  (`slideHeadOnFraction`), held to the stick's length. **The way round is three rules in this order, and the order is
+  load-bearing**: halves of the formation round a building the swarm flies squarely at (`slideSplitAimFraction` of its
+  radius, along `surroundLookAhead`), the centroid's side when the building hides the centroid from the drone, otherwise
+  the drone's own side. Halves everywhere sent the trailing half round the far side of corner buildings whenever a route
+  turned (lesson 40). The single drone shares the shield, so the switch changes both trial conditions.
+- **`routeStragglers` turns only attraction to neighbours a building hides, and only its excess over
+  `stragglerPressShare × MaxObstacleAccel`** (`FirstBlockingFrame`, `RouteBlockedPull`). Turning repulsion lets neighbours
+  collide; turning all of the hidden pull unbinds a surround (lesson 41). `GetObstacleForce` now runs before the neighbour
+  loop, which reads its shield frames; nothing else depends on that order.
+- **`adaptiveSpread` scales d_ref through one swarm-wide number** (`SwarmPlaneController.SpreadScale`, pushed as
+  `OlfatiSaber.SpreadScale`; `EffectiveDRef` replaces d_ref in the lattice, the core's standoff and a d_ref-relative
+  cohesion range). `SwarmManager.d_ref` and the RC dial stay the pilot's value, and `DroneHealthMonitor`'s isolation
+  range does not scale. The stick comes from `SwarmAlgorithm.SharedWorldStick` (zero in the Body frame). Logged per sample
+  as `spreadScale` in shape.csv. **At 0.8 it loses drones in this city** (pairs squeezed in tight gaps, mostly while it
+  narrows or widens; lesson 42), so it stays off until the avoidance circles are tightened.
+- **The replica mirrors all three** (`swarm_replica.slide_round`, `route_round`, `aim_miss`, `spread_target`), with the
+  screens' alternatives as `Model` extras (`slide_side`, `route_side`). citysim's harnesses have no `--allow-stale`
+  flag, so `SWARM_REPLICA_ALLOW_STALE=1` is theirs, for flying a change to the law before it is committed and
+  `FORCE_LAW_COMMIT` bumped.
+
+## S8 Footprint Avoidance: what each building is avoided as
+
+`SwarmManager.obstacleShape` chooses what the Olfati-Saber law avoids each building as: `Cylinder` (0, the circle round
+the collider's axis-aligned bounds, as always and in every scene), `EnclosingCircle` (1, the smallest circle round the
+footprint), `Footprint` (2, the footprint itself) or, since S10, `Ellipse` (3, below). **[docs/swarm_shape/README.md](docs/swarm_shape/README.md) is the
+manual**; the harness is `citysim/swarmshape.py` on S7's, the outputs `experiment_results/swarm_shape/`. Invariants:
+- **`Cylinder` is the law exactly as before**: the replica re-flew 120 of S7's stored confirmation flights bit for bit.
+  The enum's values are spelled out (Unity serialises enums by integer) and it is declared in SwarmManager.cs, where
+  `swarm_params` parses it.
+- **The footprint comes from the collider, cached once per collider** (`ObstacleFootprint`): the hull of a convex
+  `MeshCollider`'s `sharedMesh` (never the MeshFilter's, which static batching swaps), a `BoxCollider`'s corners, else
+  the bounds rectangle; the enclosing circle is a brute-force search over the hull (`swarm_replica.enclosing_circle` is
+  the same loop). Obstacles are assumed static; `ObstacleFootprint.Clear()` exists for a scene that moves them.
+- **There is no margin, by design**: a margin is a second name for `d_obs + m` (the σ₁ term of φ_β is identical, and
+  c_obs saturates the force within a few tenths of a metre). The standoff is `d_obs`, measured from the shape in force,
+  so a tighter shape at the same `d_obs` lets drones nearer the facades.
+- **S7's rules aim by the enclosing circle under both new shapes** (the frame's `axisCentre`/`radius`,
+  `OlfatiSaber.GetObstacleAimCircle` for `SpreadTarget`). Under `Footprint` only, the slide's head-on gate is local
+  (`ObstacleFrame.localGate`: `1 − |û·t̂| / slideHeadOnFraction`, S7's gate exactly at a circle's surface) and a drone
+  not splitting or hidden slides the way its stick leans along the wall.
+- **`Footprint` is not usable here, and the reason is the reason the cylinder exists.** Without the slide a formation
+  flown square at a wall stalls (the user's first city, with bounding boxes); with the slide, drones slide along flat
+  faces in single file 1–2 m off them and collide (1.55 drones lost per km against 0.23, 21× the contacts). A larger
+  standoff moves the lane out and loses more. Keep any replacement shape curved (lesson 43).
+- **`EnclosingCircle` with the slide and `d_obs` 0.35 (C35) is the recommendation**: the street left between two
+  buildings goes from a median 14 m to 20 m, the streets' cohesive speed +9% over the bounds circles with the slide in
+  the replica and +17% in Unity, a tenth of the losses, the split round a wall as quick; in Unity no drone lost and 5
+  contacts in 100 flights (bounds circles 2 and 14). At `d_obs` 0.16 it touches buildings twice as often. The rule's
+  pick added the adaptive spread (C35a: +20% in the replica's streets with no extra losses), but in Unity that lost 3
+  pairs in 100 flights against none, so it was the user's call. **The user chose C35a, and BlockShapedPatchCityWorld's
+  SwarmManager flew it from 2026-11-02** (`obstacleShape` 1, `d_obs` 0.35, `slideRoundBuildings` and `adaptiveSpread`
+  on, route off, d_ref 2.0) **until S10's ellipse replaced its shape on 2026-11-03**; every other scene is still
+  `Cylinder` with S7's switches off. Watch the adaptive spread's collisions in the trials' Unity flights.
+- **The head-on flight (`swarmshape` kind `face`) is the test for any obstacle shape**: from open ground 50 m out along
+  a straight edge face's normal, aimed through the building, timed from arrival to the split round both ends. The
+  city's interior has no 50 m run-in, so the faces are on its edge.
+
+## S9 Street Spread: how far the adaptive spread should narrow
+
+A short study (2026-11-02) of the spread values alone on BlockShapedPatchCityWorld's law (S8's C35a), with no change to
+the law or the scene, a same-day follow-up on significance and timing, and a settling run in Unity.
+**[docs/swarm_spread/README.md](docs/swarm_spread/README.md) is the manual**; the harness is `citysim/swarmspread.py` on
+S8's (the timing test `swarmspread_temporal.py`, the settling run's rule and verdict `swarmspread_settle.py`), the
+outputs `experiment_results/swarm_spread/`. Invariants:
+- **The scene's adaptive spread stays, and Unity is why.** Narrower in the streets is faster beyond doubt (route by
+  route: adaptive 0.85 +8.0%, 1.7 held +11.4% against 2.0 held over 1,000 replica routes; 0.85 +8.1% in Unity over
+  300). The replica's own flights also lose about twice the drones at the narrower spread, held or adaptive (431 km a
+  row: 24 loss events at 2.0 held, 48 at 0.85 and at 1.7 held), but the settling run in Unity, 300 fresh street routes
+  each for 2.0 held and 0.85 under a rule written before it flew (`settle_rule.json`), found 18 against 18, and over all
+  three benches' street routes 30 against 28, ×1.07 (95% 0.62–1.86): the doubling is ruled out (a rise up to ~×1.9 is
+  not). In Unity the 0.85 also touches buildings 39% less (p = 0.001).
+- **The replica's doubling is its own flights, not the law**: its twins of Unity's flights (Unity's starts, same routes)
+  lost drones in 17 flights at 0.85 against 16 at 2.0 held. Its own 2.0-held flights lose fewer than those twins
+  (p = 0.12), in the scene's city as in the held-out ones; the start is the likely difference, not tested. Unity loses
+  ~1.75× its twins in both rows alike. When the replica and Unity disagree on a cost, ask the twins first (lesson 48).
+- **The adaptive spread's changes cost nothing.** Losses cluster as the swarm enters a street in every row, including
+  2.0 held whose spread never changes, and the adaptive rows' excess is the same in those moments as elsewhere (replica
+  equal-ratio p = 0.69; Unity ×1.25 against ×1.02, p = 0.71, with 57% of its losses in the first 4 s in a street, 36% of
+  the time). The adaptive 0.85 flies like 1.8 held (the same street speed, p = 0.68). The first run's readings that held
+  spreads lose alike and that the losses came with the narrowing were noise (~10 events a row) and a confound (the
+  place); lessons 45 and 47.
+- **Time losses against a shadow, not against the spread**: `swarmspread.ShadowLog` logs, in every row, what the
+  adaptive spread would be doing (the replica's `spread_target` on the swarm's own centroid, stick and buildings,
+  low-passed at its filter), so held rows carry the same moments as placebo; exposure per phase is counted beside the
+  losses. It equals the real spread exactly in an adaptive row (it re-queries buildings on the ticks `Sim.step` does).
+  `swarmspread_temporal unity` rebuilds it from Unity's trajectories.
+- **1.7 held is not cleared**: about 3% faster again than the scene in the replica, but Unity flew it only 156 times.
+- **Every candidate row names the law's fields explicitly** (`obstacleShape`, `d_obs`, the slide, route stragglers, the
+  filter), so the runs do not depend on what the scene's SwarmManager holds. Losses are counted as events (a colliding
+  pair is one; `ExternallyKilled` partners are not counted in Unity) with exact intervals; speeds are compared route by
+  route.
+
+## S10 Ellipse Avoidance: an ellipse round each building
+
+`obstacleShape` `Ellipse` (3) avoids each building as the smallest ellipse round its footprint, its aspect capped at
+`ellipseMaxAspect` (1–2, default 1.5), because the enclosing circle stands close to some walls and far from others
+(the user's question, 2026-11-02). **[docs/swarm_ellipse/README.md](docs/swarm_ellipse/README.md) is the manual**; the
+harness is `citysim/swarmellipse.py` on S8's (the bench `swarmellipse_bench.py`), the outputs
+`experiment_results/swarm_ellipse/`. Invariants:
+- **Shapes 0–2 keep their code paths byte for byte**: every ellipse rule is its own branch (`ObstacleFrame.isEllipse`;
+  the replica's `ell_rules`, `Ellipses.circ`), and 224 stored S8 flights re-flew identical. An ellipse that is round
+  enough (capped aspect under 1.02, or a cap of 1) is the enclosing circle exactly, on the circle's own path; an
+  ellipse forced through the ellipse code at a = b equals the circle to 1e-15 (`test_swarmellipse`).
+- **The fit encloses by construction**: the minimum-area ellipse (Khachiyan with away steps, the 3×3 inverse by
+  cofactors, `ObstacleFootprint.MveeAxis` / `swarm_replica.mvee_axis`) gives only the axis and aspect; the ellipse is
+  the enclosing circle of the hull squashed along that axis by min(cap, aspect), stretched back. Unity's fits match the
+  replica's to 0.01 cm on all 289 of the scene's buildings (`Bench/Editor/EllipseFitProbe.cs`, `swarmellipse fitcheck`).
+- **The cache is keyed on the cap**: `ObstacleFootprint` keeps each collider's axis and aspect and refits the ellipse
+  when the cap changes (`GetEllipse`), as `PolyCity.ellipses` does per cap. The bench flies every set in one process;
+  keyed on the collider alone, every set would fly the first set's ellipse.
+- **The frame**: outside, the closest point (a fixed five-step trig-free solve, `ClosestOnEllipse` / `ell_closest`), mu
+  = rc / (rc + d), rc the radius of curvature there (R/ρ on a circle); inside, the gradient at the drone, mu 1 and
+  distance 0 (continuous at the surface, no flip across the major axis).
+- **S7's rules aim by the ellipse in its unit space** (split aim, hidden centroid, `FirstBlockingFrame`, the adaptive
+  spread's aim test; its "among buildings" test uses the true distance), **except the slide's head-on gate, which
+  stays local**: `1 − F |t·u| / slideHeadOnFraction` while the stick points in, F the drone's unit-space radius,
+  exactly S7's gate on a circle. Measured as a line in unit space it starves the slide where the stick meets a flat
+  side square on (0.52 at cap 1.5, 0.25 at cap 2): lesson 43's stall. The side rule's last branch is S8's lean rule.
+- **The ellipse at cap 1.5 is the recommendation (E15_35a, the scene's law otherwise)**: one drone's standoff spread
+  across walls ×0.55 (Unity ×0.56), corridors under 6 m 376 → 57 over four cities at the same d_obs, the streets 7.5%
+  faster, fewer losses and contacts in the replica, the square-on split as fast (faster at d_ref 1.2). Unity's
+  contacts with the adaptive spread are the one dissent (17 against 12 in 37 km, ×1.42, p ≈ 0.23): watch them in the
+  first trial sessions. **BlockShapedPatchCityWorld flies it since 2026-11-03, at the user's word**: `swarmtune apply
+  --cand experiment_results/swarm_ellipse/confirm_cands.json --label "E15_35a ..."` changed `obstacleShape` 1 → 3 and
+  nothing else (`ellipseMaxAspect: 1.5` was already serialised; `cmd_apply` inserts a field the scene lacks). Nine
+  stored E15_35a flights re-flew identical with an empty override, so the scene is the pick. **An empty override now
+  means the ellipse**: `swarmellipse.PRE_S10` (`obstacleShape=1`) restores the circle, C35a. Every other scene is
+  still `Cylinder`.
+- **The question is measured with a one-drone probe** (`along`: down a street parallel to one wall, 6/9/12.5 m off
+  it), because 71% of formation flights' closest approaches to a facade are at a corner, where every enclosing shape
+  touches (lesson 49). The angled run-ins (`angle`) leave their target building out of the clearance test (lesson 50),
+  and the split is judged square on only: at 60° a formation going round one side whole reads as never splitting.
+
+## S11 Wrap Hold: the full spread while a building is wrapped
+
+`SwarmManager.spreadWrapRule` (`Off` 0, `Hold` 1, `HoldUntilLeaving` 2), under `adaptiveSpread`: while a building's
+centre lies inside the alive drones' convex hull, the adaptive spread's target is 1, whatever the stick's look-ahead
+says (the user's question from ERKS's first trial in internal_4, 2026-11-06: the swarm narrowed while still wrapped
+round a building). **[docs/swarm_wrap/README.md](docs/swarm_wrap/README.md) is the manual**; the harness is
+`citysim/swarmwrap.py` on S8's, the bench `swarmwrap_bench.py`, the outputs `experiment_results/swarm_wrap/`.
+Invariants:
+- **`Off` is S7's rule exactly**: the check is guarded on the rule, and 40 of S10's stored flights re-flew bit for bit.
+  The enum's values are spelled out (Unity serialises enums by integer; `swarm_params` maps members by position).
+- **Wrapped is one test on both sides**: the building's centre (the ellipse's under S10's shape, else the circle S7's
+  rules aim by) has no bearing gap of 180° or more among the alive drones round it (`SwarmPlaneController.
+  InsideFormation`, `swarm_replica.inside_formation`). Fewer than three drones wrap nothing; a building farther from
+  the centroid than the farthest drone is skipped before the test. The aggregates pass caches the drones' (x, z) for it.
+- **HoldUntilLeaving releases while a stick above 0.1 points away from the building** (its centre behind the centroid
+  along the stick). It delivered about half of Hold and missed the rule's bars by a hair.
+- **The bench's trajectories carry the spread scale** (`spread` column, `SwarmBenchRunner`; `tierc.read_traj` reads it,
+  ones when absent), so Unity's wrapped measures and loss placement come from the same file as the track.
+- **Hold is the rule's pick, and BlockShapedPatchCityWorld and PracticeBlockWorld fly it since 2026-11-09, at the
+  user's word.** It holds the spread while wrapped at 0.982 against 0.941 (Unity 0.979 against 0.938) at no measured
+  cost (45 against 45 loss events over 30 h of replica flight; Unity's 9 against 6 all fell where Hold was not
+  acting), but the ring round a building grows only ~2%: the building sets the formation's size while it is wrapped
+  (lesson 52). `swarmtune apply --cand experiment_results/swarm_wrap/confirm_cands.json --label "H15_35a ..."` (the
+  full label is in the manual), once per scene with `--scene`, inserted `spreadWrapRule: 1` and changed nothing else:
+  the two scenes' SwarmManagers were identical before, so the practice scene needed no rebuild. Twenty stored S11
+  flights re-flew identical (H15_35a with an empty override, E15_35a with `PRE_S11`). **An empty harness override now
+  means Hold**: `swarmwrap.PRE_S11` (`spreadWrapRule=0`) restores E15_35a. Every other scene has the adaptive spread
+  off, where the rule does nothing, and holds no `spreadWrapRule` (Off).
+- **The goal-search flight (`search`)** is the street circuit of a random building's block at full stick, with pauses
+  beside the building 0.4–1.2 of its radius off its centre and a hold on it, calibrated against ERKS's wrapped moments
+  (`swarmwrap_calib`). Route indices: screen 19000, confirmation 20000, bench 21000.
 
 ## Drone prefab hierarchy (relied on by many scripts)
 
@@ -83,3 +2581,203 @@ use `transform.Find("DroneParent")` / `Find("FPV")`.
 `cd Assets/Scripts/ImageStitching && python StitcherThreading.py`. **Use the `stitching` miniconda env** —
 the default `python` has no torch. StabStitch++ models load from
 `StabStitch2_main/Full_model_inference/full_model_ssd/*.pth`.
+
+Checkers: `python tools/stabstitch_selftest.py [--frame 1024x576 --wire 1920x720]` (STABSTITCH
+equivalence + timings, needs the GPU and the `debug_input_drone_*.jpg` frames),
+`python tools/planar_selftest.py`, `python tools/check_wire_layout.py`. `STABSTITCH_TIMING=1` prints the
+per-stage warp/render breakdown. The default console is kept quiet: the PSNR line once a second and a
+status line every 10 s with the run time and **Unity's frame rate** (measured from the per-frame
+heartbeat — the number every bridge setting trades against, visible with the headset on), each
+stamped `[up H:MM:SS]` from `run_clock.py`. The per-thread stitch/warp rate lines are off unless
+`STITCH_PRINT_RATES=1` (the bridge bench sets it, because it parses them).
+
+`python tools/stabstitch_bridge_bench.py --frame 1024x576 --wire 1920x720` times the whole Python side
+end to end with a stand-in for Unity (metadata, posed blocks at 30 Hz, heartbeat, panorama reads) and
+the real `StitcherThreading.py` as a subprocess. It uses sections of its own via
+`STITCH_SHM_SUFFIX` — named sections are machine-global, so on the real names it would be a second
+producer inside a live editor's session — and so it can run beside Unity in Play mode. It does not
+model Unity's frame cost; for that, read the `PyUniSharingFast.*` markers in the Unity Profiler.
+
+## Analysing experiment runs
+
+`ExperimentRecorder` (city-search-task runs, one participant/trial/condition each) writes every run into
+`%USERPROFILE%\AppData\LocalLow\UAVS@BERKELEY\DroneSim\experiment`, flat, until it is grouped. **Runs are
+analysed in *tests*, one folder per test series** (`internal_1`, `internal_2`, …), each with its own
+`test.json`, `results/` tables and `plots/<test>/` figures, so one series' numbers and figures never mix
+with another's. A single script, `Assets/Scripts/Experiment/analyse.py`, does everything — one run loader,
+one phase definition (transit/search split at a configurable metre zone around each goal, default 15 m),
+one set of plot helpers — replacing what used to be nine separate scripts with duplicated, disagreeing
+logic. Run it with the `stitching` miniconda env (see above): the default `python` has no pandas built
+against a compatible ABI here, and this project's convention is to keep every analysis interpreter the one
+used for the stitcher.
+
+**The task clock starts at a start line, not at Play** (since 2026-10-26; `StartLine`, added automatically to
+every scene with a recorder, and by `PracticeWorldBuilder` to the practice world). It stands 30 m ahead of the spawn
+(east, into the city), and the first live drone to cross it starts the timed task and makes it disappear, so take-off
+and looking round are not timed: pilots used to spend a median ~25 s there (internal_2/3). Points worth keeping:
+- **The visual is a uniform translucent tint over everything beyond the line, and it has to stay that shape.** The
+  eye cameras draw only the screens, so anything the pilot sees in the world is in the FPV feeds and therefore in
+  the stitch input; an "eye cameras only" layer would make it invisible to everyone. A flat-colour sheet with no
+  edge in any view cannot cause a seam: for a camera behind it, whether a pixel is tinted depends only on the
+  world point it shows, so the tint is paint on the scenery. A finite screen across the road would put free edges
+  in every view, a different place in each, which is what stitching cannot align. So: untextured, unlit, ±2 km
+  wide, 1 km tall. Its one cost is that StabStitch's overlap PSNR reads ~3 dB high until the start (both views'
+  contrast drops by the same 1 − α). A ground stripe just short of the line marks where it is.
+- **No collider, anywhere.** On `Obstacle` it would repel the drones (OlfatiSaber's overlap query hits triggers),
+  and a solid one is hit by the scene-plane raycast. Crossing is a signed distance tested every frame, before the
+  FPV renders (`DefaultExecutionOrder(-50)`), so the crossing frame is drawn without the line.
+- **The first drone, not the centroid, is the user's choice**, and it costs a swarm ~1 s against a single drone:
+  its front drone leads the centroid by 0.4–1.5 s (median ~1 s) at the line in recorded flights. The centroid's
+  crossing is logged beside it (`start_line_centroid`, `startCentroidSec`) for checking that.
+- **Every file's `t` stays on the session clock.** `crash_family` matches deaths to `DroneHealthMonitor.elapsedTime`,
+  which only lines up while t = 0 is Play. The recorder logs `start_line` / `startLineSec` and leaves `totalTaskTime`
+  as Play → last identify; analyse.py subtracts the start (`--start auto`, runs.csv `startSec` / `startSource`) and
+  starts transit leg 1 there. Runs from before the line keep their numbers under `auto`; `--start line` derives the
+  same crossing from their drone logs (analyse.py's `START_LINE_*` mirror `StartLine`'s defaults — change them
+  together) to compare series on one definition.
+
+**A test is not created automatically. Runs sit ungrouped at the root until someone decides which ones
+belong to a series**, because that decision (which runs count as one comparable series, which were false
+starts or bench tests) is the experimenter's, not something inferable from the data. The process, every
+time a new series is ready to analyse:
+
+1. `python analyse.py status` — lists every existing test (its runs by participant × condition, its
+   practice list) plus the archive count and, importantly, every run still sitting ungrouped at the root.
+2. Archive anything that isn't part of the series (`python analyse.py archive <selector>...`) — a bench
+   run, a false start, a run recorded on the wrong day. Do this *before* grouping, or a broad selector like
+   a bare participant ID will sweep it into the test.
+3. `python analyse.py group internal_N <selector>...` — moves the matching runs from the root into
+   `internal_N/` and writes `internal_N/test.json`, pre-filling its `practice` list with each
+   participant's first trial in each condition (selectors are a participant ID, `PID_tN`, or a full run
+   stem; `--date YYYYMMDD` narrows it; `--dry-run` previews without moving anything).
+4. **Check the pre-filled practice list by hand** — it is a starting guess (first trial per participant ×
+   condition), not a rule to trust blindly. Edit `internal_N/test.json` directly to add, remove, or leave a
+   description. Practice runs stay in every table (marked in a `practice` column) but are left out of every
+   figure and summary unless `--include-practice` is passed, which writes to a separate `with_practice/`
+   subfolder so the canonical outputs are never overwritten by a sensitivity check.
+   **Also set the city**: runs flown outside ScaledCityWorld need `"city": "<Scene>"` in `test.json`
+   (internal_3 is `DiamondCityWorld`) and a `city_obstacles_<Scene>.json` beside `analyse.py`
+   (`Tools/Swarm/Export city obstacles`, or `CityObstacleExport.Run<Scene>` in batchmode). Hat line of
+   sight and the turning maps read the buildings from it; without it they use the wrong city. A
+   **ProceduralCityWorld** run needs neither: its session names its layout, and the layout is its city. So does a
+   BlockShaped city's (internal_4), whose prisms `analyse.load_city` returns as `citysim.los.Prism`s (the 3-D sight
+   test, the maps and its block goals' walker loops all take them; a box-only city analyses byte for byte as before).
+   **Set `"range"` for a test scored at another identification range** (internal_4: 80, the recorder's since
+   2026-11-06; absent, 40), and list in **`"identifyOverrides"`** any RC press the experimenter judged correct that
+   AutoScore refused (`{"run", "t", "goal", "outcome": "correct", "why"}`): analyse.py answers the goal at that
+   press in memory, recomputes nCorrect / falseAlarms / totalTaskTime, and marks it in goals.csv (`scoredAs`); the
+   run files stay as recorded.
+   **Runs recorded before 2026-10-09 also need `"swarmParams"`** — the SwarmManager fields they flew that
+   the scene may no longer hold (internal_2: `{"hollowSwarmCore": true, "coreRelativeVelocity": false,
+   "c_damp": 0}`, where ScaledCityWorld now saves the core off). Since then `ExperimentRecorder` writes each
+   run's settings to `<stem>_swarm.json`, which `group`/`archive` move with the run. Only
+   `swarm_replica.py` reads either; `analyse.py` ignores both.
+5. If the identify keys weren't pressed live and answers were noted by hand instead:
+   `python analyse.py answers template internal_N` then fill in `internal_N/answers.csv` and
+   `python analyse.py answers apply internal_N`. `apply` keeps the moment of any answer the pilot
+   marked with the RC (below) and only fills in its outcome.
+6. `python analyse.py run internal_N` — the full analysis: `runs.csv` / `legs.csv` / `goals.csv` /
+   `crashes.csv` in `internal_N/results/`, a console report, and every figure in `plots/internal_N/`
+   (task time, pilot-command directness, spread/pitch dial usage, goal proximity, hat visibility, stitched-
+   panorama visibility, street use — how much of each transit path kept to the streets, and how much of that
+   to the long straight ones (`street_map.png` draws the classification; check it after any city change) —
+   and two turning maps — the single-drone run with the most commanded turning and the
+   swarm run with the least), plus a turning map for **every** run in `plots/internal_N/maps/`, on one shared
+   scale (`python analyse.py maps internal_N --all` redraws just those). Every figure carries a footer
+   naming the test, the zone setting, and whether practice was included, so a saved PNG is traceable back to
+   the settings that made it; `results/analysis_config.json` records the same for the tables.
+
+This only fires on request — never invent a new test folder or re-group an existing one without being
+told which runs belong in it.
+
+**The pilot identifies with the RC's C2 button, and since 2026-10-12 the press is scored on the spot**
+(`ExperimentRecorder.identifyMode`, `AutoScore` by default). Under `rcjoy bridge --profile sim` (what
+`launch_sim_scripts.ps1` runs) C2 no longer resets the knobs: it counts into a cumulative `marks` field that
+`UDPReceiverManager.MarkPresses` turns into presses. A press is `correct` for an open goal whose hat is inside
+the central `identifyCentralFraction` (80%) of a shown feed's image, within `identifyMaxRangeM` (80 m) of its
+camera, with no building in the way, at the press or on any frame of the `identifyLookbackSec` (3 s) before it,
+wherever the centroid is (the goal at the centroid first, else the most recent pass). With no such hat it is a
+`false_alarm` at the goal whose zone (`identifyZoneM`, analyse.py's 15 m) holds the **live** drones' centroid,
+logged, with the goal left open, or `out_of_zone` when no zone holds it. Each press logs the scoring camera's
+distance, how long before the press the hat passed (`passAgo`), its feed and the feed the gaze was on. **The 80 m,
+the look-back and the zone-free attribution date from 2026-11-06**, before which it was 40 m, the press's frame
+and the centroid's zone: ERKS's five refused presses were all the right hat -- four slid out of the central 80% as
+the drone closed on the walker in the second before the press (one from 15 m past the zone's edge), one was named at
+43 m. One of the four had last passed 2.25 s before its press, which is why the look-back is 3 s, not 2. The range
+field was renamed from `identifyRangeM` so every scene takes 80 (their YAML still holds 40 under the old key, which
+is ignored); the session JSON keeps the key `identifyRangeM`. The experimenter's 1/2/3 keys override the latest
+press's score (`outcome_override`) and never create an identify, and the session ends once every goal is
+resolved, or on the end key. **`Legacy`** is the flow before that, kept for comparing older runs: a press
+answers the nearest unanswered goal with the outcome pending (`identify` event, `source=rc`), the next key
+fills it in (`outcome` event, with the lag), and a key with nothing pending is the identify itself. Points
+worth keeping:
+- **The press is what the pilot perceived, the key is what the experimenter heard.** The key lags the
+  answer by the verbal report plus the experimenter's own reaction, so `decisionTimeSec` and
+  `totalTaskTime` come from the press wherever there was one (`identifySource` per goal says which).
+- **Under `Legacy` a press answers a goal, so a stray one consumes the nearest**; under `AutoScore` a stray
+  press is a false alarm and consumes nothing. Either way presses within `rcIdentifyDebounceSec` of the last
+  are dropped as double taps, and every dropped press is logged as `rc_press_ignored`, so a bad attribution
+  can be found afterwards.
+- **The session auto-ends only once every goal is resolved** -- under `Legacy`, once every goal has an
+  outcome, so a pending press holds it open for its key. In a session with no keys pressed it ends by hand,
+  as it always did.
+- **The walkers' size has one dial, the root scale of `SimpleWalker.prefab`** (the three hat prefabs nest it),
+  and nothing in the task assumes its value. `SpecialWalker.HatCentre` reads the hat off its own mesh, and the
+  recorder scores against that and logs it per sample (`hatX/Y/Z` in `_walkers.csv`, since 2026-11-02);
+  `analyse.Run` fills those columns in for older runs from `HAT_HEIGHT`, so their numbers stay as they were, though
+  that 1.6 was never a measurement: through the walk cycle the hats' centres stood ~1.73 m above the origin at scale
+  1 (the T-pose reads ~6 cm higher, so measure posed). The body stands 1.767 m at scale 1, and the root has been
+  1.035 since 2026-11-02 for 1.83 m, with each hat 1.1x relative to the head. **Resize a hat about where its rim
+  meets the head, not about its pivot**, which can be far from the hat (`Hat_1`'s is ~0.95 m below it): scaled in
+  place by 1.1 the cowboy hat rises ~10 cm off the head. In the hat's parent frame,
+  `newPos = anchor + k * (oldPos - anchor)`. `PracticeWorldBuilder` hangs its signs
+  over the tallest walker it placed, so a resize reaches that scene's signs through a rebuild. Two things do not
+  follow the dial, deliberately: `citysim/camera.py`'s `HAT_HEIGHT_M` / `HAT_SIZE_M`, the target S1–S9 modelled,
+  and `identifyMaxRangeM`, a recognition limit that is the experimenter's to change.
+- **The hats' colour has one dial too, `Assets/Materials/WalkerHat.mat`**, which all three wear: `cowboy_hat.fbx`
+  remaps its embedded `pasted__M_Hat` to it (`externalObjects`), and the cap and bucket prefabs override their
+  renderers with it. A flat grey, sRGB 0.689 (RGB 176) since 2026-11-04, the user's request for 10% darker than the
+  FBX's 0.766 (195) every earlier run flew. The FBX material no longer exists once remapped, so a renderer pointed
+  back at it renders magenta.
+- The count is cumulative on the wire, not a flag, because a press carried in one datagram is lost with
+  it and a count is not. The first packet, and a restarted bridge counting from 0, are only a baseline —
+  which is also why a press made before Play never lands late.
+
+**A run records what it flew, and its session file exists from the first frame** (since 2026-11-03). Points worth
+keeping:
+- **A loss is a `drone_lost` event, at its physics tick** (`DroneHealthMonitor.DroneLost`): `drone=3
+  reason=CollidingWithAnotherDrone partner=7 x= y= z= vx= vy= vz= speed=`. `alive` in `_drones.csv` is a 10 Hz flag on a
+  drone already parked, and the reason used to live only in `Editor.log`, which the editor overwrites: all 10 deaths in
+  internal_3 have blank reasons because no log was kept. A colliding pair is two events naming each other,
+  `CollidingWithAnotherDrone` (whichever detected it) and `ExternallyKilled`. analyse.py's `crashes.csv` reads them
+  first (`partner`, `speed`), and the editor log only for older runs.
+- **The session JSON carries the software and the rules:** `gitCommit`, `gitDirty`, `gitChanges` (porcelain lines over
+  Assets, Packages and ProjectSettings; UserSettings nearly always differs), `gitError` when git could not answer (no
+  repository in a bench copy); `identifyZoneM`, `identifyRangeM` (from `identifyMaxRangeM`), `identifyCentralFraction`,
+  `identifyLookbackSec` (since 2026-11-06), `rcIdentifyDebounceSec`;
+  `stitchingEnabled`; the screen style, radius and scale. Git runs on a worker thread with `--no-optional-locks`, so it
+  can neither hitch a frame nor hold the index lock against a commit. It keeps file names, not diffs: a scene's diff
+  can run to megabytes, and `_swarm.json` has the values that matter most.
+- **`_swarm.json` also dumps `interfaceManager`, `screenSpawn` and `stitching`**, as authored at the start of the run;
+  `swarm_params.py` reads only `swarmManager`. **A style change resets `ScreenSpawn`'s radius and scale**, so what was
+  in force later is in the `display` events, which read ScreenSpawn (AUTO and the panorama fallback resolve there) at
+  the start of the run and on every change.
+- **`_session.json` is written from the first frame, `finalized` false until the run ends** (`endReason` then), and
+  rewritten on a press, a loss, the start line and git's answer. A crash used to lose the goals and the hats with it,
+  and a goal seed drawn fresh at Play cannot give them back. analyse.py does not analyse an unfinished one, as it did
+  not analyse a run with no session file: protocol §8 excludes a run a technical failure ended. The data is there to
+  read by hand.
+- **`condition_mismatch`:** the label is typed by hand and the count is set on `swarmSpawn`, so a stale label goes
+  unnoticed (6 of the first 102 sessions, one in a test: `ERIP_t1_SingleDrone_20260706_222450` in internal_1 flew 10
+  drones). The recorder logs an error at Play and sets `conditionMismatch`; analyse.py warns on any run, old ones too,
+  and still goes by the label.
+- **A view in the live panorama counts as on screen** (`_drones.csv` `stitched`, `InLivePanorama`). The stitched
+  drones' quads are hidden under the panorama, so `shown` is 0 for the very views the pilot is looking through, and a
+  hat seen only there used to score a false alarm. A frozen panorama does not count (`UpdateStitchState`). Only the hide
+  makes this necessary: with `hideStitchedDroneScreens` off those quads stay `shown`. `citysim.replay.shown_mask` ORs
+  the column in, so the hat and discovery measures agree with the scoring; runs before it keep the old mask, which
+  undercounts while the panorama is up.
+- **No `;` in an event's note.** `session_start`'s held them until 2026-11-03, which a plain `pandas.read_csv` takes for
+  extra columns, shifting every row of the file: read older files with `analyse.read_events`.
+- `ProceduralCityProbe` checks all of it headless, except the `stitched` column itself (its `InLivePanorama` is checked
+  through the scoring) and the label check, which the probe's correctly labelled scenes never trip.

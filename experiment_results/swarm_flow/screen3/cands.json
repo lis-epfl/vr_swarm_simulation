@@ -1,0 +1,127 @@
+{
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "T3"
+ },
+ "1edb626565": {
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.3
+  },
+  "d": 2.0,
+  "label": "route press 0.3"
+ },
+ "604a706345": {
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  },
+  "d": 2.0,
+  "label": "route press 0.5"
+ },
+ "ee884a4bba": {
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  },
+  "d": 2.0,
+  "label": "route press 0.7"
+ },
+ "94fdaf6242": {
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 1.0
+  },
+  "d": 2.0,
+  "label": "route press 1"
+ },
+ "7d446a3b17": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "slide"
+ },
+ "2d78fec2b2": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundAimFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "adaptive 0.7 aim 0.6"
+ },
+ "d4c35c2d73": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  },
+  "d": 2.0,
+  "label": "slide + route 0.5"
+ },
+ "7dbb14fb8b": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  },
+  "d": 2.0,
+  "label": "slide + route 0.7"
+ },
+ "28a98ca7df": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  },
+  "d": 2.0,
+  "label": "slide + adaptive"
+ },
+ "1b40c87d4e": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  },
+  "d": 2.0,
+  "label": "route 0.5 + adaptive"
+ },
+ "ccfca88d76": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  },
+  "d": 2.0,
+  "label": "all three, route 0.5"
+ },
+ "8bf94a673a": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  },
+  "d": 2.0,
+  "label": "all three, route 0.7"
+ }
+}

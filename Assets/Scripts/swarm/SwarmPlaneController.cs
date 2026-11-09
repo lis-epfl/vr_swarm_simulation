@@ -1,0 +1,908 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+/// <summary>
+/// Owns the swarming plane. Normally the swarm is constrained to the horizontal plane
+/// (SwarmManager.is3D == false, plane normal = world up). This controller adds a toggleable
+/// <b>vertical</b> mode: the swarm re-forms into a wall perpendicular to a heading the pilot steers
+/// with the yaw stick, so the pilot ends up looking at a billboard of drones rather than standing
+/// inside a ring of them.
+///
+/// Nothing is teleported. The mode change only swaps the plane the swarm algorithm is constrained
+/// to (OlfatiSaber / Reynolds project relative positions onto it and add a restoring term along its
+/// normal), so the drones fly into the wall under the same algorithm that holds the horizontal
+/// formation together.
+///
+/// <para><b>No drone is privileged.</b> The plane's heading is a setpoint <i>this component</i> owns
+/// — seeded from the swarm's mean heading on entry, then advanced only by the yaw stick — and every
+/// drone converges on it through the same feed-forward + P law
+/// (<see cref="AttitudeAlgorithm.ApplyPlaneModeAttitude"/>). Its position along the normal is the
+/// swarm centroid and its reference altitude is latched from that centroid, so neither is any one
+/// member's. This mirrors the real fleet, where a single PC-owned <c>target_yaw</c> is held by every
+/// aircraft (DJI_Swarm <c>joystick_controller.heading_hold_rate</c>) and the wall is pinned to the
+/// centroid (<c>swarm_plane.py</c>).</para>
+///
+/// <para>The earlier design nominated one <i>anchor</i> drone: it took the yaw stick directly while
+/// the rest P-tracked its compass, its swarm force was zeroed, and it supplied both the plane offset
+/// and the vertical reference. That drone turned at the full stick rate while the wall lagged behind
+/// it through the yaw filter, the inner rate loop and drag — one important drone and n-1 followers.
+/// Steering the setpoint instead costs nothing the anchor gave: the stick still re-aims the whole
+/// wall, and now it re-aims all of it at once.</para>
+/// </summary>
+[DefaultExecutionOrder(-100)] // must publish the plane before any drone's FixedUpdate reads it
+public class SwarmPlaneController : MonoBehaviour
+{
+    public static SwarmPlaneController Instance { get; private set; }
+
+    [Header("Toggle")]
+    [Tooltip("Keyboard key that toggles vertical-plane swarming. TogglePlaneMode() is public so a " +
+             "controller switch can drive the same thing.")]
+    public KeyCode togglePlaneKey = KeyCode.V;
+
+    [Header("Heading")]
+    [Tooltip("Yaw-stick gain: deg/s the shared target heading advances at full stick. Matches the " +
+             "real fleet's YAW_RATE_DEG_S. This is a feed-forward on every drone's yaw command, so " +
+             "the rate actually achieved is still bounded by each drone's VelocityControl.maxYawRate. " +
+             "That limit is now the airframe's 75 deg/s, above this gain, so a full-stick turn is no " +
+             "longer rate-saturated here the way it is on the fleet, whose PC clamps at 40 deg/s.")]
+    public float targetYawRateDegPerSec = 60.0f;
+
+    [Tooltip("Anti-windup: while the stick is deflected the target heading may lead the swarm's mean " +
+             "heading by at most this many degrees. Whenever the drones lag the setpoint — their " +
+             "rate and heading loops, a drone slowed by an obstacle, or any maxYawRate below this " +
+             "stick gain — a sustained turn would otherwise bank up a heading debt they keep paying " +
+             "off after the stick is centred: overshoot, then a wag. 0 = no clamp.")]
+    public float maxTargetLeadDeg = 25.0f;
+
+    [Header("Display")]
+    [Tooltip("Switch the stitcher and the screen layout with the configuration: vertical plane " +
+             "gets PLANAR + FORMATION_WALL, horizontal-with-the-gimbal-down gets PLANAR + " +
+             "FORMATION_MAP, and horizontal looking out gets STABSTITCH + OUTER_CIRCLE. Untick " +
+             "to keep whatever PyUniSharingFast and InterfaceManager are configured with, e.g. " +
+             "to compare two stitchers on the same formation.")]
+    public bool driveDisplayConfiguration = true;
+
+    [Header("Status (read-only)")]
+    [SerializeField] private bool planeModeActive = false;
+    [SerializeField] private float targetHeadingDeg = 0.0f;
+    [SerializeField] private int swarmDroneCount = 0;
+
+    // World-space unit normal of the swarming plane. Vector3.up in horizontal mode, the target
+    // heading in vertical mode.
+    private Vector3 planeNormal = Vector3.up;
+
+    // The shared target heading, in the same [-pi, pi] yaw space as StateFinder.Angles.y. A
+    // commanded setpoint, not a measurement: nothing reads a compass into it.
+    private float planeYaw = 0.0f;
+
+    // Feed-forward that goes with planeYaw (rad/s) — the yaw stick, published so every drone gets
+    // the identical value.
+    private float targetYawRate = 0.0f;
+
+    // Wall reference altitude (the vertical leash centre) and the climb-stick rate it moves at.
+    private float referenceAltitude = 0.0f;
+    private float referenceAltitudeRate = 3.0f;
+
+    // Per-tick swarm aggregates, recomputed in FixedUpdate ahead of every drone's.
+    private Vector3 swarmCentroid = Vector3.zero;
+    private Vector3 swarmMeanVelocity = Vector3.zero;
+    private float swarmMeanYaw = 0.0f;
+    private float swarmMeanRadius = 0.0f;
+    private bool hasSwarmAggregates = false;
+
+    // Virtual core radius, in swarm units and then in world metres. Filtered; see UpdateCoreRadius.
+    private float coreRadiusFiltered = 0.0f;
+    private float coreRadiusMetres = 0.0f;
+    private bool coreRadiusSeeded = false;
+
+    // S7 adaptive spread: the swarm-wide scale on d_ref, filtered; see UpdateSpreadScale.
+    private float spreadScale = 1.0f;
+    private bool spreadScaleSeeded = false;
+    private int obstacleLayerMask = -1;
+    private static readonly Collider[] spreadQueryBuffer = new Collider[64];
+    private bool hasWarnedSpreadBufferFull = false;
+    // How far beyond the look-ahead the building query reaches. A collider is found by its bounds, which
+    // stand less than R inside its avoidance cylinder and contain its centre, so this finds every
+    // building that matters to the rule as long as its avoidance radius is under 40 m.
+    private const float SpreadQueryMargin = 40.0f;
+    // S11 wrap hold: the alive drones' (x, z) this tick, the farthest of them from the centroid, and scratch for the
+    // bearings InsideFormation sorts. Filled by UpdateSwarmAggregates.
+    private readonly List<Vector2> formationXZ = new List<Vector2>();
+    private float formationMaxRadius = 0.0f;
+    private float[] wrapBearings = new float[16];
+
+    // Swarm roster. swarmSpawn owns the live list that every drone's SwarmAlgorithm and
+    // AttitudeAlgorithm already share, so holding that reference tracks joins and losses for free.
+    // Scenes with hand-placed drones fall back to a tag search, rate-limited because
+    // FindGameObjectsWithTag is far too slow for a per-tick call.
+    private List<GameObject> roster;
+    private bool rosterIsShared = false;
+    private float lastRosterScan = float.NegativeInfinity;
+    private const float RosterRescanInterval = 1.0f;
+
+    // Display components driven by the mode change; see ApplyDisplayConfiguration.
+    private PyUniSharingFast sharing;
+    private InterfaceManager interfaceManager;
+
+    // Last configuration the display was pointed at, so a change is what drives it and not the
+    // mere fact of being in a configuration. Latched on the first Update rather than in Start:
+    // SwarmManager pushes the inspector's gimbal pitch to FPVCameraScript in *its* Start, and
+    // this component runs at -100, so a value latched in Start would read a stale level gimbal
+    // and then fire a spurious switch on the first frame of a scene that starts in nadir.
+    private bool displayStateLatched = false;
+    private bool lastVerticalPlane = false;
+    private bool lastNadirGimbal = false;
+
+    public bool PlaneModeActive => planeModeActive;
+
+    /// <summary>World-space unit normal of the plane the swarm is constrained to.</summary>
+    public Vector3 PlaneNormal => planeNormal;
+
+    /// <summary>
+    /// Point the plane passes through: the swarm's centroid. Every drone is pulled onto the plane
+    /// through this one offset along the normal, which makes the pull zero-sum — so the wall cannot
+    /// drift along its own normal under its own restoring term. That is the property a pinned anchor
+    /// drone provided, without making one drone the thing the wall is built around.
+    /// </summary>
+    public Vector3 PlaneOrigin => swarmCentroid;
+
+    /// <summary>
+    /// Whether the aggregates below were successfully recomputed this tick. False in a scene with no
+    /// swarm, and false whenever nothing is alive — callers must not read a stale centroid.
+    /// </summary>
+    public bool HasSwarmAggregates => hasSwarmAggregates;
+
+    /// <summary>
+    /// The swarm's centroid, in world space. The same quantity <see cref="PlaneOrigin"/> exposes for
+    /// the wall, named for the other use: it is where the virtual core stands. There is deliberately
+    /// only one definition of this in the codebase.
+    /// </summary>
+    public Vector3 SwarmCentroid => swarmCentroid;
+
+    /// <summary>
+    /// Mean world velocity of the alive drones — the velocity of <see cref="SwarmCentroid"/>, and so
+    /// of the virtual core standing on it. The core's velocity match is measured against this: the
+    /// core is a moving obstacle, and damping each drone's absolute velocity instead brakes the whole
+    /// formation in translation, by a different amount for each drone.
+    /// </summary>
+    public Vector3 SwarmMeanVelocity => swarmMeanVelocity;
+
+    /// <summary>Alive drones counted in the aggregates this tick.</summary>
+    public int AliveDroneCount => swarmDroneCount;
+
+    /// <summary>
+    /// Radius of the virtual core in world metres, or 0 when the hollow-core feature is off. Every
+    /// drone reads this one number, so the core stays a single shared virtual agent rather than n
+    /// slightly different ones — the same argument as <see cref="PlaneOrigin"/>.
+    /// </summary>
+    public float CoreRadiusMetres => coreRadiusMetres;
+
+    /// <summary>
+    /// The S7 adaptive spread's scale on d_ref (SwarmManager.adaptiveSpread): streetSpreadFactor among
+    /// buildings, 1 while the swarm flies at one or has none near, low-passed. 1 whenever the feature is
+    /// off. One number for every drone, pushed by SwarmAlgorithm.ApplyPlaneConstraint, for the same
+    /// reason as <see cref="CoreRadiusMetres"/>: one formation, one spread.
+    /// </summary>
+    public float SpreadScale => spreadScale;
+
+    /// <summary>
+    /// Altitude the wall's vertical leash is measured against
+    /// (<see cref="VelocityControl.verticalReferenceAltitude"/>). Latched from the swarm's centroid
+    /// altitude on entry and then moved only by the climb stick — never re-read from the drones.
+    /// A live centroid would leave the formation's mean altitude a free mode: the leash would bound
+    /// each drone's spread about the mean while the mean itself drifted on whatever net vertical bias
+    /// the swarm forces carry (cohesion and the plane pull are zero-sum, ground repulsion is not).
+    /// Same construction, and the same reason, as <c>swarm_plane.py</c>'s <c>alt_ref</c>.
+    /// </summary>
+    public float ReferenceAltitude => referenceAltitude;
+
+    /// <summary>
+    /// The shared target heading in radians, in StateFinder.Angles.y's [-pi, pi] yaw space. Every
+    /// drone in the wall converges on this one value; it is not any drone's measured heading.
+    /// </summary>
+    public float TargetYaw => planeYaw;
+
+    /// <summary>
+    /// Feed-forward yaw rate (rad/s) belonging to <see cref="TargetYaw"/> — the yaw stick, handed to
+    /// every drone verbatim so the whole wall starts turning on the same tick rather than waiting for
+    /// each drone's P term to notice the setpoint moved.
+    /// </summary>
+    public float TargetYawRate => targetYawRate;
+
+    /// <summary>
+    /// In-plane basis: <paramref name="right"/> is the horizontal axis of the plane, <paramref name="up"/>
+    /// the vertical one. Used to project the swarm into 2D for the convex-hull boundary estimate.
+    /// </summary>
+    public void GetPlaneAxes(out Vector3 right, out Vector3 up)
+    {
+        PlaneAxesFromNormal(planeNormal, out right, out up);
+    }
+
+    /// <summary>
+    /// The in-plane basis belonging to an arbitrary plane normal, in the same convention
+    /// <see cref="GetPlaneAxes"/> returns. Returns false — and the world (x, z) pair — when the
+    /// plane is horizontal and the basis is therefore not determined by the normal alone.
+    ///
+    /// Static and public because ScreenSpawn's FORMATION_WALL needs this same basis in scenes that
+    /// have no SwarmPlaneController at all (the real-drone scenes contain no swarm), where it
+    /// derives the normal from the drones' shared heading instead. Sharing the construction is what
+    /// keeps the display's notion of "along the wall" identical to the one the convex-hull boundary
+    /// estimate is computed in.
+    /// </summary>
+    public static bool PlaneAxesFromNormal(Vector3 normal, out Vector3 right, out Vector3 up)
+    {
+        right = Vector3.Cross(Vector3.up, normal);
+        if (right.sqrMagnitude < 1e-6f)
+        {
+            // Degenerate only if the plane is horizontal, where the caller uses (x, z) anyway.
+            right = Vector3.right;
+            up = Vector3.forward;
+            return false;
+        }
+        right.Normalize();
+        up = Vector3.Cross(normal, right).normalized;
+        return true;
+    }
+
+    /// <summary>
+    /// The configuration the system is flying, as the two bits everything downstream keys off:
+    /// whether the swarm is in a vertical plane, and whether the gimbal is pitched down far
+    /// enough to be imaging the ground rather than a facade
+    /// (<see cref="FPVCameraScript.NadirPitch"/>). Returns false when neither bit can be
+    /// answered yet, which is not the same as answering "horizontal, looking out" — see below.
+    ///
+    /// Static, and it resolves both feed sources, because the two callers are never in the same
+    /// scene: the instance path below drives the display when a swarm exists, and
+    /// <see cref="InterfaceManager"/>'s <c>ScreenStyle.AUTO</c> needs the same answer in the
+    /// real-drone scene, which contains no <c>SwarmPlaneController</c> and no
+    /// <c>FPVCameraScript</c> at all. Two copies of the rule would be two configurations.
+    ///
+    /// Each bit has an exact source and a derived one, in that order:
+    /// <list type="bullet">
+    /// <item><b>Plane</b> — this component's own mode, because it is a setpoint we own and is
+    /// therefore right before the drones have converged on it. Failing that, whether the live
+    /// real-drone feeds share a heading (<c>ImageSharing.LiveFeedHeadingsShared</c>): out there
+    /// the wall is commanded by the PC's <c>swarm_plane.py</c> and nothing about it reaches
+    /// Unity, but a facade wall points every aircraft at one surface and the radially-outward
+    /// ring OUTER_CIRCLE exists for is exactly the case that spreads them.</item>
+    /// <item><b>Gimbal</b> — the fleet's own mean gimbal pitch when real feeds are posing, since
+    /// <c>FPVCameraScript.SharedPitch</c> is a sim-only static that sits at 0 out there and
+    /// would report a nadir fleet as looking out. Otherwise SharedPitch, which is exact in the
+    /// sim.</item>
+    /// </list>
+    ///
+    /// The false return is only reachable in a real-drone scene before any aircraft has
+    /// streamed. Both readings are "horizontal, looking out" at that point, and acting on them
+    /// would flip a DJI scene to OUTER_CIRCLE for the seconds before the feeds start and then
+    /// flip it back — so the caller is told to hold instead. A sim scene is never indeterminate:
+    /// with no controller in it, vertical-plane swarming is unreachable (nothing else toggles
+    /// the mode), so false is the true answer rather than a missing one.
+    /// </summary>
+    public static bool TryResolveDisplayConfiguration(out bool verticalPlane, out bool nadirGimbal)
+    {
+        bool liveFeeds = ImageSharing.LiveFeedCount > 0;
+
+        verticalPlane = Instance != null ? Instance.planeModeActive
+                      : liveFeeds        ? ImageSharing.LiveFeedHeadingsShared
+                                         : false;
+
+        float pitch = ImageSharing.LiveFeedGimbalValid ? ImageSharing.LiveFeedGimbalPitchDegrees
+                                                       : FPVCameraScript.SharedPitch;
+        nadirGimbal = pitch <= FPVCameraScript.NadirPitch;
+
+        return Instance != null || liveFeeds || !ImageSharing.FeedSourcePresent;
+    }
+
+    /// <summary>
+    /// The screen layout belonging to a configuration. Shared by
+    /// <see cref="ApplyDisplayConfiguration"/> and by <c>ScreenStyle.AUTO</c> so the two cannot
+    /// disagree; the reasoning for each pairing is on ApplyDisplayConfiguration.
+    /// </summary>
+    public static ScreenSpawn.ScreenStyle StyleForConfiguration(bool verticalPlane, bool nadirGimbal)
+    {
+        return verticalPlane ? ScreenSpawn.ScreenStyle.FORMATION_WALL
+             : nadirGimbal   ? ScreenSpawn.ScreenStyle.FORMATION_MAP
+                             : ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+    }
+
+    void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+        }
+        else if (Instance != this)
+        {
+            Destroy(this);
+        }
+    }
+
+    void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
+
+    void Update()
+    {
+        // Polled rather than event-driven. The gimbal has three ways in (the SwarmManager
+        // inspector, SetGimbalPitchNormalized off the joystick dial, and FPVCameraScript's own
+        // fallback field) and only the first raises swarmParamsChanged, so an event subscription
+        // would silently miss the dial — which is the one a pilot in a headset can actually reach.
+        //
+        // Ahead of the toggle so the first Update latches the starting configuration before
+        // anything can change it: a V press on frame one would otherwise be swallowed by the
+        // latch instead of switching the display.
+        RefreshDisplayConfiguration();
+
+        if (Input.GetKeyDown(togglePlaneKey))
+        {
+            TogglePlaneMode();
+        }
+    }
+
+    void FixedUpdate()
+    {
+        // With the hollow core off this is the old `if (!planeModeActive) return;` exactly: no
+        // aggregates, no EnsureRoster, and therefore no new per-tick cost in horizontal mode or in
+        // a real-drone scene, where this component exists but there is no swarm to measure.
+        bool wantCore = SwarmManager.Instance != null && SwarmManager.Instance.GetHollowSwarmCore();
+        // S7 Building Flow reads the same aggregates (centroid, mean velocity), so any of its switches
+        // keeps them computed too.
+        bool wantFlow = SwarmManager.Instance != null && SwarmManager.Instance.GetBuildingFlowActive();
+        if (!wantCore)
+        {
+            // Cleared here rather than only inside UpdateCoreRadius, which the return below skips:
+            // otherwise unticking the flag would leave CoreRadiusMetres reporting the last radius
+            // it had forever, and a stale radius is exactly the kind of thing a gizmo draws and a
+            // later reader believes.
+            ClearCoreRadius();
+        }
+        if (!wantFlow) ClearSpreadScale();
+        if (!wantCore && !wantFlow && !planeModeActive) return;
+
+        hasSwarmAggregates = UpdateSwarmAggregates();
+        UpdateCoreRadius(wantCore);
+        UpdateSpreadScale();
+
+        if (!planeModeActive) return;
+
+        // Losing the whole swarm is the only way the plane can be lost now: no single drone holds it
+        // up, so no single drone's death can take it down.
+        if (!hasSwarmAggregates)
+        {
+            Debug.LogWarning("SwarmPlaneController: no alive drones left, reverting to horizontal swarming.");
+            SetPlaneMode(false);
+            return;
+        }
+
+        IntegrateTargetYaw();
+        planeNormal = YawToForward(planeYaw);
+        IntegrateReferenceAltitude();
+    }
+
+    /// <summary>
+    /// Radius of the virtual core the swarm is hollowed around, in world metres: a fraction of how
+    /// big the formation measurably is right now.
+    ///
+    /// <para><b>The core must sit inside the swarm, not around it.</b> A beta-agent only has a
+    /// gradient <i>outside</i> its cylinder — <see cref="OlfatiSaber.MakeCylinderFrame"/> clamps the
+    /// surface distance at zero, so every drone within the radius feels the same flat outward push
+    /// with nothing telling it which way is further out. Sizing the core to the ring the drones are
+    /// meant to end up on puts the whole swarm in exactly that dead zone, and the result is
+    /// bistable: below a gain threshold nothing happens at all, above it the swarm escapes the core
+    /// entirely and then keeps going. Relaxing the coded force law confirms both halves — at
+    /// N * d_ref / 2pi the swarm stays compact at 8 of 10 on the hull, which is *worse* than leaving
+    /// the feature off, while at a radius comfortably inside the formation every drone lands on the
+    /// hull with no radial spread at all.</para>
+    ///
+    /// <para>Taken from the measured radius rather than predicted from d_ref because the prediction
+    /// was what got this wrong: the swarm's equilibrium spacing under this force law is about half
+    /// of d_ref, so a radius derived from the commanded spacing lands roughly twice as far out as
+    /// the drones ever go. The measurement needs no such assumption, and it follows fleet size, the
+    /// spread stick and obstacle deformation for free. The feedback is heavily damped — moving the
+    /// core over its whole useful range shifts the ring by about a fifth as much, so at a fraction
+    /// of 0.5 the loop gain is near 0.12 — and the filter below damps it further.</para>
+    /// </summary>
+    private void UpdateCoreRadius(bool wantCore)
+    {
+        if (!wantCore || !hasSwarmAggregates || swarmDroneCount <= 0 || SwarmManager.Instance == null)
+        {
+            ClearCoreRadius();
+            return;
+        }
+
+        SwarmManager manager = SwarmManager.Instance;
+        float target = manager.GetCoreRadiusFraction() * swarmMeanRadius;
+
+        float filterTime = manager.GetCoreRadiusFilterTime();
+        if (!coreRadiusSeeded || filterTime <= 0.0f)
+        {
+            // Seeded, not ramped: entering the mode (or re-entering it after plane mode) must not
+            // spend the filter's time constant with the core at the wrong size.
+            coreRadiusFiltered = target;
+            coreRadiusSeeded = true;
+        }
+        else
+        {
+            float alpha = 1.0f - Mathf.Exp(-Time.fixedDeltaTime / filterTime);
+            coreRadiusFiltered += alpha * (target - coreRadiusFiltered);
+        }
+
+        // Already metres: swarmMeanRadius is a world-space distance.
+        coreRadiusMetres = coreRadiusFiltered;
+    }
+
+    /// <summary>
+    /// Retires the core radius so no reader can see a value left over from when it was on. Clearing
+    /// the seed with it is what makes the next enable snap to the right size instead of easing up
+    /// to it from zero.
+    /// </summary>
+    private void ClearCoreRadius()
+    {
+        coreRadiusFiltered = 0.0f;
+        coreRadiusMetres = 0.0f;
+        coreRadiusSeeded = false;
+    }
+
+    /// <summary>
+    /// S7 adaptive spread: narrows the formation among buildings and widens it back when the swarm
+    /// flies at one. The target is 1 while the stick's line from the centroid, surroundLookAhead long,
+    /// passes within surroundAimFraction of a building's avoidance radius of its centre (with no
+    /// stick, the centroid itself), or while no building stands within that look-ahead at all; and
+    /// streetSpreadFactor otherwise, i.e. in the streets. Seeded, then low-passed at spreadFilterTime,
+    /// as the core radius is. The lattice itself takes ~5 s to follow, which is why the look-ahead
+    /// starts widening before the formation reaches the building. Under S11's spreadWrapRule the target is also 1
+    /// while a building lies inside the formation (see WrapHolds). Mirrored by swarm_replica.spread_target.
+    /// </summary>
+    private void UpdateSpreadScale()
+    {
+        SwarmManager manager = SwarmManager.Instance;
+        if (manager == null || !manager.GetAdaptiveSpread() || planeModeActive || !hasSwarmAggregates)
+        {
+            ClearSpreadScale();
+            return;
+        }
+
+        float target = SpreadTarget(manager);
+        float filterTime = manager.GetSpreadFilterTime();
+        if (!spreadScaleSeeded || filterTime <= 0.0f)
+        {
+            spreadScale = target;
+            spreadScaleSeeded = true;
+        }
+        else
+        {
+            spreadScale += (1.0f - Mathf.Exp(-Time.fixedDeltaTime / filterTime)) * (target - spreadScale);
+        }
+    }
+
+    private float SpreadTarget(SwarmManager manager)
+    {
+        float lookAhead = manager.GetSurroundLookAhead() * manager.GetScaleFactor();
+        if (obstacleLayerMask < 0) obstacleLayerMask = LayerMask.GetMask("Obstacle");
+        int count = Physics.OverlapSphereNonAlloc(swarmCentroid, lookAhead + SpreadQueryMargin,
+                                                  spreadQueryBuffer, obstacleLayerMask);
+        if (count == spreadQueryBuffer.Length && !hasWarnedSpreadBufferFull)
+        {
+            hasWarnedSpreadBufferFull = true;
+            Debug.LogWarning("[SwarmPlaneController] adaptive spread: building query buffer full; some buildings " +
+                             "are being ignored. Shorten surroundLookAhead or grow the buffer.");
+        }
+
+        Vector3 stick = SwarmAlgorithm.SharedWorldStick();
+        float stickMagnitude = stick.magnitude;
+        float segment = stickMagnitude > 0.1f ? lookAhead : 0.0f;
+        Vector3 along = stickMagnitude > 1e-9f ? stick / stickMagnitude : Vector3.zero;
+        Vector3 centroid = new Vector3(swarmCentroid.x, 0.0f, swarmCentroid.z);
+        float aim = manager.GetSurroundAimFraction();
+        SwarmManager.SpreadWrapRule wrapRule = manager.GetSpreadWrapRule();
+
+        bool amongBuildings = false;
+        bool ellipses = manager.GetObstacleShape() == SwarmManager.ObstacleShape.Ellipse;
+        for (int i = 0; i < count; i++)
+        {
+            if (ellipses)
+            {
+                // S10: the building's ellipse, unless it is round enough to be avoided as its circle (below). The
+                // centroid's true distance to it, and the stick's segment measured in its unit space, where the aim
+                // fraction is a share of the unit circle's radius. swarm_replica.spread_target / aim_miss.
+                ObstacleFootprint.Ellipse el = ObstacleFootprint.GetEllipse(
+                    ObstacleFootprint.Get(spreadQueryBuffer[i]), manager.GetEllipseMaxAspect());
+                if (!el.circle)
+                {
+                    if (wrapRule != SwarmManager.SpreadWrapRule.Off &&
+                        WrapHolds(el.centre, centroid, along, stickMagnitude, wrapRule))
+                        return 1.0f;
+                    Vector2 c2 = new Vector2(centroid.x, centroid.z);
+                    if (ObstacleFootprint.EllipseSignedDistance(el, c2) < lookAhead)
+                        amongBuildings = true;
+                    Vector3 end = centroid + segment * along;
+                    if (ObstacleFootprint.SegmentOriginDistance(ObstacleFootprint.EllipseUnit(el, c2),
+                            ObstacleFootprint.EllipseUnit(el, new Vector2(end.x, end.z))) < aim)
+                        return 1.0f;
+                    continue;
+                }
+            }
+            // The circle OlfatiSaber's rules aim by: the bounds cylinder about world up (as every scene's
+            // cylinderAxis is), or under the S8 shapes (and an S10 ellipse that is its circle) the footprint's
+            // smallest enclosing circle.
+            OlfatiSaber.GetObstacleAimCircle(spreadQueryBuffer[i], manager.GetObstacleShape(),
+                                             out Vector3 centre, out float radius);
+            if (wrapRule != SwarmManager.SpreadWrapRule.Off &&
+                WrapHolds(new Vector2(centre.x, centre.z), centroid, along, stickMagnitude, wrapRule))
+                return 1.0f;
+            Vector3 rel = new Vector3(centre.x, 0.0f, centre.z) - centroid;
+            if (rel.magnitude - radius < lookAhead)
+                amongBuildings = true;
+            float t = Mathf.Clamp(Vector3.Dot(rel, along), 0.0f, segment);
+            if ((rel - t * along).magnitude < aim * radius)
+                return 1.0f;
+        }
+        return amongBuildings ? manager.GetStreetSpreadFactor() : 1.0f;
+    }
+
+    /// <summary>
+    /// S11 wrap hold: whether a building centred at (x, z) holds the full spread -- it lies inside the formation and,
+    /// under HoldUntilLeaving, the pilot is not steering away from it (its centre behind the centroid along a held
+    /// stick). swarm_replica.wrap_holds.
+    /// </summary>
+    private bool WrapHolds(Vector2 centre, Vector3 centroid, Vector3 along, float stickMagnitude,
+                           SwarmManager.SpreadWrapRule rule)
+    {
+        Vector2 rel = centre - new Vector2(centroid.x, centroid.z);
+        if (rel.magnitude > formationMaxRadius || !InsideFormation(centre)) return false;
+        if (rule == SwarmManager.SpreadWrapRule.HoldUntilLeaving && stickMagnitude > 0.1f &&
+            rel.x * along.x + rel.y * along.z < 0.0f)
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// S11: whether a point lies inside the alive drones' convex hull: their bearings round it leave no gap of 180
+    /// degrees or more. Fewer than three drones enclose nothing. swarm_replica.inside_formation.
+    /// </summary>
+    private bool InsideFormation(Vector2 p)
+    {
+        int n = formationXZ.Count;
+        if (n < 3) return false;
+        if (wrapBearings.Length < n) wrapBearings = new float[n];
+        for (int i = 0; i < n; i++)
+            wrapBearings[i] = Mathf.Atan2(formationXZ[i].y - p.y, formationXZ[i].x - p.x);
+        System.Array.Sort(wrapBearings, 0, n);
+        float gap = wrapBearings[0] + 2.0f * Mathf.PI - wrapBearings[n - 1];
+        for (int i = 1; i < n; i++) gap = Mathf.Max(gap, wrapBearings[i] - wrapBearings[i - 1]);
+        return gap < Mathf.PI;
+    }
+
+    private void ClearSpreadScale()
+    {
+        spreadScale = 1.0f;
+        spreadScaleSeeded = false;
+    }
+
+    public void TogglePlaneMode() => SetPlaneMode(!planeModeActive);
+
+    /// <summary>
+    /// Enters or leaves vertical-plane swarming. Entering seeds the target heading from where the
+    /// swarm already points and latches the wall's reference altitude, so the flip itself commands
+    /// neither a turn nor a climb.
+    /// </summary>
+    public void SetPlaneMode(bool active)
+    {
+        if (active == planeModeActive) return;
+
+        if (active)
+        {
+            hasSwarmAggregates = UpdateSwarmAggregates();
+            if (!hasSwarmAggregates)
+            {
+                Debug.LogWarning("SwarmPlaneController: no alive drones found, staying in horizontal swarming.");
+                return;
+            }
+
+            planeModeActive = true;
+            // Seed from the swarm's *mean* heading, not from a member's: that is the one heading the
+            // choice of which drone to read cannot bias, and it is already where the formation points,
+            // so entering the mode asks nobody to turn.
+            planeYaw = swarmMeanYaw;
+            targetYawRate = 0.0f;
+            planeNormal = YawToForward(planeYaw);
+            referenceAltitude = swarmCentroid.y;
+            referenceAltitudeRate = ResolveAltitudeRate();
+            targetHeadingDeg = planeYaw * Mathf.Rad2Deg;
+            Debug.Log($"SwarmPlaneController: vertical-plane swarming ON, {swarmDroneCount} drones, "
+                    + $"target heading {targetHeadingDeg:F1} deg, reference altitude "
+                    + $"{referenceAltitude:F1} m.");
+        }
+        else
+        {
+            planeModeActive = false;
+            planeNormal = Vector3.up;
+            targetYawRate = 0.0f;
+            Debug.Log("SwarmPlaneController: vertical-plane swarming OFF.");
+        }
+
+        RefreshDisplayConfiguration();
+    }
+
+    /// <summary>
+    /// Advances the shared target heading by the yaw stick, with anti-windup against the swarm's own
+    /// mean heading.
+    ///
+    /// The stick is a feed-forward, so the target says where the wall is being asked to point, not
+    /// where it is. Clamping the lead is what keeps a sustained turn from banking up a heading debt
+    /// the drones then keep paying off after the stick is centred. On the real fleet that debt is
+    /// guaranteed, because the stick gain exceeds the PC's 40 deg/s rate clamp. Here
+    /// VelocityControl.maxYawRate is the airframe's 75 deg/s, above the stick gain, so the debt comes
+    /// only from the drones lagging the setpoint — which they always do through a turn's entry, and
+    /// indefinitely for a drone something is holding back — and the clamp is what bounds it.
+    ///
+    /// The clamp acts only while the stick is deflected. Windup can only accumulate while
+    /// integrating, and at centre stick the hold keeps its full authority — a disturbance that pushes
+    /// the wall off heading never drags the setpoint along with it.
+    /// </summary>
+    private void IntegrateTargetYaw()
+    {
+        float normYaw = InputManager.Instance != null ? InputManager.Instance.InputStatus["yaw"] : 0.0f;
+        targetYawRate = normYaw * targetYawRateDegPerSec * Mathf.Deg2Rad;
+
+        planeYaw = WrapAngle(planeYaw + targetYawRate * Time.fixedDeltaTime);
+
+        if (targetYawRate != 0.0f && maxTargetLeadDeg > 0.0f)
+        {
+            float maxLead = maxTargetLeadDeg * Mathf.Deg2Rad;
+            float lead = WrapAngle(planeYaw - swarmMeanYaw);
+            if (lead > maxLead)
+            {
+                planeYaw = WrapAngle(swarmMeanYaw + maxLead);
+            }
+            else if (lead < -maxLead)
+            {
+                planeYaw = WrapAngle(swarmMeanYaw - maxLead);
+            }
+        }
+
+        targetHeadingDeg = planeYaw * Mathf.Rad2Deg;
+    }
+
+    /// <summary>
+    /// Moves the wall's reference altitude with the climb stick, at the rate that stick moves each
+    /// drone's own height setpoint (VelocityControl.SetNormalisedAltitudeRate). The rate is read off
+    /// a drone rather than exposed as a second knob: one that disagreed would let the vertical leash
+    /// clip a climb the pilot is actually commanding. Bounded above by the swarm's altitude ceiling
+    /// (<see cref="SwarmManager.maxHeightAboveTerrain"/>), for the same anti-windup reason the
+    /// per-drone setpoint is.
+    /// </summary>
+    private void IntegrateReferenceAltitude()
+    {
+        if (InputManager.Instance != null)
+        {
+            float normAlt = Mathf.Clamp(InputManager.Instance.InputStatus["throttle"], -1.0f, 1.0f);
+            if (normAlt != 0.0f)
+            {
+                referenceAltitude += normAlt * referenceAltitudeRate * Time.fixedDeltaTime;
+            }
+        }
+
+        // The same altitude ceiling every drone is held to (SwarmManager.maxHeightAboveTerrain),
+        // applied to the wall's own reference. Without it a held climb stick walks this past a
+        // ceiling the drones cannot follow it through, and every metre of that excess has to be
+        // flown back down before the stick does anything visible — the windup the per-drone clamp
+        // in VelocityControl is written to avoid. Measured at the centroid, which is where this
+        // altitude is latched from in the first place.
+        float ceiling = SwarmManager.Instance != null ? SwarmManager.Instance.GetMaxHeightAboveTerrain() : 0.0f;
+        if (ceiling > 0.0f && TerrainHeightSampler.TryGetHeight(swarmCentroid, out float groundHeight))
+        {
+            referenceAltitude = Mathf.Min(referenceAltitude, groundHeight + ceiling);
+        }
+    }
+
+    /// <summary>
+    /// Recomputes the swarm-wide quantities the plane is built from — the centroid, and the circular
+    /// mean of the alive drones' headings — once per tick, ahead of every drone's FixedUpdate (hence
+    /// the execution order). Returns false when no alive drone is left to build a wall from.
+    /// </summary>
+    private bool UpdateSwarmAggregates()
+    {
+        EnsureRoster();
+        if (roster == null) return false;
+
+        Vector3 positionSum = Vector3.zero;
+        Vector3 velocitySum = Vector3.zero;
+        float sumSin = 0.0f;
+        float sumCos = 0.0f;
+        int count = 0;
+
+        foreach (GameObject drone in roster)
+        {
+            if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
+
+            VelocityControl droneControl = entry.velocityControl;
+            if (droneControl == null || droneControl.State == null || !droneControl.State.IsAlive) continue;
+
+            positionSum += entry.droneParent.position;
+
+            // The state estimate, rotated to world exactly as OlfatiSaber reads a neighbour's, so the
+            // core's reference velocity and the velocity each drone measures against it agree.
+            velocitySum += entry.droneParent.TransformDirection(droneControl.State.VelocityVector);
+
+            // Circular mean via sin/cos components: averaging the angles directly crosses the +-pi
+            // seam and returns a heading no drone holds (the mean of +179 and -179 is 180, not 0).
+            float yaw = droneControl.State.Angles.y;
+            sumSin += Mathf.Sin(yaw);
+            sumCos += Mathf.Cos(yaw);
+            count++;
+        }
+
+        swarmDroneCount = count;
+        if (count == 0) return false;
+
+        swarmCentroid = positionSum / count;
+        swarmMeanVelocity = velocitySum / count;
+        swarmMeanYaw = Mathf.Atan2(sumSin, sumCos);
+
+        // Mean distance from the centroid — how big the formation actually is right now. Needed as
+        // a second pass because it is measured against the centroid the first pass produces.
+        float radiusSum = 0.0f;
+        formationXZ.Clear();
+        formationMaxRadius = 0.0f;
+        foreach (GameObject drone in roster)
+        {
+            if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
+            VelocityControl droneControl = entry.velocityControl;
+            if (droneControl == null || droneControl.State == null || !droneControl.State.IsAlive) continue;
+            Vector3 p = entry.droneParent.position;
+            float r = Vector3.Distance(p, swarmCentroid);
+            radiusSum += r;
+            formationXZ.Add(new Vector2(p.x, p.z));
+            formationMaxRadius = Mathf.Max(formationMaxRadius,
+                                           new Vector2(p.x - swarmCentroid.x, p.z - swarmCentroid.z).magnitude);
+        }
+        swarmMeanRadius = radiusSum / count;
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the swarm roster. swarmSpawn's list is live — it is the same object every drone's
+    /// SwarmAlgorithm holds — so once found it never needs refreshing. Without a spawner (hand-placed
+    /// drones, or a scene that builds its own swarm) fall back to the tag search, rate-limited.
+    /// </summary>
+    private void EnsureRoster()
+    {
+        if (rosterIsShared) return;
+
+        // No swarm algorithm means no swarm to find. Without this the rate-limited FindObjectOfType
+        // below retries forever in the real-drone scenes, which have no swarmSpawn at all and which
+        // this component now reaches, since SwarmManager is DontDestroyOnLoad.
+        if (SwarmManager.Instance == null
+            || SwarmManager.Instance.swarmAlgorithm == SwarmManager.SwarmAlgorithm.NONE) return;
+
+        if (roster != null && Time.time - lastRosterScan < RosterRescanInterval) return;
+        lastRosterScan = Time.time;
+
+        swarmSpawn spawner = FindObjectOfType<swarmSpawn>();
+        if (spawner != null && spawner.swarm != null && spawner.swarm.Count > 0)
+        {
+            roster = spawner.swarm;
+            rosterIsShared = true;
+            return;
+        }
+
+        GameObject[] tagged = GameObject.FindGameObjectsWithTag("DroneBase");
+        roster = tagged.Length > 0 ? new List<GameObject>(tagged) : null;
+    }
+
+    /// <summary>
+    /// The climb-stick rate the drones themselves use. Every drone runs the same flight profile in
+    /// practice, so the first one that has a VelocityControl answers for the swarm; the fallback is
+    /// VelocityControl's own default.
+    /// </summary>
+    private float ResolveAltitudeRate()
+    {
+        if (roster != null)
+        {
+            foreach (GameObject drone in roster)
+            {
+                if (!SwarmRegistry.TryGet(drone, out SwarmRegistry.Entry entry)) continue;
+                if (entry.velocityControl != null) return entry.velocityControl.maxAltitudeRate;
+            }
+        }
+        return 3.0f;
+    }
+
+    /// <summary>
+    /// Points the stitcher and the screen layout at the configuration the swarm is currently in,
+    /// but only when that configuration has actually changed — so the operator's inspector choices
+    /// stand until something moves, exactly as when this only watched the plane toggle.
+    ///
+    /// The configuration is two bits, because the swarm has three of them: the swarming plane
+    /// (this component's own) and whether the gimbal is pitched down far enough to be imaging the
+    /// ground rather than a facade (<see cref="FPVCameraScript.NadirPitch"/>, the same test
+    /// <c>ScenePlaneMode.Auto</c> uses to aim its raycast — one threshold, so the panorama and
+    /// the feeds can never end up in different configurations).
+    /// </summary>
+    private void RefreshDisplayConfiguration()
+    {
+        if (!driveDisplayConfiguration) return;
+
+        // Instance != null here by construction, so this never returns false and the two bits
+        // are this component's plane mode and the shared gimbal pitch, as they always were.
+        TryResolveDisplayConfiguration(out bool vertical, out bool nadir);
+
+        if (!displayStateLatched)
+        {
+            lastVerticalPlane = vertical;
+            lastNadirGimbal = nadir;
+            displayStateLatched = true;
+            return;
+        }
+
+        if (vertical == lastVerticalPlane && nadir == lastNadirGimbal) return;
+
+        lastVerticalPlane = vertical;
+        lastNadirGimbal = nadir;
+        ApplyDisplayConfiguration(vertical, nadir);
+    }
+
+    /// <summary>
+    /// Applies one of the three configurations. None of the pairings is taste:
+    ///
+    /// <list type="bullet">
+    /// <item><b>Vertical plane</b> — PLANAR + FORMATION_WALL. The wall is one dominant plane with
+    /// no parallax, where PLANAR's pose-driven homographies are exact and need no image content;
+    /// OUTER_CIRCLE would stack every screen on one arc position because the drones share a
+    /// heading.</item>
+    /// <item><b>Horizontal, gimbal down</b> — PLANAR + FORMATION_MAP. Same argument for the
+    /// stitcher (the ground is the dominant plane, and a nadir view of it has no parallax to
+    /// speak of), and the layout is the wall's nadir counterpart: ranked in the ground plane
+    /// about the pilot's heading, with the feeds rolled into that frame.</item>
+    /// <item><b>Horizontal, looking out</b> — STABSTITCH + OUTER_CIRCLE. The radially-outward
+    /// ring is exactly the parallax-heavy case StabStitch++'s TPS warps exist for, and its spread
+    /// yaws are what make OUTER_CIRCLE separate the screens in the first place.</item>
+    /// </list>
+    ///
+    /// The plane wins over the gimbal when both are set: a wall flying with its cameras pointed at
+    /// the ground is not a configuration anything here is built for, and the plane is the one the
+    /// pilot toggled deliberately. Both components refuse a change they cannot honour (the DJI
+    /// scene has no camera pose for PLANAR), so neither call is asserted here.
+    /// </summary>
+    private void ApplyDisplayConfiguration(bool vertical, bool nadir)
+    {
+        // Resolved lazily and cached: this runs once per configuration change, but
+        // FindObjectOfType is far too slow to reach for casually, and neither component is
+        // guaranteed to exist (the swarm runs headless in some scenes).
+        if (sharing == null) sharing = FindObjectOfType<PyUniSharingFast>();
+        if (interfaceManager == null) interfaceManager = FindObjectOfType<InterfaceManager>();
+
+        bool planar = vertical || nadir;
+
+        if (sharing != null)
+        {
+            sharing.SetStitcherType(planar
+                ? PyUniSharingFast.stitcherType.PLANAR
+                : PyUniSharingFast.stitcherType.STABSTITCH);
+        }
+
+        if (interfaceManager != null)
+        {
+            // A no-op while the style is AUTO, which resolves the same configuration through
+            // StyleForConfiguration itself — and must keep doing so, since this push only fires
+            // on a change and AUTO also has to answer for the real-drone bits this component
+            // knows nothing about.
+            interfaceManager.SetScreenStyle(StyleForConfiguration(vertical, nadir));
+        }
+    }
+
+    // Matches StateFinder's yaw convention: forward == (sin yaw, 0, cos yaw).
+    private static Vector3 YawToForward(float yawRadians)
+    {
+        return new Vector3(Mathf.Sin(yawRadians), 0.0f, Mathf.Cos(yawRadians));
+    }
+
+    private static float WrapAngle(float angle)
+    {
+        while (angle > Mathf.PI) angle -= 2f * Mathf.PI;
+        while (angle < -Mathf.PI) angle += 2f * Mathf.PI;
+        return angle;
+    }
+}

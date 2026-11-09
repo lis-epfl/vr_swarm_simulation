@@ -1,0 +1,20 @@
+{
+ "pick": {
+  "key": "p1_m3_R75_18",
+  "run": "p1_confirm",
+  "kind": "M3",
+  "v": "R",
+  "p": 75,
+  "s": 18,
+  "rule": "straggler",
+  "title": "Pass round, R, p 75 \u00b7 s 18",
+  "about": "A block twice as wide: the formation flows round both sides, and one drone is still apart from the others (ringed) when the next junction comes, so the reform fails. The commonest failure at p 60 and 75."
+ },
+ "identical": true,
+ "flights": [
+  "p1_m3_R75_18"
+ ],
+ "chain": null,
+ "target": null,
+ "wall_s": 5.3
+}

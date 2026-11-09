@@ -1,0 +1,38 @@
+{
+ "pick": {
+  "key": "s9_a85",
+  "kind": "street",
+  "k": 11001,
+  "title": "Problem: the scene's setting",
+  "first": "a85",
+  "why": "the route where adaptive 0.85: 1.7 in the streets (the scene) lost the most drones in Unity (2)"
+ },
+ "flights": {
+  "l85": [
+   "s9_a85_l85_replica",
+   "s9_a85_l85_unity"
+  ],
+  "a90": [
+   "s9_a85_a90_replica",
+   "s9_a85_a90_unity"
+  ],
+  "a85": [
+   "s9_a85_a85_replica",
+   "s9_a85_a85_unity"
+  ],
+  "f20": [
+   "s9_a85_f20_replica",
+   "s9_a85_f20_unity"
+  ],
+  "f17": [
+   "s9_a85_f17_replica",
+   "s9_a85_f17_unity"
+  ],
+  "a95": [
+   "s9_a85_a95_replica",
+   "s9_a85_a95_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

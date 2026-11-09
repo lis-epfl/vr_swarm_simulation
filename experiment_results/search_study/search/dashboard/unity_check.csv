@@ -1,0 +1,19 @@
+key,comparison,comparison_label,basis,range_m,replica,unity
+swarm_single|any|80,swarm_single,Swarm ÷ single drone,any,80,0.904,0.906
+swarm_single|any|200,swarm_single,Swarm ÷ single drone,any,200,0.373,0.375
+swarm_single|head_ahead|80,swarm_single,Swarm ÷ single drone,head_ahead,80,0.904,0.906
+swarm_single|head_ahead|200,swarm_single,Swarm ÷ single drone,head_ahead,200,0.829,0.609
+swarm_single|head_fit|80,swarm_single,Swarm ÷ single drone,head_fit,80,0.929,0.957
+swarm_single|head_fit|200,swarm_single,Swarm ÷ single drone,head_fit,200,0.8,0.61
+morphing|any|80,morphing,Morphing: swarm ÷ steered swarm,any,80,1.004,0.982
+morphing|any|200,morphing,Morphing: swarm ÷ steered swarm,any,200,0.964,0.945
+morphing|head_ahead|80,morphing,Morphing: swarm ÷ steered swarm,head_ahead,80,1.003,0.981
+morphing|head_ahead|200,morphing,Morphing: swarm ÷ steered swarm,head_ahead,200,0.885,0.603
+morphing|head_fit|80,morphing,Morphing: swarm ÷ steered swarm,head_fit,80,1.032,1.036
+morphing|head_fit|200,morphing,Morphing: swarm ÷ steered swarm,head_fit,200,0.982,0.764
+cameras|any|80,cameras,Cameras: steered swarm ÷ single drone,any,80,0.9,0.923
+cameras|any|200,cameras,Cameras: steered swarm ÷ single drone,any,200,0.386,0.397
+cameras|head_ahead|80,cameras,Cameras: steered swarm ÷ single drone,head_ahead,80,0.901,0.924
+cameras|head_ahead|200,cameras,Cameras: steered swarm ÷ single drone,head_ahead,200,0.937,1.01
+cameras|head_fit|80,cameras,Cameras: steered swarm ÷ single drone,head_fit,80,0.9,0.923
+cameras|head_fit|200,cameras,Cameras: steered swarm ÷ single drone,head_fit,200,0.814,0.798

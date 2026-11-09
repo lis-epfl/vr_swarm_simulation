@@ -1,0 +1,31 @@
+{
+ "test": "internal_3",
+ "by_condition": {
+  "SingleDrone": {
+   "candidate_s": 46.26239306640652,
+   "escape_any_s": 0.0,
+   "escape_shown_s": 0.0,
+   "escape_head_s": 0.0,
+   "candidates": 463.0,
+   "inview_all_s": 95.73571425781245,
+   "inview_shown_s": 95.73571425781245,
+   "E_any": 0.0,
+   "E_shown": 0.0,
+   "E_head": 0.0,
+   "occluded_share": 0.3257958429035771
+  },
+  "Swarm": {
+   "candidate_s": 179.07614877929672,
+   "escape_any_s": 24.916100000000057,
+   "escape_shown_s": 19.67510000000003,
+   "escape_head_s": 11.83339999999994,
+   "candidates": 1792.0,
+   "inview_all_s": 417.37548754882835,
+   "inview_shown_s": 384.7507089355471,
+   "E_any": 0.13913689885473263,
+   "E_shown": 0.10987001973249214,
+   "E_head": 0.06608026853751514,
+   "occluded_share": 0.31332460957683494
+  }
+ }
+}

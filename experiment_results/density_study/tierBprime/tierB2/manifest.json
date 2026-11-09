@@ -1,0 +1,24 @@
+{
+ "generated": "2026-10-13T18:54:46",
+ "sweep": "tierB2",
+ "levels": [
+  "all"
+ ],
+ "transit": [
+  0.4,
+  1.0
+ ],
+ "goal_spread": 1.6,
+ "routing": [
+  "pilot",
+  "street"
+ ],
+ "interfaces": [
+  "swarm",
+  "single",
+  "single_direct",
+  "single_scan"
+ ],
+ "flights": 720,
+ "seconds": 2262
+}

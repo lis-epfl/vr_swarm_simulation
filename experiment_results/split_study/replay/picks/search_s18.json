@@ -1,0 +1,26 @@
+{
+ "pick": {
+  "key": "search_s18",
+  "p": 40,
+  "s": 18,
+  "seed": 100,
+  "i": 0,
+  "title": "Informed search, p 40 \u00b7 s 18",
+  "about": "A hidden target (star); each condition's pilot picks the exit with the most unseen street nearby, from what its own feeds have shown, and stops at the first sight within 80 m. The swarm in the streets and the pass find it in about 2 minutes, the surround in 2.4, one drone in 6.5."
+ },
+ "identical": true,
+ "flights": [
+  "search_s18_single_replica",
+  "search_s18_single_look_replica",
+  "search_s18_swarm_street_replica",
+  "search_s18_swarm_hold_replica",
+  "search_s18_swarm_pass_replica",
+  "search_s18_swarm_hop_replica"
+ ],
+ "chain": null,
+ "target": [
+  -19.0,
+  -171.0
+ ],
+ "wall_s": 202.1
+}

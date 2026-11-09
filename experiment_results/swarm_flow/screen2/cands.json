@@ -1,0 +1,146 @@
+{
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "T3"
+ },
+ "7f44f7727d": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "slide auto 0.6"
+ },
+ "531f0da517": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8
+  },
+  "d": 2.0,
+  "label": "slide auto 0.8"
+ },
+ "2b22fe8b99": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 1.0
+  },
+  "d": 2.0,
+  "label": "slide auto 1"
+ },
+ "7d446a3b17": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "slide auto 0.8 aim 0.6"
+ },
+ "c52fac5b7d": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 1.0
+  },
+  "d": 2.0,
+  "label": "slide auto 0.8 aim 1.0"
+ },
+ "be423f987b": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "x:slide_side": "own"
+  },
+  "d": 2.0,
+  "label": "slide own 0.8"
+ },
+ "7288526e45": {
+  "over": {
+   "routeStragglers": true
+  },
+  "d": 2.0,
+  "label": "route lean"
+ },
+ "dd55e7eda5": {
+  "over": {
+   "routeStragglers": true,
+   "x:route_side": "group"
+  },
+  "d": 2.0,
+  "label": "route group"
+ },
+ "54fd179ca5": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  },
+  "d": 2.0,
+  "label": "adaptive 0.7"
+ },
+ "c661d28756": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.75
+  },
+  "d": 2.0,
+  "label": "adaptive 0.75"
+ },
+ "2afc0c654f": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundLookAhead": 3.0
+  },
+  "d": 2.0,
+  "label": "adaptive 0.7 look 3"
+ },
+ "74216873dd": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "spreadFilterTime": 2.0
+  },
+  "d": 2.0,
+  "label": "adaptive 0.7 tau 2"
+ },
+ "26d11852e4": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "routeStragglers": true
+  },
+  "d": 2.0,
+  "label": "slide auto 0.8 + route"
+ },
+ "4eb286a4d8": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  },
+  "d": 2.0,
+  "label": "slide auto 0.8 + adaptive 0.7"
+ },
+ "d0b144486f": {
+  "over": {
+   "routeStragglers": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  },
+  "d": 2.0,
+  "label": "route + adaptive 0.7"
+ },
+ "31a0c37686": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "routeStragglers": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  },
+  "d": 2.0,
+  "label": "all three (0.8, 0.7)"
+ }
+}

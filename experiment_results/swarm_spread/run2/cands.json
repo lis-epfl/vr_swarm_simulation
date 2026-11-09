@@ -1,0 +1,77 @@
+{
+ "34fe8b11a2": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 2.0,
+  "label": "F20 fixed d_ref 2.0 (C35)"
+ },
+ "ba63d46cbe": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  },
+  "d": 2.0,
+  "label": "A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene"
+ },
+ "ba485c957d": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.9
+  },
+  "d": 2.0,
+  "label": "A90 d_ref 2.0, adaptive 0.9 (1.8 in the streets)"
+ },
+ "61658a2c6a": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.95
+  },
+  "d": 2.0,
+  "label": "A95 d_ref 2.0, adaptive 0.95 (1.9 in the streets)"
+ },
+ "a49b3eed0d": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 1.7,
+  "label": "F17 fixed d_ref 1.7"
+ },
+ "1612a9dafe": {
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  },
+  "d": 1.8,
+  "label": "F18 fixed d_ref 1.8"
+ }
+}

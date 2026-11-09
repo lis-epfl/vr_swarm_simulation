@@ -1,0 +1,113 @@
+{
+ "110c44ba9d": {
+  "over": {},
+  "d": 1.2,
+  "label": "A0 cylinder, no slide, d_ref 1.2"
+ },
+ "b542245bd1": {
+  "over": {
+   "slideRoundBuildings": true
+  },
+  "d": 1.2,
+  "label": "A1 cylinder + slide, d_ref 1.2"
+ },
+ "0d6e433aa4": {
+  "over": {
+   "obstacleShape": 2,
+   "d_obs": 0.25
+  },
+  "d": 1.2,
+  "label": "B0 footprint, no slide, d_obs 0.25, d_ref 1.2"
+ },
+ "63ce242ebb": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true
+  },
+  "d": 1.2,
+  "label": "B1a footprint + slide, d_obs 0.16, d_ref 1.2"
+ },
+ "ec9d526c73": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 1.2,
+  "label": "B1b footprint + slide, d_obs 0.25, d_ref 1.2"
+ },
+ "9a7864e4f3": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35
+  },
+  "d": 1.2,
+  "label": "B1c footprint + slide, d_obs 0.35, d_ref 1.2"
+ },
+ "66483e418d": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true
+  },
+  "d": 1.2,
+  "label": "C1 enclosing circle + slide, d_ref 1.2"
+ },
+ "528f141d92": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25,
+   "x:fp_side": "lean"
+  },
+  "d": 1.2,
+  "label": "B2b footprint + slide (lean), d_obs 0.25, d_ref 1.2"
+ },
+ "0a60d557e7": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35,
+   "x:fp_side": "lean"
+  },
+  "d": 1.2,
+  "label": "B2c footprint + slide (lean), d_obs 0.35, d_ref 1.2"
+ },
+ "d7931ebe6d": {
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.5,
+   "x:fp_side": "lean"
+  },
+  "d": 1.2,
+  "label": "B2d footprint + slide (lean), d_obs 0.5, d_ref 1.2"
+ },
+ "a12e80e0c8": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  },
+  "d": 1.2,
+  "label": "C2b enclosing circle + slide, d_obs 0.25, d_ref 1.2"
+ },
+ "2087a47137": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.35
+  },
+  "d": 1.2,
+  "label": "C2c enclosing circle + slide, d_obs 0.35, d_ref 1.2"
+ },
+ "840a90acc7": {
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_shield": 2.0
+  },
+  "d": 1.2,
+  "label": "C2s enclosing circle + slide, d_shield 2.0, d_ref 1.2"
+ }
+}

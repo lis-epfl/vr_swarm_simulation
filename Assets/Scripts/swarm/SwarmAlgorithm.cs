@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Mathematics;
-using UnityEditor.Rendering.LookDev;
 
 public class SwarmAlgorithm : MonoBehaviour
 {
@@ -62,6 +61,7 @@ public class SwarmAlgorithm : MonoBehaviour
     void FixedUpdate()
     {
         readInputs();
+        ApplyPlaneConstraint();
         Vector3 swarmAccel = Vector3.zero;
 
         switch (currentAlgorithm)
@@ -76,6 +76,79 @@ public class SwarmAlgorithm : MonoBehaviour
         }
 
         velocityControl.swarmAcceleration = swarmAccel;
+    }
+
+    /// <summary>
+    /// Pushes the swarming plane onto the active algorithm. This has to happen every tick rather
+    /// than through OnSwarmParamsChanged (which only fires on inspector edits) because the plane
+    /// tracks the pilot-steered target heading and the swarm's own centroid.
+    /// </summary>
+    private void ApplyPlaneConstraint()
+    {
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+        bool planeMode = plane != null && plane.PlaneModeActive;
+
+        bool is3D = !planeMode && swarmManager.GetDimensions();
+        Vector3 planeNormal = planeMode ? plane.PlaneNormal : Vector3.up;
+        // Every drone is pulled toward the same offset along the normal — the swarm centroid's — so
+        // the restoring pull is zero-sum and the wall cannot slide along its own normal. The
+        // neighbour-consensus form the horizontal mode uses would do the same job here up to a gain,
+        // but a shared target makes it explicit that no member defines where the wall sits.
+        float planeOffsetTarget = planeMode ? Vector3.Dot(plane.PlaneOrigin, planeNormal) : 0f;
+
+        if (reynoldsAlgorithm != null)
+        {
+            reynoldsAlgorithm.Is3D = is3D;
+            reynoldsAlgorithm.PlaneNormal = planeNormal;
+            reynoldsAlgorithm.HasPlaneOffsetTarget = planeMode;
+            reynoldsAlgorithm.PlaneOffsetTarget = planeOffsetTarget;
+        }
+        if (olfatiSaberAlgorithm != null)
+        {
+            olfatiSaberAlgorithm.Is3D = is3D;
+            olfatiSaberAlgorithm.PlaneNormal = planeNormal;
+            olfatiSaberAlgorithm.HasPlaneOffsetTarget = planeMode;
+            olfatiSaberAlgorithm.PlaneOffsetTarget = planeOffsetTarget;
+
+            // The virtual core, from the one centroid definition, so every drone repels from the
+            // same virtual agent rather than from n slightly different ones.
+            //
+            // Never in plane mode: a wall wants filling, not hollowing, and a cylinder about the
+            // plane normal would blow the billboard open into an annulus. It is also unnecessary
+            // there -- every drone in a wall already sees the facade, which is why the planar
+            // stitcher and FORMATION_WALL both ignore the boundary flag outright.
+            bool coreOn = swarmManager.GetHollowSwarmCore()
+                       && !planeMode
+                       && plane != null && plane.HasSwarmAggregates
+                       && plane.CoreRadiusMetres > 0.0f;
+
+            olfatiSaberAlgorithm.CoreActive = coreOn;
+            olfatiSaberAlgorithm.CoreCentre = coreOn ? plane.SwarmCentroid : Vector3.zero;
+            olfatiSaberAlgorithm.CoreRadius = coreOn ? plane.CoreRadiusMetres : 0.0f;
+            // Zero when the relative form is unticked, which is exactly the static-obstacle core.
+            olfatiSaberAlgorithm.CoreVelocity = coreOn && swarmManager.GetCoreRelativeVelocity()
+                ? plane.SwarmMeanVelocity
+                : Vector3.zero;
+
+            // S7 Building Flow, from the same aggregates. Horizontal swarming only, like the core: a wall
+            // is a different formation, and its spread is mostly vertical.
+            bool flowOn = swarmManager.GetBuildingFlowActive()
+                       && !planeMode
+                       && plane != null && plane.HasSwarmAggregates;
+
+            olfatiSaberAlgorithm.FlowActive = flowOn;
+            olfatiSaberAlgorithm.SwarmCentre = flowOn ? plane.SwarmCentroid : Vector3.zero;
+            olfatiSaberAlgorithm.SwarmVelocity = flowOn ? plane.SwarmMeanVelocity : Vector3.zero;
+            olfatiSaberAlgorithm.SpreadScale = flowOn && swarmManager.GetAdaptiveSpread() ? plane.SpreadScale : 1.0f;
+        }
+
+        // A vertical plane puts the formation's spread on the vertical axis, which the altitude-hold
+        // PD would fight, so the swarm takes the vertical channel from every drone without exception
+        // (see VelocityControl.verticalSwarmAuthority). The absolute vertical reference that channel
+        // needs comes from SwarmPlaneController.ReferenceAltitude — latched from the centroid on entry
+        // and moved by the climb stick — rather than from one drone left behind on altitude hold.
+        velocityControl.verticalSwarmAuthority = planeMode;
+        velocityControl.verticalReferenceAltitude = planeMode ? plane.ReferenceAltitude : 0f;
     }
 
     // Cleanup when the script is destroyed
@@ -95,6 +168,26 @@ public class SwarmAlgorithm : MonoBehaviour
         // Get swarm algorithm selection
         currentAlgorithm = swarmManager.swarmAlgorithm;
 
+        // Let the velocity controller fade the pilot's inward command near obstacles. Wired from
+        // here rather than found inside VelocityControl so it is tied to the algorithm actually
+        // running: the shield reuses obstacle frames cached by OlfatiSaber.GetObstacleForce, which
+        // only runs under OLFATI_SABER. Under Reynolds or NONE those frames would go stale and
+        // never be refreshed, so the shield is unwired instead. Null is a clean no-op, which is
+        // also what every scene with no swarm (the DJI real-drone ones) gets.
+        if (velocityControl != null)
+        {
+            velocityControl.obstacleShield =
+                currentAlgorithm == SwarmManager.SwarmAlgorithm.OLFATI_SABER
+                    ? olfatiSaberAlgorithm
+                    : null;
+
+            // Altitude ceiling, in metres above the terrain. Pushed from here rather than read in
+            // VelocityControl so it is tuned in one per-scene place beside the rest of the swarm's
+            // limits; this runs at Start and on every inspector edit, which is the whole life of a
+            // value that describes the scene's geometry.
+            velocityControl.maxHeightAboveTerrain =
+                swarmManager != null ? swarmManager.GetMaxHeightAboveTerrain() : 0f;
+        }
 
         // Check the current algorithm and enable/disable the corresponding algorithm
         switch (currentAlgorithm)
@@ -168,21 +261,7 @@ public class SwarmAlgorithm : MonoBehaviour
 
             // Forward the command frame. Body rotates by each drone's heading; World uses fixed axes;
             // VR rotates by the pilot body heading (OVRCameraRig yaw integrated in PyUniSharingFast).
-            InputManager.CommandFrame frame = InputManager.Instance.ActiveCommandFrame;
-
-            // In the convex-hull attitude modes the controller yaw command steers the pilot's body
-            // (the OVRCameraRig, rotated in PyUniSharingFast.UpdateBodyYaw) instead of the drones, so
-            // the velocity stick must follow that body heading — forward on the stick always matches
-            // where the rig faces. Force the VR frame here regardless of the inspector setting.
-            if (swarmManager != null)
-            {
-                SwarmManager.AttitudeAlgorithm attitude = swarmManager.GetSelectedAttitudeAlgorithm();
-                if (attitude == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
-                 || attitude == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL)
-                {
-                    frame = InputManager.CommandFrame.VR;
-                }
-            }
+            InputManager.CommandFrame frame = ResolveCommandFrame();
 
             bool worldFrame = frame != InputManager.CommandFrame.Body;
             float referenceYaw = frame == InputManager.CommandFrame.VR ? PyUniSharingFast.BodyYawDegrees : 0f;
@@ -193,12 +272,61 @@ public class SwarmAlgorithm : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// The frame the velocity stick is resolved in. In the convex-hull attitude modes the controller
+    /// yaw command steers the pilot's body (the OVRCameraRig, rotated in
+    /// PyUniSharingFast.UpdateBodyYaw) instead of the drones, so the velocity stick must follow that
+    /// body heading — forward on the stick always matches where the rig faces — and the VR frame is
+    /// forced regardless of the inspector setting. Static so SwarmPlaneController can read the same
+    /// command for the whole swarm (<see cref="SharedWorldStick"/>).
+    /// </summary>
+    public static InputManager.CommandFrame ResolveCommandFrame()
+    {
+        InputManager.CommandFrame frame = InputManager.Instance.ActiveCommandFrame;
+        SwarmManager manager = SwarmManager.Instance;
+        if (manager != null)
+        {
+            SwarmManager.AttitudeAlgorithm attitude = manager.GetSelectedAttitudeAlgorithm();
+            if (attitude == SwarmManager.AttitudeAlgorithm.LOCAL_CONVEXHULL
+             || attitude == SwarmManager.AttitudeAlgorithm.GLOBAL_CONVEXHULL)
+            {
+                frame = InputManager.CommandFrame.VR;
+            }
+        }
+        return frame;
+    }
+
+    /// <summary>
+    /// The pilot's velocity stick in world axes, magnitude-limited to 1 as
+    /// VelocityControl.SetNormalisedVelocity limits it: the direction every drone is commanded in
+    /// (times maxSpeed). Zero without an InputManager, and in the Body frame, where each drone's
+    /// command turns with its own heading and there is no one direction for the swarm.
+    /// </summary>
+    public static Vector3 SharedWorldStick()
+    {
+        if (InputManager.Instance == null)
+            return Vector3.zero;
+
+        Dictionary<string, float> status = InputManager.Instance.InputStatus;
+        Vector2 stick = new Vector2(status["roll"], status["pitch"]);
+        if (stick.magnitude > 1f)
+            stick.Normalize();
+
+        InputManager.CommandFrame frame = ResolveCommandFrame();
+        if (frame == InputManager.CommandFrame.Body)
+            return Vector3.zero;
+
+        float referenceYaw = frame == InputManager.CommandFrame.VR ? PyUniSharingFast.BodyYawDegrees : 0f;
+        return Quaternion.Euler(0f, referenceYaw, 0f) * new Vector3(stick.x, 0f, stick.y);
+    }
+
     // Update the Reynolds parameters
     private void UpdateReynoldsParameters()
     {
         if (reynoldsAlgorithm != null)
         {
-            reynoldsAlgorithm.Is3D = swarmManager.GetDimensions();
+            // Is3D is owned by ApplyPlaneConstraint (it depends on the live plane mode, not just
+            // the inspector setting), so it is deliberately not pushed here.
             reynoldsAlgorithm.CohesionWeight = swarmManager.GetCohesionWeight();
             reynoldsAlgorithm.SeparationWeight = swarmManager.GetSeparationWeight();
             reynoldsAlgorithm.AlignmentWeight = swarmManager.GetAlignmentWeight();
@@ -210,7 +338,7 @@ public class SwarmAlgorithm : MonoBehaviour
     {
         if (olfatiSaberAlgorithm != null)
         {
-            olfatiSaberAlgorithm.Is3D = swarmManager.GetDimensions();
+            // Is3D is owned by ApplyPlaneConstraint (see above).
             olfatiSaberAlgorithm.d_ref = swarmManager.GetDRef();
             olfatiSaberAlgorithm.r0_coh = swarmManager.GetR0Coh();
             olfatiSaberAlgorithm.delta = swarmManager.GetDelta();
@@ -223,19 +351,64 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.r0_obs = swarmManager.GetR0Obs();
             olfatiSaberAlgorithm.lambda_obs = swarmManager.GetLambdaObs();
             olfatiSaberAlgorithm.c_obs = swarmManager.GetCObs();
+            olfatiSaberAlgorithm.c2_beta = swarmManager.GetC2Beta();
+            olfatiSaberAlgorithm.d_shield = swarmManager.GetDShield();
             olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();
+            olfatiSaberAlgorithm.c_damp = swarmManager.GetCDamp();
+            olfatiSaberAlgorithm.d_damp = swarmManager.GetDDamp();
+
+            // Hollow swarm core. HollowCore is the one switch: it gates both the shortened cohesion
+            // range (through OlfatiSaber.EffectiveR0Coh) and, with ApplyPlaneConstraint's per-tick
+            // CoreActive, the core force itself. The gains ride the swarmParamsChanged path because
+            // they are configuration; the centroid and radius ride the per-tick path because they
+            // are state.
+            olfatiSaberAlgorithm.HollowCore = swarmManager.GetHollowSwarmCore();
+            olfatiSaberAlgorithm.r0CohRatio = swarmManager.GetR0CohRatio();
+            olfatiSaberAlgorithm.c_core = swarmManager.GetCCore();
+            olfatiSaberAlgorithm.c2_core = swarmManager.GetC2Core();
+            olfatiSaberAlgorithm.coreStandoffRatio = swarmManager.GetCoreStandoffRatio();
+
+            // S7 Building Flow settings; the per-tick state rides ApplyPlaneConstraint.
+            olfatiSaberAlgorithm.SlideRoundBuildings = swarmManager.GetSlideRoundBuildings();
+            olfatiSaberAlgorithm.SlideHeadOnFraction = swarmManager.GetSlideHeadOnFraction();
+            olfatiSaberAlgorithm.SlideSplitAimFraction = swarmManager.GetSlideSplitAimFraction();
+            olfatiSaberAlgorithm.SurroundLookAhead = swarmManager.GetSurroundLookAhead();
+            olfatiSaberAlgorithm.RouteStragglers = swarmManager.GetRouteStragglers();
+            olfatiSaberAlgorithm.StragglerPressShare = swarmManager.GetStragglerPressShare();
+
+            // S8 Footprint Avoidance, S10 Ellipse Avoidance
+            olfatiSaberAlgorithm.ObstacleShape = swarmManager.GetObstacleShape();
+            olfatiSaberAlgorithm.EllipseMaxAspect = swarmManager.GetEllipseMaxAspect();
+
+            // Bound the obstacle force by what this drone can actually produce. Beyond the tilt
+            // budget the extra demand does not move the drone any faster -- VelocityControl clamps
+            // the pilot + swarm *sum* -- it only crowds the pilot's command out of that sum. Tying
+            // it to maxPitch/maxRoll here rather than trusting an inspector number means raising
+            // the tilt limit automatically raises the ceiling, and lowering it cannot leave the
+            // obstacle term demanding the impossible.
+            float tiltBudget = float.PositiveInfinity;
+            if (velocityControl != null)
+            {
+                tiltBudget = 9.81f * Mathf.Tan(Mathf.Min(velocityControl.maxPitch,
+                                                         velocityControl.maxRoll));
+            }
+            olfatiSaberAlgorithm.MaxObstacleAccel =
+                Mathf.Min(swarmManager.GetMaxObstacleAccel(), tiltBudget);
+
+            // The core gets the same clamp for the same reason. It normally sits well under the
+            // budget -- that gap is what makes a building outrank it -- but a drone configured with
+            // a low tilt limit must not have the core demanding more than it can produce.
+            olfatiSaberAlgorithm.MaxCoreAccel =
+                Mathf.Min(swarmManager.GetMaxCoreAccel(), tiltBudget);
+
+            // And the close-range damper, for the same reason as the obstacle field.
+            olfatiSaberAlgorithm.MaxDampAccel =
+                Mathf.Min(swarmManager.GetMaxDampAccel(), tiltBudget);
         }
     }
 
 
-    public Vector3 GetSwarmCenter()
-    {
-        Vector3 center = Vector3.zero;
-        foreach (GameObject drone in swarm)
-        {
-            center += drone.transform.position;
-        }
-        center /= swarm.Count;
-        return center;
-    }
+    // GetSwarmCenter() used to live here. It averaged the drone *root* transforms, which never move
+    // (swarmSpawn only ever moves the DroneParent child), so it returned a constant. Nothing called
+    // it. The swarm centroid now has exactly one definition, SwarmPlaneController.SwarmCentroid.
 }

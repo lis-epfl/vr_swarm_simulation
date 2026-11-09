@@ -1,0 +1,20 @@
+{
+ "pick": {
+  "key": "p1_m3_B50_18",
+  "run": "p1_confirm",
+  "kind": "M3",
+  "v": "B",
+  "p": 50,
+  "s": 18,
+  "rule": "contact",
+  "title": "Pass round, B, p 50 \u00b7 s 18",
+  "about": "Variant B: passing round a block-shaped building, drones are pressed into its facade (amber): the building being passed, not the one across the street, as in nearly all of B's contacts. R's buildings, steered round as cylinders, stay near the contact bar."
+ },
+ "identical": true,
+ "flights": [
+  "p1_m3_B50_18"
+ ],
+ "chain": null,
+ "target": null,
+ "wall_s": 5.8
+}

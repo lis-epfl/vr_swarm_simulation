@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s7_contact",
+  "kind": "cross",
+  "k": 5029,
+  "title": "Problem: a drone pulled into a facade",
+  "first": "t3",
+  "met": 4,
+  "why": "the route where the swarm with the switches off touched buildings most in Unity (1 contact; a straggler, its nearest neighbour 27 m away, pushed into a facade by cohesion against the saturated obstacle field)"
+ },
+ "flights": {
+  "single_off": [
+   "s7_contact_single_off_replica",
+   "s7_contact_single_off_unity"
+  ],
+  "single_slide": [
+   "s7_contact_single_slide_replica",
+   "s7_contact_single_slide_unity"
+  ],
+  "t3": [
+   "s7_contact_t3_replica",
+   "s7_contact_t3_unity"
+  ],
+  "adaptive": [
+   "s7_contact_adaptive_replica",
+   "s7_contact_adaptive_unity"
+  ],
+  "slide": [
+   "s7_contact_slide_replica",
+   "s7_contact_slide_unity"
+  ],
+  "route": [
+   "s7_contact_route_replica",
+   "s7_contact_route_unity"
+  ],
+  "all": [
+   "s7_contact_all_replica",
+   "s7_contact_all_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

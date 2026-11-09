@@ -1,0 +1,17 @@
+a,b,basis,p,s,n_cities,ratio,lo,hi
+swarm_hop,swarm_street,any,40.0,18.0,24,1.0701,0.9405,1.2175
+swarm_hop,swarm_street,any,40.0,24.0,24,0.9636,0.8343,1.113
+swarm_hop,swarm_street,head,40.0,18.0,24,1.1436,0.9222,1.4182
+swarm_hop,swarm_street,head,40.0,24.0,24,1.1697,0.9411,1.4539
+swarm_hop,swarm_hold,any,40.0,18.0,24,0.8503,0.7691,0.9401
+swarm_hop,swarm_hold,any,40.0,24.0,24,0.9068,0.7988,1.0293
+swarm_hop,single,any,40.0,18.0,24,0.6004,0.5252,0.6863
+swarm_hop,single,any,40.0,24.0,24,0.6531,0.5738,0.7435
+swarm_street,single,any,40.0,18.0,24,0.561,0.4872,0.646
+swarm_street,single,any,40.0,24.0,24,0.6778,0.5792,0.7932
+swarm_pass,swarm_street,any,40.0,18.0,24,1.0368,0.8815,1.2193
+swarm_pass,swarm_street,any,40.0,24.0,24,0.9146,0.8318,1.0055
+swarm_hop,single_look,any,40.0,18.0,24,0.5893,0.4976,0.698
+swarm_hop,single_look,any,40.0,24.0,24,0.603,0.5293,0.6868
+single_look,single,any,40.0,18.0,24,1.0187,0.8808,1.1781
+single_look,single,any,40.0,24.0,24,1.0832,0.965,1.216

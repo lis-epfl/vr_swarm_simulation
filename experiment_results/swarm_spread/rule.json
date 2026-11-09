@@ -1,0 +1,15 @@
+{
+ "rule": {
+  "base": "F20",
+  "factors": [
+   "A85",
+   "A90",
+   "A95"
+  ],
+  "safe_p": 0.1,
+  "contact_ratio": 1.25,
+  "street_gain": 0.03,
+  "wrap_margin": 0.05
+ },
+ "written": "2026-11-02 10:02:58"
+}

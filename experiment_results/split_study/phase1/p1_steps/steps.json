@@ -1,0 +1,43 @@
+{
+ "setting": {
+  "d_street": 1.0,
+  "d_rule": "fixed",
+  "d_block": 1.5,
+  "k": 1.0,
+  "d_lo": 1.0,
+  "d_hi": 2.8,
+  "t_hop": 10.0,
+  "exit_stick": 1.0,
+  "face_bend": 0.5,
+  "r0_coh": 40.0,
+  "hollow": null,
+  "extra_sets": "",
+  "hold_stick": 0.5,
+  "hold_gain": 0.25,
+  "m3b_mode": "hold"
+ },
+ "rows": [
+  {
+   "variant": "scene",
+   "expand_t50": 1.7,
+   "expand_t90": 3.1,
+   "expand_over_pct": 0.2,
+   "contract_t50": 2.9,
+   "contract_t90": 5.25,
+   "contract_over_pct": 0.1,
+   "reexpand_t90": 2.3,
+   "kills": 0
+  },
+  {
+   "variant": "S4",
+   "expand_t50": 1.7,
+   "expand_t90": 3.1,
+   "expand_over_pct": 0.2,
+   "contract_t50": 2.9,
+   "contract_t90": 5.2,
+   "contract_over_pct": 0.1,
+   "reexpand_t90": 2.3,
+   "kills": 0
+  }
+ ]
+}

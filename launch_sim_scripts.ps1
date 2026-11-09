@@ -1,21 +1,82 @@
 # launch_sim_scripts.ps1
 # Launches the Python helper processes for the VR swarm simulation in a single
-# Windows Terminal window, split into two panes:
-#   left  : StitcherThreading.py  -> 'stitching' conda env (needs torch/StabStitch++)
-#   right : readController.py      -> reads the joystick and streams to Unity over UDP
+# Windows Terminal window:
+#   rcjoy bridge         -> the RC Pro joystick (DJI_Swarm/rc-joystick) to Unity over UDP
+#   StitcherThreading.py -> 'stitching' conda env, a second pane, only with -Stitcher
 #
-# Usage:  right-click > "Run with PowerShell", or from a shell:  .\launch_sim_scripts.ps1
+# Usage:  .\launch_sim_scripts.ps1                        # finds the RC by itself
+#         .\launch_sim_scripts.ps1 -RcIP 192.168.100.50   # once, if it keeps "searching"
+#         .\launch_sim_scripts.ps1 -Asw Auto              # leave Oculus ASW on (see below)
+#         .\launch_sim_scripts.ps1 -SpreadRange 1.4,2.6   # the spread dial's d_ref range (see below)
+#         .\launch_sim_scripts.ps1 -Stitcher              # for a scene that still stitches (see below)
+param(
+    [string]$RcIP = '',
+    [ValidateSet('Off', 'Auto', 'Keep')][string]$Asw = 'Off',
+    [ValidateCount(2, 2)][double[]]$SpreadRange,
+    [switch]$Stitcher
+)
 
 $ErrorActionPreference = 'Stop'
 
+# Oculus Asynchronous SpaceWarp. Over Link the headset runs at 72 Hz, and with ASW on (the
+# runtime's default, Auto) any stretch in which Unity misses the 13.9 ms frame budget gets the
+# app locked to exactly half rate, 36 fps, until the runtime decides it has headroom again --
+# which is why the recorded swarm runs sit at either 72 or 36 and nothing in between. With ASW
+# off an overrun costs only the frames that miss (~60 fps rather than 36), and the compositor
+# still reprojects head rotation for them. The setting belongs to the Oculus service and resets
+# when it restarts, so it is re-applied on every launch. -Asw Auto restores the default;
+# -Asw Keep leaves whatever is set.
+if ($Asw -ne 'Keep') {
+    $odt = @(
+        'C:\Program Files\Meta Horizon\Support\oculus-diagnostics\OculusDebugToolCLI.exe',
+        'C:\Program Files\Oculus\Support\oculus-diagnostics\OculusDebugToolCLI.exe'
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($odt) {
+        try {
+            $cmdFile = Join-Path $env:TEMP 'vr_swarm_asw.txt'
+            Set-Content -Path $cmdFile -Value @("asw.$Asw", 'asw.Mode', 'exit') -Encoding ascii
+            $proc = Start-Process -FilePath $odt -ArgumentList '-f', "`"$cmdFile`"" -NoNewWindow -PassThru
+            if (-not $proc.WaitForExit(15000)) {
+                $proc.Kill()
+                Write-Warning "OculusDebugToolCLI did not finish; ASW left as it was (is the Oculus service running?)"
+            }
+        } catch {
+            Write-Warning "Could not set Oculus ASW to $Asw ($($_.Exception.Message)); set it in the Oculus Debug Tool instead."
+        }
+    } else {
+        Write-Warning "OculusDebugToolCLI.exe not found; set Asynchronous Spacewarp to $Asw in the Oculus Debug Tool."
+    }
+}
+
 $stitcherDir = Join-Path $PSScriptRoot 'Assets\Scripts\ImageStitching'
-$controlDir  = Join-Path $PSScriptRoot 'Assets\Scripts\Control'
+# The bridge lives in the DJI_Swarm repo next to this one: plain Python >= 3.7, no conda env.
+$rcjoyDir = (Resolve-Path (Join-Path $PSScriptRoot '..\DJI_Swarm\rc-joystick\pc')).Path
 
 # A fresh window does not know the `conda` command until the conda hook is
 # sourced -- that is why a bare `conda activate` gives "not recognized".
 # (Same hook the working dji-flocking.ps1 launcher uses.)
 $CondaHook = "C:\Users\jarvis\AppData\Local\miniconda3\shell\condabin\conda-hook.ps1"
 $EnvName   = 'stitching'
+
+# Without --rc the bridge tries the last RC this PC used, plus a broadcast on the switch.
+$rcArg = if ($RcIP) { " --rc $RcIP" } else { '' }
+# The right dial is the spread: Unity takes it as d_ref every frame (over SwarmManager.d_ref), linearly over the
+# sim profile's 0.4-1.6, from 1.0 at launch -- except in a scene with SwarmManager.adaptiveSpread on
+# (BlockShapedPatchCityWorld), where Unity ignores the dial and flies the scene's d_ref. The left dial is the gimbal,
+# from level at launch; Unity moves the cameras only once it is turned. -SpreadRange must contain 1.0, the bridge's
+# start value, or the bridge refuses to start.
+if ($SpreadRange) { $rcArg += " --ax-range $($SpreadRange[0]),$($SpreadRange[1])" }
+
+# The stitcher is opt-in: BlockShapedPatchCityWorld and PracticeBlockWorld fly without it, and left running it
+# holds ~5 GB of video memory for nothing. A scene that does stitch still flies without it, on its feeds alone.
+if (-not $Stitcher) {
+    Write-Host 'Stitcher not started. Pass -Stitcher for a scene that still stitches.'
+    wt.exe --size 100,50 `
+      new-tab --title "controller" `
+        -d "$rcjoyDir" `
+        PowerShell -NoExit -Command "python -m rcjoy bridge --profile sim$rcArg"
+    return
+}
 
 # Single Windows Terminal window, two vertical panes. `;` separates wt.exe
 # sub-commands, so the `;` INSIDE each PowerShell -Command is escaped as `\;`.
@@ -24,5 +85,5 @@ wt.exe --size 200,50 `
     -d "$stitcherDir" `
     PowerShell -NoExit -Command "& '$CondaHook' \; conda activate $EnvName \; python StitcherThreading.py" `
   `; split-pane -V --size 0.5 --title "controller" `
-    -d "$controlDir" `
-    PowerShell -NoExit -Command "& '$CondaHook' \; conda activate $EnvName \; python readController.py"
+    -d "$rcjoyDir" `
+    PowerShell -NoExit -Command "python -m rcjoy bridge --profile sim$rcArg"

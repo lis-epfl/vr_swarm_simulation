@@ -3917,8 +3917,12 @@ MonoBehaviour:
   d_obs: 0.4
   r0_obs: 5
   lambda_obs: 1
-  c_obs: 4
+  c_obs: 2.2
+  c2_beta: 1.6
+  maxObstacleAccel: 4
+  d_shield: 1.4
   scaleFactor: 10
+  maxHeightAboveTerrain: 150
   SelectedAttitudeAlgorithm: 3
   numNeighbours: 9
   numDimensions: 2
@@ -4009,8 +4013,8 @@ MonoBehaviour:
   width: 640
   height: 360
   radius: 2
-  scale: 1
-  offset: {x: 0.5, y: -0.3, z: 0}
+  scale: 1.3
+  offset: {x: 0.5, y: 0, z: 0}
   lookAtOffset: {x: 0, y: 0, z: 0}
   invertBottomScreen: 0
   doubleView: 0
@@ -10625,8 +10629,8 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blockImageWidth
-      value: 800
+      propertyPath: bridge.blockImageWidth
+      value: 1152
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -10635,23 +10639,38 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blockImageHeight
-      value: 450
+      propertyPath: bridge.blockImageHeight
+      value: 648
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: qualityThreshold
-      value: 16
+      propertyPath: stabStitch.qualityThreshold
+      value: 17.5
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: panoramaImageWidth
-      value: 1600
+      propertyPath: stabStitch.blurKernelSize
+      value: 61
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: panoramaImageHeight
-      value: 600
+      propertyPath: stabStitch.blurSigma
+      value: 22.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: stabStitch.borderSize
+      value: 90
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.panoramaImageWidth
+      value: 2160
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.panoramaImageHeight
+      value: 810
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}

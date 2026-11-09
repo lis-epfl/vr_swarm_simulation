@@ -1,0 +1,145 @@
+[
+ {
+  "label": "T3",
+  "d": 2.0,
+  "over": {}
+ },
+ {
+  "label": "slide own 0.3",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.3
+  }
+ },
+ {
+  "label": "slide own 0.5",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.5
+  }
+ },
+ {
+  "label": "slide own 0.8",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8
+  }
+ },
+ {
+  "label": "slide own 1",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 1.0
+  }
+ },
+ {
+  "label": "slide formation 0.5",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.5,
+   "x:slide_side": "formation"
+  }
+ },
+ {
+  "label": "slide group 0.5",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.5,
+   "x:slide_side": "group"
+  }
+ },
+ {
+  "label": "route lean",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true
+  }
+ },
+ {
+  "label": "route group",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "x:route_side": "group"
+  }
+ },
+ {
+  "label": "adaptive 0.7",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  }
+ },
+ {
+  "label": "adaptive 0.8",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8
+  }
+ },
+ {
+  "label": "adaptive 0.9",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.9
+  }
+ },
+ {
+  "label": "adaptive 0.8 aim 0.6",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "surroundAimFraction": 0.6
+  }
+ },
+ {
+  "label": "adaptive 0.8 aim 1.0",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "surroundAimFraction": 1.0
+  }
+ },
+ {
+  "label": "adaptive 0.8 look 3",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "surroundLookAhead": 3.0
+  }
+ },
+ {
+  "label": "adaptive 0.8 look 6",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "surroundLookAhead": 6.0
+  }
+ },
+ {
+  "label": "slide 0.5 + route",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "routeStragglers": true
+  }
+ },
+ {
+  "label": "all three",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "routeStragglers": true,
+   "adaptiveSpread": true
+  }
+ }
+]

@@ -1,0 +1,54 @@
+{
+ "part": "A",
+ "designs": [
+  [
+   40.0,
+   18.0
+  ],
+  [
+   50.0,
+   18.0
+  ],
+  [
+   60.0,
+   18.0
+  ],
+  [
+   75.0,
+   18.0
+  ]
+ ],
+ "d_grid": [
+  1.0,
+  1.4,
+  1.8,
+  2.2,
+  2.6
+ ],
+ "T_grid": [
+  6.0,
+  12.0,
+  20.0
+ ],
+ "trials": 30,
+ "city_seeds": [
+  0,
+  1,
+  2
+ ],
+ "base": {
+  "r0_coh": 30.0,
+  "d_street": 1.0,
+  "exit_stick": 1.0,
+  "d_rule": "fixed"
+ },
+ "firm": {
+  "hold_stick": 1.0,
+  "hold_gain": 0.5
+ },
+ "look_range_m": 250.0,
+ "street_end_m": 10.0,
+ "end_reach_m": 12.0,
+ "end_fraction": 0.5,
+ "footpath_off_m": 2.0
+}

@@ -83,16 +83,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f9fd9cf0a203549e98e27622302c103a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  activeProfile: {fileID: 11400000, guid: 310f9718f7e9e0a4b8239d5a8e8ddbf2, type: 2}
+  activeProfile: {fileID: 0}
   State: {fileID: 114271859555978516}
   PropFL: {fileID: 7174551621440694880}
   PropFR: {fileID: 1083002426289961596}
   PropRR: {fileID: 2250903314296931625}
   PropRL: {fileID: 8732180454090052648}
-  maxPitch: 0.33
-  maxRoll: 0.33
-  maxYawRate: 1.07
-  maxAlpha: 8.68
+  maxPitch: 0.436332
+  maxRoll: 0.436332
+  maxYawRate: 1.309
+  maxAlpha: 3.38
   maxSpeed: 9.31
   maxAltitudeRate: 3.34
   MinHeight: 0.5
@@ -102,6 +102,8 @@ MonoBehaviour:
   desiredYawRate: 0
   attitude_control_yaw: 0
   swarmAcceleration: {x: 0, y: 0, z: 0}
+  verticalSwarmAuthority: 0
+  verticalReferenceAltitude: 0
   lastUserAccelMag: 0
   lastSwarmAccelMag: 0
   lastThrustClamped: 0
@@ -109,8 +111,12 @@ MonoBehaviour:
   HeightKd: 2
   heightDerivFilterCoeff: 0.5
   yawFilterCoefficient: 1
-  SwarmAccelFilterCoefficient: 1
+  headingHoldKp: 5
+  maxHeadingHoldErrorDeg: 25
+  SwarmAccelFilterCoefficient: 0.3
   timeConstantAcceleration: 0.75
+  swarmVerticalSetpointGain: 0.5
+  swarmVerticalLeash: 30
   currentAlgorithm: 0
   initial_height: 14
   logToCSV: 0
@@ -189,9 +195,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Is3D: 1
+  PlaneNormal: {x: 0, y: 1, z: 0}
+  HasPlaneOffsetTarget: 0
+  PlaneOffsetTarget: 0
   CohesionWeight: 1
   SeparationWeight: 1
   AlignmentWeight: 1
+  PlaneWeight: 1
 --- !u!114 &259003137113264617
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -205,6 +215,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Is3D: 1
+  PlaneNormal: {x: 0, y: 1, z: 0}
+  HasPlaneOffsetTarget: 0
+  PlaneOffsetTarget: 0
   d_ref: 1
   r0_coh: 20
   delta: 0.1
@@ -217,8 +230,9 @@ MonoBehaviour:
   r0_obs: 6
   lambda_obs: 1
   c_obs: 4.3
+  cylinderAxis: {x: 0, y: 1, z: 0}
   ScaleFactor: 10
-  c_altitude_2d: 1
+  c_plane: 1
   MaxMigrationDistance: 10
 --- !u!114 &3810217873681142886
 MonoBehaviour:
@@ -239,7 +253,7 @@ MonoBehaviour:
   NumDimensions: 2
   BoundaryEstimate: 0
   PointInwards: 0
-  YawCorrectionFactor: 1
+  YawCorrectionFactor: 3
   NeighborYawSmoothingFactor: 0.5
   BoundaryHysteresisTime: 0.5
   TargetHeadingFilterTime: 0.3
@@ -343,7 +357,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &4302397597385874
 Transform:
   m_ObjectHideFlags: 0
@@ -482,8 +496,8 @@ Camera:
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 7
-  m_TargetEye: 3
-  m_HDR: 1
+  m_TargetEye: 0
+  m_HDR: 0
   m_AllowMSAA: 1
   m_AllowDynamicResolution: 0
   m_ForceIntoRT: 0

@@ -1,0 +1,635 @@
+{
+ "1232c716ad": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C25 enclosing circle, d_obs 0.25, spread held"
+ },
+ "90fbb59c2d": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E125_25 ellipse, aspect cap 1.25, d_obs 0.25, spread held"
+ },
+ "9593537214": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_25 ellipse, aspect cap 1.5, d_obs 0.25, spread held"
+ },
+ "3316ac11a2": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E2_25 ellipse, aspect cap 2, d_obs 0.25, spread held"
+ },
+ "6b33f0efd1": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C35 enclosing circle, d_obs 0.35, spread held"
+ },
+ "0246f3769b": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E125_35 ellipse, aspect cap 1.25, d_obs 0.35, spread held"
+ },
+ "dd8031f171": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held"
+ },
+ "bcb51eb59b": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E2_35 ellipse, aspect cap 2, d_obs 0.35, spread held"
+ },
+ "9f5fffb908": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C45 enclosing circle, d_obs 0.45, spread held"
+ },
+ "3f1946af86": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E125_45 ellipse, aspect cap 1.25, d_obs 0.45, spread held"
+ },
+ "971434a068": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_45 ellipse, aspect cap 1.5, d_obs 0.45, spread held"
+ },
+ "fcce51a553": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E2_45 ellipse, aspect cap 2, d_obs 0.45, spread held"
+ },
+ "ae8b148021": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C25a enclosing circle, d_obs 0.25, adaptive spread 0.85"
+ },
+ "09e54df200": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E125_25a ellipse, aspect cap 1.25, d_obs 0.25, adaptive spread 0.85"
+ },
+ "6dbdb878b2": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_25a ellipse, aspect cap 1.5, d_obs 0.25, adaptive spread 0.85"
+ },
+ "1d3b5b4039": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E2_25a ellipse, aspect cap 2, d_obs 0.25, adaptive spread 0.85"
+ },
+ "495fa73662": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C35a enclosing circle, d_obs 0.35, adaptive spread 0.85 (the scene)"
+ },
+ "96a37462bc": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E125_35a ellipse, aspect cap 1.25, d_obs 0.35, adaptive spread 0.85"
+ },
+ "1b2bc0594b": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_35a ellipse, aspect cap 1.5, d_obs 0.35, adaptive spread 0.85"
+ },
+ "8ddfdd7d7e": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E2_35a ellipse, aspect cap 2, d_obs 0.35, adaptive spread 0.85"
+ },
+ "f396be0af5": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C45a enclosing circle, d_obs 0.45, adaptive spread 0.85"
+ },
+ "1d678b4d3f": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E125_45a ellipse, aspect cap 1.25, d_obs 0.45, adaptive spread 0.85"
+ },
+ "6ff9647643": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_45a ellipse, aspect cap 1.5, d_obs 0.45, adaptive spread 0.85"
+ },
+ "a932a6ac11": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E2_45a ellipse, aspect cap 2, d_obs 0.45, adaptive spread 0.85"
+ },
+ "627372afee": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "x:ell_aim": "circle"
+  },
+  "d": 2.0,
+  "label": "E15_35c ellipse, aspect cap 1.5, d_obs 0.35, spread held, the S7 rules aiming by the enclosing circle"
+ },
+ "ebba22e00f": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "x:ell_aim": "circle"
+  },
+  "d": 2.0,
+  "label": "E15_35ac ellipse, aspect cap 1.5, d_obs 0.35, adaptive spread 0.85, the S7 rules aiming by the enclosing circle"
+ },
+ "single-f2383df4cf": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, C25 enclosing circle, d_obs 0.25, spread held"
+ },
+ "single-8fb6abe710": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E125_25 ellipse, aspect cap 1.25, d_obs 0.25, spread held"
+ },
+ "single-f497a653a9": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E15_25 ellipse, aspect cap 1.5, d_obs 0.25, spread held"
+ },
+ "single-475cfe60e6": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E2_25 ellipse, aspect cap 2, d_obs 0.25, spread held"
+ },
+ "single-f007cf9a81": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, C35 enclosing circle, d_obs 0.35, spread held"
+ },
+ "single-6b9026676c": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E125_35 ellipse, aspect cap 1.25, d_obs 0.35, spread held"
+ },
+ "single-630221d56e": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held"
+ },
+ "single-57219830cd": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E2_35 ellipse, aspect cap 2, d_obs 0.35, spread held"
+ },
+ "single-c34633d027": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, C45 enclosing circle, d_obs 0.45, spread held"
+ },
+ "single-c168d2be69": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E125_45 ellipse, aspect cap 1.25, d_obs 0.45, spread held"
+ },
+ "single-99bd4d93ab": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E15_45 ellipse, aspect cap 1.5, d_obs 0.45, spread held"
+ },
+ "single-cff0a4878d": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E2_45 ellipse, aspect cap 2, d_obs 0.45, spread held"
+ },
+ "single-cda3c55d63": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "x:ell_aim": "circle"
+  },
+  "d": 2.0,
+  "label": "one drone, E15_35c ellipse, aspect cap 1.5, d_obs 0.35, the S7 rules aiming by the enclosing circle"
+ },
+ "920c2a8ded": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "C35 enclosing circle, d_obs 0.35, spread held, d_ref 1.2"
+ },
+ "0db33dbd98": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E125_35 ellipse, aspect cap 1.25, d_obs 0.35, spread held, d_ref 1.2"
+ },
+ "dbced500a3": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held, d_ref 1.2"
+ },
+ "85aa78fa92": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E2_35 ellipse, aspect cap 2, d_obs 0.35, spread held, d_ref 1.2"
+ },
+ "5aa62b3ada": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "C35a enclosing circle, d_obs 0.35, adaptive spread 0.85 (the scene), d_ref 1.2"
+ },
+ "6de19d5600": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E15_35a ellipse, aspect cap 1.5, d_obs 0.35, adaptive spread 0.85, d_ref 1.2"
+ }
+}

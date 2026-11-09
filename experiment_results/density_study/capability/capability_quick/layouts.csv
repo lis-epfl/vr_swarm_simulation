@@ -1,0 +1,6 @@
+level,clutter,goal_level,seed,layout,alpha,ell_m,n_buildings,jammed,core,g_shell,wall_share,nn_cyl_gap_median_m,encounters_per_km
+C2p-G0,C2p,G0,0,bl_p60_s10_a0.11_g4_gs6_x2_wc7_rg26_nb8_rs0.9_seed0,0.1099,81.6,451,False,shell,6.0,0.0,8.46,12.77
+C2-G0,C2,G0,0,bl_p60_s10_a0.17_g4_x2_wc7_rg26_nb8_rs0.9_seed0,0.17,53.1,686,False,facade,0.0,0.8586,1.57,19.6
+C1p-G0,C1p,G0,0,bl_p70_s12_a0.08_g4_gs6_x2_wc7_rg26_nb8_rs0.9_seed0,0.08,111.5,334,False,shell,6.0,0.0,10.85,8.59
+C1-G0,C1,G0,0,bl_p70_s12_a0.12_g4_x2_wc7_rg26_nb8_rs0.9_seed0,0.1199,74.9,490,False,facade,0.0,0.6857,3.76,13.56
+C0-G0,C0,G0,0,bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed0,0.024,354.8,115,False,facade,0.0,0.0696,22.88,2.89

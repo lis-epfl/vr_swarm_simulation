@@ -1,0 +1,1298 @@
+{
+ "9cb4a52a3c": {
+  "over": {},
+  "d": 1.4,
+  "label": "scene gains"
+ },
+ "047482f8fe": {
+  "over": {
+   "a": 0.4
+  },
+  "d": 1.4,
+  "label": "a x0.5"
+ },
+ "fd84a78985": {
+  "over": {
+   "a": 0.56
+  },
+  "d": 1.4,
+  "label": "a x0.7"
+ },
+ "ef3c305520": {
+  "over": {
+   "a": 1.12
+  },
+  "d": 1.4,
+  "label": "a x1.4"
+ },
+ "95209f0e88": {
+  "over": {
+   "a": 1.6
+  },
+  "d": 1.4,
+  "label": "a x2"
+ },
+ "7c761c61b0": {
+  "over": {
+   "b": 1.3
+  },
+  "d": 1.4,
+  "label": "b x0.5"
+ },
+ "7f06cf0fbc": {
+  "over": {
+   "b": 1.82
+  },
+  "d": 1.4,
+  "label": "b x0.7"
+ },
+ "4495d4bda8": {
+  "over": {
+   "b": 3.64
+  },
+  "d": 1.4,
+  "label": "b x1.4"
+ },
+ "d448756200": {
+  "over": {
+   "b": 5.2
+  },
+  "d": 1.4,
+  "label": "b x2"
+ },
+ "3444748400": {
+  "over": {
+   "delta": 0.04
+  },
+  "d": 1.4,
+  "label": "delta x0.5"
+ },
+ "e2fb7f4eb3": {
+  "over": {
+   "delta": 0.056
+  },
+  "d": 1.4,
+  "label": "delta x0.7"
+ },
+ "af8f0355bb": {
+  "over": {
+   "delta": 0.112
+  },
+  "d": 1.4,
+  "label": "delta x1.4"
+ },
+ "8cc91375f2": {
+  "over": {
+   "delta": 0.16
+  },
+  "d": 1.4,
+  "label": "delta x2"
+ },
+ "a77ba92fbb": {
+  "over": {
+   "r0_coh": 15.0
+  },
+  "d": 1.4,
+  "label": "r0_coh x0.5"
+ },
+ "9e50ed2113": {
+  "over": {
+   "r0_coh": 21.0
+  },
+  "d": 1.4,
+  "label": "r0_coh x0.7"
+ },
+ "669148439f": {
+  "over": {
+   "r0_coh": 42.0
+  },
+  "d": 1.4,
+  "label": "r0_coh x1.4"
+ },
+ "5eae8c9377": {
+  "over": {
+   "r0_coh": 60.0
+  },
+  "d": 1.4,
+  "label": "r0_coh x2"
+ },
+ "9f0ed4b5d7": {
+  "over": {
+   "c_obs": 7.0
+  },
+  "d": 1.4,
+  "label": "c_obs x0.5"
+ },
+ "950b309dbc": {
+  "over": {
+   "c_obs": 9.8
+  },
+  "d": 1.4,
+  "label": "c_obs x0.7"
+ },
+ "1436c35444": {
+  "over": {
+   "c_obs": 19.6
+  },
+  "d": 1.4,
+  "label": "c_obs x1.4"
+ },
+ "a347eba578": {
+  "over": {
+   "c_obs": 28.0
+  },
+  "d": 1.4,
+  "label": "c_obs x2"
+ },
+ "a27cde1d7e": {
+  "over": {
+   "d_obs": 0.2
+  },
+  "d": 1.4,
+  "label": "d_obs x0.5"
+ },
+ "cd2c645548": {
+  "over": {
+   "d_obs": 0.28
+  },
+  "d": 1.4,
+  "label": "d_obs x0.7"
+ },
+ "58d2dbcee5": {
+  "over": {
+   "d_obs": 0.56
+  },
+  "d": 1.4,
+  "label": "d_obs x1.4"
+ },
+ "db5e7683ff": {
+  "over": {
+   "d_obs": 0.8
+  },
+  "d": 1.4,
+  "label": "d_obs x2"
+ },
+ "fb1c032e32": {
+  "over": {
+   "c2_beta": 0.8
+  },
+  "d": 1.4,
+  "label": "c2_beta x0.5"
+ },
+ "14defb2c55": {
+  "over": {
+   "c2_beta": 1.12
+  },
+  "d": 1.4,
+  "label": "c2_beta x0.7"
+ },
+ "2be3570c15": {
+  "over": {
+   "c2_beta": 2.24
+  },
+  "d": 1.4,
+  "label": "c2_beta x1.4"
+ },
+ "2f46f03228": {
+  "over": {
+   "c2_beta": 3.2
+  },
+  "d": 1.4,
+  "label": "c2_beta x2"
+ },
+ "94829898cf": {
+  "over": {
+   "d_shield": 1.25
+  },
+  "d": 1.4,
+  "label": "d_shield x0.5"
+ },
+ "7d7b24b708": {
+  "over": {
+   "d_shield": 1.75
+  },
+  "d": 1.4,
+  "label": "d_shield x0.7"
+ },
+ "df6723fd9b": {
+  "over": {
+   "d_shield": 3.5
+  },
+  "d": 1.4,
+  "label": "d_shield x1.4"
+ },
+ "7766305c65": {
+  "over": {
+   "d_shield": 5.0
+  },
+  "d": 1.4,
+  "label": "d_shield x2"
+ },
+ "39559d8833": {
+  "over": {
+   "c_core": 0.75
+  },
+  "d": 1.4,
+  "label": "c_core x0.5"
+ },
+ "aee4b90259": {
+  "over": {
+   "c_core": 1.05
+  },
+  "d": 1.4,
+  "label": "c_core x0.7"
+ },
+ "e1256370d2": {
+  "over": {
+   "c_core": 2.1
+  },
+  "d": 1.4,
+  "label": "c_core x1.4"
+ },
+ "db1dfc544c": {
+  "over": {
+   "c_core": 3.0
+  },
+  "d": 1.4,
+  "label": "c_core x2"
+ },
+ "3464f00213": {
+  "over": {
+   "c2_core": 0.3
+  },
+  "d": 1.4,
+  "label": "c2_core x0.5"
+ },
+ "0927daaf59": {
+  "over": {
+   "c2_core": 0.42
+  },
+  "d": 1.4,
+  "label": "c2_core x0.7"
+ },
+ "7bc9a15593": {
+  "over": {
+   "c2_core": 0.84
+  },
+  "d": 1.4,
+  "label": "c2_core x1.4"
+ },
+ "266cf26a2e": {
+  "over": {
+   "c2_core": 1.2
+  },
+  "d": 1.4,
+  "label": "c2_core x2"
+ },
+ "a8324fe009": {
+  "over": {
+   "coreRadiusFraction": 0.25
+  },
+  "d": 1.4,
+  "label": "coreRadiusFraction x0.5"
+ },
+ "71e37f2654": {
+  "over": {
+   "coreRadiusFraction": 0.35
+  },
+  "d": 1.4,
+  "label": "coreRadiusFraction x0.7"
+ },
+ "01f7e89e13": {
+  "over": {
+   "coreRadiusFraction": 0.7
+  },
+  "d": 1.4,
+  "label": "coreRadiusFraction x1.4"
+ },
+ "b2f1d143fa": {
+  "over": {
+   "coreRadiusFraction": 1.0
+  },
+  "d": 1.4,
+  "label": "coreRadiusFraction x2"
+ },
+ "810717f7ef": {
+  "over": {
+   "coreStandoffRatio": 0.25
+  },
+  "d": 1.4,
+  "label": "coreStandoffRatio x0.5"
+ },
+ "490c9b1b31": {
+  "over": {
+   "coreStandoffRatio": 0.35
+  },
+  "d": 1.4,
+  "label": "coreStandoffRatio x0.7"
+ },
+ "883326ceb4": {
+  "over": {
+   "coreStandoffRatio": 0.7
+  },
+  "d": 1.4,
+  "label": "coreStandoffRatio x1.4"
+ },
+ "f54e34dc57": {
+  "over": {
+   "coreStandoffRatio": 1.0
+  },
+  "d": 1.4,
+  "label": "coreStandoffRatio x2"
+ },
+ "9a293d4b92": {
+  "over": {
+   "c_damp": 1.0
+  },
+  "d": 1.4,
+  "label": "c_damp x0.5"
+ },
+ "023aa85270": {
+  "over": {
+   "c_damp": 1.4
+  },
+  "d": 1.4,
+  "label": "c_damp x0.7"
+ },
+ "91e6fec211": {
+  "over": {
+   "c_damp": 2.8
+  },
+  "d": 1.4,
+  "label": "c_damp x1.4"
+ },
+ "60a662feee": {
+  "over": {
+   "c_damp": 4.0
+  },
+  "d": 1.4,
+  "label": "c_damp x2"
+ },
+ "8be6b58b07": {
+  "over": {
+   "d_damp": 0.15
+  },
+  "d": 1.4,
+  "label": "d_damp x0.5"
+ },
+ "1e3b5d2f21": {
+  "over": {
+   "d_damp": 0.21
+  },
+  "d": 1.4,
+  "label": "d_damp x0.7"
+ },
+ "3287b6f575": {
+  "over": {
+   "d_damp": 0.42
+  },
+  "d": 1.4,
+  "label": "d_damp x1.4"
+ },
+ "c25ee2d044": {
+  "over": {
+   "d_damp": 0.6
+  },
+  "d": 1.4,
+  "label": "d_damp x2"
+ },
+ "7db643a561": {
+  "over": {
+   "c_vm": 0.0
+  },
+  "d": 1.4,
+  "label": "c_vm = 0"
+ },
+ "c289dafb4c": {
+  "over": {
+   "c_vm": 0.015
+  },
+  "d": 1.4,
+  "label": "c_vm = 0.015"
+ },
+ "c5f1edf99d": {
+  "over": {
+   "c_vm": 0.0675
+  },
+  "d": 1.4,
+  "label": "c_vm = 0.0675"
+ },
+ "6466258d17": {
+  "over": {
+   "c_vm": 0.1125
+  },
+  "d": 1.4,
+  "label": "c_vm = 0.1125"
+ },
+ "96188f08e7": {
+  "over": {
+   "hollowSwarmCore": false
+  },
+  "d": 1.4,
+  "label": "core off"
+ },
+ "aa45fac091": {
+  "over": {},
+  "d": 1.8,
+  "label": "scene gains"
+ },
+ "67ba980a24": {
+  "over": {
+   "a": 0.4
+  },
+  "d": 1.8,
+  "label": "a x0.5"
+ },
+ "ba0776fbf3": {
+  "over": {
+   "a": 0.56
+  },
+  "d": 1.8,
+  "label": "a x0.7"
+ },
+ "a6d4f28b93": {
+  "over": {
+   "a": 1.12
+  },
+  "d": 1.8,
+  "label": "a x1.4"
+ },
+ "6a9ce9e2c9": {
+  "over": {
+   "a": 1.6
+  },
+  "d": 1.8,
+  "label": "a x2"
+ },
+ "7233d4e266": {
+  "over": {
+   "b": 1.3
+  },
+  "d": 1.8,
+  "label": "b x0.5"
+ },
+ "171fb1cb4d": {
+  "over": {
+   "b": 1.82
+  },
+  "d": 1.8,
+  "label": "b x0.7"
+ },
+ "82a4b3a29c": {
+  "over": {
+   "b": 3.64
+  },
+  "d": 1.8,
+  "label": "b x1.4"
+ },
+ "28d9f4e89e": {
+  "over": {
+   "b": 5.2
+  },
+  "d": 1.8,
+  "label": "b x2"
+ },
+ "5a73d4a0ff": {
+  "over": {
+   "delta": 0.04
+  },
+  "d": 1.8,
+  "label": "delta x0.5"
+ },
+ "ee3468e60c": {
+  "over": {
+   "delta": 0.056
+  },
+  "d": 1.8,
+  "label": "delta x0.7"
+ },
+ "c003a7fd2c": {
+  "over": {
+   "delta": 0.112
+  },
+  "d": 1.8,
+  "label": "delta x1.4"
+ },
+ "62a360cc5e": {
+  "over": {
+   "delta": 0.16
+  },
+  "d": 1.8,
+  "label": "delta x2"
+ },
+ "d4619771b6": {
+  "over": {
+   "r0_coh": 15.0
+  },
+  "d": 1.8,
+  "label": "r0_coh x0.5"
+ },
+ "d7a3d7acc1": {
+  "over": {
+   "r0_coh": 21.0
+  },
+  "d": 1.8,
+  "label": "r0_coh x0.7"
+ },
+ "105548ff50": {
+  "over": {
+   "r0_coh": 42.0
+  },
+  "d": 1.8,
+  "label": "r0_coh x1.4"
+ },
+ "8bc481f203": {
+  "over": {
+   "r0_coh": 60.0
+  },
+  "d": 1.8,
+  "label": "r0_coh x2"
+ },
+ "77195b20a2": {
+  "over": {
+   "c_obs": 7.0
+  },
+  "d": 1.8,
+  "label": "c_obs x0.5"
+ },
+ "0b97052b1e": {
+  "over": {
+   "c_obs": 9.8
+  },
+  "d": 1.8,
+  "label": "c_obs x0.7"
+ },
+ "b483e6fcf0": {
+  "over": {
+   "c_obs": 19.6
+  },
+  "d": 1.8,
+  "label": "c_obs x1.4"
+ },
+ "895b76424e": {
+  "over": {
+   "c_obs": 28.0
+  },
+  "d": 1.8,
+  "label": "c_obs x2"
+ },
+ "bbaba6273b": {
+  "over": {
+   "d_obs": 0.2
+  },
+  "d": 1.8,
+  "label": "d_obs x0.5"
+ },
+ "d35922f3ce": {
+  "over": {
+   "d_obs": 0.28
+  },
+  "d": 1.8,
+  "label": "d_obs x0.7"
+ },
+ "9550fe185b": {
+  "over": {
+   "d_obs": 0.56
+  },
+  "d": 1.8,
+  "label": "d_obs x1.4"
+ },
+ "effb7ab046": {
+  "over": {
+   "d_obs": 0.8
+  },
+  "d": 1.8,
+  "label": "d_obs x2"
+ },
+ "d3f8d8ad8e": {
+  "over": {
+   "c2_beta": 0.8
+  },
+  "d": 1.8,
+  "label": "c2_beta x0.5"
+ },
+ "95d96bf67c": {
+  "over": {
+   "c2_beta": 1.12
+  },
+  "d": 1.8,
+  "label": "c2_beta x0.7"
+ },
+ "60b85d97ff": {
+  "over": {
+   "c2_beta": 2.24
+  },
+  "d": 1.8,
+  "label": "c2_beta x1.4"
+ },
+ "0f87e43716": {
+  "over": {
+   "c2_beta": 3.2
+  },
+  "d": 1.8,
+  "label": "c2_beta x2"
+ },
+ "ce619ba1f6": {
+  "over": {
+   "d_shield": 1.25
+  },
+  "d": 1.8,
+  "label": "d_shield x0.5"
+ },
+ "7eff63bb38": {
+  "over": {
+   "d_shield": 1.75
+  },
+  "d": 1.8,
+  "label": "d_shield x0.7"
+ },
+ "410ea18740": {
+  "over": {
+   "d_shield": 3.5
+  },
+  "d": 1.8,
+  "label": "d_shield x1.4"
+ },
+ "fec2d4f887": {
+  "over": {
+   "d_shield": 5.0
+  },
+  "d": 1.8,
+  "label": "d_shield x2"
+ },
+ "633268e0b3": {
+  "over": {
+   "c_core": 0.75
+  },
+  "d": 1.8,
+  "label": "c_core x0.5"
+ },
+ "7c4051f65b": {
+  "over": {
+   "c_core": 1.05
+  },
+  "d": 1.8,
+  "label": "c_core x0.7"
+ },
+ "b671a0aac0": {
+  "over": {
+   "c_core": 2.1
+  },
+  "d": 1.8,
+  "label": "c_core x1.4"
+ },
+ "2e5998ca31": {
+  "over": {
+   "c_core": 3.0
+  },
+  "d": 1.8,
+  "label": "c_core x2"
+ },
+ "d3baf37526": {
+  "over": {
+   "c2_core": 0.3
+  },
+  "d": 1.8,
+  "label": "c2_core x0.5"
+ },
+ "7a5e75e6af": {
+  "over": {
+   "c2_core": 0.42
+  },
+  "d": 1.8,
+  "label": "c2_core x0.7"
+ },
+ "f8464fe8e8": {
+  "over": {
+   "c2_core": 0.84
+  },
+  "d": 1.8,
+  "label": "c2_core x1.4"
+ },
+ "057bcdc568": {
+  "over": {
+   "c2_core": 1.2
+  },
+  "d": 1.8,
+  "label": "c2_core x2"
+ },
+ "b1001f17a2": {
+  "over": {
+   "coreRadiusFraction": 0.25
+  },
+  "d": 1.8,
+  "label": "coreRadiusFraction x0.5"
+ },
+ "942821f504": {
+  "over": {
+   "coreRadiusFraction": 0.35
+  },
+  "d": 1.8,
+  "label": "coreRadiusFraction x0.7"
+ },
+ "9eca82001c": {
+  "over": {
+   "coreRadiusFraction": 0.7
+  },
+  "d": 1.8,
+  "label": "coreRadiusFraction x1.4"
+ },
+ "b5b7feedf4": {
+  "over": {
+   "coreRadiusFraction": 1.0
+  },
+  "d": 1.8,
+  "label": "coreRadiusFraction x2"
+ },
+ "d4da81b968": {
+  "over": {
+   "coreStandoffRatio": 0.25
+  },
+  "d": 1.8,
+  "label": "coreStandoffRatio x0.5"
+ },
+ "6a21165d84": {
+  "over": {
+   "coreStandoffRatio": 0.35
+  },
+  "d": 1.8,
+  "label": "coreStandoffRatio x0.7"
+ },
+ "a8d99802bc": {
+  "over": {
+   "coreStandoffRatio": 0.7
+  },
+  "d": 1.8,
+  "label": "coreStandoffRatio x1.4"
+ },
+ "97eebffe7e": {
+  "over": {
+   "coreStandoffRatio": 1.0
+  },
+  "d": 1.8,
+  "label": "coreStandoffRatio x2"
+ },
+ "e4aa6e58b8": {
+  "over": {
+   "c_damp": 1.0
+  },
+  "d": 1.8,
+  "label": "c_damp x0.5"
+ },
+ "4cdf0b3a73": {
+  "over": {
+   "c_damp": 1.4
+  },
+  "d": 1.8,
+  "label": "c_damp x0.7"
+ },
+ "e12e4a61e2": {
+  "over": {
+   "c_damp": 2.8
+  },
+  "d": 1.8,
+  "label": "c_damp x1.4"
+ },
+ "985ccdf370": {
+  "over": {
+   "c_damp": 4.0
+  },
+  "d": 1.8,
+  "label": "c_damp x2"
+ },
+ "f02caac963": {
+  "over": {
+   "d_damp": 0.15
+  },
+  "d": 1.8,
+  "label": "d_damp x0.5"
+ },
+ "3bab5db766": {
+  "over": {
+   "d_damp": 0.21
+  },
+  "d": 1.8,
+  "label": "d_damp x0.7"
+ },
+ "71223f91c7": {
+  "over": {
+   "d_damp": 0.42
+  },
+  "d": 1.8,
+  "label": "d_damp x1.4"
+ },
+ "32852fa390": {
+  "over": {
+   "d_damp": 0.6
+  },
+  "d": 1.8,
+  "label": "d_damp x2"
+ },
+ "09b200a616": {
+  "over": {
+   "c_vm": 0.0
+  },
+  "d": 1.8,
+  "label": "c_vm = 0"
+ },
+ "88d5729892": {
+  "over": {
+   "c_vm": 0.015
+  },
+  "d": 1.8,
+  "label": "c_vm = 0.015"
+ },
+ "f26284b85b": {
+  "over": {
+   "c_vm": 0.0675
+  },
+  "d": 1.8,
+  "label": "c_vm = 0.0675"
+ },
+ "e25da9551a": {
+  "over": {
+   "c_vm": 0.1125
+  },
+  "d": 1.8,
+  "label": "c_vm = 0.1125"
+ },
+ "e40b510c54": {
+  "over": {
+   "hollowSwarmCore": false
+  },
+  "d": 1.8,
+  "label": "core off"
+ },
+ "b97c0b72e2": {
+  "over": {},
+  "d": 2.2,
+  "label": "scene gains"
+ },
+ "ca7d19c60f": {
+  "over": {
+   "a": 0.4
+  },
+  "d": 2.2,
+  "label": "a x0.5"
+ },
+ "c37a460c7c": {
+  "over": {
+   "a": 0.56
+  },
+  "d": 2.2,
+  "label": "a x0.7"
+ },
+ "97a3360739": {
+  "over": {
+   "a": 1.12
+  },
+  "d": 2.2,
+  "label": "a x1.4"
+ },
+ "5ebbc92c30": {
+  "over": {
+   "a": 1.6
+  },
+  "d": 2.2,
+  "label": "a x2"
+ },
+ "94055b290e": {
+  "over": {
+   "b": 1.3
+  },
+  "d": 2.2,
+  "label": "b x0.5"
+ },
+ "7247dfd87e": {
+  "over": {
+   "b": 1.82
+  },
+  "d": 2.2,
+  "label": "b x0.7"
+ },
+ "98b32bd08c": {
+  "over": {
+   "b": 3.64
+  },
+  "d": 2.2,
+  "label": "b x1.4"
+ },
+ "130968dd5c": {
+  "over": {
+   "b": 5.2
+  },
+  "d": 2.2,
+  "label": "b x2"
+ },
+ "5be1cd8c4b": {
+  "over": {
+   "delta": 0.04
+  },
+  "d": 2.2,
+  "label": "delta x0.5"
+ },
+ "f52381c760": {
+  "over": {
+   "delta": 0.056
+  },
+  "d": 2.2,
+  "label": "delta x0.7"
+ },
+ "339eb66b24": {
+  "over": {
+   "delta": 0.112
+  },
+  "d": 2.2,
+  "label": "delta x1.4"
+ },
+ "d291dcf9f2": {
+  "over": {
+   "delta": 0.16
+  },
+  "d": 2.2,
+  "label": "delta x2"
+ },
+ "4cfb62c097": {
+  "over": {
+   "r0_coh": 15.0
+  },
+  "d": 2.2,
+  "label": "r0_coh x0.5"
+ },
+ "e0627b54d4": {
+  "over": {
+   "r0_coh": 21.0
+  },
+  "d": 2.2,
+  "label": "r0_coh x0.7"
+ },
+ "ea1cb7219c": {
+  "over": {
+   "r0_coh": 42.0
+  },
+  "d": 2.2,
+  "label": "r0_coh x1.4"
+ },
+ "74d0363d43": {
+  "over": {
+   "r0_coh": 60.0
+  },
+  "d": 2.2,
+  "label": "r0_coh x2"
+ },
+ "464ab31069": {
+  "over": {
+   "c_obs": 7.0
+  },
+  "d": 2.2,
+  "label": "c_obs x0.5"
+ },
+ "8de209a0a6": {
+  "over": {
+   "c_obs": 9.8
+  },
+  "d": 2.2,
+  "label": "c_obs x0.7"
+ },
+ "0f1fb7afb9": {
+  "over": {
+   "c_obs": 19.6
+  },
+  "d": 2.2,
+  "label": "c_obs x1.4"
+ },
+ "861a52e9f3": {
+  "over": {
+   "c_obs": 28.0
+  },
+  "d": 2.2,
+  "label": "c_obs x2"
+ },
+ "67c0e91a41": {
+  "over": {
+   "d_obs": 0.2
+  },
+  "d": 2.2,
+  "label": "d_obs x0.5"
+ },
+ "d82c425c55": {
+  "over": {
+   "d_obs": 0.28
+  },
+  "d": 2.2,
+  "label": "d_obs x0.7"
+ },
+ "9dfaae20dd": {
+  "over": {
+   "d_obs": 0.56
+  },
+  "d": 2.2,
+  "label": "d_obs x1.4"
+ },
+ "1b69e98d86": {
+  "over": {
+   "d_obs": 0.8
+  },
+  "d": 2.2,
+  "label": "d_obs x2"
+ },
+ "2ffd8fae6e": {
+  "over": {
+   "c2_beta": 0.8
+  },
+  "d": 2.2,
+  "label": "c2_beta x0.5"
+ },
+ "28b6ee1769": {
+  "over": {
+   "c2_beta": 1.12
+  },
+  "d": 2.2,
+  "label": "c2_beta x0.7"
+ },
+ "9e8886d19e": {
+  "over": {
+   "c2_beta": 2.24
+  },
+  "d": 2.2,
+  "label": "c2_beta x1.4"
+ },
+ "f61f635f1c": {
+  "over": {
+   "c2_beta": 3.2
+  },
+  "d": 2.2,
+  "label": "c2_beta x2"
+ },
+ "2ee50a31de": {
+  "over": {
+   "d_shield": 1.25
+  },
+  "d": 2.2,
+  "label": "d_shield x0.5"
+ },
+ "4d32536cbc": {
+  "over": {
+   "d_shield": 1.75
+  },
+  "d": 2.2,
+  "label": "d_shield x0.7"
+ },
+ "c07554ef33": {
+  "over": {
+   "d_shield": 3.5
+  },
+  "d": 2.2,
+  "label": "d_shield x1.4"
+ },
+ "f9544ca9c8": {
+  "over": {
+   "d_shield": 5.0
+  },
+  "d": 2.2,
+  "label": "d_shield x2"
+ },
+ "12efded6fd": {
+  "over": {
+   "c_core": 0.75
+  },
+  "d": 2.2,
+  "label": "c_core x0.5"
+ },
+ "ea4a284e1e": {
+  "over": {
+   "c_core": 1.05
+  },
+  "d": 2.2,
+  "label": "c_core x0.7"
+ },
+ "bb1674965f": {
+  "over": {
+   "c_core": 2.1
+  },
+  "d": 2.2,
+  "label": "c_core x1.4"
+ },
+ "b7c57c5d80": {
+  "over": {
+   "c_core": 3.0
+  },
+  "d": 2.2,
+  "label": "c_core x2"
+ },
+ "fa1dd382db": {
+  "over": {
+   "c2_core": 0.3
+  },
+  "d": 2.2,
+  "label": "c2_core x0.5"
+ },
+ "e4d1eb07d0": {
+  "over": {
+   "c2_core": 0.42
+  },
+  "d": 2.2,
+  "label": "c2_core x0.7"
+ },
+ "7e9725233a": {
+  "over": {
+   "c2_core": 0.84
+  },
+  "d": 2.2,
+  "label": "c2_core x1.4"
+ },
+ "b490f01672": {
+  "over": {
+   "c2_core": 1.2
+  },
+  "d": 2.2,
+  "label": "c2_core x2"
+ },
+ "7912cd2125": {
+  "over": {
+   "coreRadiusFraction": 0.25
+  },
+  "d": 2.2,
+  "label": "coreRadiusFraction x0.5"
+ },
+ "4505114921": {
+  "over": {
+   "coreRadiusFraction": 0.35
+  },
+  "d": 2.2,
+  "label": "coreRadiusFraction x0.7"
+ },
+ "95e372d305": {
+  "over": {
+   "coreRadiusFraction": 0.7
+  },
+  "d": 2.2,
+  "label": "coreRadiusFraction x1.4"
+ },
+ "5d92b14794": {
+  "over": {
+   "coreRadiusFraction": 1.0
+  },
+  "d": 2.2,
+  "label": "coreRadiusFraction x2"
+ },
+ "6fe16fbc9f": {
+  "over": {
+   "coreStandoffRatio": 0.25
+  },
+  "d": 2.2,
+  "label": "coreStandoffRatio x0.5"
+ },
+ "58a7d7aea8": {
+  "over": {
+   "coreStandoffRatio": 0.35
+  },
+  "d": 2.2,
+  "label": "coreStandoffRatio x0.7"
+ },
+ "ba8e1a65c6": {
+  "over": {
+   "coreStandoffRatio": 0.7
+  },
+  "d": 2.2,
+  "label": "coreStandoffRatio x1.4"
+ },
+ "861cc356d6": {
+  "over": {
+   "coreStandoffRatio": 1.0
+  },
+  "d": 2.2,
+  "label": "coreStandoffRatio x2"
+ },
+ "eff86d56ff": {
+  "over": {
+   "c_damp": 1.0
+  },
+  "d": 2.2,
+  "label": "c_damp x0.5"
+ },
+ "28df72b8d3": {
+  "over": {
+   "c_damp": 1.4
+  },
+  "d": 2.2,
+  "label": "c_damp x0.7"
+ },
+ "496aa47891": {
+  "over": {
+   "c_damp": 2.8
+  },
+  "d": 2.2,
+  "label": "c_damp x1.4"
+ },
+ "a8f1eef626": {
+  "over": {
+   "c_damp": 4.0
+  },
+  "d": 2.2,
+  "label": "c_damp x2"
+ },
+ "3eccf69ee1": {
+  "over": {
+   "d_damp": 0.15
+  },
+  "d": 2.2,
+  "label": "d_damp x0.5"
+ },
+ "275a95fe49": {
+  "over": {
+   "d_damp": 0.21
+  },
+  "d": 2.2,
+  "label": "d_damp x0.7"
+ },
+ "dd4e2074b3": {
+  "over": {
+   "d_damp": 0.42
+  },
+  "d": 2.2,
+  "label": "d_damp x1.4"
+ },
+ "d125f13199": {
+  "over": {
+   "d_damp": 0.6
+  },
+  "d": 2.2,
+  "label": "d_damp x2"
+ },
+ "e545439048": {
+  "over": {
+   "c_vm": 0.0
+  },
+  "d": 2.2,
+  "label": "c_vm = 0"
+ },
+ "cf3359450c": {
+  "over": {
+   "c_vm": 0.015
+  },
+  "d": 2.2,
+  "label": "c_vm = 0.015"
+ },
+ "23e90ae1e4": {
+  "over": {
+   "c_vm": 0.0675
+  },
+  "d": 2.2,
+  "label": "c_vm = 0.0675"
+ },
+ "6e6280b4cb": {
+  "over": {
+   "c_vm": 0.1125
+  },
+  "d": 2.2,
+  "label": "c_vm = 0.1125"
+ },
+ "76f2c1aba8": {
+  "over": {
+   "hollowSwarmCore": false
+  },
+  "d": 2.2,
+  "label": "core off"
+ }
+}

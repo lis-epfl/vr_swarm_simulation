@@ -1,0 +1,6 @@
+[
+ {"label": "T3", "d": 2.0, "over": {"d_shield": 1.6, "d_obs": 0.16},
+  "why": "the rule (rule.json) on the confirmation run: no candidate met every safety bar (all exceeded 0.1 contacts/km), so the highest penalised score",
+  "confirm": {"v_coh": 4.032, "v_prog": 4.766, "one": 0.844, "lost_km": 0.019, "contact_km": 0.373, "open": 0.036, "hull": 0.576, "wrapped": 0.961},
+  "unity_bench": {"run": "D:/claude_obstacle_bench/runs/swarmtune_bench_tuned", "v_coh": 3.943, "v_prog": 4.742, "one": 0.826, "lost_km": 0.108, "contact_km": 0.538, "open": 0.031, "wrapped": 0.98}}
+]

@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s7_street",
+  "kind": "street",
+  "k": 5009,
+  "title": "Along the streets",
+  "first": "all",
+  "why": "the typical street route: its all-three-minus-T3 difference (1.25 m/s) is the nearest to the median of its kind (1.25 m/s, 14 routes)",
+  "met": 0
+ },
+ "flights": {
+  "single_off": [
+   "s7_street_single_off_replica",
+   "s7_street_single_off_unity"
+  ],
+  "single_slide": [
+   "s7_street_single_slide_replica",
+   "s7_street_single_slide_unity"
+  ],
+  "t3": [
+   "s7_street_t3_replica",
+   "s7_street_t3_unity"
+  ],
+  "adaptive": [
+   "s7_street_adaptive_replica",
+   "s7_street_adaptive_unity"
+  ],
+  "slide": [
+   "s7_street_slide_replica",
+   "s7_street_slide_unity"
+  ],
+  "route": [
+   "s7_street_route_replica",
+   "s7_street_route_unity"
+  ],
+  "all": [
+   "s7_street_all_replica",
+   "s7_street_all_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

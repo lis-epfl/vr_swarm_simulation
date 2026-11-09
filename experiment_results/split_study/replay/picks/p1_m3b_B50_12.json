@@ -1,0 +1,20 @@
+{
+ "pick": {
+  "key": "p1_m3b_B50_12",
+  "run": "p1_confirm",
+  "kind": "M3b",
+  "v": "B",
+  "p": 50,
+  "s": 12,
+  "rule": "contact",
+  "title": "Surround and exit, B, p 50 \u00b7 s 12",
+  "about": "Variant B with 12 m streets: the longer ring round a block-shaped building is slow to go round (2 of its 5 streets previewed in 6 s), and a drone scrapes the building as the formation turns off at its corner."
+ },
+ "identical": true,
+ "flights": [
+  "p1_m3b_B50_12"
+ ],
+ "chain": null,
+ "target": null,
+ "wall_s": 7.8
+}

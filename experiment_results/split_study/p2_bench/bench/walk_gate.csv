@@ -1,0 +1,6 @@
+condition,bench_hops,replica_hops,bench_preview,replica_preview,bench_street_km,replica_street_km,bench_find80,replica_find80,bench_lost,replica_lost,bench_contacts,replica_contacts
+single,37.25,37.469,0.64,0.622,9.456,9.421,478.2,478.756,0.0,0.0,0.0,0.0
+swarm_hold,27.938,28.188,0.895,0.893,10.916,10.926,452.965,452.608,0.188,0.062,0.094,0.125
+swarm_hop,29.906,30.344,0.962,0.96,11.778,11.791,435.742,435.675,0.438,0.219,1.438,0.844
+swarm_pass,37.344,37.688,0.986,0.985,12.295,12.326,430.977,430.391,0.094,0.0,0.469,0.312
+swarm_street,36.219,36.594,0.881,0.862,12.336,12.351,430.031,429.424,0.188,0.0,0.156,0.062

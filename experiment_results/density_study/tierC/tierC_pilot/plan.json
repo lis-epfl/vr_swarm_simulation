@@ -1,0 +1,388 @@
+{
+ "generated": "2026-10-13T17:43:40",
+ "name": "tierC_pilot",
+ "sweep": "tierB2",
+ "bench_root": "D:\\claude_obstacle_bench",
+ "pick": {
+  "L1": "C0-G0",
+  "L2": "C0-G10",
+  "L3": "C2-G7"
+ },
+ "levels": [
+  "C0-G0",
+  "C0-G10",
+  "C2-G7",
+  "C1-G0",
+  "C0-G2",
+  "C1-G10",
+  "C0-G9",
+  "C1-G7",
+  "C2-G6"
+ ],
+ "altitude": 12.4,
+ "time_scale": 20.0,
+ "routing": "pilot",
+ "capture": 6.0,
+ "runs": [
+  {
+   "tag": "tierC_tierC_pilot_C0-G0_s101_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G0_s101_n10.json",
+   "level": "C0-G0",
+   "seed": 101,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed101",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L1_C0-G0__bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed101.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G0_s101_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G0_s101_n1.json",
+   "level": "C0-G0",
+   "seed": 101,
+   "drones": 1,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed101",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L1_C0-G0__bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed101.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G0_s102_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G0_s102_n10.json",
+   "level": "C0-G0",
+   "seed": 102,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed102",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L1_C0-G0__bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed102.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G0_s102_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G0_s102_n1.json",
+   "level": "C0-G0",
+   "seed": 102,
+   "drones": 1,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed102",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L1_C0-G0__bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed102.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G0_s103_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G0_s103_n10.json",
+   "level": "C0-G0",
+   "seed": 103,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed103",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L1_C0-G0__bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed103.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G0_s103_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G0_s103_n1.json",
+   "level": "C0-G0",
+   "seed": 103,
+   "drones": 1,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed103",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L1_C0-G0__bl_p90.83_s15_a0.024_g4_x2_wc7_rg26_nb8_rs0.9_seed103.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G10_s101_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G10_s101_n10.json",
+   "level": "C0-G10",
+   "seed": 101,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed101",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L2_C0-G10__bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed101.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G10_s101_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G10_s101_n1.json",
+   "level": "C0-G10",
+   "seed": 101,
+   "drones": 1,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed101",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L2_C0-G10__bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed101.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G10_s102_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G10_s102_n10.json",
+   "level": "C0-G10",
+   "seed": 102,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed102",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L2_C0-G10__bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed102.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G10_s102_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G10_s102_n1.json",
+   "level": "C0-G10",
+   "seed": 102,
+   "drones": 1,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed102",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L2_C0-G10__bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed102.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G10_s103_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G10_s103_n10.json",
+   "level": "C0-G10",
+   "seed": 103,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed103",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L2_C0-G10__bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed103.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G10_s103_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G10_s103_n1.json",
+   "level": "C0-G10",
+   "seed": 103,
+   "drones": 1,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed103",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L2_C0-G10__bl_p90.83_s15_a0.024_g4_x2_wc28_rg48_nb8_rs0.9_seed103.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G7_s101_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G7_s101_n10.json",
+   "level": "C2-G7",
+   "seed": 101,
+   "drones": 10,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed101",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L3_C2-G7__bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed101.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G7_s101_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G7_s101_n1.json",
+   "level": "C2-G7",
+   "seed": 101,
+   "drones": 1,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed101",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L3_C2-G7__bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed101.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G7_s102_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G7_s102_n10.json",
+   "level": "C2-G7",
+   "seed": 102,
+   "drones": 10,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed102",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L3_C2-G7__bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed102.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G7_s102_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G7_s102_n1.json",
+   "level": "C2-G7",
+   "seed": 102,
+   "drones": 1,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed102",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L3_C2-G7__bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed102.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G7_s103_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G7_s103_n10.json",
+   "level": "C2-G7",
+   "seed": 103,
+   "drones": 10,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed103",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L3_C2-G7__bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed103.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G7_s103_n1",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G7_s103_n1.json",
+   "level": "C2-G7",
+   "seed": 103,
+   "drones": 1,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed103",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\L3_C2-G7__bl_p60_s10_a0.17_g4_x2_wc10_rg17_nb6_rs0.9_seed103.json",
+   "picked": true
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G0_s0_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G0_s0_n10.json",
+   "level": "C1-G0",
+   "seed": 0,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc7_rg26_nb8_rs0.9_seed0",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc7_rg26_nb8_rs0.9_seed0.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G0_s1_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G0_s1_n10.json",
+   "level": "C1-G0",
+   "seed": 1,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc7_rg26_nb8_rs0.9_seed1",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc7_rg26_nb8_rs0.9_seed1.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G0_s2_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G0_s2_n10.json",
+   "level": "C1-G0",
+   "seed": 2,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc7_rg26_nb8_rs0.9_seed2",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc7_rg26_nb8_rs0.9_seed2.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G2_s0_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G2_s0_n10.json",
+   "level": "C0-G2",
+   "seed": 0,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc13.06_rg30_nb8_rs0.9_seed0",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p90.83_s15_a0.024_g4_x2_wc13.06_rg30_nb8_rs0.9_seed0.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G2_s1_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G2_s1_n10.json",
+   "level": "C0-G2",
+   "seed": 1,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc13.06_rg30_nb8_rs0.9_seed1",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p90.83_s15_a0.024_g4_x2_wc13.06_rg30_nb8_rs0.9_seed1.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G2_s2_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G2_s2_n10.json",
+   "level": "C0-G2",
+   "seed": 2,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc13.06_rg30_nb8_rs0.9_seed2",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p90.83_s15_a0.024_g4_x2_wc13.06_rg30_nb8_rs0.9_seed2.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G10_s0_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G10_s0_n10.json",
+   "level": "C1-G10",
+   "seed": 0,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc28_rg48_nb8_rs0.9_seed0",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc28_rg48_nb8_rs0.9_seed0.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G10_s1_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G10_s1_n10.json",
+   "level": "C1-G10",
+   "seed": 1,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc28_rg48_nb8_rs0.9_seed1",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc28_rg48_nb8_rs0.9_seed1.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G10_s2_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G10_s2_n10.json",
+   "level": "C1-G10",
+   "seed": 2,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc28_rg48_nb8_rs0.9_seed2",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc28_rg48_nb8_rs0.9_seed2.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G9_s0_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G9_s0_n10.json",
+   "level": "C0-G9",
+   "seed": 0,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc24_rg44_nb8_rs0.9_seed0",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p90.83_s15_a0.024_g4_x2_wc24_rg44_nb8_rs0.9_seed0.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G9_s1_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G9_s1_n10.json",
+   "level": "C0-G9",
+   "seed": 1,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc24_rg44_nb8_rs0.9_seed1",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p90.83_s15_a0.024_g4_x2_wc24_rg44_nb8_rs0.9_seed1.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C0-G9_s2_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C0-G9_s2_n10.json",
+   "level": "C0-G9",
+   "seed": 2,
+   "drones": 10,
+   "layout": "bl_p90.83_s15_a0.024_g4_x2_wc24_rg44_nb8_rs0.9_seed2",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p90.83_s15_a0.024_g4_x2_wc24_rg44_nb8_rs0.9_seed2.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G7_s0_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G7_s0_n10.json",
+   "level": "C1-G7",
+   "seed": 0,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc10_rg17_nb6_rs0.9_seed0",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc10_rg17_nb6_rs0.9_seed0.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G7_s1_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G7_s1_n10.json",
+   "level": "C1-G7",
+   "seed": 1,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc10_rg17_nb6_rs0.9_seed1",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc10_rg17_nb6_rs0.9_seed1.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C1-G7_s2_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C1-G7_s2_n10.json",
+   "level": "C1-G7",
+   "seed": 2,
+   "drones": 10,
+   "layout": "bl_p70_s12_a0.12_g4_x2_wc10_rg17_nb6_rs0.9_seed2",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p70_s12_a0.12_g4_x2_wc10_rg17_nb6_rs0.9_seed2.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G6_s0_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G6_s0_n10.json",
+   "level": "C2-G6",
+   "seed": 0,
+   "drones": 10,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc13.06_rg20_nb8_rs0.9_seed0",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p60_s10_a0.17_g4_x2_wc13.06_rg20_nb8_rs0.9_seed0.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G6_s1_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G6_s1_n10.json",
+   "level": "C2-G6",
+   "seed": 1,
+   "drones": 10,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc13.06_rg20_nb8_rs0.9_seed1",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p60_s10_a0.17_g4_x2_wc13.06_rg20_nb8_rs0.9_seed1.json",
+   "picked": false
+  },
+  {
+   "tag": "tierC_tierC_pilot_C2-G6_s2_n10",
+   "config": "D:\\claude_obstacle_bench\\cfg\\tierC\\tierC_pilot\\tierC_tierC_pilot_C2-G6_s2_n10.json",
+   "level": "C2-G6",
+   "seed": 2,
+   "drones": 10,
+   "layout": "bl_p60_s10_a0.17_g4_x2_wc13.06_rg20_nb8_rs0.9_seed2",
+   "layout_path": "C:\\Users\\jarvis\\Documents\\vr_swarm_simulation\\Assets\\Scripts\\Experiment\\layouts\\sweep~\\tierB2\\bl_p60_s10_a0.17_g4_x2_wc13.06_rg20_nb8_rs0.9_seed2.json",
+   "picked": false
+  }
+ ]
+}

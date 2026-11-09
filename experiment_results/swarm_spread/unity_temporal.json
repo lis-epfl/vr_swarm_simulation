@@ -1,0 +1,514 @@
+{
+ "runs": [
+  "swarmspread_bench_spread",
+  "swarmspread_bench_spread2",
+  "swarmspread_bench_spread3"
+ ],
+ "rows": {
+  "F20": {
+   "flights": 440,
+   "drones": 53,
+   "events": 28,
+   "hours": 9.399,
+   "phase": {
+    "narrowing": {
+     "events": 10,
+     "hours": 2.3514,
+     "per_hour": 4.2529,
+     "lo": 2.0394,
+     "hi": 7.8212,
+     "share": 0.2502
+    },
+    "widening": {
+     "events": 5,
+     "hours": 2.1431,
+     "per_hour": 2.3331,
+     "lo": 0.7576,
+     "hi": 5.4447,
+     "share": 0.228
+    },
+    "narrow": {
+     "events": 13,
+     "hours": 4.1806,
+     "per_hour": 3.1096,
+     "lo": 1.6557,
+     "hi": 5.3175,
+     "share": 0.4448
+    },
+    "wide": {
+     "events": 0,
+     "hours": 0.724,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 5.0953,
+     "share": 0.077
+    }
+   },
+   "place_p": 0.1389,
+   "since_exp": {
+    "S0": 7503.6,
+    "S1": 4681.0,
+    "S2": 3377.9,
+    "B0": 6848.8,
+    "B1": 1659.1,
+    "S3": 3859.8,
+    "S4": 3233.0,
+    "S5": 2329.3,
+    "B2": 156.4,
+    "B3": 127.2,
+    "B4": 59.7,
+    "B5": 0.6
+   },
+   "since_ev": {
+    "S1": 9,
+    "B0": 4,
+    "B1": 2,
+    "B2": 1,
+    "S0": 7,
+    "S3": 1,
+    "S2": 1,
+    "S5": 1,
+    "S4": 2
+   }
+  },
+  "A85": {
+   "flights": 440,
+   "drones": 59,
+   "events": 30,
+   "hours": 9.1873,
+   "phase": {
+    "narrowing": {
+     "events": 12,
+     "hours": 2.2624,
+     "per_hour": 5.304,
+     "lo": 2.7407,
+     "hi": 9.265,
+     "share": 0.2463
+    },
+    "widening": {
+     "events": 2,
+     "hours": 2.0819,
+     "per_hour": 0.9607,
+     "lo": 0.1163,
+     "hi": 3.4702,
+     "share": 0.2266
+    },
+    "narrow": {
+     "events": 11,
+     "hours": 4.1628,
+     "per_hour": 2.6425,
+     "lo": 1.3191,
+     "hi": 4.7281,
+     "share": 0.4531
+    },
+    "wide": {
+     "events": 5,
+     "hours": 0.6802,
+     "per_hour": 7.3505,
+     "lo": 2.3867,
+     "hi": 17.1537,
+     "share": 0.074
+    }
+   },
+   "place_p": 0.0456,
+   "since_exp": {
+    "S0": 7388.3,
+    "S1": 4555.3,
+    "S2": 3337.0,
+    "B0": 6797.1,
+    "B1": 1392.0,
+    "S3": 3858.2,
+    "S4": 3186.6,
+    "S5": 2337.0,
+    "B2": 102.0,
+    "B3": 78.7,
+    "B4": 42.2
+   },
+   "since_ev": {
+    "S1": 7,
+    "S3": 3,
+    "B0": 4,
+    "S0": 10,
+    "S4": 2,
+    "S2": 3,
+    "B1": 1
+   }
+  },
+  "A90": {
+   "flights": 40,
+   "drones": 6,
+   "events": 3,
+   "hours": 0.8268,
+   "phase": {
+    "narrowing": {
+     "events": 1,
+     "hours": 0.2143,
+     "per_hour": 4.6668,
+     "lo": 0.1182,
+     "hi": 26.002,
+     "share": 0.2592
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.1943,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 18.9849,
+     "share": 0.235
+    },
+    "narrow": {
+     "events": 1,
+     "hours": 0.3557,
+     "per_hour": 2.8112,
+     "lo": 0.0712,
+     "hi": 15.6629,
+     "share": 0.4302
+    },
+    "wide": {
+     "events": 1,
+     "hours": 0.0625,
+     "per_hour": 16.0,
+     "lo": 0.4051,
+     "hi": 89.1463,
+     "share": 0.0756
+    }
+   },
+   "place_p": 0.5934,
+   "since_exp": {
+    "S0": 672.5,
+    "S1": 409.2,
+    "S2": 299.1,
+    "B0": 634.7,
+    "B1": 139.6,
+    "S3": 327.3,
+    "S4": 249.5,
+    "S5": 238.8,
+    "B2": 4.9,
+    "B3": 0.9
+   },
+   "since_ev": {
+    "B0": 1,
+    "S5": 1,
+    "S1": 1
+   }
+  },
+  "A95": {
+   "flights": 40,
+   "drones": 2,
+   "events": 1,
+   "hours": 0.8324,
+   "phase": {
+    "narrowing": {
+     "events": 1,
+     "hours": 0.217,
+     "per_hour": 4.6083,
+     "lo": 0.1167,
+     "hi": 25.6758,
+     "share": 0.2607
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.1992,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 18.519,
+     "share": 0.2393
+    },
+    "narrow": {
+     "events": 0,
+     "hours": 0.3555,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 10.3766,
+     "share": 0.4271
+    },
+    "wide": {
+     "events": 0,
+     "hours": 0.0608,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 60.7223,
+     "share": 0.073
+    }
+   },
+   "place_p": 0.2607,
+   "since_exp": {
+    "S0": 677.9,
+    "S1": 412.7,
+    "S2": 299.9,
+    "B0": 633.6,
+    "B1": 147.9,
+    "S3": 328.8,
+    "S4": 258.7,
+    "S5": 225.9,
+    "B2": 8.4,
+    "B3": 3.0
+   },
+   "since_ev": {
+    "S1": 1
+   }
+  },
+  "F17": {
+   "flights": 140,
+   "drones": 17,
+   "events": 9,
+   "hours": 2.8553,
+   "phase": {
+    "narrowing": {
+     "events": 3,
+     "hours": 0.695,
+     "per_hour": 4.3167,
+     "lo": 0.8902,
+     "hi": 12.6153,
+     "share": 0.2434
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.6436,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 5.7315,
+     "share": 0.2254
+    },
+    "narrow": {
+     "events": 5,
+     "hours": 1.3161,
+     "per_hour": 3.7991,
+     "lo": 1.2335,
+     "hi": 8.8658,
+     "share": 0.4609
+    },
+    "wide": {
+     "events": 1,
+     "hours": 0.2006,
+     "per_hour": 4.9848,
+     "lo": 0.1262,
+     "hi": 27.7734,
+     "share": 0.0703
+    }
+   },
+   "place_p": 0.3808,
+   "since_exp": {
+    "S0": 2278.5,
+    "S1": 1421.7,
+    "S2": 1036.8,
+    "B0": 2089.6,
+    "B1": 384.0,
+    "S3": 1204.4,
+    "S4": 979.0,
+    "S5": 820.5,
+    "B2": 28.1,
+    "B3": 21.0,
+    "B4": 15.5
+   },
+   "since_ev": {
+    "S0": 4,
+    "S4": 1,
+    "B0": 1,
+    "S1": 3
+   }
+  },
+  "L85": {
+   "flights": 40,
+   "drones": 4,
+   "events": 2,
+   "hours": 0.7725,
+   "phase": {
+    "narrowing": {
+     "events": 0,
+     "hours": 0.1816,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 20.3151,
+     "share": 0.2351
+    },
+    "widening": {
+     "events": 0,
+     "hours": 0.1714,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 21.52,
+     "share": 0.2219
+    },
+    "narrow": {
+     "events": 2,
+     "hours": 0.3606,
+     "per_hour": 5.5461,
+     "lo": 0.6717,
+     "hi": 20.0346,
+     "share": 0.4668
+    },
+    "wide": {
+     "events": 0,
+     "hours": 0.0589,
+     "per_hour": 0.0,
+     "lo": 0.0,
+     "hi": 62.6118,
+     "share": 0.0763
+    }
+   },
+   "place_p": 1.0,
+   "since_exp": {
+    "S0": 640.3,
+    "S1": 368.0,
+    "S2": 268.5,
+    "S3": 329.8,
+    "B0": 608.0,
+    "B1": 73.9,
+    "S4": 254.6,
+    "S5": 236.6,
+    "B2": 1.4
+   },
+   "since_ev": {
+    "B0": 1,
+    "S0": 1
+   }
+  }
+ },
+ "compare": {
+  "A85>F20": {
+   "a": [
+    "A85"
+   ],
+   "b": [
+    "F20"
+   ],
+   "per_phase": {
+    "narrowing": {
+     "ka": 12,
+     "kb": 10,
+     "ratio": 1.2472,
+     "p_worse": 0.3806
+    },
+    "widening": {
+     "ka": 2,
+     "kb": 5,
+     "ratio": 0.4117,
+     "p_worse": 0.9326
+    },
+    "narrow": {
+     "ka": 11,
+     "kb": 13,
+     "ratio": 0.8498,
+     "p_worse": 0.7259
+    },
+    "wide": {
+     "ka": 5,
+     "kb": 0,
+     "ratio": null,
+     "p_worse": 0.0267
+    }
+   },
+   "p_worse_all": 0.4136,
+   "ratio_all": 1.0961,
+   "homogeneity": {
+    "common": 1.0988,
+    "lr": 8.7879,
+    "df": 3,
+    "p": 0.0322
+   },
+   "narrowing_vs_rest": {
+    "ratio_narrowing": 1.2472,
+    "ratio_rest": 1.0177,
+    "lr": 0.1406,
+    "p": 0.7077
+   }
+  },
+  "F17>F20": {
+   "a": [
+    "F17"
+   ],
+   "b": [
+    "F20"
+   ],
+   "per_phase": {
+    "narrowing": {
+     "ka": 3,
+     "kb": 10,
+     "ratio": 1.015,
+     "p_worse": 0.5977
+    },
+    "widening": {
+     "ka": 0,
+     "kb": 5,
+     "ratio": 0.0,
+     "p_worse": 1.0
+    },
+    "narrow": {
+     "ka": 5,
+     "kb": 13,
+     "ratio": 1.2217,
+     "p_worse": 0.4391
+    },
+    "wide": {
+     "ka": 1,
+     "kb": 0,
+     "ratio": null,
+     "p_worse": 0.217
+    }
+   },
+   "p_worse_all": 0.5047,
+   "ratio_all": 1.0581,
+   "homogeneity": {
+    "common": 1.0539,
+    "lr": 5.8044,
+    "df": 3,
+    "p": 0.1215
+   },
+   "narrowing_vs_rest": {
+    "ratio_narrowing": 1.015,
+    "ratio_rest": 1.0874,
+    "lr": 0.0073,
+    "p": 0.932
+   }
+  },
+  "A85>F17": {
+   "a": [
+    "A85"
+   ],
+   "b": [
+    "F17"
+   ],
+   "per_phase": {
+    "narrowing": {
+     "ka": 12,
+     "kb": 3,
+     "ratio": 1.2287,
+     "p_worse": 0.5163
+    },
+    "widening": {
+     "ka": 2,
+     "kb": 0,
+     "ratio": null,
+     "p_worse": 0.5835
+    },
+    "narrow": {
+     "ka": 11,
+     "kb": 5,
+     "ratio": 0.6956,
+     "p_worse": 0.8353
+    },
+    "wide": {
+     "ka": 5,
+     "kb": 1,
+     "ratio": 1.4746,
+     "p_worse": 0.5874
+    }
+   },
+   "p_worse_all": 0.551,
+   "ratio_all": 1.036,
+   "homogeneity": {
+    "common": 1.0301,
+    "lr": 1.7454,
+    "df": 3,
+    "p": 0.6269
+   },
+   "narrowing_vs_rest": {
+    "ratio_narrowing": 1.2287,
+    "ratio_rest": 0.9359,
+    "lr": 0.1179,
+    "p": 0.7314
+   }
+  }
+ }
+}

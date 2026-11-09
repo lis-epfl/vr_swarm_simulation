@@ -1,0 +1,185 @@
+[
+ {
+  "label": "C25 enclosing circle, d_obs 0.25, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E125_25 ellipse, aspect cap 1.25, d_obs 0.25, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E15_25 ellipse, aspect cap 1.5, d_obs 0.25, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E2_25 ellipse, aspect cap 2, d_obs 0.25, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.25,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "C35 enclosing circle, d_obs 0.35, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E125_35 ellipse, aspect cap 1.25, d_obs 0.35, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E2_35 ellipse, aspect cap 2, d_obs 0.35, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "C45 enclosing circle, d_obs 0.45, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E125_45 ellipse, aspect cap 1.25, d_obs 0.45, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E15_45 ellipse, aspect cap 1.5, d_obs 0.45, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E2_45 ellipse, aspect cap 2, d_obs 0.45, spread held",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 2.0,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "E15_35c ellipse, aspect cap 1.5, d_obs 0.35, the S7 rules aiming by the enclosing circle",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "x:ell_aim": "circle"
+  }
+ }
+]

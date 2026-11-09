@@ -1,0 +1,127 @@
+[
+ {
+  "label": "T3",
+  "d": 2.0,
+  "over": {}
+ },
+ {
+  "label": "route press 0.3",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.3
+  }
+ },
+ {
+  "label": "route press 0.5",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  }
+ },
+ {
+  "label": "route press 0.7",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  }
+ },
+ {
+  "label": "route press 1",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 1.0
+  }
+ },
+ {
+  "label": "slide",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6
+  }
+ },
+ {
+  "label": "adaptive 0.7 aim 0.6",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundAimFraction": 0.6
+  }
+ },
+ {
+  "label": "slide + route 0.5",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  }
+ },
+ {
+  "label": "slide + route 0.7",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  }
+ },
+ {
+  "label": "slide + adaptive",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  }
+ },
+ {
+  "label": "route 0.5 + adaptive",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  }
+ },
+ {
+  "label": "all three, route 0.5",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  }
+ },
+ {
+  "label": "all three, route 0.7",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  }
+ }
+]

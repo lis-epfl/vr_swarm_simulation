@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s7_cross",
+  "kind": "cross",
+  "k": 5006,
+  "title": "A straight line across the city",
+  "first": "all",
+  "why": "the typical straight line (of those meeting three buildings): its all-three-minus-T3 difference (1.16 m/s) is the nearest to the median of its kind (1.16 m/s, 30 routes)",
+  "met": 4
+ },
+ "flights": {
+  "single_off": [
+   "s7_cross_single_off_replica",
+   "s7_cross_single_off_unity"
+  ],
+  "single_slide": [
+   "s7_cross_single_slide_replica",
+   "s7_cross_single_slide_unity"
+  ],
+  "t3": [
+   "s7_cross_t3_replica",
+   "s7_cross_t3_unity"
+  ],
+  "adaptive": [
+   "s7_cross_adaptive_replica",
+   "s7_cross_adaptive_unity"
+  ],
+  "slide": [
+   "s7_cross_slide_replica",
+   "s7_cross_slide_unity"
+  ],
+  "route": [
+   "s7_cross_route_replica",
+   "s7_cross_route_unity"
+  ],
+  "all": [
+   "s7_cross_all_replica",
+   "s7_cross_all_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

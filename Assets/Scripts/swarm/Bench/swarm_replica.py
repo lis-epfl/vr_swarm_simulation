@@ -1,0 +1,2133 @@
+"""Horizontal-plane replica of the swarm, for fast A/B tests on recorded pilot input.
+
+    python swarm_replica.py sim    --test internal_3 [--variant "core off"] [--set c_damp=0] [--seeds 3]
+    python swarm_replica.py forces --test internal_3 [--crash RUN@T[:i,j]]
+    python swarm_replica.py step   [--scene ScaledCityWorld] [--variant ...]
+    python swarm_replica.py params --test internal_3 [--run STEM]
+    python swarm_replica.py validate D:/claude_obstacle_bench/runs/<tag> [more runs]
+
+  sim     closed loop. Each recorded swarm run's pilot inputs (stick, body yaw, spread) drive a simulated swarm
+          from that run's take-off state through that run's city -- the edit-mode city with the run's goal
+          patches swapped in, as GoalPatchReplacer did at runtime. Reports drone-drone and building kills per
+          minute, split at the tightest spread (d_ref <= 0.45), plus spacing, hull fraction and speed.
+  forces  open loop. The force law evaluated on the RECORDED states before each drone-drone crash in
+          results/crashes.csv (`analyse.py run` writes it), attributing the pair's closing acceleration to
+          each term. Positive = pushes the pair together.
+  step    spread-stick step response at hover in open sky (the spread-response requirement: any retune must
+          keep the swarm following d_ref quickly and stably), then a cruise / stop / reversal block at d_ref 0.4.
+  params  the resolved parameters and where each one came from.
+  validate  the replica against the headless Unity bench: every flight of a bench run that recorded its trajectory
+          (bench.py config --record-all) is flown again here -- the same city (the run's layout.json, or the
+          scene's city_obstacles file), the exact SwarmManager values the run logged, the recorded start, and the
+          bench's own pilot (stick at the next waypoint, capture radius, timeouts, spread schedule) -- and compared:
+          centroid track error, mean nearest-neighbour spacing, drones lost, and for spread steps the settled ring
+          and t90. VALIDATION_LIMITS is the pass/fail gate the visibility study puts before its Tier B' results.
+
+Run with the `stitching` env. Output goes to <test>/results/replica/ (or --out).
+
+WHAT IT MIRRORS: OlfatiSaber.GetSwarmAcceleration (cohesion, velocity consensus, close-range damper, obstacle
+beta-agents, hollow core, the shield's projection, and S7's three switches: the slide round buildings, straggler
+routing and the adaptive spread -- slide_round, route_round, aim_miss, spread_target -- and S8's obstacleShape: the
+bounds circle, the footprint's enclosing circle or the footprint itself -- enclosing_circle, aim_circle, the
+obstacle branches -- and S10's Ellipse: mvee_axis, ellipse_fit, PolyCity.ellipses, ell_frame, and the S7 rules
+in the ellipse's unit space, _slide_ellipse among them), SwarmPlaneController's core
+and spread state (centroid, mean velocity, filtered radius, filtered spread scale), VelocityControl's horizontal loop (stick resolution, shield, velocity P-loop,
+swarm-force low-pass, circular tilt clamp, tilt -> rate -> alpha cascade, linear and angular drag) and
+StateFinder's noise -- AS OF FORCE_LAW_COMMIT. Every number comes from the C# initialisers, the scene, the
+prefab or the experiment's own records (swarm_params.py); the STRUCTURE of the law is written out here, so it
+goes stale the next time the C# changes. sim, forces and step check git for changes to FORCE_LAW_FILES since
+FORCE_LAW_COMMIT and refuse (exit 3) unless --allow-stale (params just reports it): review the diff, bring
+this file into line, then bump the constant.
+
+AHEAD OF THE C# (the split study, S4, Phase 1): PolyCity (convex prism buildings) and the Model extras obstacle_model
+"closest" / face_bend. Both are off by default, so everything above flies exactly as before; the C# has neither until
+S4 chooses its block-shaped variant (docs/studies/S4_split_and_surround.md).
+
+WHAT IT DOES NOT MODEL -- check before trusting a result that depends on one of these:
+  - Heading/yaw. No hull heading rule, no look-direction gap fill, no FPV view. Heading does not feed
+    translation, so kills and spacing are unaffected; anything about what the pilot sees is out of reach.
+  - Altitude. No climb or descent, no altitude ceiling, no MinHeight floor, no plane mode. In `sim` every
+    drone is taken to be within every building's height (obstacles are queried by footprint). `forces` uses
+    the recorded 3D positions, so its obstacle query does see altitude.
+  - Street furniture. Obstacles are the Obstacle-layer buildings in city_obstacles_<city>.json plus each goal
+    patch's nine buildings. Lamps, poles and props sit on Default -- invisible to the swarm in Unity too, but
+    here they cannot be HIT either: internal_3's street-light crash cannot happen in the replica.
+  - PhysX contact. A drone dies on entering a building footprint (+0.25 m) or coming within 0.5 m of another.
+    No bounce, no friction pinning against a facade (which in Unity often ends as TooFarFromSwarm).
+  - DroneHealthMonitor. No TooFarFromSwarm / Crashed / stuck rules: a straggler simply flies on.
+  - The shield uses this tick's obstacle frames; in Unity they can be one tick stale (execution order).
+For building contacts and anything physical, use the headless Unity bench (run_bench.ps1, README.md).
+"""
+import sys
+
+sys.dont_write_bytecode = True   # nothing under Assets/ may grow a __pycache__ for Unity to import
+
+import argparse  # noqa: E402
+import datetime  # noqa: E402
+import json  # noqa: E402
+import os  # noqa: E402
+import pickle  # noqa: E402
+import subprocess  # noqa: E402
+import time  # noqa: E402
+from multiprocessing import Pool  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+import swarm_params as sp  # noqa: E402
+
+sys.path.insert(0, str(sp.EXPERIMENT_DIR))
+import analyse  # noqa: E402  (scene_boxes: the city as a run saw it, goal tiles swapped in)
+
+FORCE_LAW_COMMIT = "1a4877ad"
+FORCE_LAW_FILES = [
+    "Assets/Scripts/swarm/OlfatiSaber.cs",
+    "Assets/Scripts/swarm/ObstacleFootprint.cs",
+    "Assets/Scripts/swarm/SwarmAlgorithm.cs",
+    "Assets/Scripts/swarm/SwarmPlaneController.cs",
+    "Assets/Scripts/VelocityControl/VelocityControl.cs",
+    "Assets/Scripts/VelocityControl/StateFinder.cs",
+]
+
+SMALL_DREF = 0.45      # "the tightest spread": the stick's minimum is 0.4
+PAIR_KILL_M = 0.5      # centre distance at which two drones are lost together
+DRONE_HALF_M = 0.25    # added to a building footprint for the building-kill test
+LOOKAHEAD_MARGIN_M = 1.0   # S6's look-ahead shield: a stick line passing this close to a cylinder counts as a hit
+QUERY_EVERY = 10       # ticks between refreshes of the buildings worth querying
+QUERY_MARGIN_M = 60.0  # how far beyond OverlapSphere's reach those are taken from
+
+
+# ============================================================================= staleness
+
+def force_law_changes(since=FORCE_LAW_COMMIT):
+    """(commits, uncommitted) touching FORCE_LAW_FILES since `since`, or (None, reason) if git cannot tell."""
+    def git(*a):
+        return subprocess.run(["git", "-C", str(sp.REPO), *a], capture_output=True, text=True,
+                              check=True).stdout.strip()
+    try:
+        return git("log", "--oneline", f"{since}..HEAD", "--", *FORCE_LAW_FILES), \
+               git("status", "--porcelain", "--", *FORCE_LAW_FILES)
+    except (OSError, subprocess.CalledProcessError) as e:
+        return None, str(e).strip()
+
+
+def check_force_law(allow_stale, since=FORCE_LAW_COMMIT):
+    # SWARM_REPLICA_ALLOW_STALE=1 is --allow-stale for callers that have no flag to pass it through (citysim's
+    # harnesses): for flying the working tree's law while a change to it, and its mirror here, is uncommitted.
+    allow_stale = allow_stale or os.environ.get("SWARM_REPLICA_ALLOW_STALE") == "1"
+    log, dirty = force_law_changes(since)
+    if log is None:
+        print(f"[replica] WARNING: cannot check the mirrored C# against git ({dirty}); assuming it is as of {since}")
+        return
+    if not log and not dirty:
+        return
+    msg = [f"[replica] The C# this replica mirrors has changed since FORCE_LAW_COMMIT {since}:"]
+    if log:
+        msg += ["  " + line for line in log.splitlines()]
+    if dirty:
+        msg += ["  uncommitted: " + line.strip() for line in dirty.splitlines()]
+    msg += [f"  Review `git diff {since} -- {' '.join(FORCE_LAW_FILES)}`, bring swarm_replica.py into line with any",
+            "  change to the horizontal force law, then bump FORCE_LAW_COMMIT. A change that leaves the law alone",
+            "  (yaw, altitude, plane mode) needs only the bump."]
+    if allow_stale:
+        print("\n".join(msg + ["  --allow-stale: continuing on the replica's law as it stands."]))
+        return
+    print("\n".join(msg + ["  Refusing to run (exit 3); --allow-stale overrides."]))
+    sys.exit(3)
+
+
+# ============================================================================= the force law
+
+def bump(x, d, delta):
+    """OlfatiSaber.GetBetaBump: rho_h(x / d), and 0 everywhere when d <= 0 (switched off)."""
+    x = np.asarray(x, float)
+    if d <= 0:
+        return np.zeros_like(x)
+    r = x / d
+    cosine = 0.5 * (1.0 + np.cos(np.pi * (r - delta) / (1.0 - delta)))
+    return np.where(r < delta, 1.0, np.where(r >= 1.0, 0.0, cosine))
+
+
+def sigma1(z):
+    return z / np.sqrt(1.0 + z * z)
+
+
+def sat(f, m):
+    """The smooth vector saturation OlfatiSaber applies to the obstacle field, core and damper; m <= 0 = none."""
+    if m <= 0:
+        return f
+    return f / np.sqrt(1.0 + (f * f).sum(-1, keepdims=True) / (m * m))
+
+
+def clamp_norm(v, m):
+    n = np.linalg.norm(v, axis=-1, keepdims=True)
+    return np.where(n > m, v * m / np.maximum(n, 1e-12), v)
+
+
+def cohesion(r, dref, r0, a, b, delta):
+    """OlfatiSaber.GetCohesionForce: (1/r0) rho'(r/r0) psi(r) + rho(r/r0) phi(r), rho = rho_h squared."""
+    c = (b - a) / (2.0 * np.sqrt(a * b))
+    z = r - dref
+    psi = (a + b) / 2 * (np.sqrt(1 + (z + c) ** 2) - np.sqrt(1 + c * c)) + (a - b) * z / 2
+    phi = (a + b) / 2 * (z + c) / np.sqrt(1 + (z + c) ** 2) + (a - b) / 2
+    x = r / r0
+    arg = np.pi * (x - delta) / (1 - delta)
+    inside = (x >= delta) & (x < 1)
+    rho = np.where(x < delta, 1.0, np.where(inside, (0.5 * (1 + np.cos(arg))) ** 2, 0.0))
+    drho = np.where(inside, 0.5 * (-np.pi) / (1 - delta) * (1 + np.cos(arg)) * np.sin(arg), 0.0)
+    return drho / r0 * psi + rho * phi
+
+
+OBSTACLE_MODELS = ("cylinder", "closest")
+
+# SwarmManager.obstacleShape (S8 Footprint Avoidance): what the law avoids. Cylinder is the circle round the collider's
+# bounds (OlfatiSaber's since before S4), EnclosingCircle the smallest circle round the footprint, Footprint the
+# footprint itself (a wall beta-agent on each face, mu 1). The two new shapes take the S7 rules' centre and radius from
+# the enclosing circle (aim_circle); Footprint also measures the slide's head-on gate locally (slide_round).
+# Ellipse (S10 Ellipse Avoidance) is the smallest ellipse round the footprint with its aspect capped at
+# ellipseMaxAspect (PolyCity.ellipses), and the S7 rules aim by that ellipse (ell_rules); a footprint whose capped
+# aspect is under ELLIPSE_MIN_ASPECT is avoided as its enclosing circle, bit for bit as under EnclosingCircle.
+CYLINDER, ENCLOSING, FOOTPRINT, ELLIPSE = 0, 1, 2, 3
+ELLIPSE_MIN_ASPECT = 1.02
+# SwarmManager.SpreadWrapRule (S11 Wrap Hold): what the adaptive spread does while a building lies inside the formation
+WRAP_OFF, WRAP_HOLD, WRAP_UNTIL_LEAVING = 0, 1, 2
+ELL_ITERS = 5          # iterations of the closest-point solve on an ellipse (ell_closest): ~1e-5 m at aspect 2
+
+
+class Model:
+    """The resolved constants under the names of the C# fields they come from, plus what
+    SwarmAlgorithm.UpdateOlfatiSaberParameters derives from them.
+
+    `extras` holds options the replica has and the C# does not (yet), so they are not SwarmManager fields and
+    swarm_params cannot validate them: obstacle_model "cylinder" (OlfatiSaber's, the default) or "closest" (the split
+    study's Phase 1: the beta-agent at the true closest point of the footprint, with face_bend tilting a face's normal
+    away from the building's centre so an off-centre approach still slides, as on a cylinder).
+
+    S6's prototypes (citysim.swarmtune, replica only; each off by default, and off the law is unchanged bit for bit):
+      shield_mode      "proximity" (OlfatiSaber's: the stick's inward part is faded out for every building within
+                       d_shield) or "lookahead" (only for a building the stick's line would hit, faded in by the distance
+                       to that hit, so passing beside a building costs nothing)
+      shield_slide     0..1: that share of the stick the shield removes is turned sideways instead, away from the
+                       building's centre (on the formation's side of it when head on), so a drone flows round
+      cohesion_shield  cohesion's part pointing into a building within d_shield removed, as the stick's is
+      aniso            k >= 1: cohesion measures the across-track part of each separation k times longer (the track is
+                       the pilot's stick), so the formation settles narrower across the street by k"""
+
+    def __init__(self, swarm, air, extras=None):
+        self.swarm, self.air = swarm, air
+        extras = dict(extras or {})
+        self.obstacle_model = extras.pop("obstacle_model", "cylinder")
+        self.face_bend = float(extras.pop("face_bend", 0.0))
+        self.shield_mode = extras.pop("shield_mode", "proximity")
+        self.shield_slide = float(extras.pop("shield_slide", 0.0))
+        self.cohesion_shield = bool(extras.pop("cohesion_shield", False))
+        self.aniso = float(extras.pop("aniso", 1.0))
+        # S7 tuning knobs the C# fixes (see slide_round / route_round)
+        self.slide_side = extras.pop("slide_side", "hidden")
+        self.route_side = extras.pop("route_side", "lean")
+        # S8: under Footprint a drone not splitting round a building or hidden from the centroid slides the way its
+        # stick leans along the wall ("lean", the C#'s); "s7" keeps S7's own-side rule, which on a long facade can turn
+        # the stick back down the street (screen 1's collisions)
+        self.fp_side = extras.pop("fp_side", "lean")
+        if self.fp_side not in ("lean", "s7"):
+            raise ValueError(f"fp_side {self.fp_side!r}: lean or s7")
+        # S10: under Ellipse the S7 rules aim by the ellipse ("ellipse", the C#'s) or, as under the S8 shapes, by the
+        # footprint's enclosing circle ("circle": the screen's arm asking whether aiming by the ellipse matters)
+        self.ell_aim = extras.pop("ell_aim", "ellipse")
+        if self.ell_aim not in ("ellipse", "circle"):
+            raise ValueError(f"ell_aim {self.ell_aim!r}: ellipse or circle")
+        if self.slide_side not in ("auto", "hidden", "own", "formation", "group"):
+            raise ValueError(f"slide_side {self.slide_side!r}: auto, hidden, own, formation or group")
+        if self.route_side not in ("lean", "group"):
+            raise ValueError(f"route_side {self.route_side!r}: lean or group")
+        if self.obstacle_model not in OBSTACLE_MODELS:
+            raise ValueError(f"obstacle_model {self.obstacle_model!r}: one of {OBSTACLE_MODELS}")
+        if self.shield_mode not in ("proximity", "lookahead"):
+            raise ValueError(f"shield_mode {self.shield_mode!r}: proximity or lookahead")
+        if extras:
+            raise ValueError(f"unknown replica extras {sorted(extras)}")
+        if swarm["swarmAlgorithm"] != 2:
+            raise ValueError(f"swarmAlgorithm is {swarm['swarmAlgorithm']}; the replica models OLFATI_SABER (2) only")
+        if swarm["is3D"]:
+            raise ValueError("is3D is on; the replica models the horizontal (2D) formation only")
+        for k in ("d_ref", "delta", "a", "b", "c_vm", "d_obs", "r0_obs", "c_obs", "c2_beta", "d_shield",
+                  "c_core", "c2_core", "coreStandoffRatio", "coreRadiusFraction", "coreRadiusFilterTime",
+                  "c_damp", "d_damp", "r0_coh", "r0CohRatio"):
+            setattr(self, k, float(swarm[k]))
+        self.S = float(swarm["scaleFactor"])
+        self.hollow = bool(swarm["hollowSwarmCore"])
+        self.core_relative = bool(swarm["coreRelativeVelocity"])
+        # S7 Building Flow. Read with .get: a bench run recorded before the fields existed has none of them.
+        self.slide = bool(swarm.get("slideRoundBuildings", False))
+        self.slide_head_on = float(swarm.get("slideHeadOnFraction", 0.5))
+        self.slide_split = float(swarm.get("slideSplitAimFraction", 0.6))
+        self.route = bool(swarm.get("routeStragglers", False))
+        self.route_press = float(swarm.get("stragglerPressShare", 0.5))
+        self.adaptive = bool(swarm.get("adaptiveSpread", False))
+        self.street_factor = float(swarm.get("streetSpreadFactor", 0.85))
+        self.look_ahead = float(swarm.get("surroundLookAhead", 4.0))
+        self.aim_fraction = float(swarm.get("surroundAimFraction", 0.8))
+        self.spread_filter = float(swarm.get("spreadFilterTime", 3.0))
+        # S11 Wrap Hold (.get, as S7's): 0 Off, 1 Hold, 2 HoldUntilLeaving
+        self.wrap_rule = int(swarm.get("spreadWrapRule", WRAP_OFF))
+        if self.wrap_rule not in (WRAP_OFF, WRAP_HOLD, WRAP_UNTIL_LEAVING):
+            raise ValueError(f"spreadWrapRule {self.wrap_rule}: 0 Off, 1 Hold or 2 HoldUntilLeaving")
+        # S8 Footprint Avoidance (.get, as S7's)
+        self.obstacle_shape = int(swarm.get("obstacleShape", CYLINDER))
+        if self.obstacle_shape not in (CYLINDER, ENCLOSING, FOOTPRINT, ELLIPSE):
+            raise ValueError(f"obstacleShape {self.obstacle_shape}: 0 Cylinder, 1 EnclosingCircle, 2 Footprint or "
+                             f"3 Ellipse")
+        if self.obstacle_shape != CYLINDER and self.obstacle_model != "cylinder":
+            raise ValueError("obstacleShape and the replica-only obstacle_model cannot both be set")
+        # S10 Ellipse Avoidance (.get, as S7's)
+        self.ellipse_cap = float(swarm.get("ellipseMaxAspect", 1.5))
+        if self.obstacle_shape == ELLIPSE and self.shield_mode == "lookahead":
+            raise ValueError("S6's lookahead shield is implemented for the circle shapes only")
+        self.g = air["gravity"]
+        self.dt = air["fixedDeltaTime"]
+        self.max_tilt = min(air["maxPitch"], air["maxRoll"])
+        budget = self.g * np.tan(self.max_tilt)    # the drone's tilt budget, which caps all three ceilings
+        self.max_obs = min(swarm["maxObstacleAccel"], budget)
+        self.max_core = min(swarm["maxCoreAccel"], budget)
+        self.max_damp = min(swarm["maxDampAccel"], budget)
+        self.max_speed = air["maxSpeed"]
+        self.tau_acc = air["timeConstantAcceleration"]
+        self.swarm_filter = air["SwarmAccelFilterCoefficient"]
+        self.tau_w = air["timeConstantOmegaXYRate"]
+        self.tau_a = air["timeConstantAlphaRate"]
+        self.max_alpha = air["maxAlpha"]
+        self.drag, self.ang_drag = air["drag"], air["angularDrag"]
+        noise = bool(air["enableStateNoise"])
+        self.pos_noise = air["positionNoiseSigma"] if noise else 0.0
+        self.vel_noise = air["velocityNoiseSigma"] if noise else 0.0
+        self.att_noise = air["attitudeNoiseSigma"] if noise else 0.0
+
+    def r0_eff(self, dref):
+        """OlfatiSaber.EffectiveR0Coh."""
+        return self.r0CohRatio * dref if self.hollow and self.r0CohRatio > 0 else self.r0_coh
+
+    def stick_to_world(self, stick, body_yaw_deg):
+        """VelocityControl.SetNormalisedVelocity + the VR command frame (forced in the hull attitude modes):
+        world = Euler(0, bodyYaw, 0) * (roll, 0, pitch) * maxSpeed, the stick magnitude-limited to 1."""
+        s = np.asarray(stick, float)
+        n = np.linalg.norm(s)
+        if n > 1:
+            s = s / n
+        y = np.radians(body_yaw_deg)
+        return np.array([s[0] * np.cos(y) + s[1] * np.sin(y), -s[0] * np.sin(y) + s[1] * np.cos(y)]) * self.max_speed
+
+
+class City:
+    """Buildings as OlfatiSaber sees them. Each box is a collider's oriented box (centre, three half-axis
+    vectors); the obstacle is the smallest cylinder about world up containing its world AABB
+    (OlfatiSaber.GetObstacleCylinder over Collider.bounds), and OverlapSphere finds it by the box itself."""
+
+    def __init__(self, boxes):
+        self.n = len(boxes)
+        if self.n == 0:
+            self.c3 = np.zeros((0, 3)); self.unit = np.zeros((0, 3, 3)); self.half = np.zeros((0, 3))
+            self.c = np.zeros((0, 2)); self.R = np.zeros(0); self.flat = np.zeros((0, 3), bool)
+            return
+        self.c3 = np.array([b[1] for b in boxes], float)
+        ax = np.array([b[2] for b in boxes], float)
+        self.half = np.linalg.norm(ax, axis=2)
+        self.unit = ax / np.maximum(self.half, 1e-9)[..., None]
+        ext = np.abs(ax).sum(axis=1)                      # bounds.extents
+        self.c = self.c3[:, [0, 2]]                       # bounds.center, horizontally
+        self.R = np.hypot(ext[:, 0], ext[:, 2])
+        self.flat = np.abs(self.unit[..., 1]) < 0.5       # the box axes that lie in the horizontal
+
+    @classmethod
+    def for_run(cls, goals, city_name, layout=""):
+        """A recorded run's buildings: its own generated layout when the session names one (ProceduralCityWorld,
+        whose goals are already boxes in it), else the test's tile city with the run's goal patches swapped in."""
+        return cls(analyse.scene_boxes(goals, layout or city_name))
+
+    def _proj(self, P, B, alt):
+        d = np.zeros((len(P), len(B), 3))
+        d[..., 0] = P[:, None, 0] - self.c3[B][None, :, 0]
+        d[..., 2] = P[:, None, 1] - self.c3[B][None, :, 2]
+        if alt is not None:
+            d[..., 1] = alt[:, None] - self.c3[B][None, :, 1]
+        return np.einsum("nbk,bjk->nbj", d, self.unit[B])
+
+    def distance(self, P, B, alt=None):
+        """(n, len(B)) distance from each drone to each box. alt=None takes every drone to be within every
+        box's height, so only the box's horizontal axes count."""
+        excess = np.maximum(np.abs(self._proj(P, B, alt)) - self.half[B][None], 0.0)
+        if alt is None:
+            excess = np.where(self.flat[B][None], excess, 0.0)
+        return np.linalg.norm(excess, axis=-1)
+
+    def footprint_hit(self, P, B, margin):
+        """(n,) whether each drone's centre is inside some box's footprint grown by margin."""
+        if len(B) == 0:
+            return np.zeros(len(P), bool)
+        inside = (np.abs(self._proj(P, B, None)) <= self.half[B][None] + margin) | ~self.flat[B][None]
+        return inside.all(-1).any(-1)
+
+    def near(self, P, reach):
+        """Buildings whose cylinder comes within reach of any of the points P (n, 2)."""
+        if self.n == 0:
+            return np.arange(0)
+        d = np.linalg.norm(self.c[None] - P[:, None], axis=-1).min(0) - self.R
+        return np.flatnonzero(d < reach)
+
+    def min_distance(self, P, alt):
+        if self.n == 0:
+            return np.full(len(P), np.inf)
+        return self.distance(P, np.arange(self.n), alt).min(1)
+
+
+class PolyCity:
+    """Buildings that are convex prisms (the split study's block-shaped buildings, citysim.blockcity variant B): every
+    one taller than the drones, so only the footprint counts. c and R are what OlfatiSaber's cylinder would take
+    from the collider's bounds (the AABB centre and circumradius), for the "cylinder" obstacle model and the
+    candidate query; distance, footprint_hit and push_out use the true polygon, as PhysX does, and closest() gives
+    the "closest" model its beta-agents. BlockShapedCityWorld (2026-10-28) builds prisms as convex MeshColliders, which
+    OlfatiSaber avoids through the same AABB cylinder, so the default "cylinder" model here is Unity's (S5 flies it);
+    "closest" exists in the replica only."""
+
+    def __init__(self, polys):
+        polys = [np.asarray(p, float) for p in polys]
+        polys = [p if _signed_area(p) >= 0 else p[::-1].copy() for p in polys]
+        self.n = len(polys)
+        K = max((len(p) for p in polys), default=3)
+        self.N = np.zeros((self.n, K, 2))
+        self.Cn = np.full((self.n, K), 1e18)
+        self.V = np.zeros((self.n, K, 2))
+        self.W = np.zeros((self.n, K, 2))
+        self.c = np.zeros((self.n, 2))
+        self.R = np.zeros(self.n)
+        self.mec_c = np.zeros((self.n, 2))     # S8: the smallest circle round each footprint (enclosing_circle)
+        self.mec_R = np.zeros(self.n)
+        for i, p in enumerate(polys):
+            k = len(p)
+            e = np.roll(p, -1, axis=0) - p
+            nrm = np.stack([e[:, 1], -e[:, 0]], 1)
+            nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
+            self.N[i, :k], self.Cn[i, :k] = nrm, (nrm * p).sum(1)
+            self.V[i, :k], self.W[i, :k] = p, np.roll(p, -1, axis=0)
+            self.V[i, k:] = self.W[i, k:] = p[-1]
+            lo, hi = p.min(0), p.max(0)
+            self.c[i], self.R[i] = (lo + hi) / 2, 0.5 * float(np.hypot(*(hi - lo)))
+            self.mec_c[i], self.mec_R[i] = enclosing_circle(p)
+        self.polys = polys
+        self._mvee = None      # S10: (axis, aspect) of each footprint's minimum-area ellipse, fitted on first use
+        self._ell = {}         # S10: {cap: Ellipses}
+
+    def ellipses(self, cap):
+        """S10: every footprint's ellipse under the aspect cap (SwarmManager.ellipseMaxAspect), fitted once per cap and
+        kept: the axis and aspect come from the footprint alone (mvee_axis), the ellipse from the cap (ellipse_fit), so
+        two caps in one city are two shapes. ObstacleFootprint keys its cache the same way."""
+        key = float(cap)
+        E = self._ell.get(key)
+        if E is None:
+            if self._mvee is None:
+                self._mvee = [mvee_axis(p) for p in self.polys]
+            fits = [ellipse_fit(p, key, ax, k, self.mec_c[i], self.mec_R[i])
+                    for i, (p, (ax, k)) in enumerate(zip(self.polys, self._mvee))]
+            E = Ellipses(np.array([f[0] for f in fits]).reshape(-1, 2), np.array([f[1] for f in fits]).reshape(-1, 2),
+                         np.array([f[2] for f in fits]), np.array([f[3] for f in fits]),
+                         np.array([f[4] for f in fits], bool))
+            self._ell[key] = E
+        return E
+
+    def closest(self, P, B):
+        """(q (n, len(B), 2) the closest point of each building's footprint to each point, d (n, len(B)) the distance;
+        a point inside a footprint is its own closest point, at distance 0)."""
+        P = np.atleast_2d(np.asarray(P, float))
+        V, W, N, Cn = self.V[B], self.W[B], self.N[B], self.Cn[B]
+        e = W - V
+        ee = np.maximum((e * e).sum(-1), 1e-18)
+        rel = P[:, None, None, :] - V[None]
+        t = np.clip((rel * e[None]).sum(-1) / ee[None], 0.0, 1.0)
+        q = V[None] + t[..., None] * e[None]
+        dk = np.linalg.norm(P[:, None, None, :] - q, axis=-1)
+        j = dk.argmin(axis=2)
+        qq = np.take_along_axis(q, j[..., None, None].repeat(2, -1), axis=2)[:, :, 0]
+        d = np.take_along_axis(dk, j[..., None], axis=2)[..., 0]
+        ins = ((np.einsum("nk,bjk->nbj", P, N) - Cn[None]) <= 0).all(axis=2)
+        return np.where(ins[..., None], P[:, None, :], qq), np.where(ins, 0.0, d)
+
+    def distance(self, P, B, alt=None):
+        if len(B) == 0:
+            return np.zeros((len(P), 0))
+        return self.closest(P, B)[1]
+
+    def footprint_hit(self, P, B, margin):
+        if len(B) == 0:
+            return np.zeros(len(P), bool)
+        s = np.einsum("nk,bjk->nbj", np.atleast_2d(np.asarray(P, float)), self.N[B]) - self.Cn[B][None]
+        return (s <= margin).all(axis=2).any(axis=1)
+
+    def near(self, P, reach):
+        if self.n == 0:
+            return np.arange(0)
+        d = np.linalg.norm(self.c[None] - P[:, None], axis=-1).min(0) - self.R
+        return np.flatnonzero(d < reach)
+
+    def min_distance(self, P, alt):
+        if self.n == 0:
+            return np.full(len(P), np.inf)
+        return self.distance(P, np.arange(self.n), alt).min(1)
+
+    def push_out(self, cand, p, v, margin, friction):
+        """push_out() for prisms: out through the nearest face of any footprint (grown by margin) holding p."""
+        for _ in range(4):
+            inside = False
+            for b in cand:
+                s = self.N[b] @ p - self.Cn[b]                  # padded faces read -1e18: never the way out
+                if not (s <= margin).all():
+                    continue
+                inside = True
+                k = int(np.argmax(s))                           # the face nearest p
+                nrm = self.N[b, k]
+                p = p + (margin - s[k] + 1e-3) * nrm
+                vn = float(v @ nrm)
+                if vn < 0:
+                    v = v - vn * nrm
+                    if friction > 0:
+                        vt = v - float(v @ nrm) * nrm
+                        st = float(np.linalg.norm(vt))
+                        if st > 1e-9:
+                            v = v - vt * min(1.0, friction * -vn / st)
+            if not inside:
+                break
+        return p, v
+
+
+def _signed_area(p):
+    x, z = p[:, 0], p[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(z, -1)) - np.dot(z, np.roll(x, -1)))
+
+
+def enclosing_circle(p):
+    """(centre (2,), radius) of the smallest circle containing the points p (k, 2): the smallest of the circles on
+    two of them as a diameter or through three of them that contains them all. Brute force, exact, and quick for a
+    footprint's handful of vertices; ObstacleFootprint.EnclosingCircle is the same loop in the same order."""
+    p = np.asarray(p, float)
+    k = len(p)
+    if k == 1:
+        return p[0].copy(), 0.0
+    best_c, best_r = None, np.inf
+
+    def contains(c, r):
+        return bool((np.linalg.norm(p - c, axis=1) <= r + 1e-6).all())
+
+    for i in range(k):
+        for j in range(i + 1, k):
+            c = 0.5 * (p[i] + p[j])
+            r = float(np.linalg.norm(p[i] - c))
+            if r < best_r and contains(c, r):
+                best_c, best_r = c, r
+    for i in range(k):
+        for j in range(i + 1, k):
+            for l in range(j + 1, k):
+                bx, bz = p[j] - p[i]
+                cx, cz = p[l] - p[i]
+                det = 2.0 * (bx * cz - bz * cx)
+                if abs(det) < 1e-9:
+                    continue
+                b2, c2 = bx * bx + bz * bz, cx * cx + cz * cz
+                c = p[i] + np.array([(cz * b2 - bz * c2) / det, (bx * c2 - cx * b2) / det])
+                r = float(np.linalg.norm(p[i] - c))
+                if r < best_r and contains(c, r):
+                    best_c, best_r = c, r
+    return best_c, best_r
+
+
+# ============================================================================= S10: ellipses
+
+class Ellipses:
+    """Every footprint's avoidance ellipse: centre c (n, 2), major axis e (n, 2) unit, semi-axes a >= b (n,), and circ
+    (n,) where the capped aspect is under ELLIPSE_MIN_ASPECT and the building is avoided as its enclosing circle
+    exactly (c, a = b = the circle's, e = (1, 0)), on the circle's own code path."""
+
+    def __init__(self, c, e, a, b, circ):
+        self.c, self.e, self.a, self.b, self.circ = c, e, a, b, circ
+        self.ep = np.stack([-e[:, 1], e[:, 0]], 1)      # the minor axis, a quarter turn anticlockwise from e
+
+
+def mvee_axis(p, tol=1e-7, iters=4000):
+    """(axis (2,), aspect >= 1) of the minimum-area ellipse containing the points p (k >= 3; a footprint's hull):
+    Khachiyan's algorithm with Todd and Yildirim's away steps, in doubles, the 3x3 inverse by cofactors so the C#
+    (ObstacleFootprint.MveeAxis) is the same arithmetic in the same order. The axis is the covariance's leading
+    eigenvector in closed form, signed so its x (else z) is positive; aspect is 1 with axis (1, 0) when the hull has
+    fewer than 3 points or no preferred direction. Only the axis and aspect are used: ellipse_fit makes the ellipse,
+    so the tolerance cannot leak into whether it encloses the footprint."""
+    xs = [float(q[0]) for q in p]
+    zs = [float(q[1]) for q in p]
+    k = len(xs)
+    if k < 3:
+        return np.array([1.0, 0.0]), 1.0
+    u = [1.0 / k] * k
+    for _ in range(iters):
+        sxx = sxz = sx = szz = sz = s1 = 0.0
+        for i in range(k):
+            w, x, z = u[i], xs[i], zs[i]
+            sxx += w * x * x
+            sxz += w * x * z
+            sx += w * x
+            szz += w * z * z
+            sz += w * z
+            s1 += w
+        c00 = szz * s1 - sz * sz
+        c01 = sz * sx - sxz * s1
+        c02 = sxz * sz - szz * sx
+        c11 = sxx * s1 - sx * sx
+        c12 = sxz * sx - sxx * sz
+        c22 = sxx * szz - sxz * sxz
+        det = sxx * c00 + sxz * c01 + sx * c02
+        if abs(det) < 1e-300:
+            break
+        M = [(c00 * x * x + c11 * z * z + c22 + 2.0 * (c01 * x * z + c02 * x + c12 * z)) / det
+             for x, z in zip(xs, zs)]
+        j = 0
+        for i in range(1, k):
+            if M[i] > M[j]:
+                j = i
+        a_ = -1
+        for i in range(k):
+            if u[i] > 1e-12 and (a_ < 0 or M[i] < M[a_]):
+                a_ = i
+        up = (M[j] - 3.0) / 3.0
+        down = (3.0 - M[a_]) / 3.0
+        if max(up, down) < tol:
+            break
+        if up >= down:
+            s = (M[j] - 3.0) / (3.0 * (M[j] - 1.0))
+            u = [(1.0 - s) * w for w in u]
+            u[j] += s
+        else:
+            if M[a_] <= 1.0 or u[a_] >= 1.0:
+                break
+            s = min((3.0 - M[a_]) / (3.0 * (M[a_] - 1.0)), u[a_] / (1.0 - u[a_]))
+            u = [(1.0 + s) * w for w in u]
+            u[a_] -= s
+    cx = sum(w * x for w, x in zip(u, xs))
+    cz = sum(w * z for w, z in zip(u, zs))
+    A = sum(w * (x - cx) * (x - cx) for w, x in zip(u, xs))
+    B = sum(w * (x - cx) * (z - cz) for w, x, z in zip(u, xs, zs))
+    D = sum(w * (z - cz) * (z - cz) for w, z in zip(u, zs))
+    half = 0.5 * (A - D)
+    r = float(np.sqrt(half * half + B * B))
+    lmax, lmin = 0.5 * (A + D) + r, 0.5 * (A + D) - r
+    if lmin <= 0.0 or r <= 1e-12 * max(A + D, 1e-300):
+        return np.array([1.0, 0.0]), 1.0
+    vx, vz = (half + r, B) if half >= 0.0 else (B, r - half)
+    n = float(np.sqrt(vx * vx + vz * vz))
+    vx, vz = vx / n, vz / n
+    if vx < 0.0 or (vx == 0.0 and vz < 0.0):
+        vx, vz = -vx, -vz
+    return np.array([vx, vz]), float(np.sqrt(lmax / lmin))
+
+
+def ellipse_fit(p, cap, axis, aspect, circle_c, circle_r):
+    """(centre (2,), axis (2,), a, b, circ) of the ellipse a footprint p is avoided as under aspect cap `cap`. Squash
+    the hull along the axis by k = min(cap, aspect), take the smallest circle round the squashed hull
+    (enclosing_circle), and stretch it back: an ellipse of aspect k that contains the footprint exactly, which is the
+    minimum-area one when its own aspect is within the cap. Under ELLIPSE_MIN_ASPECT it is the enclosing circle itself
+    (circle_c, circle_r) and circ is set."""
+    k = min(float(cap), float(aspect))
+    if k < ELLIPSE_MIN_ASPECT:
+        return np.asarray(circle_c, float).copy(), np.array([1.0, 0.0]), float(circle_r), float(circle_r), True
+    e = np.asarray(axis, float)
+    ep = np.array([-e[1], e[0]])
+    p = np.asarray(p, float)
+    sq = np.stack([(p @ e) / k, p @ ep], 1)
+    cs, r = enclosing_circle(sq)
+    return e * (cs[0] * k) + ep * cs[1], e.copy(), k * r, r, False
+
+
+def ell_rules(m, city):
+    """The Ellipses the S7 rules aim by, or None where they aim by a circle (every other shape, and ell_aim
+    "circle")."""
+    if m.obstacle_shape != ELLIPSE or m.ell_aim != "ellipse":
+        return None
+    return city.ellipses(m.ellipse_cap)
+
+
+def ell_local(P, E, B):
+    """(x, y) (n, len(B)): the points P (n, 2) in each ellipse's own axes (x along the major axis)."""
+    d = np.atleast_2d(P)[:, None, :] - E.c[B][None]
+    return (d * E.e[B][None]).sum(-1), (d * E.ep[B][None]).sum(-1)
+
+
+def ell_unit(P, E, b):
+    """(n, 2): the points P in building b's unit space, where its ellipse is the unit circle."""
+    d = np.atleast_2d(P) - E.c[b]
+    return np.stack([(d @ E.e[b]) / E.a[b], (d @ E.ep[b]) / E.b[b]], -1)
+
+
+def ell_closest(X, Y, a, b, iters=ELL_ITERS):
+    """(tx, ty): the closest point (a tx, b ty) of the ellipse x^2/a^2 + y^2/b^2 = 1 to (X, Y) >= 0, with
+    tx^2 + ty^2 = 1, inside or out. A fixed number of trig-free iterations (a point of the ellipse and its centre of
+    curvature define the circle that osculates it there; step along that circle to where the line to (X, Y) meets it),
+    so the C# can run the same loop."""
+    shape = np.broadcast(X, Y, a, b).shape
+    tx = np.full(shape, 0.7071067811865476)
+    ty = np.full(shape, 0.7071067811865476)
+    for _ in range(iters):
+        ex = (a * a - b * b) * tx ** 3 / a
+        ey = (b * b - a * a) * ty ** 3 / b
+        rx, ry = a * tx - ex, b * ty - ey
+        qx, qy = X - ex, Y - ey
+        r = np.sqrt(rx * rx + ry * ry)
+        q = np.maximum(np.sqrt(qx * qx + qy * qy), 1e-12)
+        tx = np.clip((qx * r / q + ex) / a, 0.0, 1.0)
+        ty = np.clip((qy * r / q + ey) / b, 0.0, 1.0)
+        t = np.maximum(np.sqrt(tx * tx + ty * ty), 1e-12)
+        tx, ty = tx / t, ty / t
+    return tx, ty
+
+
+def ell_frame(P, E, B):
+    """OlfatiSaber.MakeEllipseFrame for every point P (n, 2) and building of B: (out (n, K, 2), d (n, K) metres to the
+    ellipse, 0 inside, mu (n, K), valid (n, K), F (n, K) the unit-space radius, sd (n, K) signed distance).
+
+    Outside: out is the normal at the closest point (the gradient there), mu = rc / (rc + d) with rc the radius of
+    curvature there -- R / rho on a circle. Inside: out is the gradient at the point itself, mu 1 and d 0, with no
+    closest point to flip between the two sides of the major axis; continuous with the outside at the surface, and on
+    a circle exactly the cylinder frame's inside. A point within 1e-4 m of the centre has no frame, as on the axis."""
+    a, b = E.a[B][None], E.b[B][None]
+    x, y = ell_local(P, E, B)
+    X, Y = np.abs(x), np.abs(y)
+    F = np.sqrt((x / a) ** 2 + (y / b) ** 2)
+    inside = F < 1.0
+    tx, ty = ell_closest(X, Y, a, b)
+    dist = np.sqrt((X - a * tx) ** 2 + (Y - b * ty) ** 2)
+    gx = np.where(inside, X / (a * a), tx / a)
+    gy = np.where(inside, Y / (b * b), ty / b)
+    gn = np.maximum(np.sqrt(gx * gx + gy * gy), 1e-300)
+    nx = np.where(x < 0, -1.0, 1.0) * gx / gn
+    ny = np.where(y < 0, -1.0, 1.0) * gy / gn
+    out = nx[..., None] * E.e[B][None] + ny[..., None] * E.ep[B][None]
+    rc = (a * a * ty * ty + b * b * tx * tx) ** 1.5 / (a * b)
+    d = np.where(inside, 0.0, dist)
+    mu = np.where(inside, 1.0, rc / (rc + d))
+    valid = np.sqrt(x * x + y * y) >= 1e-4
+    return out, d, mu, valid, F, np.where(inside, -dist, dist)
+
+
+def seg_origin_dist(A, Bp):
+    """Distance from the origin to each segment A -> Bp ((n, 2) each)."""
+    d = Bp - A
+    dd = (d * d).sum(-1)
+    t = np.where(dd > 1e-18, np.clip(-(A * d).sum(-1) / np.maximum(dd, 1e-18), 0.0, 1.0), 0.0)
+    return np.linalg.norm(A + t[:, None] * d, axis=-1)
+
+
+def aim_circle(m, city):
+    """(c, R) of every building as the S7 rules see it: its centre and radius for aiming, side choice and the hidden
+    tests. The bounds circle under Cylinder (S7 as flown), the smallest circle round the footprint under the S8 shapes
+    (OlfatiSaber.GetObstacleAimCircle, and the frame's axisCentre / radius)."""
+    if m.obstacle_shape == CYLINDER:
+        return city.c, city.R
+    return city.mec_c, city.mec_R
+
+
+def remove_inward(v, shield):
+    """OlfatiSaber.RemoveInwardComponent, for the pilot's command and the damper: fade out the part of v
+    heading into each obstacle within d_shield, frame by frame in query order."""
+    for w, out, *_ in shield:
+        inward = -(v * out).sum(-1)
+        v = v + (w * np.maximum(inward, 0.0))[:, None] * out
+    return v
+
+
+TIE = 0.1   # a side test reads as a tie below this share of its scale, and falls through to the next one
+
+
+def _sign_or(x, scale, fallback):
+    """sign(x) where |x| >= TIE * scale, else fallback (an array of +-1)."""
+    return np.where(np.abs(x) >= TIE * np.maximum(scale, 1e-9), np.sign(x), fallback)
+
+
+def aim_miss(m, city, cand, cen, cmdv):
+    """S7 (SwarmPlaneController.UpdateFlowState): how squarely the swarm is flying at each candidate building -- the
+    distance from its centre to the stick's line from the centroid, surroundLookAhead long (with no stick, to the
+    centroid itself), over its cylinder's radius. (len(cand),). The adaptive spread widens for a building under
+    surroundAimFraction, and the slide splits the formation in halves round one under slideSplitAimFraction."""
+    if not len(cand):
+        return np.zeros(0)
+    ac, aR = aim_circle(m, city)
+    c, R = ac[cand], aR[cand]
+    L = m.look_ahead * m.S
+    rel = c - cen[None]
+    cn = float(np.linalg.norm(cmdv))
+    seg = L if cn > 0.1 * m.max_speed else 0.0
+    u = cmdv / cn if cn > 1e-9 else np.zeros(2)
+    t = np.clip(rel @ u, 0.0, seg)
+    dseg = np.linalg.norm(rel - t[:, None] * u[None], axis=1)
+    E = ell_rules(m, city)
+    if E is None:
+        return dseg / R
+    # S10: the same distance measured in each ellipse's unit space, where the ellipse is the unit circle and the
+    # stick's segment is still a segment; a circle (circ) keeps the line above, bit for bit
+    out = dseg / R
+    ell = ~E.circ[cand]
+    if ell.any():
+        B = cand[ell]
+        x, y = ell_local(np.stack([cen, cen + seg * u]), E, B)          # (2, len(B)): the segment's two ends
+        A0 = np.stack([x[0] / E.a[B], y[0] / E.b[B]], -1)
+        A1 = np.stack([x[1] / E.a[B], y[1] / E.b[B]], -1)
+        out[ell] = seg_origin_dist(A0, A1)
+    return out
+
+
+def inside_formation(P, pts):
+    """S11 (SwarmPlaneController.InsideFormation): whether each point (k, 2) lies inside the convex hull of the drones
+    P (n, 2): their bearings round it leave no gap of 180 degrees or more. Fewer than three drones enclose nothing."""
+    pts = np.atleast_2d(np.asarray(pts, float)).reshape(-1, 2)
+    if len(P) < 3 or not len(pts):
+        return np.zeros(len(pts), bool)
+    d = P[None] - pts[:, None]
+    b = np.sort(np.arctan2(d[..., 1], d[..., 0]), axis=1)
+    gap = np.maximum(np.diff(b, axis=1).max(1), b[:, 0] + 2 * np.pi - b[:, -1])
+    return gap < np.pi
+
+
+def wrap_holds(m, city, cand, P, cen, cmdv):
+    """S11 Wrap Hold (SwarmManager.spreadWrapRule; SwarmPlaneController.WrapHolds): per candidate, whether it holds the
+    full spread. Its centre (the ellipse's, else the circle the S7 rules aim by) lies inside the formation, and under
+    HoldUntilLeaving the pilot is not steering away from it (its centre behind the centroid along a held stick)."""
+    E = ell_rules(m, city)
+    c = E.c[cand] if E is not None else aim_circle(m, city)[0][cand]
+    rel = c - cen[None]
+    ok = np.linalg.norm(rel, axis=1) <= np.linalg.norm(P - cen[None], axis=1).max()
+    if ok.any():
+        ok[ok] = inside_formation(P, c[ok])
+    cn = float(np.linalg.norm(cmdv))
+    if m.wrap_rule == WRAP_UNTIL_LEAVING and cn > 0.1 * m.max_speed:
+        ok &= rel @ (cmdv / cn) >= 0.0
+    return ok
+
+
+def spread_target(m, city, cand, cen, miss, P=None, cmdv=None):
+    """S7 adaptive spread (SwarmManager.adaptiveSpread; SwarmPlaneController): the share of d_ref the formation should
+    hold. 1 while the swarm flies at a building (aim_miss under surroundAimFraction) or has no building within
+    surroundLookAhead of its centroid at all (open ground); streetSpreadFactor otherwise, i.e. among buildings with
+    none ahead: in the streets. Under S11's spreadWrapRule also 1 while wrap_holds for a building (P, the alive drones,
+    and cmdv, the world stick, are needed then)."""
+    if not len(cand) or (miss < m.aim_fraction).any():
+        return 1.0
+    if m.wrap_rule != WRAP_OFF:
+        if P is None or cmdv is None:
+            raise ValueError("spread_target: spreadWrapRule needs the drones' positions and the stick")
+        if wrap_holds(m, city, cand, P, cen, cmdv).any():
+            return 1.0
+    ac, aR = aim_circle(m, city)
+    gap = np.linalg.norm(ac[cand] - cen[None], axis=1) - aR[cand]
+    E = ell_rules(m, city)
+    if E is not None:
+        # S10: the centroid's true distance to each ellipse (negative inside); a circle keeps the line above
+        ell = ~E.circ[cand]
+        if ell.any():
+            gap = gap.copy()
+            gap[ell] = ell_frame(cen[None], E, cand[ell])[5][0]
+    return m.street_factor if (gap < m.look_ahead * m.S).any() else 1.0
+
+
+def slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss):
+    """S7: the shield with the stick's removed part turned round the building instead of deleted
+    (SwarmManager.slideRoundBuildings; OlfatiSaber.SlideRoundObstacles). Per frame, in query order as
+    RemoveInwardComponent: the inward part is faded out by the shield's bump w exactly as before, and the same
+    amount, times a head-on gate, is added along the cylinder's tangent -- so a drone flown straight at a building
+    flows round it instead of stalling, while one passing beside it is untouched (gate 0). The gate is
+    1 - miss / (slideHeadOnFraction R): miss is how far the stick's line from the drone passes from the building's
+    centre. The side, slide_side "hidden" (the C#'s rule), in this order: round a building the swarm flies squarely
+    at (aim_miss under slideSplitAimFraction) the formation splits in halves -- a drone left of the centroid's track
+    goes left -- so the swarm surrounds it; round a building that hides the centroid from the drone, on the
+    centroid's side (a straggler, or a drone strayed into the next street); otherwise round its own side of the
+    building's centreline, the short way. The screens' other rules: "auto" (no hidden-centroid case), "own" (own
+    side always), "formation" (halves always: trailing drones go round the far side of a corner building when the
+    route turns) and "group" (the centroid's side always: no surrounding). The result is held to the stick's
+    length: turned, never amplified."""
+    n = len(Pm)
+    cn = float(np.linalg.norm(cmdv))
+    u = cmdv / cn
+    nv = np.array([-u[1], u[0]])                                  # left of the stick
+    one = np.ones(n)
+    v = np.broadcast_to(cmdv, (n, 2)).copy()
+    aimed = miss < m.slide_split
+    ac, aR = aim_circle(m, city)
+    E = ell_rules(m, city)
+    for w, out, k in frames:
+        b = cand[k]
+        c, R = ac[b], float(aR[b])
+        tan = np.stack([out[:, 1], -out[:, 0]], -1)              # world up x outward, as MakeCylinderFrame
+        inward = np.maximum(-(v * out).sum(-1), 0.0)
+        if E is not None and not E.circ[b]:
+            v = v + _slide_ellipse(m, E, b, Pm, cen, vbar, u, nv, w, out, tan, inward, bool(aimed[k]))
+            continue
+        to_c = c[None] - Pm
+        if m.obstacle_shape == FOOTPRINT:
+            # S8: the gate measured where the drone meets the surface, 1 - |sin(incidence)| / slideHeadOnFraction --
+            # at a circle's surface the same number as the line below, and on a flat face the whole slide wherever
+            # the stick meets the wall square on, which is where a wall has no sideways push of its own
+            gate = np.clip(1.0 - np.abs(tan @ u) / max(m.slide_head_on, 1e-6), 0.0, 1.0)
+        else:
+            miss = np.abs(to_c @ nv)
+            gate = np.clip(1.0 - miss / max(m.slide_head_on * R, 1e-6), 0.0, 1.0) * ((to_c @ u) > 0)
+        own = _sign_or(-(to_c @ nv), R, one)                     # which side of the building's centreline
+        group = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
+                         _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
+        if m.slide_side == "hidden" and not aimed[k]:
+            # "hidden": as auto, but a drone that cannot see the centroid past this building goes round on the
+            # swarm's side of it (a straggler, or a drone in the next street)
+            seg = cen[None] - Pm
+            tq = np.clip((to_c * seg).sum(-1) / np.maximum((seg * seg).sum(-1), 1e-12), 0.0, 1.0)
+            hid = np.linalg.norm(Pm + tq[:, None] * seg - c[None], axis=1) < R
+            s = np.sign((tan @ nv) * own)
+            s = np.where(s == 0, 1.0, s)
+            if m.obstacle_shape == FOOTPRINT and m.fp_side == "lean":
+                # S8: along a flat face the own-side test can point back down the street; slide the way the stick
+                # already leans along the wall, the own side only when it meets the wall square on
+                s = _sign_or(tan @ u, 1.0, s)
+            s = np.where(hid, group, s)
+        elif m.slide_side == "group":
+            s = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
+                         _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
+        else:
+            if m.slide_side == "formation" or (m.slide_side in ("auto", "hidden") and aimed[k]):
+                lat = _sign_or((Pm - cen) @ nv, R, own)
+            else:
+                lat = own
+            s = np.sign((tan @ nv) * lat)
+            s = np.where(s == 0, 1.0, s)
+        v = v + (w * inward)[:, None] * out + (gate * w * inward * s)[:, None] * tan
+    return clamp_norm(v, cn)
+
+
+def _slide_ellipse(m, E, b, Pm, cen, vbar, u, nv, w, out, tan, inward, aimed):
+    """slide_round's term for one frame on an ellipse (S10), the circle's rules carried into the ellipse's unit space:
+    the gate is the local one, 1 - F |t.u| / slideHeadOnFraction while the stick points into the ellipse (F the
+    drone's unit-space radius: on a circle F |t.u| is exactly miss / R, so this is S7's gate there, and at a flat side
+    it is S8's local gate, where a unit-space line gate would starve the slide); the hidden test asks whether the
+    segment from the drone to the centroid meets the unit circle; the tie scales are the ellipse's half-width across
+    the stick; and a drone not splitting or hidden slides the way its stick leans along the surface (S8's lean rule:
+    on a circle the own-side rule wherever the gate is open, and along a long side it does not point back down the
+    street). Only the "hidden" side rule (the C#'s) is carried over."""
+    n = len(Pm)
+    one = np.ones(n)
+    c = E.c[b]
+    to_c = c[None] - Pm
+    pu = ell_unit(Pm, E, b)
+    F = np.sqrt((pu * pu).sum(-1))
+    gate = np.clip(1.0 - F * np.abs(tan @ u) / max(m.slide_head_on, 1e-6), 0.0, 1.0) * ((out @ u) < 0)
+    h = float(np.hypot(E.a[b] * (nv @ E.e[b]), E.b[b] * (nv @ E.ep[b])))   # half-width across the stick
+    own = _sign_or(-(to_c @ nv), h, one)
+    group = _sign_or(((cen - Pm) * tan).sum(-1), np.linalg.norm(cen - Pm, axis=1),
+                     _sign_or((vbar[None] * tan).sum(-1), np.linalg.norm(vbar), one))
+    if m.slide_side != "hidden":
+        raise ValueError("under obstacleShape Ellipse only the C#'s slide_side 'hidden' is implemented")
+    if aimed:
+        lat = _sign_or((Pm - cen) @ nv, h, own)
+        s = np.sign((tan @ nv) * lat)
+        s = np.where(s == 0, 1.0, s)
+    else:
+        hid = seg_origin_dist(pu, ell_unit(np.broadcast_to(cen, Pm.shape), E, b)) < 1.0
+        s = np.sign((tan @ nv) * own)
+        s = np.where(s == 0, 1.0, s)
+        s = _sign_or(tan @ u, 1.0, s)
+        s = np.where(hid, group, s)
+    return (w * inward)[:, None] * out + (gate * w * inward * s)[:, None] * tan
+
+
+def route_round(m, city, cand, Pm, cen, vbar, coh, fmag, unit, frames):
+    """S7: a drone's pull towards neighbours it cannot see past a building is turned round that building instead of
+    through it (SwarmManager.routeStragglers; OlfatiSaber.GetSwarmAcceleration). Only ATTRACTION (fmag > 0) to a
+    neighbour whose straight line from the drone passes through a shield frame's cylinder is touched -- assigned to
+    the first cylinder that line enters -- so the lattice's repulsion, and everything between drones that can see
+    each other, is exactly as before. Per frame, that blocked pull may still press the drone towards the building by
+    up to stragglerPressShare of the obstacle field's ceiling (what keeps the two halves of a formation wrapped round
+    a building it surrounds, and which the field can always resist); the excess is faded out by the shield's bump w
+    and the same amount added along the cylinder's tangent, on the side the blocked pull leans to (route_side
+    "lean"; a pull straight through goes to the swarm's side of the building, then downstream of its mean velocity),
+    held to the blocked pull's length: a drone left behind a building is drawn round it to the swarm rather than
+    dragged through its facade."""
+    n = len(Pm)
+    v = coh.copy()
+    if not frames:
+        return v
+    one = np.ones(n)
+    ac, aR = aim_circle(m, city)
+    cs = np.array([ac[cand[k]] for _, _, k in frames])             # (K, 2)
+    Rs = np.array([float(aR[cand[k]]) for _, _, k in frames])
+    D = Pm[None, :, :] - Pm[:, None, :]                            # [i, j] = j - i
+    L2 = np.maximum((D * D).sum(-1), 1e-12)
+    rel = cs[:, None, :] - Pm[None, :, :]                          # [q, i] = c_q - p_i
+    tp = np.einsum("qid,ijd->qij", rel, D) / L2[None]              # projection of c_q on the line i -> j
+    tc = np.clip(tp, 0.0, 1.0)
+    near = Pm[None, :, None, :] + tc[..., None] * D[None]          # closest point of the segment to c_q
+    d2 = ((near - cs[:, None, None, :]) ** 2).sum(-1)
+    W = np.array([w for w, _, _ in frames])                         # [q, i] each drone's own frames only
+    blocked = (d2 < Rs[:, None, None] ** 2) & (W[:, :, None] > 0)
+    entry = np.where(blocked, tp - np.sqrt(np.maximum(Rs[:, None, None] ** 2 - d2, 0.0) / L2[None]), np.inf)
+    E = ell_rules(m, city)
+    if E is not None:
+        # S10: an ellipse frame's test in its unit space, where the ellipse is the unit circle; an affine map keeps
+        # each line's parameter, so entries stay comparable with the circle frames'
+        for q, (_, _, k) in enumerate(frames):
+            b = cand[k]
+            if E.circ[b]:
+                continue
+            Pu = ell_unit(Pm, E, b)
+            Du = Pu[None, :, :] - Pu[:, None, :]
+            L2u = np.maximum((Du * Du).sum(-1), 1e-12)
+            tpu = np.einsum("id,ijd->ij", -Pu, Du) / L2u
+            nearu = Pu[:, None, :] + np.clip(tpu, 0.0, 1.0)[..., None] * Du
+            d2u = (nearu * nearu).sum(-1)
+            blocked[q] = (d2u < 1.0) & (W[q][:, None] > 0)
+            entry[q] = np.where(blocked[q], tpu - np.sqrt(np.maximum(1.0 - d2u, 0.0) / L2u), np.inf)
+    first = entry.argmin(0)                                         # [i, j] the first cylinder the line enters
+    pull = (fmag > 0) & blocked.any(0)
+    to_cen = cen[None] - Pm
+    dist_cen = np.linalg.norm(to_cen, axis=1)
+    vbar_n = float(np.linalg.norm(vbar))
+    press = m.route_press * m.max_obs
+    for q, (w, out, _) in enumerate(frames):
+        sel = pull & (first == q)
+        if not sel.any():
+            continue
+        A = (np.where(sel, fmag, 0.0)[..., None] * unit).sum(1)     # the blocked pull this cylinder stands in
+        tan = np.stack([out[:, 1], -out[:, 0]], -1)
+        inward = np.maximum(-(A * out).sum(-1), 0.0)
+        excess = np.maximum(inward - press, 0.0)
+        lean = (A * tan).sum(-1)
+        to_g = (to_cen * tan).sum(-1)
+        down = _sign_or((vbar[None] * tan).sum(-1), vbar_n, one)
+        if m.route_side == "lean":
+            s = _sign_or(lean, inward, _sign_or(to_g, dist_cen, down))
+        else:
+            s = _sign_or(to_g, dist_cen, _sign_or(lean, inward, down))
+        An = A + (w * excess)[:, None] * out + (w * excess * s)[:, None] * tan
+        An = clamp_norm(An, np.linalg.norm(A, axis=1, keepdims=True))
+        v = v + (An - A)
+    return v
+
+
+def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, alt=None, vbar=None, miss=None):
+    """Every horizontal term OlfatiSaber.GetSwarmAcceleration sums, and the shielded command, per drone.
+
+    Pm, Vm     (n, 2) measured positions and velocities (StateFinder, noisy in Unity)
+    cen        swarm centroid (SwarmPlaneController, from TRUE positions)
+    vmean      core reference velocity: the mean measured velocity, or zeros (coreRelativeVelocity off)
+    core_r     core radius in metres, 0 when the core is off this tick
+    cmd        the pilot's world command before the shield, (2,)
+    fallback   (n, 2) outward direction for a drone exactly on the core axis (C#: its own forward)
+    alt        (n,) altitudes for the obstacle query, or None (within every building's height)
+    vbar       the swarm's mean measured velocity (SwarmPlaneController.SwarmMeanVelocity), for the S7 side
+               rules' last tie-break; None = Vm's mean
+    miss       (len(cand),) how squarely the swarm flies at each building (aim_miss); None = computed here
+    """
+    n, S, dl = len(Pm), m.S, m.delta
+    zero = np.zeros((n, 2))
+
+    # ---- alpha lattice: cohesion, velocity consensus, close-range damper (all in swarm units)
+    D = Pm[None, :, :] - Pm[:, None, :]                    # [i, j] = j - i
+    dist = np.linalg.norm(D, axis=-1)
+    pair = ~np.eye(n, dtype=bool) & (dist > 0)
+    unit = np.where(pair[..., None], D / np.where(pair, dist, 1.0)[..., None], 0.0)
+    r = dist / S
+    cmdv = np.asarray(cmd, float)
+    cn = float(np.linalg.norm(cmdv))
+    if m.aniso > 1.0 and cn > 1e-9:
+        # S6 prototype: the across-track part of each separation counts k times (the track is the stick's), so the
+        # lattice settles k times narrower across the street; the pull acts along that metric's gradient
+        u = cmdv / cn
+        nv = np.array([-u[1], u[0]])
+        al, cr = D @ u, D @ nv
+        k2 = m.aniso * m.aniso
+        g = al[..., None] * u + (k2 * cr)[..., None] * nv
+        gn = np.linalg.norm(g, axis=-1)
+        gdir = np.where(pair[..., None], g / np.where(gn > 1e-12, gn, 1.0)[..., None], 0.0)
+        reff = np.sqrt(al * al + k2 * cr * cr) / S
+        coh = (np.where(pair, cohesion(reff, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)[..., None] * gdir).sum(1)
+    else:
+        fmag = np.where(pair, cohesion(r, dref, m.r0_eff(dref), m.a, m.b, dl), 0.0)
+        coh = (fmag[..., None] * unit).sum(1)
+    vc = m.c_vm * (Vm[None, :, :] - Vm[:, None, :]).sum(1)
+    damp = zero
+    if m.c_damp > 0:
+        rate = ((Vm[None, :, :] - Vm[:, None, :]) * unit).sum(-1)       # range rate, < 0 approaching
+        w = np.where(pair & (r < m.d_damp) & (rate < 0), m.c_damp * bump(r, m.d_damp, dl) * rate, 0.0)
+        damp = (w[..., None] * unit).sum(1)
+
+    # ---- obstacles: beta-agents on each building's cylinder, and the shield's frames
+    obs, prox, shield, shield_cmd = zero, np.zeros(n), [], None
+    if len(cand) and m.obstacle_model == "closest":
+        # Replica only (the split study, Phase 1): the beta-agent on the footprint's true closest point. Distance is
+        # to the facade, mu = 1 (a wall's beta-agent moves with the drone's tangential velocity), and face_bend tilts
+        # the normal away from the building's centre in proportion to the drone's offset along the face over the
+        # bounds radius -- a cylinder of that radius at face_bend 1 -- so an off-centre approach still slides.
+        if not isinstance(city, PolyCity):
+            raise ValueError("obstacle_model 'closest' is implemented for PolyCity only")
+        q, d = city.closest(Pm, cand)
+        rel = Pm[:, None, :] - q
+        from_c = Pm[:, None, :] - city.c[cand][None]
+        from_c_dir = from_c / np.maximum(np.linalg.norm(from_c, axis=-1), 1e-9)[..., None]
+        out = np.where((d > 1e-4)[..., None], rel / np.maximum(d, 1e-9)[..., None], from_c_dir)
+        if m.face_bend > 0:
+            t0 = np.stack([out[..., 1], -out[..., 0]], -1)
+            off = (from_c * t0).sum(-1) / np.maximum(city.R[cand][None], 1e-9)
+            out = out + (m.face_bend * off)[..., None] * t0
+            out = out / np.maximum(np.linalg.norm(out, axis=-1), 1e-9)[..., None]
+        tan = np.stack([out[..., 1], -out[..., 0]], -1)
+        mu = np.ones_like(d)
+        dd = d / S
+        found = d < m.r0_obs * S
+        bo = bump(dd, m.d_obs, dl) * found
+    elif len(cand) and m.obstacle_shape == FOOTPRINT:
+        # S8 (OlfatiSaber.MakeFootprintFrame): Olfati-Saber's wall beta-agent at the footprint's closest point -- the
+        # distance to the facade itself, mu 1, the normal turning round each corner as the distance field does. A
+        # drone inside a footprint is pushed out from the enclosing circle's centre.
+        if not isinstance(city, PolyCity):
+            raise ValueError("obstacleShape Footprint is implemented for PolyCity only")
+        q, d = city.closest(Pm, cand)
+        rel = Pm[:, None, :] - q
+        from_c = Pm[:, None, :] - city.mec_c[cand][None]
+        from_c_dir = from_c / np.maximum(np.linalg.norm(from_c, axis=-1), 1e-9)[..., None]
+        out = np.where((d > 1e-4)[..., None], rel / np.maximum(d, 1e-9)[..., None], from_c_dir)
+        tan = np.stack([out[..., 1], -out[..., 0]], -1)
+        mu = np.ones_like(d)
+        dd = d / S
+        found = d < m.r0_obs * S
+        bo = bump(dd, m.d_obs, dl) * found
+    elif len(cand):
+        if m.obstacle_shape in (ENCLOSING, ELLIPSE) and not isinstance(city, PolyCity):
+            raise ValueError("obstacleShape EnclosingCircle and Ellipse are implemented for PolyCity only")
+        ac, aR = aim_circle(m, city)
+        rel = Pm[:, None, :] - ac[cand][None]
+        rho = np.linalg.norm(rel, axis=-1)
+        R = aR[cand][None]
+        reach = city.distance(Pm, cand, alt) < m.r0_obs * S                     # OverlapSphere
+        found = reach & (rho >= 1e-4)                                            # and a valid frame
+        out = rel / np.maximum(rho, 1e-4)[..., None]
+        tan = np.stack([out[..., 1], -out[..., 0]], -1)                         # world up x outward
+        mu = np.minimum(R / np.maximum(rho, 1e-4), 1.0)
+        dd = np.maximum(rho - R, 0.0) / S
+        if m.obstacle_shape == ELLIPSE:
+            # S10 (OlfatiSaber.MakeEllipseFrame): each building not avoided as its circle (circ) takes the ellipse's
+            # frame; the circles keep the values above, bit for bit as under EnclosingCircle
+            E = city.ellipses(m.ellipse_cap)
+            ell = ~E.circ[cand]
+            if ell.any():
+                eo, ed, emu, ev, _, _ = ell_frame(Pm, E, cand[ell])
+                found = found.copy()
+                found[:, ell] = reach[:, ell] & ev
+                out, mu, dd = out.copy(), mu.copy(), dd.copy()
+                out[:, ell] = eo
+                mu[:, ell] = emu
+                dd[:, ell] = ed / S
+                tan = np.stack([out[..., 1], -out[..., 0]], -1)
+        bo = bump(dd, m.d_obs, dl) * found
+    if len(cand):
+        prox = bo.max(1)
+        rep = (bo * (sigma1(dd - m.d_obs) - 1.0))[..., None] * (-out)
+        vel_obs = (mu * (Vm[:, None, :] * tan).sum(-1))[..., None] * tan
+        vmatch = bo[..., None] * (vel_obs - Vm[:, None, :])
+        obs = sat(m.c_obs * rep.sum(1) + m.c2_beta * vmatch.sum(1), m.max_obs)
+        if m.d_shield > 0:
+            ws = bump(dd, m.d_shield, dl) * (found & (dd < m.d_shield))
+            for k in np.flatnonzero(ws.max(0) > 0):
+                shield.append((ws[:, k], out[:, k], k))
+            if m.shield_mode == "lookahead" and m.obstacle_model == "cylinder" and cn > 1e-9:
+                # S6 prototype: the stick is shielded only from a building its line would hit, faded in by the
+                # distance to that hit, so a drone passing beside a building keeps its whole stick
+                u = cmdv / cn
+                wv = -rel                                                     # drone to building centre
+                along = (wv * u).sum(-1)
+                lat2 = np.maximum((wv * wv).sum(-1) - along * along, 0.0)
+                Rm = R + LOOKAHEAD_MARGIN_M
+                inside = rho < Rm
+                hit = inside | ((along > 0) & (lat2 < Rm * Rm))
+                d_hit = np.where(inside, 0.0, np.maximum(along - np.sqrt(np.maximum(Rm * Rm - lat2, 0.0)), 0.0))
+                wl = bump(d_hit / S, m.d_shield, dl) * (found & hit)
+                shield_cmd = [(wl[:, k], out[:, k], k) for k in np.flatnonzero(wl.max(0) > 0)]
+
+    # ---- hollow core: a virtual beta-agent cylinder on the centroid, moving with the swarm
+    core = zero
+    if core_r > 0 and m.c_core > 0:
+        rel = Pm - cen
+        rho = np.linalg.norm(rel, axis=1)
+        axial = rho < 1e-4
+        out = np.where(axial[:, None], fallback, rel / np.maximum(rho, 1e-4)[:, None])
+        tan = np.stack([out[:, 1], -out[:, 0]], -1)
+        mu = np.where(axial, 1.0, np.minimum(core_r / np.maximum(rho, 1e-4), 1.0))
+        dd = np.where(axial, 0.0, np.maximum(rho - core_r, 0.0) / S)
+        so = max(m.coreStandoffRatio * dref, 1e-3)
+        b = bump(dd, so, dl)
+        vrel = Vm - vmean
+        rep = (b * (sigma1(dd - so) - 1.0))[:, None] * (-out)
+        vel_obs = (mu * (vrel * tan).sum(-1))[:, None] * tan
+        vmatch = b[:, None] * (vel_obs - vrel)
+        core = sat((m.c_core * rep + m.c2_core * vmatch) * (1.0 - prox)[:, None], m.max_core)
+
+    damp_raw = damp
+    damp = remove_inward(sat(damp, m.max_damp), shield)
+    frames = shield if shield_cmd is None else shield_cmd
+    if vbar is None:
+        vbar = Vm.mean(0)
+    if m.slide and frames and cn > 1e-9:
+        if miss is None:
+            miss = aim_miss(m, city, cand, cen, cmdv)
+        shielded = slide_round(m, city, cand, Pm, cen, vbar, cmdv, frames, miss)
+    else:
+        shielded = remove_inward(np.broadcast_to(cmdv, (n, 2)).copy(), frames)
+    if m.shield_slide > 0 and frames and cn > 1e-9:
+        # S6 prototype: the removed part turned sideways, away from the building's centre across the track (on the
+        # drone's side of the formation when head on), and the result held to the stick's length
+        u = cmdv / cn
+        nv = np.array([-u[1], u[0]])
+        side = np.sign(((Pm - cen) @ nv))
+        side = np.where(side == 0, 1.0, side)
+        add = np.zeros((n, 2))
+        for w, out, *_ in frames:
+            inward = np.maximum(-(out @ cmdv), 0.0)
+            perp = out - (out @ u)[:, None] * u
+            pn = np.linalg.norm(perp, axis=1)
+            pdir = np.where((pn > 0.15)[:, None], perp / np.maximum(pn, 1e-9)[:, None], side[:, None] * nv)
+            add += (m.shield_slide * w * inward)[:, None] * pdir
+        shielded = clamp_norm(shielded + add, cn)
+    if m.route and shield:
+        if m.aniso > 1.0:
+            raise ValueError("routeStragglers with the aniso prototype is not implemented")
+        coh = route_round(m, city, cand, Pm, cen, vbar, coh, fmag, unit, shield)
+    if m.cohesion_shield:
+        coh = remove_inward(coh, shield)
+    return dict(vc=vc, coh=coh, damp=damp, damp_raw=damp_raw, obs=obs, core=core, cmd=shielded, prox=prox)
+
+
+# ============================================================================= closed loop
+
+class Sim:
+    """The swarm's horizontal state, stepped as VelocityControl and PhysX step it."""
+
+    def __init__(self, m, city, P0, V0, seed):
+        self.m, self.city = m, city
+        n = len(P0)
+        self.rng = np.random.default_rng(seed)
+        self.P, self.V = np.array(P0, float), np.array(V0, float)
+        self.th, self.w, self.fs = np.zeros((n, 2)), np.zeros((n, 2)), np.zeros((n, 2))
+        self.alive = np.ones(n, bool)
+        ang = self.rng.uniform(0, 2 * np.pi, n)
+        self.forward = np.stack([np.sin(ang), np.cos(ang)], 1)   # no heading is modelled; any distinct one
+        self.core_r = None
+        self.sigma = None          # S7 adaptive spread: the share of d_ref in force (SwarmPlaneController)
+        self.cand = np.arange(0)
+        self.tick = 0
+        self.kills = []            # (t, "drone" | "building", d_ref)
+
+    @property
+    def t(self):
+        return self.tick * self.m.dt
+
+    def step(self, stick, body_yaw_deg, dref):
+        m, rng = self.m, self.rng
+        idx = np.flatnonzero(self.alive)
+        n = len(idx)
+        if n == 0:
+            return
+        P, V = self.P[idx], self.V[idx]
+        Pm = P + rng.normal(0, m.pos_noise, P.shape)
+        Vm = V + rng.normal(0, m.vel_noise, V.shape)
+        cen = P.mean(0)
+
+        # SwarmPlaneController.UpdateCoreRadius: a fraction of the mean distance from the centroid, low-passed,
+        # seeded on the first tick it is wanted and cleared when it is not.
+        core_r = 0.0
+        if m.hollow and n > 0:
+            target = m.coreRadiusFraction * np.linalg.norm(P - cen, axis=1).mean()
+            if self.core_r is None or m.coreRadiusFilterTime <= 0:
+                self.core_r = target
+            else:
+                self.core_r += (1 - np.exp(-m.dt / m.coreRadiusFilterTime)) * (target - self.core_r)
+            core_r = self.core_r
+        else:
+            self.core_r = None
+        vmean = Vm.mean(0) if m.core_relative else np.zeros(2)
+
+        if self.tick % QUERY_EVERY == 0:
+            self.cand = self.city.near(P, m.r0_obs * m.S + QUERY_MARGIN_M)
+        cmd = m.stick_to_world(stick, body_yaw_deg)
+        d_eff = dref
+        miss = aim_miss(m, self.city, self.cand, cen, cmd) if (m.adaptive or m.slide) else None
+        if m.adaptive:
+            # SwarmPlaneController.UpdateFlowState: seeded, then low-passed, as the core radius is
+            target = spread_target(m, self.city, self.cand, cen, miss, P, cmd)
+            if self.sigma is None or m.spread_filter <= 0:
+                self.sigma = target
+            else:
+                self.sigma += (1 - np.exp(-m.dt / m.spread_filter)) * (target - self.sigma)
+            d_eff = dref * self.sigma
+        T = swarm_terms(m, self.city, self.cand, Pm, Vm, cen, vmean, core_r, d_eff, cmd, self.forward[idx],
+                        vbar=Vm.mean(0), miss=miss)
+
+        # VelocityControl: low-passed swarm force + velocity P-loop on the shielded command, circular tilt
+        # clamp, tilt -> rate -> alpha; then PhysX (velocity change before damping) and a = g tan(tilt).
+        swarm = T["vc"] + T["coh"] + T["damp"] + T["obs"] + T["core"]
+        self.fs[idx] += m.swarm_filter * (swarm - self.fs[idx])
+        user = (T["cmd"] - Vm) / m.tau_acc
+        theta = clamp_norm((user + self.fs[idx]) / m.g, m.max_tilt)
+        th_meas = self.th[idx] + rng.normal(0, m.att_noise, theta.shape)
+        w_cmd = (theta - th_meas) / m.tau_w
+        alpha = clamp_norm((w_cmd - self.w[idx]) / m.tau_a, m.max_alpha)
+        w = (self.w[idx] + alpha * m.dt) * (1 - m.ang_drag * m.dt)
+        th = self.th[idx] + w * m.dt
+        tm = np.linalg.norm(th, axis=1, keepdims=True)
+        acc = m.g * np.tan(tm) * th / np.maximum(tm, 1e-9)
+        V = (V + acc * m.dt) * (1 - m.drag * m.dt)
+        P = P + V * m.dt
+        self.w[idx], self.th[idx], self.V[idx], self.P[idx] = w, th, V, P
+        self.tick += 1
+        self._losses(idx, P, dref)
+
+    def _pair_losses(self, P, dref):
+        """Local indices of the drones in a pair closer than PAIR_KILL_M (DroneHealthMonitor: both die)."""
+        dead = set()
+        if len(P) > 1:
+            Dt = np.linalg.norm(P[None] - P[:, None], axis=-1)
+            for i, j in zip(*np.where(np.triu(Dt < PAIR_KILL_M, 1))):
+                if i in dead or j in dead:
+                    continue
+                dead |= {i, j}
+                self.kills.append((self.t, "drone", dref))
+        return dead
+
+    def _losses(self, idx, P, dref):
+        """The replica's loss rule: pairs closer than PAIR_KILL_M, and drones inside a building footprint."""
+        dead = self._pair_losses(P, dref)
+        for i in np.flatnonzero(self.city.footprint_hit(P, self.cand, DRONE_HALF_M)):
+            if i not in dead:
+                dead.add(i)
+                self.kills.append((self.t, "building", dref))
+        self.alive[idx[list(dead)]] = False
+
+
+PHYSX_FRICTION = 0.6    # the default PhysicMaterial's friction: no building or drone collider here sets its own
+TOUCH_MARGIN_M = 0.15   # beyond the push-out's 0.05 m: a drone held against a wall stays one contact
+
+
+class ContactSim(Sim):
+    """Sim with Unity's loss rules in place of the replica's footprint kill. A drone that enters a building
+    footprint is a CONTACT, as PhysX resolves it: put back on the footprint's surface (plus DRONE_HALF_M) with the
+    velocity into it removed; with `friction` (Coulomb; PhysX's default material, which every building here has, is
+    0.6) the velocity along the facade loses up to friction x the normal velocity removed, so a drone that cohesion
+    keeps pressing into a wall can stick to it, as it does in Unity. `contacts` counts contact EVENTS as the bench's
+    OnCollisionEnter does (a drone still touching from the previous tick, within TOUCH_MARGIN_M, is not a new one);
+    `contact_ticks` counts ticks in contact. A drone whose nearest live neighbour is beyond the cohesion cutoff
+    (r0_eff x S) is lost as DroneHealthMonitor.IsTooFarFromSwarm loses it. Pair kills stand. No flips, no ground,
+    no altitude. citysim (Tier B / B') and `validate` fly this; `validate` is its gate against the bench."""
+
+    def __init__(self, *a, isolation=True, friction=PHYSX_FRICTION, **kw):
+        super().__init__(*a, **kw)
+        self.contacts = 0
+        self.contact_ticks = 0
+        self.touching = np.zeros(len(self.P), bool)
+        self.isolation = isolation
+        self.friction = float(friction)
+
+    def _losses(self, idx, P, dref):
+        dead = self._pair_losses(P, dref)
+        pushed = np.zeros(len(self.P), bool)
+        for i in np.flatnonzero(self.city.footprint_hit(P, self.cand, DRONE_HALF_M)):
+            if i in dead:
+                continue
+            g = idx[i]
+            self.P[g], self.V[g] = push_out(self.city, self.cand, self.P[g], self.V[g], friction=self.friction)
+            pushed[g] = True
+            self.contact_ticks += 1
+            if not self.touching[g]:
+                self.contacts += 1
+        # a contact begins with a push-out and lasts while the drone stays within TOUCH_MARGIN_M of the footprint
+        near = self.city.footprint_hit(self.P[idx], self.cand, DRONE_HALF_M + TOUCH_MARGIN_M)
+        self.touching[idx] = pushed[idx] | (self.touching[idx] & near)
+        if self.isolation:
+            live = [k for k in range(len(idx)) if k not in dead]
+            if len(live) > 1:
+                Q = self.P[idx[live]]
+                D = np.linalg.norm(Q[None] - Q[:, None], axis=-1)
+                np.fill_diagonal(D, np.inf)
+                for k in np.flatnonzero(D.min(1) > self.m.r0_eff(dref) * self.m.S):
+                    dead.add(live[k])
+                    self.kills.append((self.t, "isolated", dref))
+        self.alive[idx[list(dead)]] = False
+
+
+def push_out(city, cand, p, v, margin=DRONE_HALF_M + 0.05, friction=0.0):
+    """The nearest point outside every candidate footprint (grown by margin), and v without its inward part (and,
+    with friction, with its part along the face reduced by up to friction x the inward part removed)."""
+    if isinstance(city, PolyCity):
+        return city.push_out(cand, p, v, margin, friction)
+    for _ in range(4):
+        inside = False
+        for b in cand:
+            o = (np.array([p[0], 0.0, p[1]]) - city.c3[b]) @ city.unit[b].T
+            flat = city.flat[b]
+            half = city.half[b] + margin
+            if not (np.abs(o[flat]) <= half[flat]).all():
+                continue
+            inside = True
+            ks = np.flatnonzero(flat)
+            k = ks[np.argmin(half[ks] - np.abs(o[ks]))]          # leave through the nearest face
+            nrm3 = city.unit[b, k] * np.sign(o[k] if o[k] != 0 else 1.0)
+            nrm = nrm3[[0, 2]] / max(np.linalg.norm(nrm3[[0, 2]]), 1e-9)
+            p = p + (half[k] - abs(o[k]) + 1e-3) * nrm
+            vn = float(v @ nrm)
+            if vn < 0:
+                v = v - vn * nrm
+                if friction > 0:
+                    vt = v - float(v @ nrm) * nrm
+                    st = float(np.linalg.norm(vt))
+                    if st > 1e-9:
+                        v = v - vt * min(1.0, friction * -vn / st)
+        if not inside:
+            break
+    return p, v
+
+
+def formation_sample(P):
+    """(min pair distance, median nearest-neighbour distance, hull fraction) of the points P."""
+    from scipy.spatial import ConvexHull
+    Dm = np.linalg.norm(P[None] - P[:, None], axis=-1)
+    np.fill_diagonal(Dm, np.inf)
+    try:
+        hull = len(ConvexHull(P).vertices) / len(P) if len(P) >= 3 else 1.0
+    except Exception:
+        hull = np.nan
+    return Dm.min(), np.median(Dm.min(1)), hull
+
+
+def load_run(test_dir, stem):
+    test_dir = Path(test_dir)
+    dr = pd.read_csv(test_dir / f"{stem}_drones.csv", sep=";")
+    hd = pd.read_csv(test_dir / f"{stem}_head.csv", sep=";")
+    sh = pd.read_csv(test_dir / f"{stem}_shape.csv", sep=";")
+    session = json.loads((test_dir / f"{stem}_session.json").read_text(encoding="utf-8-sig"))
+    piv = {k: dr.pivot_table(index="t", columns="droneId", values=k) for k in ["gtX", "gtY", "gtZ", "alive", "yawDeg"]}
+    T = piv["gtX"].index.values
+    P3 = np.stack([piv["gtX"].values, piv["gtY"].values, piv["gtZ"].values], -1)
+    layout = session.get("layout") or {}
+    return dict(stem=stem, T=T, P3=P3, alive=piv["alive"].values > 0.5, yaw=piv["yawDeg"].values,
+                hd=hd, sh=sh, goals=session.get("goals", []),
+                layout=layout.get("id", "") if isinstance(layout, dict) else "")
+
+
+def recorded_core(sh):
+    """Whether the run flew with the hollow core on, by its own shape.csv."""
+    return bool(sh.hollowCore.mean() > 0.5) if "hollowCore" in sh else None
+
+
+def run_sim(job):
+    stem, label, swarm, air, city_name, test_dir, seed = job
+    R = load_run(test_dir, stem)
+    m = Model(swarm, air)
+    city = City.for_run(R["goals"], city_name, R["layout"])
+    T, P3 = R["T"], R["P3"]
+    alt_mean = np.nanmean(P3[..., 1], 1)
+    k0 = int(np.argmax(alt_mean > min(10.0, 0.5 * np.nanmax(alt_mean))))   # airborne
+    k0 = max(k0, 1)
+    P0 = P3[k0][:, [0, 2]]
+    V0 = (P3[k0 + 1] - P3[k0 - 1])[:, [0, 2]] / (T[k0 + 1] - T[k0 - 1])
+    sim = Sim(m, city, P0, V0, seed)
+    hd, sh = R["hd"], R["sh"]
+    ht, st = hd.t.values, sh.t.values
+    roll, pitch, yaw = hd.inRoll.values, hd.inPitch.values, hd.bodyYaw.values
+    drefs = sh.dRef.values
+    t, tend = T[k0], min(ht[-1], st[-1])
+    rec = []
+    while t < tend and sim.alive.sum() > 1:
+        h = min(max(np.searchsorted(ht, t, "right") - 1, 0), len(ht) - 1)
+        s = min(max(np.searchsorted(st, t, "right") - 1, 0), len(st) - 1)
+        sim.step((roll[h], pitch[h]), yaw[h], drefs[s])
+        t += m.dt
+        if sim.tick % 5 == 0:
+            Pa = sim.P[sim.alive]
+            if len(Pa) > 1:
+                dmin, nn, hull = formation_sample(Pa)
+                rec.append((drefs[s], dmin, nn, np.linalg.norm(sim.V[sim.alive].mean(0)), hull, len(Pa)))
+    warning = None
+    flown = recorded_core(sh)
+    if flown is not None and flown != m.hollow:
+        warning = (f"{stem}: shape.csv says the hollow core was {'on' if flown else 'off'}, but hollowSwarmCore "
+                   f"resolved to {m.hollow} -- give the test a swarmParams entry in test.json")
+    return dict(stem=stem, variant=label, seed=seed, kills=sim.kills, rec=np.array(rec), dt=m.dt, warning=warning)
+
+
+def summarise(results):
+    rows = []
+    for label in dict.fromkeys(r["variant"] for r in results):
+        rs = [r for r in results if r["variant"] == label]
+        rec = np.concatenate([r["rec"] for r in rs if len(r["rec"])])
+        dt5 = 5 * rs[0]["dt"] / 60.0
+        small = rec[:, 0] <= SMALL_DREF
+        min_small, min_all = small.sum() * dt5, len(rec) * dt5
+        kills = [k for r in rs for k in r["kills"]]
+        dd_small = sum(1 for _, kind, d in kills if kind == "drone" and d <= SMALL_DREF)
+        dd_large = sum(1 for _, kind, d in kills if kind == "drone" and d > SMALL_DREF)
+        rows.append(dict(
+            variant=label, runs=len({r["stem"] for r in rs}), seeds=len({r["seed"] for r in rs}),
+            min_small=round(min_small, 1), min_all=round(min_all, 1),
+            dd_small=dd_small, dd_large=dd_large,
+            dd_per_min_small=round(dd_small / max(min_small, 1e-9), 3),
+            dd_per_min_large=round(dd_large / max(min_all - min_small, 1e-9), 3),
+            building=sum(1 for _, kind, _ in kills if kind == "building"),
+            nn_small=round(float(np.median(rec[small, 2])), 2) if small.any() else np.nan,
+            nearmiss_small=round(float((rec[small, 1] < 1.0).mean()), 3) if small.any() else np.nan,
+            hull_small=round(float(np.nanmean(rec[small, 4])), 3) if small.any() else np.nan,
+            hull_all=round(float(np.nanmean(rec[:, 4])), 3),
+            speed=round(float(rec[:, 3].mean()), 2)))
+    return pd.DataFrame(rows)
+
+
+# ============================================================================= open loop: forces at crashes
+
+TERMS = ["user", "shield", "coh", "obs", "core", "damp", "vc", "clamp"]
+
+
+def crash_terms(m, city, R, k, sh, hd, ids):
+    """All terms on every alive drone at recorded sample k. Measured = recorded: no noise, no filter (the
+    swarm-force low-pass is left out, so each term is what the force law commands at that instant)."""
+    alive = R["alive"][k]
+    idx = np.flatnonzero(alive)
+    P3 = R["P3"][k, idx]
+    T = R["T"]
+    V3 = R["V3"][k, idx]
+    Pm, Vm = P3[:, [0, 2]], V3[:, [0, 2]]
+    s = sh.iloc[int((sh.t - T[k]).abs().argmin())]
+    h = hd.iloc[int((hd.t - T[k]).abs().argmin())]
+    core_r = float(s.coreRadiusM) if s.hollowCore else 0.0      # the radius the run actually had
+    vmean = Vm.mean(0) if m.core_relative else np.zeros(2)
+    yaw = np.radians(R["yaw"][k, idx])
+    fallback = np.stack([np.sin(yaw), np.cos(yaw)], 1)
+    cmd = m.stick_to_world((h.inRoll, h.inPitch), h.bodyYaw)
+    cand = city.near(Pm, m.r0_obs * m.S + QUERY_MARGIN_M)
+    t_ = swarm_terms(m, city, cand, Pm, Vm, Pm.mean(0), vmean, core_r, float(s.dRef), cmd, fallback, alt=P3[:, 1])
+    user_ideal = (cmd - Vm) / m.tau_acc
+    user = (t_["cmd"] - Vm) / m.tau_acc
+    swarm = t_["vc"] + t_["coh"] + t_["damp"] + t_["obs"] + t_["core"]
+    tot = user + swarm
+    amax = m.max_tilt * m.g                    # the tilt clamp, as an acceleration (a/g is the commanded angle)
+    clamped = clamp_norm(tot, amax)
+    out = dict(user=user_ideal, shield=user - user_ideal, coh=t_["coh"], obs=t_["obs"], core=t_["core"],
+               damp=t_["damp"], vc=t_["vc"], clamp=clamped - tot, tot=clamped,
+               sat=np.linalg.norm(tot, axis=1) / amax,
+               damp_raw=np.linalg.norm(t_["damp_raw"], axis=1),
+               dobs=city.min_distance(Pm, P3[:, 1]), dref=float(s.dRef))
+    pos = {d: i for i, d in enumerate(idx)}
+    return out, [pos.get(d) for d in ids]
+
+
+def run_forces(test_dir, city_name, crashes, swarm_for, air, window_samples):
+    rows = []
+    for stem, tcrash, ids in crashes:
+        R = load_run(test_dir, stem)
+        T = R["T"]
+        R["V3"] = np.gradient(R["P3"], T, axis=0)
+        acc = np.gradient(R["V3"], T, axis=0)
+        m = Model(swarm_for(stem), air)
+        city = City.for_run(R["goals"], city_name, R["layout"])
+        i, j = ids
+        ti = int(np.searchsorted(T, tcrash)) - 2       # last sample with both alive and a clean central difference
+        print(f"\n==== {stem} t={tcrash:.2f} pair {i},{j}   closing acceleration, m/s^2 (+ = pushes the pair together)")
+        print("  t_rel  dist vclose " + " ".join(f"{x:>7s}" for x in TERMS) + "   model   meas  sat_i sat_j  dObs_i dObs_j")
+        for k in range(max(1, ti - window_samples), ti + 1):
+            if not (R["alive"][k, i] and R["alive"][k, j]):
+                continue
+            out, (pi, pj) = crash_terms(m, city, R, k, R["sh"], R["hd"], (i, j))
+            e = (R["P3"][k, j] - R["P3"][k, i])[[0, 2]]
+            e = e / np.linalg.norm(e)
+            closing = {x: -float(np.dot(out[x][pj] - out[x][pi], e)) for x in TERMS}
+            model = -float(np.dot(out["tot"][pj] - out["tot"][pi], e))
+            meas = -float(np.dot((acc[k, j] - acc[k, i])[[0, 2]], e))
+            vclose = -float(np.dot((R["V3"][k, j] - R["V3"][k, i])[[0, 2]], e))
+            dist = float(np.linalg.norm(R["P3"][k, j] - R["P3"][k, i]))
+            rows.append(dict(run=stem, tcrash=tcrash, i=i, j=j, trel=T[k] - tcrash, dist=dist, vclose=vclose,
+                             dref=out["dref"], model=model, meas=meas, sat_i=out["sat"][pi], sat_j=out["sat"][pj],
+                             dobs_i=out["dobs"][pi], dobs_j=out["dobs"][pj],
+                             damp_raw_i=out["damp_raw"][pi], damp_raw_j=out["damp_raw"][pj], **closing))
+            if (ti - k) % 2 == 0:
+                print(f" {T[k] - tcrash:6.2f} {dist:5.2f} {vclose:5.2f} " + " ".join(f"{closing[x]:7.2f}" for x in TERMS)
+                      + f"  {model:6.2f} {meas:6.2f}  {out['sat'][pi]:5.2f} {out['sat'][pj]:5.2f}"
+                      + f"  {out['dobs'][pi]:6.1f} {out['dobs'][pj]:6.1f}")
+    return pd.DataFrame(rows)
+
+
+def crash_list(test_dir, picks):
+    """[(stem, t, (i, j))]: --crash picks, or every two-drone crash in results/crashes.csv."""
+    out = []
+    if picks:
+        for p in picks:
+            run, rest = p.split("@", 1)
+            t, _, pair = rest.partition(":")
+            out.append((run, float(t), tuple(int(x) for x in pair.split(",")) if pair else None))
+    table = Path(test_dir) / "results" / "crashes.csv"
+    need_table = not picks or any(ids is None for _, _, ids in out)
+    if need_table and not table.exists():
+        sys.exit(f"[replica] {table} does not exist: run `analyse.py run {Path(test_dir).name}` first, or name "
+                 "crashes with --crash RUN@T:i,j")
+    cr = pd.read_csv(table, sep=";") if need_table else None
+    if not picks:
+        for (run, t), g in cr.groupby(["run", "t"]):
+            ids = sorted(g.droneId.tolist())
+            if len(ids) == 2:
+                out.append((run, float(t), tuple(ids)))
+            else:
+                print(f"[replica] skipping {run} t={t}: {len(ids)} drone(s) lost at that instant, not a pair")
+        return out
+    resolved = []
+    for run, t, ids in out:
+        if ids is None:
+            g = cr[(cr.run == run) & ((cr.t - t).abs() < 0.2)]
+            ids = tuple(sorted(g.droneId.tolist()))
+            if len(ids) != 2:
+                sys.exit(f"[replica] {run}@{t}: crashes.csv has {len(ids)} drones there; give the pair as :i,j")
+        resolved.append((run, t, ids))
+    return resolved
+
+
+# ============================================================================= step response
+
+STEP_SPREAD = [(0, 1.0), (40, 1.6), (70, 0.4), (100, 1.0), (130, 0.4)]
+STEP_STICK = [(0, (0, 0)), (140, (0, 1)), (155, (0, 0)), (162, (0, 1)), (170, (0, -1)), (178, (1, 0)), (184, (0, 0))]
+STEP_END = 190.0
+
+
+def _held(table, t):
+    v = table[0][1]
+    for t0, x in table:
+        if t >= t0:
+            v = x
+    return v
+
+
+def run_step(job):
+    label, swarm, air, seed, drones = job
+    m = Model(swarm, air)
+    rng = np.random.default_rng(1000 + seed)
+    sim = Sim(m, City([]), rng.normal(0, 6.0, (drones, 2)), np.zeros((drones, 2)), seed)
+    rec = []
+    while sim.t < STEP_END:
+        sim.step(np.array(_held(STEP_STICK, sim.t), float), 0.0, _held(STEP_SPREAD, sim.t))
+        if sim.tick % 5 == 0:
+            Pa = sim.P[sim.alive]
+            if len(Pa) > 1:
+                dmin, nn, hull = formation_sample(Pa)
+                rec.append((sim.t, np.linalg.norm(Pa - Pa.mean(0), axis=1).mean(), nn, dmin, hull))
+    return label, seed, np.array(rec), len(sim.kills)
+
+
+def step_metrics(rec, t_step, t_end):
+    """Settled ring radius after the step, time to 50% / 90% of the change, overshoot %."""
+    t, R = rec[:, 0], rec[:, 1]
+    r0 = R[(t > t_step - 3) & (t <= t_step)].mean()
+    r1 = R[(t > t_end - 5) & (t <= t_end)].mean()
+    w = (t > t_step) & (t <= t_end)
+    tt, frac = t[w] - t_step, (R[w] - r0) / (r1 - r0)
+    return r1, tt[np.argmax(frac >= 0.5)], tt[np.argmax(frac >= 0.9)], max(0.0, frac.max() - 1.0) * 100
+
+
+# ============================================================================= validate: the replica against the bench
+
+# The gate (per run, over its recorded flights). Positions: the replica's centroid may drift from Unity's by this
+# share of the flown path (median over flights); spacing: mean nearest-neighbour within this relative error
+# (median); losses: the replica's and the bench's drones lost may differ by at most this many in total per 10
+# flights; spread steps: t90 within this many seconds (median).
+VALIDATION_LIMITS = dict(track_frac=0.10, nn_rel=0.15, lost_per10=2.0, t90_s=1.5)
+
+
+def read_bench_run(run_dir):
+    """(config, start line, {set label: params line}, [flight lines]) of a bench run folder."""
+    run_dir = Path(run_dir)
+    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    start, params, flights = None, {}, []
+    for line in (run_dir / "results.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        d = json.loads(line)
+        if d.get("event") == "start":
+            start = d
+        elif d.get("event") == "params":
+            params[d["set"]] = d
+        elif d.get("event") == "flight":
+            flights.append(d)
+    return cfg, start, params, flights
+
+
+def bench_city(run_dir, cfg):
+    """The buildings the bench flew among, as replica boxes: the run's layout, else the scene's city file."""
+    lay_file = Path(run_dir) / "layout.json"
+    if cfg.get("layout"):
+        src = str(lay_file) if lay_file.exists() else cfg["layout"]
+        boxes, _ = analyse.load_city(src)
+        return list(boxes)
+    if cfg.get("goalReplaySession"):
+        raise ValueError("a run that replayed a session's goals: validate needs that session's goal list (not wired)")
+    boxes, _ = analyse.load_city(Path(cfg["scene"]).stem)
+    return list(boxes)
+
+
+def spread_at(sched, t):
+    """SwarmBenchRunner.SpreadAt: piecewise linear over (t, d_ref) pairs, held past the ends; -1 = none."""
+    if not sched or len(sched) < 2:
+        return -1.0
+    ts, vs = sched[0::2], sched[1::2]
+    if t <= ts[0]:
+        return vs[0]
+    for q in range(1, len(ts)):
+        if t <= ts[q]:
+            t0, t1, v0, v1 = ts[q - 1], ts[q], vs[q - 1], vs[q]
+            return v1 if t1 - t0 < 1e-6 else v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return vs[-1]
+
+
+HOLD_GAIN = 0.25    # 1/s, SwarmBenchRunner's default holdGain (citysim.formation.PILOT_GAIN)
+
+
+def bench_capture(sc, wps, wp, capture):
+    """SwarmBenchRunner.CaptureRadius: the waypoint before a hold is captured within the scenario's `arrive`."""
+    nxt = wp + 1
+    if (sc.get("arrive") or 0) > 0 and 4 * nxt + 2 < len(wps) and wps[4 * nxt + 2] < 0:
+        return float(sc["arrive"])
+    return capture
+
+
+def replay_flight(job, keep_positions=False):
+    """One recorded bench flight flown again by the replica; per-flight comparison metrics (and, keep_positions,
+    the replica's drones every 5 ticks, 0.1 s at the project's step, as [(t, (n, 2) with NaN once lost)] under
+    "positions")."""
+    run_dir, label, index, sc, effective, air, capture, boxes, seed, buildings, friction = job
+    traj = Path(run_dir) / f"traj_{label}_{index}.csv"
+    df = pd.read_csv(traj)
+    n = sum(1 for c in df.columns if c.startswith("x") and c[1:].isdigit())
+    X = df[[f"x{i}" for i in range(n)]].values
+    Z = df[[f"z{i}" for i in range(n)]].values
+    mask = ((df.alive_mask.values[:, None] >> np.arange(n)) & 1).astype(bool)
+    t_rec = df.t.values
+    swarm = {k: v for k, v in effective.items()}
+    m = Model(swarm, air)
+    alive0 = mask[0]
+    P0 = np.c_[X[0], Z[0]][alive0]
+    k1 = 1 if len(df) > 1 else 0
+    V0 = (np.c_[X[k1], Z[k1]][alive0] - P0) / max(t_rec[k1] - t_rec[0], 1e-6)
+    if buildings == "contact":
+        sim = ContactSim(m, City(boxes), P0, V0, seed, friction=friction)
+    else:
+        sim = Sim(m, City(boxes), P0, V0, seed)
+    wps = sc.get("wps") or []
+    nwp, wp = len(wps) // 4, 0
+    wp_t0 = 0.0
+    d_scene = float(effective["d_ref"])
+    hold_gain = float(sc.get("holdGain") or HOLD_GAIN) / m.max_speed
+    rec = []
+    track = []
+    while sim.t < sc["T"] - 1e-9 and sim.alive.sum() > 0:
+        if sc.get("endOnDone") and nwp > 0 and wp >= nwp:
+            break
+        c = sim.P[sim.alive].mean(0)
+        cmd = np.zeros(2)
+        holding = False
+        if wp < nwp:   # SwarmBenchRunner's waypoint pilot, hold waypoints (negative stick) included
+            d = np.array([wps[4 * wp], wps[4 * wp + 1]]) - c
+            dd = float(np.linalg.norm(d))
+            timeout = wps[4 * wp + 3]
+            hold = wps[4 * wp + 2] < 0
+            if (not hold and dd < bench_capture(sc, wps, wp, capture)) or (timeout > 0 and sim.t - wp_t0 > timeout):
+                wp += 1
+                wp_t0 = sim.t
+            if wp < nwp:
+                d = np.array([wps[4 * wp], wps[4 * wp + 1]]) - c
+                dd = float(np.linalg.norm(d))
+                mag = wps[4 * wp + 2]
+                if mag < 0:
+                    holding = True
+                    cmd = d * hold_gain
+                    sn = float(np.linalg.norm(cmd))
+                    if sn > -mag:
+                        cmd = cmd * (-mag / sn)
+                elif dd > 1e-6:
+                    cmd = d / dd * min(max(mag, 0.0), 1.0)
+        spread = spread_at(sc.get("spread"), sim.t)
+        if holding and (sc.get("holdSpread") or 0) > 0:
+            spread = float(sc["holdSpread"])
+        wp_spread = sc.get("wpSpread") or []
+        if wp < len(wp_spread) and wp_spread[wp] > 0:      # the bench's per-waypoint spread (S4's split_probe)
+            spread = float(wp_spread[wp])
+        if sim.tick % 5 == 0:
+            Pa = sim.P[sim.alive]
+            nn = np.nan
+            if len(Pa) > 1:
+                D = np.linalg.norm(Pa[None] - Pa[:, None], axis=-1)
+                np.fill_diagonal(D, np.inf)
+                nn = float(D.min(1).mean())
+            ring = float(np.linalg.norm(Pa - Pa.mean(0), axis=1).mean()) if len(Pa) else np.nan
+            rec.append((sim.t, *Pa.mean(0), nn, ring, len(Pa)))
+            if keep_positions:
+                track.append((sim.t, np.where(sim.alive[:, None], sim.P, np.nan)))
+        sim.step(cmd, 0.0, spread if spread >= 0 else d_scene)
+    R = np.array(rec, float).reshape(-1, 6)
+    # the bench's own series on its clock
+    cx = np.nanmean(np.where(mask, X, np.nan), axis=1)
+    cz = np.nanmean(np.where(mask, Z, np.nan), axis=1)
+    bnn, bring = [], []
+    for k in range(len(df)):
+        Pa = np.c_[X[k], Z[k]][mask[k]]
+        if len(Pa) > 1:
+            D = np.linalg.norm(Pa[None] - Pa[:, None], axis=-1)
+            np.fill_diagonal(D, np.inf)
+            bnn.append(float(D.min(1).mean()))
+        else:
+            bnn.append(np.nan)
+        bring.append(float(np.linalg.norm(Pa - Pa.mean(0), axis=1).mean()) if len(Pa) else np.nan)
+    bnn, bring = np.array(bnn), np.array(bring)
+    T = min(t_rec[-1], R[-1, 0]) if len(R) else 0.0
+    tg = np.arange(0.0, T, 0.1)
+    rx = np.interp(tg, R[:, 0], R[:, 1])
+    rz = np.interp(tg, R[:, 0], R[:, 2])
+    bx = np.interp(tg, t_rec, cx)
+    bz = np.interp(tg, t_rec, cz)
+    err = np.hypot(rx - bx, rz - bz)
+    path = float(np.hypot(np.diff(bx), np.diff(bz)).sum()) if len(bx) > 1 else 0.0
+    r_nn = np.interp(tg, R[:, 0], R[:, 3])
+    b_nn = np.interp(tg, t_rec, bnn)
+    ok = np.isfinite(r_nn) & np.isfinite(b_nn)
+    out = dict(set=label, scenario=index, kind=sc["kind"], drones=int(alive0.sum()), seconds=round(float(T), 1),
+               path_m=round(path, 1), track_rmse_m=round(float(np.sqrt(np.mean(err ** 2))), 2) if len(err) else np.nan,
+               track_end_m=round(float(err[-1]), 2) if len(err) else np.nan,
+               nn_bench_m=round(float(np.mean(b_nn[ok])), 3) if ok.any() else np.nan,
+               nn_replica_m=round(float(np.mean(r_nn[ok])), 3) if ok.any() else np.nan,
+               lost_bench=int(alive0.sum() - mask[-1].sum()), lost_replica=int(alive0.sum() - sim.alive.sum()),
+               replica_pair_kills=sum(1 for k in sim.kills if k[1] == "drone"),
+               replica_building_kills=sum(1 for k in sim.kills if k[1] == "building"),
+               replica_isolated=sum(1 for k in sim.kills if k[1] == "isolated"),
+               replica_contacts=int(getattr(sim, "contacts", 0)),
+               replica_kills=[k[1] for k in sim.kills])
+    if sc["kind"].startswith("step_") and sc.get("spread") and len(sc["spread"]) >= 4:
+        t_step = sc["spread"][2]
+        out.update({f"{who}_{k}": v for who, (tt, rr) in (("bench", (t_rec, bring)), ("replica", (R[:, 0], R[:, 4])))
+                    for k, v in zip(("ring_m", "t90_s"), _settle(tt, rr, t_step))})
+    if keep_positions:
+        out["positions"] = track
+    return out
+
+
+def _settle(t, ring, t_step):
+    """(settled ring radius, t90) of a spread step."""
+    t, ring = np.asarray(t, float), np.asarray(ring, float)
+    r0 = np.nanmean(ring[(t > t_step - 3) & (t <= t_step)])
+    r1 = np.nanmean(ring[t > t[-1] - 5])
+    w = t > t_step
+    if not np.isfinite(r0) or abs(r1 - r0) < 1e-6:
+        return round(float(r1), 2), np.nan
+    frac = (ring[w] - r0) / (r1 - r0)
+    hit = np.flatnonzero(frac >= 0.9)
+    return round(float(r1), 2), round(float(t[w][hit[0]] - t_step), 2) if len(hit) else np.nan
+
+
+def cmd_validate(a):
+    check_force_law(a.allow_stale)
+    air = dict(sp.resolve_airframe())
+    rows = []
+    for run_dir in a.runs:
+        cfg, start, params, flights = read_bench_run(run_dir)
+        boxes = bench_city(run_dir, cfg)
+        jobs = []
+        for f in flights:
+            label, idx = f["set"], int(f["scenario"])
+            if not (Path(run_dir) / f"traj_{label}_{idx}.csv").exists():
+                continue
+            eff = params[label]["effective"]
+            jobs.append((run_dir, label, idx, cfg["scenarios"][idx], eff, air, float(cfg.get("capture", 10.0)), boxes,
+                         a.seed, a.buildings, a.friction))
+        if not jobs:
+            print(f"[replica] {run_dir}: no recorded trajectories (fly it with bench.py config --record-all)")
+            continue
+        with Pool(min(a.jobs, len(jobs))) as pool:
+            res = pool.map(replay_flight, jobs)
+        bench = {(f["set"], int(f["scenario"])): f for f in flights}
+        for r in res:
+            r["run"] = Path(run_dir).name
+            f = bench.get((r["set"], int(r["scenario"])), {})
+            r["bench_contacts"] = f.get("contacts", np.nan)
+            r["bench_deaths"] = ";".join(f"{k}={v}" for k, v in sorted((f.get("deaths") or {}).items()))
+        rows += res
+    if not rows:
+        sys.exit(2)
+    df = pd.DataFrame(rows)
+    df["track_frac"] = df.track_rmse_m / df.path_m.clip(lower=50.0)
+    df["nn_rel"] = (df.nn_replica_m - df.nn_bench_m).abs() / df.nn_bench_m
+    pd.set_option("display.width", 250)
+    cols = ["run", "set", "scenario", "kind", "drones", "seconds", "path_m", "track_rmse_m", "track_end_m",
+            "nn_bench_m", "nn_replica_m", "lost_bench", "lost_replica", "bench_contacts", "replica_contacts"]
+    print(df[[c for c in cols if c in df]].to_string(index=False))
+    verdicts = []
+    for run, g in df.groupby("run"):
+        multi = g[g.drones > 1]
+        steps = g[g.kind.str.startswith("step_")]
+        v = dict(run=run, flights=len(g), buildings=a.buildings, friction=a.friction,
+                 lost_bench=int(g.lost_bench.sum()), lost_replica=int(g.lost_replica.sum()),
+                 contacts_bench=int(np.nansum(g.bench_contacts)), contacts_replica=int(g.replica_contacts.sum()),
+                 track_frac_median=round(float(g.track_frac.median()), 3),
+                 nn_rel_median=round(float(multi.nn_rel.median()), 3) if len(multi) else np.nan,
+                 lost_diff_per10=round(abs(int(g.lost_replica.sum()) - int(g.lost_bench.sum())) * 10.0 / len(g), 2),
+                 t90_diff_median=round(float((steps.replica_t90_s - steps.bench_t90_s).abs().median()), 2)
+                 if len(steps) and "bench_t90_s" in steps else np.nan)
+        L = VALIDATION_LIMITS
+        fails = [k for k, ok in (("track", v["track_frac_median"] <= L["track_frac"]),
+                                 ("spacing", not (v["nn_rel_median"] > L["nn_rel"])),
+                                 ("losses", v["lost_diff_per10"] <= L["lost_per10"]),
+                                 ("t90", not (v["t90_diff_median"] > L["t90_s"]))) if not ok]
+        v["verdict"] = "PASS" if not fails else "FAIL (" + ", ".join(fails) + ")"
+        verdicts.append(v)
+    vd = pd.DataFrame(verdicts)
+    print("\n" + vd.to_string(index=False))
+    print(f"limits: {VALIDATION_LIMITS}; buildings as {a.buildings}" +
+          (f" (friction {a.friction})" if a.buildings == "contact" else ""))
+    if a.out:
+        out = Path(a.out)
+        out.mkdir(parents=True, exist_ok=True)
+        df.drop(columns=["replica_kills"]).to_csv(out / f"validate_{stamp()}.csv", index=False)
+        vd.to_csv(out / f"validate_verdicts_{stamp()}.csv", index=False)
+        print(f"written {out}")
+    sys.exit(0 if all(v["verdict"] == "PASS" for v in verdicts) else 1)
+
+
+# ============================================================================= command line
+
+def presets():
+    """Named variants. Values that mean "as shipped" are read from the C# defaults, so they track retunes."""
+    f = sp.swarm_manager_fields()
+    damper = {k: f[k].default for k in ("c_damp", "d_damp", "maxDampAccel")}
+    return {
+        "as flown": {},            # sim/forces: what the test flew; no overrides
+        "scene": {},               # step: the scene as saved; no overrides
+        "core off": {"hollowSwarmCore": False},
+        "core absolute": {"hollowSwarmCore": True, "coreRelativeVelocity": False},
+        "core relative": {"hollowSwarmCore": True, "coreRelativeVelocity": True},
+        "no damper": {"c_damp": 0.0},
+        "damper": damper,
+        "core relative + damper": {"hollowSwarmCore": True, "coreRelativeVelocity": True, **damper},
+        "core absolute, no damper": {"hollowSwarmCore": True, "coreRelativeVelocity": False, "c_damp": 0.0},
+    }
+
+
+def parse_variants(items, default="as flown"):
+    """['core off', 'mine:c_damp=1,d_damp=0.4', 'damper:d_damp=0.4'] -> [(label, overrides)]."""
+    known = presets()
+    out = []
+    for item in items or [default]:
+        label, _, assigns = item.partition(":")
+        label = label.strip()
+        extra = sp.parse_assignments([assigns]) if assigns else {}
+        if label not in known and not extra:
+            sys.exit(f"[replica] unknown variant {label!r}: presets are {list(known)}, or give LABEL:field=value,...")
+        out.append((label, {**known.get(label, {}), **extra}))
+    return out
+
+
+def test_dir_of(a):
+    d = Path(a.root) / a.test
+    if not (d / "test.json").exists():
+        sys.exit(f"[replica] {d} is not a test folder (no test.json); see analyse.py status")
+    return d
+
+
+def swarm_stems(test_dir, selectors):
+    stems = sorted(p.name[:-len("_drones.csv")] for p in test_dir.glob("*_Swarm_*_drones.csv"))
+    if selectors:
+        stems = [s for s in stems if any(analyse.matches(s, x) for x in selectors)]
+    if not stems:
+        sys.exit(f"[replica] no swarm runs in {test_dir}" + (f" matching {selectors}" if selectors else ""))
+    return stems
+
+
+def out_dir(a, test_dir):
+    d = Path(a.out) if a.out else test_dir / "results" / "replica"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def stamp():
+    return datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def cmd_sim(a):
+    check_force_law(a.allow_stale)
+    td = test_dir_of(a)
+    city = a.city or sp.test_city(td)
+    stems = swarm_stems(td, a.runs)
+    air = dict(sp.resolve_airframe())
+    base = sp.parse_assignments(a.set)
+    jobs = []
+    for label, over in parse_variants(a.variant):
+        for stem in stems:
+            swarm = dict(sp.resolve_swarm(city, td, stem, {**base, **over}))
+            for seed in range(a.seeds):
+                jobs.append((stem, label, swarm, air, city, str(td), seed))
+    print(f"[replica] {a.test} in {city}: {len(stems)} swarm runs x {a.seeds} seeds x "
+          f"{len(jobs) // max(len(stems) * a.seeds, 1)} variants; force law as of {FORCE_LAW_COMMIT}")
+    t0 = time.time()
+    with Pool(min(a.jobs, len(jobs))) as pool:
+        res = pool.map(run_sim, jobs)
+    for w in sorted({r["warning"] for r in res if r["warning"]}):
+        print("[replica] WARNING:", w)
+    table = summarise(res)
+    print(f"{len(jobs)} simulated runs in {time.time() - t0:.0f} s\n")
+    pd.set_option("display.width", 250)
+    print(table.to_string(index=False))
+    d = out_dir(a, td)
+    table.insert(0, "force_law", FORCE_LAW_COMMIT)
+    table.insert(0, "test", a.test)
+    path = d / f"sim_{stamp()}.csv"
+    table.to_csv(path, index=False)
+    if a.save:
+        with open(path.with_suffix(".pkl"), "wb") as f:
+            pickle.dump(res, f)
+    print(f"\nwritten {path}")
+
+
+def cmd_forces(a):
+    check_force_law(a.allow_stale)
+    td = test_dir_of(a)
+    city = a.city or sp.test_city(td)
+    base = sp.parse_assignments(a.set)
+    air = dict(sp.resolve_airframe())
+    crashes = crash_list(td, a.crash)
+    df = run_forces(td, city, crashes, lambda stem: dict(sp.resolve_swarm(city, td, stem, base)), air,
+                    int(round(a.window * 10)))
+    if df.empty:
+        print("[replica] no drone-drone crashes to replay")
+        return
+    last = df[df.trel >= -a.last]
+    cols = ["vclose"] + TERMS + ["model", "meas", "sat_i", "sat_j"]
+    pd.set_option("display.width", 250)
+    print(f"\nMean over the last {a.last} s before contact:")
+    print(last.groupby(["run", "tcrash"])[cols].mean().round(2).to_string())
+    path = out_dir(a, td) / f"forces_{stamp()}.csv"
+    df.to_csv(path, index=False)
+    print(f"\nwritten {path}")
+
+
+def cmd_step(a):
+    check_force_law(a.allow_stale)
+    air = dict(sp.resolve_airframe())
+    base = sp.parse_assignments(a.set)
+    variants = parse_variants(a.variant, default="scene")
+    jobs = [(label, dict(sp.resolve_swarm(a.scene, overrides={**base, **over})), air, s, a.drones)
+            for label, over in variants for s in range(a.seeds)]
+    with Pool(min(a.jobs, len(jobs))) as pool:
+        res = pool.map(run_step, jobs)
+    rows = []
+    for label, _ in variants:
+        rs = [r for r in res if r[0] == label]
+        mm = np.array([[*step_metrics(r[2], 40, 70), *step_metrics(r[2], 70, 100), *step_metrics(r[2], 100, 130)]
+                       for r in rs]).mean(0)
+        hover = np.concatenate([r[2][(r[2][:, 0] > 90) & (r[2][:, 0] < 100)] for r in rs])
+        cruise = np.concatenate([r[2][r[2][:, 0] > 140] for r in rs])
+        rows.append({"variant": label,
+                     "expand R": round(mm[0], 1), "t50": round(mm[1], 1), "t90": round(mm[2], 1), "over%": round(mm[3]),
+                     "contract R": round(mm[4], 1), "t50 ": round(mm[5], 1), "t90 ": round(mm[6], 1),
+                     "over% ": round(mm[7]), "re-expand t90": round(mm[10], 1),
+                     "NN@0.4 hover": round(float(np.median(hover[:, 2])), 2),
+                     "hull@0.4": round(float(np.nanmean(hover[:, 4])), 2),
+                     "dmin<1m cruise": round(float((cruise[:, 3] < 1.0).mean()), 3),
+                     "kills": sum(r[3] for r in rs)})
+    pd.set_option("display.width", 250)
+    print(f"[replica] spread steps in {a.scene}'s gains, {a.drones} drones, {a.seeds} seeds: d_ref 1.0 -> 1.6 at 40 s "
+          "(expand), -> 0.4 at 70 s (contract), -> 1.0 at 100 s; cruise / stop / reversal at 0.4 from 140 s")
+    print(pd.DataFrame(rows).to_string(index=False))
+
+
+def cmd_params(a):
+    if a.test:
+        td = test_dir_of(a)
+        city = a.city or sp.test_city(td)
+        stem = a.run
+        if stem:
+            matches = [s for s in swarm_stems(td, None) if analyse.matches(s, stem)]
+            stem = matches[0] if matches else stem
+        p = sp.resolve_swarm(city, td, stem, sp.parse_assignments(a.set))
+        print(f"SwarmManager for {a.test}" + (f" / {stem}" if stem else "") + f" ({city}):")
+    else:
+        p = sp.resolve_swarm(a.scene, overrides=sp.parse_assignments(a.set))
+        print(f"SwarmManager in {a.scene}:")
+    print(p.describe())
+    print("\nAirframe:")
+    print(sp.resolve_airframe().describe())
+    log, dirty = force_law_changes()
+    state = "unknown (git unavailable)" if log is None else ("current" if not log and not dirty else "STALE")
+    print(f"\nForce law mirrored as of {FORCE_LAW_COMMIT}: {state}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    def common(p, test=True):
+        if test:
+            p.add_argument("--test", required=p.prog.split()[-1] != "params", help="test folder, e.g. internal_3")
+            p.add_argument("--root", default=str(sp.DEFAULT_ROOT), help="experiment folder (default %(default)s)")
+            p.add_argument("--city", help="override test.json's city")
+            p.add_argument("--out", help="output folder (default <test>/results/replica)")
+        p.add_argument("--set", action="append", metavar="FIELD=VALUE[,...]",
+                       help="SwarmManager override applied to every variant")
+        p.add_argument("--allow-stale", action="store_true", help="run even if the mirrored C# has changed")
+
+    p = sub.add_parser("sim", help="closed-loop replica on a test's recorded pilot inputs")
+    common(p)
+    p.add_argument("--variant", action="append", metavar="LABEL[:FIELD=VALUE,...]",
+                   help=f"repeatable; presets: {', '.join(presets())} (default: as flown)")
+    p.add_argument("--runs", nargs="+", metavar="SELECTOR", help="run stems or prefixes (PID, PID_tN)")
+    p.add_argument("--seeds", type=int, default=3)
+    p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    p.add_argument("--save", action="store_true", help="also pickle every run's raw result")
+    p.set_defaults(func=cmd_sim)
+
+    p = sub.add_parser("forces", help="force attribution on the recorded states before each crash")
+    common(p)
+    p.add_argument("--crash", action="append", metavar="RUN@T[:i,j]",
+                   help="replay this crash (default: every two-drone crash in results/crashes.csv)")
+    p.add_argument("--window", type=float, default=4.0, help="seconds before contact to evaluate")
+    p.add_argument("--last", type=float, default=1.5, help="seconds before contact the summary averages")
+    p.set_defaults(func=cmd_forces)
+
+    p = sub.add_parser("step", help="spread-stick step response at hover in open sky")
+    common(p, test=False)
+    p.add_argument("--scene", default=sp.DEFAULT_CITY, help="whose SwarmManager values (default %(default)s)")
+    p.add_argument("--variant", action="append", metavar="LABEL[:FIELD=VALUE,...]")
+    p.add_argument("--drones", type=int, default=10)
+    p.add_argument("--seeds", type=int, default=6)
+    p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    p.set_defaults(func=cmd_step)
+
+    p = sub.add_parser("validate", help="fly a bench run's recorded flights again and compare (the replica's gate)")
+    p.add_argument("runs", nargs="+", help="bench run folders (runs/<tag>) flown with --record-all")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    p.add_argument("--out", help="write the per-flight table and the verdicts here")
+    p.add_argument("--allow-stale", action="store_true", help="run even if the mirrored C# has changed")
+    p.add_argument("--buildings", choices=["contact", "kill"], default="contact",
+                   help="a footprint entry is a contact, as PhysX resolves it (ContactSim, what citysim flies; "
+                        "default) or a kill (Sim, what `sim` and `forces` fly)")
+    p.add_argument("--friction", type=float, default=PHYSX_FRICTION,
+                   help="Coulomb friction on contacts (default %(default)s, PhysX's default material)")
+    p.set_defaults(func=cmd_validate)
+
+    p = sub.add_parser("params", help="print the resolved parameters and their sources")
+    common(p)
+    p.add_argument("--scene", default=sp.DEFAULT_CITY, help="scene to read when no --test is given")
+    p.add_argument("--run", help="a run stem or prefix: include its <stem>_swarm.json if it has one")
+    p.set_defaults(func=cmd_params)
+
+    a = ap.parse_args()
+    try:
+        a.func(a)
+    except ValueError as e:
+        sys.exit(f"[replica] {e}")
+
+
+if __name__ == "__main__":
+    main()

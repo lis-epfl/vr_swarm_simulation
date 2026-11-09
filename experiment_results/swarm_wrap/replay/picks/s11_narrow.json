@@ -1,0 +1,36 @@
+{
+ "pick": {
+  "key": "s11_narrow",
+  "kind": "search",
+  "k": 21021,
+  "first": "off",
+  "title": "Where the scene's rule narrowed while wrapped round the building",
+  "why": "the search where the scene's rule held a narrowed spread for the largest share of its hold window while wrapped (48%)",
+  "conds": [
+   "off",
+   "hold",
+   "leave",
+   "f20"
+  ]
+ },
+ "flights": {
+  "f20": [
+   "s11_narrow_f20_replica",
+   "s11_narrow_f20_unity"
+  ],
+  "leave": [
+   "s11_narrow_leave_replica",
+   "s11_narrow_leave_unity"
+  ],
+  "hold": [
+   "s11_narrow_hold_replica",
+   "s11_narrow_hold_unity"
+  ],
+  "off": [
+   "s11_narrow_off_replica",
+   "s11_narrow_off_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

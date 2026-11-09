@@ -1,0 +1,27 @@
+[
+ {
+  "label": "A1 cylinder + slide",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true
+  }
+ },
+ {
+  "label": "C25 enclosing circle + slide, d_obs 0.25",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  }
+ },
+ {
+  "label": "B2 footprint + slide, d_obs 0.25",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 2,
+   "slideRoundBuildings": true,
+   "d_obs": 0.25
+  }
+ }
+]

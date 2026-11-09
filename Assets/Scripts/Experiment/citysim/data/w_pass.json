@@ -1,0 +1,33 @@
+{
+ "scene": "DiamondCityWorld",
+ "force_law": "fe3a448b",
+ "seeds": 3,
+ "gaps_m": [
+  0.0,
+  2.0,
+  4.0,
+  6.0,
+  8.0,
+  10.0,
+  12.0,
+  14.0,
+  16.0,
+  20.0
+ ],
+ "passed_rule": "every surviving drone beyond the wall within 75 s, none lost as isolated, no stall over 5 s (drone-drone pair losses are counted, not failed); w_pass = the narrowest gap passed in every seed with every wider probed gap passed too",
+ "w_pass_m": {
+  "0.4": 6.0,
+  "1": 6.0,
+  "1.6": 12.0
+ },
+ "ram_ok": {
+  "0.4": true,
+  "1": true,
+  "1.6": true
+ },
+ "single_w_pass_m": 6.0,
+ "single_ram_ok": false,
+ "generated": "2026-10-13T16:18:29",
+ "flights": 144,
+ "seconds": 12
+}

@@ -1,0 +1,58 @@
+{
+ "pick": {
+  "key": "s5a_base",
+  "design": "base",
+  "p": 40.0,
+  "s": 18.0,
+  "city_seed": 0,
+  "trial": 12,
+  "title": "Looking down a block: the scene's city (p 40 \u00b7 s 18, 3.5 m footpath)",
+  "job": {
+   "city": {
+    "variant": "B"
+   },
+   "design": "base",
+   "conds": [
+    [
+     "street",
+     null,
+     null
+    ],
+    [
+     "hold",
+     null,
+     20.0
+    ],
+    [
+     "pass",
+     null,
+     null
+    ],
+    [
+     "hop",
+     "firm",
+     20.0
+    ]
+   ],
+   "look_range": 250.0,
+   "d_street": 1.2
+  },
+  "chosen": {
+   "d": 1.2,
+   "mode": "firm",
+   "T": 20.0
+  },
+  "median_diff": 0.20833333333333337,
+  "n_trials": 30
+ },
+ "identical": true,
+ "flights": [
+  "s5a_base_street",
+  "s5a_base_hold_20_d1.2",
+  "s5a_base_pass_d1.2",
+  "s5a_base_hop_firm_20_d1.2",
+  "s5a_base_single"
+ ],
+ "target": null,
+ "wall_s": 26.8
+}

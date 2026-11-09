@@ -1,0 +1,365 @@
+diff --git a/spatial_network.py b/spatial_network.py
+index bebcce6..d4afbcd 100644
+--- a/spatial_network.py
++++ b/spatial_network.py
+@@ -15,16 +15,35 @@ grid_h = grid_res.GRID_H
+ grid_w = grid_res.GRID_W
+ 
+ 
++# Perf (vr_swarm_simulation): the original built several small constant tensors on the
++# host and .cuda()'d them on EVERY forward (corner points, the 3x3 normalisation matrix and
++# its inverse, the rigid mesh, the CCL index grids). Each such upload is a host->device copy
++# that drains the CUDA stream. They depend only on the input size and device, so they are
++# built once here and reused; the values are exactly what the original computed.
++_CONST_CACHE = {}
++
++
++def _cached_const(key, factory):
++    t = _CONST_CACHE.get(key)
++    if t is None:
++        t = factory()
++        _CONST_CACHE[key] = t
++    return t
++
++
++def _default_device():
++    return torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
++
+ 
+ #Covert global homo into mesh
+ def H2Mesh(H, rigid_mesh):
+ 
+-    H_inv = torch.inverse(H)
++    # Perf (vr_swarm_simulation): inv_ex is torch.inverse minus the singularity check
++    # (a device->host sync per call); the inverse itself is the same computation.
++    H_inv = torch.linalg.inv_ex(H).inverse
+     ori_pt = rigid_mesh.reshape(rigid_mesh.size()[0], -1, 2)
+-    ones = torch.ones(rigid_mesh.size()[0], (grid_h+1)*(grid_w+1),1)
+-    if torch.cuda.is_available():
+-        ori_pt = ori_pt.cuda()
+-        ones = ones.cuda()
++    ones = torch.ones(rigid_mesh.size()[0], (grid_h+1)*(grid_w+1),1, device=H.device)
++    ori_pt = ori_pt.to(H.device)
+ 
+     ori_pt = torch.cat((ori_pt, ones), 2) # bs*(grid_h+1)*(grid_w+1)*3
+     tar_pt = torch.matmul(H_inv, ori_pt.permute(0,2,1)) # bs*3*(grid_h+1)*(grid_w+1)
+@@ -38,13 +57,16 @@ def H2Mesh(H, rigid_mesh):
+ # get rigid mesh
+ def get_rigid_mesh(batch_size, height, width):
+ 
+-    ww = torch.matmul(torch.ones([grid_h+1, 1]), torch.unsqueeze(torch.linspace(0., float(width), grid_w+1), 0))
+-    hh = torch.matmul(torch.unsqueeze(torch.linspace(0.0, float(height), grid_h+1), 1), torch.ones([1, grid_w+1]))
+-    if torch.cuda.is_available():
+-        ww = ww.cuda()
+-        hh = hh.cuda()
++    def _build():
++        ww = torch.matmul(torch.ones([grid_h+1, 1]), torch.unsqueeze(torch.linspace(0., float(width), grid_w+1), 0))
++        hh = torch.matmul(torch.unsqueeze(torch.linspace(0.0, float(height), grid_h+1), 1), torch.ones([1, grid_w+1]))
++        if torch.cuda.is_available():
++            ww = ww.cuda()
++            hh = hh.cuda()
++        return torch.cat((ww.unsqueeze(2), hh.unsqueeze(2)),2) # (grid_h+1)*(grid_w+1)*2
+ 
+-    ori_pt = torch.cat((ww.unsqueeze(2), hh.unsqueeze(2)),2) # (grid_h+1)*(grid_w+1)*2
++    # Perf (vr_swarm_simulation): built (and uploaded) once per size; see _CONST_CACHE.
++    ori_pt = _cached_const(('rigid_mesh', height, width), _build)
+     ori_pt = ori_pt.unsqueeze(0).expand(batch_size, -1, -1, -1)
+ 
+     return ori_pt
+@@ -70,27 +92,30 @@ def build_SpatialNet(net, input1_tensor, input2_tensor):
+     mesh_motion_tgt = mesh_motion_tgt.reshape(-1, grid_h+1, grid_w+1, 2)
+ 
+     # initialize the source points bs x 4 x 2
+-    src_p = torch.tensor([[0., 0.], [img_w, 0.], [0., img_h], [img_w, img_h]])
+-    if torch.cuda.is_available():
+-        src_p = src_p.cuda()
++    # Perf (vr_swarm_simulation): constants cached per size/device instead of rebuilt and
++    # uploaded per call; see _CONST_CACHE at the top of this file.
++    dev = H_motion.device
++    src_p = _cached_const(('src_p', img_h, img_w, str(dev)), lambda: torch.tensor(
++        [[0., 0.], [img_w, 0.], [0., img_h], [img_w, img_h]], device=dev))
+     src_p = src_p.unsqueeze(0).expand(batch_size, -1, -1)
+     # target points
+     dst_p = src_p + H_motion
+     # solve homo using DLT
+     H = torch_DLT.tensor_DLT(src_p, dst_p)
+ 
+-    M_tensor = torch.tensor([[img_w / 2.0, 0., img_w / 2.0],
+-                      [0., img_h / 2.0, img_h / 2.0],
+-                      [0., 0., 1.]]).cuda()
++    M_tensor = _cached_const(('M', img_h, img_w, str(dev)), lambda: torch.tensor(
++        [[img_w / 2.0, 0., img_w / 2.0],
++         [0., img_h / 2.0, img_h / 2.0],
++         [0., 0., 1.]], device=dev))
+     M_tile = M_tensor.unsqueeze(0).expand(batch_size, -1, -1)
+-    M_tensor_inv = torch.inverse(M_tensor)
++    M_tensor_inv = _cached_const(('M_inv', img_h, img_w, str(dev)), lambda: torch.inverse(M_tensor))
+     M_tile_inv = M_tensor_inv.unsqueeze(0).expand(batch_size, -1, -1)
+-    mask = torch.ones_like(input2_tensor).cuda()
++    mask = torch.ones_like(input2_tensor)
+ 
+     ########  homography decomposition #######
+     dst_p_tgt = src_p + (H_motion/2.)
+     H_tgt = torch_DLT.tensor_DLT(src_p, dst_p_tgt)
+-    H_ref = torch.matmul(torch.inverse(H), H_tgt)
++    H_ref = torch.matmul(torch.linalg.inv_ex(H).inverse, H_tgt)
+     # H_mat_ref = torch.matmul(torch.matmul(M_tile_inv, H_ref), M_tile)
+     # H_mat_tgt = torch.matmul(torch.matmul(M_tile_inv, H_tgt), M_tile)
+     # output_H_ref = torch_homo_transform.transformer(torch.cat((input1_tensor, mask), 1), H_mat_ref, (img_h, img_w))
+@@ -289,21 +314,24 @@ class SpatialNet(nn.Module):
+ 
+         # homo decomposition
+         H_motion_1 = offset_1.reshape(-1, 4, 2)
+-        src_p = torch.tensor([[0., 0.], [img_w, 0.], [0., img_h], [img_w, img_h]])
+-        if torch.cuda.is_available():
+-            src_p = src_p.cuda()
++        # Perf (vr_swarm_simulation): constants cached per size/device (see _CONST_CACHE)
++        # and inv_ex in place of torch.inverse (no per-call singularity-check sync).
++        dev = offset_1.device
++        src_p = _cached_const(('src_p', img_h, img_w, str(dev)), lambda: torch.tensor(
++            [[0., 0.], [img_w, 0.], [0., img_h], [img_w, img_h]], device=dev))
+         src_p = src_p.unsqueeze(0).expand(batch_size, -1, -1)
+         dst_p = src_p + H_motion_1
+         dst_p_tgt = src_p + (H_motion_1 / 2.)
+         H = torch_DLT.tensor_DLT(src_p/8, dst_p/8)
+         H_tgt = torch_DLT.tensor_DLT(src_p/8, dst_p_tgt/8)
+-        H_ref = torch.matmul(torch.inverse(H), H_tgt)
++        H_ref = torch.matmul(torch.linalg.inv_ex(H).inverse, H_tgt)
+ 
+-        M_tensor = torch.tensor([[img_w/8 / 2.0, 0., img_w/8 / 2.0],
+-                      [0., img_h/8 / 2.0, img_h/8 / 2.0],
+-                      [0., 0., 1.]]).cuda()
++        M_tensor = _cached_const(('M8', img_h, img_w, str(dev)), lambda: torch.tensor(
++            [[img_w/8 / 2.0, 0., img_w/8 / 2.0],
++             [0., img_h/8 / 2.0, img_h/8 / 2.0],
++             [0., 0., 1.]], device=dev))
+         M_tile = M_tensor.unsqueeze(0).expand(batch_size, -1, -1)
+-        M_tensor_inv = torch.inverse(M_tensor)
++        M_tensor_inv = _cached_const(('M8_inv', img_h, img_w, str(dev)), lambda: torch.inverse(M_tensor))
+         M_tile_inv = M_tensor_inv.unsqueeze(0).expand(batch_size, -1, -1)
+ 
+         # warping by two homo
+@@ -393,25 +421,20 @@ class SpatialNet(nn.Module):
+ 
+         channel = match_vol.size()[1]
+ 
+-        h_one = torch.linspace(0, h-1, h)
+-        one1w = torch.ones(1, w)
+-        if torch.cuda.is_available():
+-            h_one = h_one.cuda()
+-            one1w = one1w.cuda()
++        # Perf (vr_swarm_simulation): index grids created on the feature's device instead
++        # of on the host followed by .cuda() (three host->device copies per call).
++        dev = feature_1.device
++        h_one = torch.linspace(0, h-1, h, device=dev)
++        one1w = torch.ones(1, w, device=dev)
+         h_one = torch.matmul(h_one.unsqueeze(1), one1w)
+         h_one = h_one.unsqueeze(0).unsqueeze(0).expand(bs, channel, -1, -1)
+ 
+-        w_one = torch.linspace(0, w-1, w)
+-        oneh1 = torch.ones(h, 1)
+-        if torch.cuda.is_available():
+-            w_one = w_one.cuda()
+-            oneh1 = oneh1.cuda()
++        w_one = torch.linspace(0, w-1, w, device=dev)
++        oneh1 = torch.ones(h, 1, device=dev)
+         w_one = torch.matmul(oneh1, w_one.unsqueeze(0))
+         w_one = w_one.unsqueeze(0).unsqueeze(0).expand(bs, channel, -1, -1)
+ 
+-        c_one = torch.linspace(0, channel-1, channel)
+-        if torch.cuda.is_available():
+-            c_one = c_one.cuda()
++        c_one = torch.linspace(0, channel-1, channel, device=dev)
+         c_one = c_one.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand(bs, -1, h, w)
+ 
+         flow_h = match_vol*(c_one//w - h_one)
+diff --git a/temporal_network.py b/temporal_network.py
+index 3655255..7c0fb0b 100644
+--- a/temporal_network.py
++++ b/temporal_network.py
+@@ -25,7 +25,10 @@ def build_TemporalNet(net, img_tensor_list):
+     frame_num = len(img_tensor_list)
+ 
+     motion_list = net(img_tensor_list)
+-    motion_list.insert(0, torch.zeros([batch_size, grid_h+1, grid_w+1,2]).cuda())
++    # Perf (vr_swarm_simulation): zeros created on the device the motions live on rather
++    # than on the host followed by .cuda() (a host->device copy, i.e. a stream sync).
++    motion_list.insert(0, torch.zeros([batch_size, grid_h+1, grid_w+1,2],
++                                      device=img_tensor_list[0].device))
+ 
+     out_dict = {}
+     out_dict.update(motion_list = motion_list)
+diff --git a/utils/torch_DLT.py b/utils/torch_DLT.py
+index c9804dc..fb0cc04 100644
+--- a/utils/torch_DLT.py
++++ b/utils/torch_DLT.py
+@@ -18,13 +18,11 @@ def tensor_DLT(src_p, dst_p):
+    
+     bs, _, _ = src_p.shape
+ 
+-    ones = torch.ones(bs, 4, 1)
+-    if torch.cuda.is_available():
+-        ones = ones.cuda()
++    # Perf (vr_swarm_simulation): constants created on the input's device instead of on
++    # the host followed by .cuda(); same values, no host->device copy (a stream sync).
++    ones = torch.ones(bs, 4, 1, device=src_p.device, dtype=src_p.dtype)
+     xy1 = torch.cat((src_p, ones), 2)
+     zeros = torch.zeros_like(xy1)
+-    if torch.cuda.is_available():
+-        zeros = zeros.cuda()
+ 
+     xyu, xyd = torch.cat((xy1, zeros), 2), torch.cat((zeros, xy1), 2)
+     M1 = torch.cat((xyu, xyd), 2).reshape(bs, -1, 6)
+@@ -38,7 +36,9 @@ def tensor_DLT(src_p, dst_p):
+     b = dst_p.reshape(bs, -1, 1)
+     
+     #h = A^{-1}b
+-    Ainv = torch.inverse(A)
++    # Perf (vr_swarm_simulation): inv_ex skips torch.inverse's singularity check, which
++    # is a device->host sync per call; the inverse itself is the same computation.
++    Ainv = torch.linalg.inv_ex(A).inverse
+     h8 = torch.matmul(Ainv, b).reshape(bs, 8)
+  
+     H = torch.cat((h8, ones[:,0,:]), 1).reshape(bs, 3, 3)
+diff --git a/utils/torch_homo_transform.py b/utils/torch_homo_transform.py
+index ddeedd0..6bbcfb0 100644
+--- a/utils/torch_homo_transform.py
++++ b/utils/torch_homo_transform.py
+@@ -2,7 +2,11 @@ import torch
+ import numpy as np
+ import cv2
+ 
+- 
++# Perf (vr_swarm_simulation): the normalised sampling grid per (height, width, device);
++# see _meshgrid. Feature-map sizes are fixed per network, so this stays tiny.
++_MESHGRID_CACHE = {}
++
++
+ def transformer(U, theta, out_size, **kwargs):
+     """Spatial Transformer Layer
+ 
+@@ -39,13 +43,10 @@ def transformer(U, theta, out_size, **kwargs):
+     """
+ 
+     def _repeat(x, n_repeats):
+-
+-        rep = torch.ones([n_repeats, ]).unsqueeze(0)
+-        rep = rep.int()
+-        x = x.int()
+-
+-        x = torch.matmul(x.reshape([-1,1]), rep)
+-        return x.reshape([-1])
++        # Perf (vr_swarm_simulation): the original repeated via an int matmul against a
++        # host-built ones row, then .cuda()'d the result (a host->device copy). This is
++        # the same "each element n_repeats times, in order" on whatever device x is on.
++        return x.int().reshape([-1, 1]).expand(-1, n_repeats).reshape([-1])
+ 
+     def _interpolate(im, x, y, out_size):
+ 
+@@ -72,18 +73,12 @@ def transformer(U, theta, out_size, **kwargs):
+         x1 = torch.clamp(x1, zero, max_x)
+         y0 = torch.clamp(y0, zero, max_y)
+         y1 = torch.clamp(y1, zero, max_y)
+-        dim2 = torch.from_numpy( np.array(width) )
+-        dim1 = torch.from_numpy( np.array(width * height) )
+-
+-        base = _repeat(torch.arange(0,num_batch) * dim1, out_height * out_width)
+-        if torch.cuda.is_available():
+-            dim2 = dim2.cuda()
+-            dim1 = dim1.cuda()
+-            y0 = y0.cuda()
+-            y1 = y1.cuda()
+-            x0 = x0.cuda()
+-            x1 = x1.cuda()
+-            base = base.cuda()
++        # Perf (vr_swarm_simulation): plain Python ints instead of host tensors that were
++        # .cuda()'d per call; `base` is built directly on the image's device. Same values.
++        dim2 = width
++        dim1 = width * height
++
++        base = _repeat(torch.arange(0, num_batch, device=im.device) * dim1, out_height * out_width)
+         base_y0 = base + y0 * dim2
+         base_y1 = base + y1 * dim2
+         idx_a = base_y0 + x0
+@@ -124,7 +119,14 @@ def transformer(U, theta, out_size, **kwargs):
+ 
+         return output
+ 
+-    def _meshgrid(height, width):
++    def _meshgrid(height, width, device):
++        # Perf (vr_swarm_simulation): built on the host exactly as upstream (a CUDA
++        # linspace rounds one ulp differently, which is visible in the mesh) but uploaded
++        # once per size/device and cached, instead of a host->device copy per call.
++        key = (height, width, str(device))
++        grid = _MESHGRID_CACHE.get(key)
++        if grid is not None:
++            return grid
+ 
+         x_t = torch.matmul(torch.ones([height, 1]),
+                                torch.transpose(torch.unsqueeze(torch.linspace(-1.0, 1.0, width), 1), 1, 0))
+@@ -139,9 +141,8 @@ def transformer(U, theta, out_size, **kwargs):
+         y_t_flat = y_t.reshape((1, -1)).float()
+ 
+         ones = torch.ones_like(x_t_flat)
+-        grid = torch.cat([x_t_flat, y_t_flat, ones], 0)
+-        if torch.cuda.is_available():
+-            grid = grid.cuda()
++        grid = torch.cat([x_t_flat, y_t_flat, ones], 0).to(device)
++        _MESHGRID_CACHE[key] = grid
+         return grid
+ 
+     def _transform(theta, input_dim, out_size):
+@@ -150,7 +151,7 @@ def transformer(U, theta, out_size, **kwargs):
+         theta = theta.reshape([-1, 3, 3]).float()
+ 
+         out_height, out_width = out_size[0], out_size[1]
+-        grid = _meshgrid(out_height, out_width)
++        grid = _meshgrid(out_height, out_width, input_dim.device)
+         grid = grid.unsqueeze(0).reshape([1,-1])
+         shape = grid.size()
+         grid = grid.expand(num_batch,shape[1])
+diff --git a/utils/torch_tps_transform_point.py b/utils/torch_tps_transform_point.py
+index ef0a3db..7d333d4 100644
+--- a/utils/torch_tps_transform_point.py
++++ b/utils/torch_tps_transform_point.py
+@@ -86,9 +86,10 @@ def transformer(point, source, target):
+ 
+         np.set_printoptions(precision=8)
+ 
+-        ones = torch.ones(num_batch, num_point, 1).float()
+-        if torch.cuda.is_available():
+-            ones = ones.cuda()
++        # Perf (vr_swarm_simulation): constants built on the input's device rather than
++        # host-created then .cuda()'d -- same values, no host->device copy (a stream sync).
++        dev = source.device
++        ones = torch.ones(num_batch, num_point, 1, device=dev).float()
+         p = torch.cat([ones, source], 2) # [bn, pn, 3]
+ 
+         p_1 = p.reshape([num_batch, -1, 1, 3]) # [bn, pn, 1, 3]
+@@ -101,21 +102,19 @@ def transformer(point, source, target):
+         r = d2 * torch.log(d2 + 1e-6) # [bn, pn, pn]
+ 
+ 
+-        zeros = torch.zeros(num_batch, 3, 3).float()
+-        if torch.cuda.is_available():
+-            zeros = zeros.cuda()
++        zeros = torch.zeros(num_batch, 3, 3, device=dev).float()
+         W_0 = torch.cat((p, r), 2) # [bn, pn, 3+pn]
+         W_1 = torch.cat((zeros, p.permute(0,2,1)), 2) # [bn, 3, pn+3]
+         W = torch.cat((W_0, W_1), 1) # [bn, pn+3, pn+3]
+ 
+ 
+-        W_inv = torch.inverse(W.type(torch.float64))
++        # Perf (vr_swarm_simulation): inv_ex = torch.inverse without the singularity
++        # check, which is a device->host sync per call.
++        W_inv = torch.linalg.inv_ex(W.type(torch.float64)).inverse
+ 
+ 
+ 
+-        zeros2 = torch.zeros(num_batch, 3, 2)
+-        if torch.cuda.is_available():
+-            zeros2 = zeros2.cuda()
++        zeros2 = torch.zeros(num_batch, 3, 2, device=dev)
+         tp = torch.cat((target, zeros2), 1) # [bn, pn+3, 2]
+ 
+         T = torch.matmul(W_inv, tp.type(torch.float64)) # [bn, pn+3, 2]

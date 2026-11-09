@@ -1,0 +1,9 @@
+condition,basis,found_r80,rmst_r80,lost,contacts,decisions
+single,any,0.802,571.453,0.0,0.0,38.184
+single_look,any,0.778,597.172,0.0,0.0,24.667
+swarm_hold,any,0.906,408.663,0.014,0.115,19.205
+swarm_hop,any,0.941,361.432,0.146,0.632,18.326
+swarm_hop,head,0.917,444.611,0.139,0.722,22.972
+swarm_pass,any,0.899,351.418,0.024,0.274,22.74
+swarm_street,any,0.896,362.021,0.028,0.09,22.396
+swarm_street,head,0.924,408.76,0.0,0.132,25.514

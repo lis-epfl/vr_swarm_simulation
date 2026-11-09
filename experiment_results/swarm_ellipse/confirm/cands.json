@@ -1,0 +1,268 @@
+{
+ "495fa73662": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C35a enclosing circle, d_obs 0.35, adaptive spread 0.85 (the scene)"
+ },
+ "1b2bc0594b": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_35a ellipse, aspect cap 1.5, d_obs 0.35, adaptive spread 0.85"
+ },
+ "96a37462bc": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E125_35a ellipse, aspect cap 1.25, d_obs 0.35, adaptive spread 0.85"
+ },
+ "f396be0af5": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C45a enclosing circle, d_obs 0.45, adaptive spread 0.85"
+ },
+ "6ff9647643": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_45a ellipse, aspect cap 1.5, d_obs 0.45, adaptive spread 0.85"
+ },
+ "6b33f0efd1": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "C35 enclosing circle, d_obs 0.35, spread held"
+ },
+ "dd8031f171": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held"
+ },
+ "single-f007cf9a81": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, C35 enclosing circle, d_obs 0.35, spread held"
+ },
+ "single-630221d56e": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held"
+ },
+ "single-6b9026676c": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E125_35 ellipse, aspect cap 1.25, d_obs 0.35, spread held"
+ },
+ "single-c34633d027": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, C45 enclosing circle, d_obs 0.45, spread held"
+ },
+ "single-99bd4d93ab": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 2.0,
+  "label": "one drone, E15_45 ellipse, aspect cap 1.5, d_obs 0.45, spread held"
+ },
+ "5aa62b3ada": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "C35a enclosing circle, d_obs 0.35, adaptive spread 0.85 (the scene), d_ref 1.2"
+ },
+ "6de19d5600": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E15_35a ellipse, aspect cap 1.5, d_obs 0.35, adaptive spread 0.85, d_ref 1.2"
+ },
+ "a579fdfb8e": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.25,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E125_35a ellipse, aspect cap 1.25, d_obs 0.35, adaptive spread 0.85, d_ref 1.2"
+ },
+ "2a68ac2f02": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "C45a enclosing circle, d_obs 0.45, adaptive spread 0.85, d_ref 1.2"
+ },
+ "4b45c71a28": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.45,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E15_45a ellipse, aspect cap 1.5, d_obs 0.45, adaptive spread 0.85, d_ref 1.2"
+ },
+ "920c2a8ded": {
+  "over": {
+   "obstacleShape": 1,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "C35 enclosing circle, d_obs 0.35, spread held, d_ref 1.2"
+ },
+ "dbced500a3": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": false,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  },
+  "d": 1.2,
+  "label": "E15_35 ellipse, aspect cap 1.5, d_obs 0.35, spread held, d_ref 1.2"
+ }
+}

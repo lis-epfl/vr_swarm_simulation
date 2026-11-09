@@ -1,0 +1,35 @@
+{
+ "pick": {
+  "key": "s6_stall",
+  "kind": "street",
+  "k": 2005,
+  "title": "Failure: one drone stalls under the old shield",
+  "first": "single_old",
+  "met": 1,
+  "why": "the route where one drone under the old gains stalled longest in Unity (229 s under 1 m/s)"
+ },
+ "flights": {
+  "single_new": [
+   "s6_stall_single_new_replica",
+   "s6_stall_single_new_unity"
+  ],
+  "single_old": [
+   "s6_stall_single_old_replica",
+   "s6_stall_single_old_unity"
+  ],
+  "tuned": [
+   "s6_stall_tuned_replica",
+   "s6_stall_tuned_unity"
+  ],
+  "old20": [
+   "s6_stall_old20_replica",
+   "s6_stall_old20_unity"
+  ],
+  "old108": [
+   "s6_stall_old108_replica",
+   "s6_stall_old108_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

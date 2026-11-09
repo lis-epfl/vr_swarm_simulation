@@ -1,0 +1,68 @@
+{
+ "step": "d_ref, one spread for streets and block",
+ "design": "base",
+ "d_grid": [
+  0.6,
+  0.8,
+  1.0,
+  1.2,
+  1.4,
+  1.6,
+  1.8
+ ],
+ "conditions": [
+  [
+   "street",
+   null,
+   null
+  ],
+  [
+   "pass",
+   null,
+   null
+  ],
+  [
+   "hold",
+   null,
+   12.0
+  ],
+  [
+   "hold",
+   null,
+   20.0
+  ],
+  [
+   "hop",
+   "aim",
+   12.0
+  ],
+  [
+   "hop",
+   "aim",
+   20.0
+  ],
+  [
+   "hop",
+   "firm",
+   12.0
+  ],
+  [
+   "hop",
+   "firm",
+   20.0
+  ]
+ ],
+ "trials": 30,
+ "city_seeds": [
+  0,
+  1,
+  2
+ ],
+ "sight_m": 250.0,
+ "rule": {
+  "enclose": 0.7,
+  "then": "fewest drones lost per block, then quickest, then smaller spread",
+  "bar_lost": 0.03,
+  "bar_contacts": 0.1
+ }
+}

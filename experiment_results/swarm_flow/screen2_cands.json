@@ -1,0 +1,146 @@
+[
+ {
+  "label": "T3",
+  "d": 2.0,
+  "over": {}
+ },
+ {
+  "label": "slide auto 0.6",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.6
+  }
+ },
+ {
+  "label": "slide auto 0.8",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8
+  }
+ },
+ {
+  "label": "slide auto 1",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 1.0
+  }
+ },
+ {
+  "label": "slide auto 0.8 aim 0.6",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6
+  }
+ },
+ {
+  "label": "slide auto 0.8 aim 1.0",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 1.0
+  }
+ },
+ {
+  "label": "slide own 0.8",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "x:slide_side": "own"
+  }
+ },
+ {
+  "label": "route lean",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true
+  }
+ },
+ {
+  "label": "route group",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "x:route_side": "group"
+  }
+ },
+ {
+  "label": "adaptive 0.7",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  }
+ },
+ {
+  "label": "adaptive 0.75",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.75
+  }
+ },
+ {
+  "label": "adaptive 0.7 look 3",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundLookAhead": 3.0
+  }
+ },
+ {
+  "label": "adaptive 0.7 tau 2",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "spreadFilterTime": 2.0
+  }
+ },
+ {
+  "label": "slide auto 0.8 + route",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "routeStragglers": true
+  }
+ },
+ {
+  "label": "slide auto 0.8 + adaptive 0.7",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  }
+ },
+ {
+  "label": "route + adaptive 0.7",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  }
+ },
+ {
+  "label": "all three (0.8, 0.7)",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "routeStragglers": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7
+  }
+ }
+]

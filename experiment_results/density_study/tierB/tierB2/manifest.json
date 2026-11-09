@@ -1,0 +1,36 @@
+{
+ "generated": "2026-10-12T22:18:26",
+ "spec": "citysim/specs/tierB2.json",
+ "layouts": 72,
+ "opts": {
+  "band_test": "internal_3",
+  "altitude": [
+   5.1,
+   12.4,
+   23.8
+  ],
+  "pitch": [
+   -40.0,
+   -15.0,
+   -8.0
+  ],
+  "spread": [
+   0.4,
+   1.0,
+   1.6
+  ]
+ },
+ "window_s": 60.0,
+ "dt": 0.5,
+ "body_yaws": [
+  0.0,
+  45.0,
+  90.0,
+  135.0,
+  180.0,
+  225.0,
+  270.0,
+  315.0
+ ],
+ "seconds": 386
+}

@@ -1,0 +1,26 @@
+{
+ "pick": {
+  "key": "search_s24",
+  "p": 40,
+  "s": 24,
+  "seed": 101,
+  "i": 1,
+  "title": "Informed search, p 40 \u00b7 s 24",
+  "about": "A target the order of conditions does not favour: the hold finds it first (3.3 min) and the street-bound swarm last of the swarm conditions (6.8 min). Whoever happens to look down the right street first wins."
+ },
+ "identical": true,
+ "flights": [
+  "search_s24_single_replica",
+  "search_s24_single_look_replica",
+  "search_s24_swarm_street_replica",
+  "search_s24_swarm_hold_replica",
+  "search_s24_swarm_pass_replica",
+  "search_s24_swarm_hop_replica"
+ ],
+ "chain": null,
+ "target": [
+  -55.0,
+  245.0
+ ],
+ "wall_s": 158.8
+}

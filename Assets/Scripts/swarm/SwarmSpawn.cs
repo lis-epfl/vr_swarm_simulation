@@ -1,13 +1,17 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.VisualScripting;
 using UnityEngine;
 
+// Values are spelled out because Unity serialises enum fields by integer: every scene that stores 1 spawns the
+// circle with a centre drone, which is what "Circle" meant before the hollow variant was added.
 public enum SpawnPattern
 {
-    Grid,
-    Circle
+    Grid = 0,
+    CircleWithCentre = 1,   // one drone at the start position, the rest evenly spaced on the ring
+    HollowCircle = 2        // every drone on the ring, none at the centre
 }
 
 public class swarmSpawn : MonoBehaviour
@@ -19,7 +23,8 @@ public class swarmSpawn : MonoBehaviour
     public int dronesAlongZ = 3;
     public float droneSpacing = 3.0f;
 
-    [Header("Circle pattern")]
+    [Header("Circle patterns")]
+    [Tooltip("Total drones, centre drone included under CircleWithCentre.")]
     public int circleDroneCount = 10;
     public float circleRadius = 5.0f;
     public int start_x = 0;
@@ -30,6 +35,11 @@ public class swarmSpawn : MonoBehaviour
     public int YawDegrees = 0;
     public bool trackBirdsEye = false;
     public bool drawGizmos = true;
+
+    [Tooltip("Merge each drone's 96 body renderers into one per material when it spawns " +
+             "(DroneBodyCombiner). Same triangles and materials; every FPV render with another " +
+             "drone in view draws it in ~11 calls instead of ~96. Off = the prefab as authored.")]
+    public bool combineDroneBodies = true;
     public GameObject swarmParent;
     private InterfaceManager interfaceManager;
     private ScreenSpawn ScreenSpawn;
@@ -60,6 +70,12 @@ public class swarmSpawn : MonoBehaviour
 
         // Create an empty GameObject to serve as the parent for all drones
         swarmParent = new GameObject("SwarmParent");
+
+        if (SphereDisplay && GetSpawnPositions(ignoreSphere: true).Skip(1).Any())
+        {
+            Debug.LogWarning("swarmSpawn: the SPHERE display is one drone's 360 camera, so one drone spawns at the " +
+                             "start position and the pattern's other drones do not.", this);
+        }
 
         // Spawn drones in the chosen pattern
         foreach (Vector3 dronePosition in GetSpawnPositions())
@@ -108,18 +124,29 @@ public class swarmSpawn : MonoBehaviour
     /// <summary>
     /// Computes the spawn positions for the configured pattern.
     /// Grid: dronesAlongX × dronesAlongZ lattice anchored at (start_x, start_y, start_z).
-    /// Circle: circleDroneCount drones evenly spaced on a ring of circleRadius around the start position.
+    /// CircleWithCentre: one drone at the start position and the other circleDroneCount - 1 evenly spaced
+    /// on a ring of circleRadius around it. HollowCircle: all circleDroneCount drones on the ring.
+    /// Under the SPHERE display, whatever the pattern, only the start position: a 360 camera is a single-drone
+    /// condition, never a swarm's. ResetToPos reads the same list, so a reset puts that drone on the start too.
     /// </summary>
-    private IEnumerable<Vector3> GetSpawnPositions()
+    private IEnumerable<Vector3> GetSpawnPositions(bool ignoreSphere = false)
     {
-        if (spawnPattern == SpawnPattern.Circle)
+        if (SphereDisplay && !ignoreSphere)
+        {
+            yield return new Vector3(start_x, start_y, start_z);
+            yield break;
+        }
+        if (IsCirclePattern)
         {
             int count = Mathf.Max(1, circleDroneCount);
 
-            // One drone at the centre, the remaining (count - 1) evenly spaced on the ring.
-            yield return new Vector3(start_x, start_y, start_z);
+            int ringCount = count;
+            if (spawnPattern == SpawnPattern.CircleWithCentre)
+            {
+                yield return new Vector3(start_x, start_y, start_z);
+                ringCount = count - 1;
+            }
 
-            int ringCount = count - 1;
             for (int i = 0; i < ringCount; i++)
             {
                 float angle = i * Mathf.PI * 2f / ringCount;
@@ -143,6 +170,13 @@ public class swarmSpawn : MonoBehaviour
             }
         }
     }
+
+    public bool IsCirclePattern =>
+        spawnPattern == SpawnPattern.CircleWithCentre || spawnPattern == SpawnPattern.HollowCircle;
+
+    // InterfaceManager.DisplayMode.SPHERE: one drone with a 360 camera (Sphere360Display).
+    private bool SphereDisplay =>
+        interfaceManager != null && interfaceManager.displayMode == InterfaceManager.DisplayMode.SPHERE;
 
     /// <summary>
     /// Instantiates a single drone at the given position, applies yaw, and registers it in the swarm.
@@ -170,6 +204,13 @@ public class swarmSpawn : MonoBehaviour
 
         // Move the drone to the position
         Transform droneParent = drone.transform.Find("DroneParent");
+
+        // Merged here, straight after Instantiate, because the merge has to happen before any of
+        // the drone's own Start methods cache its renderers (DroneBodyCombiner explains why).
+        if (combineDroneBodies && droneParent != null)
+        {
+            droneParent.gameObject.AddComponent<DroneBodyCombiner>();
+        }
         droneParent.position = dronePosition;
         droneParent.rotation = droneRotation;
 
@@ -226,7 +267,7 @@ public class swarmSpawn : MonoBehaviour
             return;
 
         uint index = 0;
-        float armSpacing = spawnPattern == SpawnPattern.Circle ? circleRadius : droneSpacing;
+        float armSpacing = IsCirclePattern ? circleRadius : droneSpacing;
 
         foreach (Vector3 pos in GetSpawnPositions())
         {
@@ -247,7 +288,7 @@ public class swarmSpawn : MonoBehaviour
             index++;
         }
 
-        if (spawnPattern == SpawnPattern.Circle)
+        if (IsCirclePattern)
         {
             // Ring outline around the start position
             Vector3 ringCenter = new Vector3(start_x, start_y, start_z);

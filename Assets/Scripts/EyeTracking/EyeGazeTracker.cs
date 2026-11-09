@@ -54,6 +54,16 @@ public class EyeGazeTracker : MonoBehaviour
     /// <summary>True once eye tracking has successfully started on this device.</summary>
     public static bool EyeTrackingActive { get; private set; }
 
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        Left = default;
+        Right = default;
+        Combined = default;
+        EyeTrackingActive = false;
+    }
+
     private const OVRPermissionsRequester.Permission EyeTrackingPermission =
         OVRPermissionsRequester.Permission.EyeTracking;
 

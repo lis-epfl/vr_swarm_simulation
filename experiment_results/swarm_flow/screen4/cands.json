@@ -1,0 +1,181 @@
+{
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "T3"
+ },
+ "7d446a3b17": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "slide"
+ },
+ "c49e5973e9": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden"
+  },
+  "d": 2.0,
+  "label": "slide hidden"
+ },
+ "ee884a4bba": {
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  },
+  "d": 2.0,
+  "label": "route 0.7"
+ },
+ "011abfd52d": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  },
+  "d": 2.0,
+  "label": "slide hidden + route 0.7"
+ },
+ "7f4067faf1": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "routeStragglers": true,
+   "stragglerPressShare": 0.5
+  },
+  "d": 2.0,
+  "label": "slide hidden + route 0.5"
+ },
+ "37f92b4078": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "adaptive 0.8"
+ },
+ "851be3e05a": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.6,
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "adaptive 0.8 + damper"
+ },
+ "d527259e7f": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundAimFraction": 0.6,
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "adaptive 0.7 + damper"
+ },
+ "0170efd431": {
+  "over": {
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "damper"
+ },
+ "a46a7f558e": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8
+  },
+  "d": 2.0,
+  "label": "slide hidden + adaptive 0.8"
+ },
+ "174e55e273": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "slide hidden + adaptive 0.8 + damper"
+ },
+ "38c49bfa25": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "slide hidden + adaptive 0.7 + damper"
+ },
+ "088b5471a3": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "slide hidden + damper"
+ },
+ "05344fb645": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "all three 0.8 + damper"
+ },
+ "672ca4687a": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "surroundAimFraction": 0.6,
+   "x:slide_side": "hidden",
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "c_damp": 4.0,
+   "d_damp": 0.5
+  },
+  "d": 2.0,
+  "label": "all three 0.7 + damper"
+ }
+}

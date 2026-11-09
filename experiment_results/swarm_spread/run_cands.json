@@ -1,0 +1,164 @@
+[
+ {
+  "label": "F20 fixed d_ref 2.0 (C35)",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "A85 d_ref 2.0, adaptive 0.85 (1.7 in the streets), C35a: the scene",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  }
+ },
+ {
+  "label": "A90 d_ref 2.0, adaptive 0.9 (1.8 in the streets)",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.9
+  }
+ },
+ {
+  "label": "A95 d_ref 2.0, adaptive 0.95 (1.9 in the streets)",
+  "d": 2.0,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.95
+  }
+ },
+ {
+  "label": "F19 fixed d_ref 1.9",
+  "d": 1.9,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "F18 fixed d_ref 1.8",
+  "d": 1.8,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "F17 fixed d_ref 1.7",
+  "d": 1.7,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "F14 fixed d_ref 1.4: the dial at its lowest",
+  "d": 1.4,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "L85 d_ref 1.4, adaptive 0.85 (1.19 in the streets)",
+  "d": 1.4,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  }
+ },
+ {
+  "label": "L95 d_ref 1.4, adaptive 0.95 (1.33 in the streets)",
+  "d": 1.4,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.95
+  }
+ },
+ {
+  "label": "F12 fixed d_ref 1.2",
+  "d": 1.2,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "F26 fixed d_ref 2.6: the dial at its highest",
+  "d": 2.6,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": false
+  }
+ },
+ {
+  "label": "H85 d_ref 2.6, adaptive 0.85 (2.21 in the streets)",
+  "d": 2.6,
+  "over": {
+   "obstacleShape": 1,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "spreadFilterTime": 3.0,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  }
+ }
+]

@@ -4,118 +4,730 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class PyUniSharingFast : MonoBehaviour
 {   
-    [Header("Feature Flags")]
-    [SerializeField]
-    [Tooltip("Enable writing images to BlockSharedMemory")]
-    private bool enableImageWriting = true;
+    // ------------------------------------------------------------------
+    // INSPECTOR LAYOUT
+    //
+    // The settings that actually change between runs sit flat at the top;
+    // everything else is bucketed into the [Serializable] groups below, which
+    // Unity draws as one collapsible row each. Most groups apply to exactly
+    // one `typeOfStitcher`, so on any given run most of them are inert.
+    //
+    // This is presentation only. The metadata wire layout is untouched -- the
+    // grouped fields are still reached by their original names through the
+    // forwarding properties further down, so WriteMetadata and every call site
+    // are unchanged and tools/check_wire_layout.py still holds.
+    // ------------------------------------------------------------------
 
-    [SerializeField]
-    [Tooltip("Enable reading panorama from PanoramaSharedMemory")]
-    private bool enablePanoramaReading = true;
-
-    [Header("Image Dimensions")]
-    [SerializeField]
-    [Tooltip("Must be 800 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
-    private int blockImageWidth = 800;
-
-    [SerializeField]
-    [Tooltip("Must be 450 in the DJI scene to match the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this via the metadata map.")]
-    private int blockImageHeight = 450;
-
-    // Read-only access so ScreenSpawn can adopt the same FPV feed resolution
-    // (PyUniSharingFast is the single source of truth for the block resolution).
-    public int BlockImageWidth => blockImageWidth;
-    public int BlockImageHeight => blockImageHeight;
-
-    [SerializeField]
-    private int panoramaImageWidth = 600;
-
-    [SerializeField]
-    private int panoramaImageHeight = 400;
-
-    [Header("Timing")]
-    [SerializeField]
-    private float sendInterval = 0.05f;
-
-    [SerializeField]
-    private float readInterval = 0.05f;
-
-    [Header("Stitcher Configuration")]
+    [Tooltip("Which stitcher Python runs. This picks which of the grouped settings below " +
+             "are live: Classic, StabStitch and Planar are mutually exclusive.")]
     [SerializeField]
     private stitcherType typeOfStitcher = stitcherType.CLASSIC;
 
+    [Tooltip("Which camera pose is published to the planar stitcher. GroundTruth is exact, " +
+             "so with it the mosaic should be pixel-perfect on a truly planar scene -- any " +
+             "seam is a bug rather than a limitation. The noisy modes exist to size how much " +
+             "refinement real drones would need. PLANAR only.")]
     [SerializeField]
-    private bool cylindrical = false;
+    private StitchPoseSourceMode poseSource = StitchPoseSourceMode.GroundTruth;
 
+    [Tooltip("Which surface the planar stitcher treats as the scene plane. Auto picks Nadir " +
+             "when the gimbal is pitched down and Facade otherwise. PLANAR only.")]
     [SerializeField]
-    private matcherType typeOfMatcher = matcherType.BF;
+    private ScenePlaneMode scenePlaneMode = ScenePlaneMode.Auto;
 
+    [Tooltip("How overlapping views are combined. Nearest gives every pixel to the single " +
+             "most face-on view, so nothing is averaged and pose error shows as a seam " +
+             "rather than ghosting; Feather cross-fades the overlap, which is only clean " +
+             "while the geometry is exact. In a facade wall the views overlap almost " +
+             "everywhere, so Feather ghosts across the whole mosaic. PLANAR only.")]
     [SerializeField]
-    private bool ransac = false;
+    private PlanarBlendMode planarBlendMode = PlanarBlendMode.Nearest;
 
+    [Tooltip("Testing aid: colour each patch of the mosaic by the drone that supplied it. " +
+             "Tint washes colour over the imagery, Flat replaces it entirely. The " +
+             "drone-to-colour key is printed on the Python console's periodic [PLANAR] " +
+             "line. Leave Off for flight. PLANAR only.")]
     [SerializeField]
-    private int checks = 50;
+    private PlanarDebugView planarDebugView = PlanarDebugView.Off;
 
+    [Tooltip("Show the stitched panorama; unticked shows the individual drone feeds instead. " +
+             "Mirrors the controller's click switch when one is connected, but can also be " +
+             "toggled directly here or with vr.togglePanoramaKey -- for testing without a controller.")]
     [SerializeField]
-    private float ratio_thresh = 0.7f;
+    private bool panoramaUserEnabled = true;
 
+    [Tooltip("Hide the individual ScreenSpawn feeds for the drones currently being stitched into " +
+             "the panorama (they already appear in the panorama). Only applies while the panorama " +
+             "is displayed; during quality-fallback all feeds reappear.")]
     [SerializeField]
-    private float score_threshold = 0.1f;
+    private bool hideStitchedDroneScreens = false;
 
+    [Tooltip("Print the Python stitch/warp loop rate (Hz) to the console. Disable to declutter " +
+             "the log while reading other per-frame diagnostics (e.g. the StabStitch quality PSNR).")]
     [SerializeField]
-    private int focal_length = 1000;
+    private bool printStitchRate = true;
 
+    // ---------------- grouped settings ----------------
+
+    [Space(6)]
+    [Tooltip("Shared-memory bridge sizing and pacing. Every field here is consumed once in " +
+             "Start() to size a named section, so changes need a Play restart AND a Python restart.")]
     [SerializeField]
-    private bool onlyIHN = true;
+    private BridgeSettings bridge = new BridgeSettings();
 
+    [Tooltip("PLANAR stitcher settings: scene-plane raycast, canvas framing, sanity gates and " +
+             "the warp-thread estimators. Inert unless typeOfStitcher is PLANAR.")]
     [SerializeField]
-    private FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
+    private PlanarSettings planar = new PlanarSettings();
 
-    [Header("StabStitch REFERENCE_BLEND Blur")]
+    [Tooltip("STABSTITCH settings: fusion mode, REFERENCE_BLEND feathering and the panorama " +
+             "quality fallback. Inert unless typeOfStitcher is STABSTITCH.")]
     [SerializeField]
-    [Tooltip("Gaussian blur kernel size for the reference-image soft mask (must be an odd integer)")]
-    private int blurKernelSize = 41;
+    private StabStitchSettings stabStitch = new StabStitchSettings();
 
+    [Tooltip("CLASSIC feature-matching settings. Inert under STABSTITCH and PLANAR, " +
+             "which do not do feature matching at all.")]
     [SerializeField]
-    [Tooltip("Gaussian blur sigma for the reference-image soft mask feathering width (pixels)")]
-    private float blurSigma = 15f;
+    private ClassicSettings classic = new ClassicSettings();
 
+    [Tooltip("Curved panorama screen geometry, the HMD transform and the body-yaw controls.")]
     [SerializeField]
-    [Tooltip("Width in pixels of the edge strip where LINEAR blending is applied to hide seams (REFERENCE_BLEND mode only). Interior of the reference image is left pixel-perfect.")]
-    private int borderSize = 60;
+    private VrDisplaySettings vr = new VrDisplaySettings();
 
-    [Header("StabStitch Panorama Quality Fallback")]
+    [Tooltip("GNSS error model. Only used when poseSource is GroundTruthPlusGnss.")]
     [SerializeField]
-    [Tooltip("When the StabStitch panorama is judged bad (poor alignment / distorted warp), hide it and show the individual drone feeds (via ScreenSpawn) instead.")]
-    private bool qualityFallbackEnabled = true;
+    private StitchPoseSource.Settings gnssSettings = new StitchPoseSource.Settings();
 
-    [SerializeField]
-    [Tooltip("Minimum overlap PSNR (dB) for the panorama to be considered good. Higher = stricter (falls back to feeds more readily).")]
-    private float qualityThreshold = 18f;
+    // ---------------- group definitions ----------------
 
-    [SerializeField]
-    [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is in fallback.")]
-    private ScreenSpawn.ScreenStyle fallbackScreenStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+    /// <summary>
+    /// Shared-memory bridge sizing + pacing. These size the named sections in
+    /// <c>Start</c> and are published in metadata for Python to size its own mappings
+    /// from, so changing any of them requires restarting both Play mode and
+    /// StitcherThreading.py.
+    /// </summary>
+    [Serializable]
+    public class BridgeSettings
+    {
+        [Tooltip("Enable writing images to BlockSharedMemory. Must be OFF in the DJI scene: " +
+                 "ImageSharing.cs is the producer there, and two producers with different " +
+                 "header sizes would corrupt the map.")]
+        public bool enableImageWriting = true;
 
-    private string blockMapName = "BlockSharedMemory";
-    private int blockImageCount = 0;
-    private int blockImageSize = 0;   // bytes per drone image (W*H*3)
-    private int blockSize = 0;        // per-drone block: header + image
-    private int totalBlockSize = 0;   // blockImageCount * blockSize
+        [Tooltip("Enable reading panorama from PanoramaSharedMemory")]
+        public bool enablePanoramaReading = true;
 
-    private string panoramaMapName = "PanoramaSharedMemory";
+        [Tooltip("Stitch input width AND, while stitching, the feed screens' render-texture width: " +
+                 "ScreenSpawn adopts this for every FPV camera. With enableImageWriting and " +
+                 "enablePanoramaReading both off the feeds take InterfaceManager's width/height instead, " +
+                 "and this is ignored. Size it to what the headset can show, not above: a Quest " +
+                 "Pro resolves ~22 px/deg and an OUTER_CIRCLE feed screen (radius 2 m, scale 1) spans " +
+                 "~48 deg, so ~1024 is the useful maximum; more cannot be seen and only costs FPV " +
+                 "render time. Envelope max 1280x720. Must be 800 in the DJI scene to match " +
+                 "the 800x450 drone feed (image_stream_feed.py / ImageSharing.cs); StitcherThreading.py " +
+                 "sizes itself from this via the metadata map.")]
+        public int blockImageWidth = 800;
+
+        [Tooltip("Stitch input / feed render-texture height; keep 16:9 with blockImageWidth (576 for " +
+                 "1024). Must be 450 in the DJI scene to match the 800x450 drone feed " +
+                 "(image_stream_feed.py / ImageSharing.cs); StitcherThreading.py sizes itself from this " +
+                 "via the metadata map.")]
+        public int blockImageHeight = 450;
+
+        [Tooltip("Panorama width Python renders and Unity uploads to the curved screen. The stitch " +
+                 "canvas holds ~1.8x blockImageWidth of detail and the curved screen shows angleRange " +
+                 "(90 deg) at ~22 px/deg on a Quest Pro, so 1920 pairs with 1024-wide blocks; larger " +
+                 "only adds upload time (PyUniSharingFast.PanoramaApply in the Profiler).")]
+        public int panoramaImageWidth = 600;
+
+        [Tooltip("Panorama height Python renders and Unity uploads to the curved screen. Keep " +
+                 "width/height near the curved screen's arc length / height (2.6 at radius 5 m, " +
+                 "90 deg, 3 m) so its texels stay square: 720 pairs with 1920.")]
+        public int panoramaImageHeight = 400;
+
+        [Tooltip("Seconds between block publishes (0.0333 = 30 Hz). This is what paces the stitched " +
+                 "panorama: the Python render thread only wakes for a fresh block (it keys on the " +
+                 "header's captureTime) and is floored at RENDER_MIN_PERIOD = 0.025 s in " +
+                 "StitcherThreading.py, so lowering this below ~0.03 needs that constant lowered too. " +
+                 "Every send renders the hidden stitched FPV cameras on demand, so the headset frame " +
+                 "rate is the constraint on going faster; the nets keep their own ~20 Hz cadence " +
+                 "(StabStitcher.NET_FRAME_PERIOD) regardless of this value.")]
+        public float sendInterval = 0.0333f;
+
+        [Tooltip("Minimum seconds between panorama uploads. Keep at or below sendInterval, or " +
+                 "panoramas are produced faster than they are shown. Only a panorama Python has not " +
+                 "already delivered is uploaded (sequence number in the quality word); until one " +
+                 "arrives the section is re-checked every frame, which costs two int reads.")]
+        public float readInterval = 0.0333f;
+
+        [Tooltip("PLANAR selects every alive drone, and rendering all ~10 of their FPV cameras in " +
+                 "one frame is a frame the headset misses on every send. Above this many views, " +
+                 "a send's renders are spread over consecutive frames (as few as fit in one " +
+                 "sendInterval) and read back together once the last has rendered, so every view " +
+                 "is still captured once per send and Python still sees one fresh wave per send. " +
+                 "Each block carries the pose its pixels were rendered from. STABSTITCH's three " +
+                 "views never exceed it. 0 = off (every view in the send frame, as before).")]
+        public int maxCapturesPerFrame = 4;
+
+        [Tooltip("Convert each readback straight into its shared-memory block instead of " +
+                 "converting into a scratch buffer and copying it in twice. Same bytes; two fewer " +
+                 "full-image passes on the main thread per block.")]
+        public bool inPlaceReadback = true;
+    }
+
+    /// <summary>
+    /// CLASSIC feature-matching parameters. Published in metadata unconditionally
+    /// (PlanarStitcher.py reads them off the active stitcher regardless), but they only
+    /// affect the output under the CLASSIC stitcher.
+    /// </summary>
+    [Serializable]
+    public class ClassicSettings
+    {
+        [Tooltip("Warp inputs to cylindrical coordinates before matching.")]
+        public bool cylindrical = false;
+
+        [Tooltip("Descriptor matcher: brute force or FLANN.")]
+        public matcherType typeOfMatcher = matcherType.BF;
+
+        [Tooltip("Refine the homography with RANSAC.")]
+        public bool ransac = false;
+
+        [Tooltip("FLANN search checks.")]
+        public int checks = 50;
+
+        [Tooltip("Lowe ratio test threshold.")]
+        public float ratio_thresh = 0.7f;
+
+        [Tooltip("Minimum keypoint score to keep a match.")]
+        public float score_threshold = 0.1f;
+
+        [Tooltip("Assumed focal length in pixels, used by the cylindrical warp.")]
+        public int focal_length = 1000;
+    }
+
+    /// <summary>
+    /// STABSTITCH-only settings: how the warped views are fused, how the REFERENCE_BLEND
+    /// soft mask is feathered, and the quality fallback that hides a bad panorama.
+    /// </summary>
+    [Serializable]
+    public class StabStitchSettings
+    {
+        [Tooltip("How warped views are fused into the panorama.")]
+        public FusionMode typeOfFusion = FusionMode.REFERENCE_BLEND;
+
+        [Tooltip("Gaussian blur kernel size for the reference-image soft mask (must be an odd integer). " +
+                 "In stitch-canvas pixels, which scale with blockImageWidth: the defaults (41 / 15 / 60) " +
+                 "suit 768-wide blocks; scale all three with the block width to keep the same seam " +
+                 "(55 / 20 / 80 at 1024).")]
+        public int blurKernelSize = 41;
+
+        [Tooltip("Gaussian blur sigma for the reference-image soft mask feathering width (stitch-canvas " +
+                 "pixels; scale with blockImageWidth, see blurKernelSize)")]
+        public float blurSigma = 15f;
+
+        [Tooltip("Width in stitch-canvas pixels of the edge strip where LINEAR blending is applied to hide " +
+                 "seams (REFERENCE_BLEND mode only); scale with blockImageWidth, see blurKernelSize. " +
+                 "Interior of the reference image is left pixel-perfect.")]
+        public int borderSize = 60;
+
+        [Tooltip("When the panorama is judged bad (poor alignment / distorted warp), hide it and show the individual drone feeds (via ScreenSpawn) instead.")]
+        public bool qualityFallbackEnabled = true;
+
+        [Tooltip("Minimum overlap PSNR (dB) for the panorama to be considered good. Higher = stricter (falls back to feeds more readily).")]
+        public float qualityThreshold = 17.5f;
+
+        [Tooltip("ScreenSpawn style used to display the individual drone feeds while the panorama is " +
+                 "in fallback, and ONLY when the InterfaceManager's own screen style is OFF. Any " +
+                 "other configured style is already a visible feed layout, and is kept as-is: the " +
+                 "fallback's job is to make the feeds visible, not to re-choose how they are laid out. " +
+                 "AUTO is not a valid choice here (ScreenSpawn cannot place it) and is read as " +
+                 "OUTER_CIRCLE — set the InterfaceManager's style to AUTO instead.")]
+        public ScreenSpawn.ScreenStyle fallbackScreenStyle = ScreenSpawn.ScreenStyle.OUTER_CIRCLE;
+    }
+
+    /// <summary>
+    /// PLANAR-only settings. The mode selector, blend mode and debug overlay stay at the
+    /// top of the inspector because they are flipped between runs; everything here is
+    /// tuning that is set once for a scene.
+    /// </summary>
+    [Serializable]
+    public class PlanarSettings
+    {
+        // scenePlaneMode selects ONE of the three blocks below, and the other two are dead.
+        // They each carry a distance, they all read about 30, and they are NOT the same
+        // quantity -- which is exactly why they are separated and labelled by mode here:
+        //
+        //   Nadir/Facade      fallbackPlaneDistance   along the centre camera's RAY,
+        //                                             and only when the raycast MISSES
+        //   Manual            manualPlaneDistance     the world plane offset d, directly
+        //   FormationRelative planarStandoffMetres    PERPENDICULAR from the formation
+        //                                             CENTROID to the surface
+        //
+        // Different origins, different directions, different roles. Substituting one for
+        // another is not a tuning error, it is a different plane.
+
+        [Header("Scene plane (shared)")]
+        [Tooltip("Layers the scene-plane raycast may hit. This matters more than it looks: the " +
+                 "ScreenSpawn feed quads and this component's own curved panorama screen float " +
+                 "in world space near the pilot, and an unfiltered raycast will happily return " +
+                 "one of them, putting the 'scene plane' a few metres away. Obstacle + Default " +
+                 "is the intended setting. Nadir/Facade only — the other modes never raycast.")]
+        public LayerMask scenePlaneMask = ~0;
+
+        [Tooltip("Smoothing time constant for the plane normal and distance, so a car driving " +
+                 "through the ray or a one-frame miss doesn't jerk the mosaic. Nadir/Facade " +
+                 "only; Manual and FormationRelative resolve without filtering.")]
+        public float planeFilterTime = 0.5f;
+
+        [Header("· scenePlaneMode = Nadir / Facade (raycast; sim only)")]
+        [Tooltip("Distance ALONG THE CENTRE CAMERA'S RAY at which to put the plane when the " +
+                 "raycast MISSES — not a standoff, and not used at all when the ray hits. " +
+                 "A wrong value is a uniform scale error and degrades gracefully, so this beats " +
+                 "blanking the panorama every time the ray clips a window.\n\n" +
+                 "NOT planarStandoffMetres, which is a perpendicular distance from the formation " +
+                 "centroid and belongs to FormationRelative. These two modes are mutually " +
+                 "exclusive; whichever one scenePlaneMode is not, its distance is dead.\n\n" +
+                 "Real drones never reach this: a facade has no Unity collider, so the DJI scene " +
+                 "runs FormationRelative and nothing here is ever cast.")]
+        public float fallbackPlaneDistance = 30f;
+
+        [Tooltip("Facade mode: snap the plane normal to the swarm formation normal rather than " +
+                 "trusting the raycast hit normal. Useful when the facade has ledges or mullions " +
+                 "that make the hit normal flicker.")]
+        public bool snapNormalToFormation = false;
+
+        [Header("· scenePlaneMode = Manual")]
+        [Tooltip("Plane normal used when scenePlaneMode is Manual. World coordinates, so this " +
+                 "mode needs an origin agreed with the pose frame — prefer FormationRelative on " +
+                 "real drones, which needs none.")]
+        public Vector3 manualPlaneNormal = Vector3.up;
+
+        [Tooltip("The plane offset d itself, in WORLD coordinates, paired with manualPlaneNormal " +
+                 "({x : n·x = d}). Not a distance from anything — that is what makes it different " +
+                 "from both fallbackPlaneDistance and planarStandoffMetres.")]
+        public float manualPlaneDistance = 0f;
+
+        [Header("· scenePlaneMode = FormationRelative (real drones)")]
+
+        [Tooltip("Where the FormationRelative standoff comes from.\n\n" +
+                 "Auto: the PC's value whenever it is publishing a live one (it derives it " +
+                 "from a facade traced on the DJI_Swarm GUI map plus the live formation, so " +
+                 "it TRACKS), falling back to planarStandoffMetres below the moment that " +
+                 "stops — no controller, no facade traced, or a stalled producer.\n\n" +
+                 "Inspector: always planarStandoffMetres, ignoring the PC entirely — the " +
+                 "operator takeover. Use it to override a bad auto-pick, or to A/B a " +
+                 "hand-typed value against the measured one. (Named Inspector rather than " +
+                 "Manual so it cannot be read as scenePlaneMode's unrelated Manual above.)\n\n" +
+                 "Which one is actually in force is shown by planarStandoffInUse below, and " +
+                 "is published to the PC so clip_replay.py's checklist can report it.")]
+        public PlanarStandoffSource planarStandoffSource = PlanarStandoffSource.Auto;
+
+        [Tooltip("FormationRelative mode: how far in front of the formation the surface is, " +
+                 "metres. This is the one number an operator can actually know in the field " +
+                 "('the facade is about 30 m in front of the wall'), and it is deliberately " +
+                 "measured from the formation rather than in world coordinates — that way no " +
+                 "georeferenced origin has to be agreed between Unity and the drone telemetry. " +
+                 "Python derives the normal and the plane offset from the published poses; only " +
+                 "this scalar comes from here. The plane sweep then corrects the residual, so " +
+                 "getting this within a metre or two is enough.\n\n" +
+                 "Under Auto this is the FALLBACK, not the operating value — so it is still " +
+                 "worth setting correctly: it is the only source in every sim scene, in the " +
+                 "DJI scene before a controller starts, and again the moment one exits.\n\n" +
+                 "Not fallbackPlaneDistance, which is a distance along the centre camera's RAY " +
+                 "used when a raycast misses (Nadir/Facade), and not manualPlaneDistance, which " +
+                 "is the world plane offset d (Manual). Only one of the three is ever live — " +
+                 "scenePlaneMode picks it.")]
+        public float planarStandoffMetres = 30f;
+
+        [Tooltip("READ-ONLY read-out of the standoff actually being published to Python, and " +
+                 "of where it came from. Overwritten every frame while playing; editing it " +
+                 "does nothing.\n\n" +
+                 "This is a separate field rather than planarStandoffMetres being made to " +
+                 "mirror the live value, because that field is the FALLBACK: if the live " +
+                 "value were written back into it, then the instant the PC stopped publishing " +
+                 "the fallback would be the last PC value instead of the operator's number — " +
+                 "a finished clip_replay would leave its clip's standoff sitting there and " +
+                 "every later session would silently inherit it. That is exactly the " +
+                 "stale-value failure the producer heartbeat exists to prevent.")]
+        public string planarStandoffInUse = "(not playing)";
+
+        [Header("Intrinsics")]
+        [Tooltip("Take the camera intrinsics from the fields below instead of from a Unity " +
+                 "Camera's projection matrix. Required on the real-drone path: DeriveIntrinsics " +
+                 "reads camerasToCapture, the DJI scene has no sim FPV cameras, so fx is " +
+                 "published as 0 and Python refuses the frame with 'no camera intrinsics'. " +
+                 "Leave off in the sim, where the projection matrix cannot disagree with the " +
+                 "pixels it rendered.")]
+        public bool useManualIntrinsics = false;
+
+        [Range(5f, 150f)]
+        [Tooltip("Vertical field of view in degrees for the manual intrinsics. 46.4 is the DJI " +
+                 "Mini 3 Pro's wide lens at 16:9 (f ~ 525 px at 800x450). fx = fy is assumed " +
+                 "(square pixels) and the principal point is taken at the image centre — good " +
+                 "enough to fly, but a real calibration is what removes the last of the seam. " +
+                 "Note the geometry assumes a pinhole, so enable DJI's dewarping on the camera.")]
+        public float manualVerticalFovDeg = 46.4f;
+
+        [Header("Canvas & gates")]
+        public int planarCanvasWidth = 1200;
+        public int planarCanvasHeight = 800;
+
+        [Tooltip("How the canvas gets its scale and centre. Fixed uses planarMetresPerPixel " +
+                 "centred on the centre drone — the same patch of plane every frame, so " +
+                 "measurements stay comparable across runs, but correctly framed at only one " +
+                 "standoff. AutoFit fits both to where the views actually land, in quantised " +
+                 "steps so the canvas does not breathe. Zoom and pan apply on top of either.")]
+        public PlanarCanvasMode planarCanvasMode = PlanarCanvasMode.Fixed;
+
+        [Tooltip("Canvas scale: how much of the plane fits in the canvas. The output resolution " +
+                 "never changes per solve (that would flicker), so this is the lever. Under " +
+                 "Fixed it IS the scale; under AutoFit it is the rest scale the fit is " +
+                 "quantised about and clamped to (+/- 3 octaves).")]
+        public float planarMetresPerPixel = 0.05f;
+
+        [Header("Canvas zoom & pan (operator view)")]
+        [Range(0.25f, 8f)]
+        [Tooltip("Magnification on top of the canvas mode's rest scale. A viewing transform " +
+                 "only — it never reaches the warp-thread estimators, so zooming in to inspect " +
+                 "cannot cost the plane sweep its lock. Real magnification, not pixel " +
+                 "stretching: the source frames are resampled finer. Past roughly 1:1 with the " +
+                 "sharpest view's ground sample distance it stops adding detail, which Python's " +
+                 "periodic [PLANAR] line flags as EMPTY magnification.")]
+        public float planarZoom = 1f;
+
+        [Tooltip("Canvas centre offset, as a fraction of the canvas — so half a screen is half " +
+                 "a screen at every zoom level. Python clamps it to the imagery's footprint, so " +
+                 "panning cannot end up staring at blank plane. Zero is the mode's own centre.")]
+        public Vector2 planarPan = Vector2.zero;
+
+        [Tooltip("Zoom step per keypress or scroll notch, as a ratio. 1.2 means each step is " +
+                 "20% closer.")]
+        public float planarZoomStep = 1.2f;
+
+        [Tooltip("Pan step per keypress, as a fraction of the canvas.")]
+        public float planarPanStep = 0.1f;
+
+        [Tooltip("Rays landing beyond this distance are rejected. Without it an oblique view's " +
+                 "footprint is unbounded whenever the horizon is in frame.")]
+        public float planarMaxRange = 200f;
+
+        [Range(10f, 89f)]
+        [Tooltip("Drop views whose optical axis meets the plane at a shallower angle than this " +
+                 "(measured from the plane normal). A grazing view contributes a long thin " +
+                 "smear and trips the anisotropy gate anyway.")]
+        public float maxObliquityDeg = 70f;
+
+        [Tooltip("Centre-drone hysteresis in metres. The incumbent centre drone is kept until " +
+                 "another is closer to the formation centroid by more than this. The scene-plane " +
+                 "raycast is cast from the centre drone, so a swap steps the published plane " +
+                 "offset and visibly shifts the mosaic — worth resisting near a tie.")]
+        public float planarCentreHysteresis = 1.5f;
+
+        [Tooltip("Border falloff width, in SOURCE pixels — so the width in canvas pixels " +
+                 "scales with each view's local magnification. Under Feather this is the " +
+                 "cross-fade width; under Nearest it only keeps the seam off the source-image " +
+                 "edges, by making a view lose to a neighbour before it runs out of frame.")]
+        public int planarFeatherPx = 40;
+
+        [Tooltip("Projective-sanity gate: worst local stretch ratio allowed across the canvas. " +
+                 "1.0 is an isotropic similarity; near-horizon views blow up.")]
+        public float planarAnisoMax = 12f;
+
+        [Tooltip("Minimum fraction of the canvas that must be covered by some view.")]
+        public float planarMinCoverage = 0.35f;
+
+        [Tooltip("Gate the panorama on overlap PSNR. Off by default: it is logged as a " +
+                 "diagnostic either way, and gating on it would hide the panorama permanently " +
+                 "once pose noise is injected, which defeats the point of injecting it.")]
+        public bool planarPsnrGateEnabled = false;
+
+        [Header("Warp-thread estimators")]
+        [Tooltip("Plane sweep: correct the published plane DISTANCE by scanning candidate " +
+                 "offsets and keeping the one where the views agree best. Fixes the one error " +
+                 "no per-view translation can absorb — a wrong plane distance appears in each " +
+                 "view as a scale about its own footprint. Being a single global number it " +
+                 "cannot fix per-drone error; that is what the pose refiner is for. " +
+                 "Independent of it: either, both or neither may be on.")]
+        public bool planarPlaneSweep = false;
+
+        [Tooltip("Pose refiner: correct each drone's camera position by phase-correlating its " +
+                 "view against the consensus of the others. Absorbs differential GNSS error " +
+                 "and compass bias, which both show up at a facade as a lateral shift of that " +
+                 "view's footprint. Cannot represent scale (use the plane sweep) or the " +
+                 "keystone from a gimbal-pitch bias. Views whose correlation peak is not " +
+                 "clearly dominant are left uncorrected rather than guessed at.")]
+        public bool planarPoseRefine = false;
+
+        [Range(0.5f, 50f)]
+        [Tooltip("Plane sweep ACQUISITION half-range, metres either side of the current estimate. " +
+                 "Size it to how wrong the plane could plausibly be — a map-drawn facade is worth " +
+                 "a few metres, a raycast onto real geometry much less. This bounds the wide scan " +
+                 "only; once locked, the sweep tracks in a narrow window sized automatically from " +
+                 "the formation's baseline and standoff, so widening this does not coarsen it.")]
+        public float planarSweepRange = 4f;
+
+        [Range(3, 21)]
+        [Tooltip("Minimum acquisition candidate count. Python samples uniformly in DISPARITY " +
+                 "(f·B/Z) rather than in metres and adds candidates as needed to keep the step " +
+                 "inside the basin of attraction, so this is a floor, not the actual count. " +
+                 "Tracking ignores it entirely and uses a fixed sub-pixel disparity step.")]
+        public int planarSweepSteps = 9;
+
+        [Range(0.01f, 1f)]
+        [Tooltip("Low-pass rate applied to both estimators, per warp update. The corrections " +
+                 "are slowly-varying by premise (GNSS bias, plane distance), so heavy smoothing " +
+                 "costs nothing and keeps a single bad measurement from reaching the mosaic. " +
+                 "1.0 snaps to the raw estimate — useful for seeing what it actually measured.")]
+        public float planarRefineRate = 0.25f;
+
+        [Tooltip("Largest per-view correction the refiner may apply, metres. A correlation " +
+                 "peak further out than the pose could plausibly be wrong is a mismatch, not a " +
+                 "measurement. 0 disables the clamp.")]
+        public float planarRefineMaxShift = 3f;
+    }
+
+    /// <summary>
+    /// Curved panorama screen geometry plus the headset-direction controls. This is the
+    /// VR display side of the component and is independent of which stitcher is running.
+    /// </summary>
+    [Serializable]
+    public class VrDisplaySettings
+    {
+        [Header("Curved screen")]
+        [Tooltip("Curved screen radius from the pilot, metres.")]
+        public float radius = 5f;
+
+        [Tooltip("Horizontal arc the curved screen subtends, degrees.")]
+        public float angleRange = 90f;
+
+        [Tooltip("Mesh segments across the arc.")]
+        public int segments = 20;
+
+        [Tooltip("Curved screen height, metres. Used by every stitcher except PLANAR, which has " +
+                 "its own height below.")]
+        public float height = 3f;
+
+        [Tooltip("Re-derive the screen aspect from the panorama dimensions each time they change.")]
+        public bool resize_dimension = false;
+
+        [Tooltip("In PLANAR, take the screen height from the planar canvas' aspect instead of " +
+                 "'height', so a canvas pixel is square on the screen. The arc is ~2.6:1 " +
+                 "(radius x angleRange against a 3 m height) while the canvas is ~3:2, and the " +
+                 "panorama fills the screen either way — so the mosaic is otherwise stretched " +
+                 "horizontally, which reads as 'not tall enough'. It is the *canvas* aspect that " +
+                 "matters, not panoramaImageWidth/Height: Python resizes the whole canvas into " +
+                 "that buffer, which then fills the whole screen, so the buffer's own aspect " +
+                 "cancels out. Off falls back to planarHeight.")]
+        public bool planarMatchCanvasAspect = true;
+
+        [Tooltip("Curved screen height in PLANAR when planarMatchCanvasAspect is off, metres. " +
+                 "Kept separate from 'height' so the two stitchers' framings don't disturb each " +
+                 "other as the swarming plane toggles between them.")]
+        public float planarHeight = 5f;
+
+        [Tooltip("Vertical offset of the curved screen above the Arena centre.")]
+        public float screenHeightOffset = 0f;
+
+        [Header("Headset direction")]
+        [Tooltip("HMD head transform (OVRCameraRig.centerEyeAnchor). Auto-found from the OVRPlayerController if left empty.")]
+        public Transform headTransform;
+
+        [Tooltip("Degrees/second the pilot turns at full controller yaw-stick deflection. In the hull " +
+                 "modes the panorama heading integrates this command and the OVRCameraRig is rotated by " +
+                 "the same amount to mimic body motion; with a lone drone (or NONE/SIMPLE) AttitudeAlgorithm " +
+                 "turns the drone at it, capped at maxYawRate, and the body follows the drone, so both " +
+                 "conditions turn the pilot alike. Vertical-plane mode turns at SwarmPlaneController's own " +
+                 "rate. Head tracking is excluded, so the pilot can look around at the side screens " +
+                 "without moving the panorama. 40 is the real fleet's yaw clamp.")]
+        public float bodyYawRate = 40f;
+
+        [Tooltip("Expo on the yaw stick: 0 is linear, 1 is cubic. Only an analog stick feels it -- the " +
+                 "keyboard is either centred or at full deflection -- so it slows the controller's small " +
+                 "deflections without lowering the full-stick rate. At 0.5, half stick turns at 31% of " +
+                 "bodyYawRate.")]
+        [Range(0f, 1f)]
+        public float bodyYawExpo = 0.5f;
+
+        [Tooltip("Rotate the OVRCameraRig by the controller yaw-rate command to mimic body motion. " +
+                 "Disable to advance the panorama heading only, leaving the rig untouched.")]
+        public bool driveCameraRigYaw = true;
+
+        [Tooltip("Key that recalibrates the body heading to the current CenterEyeAnchor yaw, so the " +
+                 "panorama centre and the VR velocity frame re-align with wherever the pilot is looking.")]
+        public KeyCode calibrateKey = KeyCode.C;
+
+        [Tooltip("Run that same recentre once automatically at the start of the run, so the pilot " +
+                 "does not have to press the calibrate key on every flight.")]
+        public bool calibrateOnStart = true;
+
+        [Tooltip("Seconds after Start before the automatic recentre runs. Long enough for the swarm " +
+                 "to settle, because the recentre snaps the view onto the centre drone and that " +
+                 "selection is still moving while the formation forms. Not free to set to zero for " +
+                 "a second reason: the recentre is measured against the head's current forward, and " +
+                 "the HMD reports no pose on the first frames, so an early one leaves the panorama " +
+                 "centre off by however far the pilot happens to be facing.")]
+        public float calibrateOnStartDelay = 6f;
+
+        [Tooltip("Key that toggles the panorama on/off (for testing without a controller connected).")]
+        public KeyCode togglePanoramaKey = KeyCode.T;
+
+        [Header("Planar canvas zoom & pan")]
+        [Tooltip("Zoom the planar canvas in/out. The mouse scroll wheel does the same thing. " +
+                 "These drive ZoomBy/PanBy/ResetView, which are public so a controller axis or " +
+                 "an RC channel can be bound to them without touching this component.")]
+        public KeyCode planarZoomInKey = KeyCode.X;
+        public KeyCode planarZoomOutKey = KeyCode.Z;
+
+        [Tooltip("Pan the planar canvas. Keypad, because the arrow keys are the flight axes.")]
+        public KeyCode planarPanLeftKey = KeyCode.Keypad4;
+        public KeyCode planarPanRightKey = KeyCode.Keypad6;
+        public KeyCode planarPanUpKey = KeyCode.Keypad8;
+        public KeyCode planarPanDownKey = KeyCode.Keypad2;
+
+        [Tooltip("Reset zoom to 1x and pan to zero, i.e. back to the canvas mode's own framing.")]
+        public KeyCode planarResetViewKey = KeyCode.N;
+
+        [Tooltip("Let the mouse scroll wheel zoom the planar canvas. Off in the headset, where " +
+                 "a stray wheel event is invisible to the pilot.")]
+        public bool planarScrollWheelZoom = true;
+
+        [Tooltip("ScreenSpawn that shows the individual drone feeds. Auto-found if left empty.")]
+        public ScreenSpawn screenSpawn;
+    }
+
+    // ---------------- forwarding properties ----------------
+    //
+    // Every grouped field keeps its original name here, so the ~2500 lines below this
+    // block -- WriteMetadata's offset writes above all -- are untouched by the grouping.
+    // Read/write throughout because a handful (the image dimensions, screenSpawn) are
+    // clamped or auto-found at runtime.
+
+    private bool enableImageWriting { get => bridge.enableImageWriting; set => bridge.enableImageWriting = value; }
+    private bool enablePanoramaReading { get => bridge.enablePanoramaReading; set => bridge.enablePanoramaReading = value; }
+    private int blockImageWidth { get => bridge.blockImageWidth; set => bridge.blockImageWidth = value; }
+    private int blockImageHeight { get => bridge.blockImageHeight; set => bridge.blockImageHeight = value; }
+    private int panoramaImageWidth { get => bridge.panoramaImageWidth; set => bridge.panoramaImageWidth = value; }
+    private int panoramaImageHeight { get => bridge.panoramaImageHeight; set => bridge.panoramaImageHeight = value; }
+    private float sendInterval { get => bridge.sendInterval; set => bridge.sendInterval = value; }
+    private float readInterval { get => bridge.readInterval; set => bridge.readInterval = value; }
+    private int maxCapturesPerFrame => bridge.maxCapturesPerFrame;
+    private bool inPlaceReadback => bridge.inPlaceReadback;
+
+    private bool cylindrical { get => classic.cylindrical; set => classic.cylindrical = value; }
+    private matcherType typeOfMatcher { get => classic.typeOfMatcher; set => classic.typeOfMatcher = value; }
+    private bool ransac { get => classic.ransac; set => classic.ransac = value; }
+    private int checks { get => classic.checks; set => classic.checks = value; }
+    private float ratio_thresh { get => classic.ratio_thresh; set => classic.ratio_thresh = value; }
+    private float score_threshold { get => classic.score_threshold; set => classic.score_threshold = value; }
+    private int focal_length { get => classic.focal_length; set => classic.focal_length = value; }
+
+    private FusionMode typeOfFusion { get => stabStitch.typeOfFusion; set => stabStitch.typeOfFusion = value; }
+    private int blurKernelSize { get => stabStitch.blurKernelSize; set => stabStitch.blurKernelSize = value; }
+    private float blurSigma { get => stabStitch.blurSigma; set => stabStitch.blurSigma = value; }
+    private int borderSize { get => stabStitch.borderSize; set => stabStitch.borderSize = value; }
+    private bool qualityFallbackEnabled { get => stabStitch.qualityFallbackEnabled; set => stabStitch.qualityFallbackEnabled = value; }
+    private float qualityThreshold { get => stabStitch.qualityThreshold; set => stabStitch.qualityThreshold = value; }
+    private ScreenSpawn.ScreenStyle fallbackScreenStyle { get => stabStitch.fallbackScreenStyle; set => stabStitch.fallbackScreenStyle = value; }
+
+    private LayerMask scenePlaneMask { get => planar.scenePlaneMask; set => planar.scenePlaneMask = value; }
+    private float fallbackPlaneDistance { get => planar.fallbackPlaneDistance; set => planar.fallbackPlaneDistance = value; }
+    private float planeFilterTime { get => planar.planeFilterTime; set => planar.planeFilterTime = value; }
+    private bool snapNormalToFormation { get => planar.snapNormalToFormation; set => planar.snapNormalToFormation = value; }
+    private Vector3 manualPlaneNormal { get => planar.manualPlaneNormal; set => planar.manualPlaneNormal = value; }
+    private float manualPlaneDistance { get => planar.manualPlaneDistance; set => planar.manualPlaneDistance = value; }
+    private float planarStandoffMetres { get => planar.planarStandoffMetres; set => planar.planarStandoffMetres = value; }
+    private PlanarStandoffSource planarStandoffSource { get => planar.planarStandoffSource; set => planar.planarStandoffSource = value; }
+    private string planarStandoffInUse { get => planar.planarStandoffInUse; set => planar.planarStandoffInUse = value; }
+    private bool useManualIntrinsics { get => planar.useManualIntrinsics; set => planar.useManualIntrinsics = value; }
+    private float manualVerticalFovDeg { get => planar.manualVerticalFovDeg; set => planar.manualVerticalFovDeg = value; }
+    private int planarCanvasWidth { get => planar.planarCanvasWidth; set => planar.planarCanvasWidth = value; }
+    private int planarCanvasHeight { get => planar.planarCanvasHeight; set => planar.planarCanvasHeight = value; }
+    private PlanarCanvasMode planarCanvasMode { get => planar.planarCanvasMode; set => planar.planarCanvasMode = value; }
+    private float planarMetresPerPixel { get => planar.planarMetresPerPixel; set => planar.planarMetresPerPixel = value; }
+    private float planarZoom { get => planar.planarZoom; set => planar.planarZoom = value; }
+    private Vector2 planarPan { get => planar.planarPan; set => planar.planarPan = value; }
+    private float planarZoomStep { get => planar.planarZoomStep; set => planar.planarZoomStep = value; }
+    private float planarPanStep { get => planar.planarPanStep; set => planar.planarPanStep = value; }
+    private float planarMaxRange { get => planar.planarMaxRange; set => planar.planarMaxRange = value; }
+    private float maxObliquityDeg { get => planar.maxObliquityDeg; set => planar.maxObliquityDeg = value; }
+    private float planarCentreHysteresis { get => planar.planarCentreHysteresis; set => planar.planarCentreHysteresis = value; }
+    private int planarFeatherPx { get => planar.planarFeatherPx; set => planar.planarFeatherPx = value; }
+    private float planarAnisoMax { get => planar.planarAnisoMax; set => planar.planarAnisoMax = value; }
+    private float planarMinCoverage { get => planar.planarMinCoverage; set => planar.planarMinCoverage = value; }
+    private bool planarPsnrGateEnabled { get => planar.planarPsnrGateEnabled; set => planar.planarPsnrGateEnabled = value; }
+    private bool planarPlaneSweep { get => planar.planarPlaneSweep; set => planar.planarPlaneSweep = value; }
+    private bool planarPoseRefine { get => planar.planarPoseRefine; set => planar.planarPoseRefine = value; }
+    private float planarSweepRange { get => planar.planarSweepRange; set => planar.planarSweepRange = value; }
+    private int planarSweepSteps { get => planar.planarSweepSteps; set => planar.planarSweepSteps = value; }
+    private float planarRefineRate { get => planar.planarRefineRate; set => planar.planarRefineRate = value; }
+    private float planarRefineMaxShift { get => planar.planarRefineMaxShift; set => planar.planarRefineMaxShift = value; }
+
+    private float radius { get => vr.radius; set => vr.radius = value; }
+    private float angleRange { get => vr.angleRange; set => vr.angleRange = value; }
+    private int segments { get => vr.segments; set => vr.segments = value; }
+    private float height { get => vr.height; set => vr.height = value; }
+    private float screenHeightOffset { get => vr.screenHeightOffset; set => vr.screenHeightOffset = value; }
+    private bool resize_dimension { get => vr.resize_dimension; set => vr.resize_dimension = value; }
+    private bool planarMatchCanvasAspect { get => vr.planarMatchCanvasAspect; set => vr.planarMatchCanvasAspect = value; }
+    private float planarHeight { get => vr.planarHeight; set => vr.planarHeight = value; }
+    private Transform headTransform { get => vr.headTransform; set => vr.headTransform = value; }
+    private float bodyYawRate { get => vr.bodyYawRate; set => vr.bodyYawRate = value; }
+    private float bodyYawExpo { get => vr.bodyYawExpo; set => vr.bodyYawExpo = value; }
+    private bool driveCameraRigYaw { get => vr.driveCameraRigYaw; set => vr.driveCameraRigYaw = value; }
+    private KeyCode calibrateKey { get => vr.calibrateKey; set => vr.calibrateKey = value; }
+    private bool calibrateOnStart { get => vr.calibrateOnStart; set => vr.calibrateOnStart = value; }
+    private float calibrateOnStartDelay { get => vr.calibrateOnStartDelay; set => vr.calibrateOnStartDelay = value; }
+    private KeyCode togglePanoramaKey { get => vr.togglePanoramaKey; set => vr.togglePanoramaKey = value; }
+    private KeyCode planarZoomInKey { get => vr.planarZoomInKey; set => vr.planarZoomInKey = value; }
+    private KeyCode planarZoomOutKey { get => vr.planarZoomOutKey; set => vr.planarZoomOutKey = value; }
+    private KeyCode planarPanLeftKey { get => vr.planarPanLeftKey; set => vr.planarPanLeftKey = value; }
+    private KeyCode planarPanRightKey { get => vr.planarPanRightKey; set => vr.planarPanRightKey = value; }
+    private KeyCode planarPanUpKey { get => vr.planarPanUpKey; set => vr.planarPanUpKey = value; }
+    private KeyCode planarPanDownKey { get => vr.planarPanDownKey; set => vr.planarPanDownKey = value; }
+    private KeyCode planarResetViewKey { get => vr.planarResetViewKey; set => vr.planarResetViewKey = value; }
+    private bool planarScrollWheelZoom { get => vr.planarScrollWheelZoom; set => vr.planarScrollWheelZoom = value; }
+    private ScreenSpawn screenSpawn { get => vr.screenSpawn; set => vr.screenSpawn = value; }
+
+    // Read-only access so ScreenSpawn can adopt the same FPV feed resolution
+    // (PyUniSharingFast is the single source of truth for the block resolution).
+    public int BlockImageWidth => bridge.blockImageWidth;
+    public int BlockImageHeight => bridge.blockImageHeight;
+
+    // False once both boxes are unticked: nothing is captured, no section is mapped and Python has no
+    // part in the session, so the feeds are free of the block envelope. Either one on still counts: the
+    // DJI scene writes no blocks here (ImageSharing does) and reads the panorama.
+    public bool StitchingEnabled => bridge.enableImageWriting || bridge.enablePanoramaReading;
+
+    // Appended to all three section names, exactly as StitcherThreading.py's shm_name() does.
+    // Named sections are machine-global, so a benchmark copy of the project running beside a
+    // live editor needs sections of its own or it becomes a second producer inside that
+    // editor's session. Unset (the normal case) leaves the names unchanged.
+    private static readonly string shmNameSuffix = Environment.GetEnvironmentVariable("STITCH_SHM_SUFFIX") ?? "";
+
+    private string blockMapName = "BlockSharedMemory" + shmNameSuffix;
+    private int blockImageCount = 0;  // slots Python should scan; a hint, sizes nothing
+    private int blockImageSize = 0;   // bytes of live payload per slot (W*H*3)
+    private int blockSize = 0;        // slot stride; always the blockSlotStride constant
+
+    private string panoramaMapName = "PanoramaSharedMemory" + shmNameSuffix;
     private int panoramaImageSize = 0;
-    private int totalPanoramaSize = 0;
 
-    private string metadataMapName = "MetadataSharedMemory";
-    private int metadataSize = 20 + 64 + 1 + 4 + 64 + 1 + 4 + 4*4 + 1 + 64 + 4 + 4 + 4 + 1 + 4 + 4 + 1; // +8 blurKernelSize+blurSigma, +4 borderSize, +1 qualityFallbackEnabled (bool), +4 qualityThreshold (float), +4 headYaw (float), +1 printStitchRate (bool)
+    private string metadataMapName = "MetadataSharedMemory" + shmNameSuffix;
+    // Total bytes WriteMetadata actually writes, including the trailing reserved gap.
+    // Must equal metadataTailEnd + metadataReservedGap + 8 and must match StitcherThreading.py's
+    // METADATA_SIZE, or the two processes request different section sizes.
+    // (This used to read 261 while the code wrote through 325; it only survived
+    // because Windows rounds a section up to a 4 KB page.)
+    private const int metadataSize = 412;
 
     private IntPtr blockFileMap;
     private IntPtr blockPtr;
@@ -125,15 +737,46 @@ public class PyUniSharingFast : MonoBehaviour
     private IntPtr metadataFileMap;
     private IntPtr metadataPtr;
 
+    // Monotonic per-frame counter published at metaHeartbeatOffset; see WriteHeartbeat.
+    private uint heartbeat;
+
+    // ---------------- debug readouts ----------------
+    // Populated by FindCameras / the stitch selection, not configuration. Kept visible
+    // (rather than [HideInInspector]) because they are the quickest way to confirm which
+    // drones were discovered and which of them are currently going to the stitcher.
+
+    [Header("Debug — populated at runtime")]
+    [Tooltip("Read-only: every FPV camera discovered in the scene. Rebuilt every few seconds; " +
+             "the block header's droneId is an index into this list.")]
     public List<Camera> camerasToCapture;
+
+    [Tooltip("Read-only: per-camera boundary flag, index-aligned with camerasToCapture.")]
     public List<bool> camerasToStitch;
+
+    [SerializeField]
+    [Tooltip("Read-only: the drones currently sent to the stitcher, ordered left / centre / right. Updates during Play.")]
+    private List<string> stitchedDrones = new List<string>();
     private List<AttitudeAlgorithm> stitchAttitudes;  // per-camera boundary estimator, index-aligned with camerasToCapture
     private List<StateFinder> stitchStates;            // per-camera state (IsAlive), index-aligned with camerasToCapture
+    // Per-camera gimbal driver, index-aligned with camerasToCapture. Owns the once-per-frame
+    // render gate, which is what stops a drone that is also being displayed by ScreenSpawn's
+    // feed refresh from being drawn twice in the same frame for the same RenderTexture.
+    private List<FPVCameraScript> stitchRenderers;
 
     private RenderTexture reusableTexture;
     private Texture2D image;
     private byte[] blockImageBytes;   // reusable scratch for one converted drone image
     private float nextSendTime, nextReceiveTime = 0f;
+    private int lastPanoramaSeq = 0;  // sequence number of the panorama last uploaded (see panoramaSeqShift)
+    private int lastSeenPanoramaSeq = 0;  // last sequence number read, uploaded or not (PanoramaLastNewTime)
+
+    // The bridge's main-thread work, by name in the Unity Profiler (CPU Usage > Hierarchy), so
+    // its cost can be read against the frame time with the headset connected. Capture includes
+    // the on-demand Camera.Render of a stitched drone whose feed screen is hidden.
+    private static readonly ProfilerMarker blockCaptureMarker = new ProfilerMarker("PyUniSharingFast.RequestBlockCapture");
+    private static readonly ProfilerMarker blockReadbackMarker = new ProfilerMarker("PyUniSharingFast.OnBlockReadback");
+    private static readonly ProfilerMarker panoramaLoadMarker = new ProfilerMarker("PyUniSharingFast.PanoramaLoad");
+    private static readonly ProfilerMarker panoramaApplyMarker = new ProfilerMarker("PyUniSharingFast.PanoramaApply");
 
     // Async capture: block images are read back from the GPU with
     // AsyncGPUReadback (no ReadPixels stall) and converted RGBA->BGR by a Burst
@@ -145,10 +788,20 @@ public class PyUniSharingFast : MonoBehaviour
         public int slot;               // block slot [left, centre, right]
         public int droneId;            // camerasToCapture index
         public float heading;          // camera yaw at request time
+        // Full camera pose, snapshotted alongside heading at request time for the same
+        // reason: by completion the drone has moved. At 20 Hz and 1-3 m/s that is
+        // 5-15 cm, the same order as the alignment a planar homography is chasing, and
+        // it is correlated with drone motion so it would read as real misalignment.
+        public Vector3 camPos;
+        public Quaternion camRot;
+        public float captureTime;
+        public int poseStatus;
         public byte[] verifyReference; // sync-captured reference, set only during row-order calibration
     }
     private PendingReadback[] pendingReadbacks;
     private Action<AsyncGPUReadbackRequest>[] pendingCallbacks;  // one cached delegate per pool entry
+    private const float readbackPoolWarnInterval = 5f;           // throttle for the exhaustion warning
+    private float nextReadbackPoolWarnTime = 0f;
     private NativeArray<byte> convertedBlock;   // reusable BGR24 output of the conversion job
     // AsyncGPUReadback returns rows in the GPU-native order, which differs per
     // graphics API from the bottom-up order ReadPixels gives. The first readback
@@ -158,13 +811,38 @@ public class PyUniSharingFast : MonoBehaviour
     private bool readbackFlipCalibrated = false;
     private bool readbackFlipCalibrating = false;
 
+    // PLANAR render spread (see SendBlocks). A send that selects more views than
+    // maxCapturesPerFrame renders them over consecutive frames instead of all in one, and the
+    // readbacks are issued together once the last one has rendered, so Python still sees one
+    // fresh wave per send. The camera and its gate are held here rather than looked up again
+    // by index, because FindCameras rebuilds camerasToCapture every few seconds and the spread
+    // can straddle a rebuild.
+    private struct SpreadCapture
+    {
+        public int slot;
+        public int camIdx;
+        public Camera camera;
+        public FPVCameraScript renderer;
+    }
+    private readonly List<SpreadCapture> spreadToRender = new List<SpreadCapture>();
+    private readonly List<SpreadCapture> spreadRendered = new List<SpreadCapture>();
+    private int spreadPerFrame;
+    // Low-passed frame time, for how many frames one send interval spans.
+    private float smoothedDeltaTime = 1f / 72f;
+
     // Row-wise RGBA32 -> BGR24 conversion (optionally flipping row order) into
     // the top-down BGR block layout the Python stitcher consumes.
+    //
+    // The destination is a raw pointer so the same job can write either the scratch buffer
+    // (row-order calibration, and the inPlaceReadback = false path) or the mapped block itself.
+    // Writing the block directly is what inPlaceReadback buys: the old path converted into the
+    // scratch buffer, copied that into a managed array and copied the array into the section --
+    // three full-image passes on the main thread per block, ten blocks per PLANAR send.
     [BurstCompile]
-    private struct ConvertRgbaToBgrJob : IJobParallelFor
+    private unsafe struct ConvertRgbaToBgrJob : IJobParallelFor
     {
         [ReadOnly, NativeDisableParallelForRestriction] public NativeArray<byte> src;  // RGBA32
-        [WriteOnly, NativeDisableParallelForRestriction] public NativeArray<byte> dst; // BGR24
+        [NativeDisableUnsafePtrRestriction] public byte* dst;                          // BGR24
         public int width;
         public int height;
         public bool flipRows;
@@ -196,16 +874,20 @@ public class PyUniSharingFast : MonoBehaviour
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
 
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    private static extern IntPtr OpenFileMapping(uint dwDesiredAccess, bool bInheritHandle, string lpName);
-
     public enum stitcherType
     {
-        CLASSIC,
-        UDIS,
-        NIS,
-        REWARP,
-        STABSTITCH
+        // The values are pinned rather than sequential because Unity serializes the enum
+        // as a plain int: the scenes hold 4 (STABSTITCH) and 5 (PLANAR), so closing the
+        // gap left by the retired UDIS(1)/NIS(2)/REWARP(3) options would silently repoint
+        // every scene at a different stitcher. Python matches on the name, not the value.
+        CLASSIC = 0,
+        STABSTITCH = 4,
+        // Pose-initialized planar homography. For the vertical-plane and nadir
+        // configurations, where the scene is one dominant plane and a single
+        // homography per view is exact. Needs camera pose, so it requires the v2
+        // block header and is unavailable in the DJI scene (real drones publish
+        // yaw only).
+        PLANAR = 5
     }
 
     public enum matcherType
@@ -228,6 +910,11 @@ public class PyUniSharingFast : MonoBehaviour
     // Constant values
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
+    // What CreateFileMapping returns when the named section already exists at a SMALLER
+    // size than the one requested. Windows never resizes a section, so this is the whole
+    // failure mode the fixed envelope below exists to make unreachable -- worth naming, so
+    // the log can say what to do about it rather than printing a bare 5.
+    private const int ERROR_ACCESS_DENIED = 5;
     private const int FlagPosition = 0;             // panorama flag (int32) at region start
     private const int panoramaQualityPosition = 4;  // packed quality word (int32) — see masks below
     private const int panoramaDataPosition = 8;      // RGB24 panorama data
@@ -241,69 +928,456 @@ public class PyUniSharingFast : MonoBehaviour
     private const int REASON_PHOTOMETRIC = 1 << 3;   // overlap PSNR below threshold
     private const int REASON_NO_OVERLAP = 1 << 4;    // selected cameras' yaw gap exceeds FOV (pre-stitch gate)
     private const int REASON_TOO_FEW_IMAGES = 1 << 5; // fewer than 3 selected feeds (pre-stitch gate)
-    // Per-drone block layout (matches image_stream.py / ImageSharing.cs):
-    //   int32 flag | int32 droneId | float32 heading | RGB24 image
+    private const int REASON_PLANE_INVALID = 1 << 6; // planar: no usable scene plane or pose on the wire
+    // Bits 16-31 of the same word: a panorama sequence number Python bumps on every image write
+    // and never sets to 0. The texture is uploaded only when it changes. A read that finds the
+    // panorama already on screen would otherwise upload it again, and every RGB24 Apply converts
+    // the whole panorama to RGBA32 on the main thread (D3D11 has no 24-bit format), a cost that
+    // grows with panoramaImageWidth x Height. 0 is a producer that predates the counter and gets
+    // the old upload-every-read behaviour, so either side can be updated first. Mirrors
+    // StitcherThreading.py's PANORAMA_SEQ_SHIFT / PANORAMA_SEQ_MASK (tools/check_wire_layout.py).
+    private const int panoramaSeqShift = 16;
+    private const int panoramaSeqMask = 0xFFFF;
+    // Per-drone block layout. Two versions exist; Python picks between them from the
+    // blockHeaderSize field in metadata:
+    //
+    //   v1 (12 bytes, legacy — no producer writes it any more):
+    //     int32 flag | int32 droneId | float32 heading | RGB24 image
+    //   v2 (48 bytes, pose-carrying — required by the PLANAR stitcher, and what BOTH
+    //   producers write: this component in the sim, ImageSharing.cs in the DJI scene):
+    //     ... | float32 camPos[3] | float32 camRot[4] (xyzw) | float32 captureTime
+    //         | int32 poseStatus  | RGB24 image
+    //
+    // v1 is kept named because tools/check_wire_layout.py asserts the constant, and
+    // because a v1 producer's blocks stay *readable* — they simply arrive with
+    // poseStatus == 0 and are dropped by the planar solve.
+    //
+    // The pose lives in the block rather than in metadata because it must be the pose
+    // of *this* frame: RequestBlockCapture snapshots it 1-2 frames before the readback
+    // completes, and read_block_memory may re-serve a cached block, which then needs
+    // its own pose rather than the current one.
     private const int blockFlagOffset = 0;
     private const int blockDroneIdOffset = 4;
     private const int blockHeadingOffset = 8;
-    private const int blockHeaderSize = 12;
-    private const int blockImageDataOffset = blockHeaderSize;
-    private const int maxBlockWidth = 2000;
-    private const int maxBlockHeight = 2000;
-    private const int maxBlockImageCount = 30;
-    private const int maxBlockImageSize = maxBlockWidth*maxBlockHeight * 3;
-    private const int maxTotalBlockSize = maxBlockImageCount * (blockHeaderSize + maxBlockImageSize);
+    private const int blockCamPosOffset = 12;      // float32 x, y, z (Unity world)
+    private const int blockCamRotOffset = 24;      // float32 x, y, z, w (Unity Transform.rotation)
+    private const int blockCaptureTimeOffset = 40; // float32 Time.realtimeSinceStartup
+    private const int blockPoseStatusOffset = 44;  // int32 bitfield, see POSE_* below
+    private const int blockLegacyHeaderSize = 12;
+    private const int blockPoseHeaderSize = 48;
+    // Chosen once in Start(): the pose header only when this component is the producer.
+    private int blockHeaderSize = blockLegacyHeaderSize;
+    private int blockImageDataOffset = blockLegacyHeaderSize;
+
+    // poseStatus bits, so a dumped frame is self-describing about where its pose came from.
+    private const int POSE_VALID = 1 << 0;
+    private const int POSE_GROUND_TRUTH = 1 << 1;
+    private const int POSE_NOISE_INJECTED = 1 << 2;
+
+    // ---- Block section envelope --------------------------------------------------
+    //
+    // BlockSharedMemory is a FIXED array of FIXED-stride slots, created once and never
+    // recreated. That is not an optimisation, it is the only shape Windows allows:
+    // CreateFileMapping (and Python's mmap.mmap(-1, size, tagname), which is the same
+    // call) does not create a second section when the name already exists -- it opens
+    // the existing one, and a request LARGER than that section fails with
+    // ERROR_ACCESS_DENIED. A named section can never be resized. So any design where
+    // the section's extent tracks the drone count, the stitcher, or the resolution
+    // deadlocks against a peer that already holds the old size, which is exactly the
+    // "access denied on BlockSharedMemory" failure this layout replaces.
+    //
+    // Consequences worth keeping:
+    //  - Slot i is ALWAYS at i * blockSlotStride. Nothing on the wire moves a slot:
+    //    not the fleet size, not the stitcher, not blockImageWidth/Height. Only the
+    //    payload *length* (blockImageSize) is live, and it is read from metadata.
+    //  - The unused tail of each slot costs address space and commit charge, never
+    //    resident RAM -- a pagefile-backed section faults pages in on touch.
+    //  - blockSlotCapacity and the image envelope are the only two tunables, and their
+    //    product is the section size. Raise either one on BOTH sides together;
+    //    tools/check_wire_layout.py fails if they diverge.
+    private const int maxBlockWidth = 1280;
+    private const int maxBlockHeight = 720;
+    private const int blockSlotCapacity = 24;
+    private const int maxBlockImageSize = maxBlockWidth * maxBlockHeight * 3;
+    // Reserve for the largest header, so switching stitcher mode never needs a bigger section.
+    private const int blockSlotStride = blockPoseHeaderSize + maxBlockImageSize;
+    private const int blockSectionBytes = blockSlotCapacity * blockSlotStride;
     private const int maxPanoramaWidth = 4000;
     private const int maxPanoramaHeight = 4000;
     private const int maxPanoramaSize = maxPanoramaWidth * maxPanoramaHeight * 3;
-    private const int maxTotalPanoramaSize = panoramaDataPosition + maxPanoramaSize;
+    // Same rule as the block section: Unity already created this one at the constant
+    // rather than at the live panorama size, but Python used to ask for w*h*3 + 8 --
+    // so whichever side got there first denied the other. Python now requests this
+    // exact constant too.
+    private const int panoramaSectionBytes = panoramaDataPosition + maxPanoramaSize;
 
     // Metadata layout: the pilot heading yaw (float) is appended after
     // qualityThreshold (printStitchRate follows the yaw). This carries the
     // integrated body yaw (WriteBodyYaw), not the live HMD direction, so Python
     // selects the same views as SelectStitchCameras.
     // Offset = sizes(20) + stitcher(64) + cylindrical(1) + matcher(64) + ransac(1)
-    //          + checks(4) + ratio(4) + score(4) + focal(4) + onlyIHN(1) + fusion(64)
+    //          + checks(4) + ratio(4) + score(4) + focal(4) + reserved(1) + fusion(64)
     //          + blurKernel(4) + blurSigma(4) + border(4) + qualityEnabled(1) + qualityThreshold(4)
     private const int metadataHeadYawOffset = 248;
-    private const int STITCH_COUNT = 3;  // panorama is always 3 views: left / centre / right
 
-    // Parameters for screen in front of the pilot
-    public float radius = 5f;
-    public float angleRange = 90f;
-    public int segments = 20;
-    public float height = 3f;
+    // ---- Metadata tail (wire v2) -------------------------------------------------
+    // Appended after printStitchRate (which ends the v1 prefix at 253). Every offset
+    // is 4-byte aligned so the seqlock counter below can be written atomically.
+    // Mirrored field-for-field by readMetadataMemory / read_dynamic_state in
+    // StitcherThreading.py -- change one, change the other.
+    private const int metaWireVersion = 2;
+
+    // The v1 prefix ends at 253; pad to 256 so every 4-byte field below is aligned.
+    private const int metadataTailStart = 256;
+
+    // Static: written by WriteMetadata, changes only on inspector edits.
+    private const int metaBlockHeaderSizeOffset = 256;
+    private const int metaWireVersionOffset = 260;
+    private const int metaFxOffset = 264;
+    private const int metaFyOffset = 268;
+    private const int metaCxOffset = 272;
+    private const int metaCyOffset = 276;
+    private const int metaPlanarCanvasWidthOffset = 280;
+    private const int metaPlanarCanvasHeightOffset = 284;
+    private const int metaPlanarMetresPerPixelOffset = 288;
+    private const int metaPlanarMaxRangeOffset = 292;
+    private const int metaPlanarFeatherPxOffset = 296;
+    private const int metaPlanarAnisoMaxOffset = 300;
+    private const int metaPlanarMinCoverageOffset = 304;
+    private const int metaPlanarPoseSourceOffset = 308;   // uint8
+    private const int metaPlanarPsnrGateOffset = 309;     // uint8
+    private const int metaPlanarBlendModeOffset = 310;    // uint8
+    private const int metaPlanarDebugViewOffset = 311;    // uint8
+    // The tail's 4-byte padding slot is now full: the next field must come out of
+    // metadataReservedGap, after metadataTailEnd.
+
+    // Dynamic: rewritten every frame by WriteDynamicState under a seqlock.
+    // A bare blit is fine for a lone scalar like bodyYaw, but a torn plane normal
+    // mixing an old X with a new Y/Z is neither unit-length nor perpendicular to
+    // anything, and would produce one frame of geometrically garbage panorama --
+    // rare enough to be very hard to reproduce. Writer bumps the counter either
+    // side of the payload; the reader retries while it is odd or has changed.
+    private const int metaDynSeqOffset = 312;
+    private const int metaPlaneNxOffset = 316;
+    private const int metaPlaneNyOffset = 320;
+    private const int metaPlaneNzOffset = 324;
+    private const int metaPlaneDOffset = 328;
+    private const int metaPlaneValidOffset = 332;         // uint8
+    private const int metaPlaneModeOffset = 333;          // uint8
+    // 334-335 padding
+    private const int metaGimbalPitchOffset = 336;
+    // Which drone the planar canvas is framed on. Dynamic, not static: it changes when
+    // the centre drone dies or the formation reshapes, and it must be read in the same
+    // seqlock as the plane -- a canvas origin paired with the wrong frame's plane is the
+    // same class of bug as a torn normal.
+    private const int metaCentreDroneIdOffset = 340;      // int32, -1 = none
+
+    // Warp-thread estimator settings. Static like the 256..311 block, but placed after
+    // the dynamic one because that block's 4-byte padding slot was already full, so
+    // these came out of metadataReservedGap instead. Ordering is irrelevant to
+    // correctness -- both sides address every one of these by absolute offset -- but the
+    // split is worth knowing about when adding the next field.
+    private const int metaPlanarPlaneSweepOffset = 344;    // uint8
+    private const int metaPlanarPoseRefineOffset = 345;    // uint8
+    // 346-347 padding
+    private const int metaPlanarSweepRangeOffset = 348;
+    private const int metaPlanarSweepStepsOffset = 352;
+    private const int metaPlanarRefineRateOffset = 356;
+    private const int metaPlanarRefineMaxShiftOffset = 360;
+    // FormationRelative standoff. Static rather than part of the dynamic plane block on
+    // purpose: it is an operator-typed constant, not a per-frame measurement, and in this
+    // mode the seqlocked normal/offset go unused because Python derives them from the poses.
+    private const int metaPlanarStandoffOffset = 364;
+
+    // Operator viewing transform on the planar canvas. Dynamic (inside the seqlock above,
+    // written by WriteDynamicState) rather than static, for two reasons: they are relative
+    // to the centre drone that defines the canvas origin, so they want to travel with it,
+    // and a stick or scroll wheel moves them continuously -- WriteMetadata allocates
+    // several byte[64] per call and is not something to run per frame. They are physically
+    // separated from the rest of the dynamic block only because the padding there was
+    // already spent; the seqlock covers them all the same, which is why read_dynamic_state
+    // seeks twice.
+    private const int metaPlanarZoomOffset = 368;
+    private const int metaPlanarPanAOffset = 372;
+    private const int metaPlanarPanBOffset = 376;
+    // Static, like the 344..367 block: an inspector choice, not a per-frame measurement.
+    private const int metaPlanarCanvasModeOffset = 380;   // uint8, PlanarCanvasMode
+
+    // Producer liveness. Bumped every frame by WriteHeartbeat, outside the seqlock (it is
+    // a lone scalar, and a torn count is indistinguishable from a fresh one for the only
+    // question asked of it: "did this change?"). Python watchdogs it and exits.
+    //
+    // Needed because a Unity crash is otherwise invisible from the Python side: the
+    // section object survives as long as Python holds its mapping, so the last frame's
+    // bytes just sit there being re-read forever. Nothing else on the wire distinguishes
+    // "producer is idle" from "producer is gone" -- the block flags are quiescent in both.
+    private const int metaHeartbeatOffset = 384;          // uint32, monotonic
+    // Section geometry, published so Python can *verify* rather than assume. Both sides
+    // hold these as compile-time constants; a mismatch means the two processes were built
+    // from different revisions, which is silent corruption if it goes undetected (Python
+    // would address slots at the wrong stride and read images from the middle of others).
+    private const int metaBlockSlotCapacityOffset = 388;  // int32
+    private const int metaBlockSlotStrideOffset = 392;    // int32
+
+    // Which source the standoff at 364 actually came from this frame: 0 = this component's
+    // inspector field, 1 = the PC's feed trailer. One byte, and it earns its place because
+    // without it the PC cannot tell the two apart -- the value at 364 is just a float
+    // either way, so clip_replay.py would go on announcing that it drives the standoff
+    // while a Manual takeover quietly ignored it.
+    private const int metaPlanarStandoffSourceOffset = 396;  // uint8
+    private const int metadataTailEnd = 397;
+
+    // Trailing gap between the tail and the two size fields metadataSize ends with. It
+    // shrinks as the tail grows so metadataSize -- and hence the mapped section size --
+    // stays fixed at 412; a changed map size would strand any already-running Python.
+    private const int metadataReservedGap = 7;
+
+    // The two section sizes metadataSize ends with. Written on every WriteMetadata (they
+    // used to be written only on the first call, which was harmless only because nothing
+    // read them); Python compares them against its own constants and refuses to run on a
+    // mismatch.
+    private const int metaBlockSectionBytesOffset = 404;     // int32
+    private const int metaPanoramaSectionBytesOffset = 408;  // int32
+
+    // Bounds on the operator's planar viewing transform. Applied on write, so the wire
+    // never carries a value Python would have to second-guess.
+    //
+    // The zoom ceiling is generous rather than principled: where zoom stops buying detail
+    // depends on the standoff, so it is a runtime property of the formation, not a
+    // constant -- Python measures the sharpest view's ground sample distance and flags
+    // empty magnification on its periodic [PLANAR] line. This only stops the canvas
+    // becoming degenerate.
+    private const float planarZoomMin = 0.25f;
+    private const float planarZoomMax = 8f;
+    // Pan, in canvas fractions. Loose on purpose: the tight bound is the imagery's actual
+    // footprint, and only Python knows where that is (PlanarStitcher._view_transform).
+    private const float planarPanLimit = 2f;
+
+    // A left/centre/right panorama is always exactly 3 views; a planar mosaic can take
+    // as many overlapping views as the formation offers.
+    private const int STITCH_COUNT_LRC = 3;
+
+    public enum StitchPoseSourceMode
+    {
+        GroundTruth,          // camera transform, exact
+        NoisyState,           // StateFinder's simulated GPS/IMU noise (sigma ~0.03 m)
+        GroundTruthPlusGnss,  // exact pose + injected drifting GNSS error (see StitchPoseSource.cs)
+    }
+
+    /// <summary>
+    /// How the planar stitcher combines views where their footprints overlap.
+    /// Mirrored by <c>BLEND_*</c> in PlanarStitcher.py.
+    /// </summary>
+    public enum PlanarBlendMode
+    {
+        // Cross-fade every contributing view, weighted by distance to its own image
+        // border. Correct only while the geometry is exact; any residual misalignment
+        // ghosts across the whole overlap, which in a wall formation is most of the
+        // canvas.
+        Feather,
+        // One view per pixel: whichever sees that point closest to the plane normal.
+        // Nothing is averaged, so residual pose error shows as a seam rather than a
+        // doubled image.
+        Nearest,
+    }
+
+    /// <summary>
+    /// How the planar canvas gets its scale and centre. Mirrored by <c>CANVAS_MODE_*</c>
+    /// in PlanarStitcher.py. Both modes are then modified by the operator's zoom and pan,
+    /// which are a viewing transform on top of whichever rest framing the mode produced.
+    /// </summary>
+    public enum PlanarCanvasMode
+    {
+        // planarMetresPerPixel, centred on the centre drone's principal-ray hit. The
+        // canvas covers the same patch of plane every frame, so numbers are comparable
+        // across runs — at the cost of being correctly framed at exactly one standoff.
+        Fixed,
+        // Scale and centre fitted to where the views actually land on the plane, so the
+        // mosaic frames itself as the formation moves or resizes. The scale is quantised
+        // and damped rather than continuous: a canvas that rescaled every frame would
+        // visibly breathe.
+        AutoFit,
+    }
+
+    /// <summary>
+    /// Diagnostic overlay that colours each patch of the planar mosaic by the drone it
+    /// came from. Testing aid only — leave it Off for flight. Mirrored by <c>DEBUG_*</c>
+    /// in PlanarStitcher.py; the drone-to-colour key is printed by the Python console's
+    /// periodic [PLANAR] line, since the selection changes as drones join or drop out.
+    /// </summary>
+    public enum PlanarDebugView
+    {
+        Off,
+        // Colour wash over the imagery: shows provenance without hiding the content.
+        Tint,
+        // Flat colour per view, imagery discarded. The clearest read on where the seams
+        // fall and how big each drone's patch is.
+        Flat,
+    }
+
+    /// <summary>
+    /// Which surface the planar stitcher treats as the scene plane.
+    /// Note this is <i>not</i> the swarm formation plane that SwarmPlaneController owns:
+    /// that is the wall the drones fly in, this is the surface they are looking at,
+    /// parallel to it and some distance in front.
+    /// </summary>
+    public enum ScenePlaneMode
+    {
+        Auto = 0,     // Nadir when the gimbal is pitched down, Facade otherwise
+        Facade = 1,   // cast along the centre camera's forward axis
+        Nadir = 2,    // cast straight down; normal pinned to world up
+        Manual = 3,   // inspector normal + distance, no raycast
+
+        // Python derives the plane from the published camera poses: normal from the mean
+        // camera forward, origin at the camera centroid pushed out by planarStandoffMetres.
+        // Nothing here raycasts, reads a collider or touches SwarmPlaneController, which is
+        // what makes it the only mode that can work on real drones -- see the real-drone
+        // section of CLAUDE.md. Values are explicit because Python mirrors them by number.
+        FormationRelative = 4,
+    }
+
+    // Mirror of the enum value above as a plain const, so tools/check_wire_layout.py can
+    // assert it against Python's copy: its C# parser reads `const int` declarations and
+    // cannot evaluate an enum member. Keep the two in step.
+    private const int planeModeFormationRelative = 4;
+
+    /// <summary>
+    /// Where the FormationRelative standoff comes from. Values are explicit because the
+    /// resolved one is published to Python (metaPlanarStandoffSourceOffset) and mirrored
+    /// by unity_stitch_meta.py.
+    /// </summary>
+    public enum PlanarStandoffSource
+    {
+        Auto = 0,     // the PC's value while it is live, this component's field otherwise
+        Inspector = 1, // always this component's field; ignore the PC
+    }
+
+    // What is ACTUALLY in force, which is not the same as what was asked for: Auto resolves
+    // to the inspector field whenever the PC is not publishing. Published so the PC can stop
+    // guessing -- clip_replay.py otherwise announces that it is driving the standoff while
+    // Unity is quietly using a typed one, which is precisely the two-sources-one-number
+    // confusion this enum exists to remove.
+    private const int standoffSourceInspector = 0;
+    private const int standoffSourceFeed = 1;
+
+    // Index into camerasToCapture of the centre stitch camera, set once per frame by
+    // SelectStitchCameras or, in PLANAR mode, SelectPlanarCentreCamera. The scene-plane
+    // raycast and the intrinsics are taken from it.
+    private int centreStitchCameraIndex = -1;
+
+    // Live scene-plane state, published every frame by WriteDynamicState.
+    private Vector3 scenePlaneNormal = Vector3.up;
+    private float scenePlaneD = 0f;
+    private bool scenePlaneValid = false;
+    private ScenePlaneMode resolvedPlaneMode = ScenePlaneMode.Nadir;
+    private bool scenePlaneInitialised = false;
+    private RaycastHit[] scenePlaneHits = new RaycastHit[8];
+
+    private StitchPoseSource gnssNoise;
+    private float lastPoseNoiseTime = -1f;
+    private float poseNoiseDt = 0f;
+
+    /// <summary>
+    /// Pose of camera <paramref name="camIdx"/> to publish with its frame, from the camera
+    /// transform it was rendered with (<paramref name="renderPos"/>, <paramref name="renderRot"/>),
+    /// never reconstructed from StateFinder: the FPV camera is offset from the drone body and
+    /// Slerps toward its target rotation (FPVCameraScript), so the body pose is neither the
+    /// optical centre nor the current orientation.
+    /// </summary>
+    private void GetCameraPose(int camIdx, Vector3 renderPos, Quaternion renderRot,
+                               out Vector3 pos, out Quaternion rot, out int status)
+    {
+        pos = renderPos;
+        rot = renderRot;
+        status = POSE_VALID;
+
+        if (poseSource == StitchPoseSourceMode.GroundTruth)
+        {
+            status |= POSE_GROUND_TRUTH;
+            return;
+        }
+
+        if (poseSource == StitchPoseSourceMode.GroundTruthPlusGnss)
+        {
+            if (gnssNoise == null) gnssNoise = new StitchPoseSource(gnssSettings);
+            gnssNoise.Apply(camIdx, poseNoiseDt, ref pos, ref rot);
+            status |= POSE_NOISE_INJECTED;
+            return;
+        }
+
+        StateFinder state = (stitchStates != null && camIdx < stitchStates.Count)
+            ? stitchStates[camIdx] : null;
+        if (state == null)
+        {
+            status |= POSE_GROUND_TRUTH;   // no state to degrade with; say so honestly
+            return;
+        }
+
+        // NoisyState: carry the camera's offset from the body across, so this stays the
+        // optical centre; identical to camera.transform.position when the noise is zero.
+        pos += state.Position - state.transform.position;
+        status |= POSE_NOISE_INJECTED;
+    }
+
+    // Advances the shared common-mode GNSS bias once per frame, so every drone in a
+    // frame draws against the same common-mode sample -- which is the entire point of
+    // that term. Per-drone bias advances inside Apply.
+    private void StepPoseNoise()
+    {
+        float now = Time.time;
+        poseNoiseDt = (lastPoseNoiseTime < 0f) ? 0f : Mathf.Max(0f, now - lastPoseNoiseTime);
+        lastPoseNoiseTime = now;
+
+        if (poseSource != StitchPoseSourceMode.GroundTruthPlusGnss) return;
+        if (gnssNoise == null) gnssNoise = new StitchPoseSource(gnssSettings);
+        gnssNoise.Step(now);
+    }
+
+    // How many of the section's blockSlotCapacity slots Python should bother scanning.
+    // This is a HINT ONLY -- it sizes nothing on either side any more, because the section
+    // is a fixed array at a fixed stride (see the blockSlotCapacity block above). It exists
+    // so Python skips the flags of slots the fleet cannot reach rather than polling all 24.
+    //
+    // Deliberately independent of the stitcher: switching STABSTITCH <-> PLANAR must not
+    // perturb the wire at all. STABSTITCH simply fills three of these slots and leaves the
+    // rest at droneId = -1, which is the sentinel Python already honours.
+    private int PublishedSlotCount()
+    {
+        // Not the producer (DJI scene): ImageSharing.cs owns BlockSharedMemory. It fills
+        // one slot per aircraft it has a fresh feed for, and there are no sim FPV cameras
+        // to count -- so advertise the whole capacity and let the droneId sentinel do the
+        // talking, rather than clamping to camerasToCapture (which is empty there, and a
+        // count of 0 makes Python scan none of what ImageSharing is filling).
+        if (!enableImageWriting) return blockSlotCapacity;
+
+        int cameras = camerasToCapture != null ? camerasToCapture.Count : 0;
+        if (cameras > blockSlotCapacity)
+        {
+            Debug.LogError($"PyUniSharingFast: {cameras} FPV cameras exceeds blockSlotCapacity " +
+                           $"({blockSlotCapacity}); the surplus will never reach the stitcher. " +
+                           "Raise blockSlotCapacity here and BLOCK_SLOT_CAPACITY in StitcherThreading.py together.");
+        }
+        return Mathf.Clamp(cameras, 0, blockSlotCapacity);
+    }
+
+    // Both producers now write the pose-carrying v2 header: this component in the sim,
+    // ImageSharing.cs in the DJI scene. The constant is still routed through here rather
+    // than inlined because Python sizes its mapping from what metadata advertises, and
+    // this component owns metadata whether or not it owns the blocks -- so this is the
+    // single place the two producers' layouts are declared to agree.
+    private int ActiveBlockHeaderSize()
+    {
+        return blockPoseHeaderSize;
+    }
+
+    // Curved-screen runtime objects; the geometry itself lives in VrDisplaySettings.
     private Material curvedScreenMaterial;
     private MeshRenderer panoramaRenderer;
     private Texture2D panoTexture;
-    public bool resize_dimension = false;
 
-    // Headset-directed stitching + curved-screen placement
-    [Header("Headset Direction")]
-    [SerializeField]
-    [Tooltip("HMD head transform (OVRCameraRig.centerEyeAnchor). Auto-found from the OVRPlayerController if left empty.")]
-    private Transform headTransform;
-
-    [SerializeField]
-    [Tooltip("Vertical offset of the curved screen above the Arena centre.")]
-    private float screenHeightOffset = 0f;
-
-    [SerializeField]
-    [Tooltip("Degrees/second the body yaws at full controller yaw-stick deflection. The panorama " +
-             "heading integrates this command and the OVRCameraRig is rotated by the same amount " +
-             "to mimic body motion. Head tracking is excluded, so the pilot can look around at the " +
-             "side screens without moving the panorama.")]
-    private float bodyYawRate = 90f;
-
-    [SerializeField]
-    [Tooltip("Rotate the OVRCameraRig by the controller yaw-rate command to mimic body motion. " +
-             "Disable to advance the panorama heading only, leaving the rig untouched.")]
-    private bool driveCameraRigYaw = true;
-
-    [SerializeField]
-    [Tooltip("Key that recalibrates the body heading to the current CenterEyeAnchor yaw, so the " +
-             "panorama centre and the VR velocity frame re-align with wherever the pilot is looking.")]
-    private KeyCode calibrateKey = KeyCode.C;
+    // Height the current mesh was built with, so Update can notice when the stitcher (or the
+    // inspector) asks for a different one. NaN until the first build, which never compares equal.
+    private float curvedScreenHeightApplied = float.NaN;
 
     // Body heading that drives the panorama. Seeded once from the head's initial
     // yaw, then advanced only by the controller yaw-rate command (never by head
@@ -323,42 +1397,111 @@ public class PyUniSharingFast : MonoBehaviour
     // Set when the calibrate key is pressed; consumed the same frame once the centre-drone yaw
     // is known, so the recentre snaps the view onto the (discrete) panorama centre.
     private bool calibrationRequested = false;
+    // Startup auto-calibration (calibrateOnStart): armed in Start and fired from Update once the
+    // preconditions hold, then cleared for the rest of the run. It has to be armed rather than
+    // performed there -- see StartupCalibrationReady for what is not settled yet.
+    private bool startupCalibrationPending = false;
+    private float startupCalibrationTime = 0f;
 
     // Controller-integrated body heading in degrees (0-360). Exposed so the swarm's VR command
     // frame can rotate velocity commands into the pilot's heading. Mirrors the private bodyYaw.
     public static float BodyYawDegrees { get; private set; }
 
+    // Whether BodyYawDegrees has been seeded yet. 0 deg is a real heading (north), so the value alone
+    // cannot say "no pilot heading": before this component's first Update, or in a scene where it is
+    // disabled (the headless bench disables it), a consumer that steers drones towards the body yaw --
+    // AttitudeAlgorithm's look-direction gap fill -- would otherwise pull the swarm's front round to
+    // face north. Mirrors the private bodyYawInitialized.
+    public static bool BodyYawValid { get; private set; }
+
+    // Bumped by every CalibrateToCentre (the startup recentre and the calibrate key), so a display that keeps its own
+    // frame against the room -- Sphere360Display's world-fixed heading -- can tell a recentre from a stick turn.
+    public static int CalibrationCount { get; private set; }
+
+    // bodyYawRate and bodyYawExpo, for AttitudeAlgorithm: a lone drone's heading is what the body is
+    // locked to, so the stick has to turn that drone at the rate it turns the body in the hull modes, or
+    // the single-drone condition turns the pilot faster than the swarm does. Published while this
+    // component is enabled; the headless bench disables it, and AttitudeAlgorithm then keeps the full
+    // airframe rate it always had there.
+    public static bool PilotYawRateValid { get; private set; }
+    public static float PilotYawRateDegPerSec { get; private set; }
+    public static float PilotYawExpo { get; private set; }
+
+    // Yaw stick [-1, 1] -> fraction of the full-stick rate, with RC-style expo: (1 - e) x + e x^3.
+    // Keeps 0 and +-1 where they are, so the keyboard's digital axis is unaffected.
+    public static float ShapeYawStick(float stick, float expo)
+    {
+        return stick * (1f - expo + expo * stick * stick);
+    }
+
+    // Whether the PLANAR stitcher is the selected one. Static because ImageSharing.cs (the
+    // DJI scene's block producer) has to know: PLANAR mosaics every drone that can see the
+    // surface, while the other stitchers take exactly three ordered by body yaw. Refreshed
+    // from CalculateMemorySizes, which runs at Start and on every inspector change — the
+    // same cadence the stitcher selection itself can change at.
+    public static bool PlanarSelected { get; private set; }
+
+    // Whether the feeds currently composited into the panorama should have their individual
+    // screens hidden -- i.e. hideStitchedDroneScreens AND the panorama actually being displayed.
+    // Static for the same reason PlanarSelected is: on the real-drone path the selection is made
+    // by ImageSharing (this component has no cameras there), so the component that knows WHICH
+    // feeds are in the panorama is not the one that owns the toggle. This is the toggle half;
+    // ImageSharing pushes the id set through ScreenSpawn.SetStitchedRealFeedsHidden. Refreshed
+    // every frame from UpdateStitchedScreenHiding, unconditionally, so a scene with no
+    // ScreenSpawn still reports the honest value.
+    public static bool HideStitchedFeeds { get; private set; }
+
+    // Panorama read-outs for the experiment log (ExperimentRecorder), static like the ones above.
+    // PanoramaDisplayed is the resolved on-screen state -- the curved screen shown rather than the
+    // fallback feeds -- and is false while panorama reading is off. It says nothing about whether
+    // the picture is live: a Python that dies leaves its last panorama and quality word in the
+    // section, so the screen stays up showing a frozen image. PanoramaLastNewTime (Time.time at
+    // which the sequence number last changed, -1 before the first) is what tells those apart.
+    // Sequence 0 is a producer without the counter or nothing written yet, and never counts as new.
+    public static bool PanoramaDisplayed { get; private set; }
+    public static bool PanoramaPilotEnabled { get; private set; } = true;
+    public static int PanoramaQualityWord { get; private set; }
+    public static float PanoramaLastNewTime { get; private set; } = -1f;
+    public static stitcherType ActiveStitcher { get; private set; }
+
+
+    // The "Drone N" root of the drone at the centre of the stitch selection (camera yaw closest to
+    // the body yaw), i.e. the drone the pilot is looking through. Refreshed every frame whether or
+    // not stitching is running, so systems that need "whatever the pilot is facing" can anchor on it.
+    public static Transform CentreStitchDrone { get; private set; }
+
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        BodyYawDegrees = 0f;
+        BodyYawValid = false;
+        CalibrationCount = 0;
+        PilotYawRateValid = false;
+        PilotYawRateDegPerSec = 0f;
+        PilotYawExpo = 0f;
+        PlanarSelected = false;
+        HideStitchedFeeds = false;
+        PanoramaDisplayed = false;
+        PanoramaPilotEnabled = true;
+        PanoramaQualityWord = 0;
+        PanoramaLastNewTime = -1f;
+        ActiveStitcher = default;
+        CentreStitchDrone = null;
+    }
+
     private GameObject arena;
     private int[] selectedStitchIndices = new int[0];  // camera indices written to the 3 blocks, ordered [left, centre, right]
 
-    [Header("Stitching Debug")]
-    [SerializeField]
-    [Tooltip("Read-only: the drones currently sent to the stitcher, ordered left / centre / right. Updates during Play.")]
-    private List<string> stitchedDrones = new List<string>();
-    private string lastStitchedDronesKey;  // change-detection so the list only rebuilds when the selection changes
+    // Change-detection so the stitchedDrones readout only rebuilds when the selection changes.
+    // Held as the previous selection itself rather than a joined string: this runs every frame,
+    // and string.Join allocated a fresh string per frame purely to be compared and thrown away.
+    // SelectionChanged does the same comparison against the array with no garbage at all.
+    private int[] lastStitchedDronesKey;
 
-    [SerializeField]
-    [Tooltip("Print the Python stitch/warp loop rate (Hz) to the console. Disable to declutter the log while reading other per-frame diagnostics (e.g. the StabStitch quality PSNR).")]
-    private bool printStitchRate = true;
-
-    // Quality fallback: switch between the panorama screen and ScreenSpawn feeds
-    [SerializeField] private ScreenSpawn screenSpawn;
+    // Panorama display state. The pilot toggle itself (panoramaUserEnabled) is at the top of
+    // the inspector; this is the resolved state after the quality fallback has had its say.
     private bool panoramaDisplayActive = true;
-
-    // Pilot toggle for the panorama, driven by the controller click switch
-    // (InputManager "userSwitch": 1 = show panorama, -1 = show individual feeds),
-    // the Inspector checkbox below, or togglePanoramaKey. When off, the panorama
-    // is hidden and the individual feeds are shown (same display path as the
-    // quality fallback); the Python stitcher keeps running the whole time.
-    [SerializeField]
-    [Tooltip("Show the stitched panorama; unticked shows the individual drone feeds instead. " +
-             "Mirrors the controller's click switch when one is connected, but can also be " +
-             "toggled directly here or with togglePanoramaKey -- for testing without a controller.")]
-    private bool panoramaUserEnabled = true;
-
-    [SerializeField]
-    [Tooltip("Key that toggles the panorama on/off (for testing without a controller connected).")]
-    private KeyCode togglePanoramaKey = KeyCode.T;
 
     // Edge-detection for the controller's click switch, so a disconnected controller
     // (InputManager's "userSwitch" resting at its default) doesn't fight the manual
@@ -366,11 +1509,47 @@ public class PyUniSharingFast : MonoBehaviour
     private float lastControllerUserSwitch;
     private bool controllerUserSwitchInitialized = false;
 
-    [Header("Stitched Drone Screens")]
-    [SerializeField]
-    [Tooltip("Hide the individual ScreenSpawn feeds for the drones currently being stitched into the panorama (they already appear in the panorama). Only applies while the panorama is displayed; during quality-fallback all feeds reappear.")]
-    private bool hideStitchedDroneScreens = false;
-    private string lastHiddenScreensKey;
+    // As lastStitchedDronesKey. `lastHiddenScreensHiding` carries the "off" state the joined
+    // key used to encode as a sentinel string, so a selection change while hidden and a change
+    // of the hide flag itself are still distinguished.
+    private int[] lastHiddenScreensKey;
+    private bool lastHiddenScreensHiding;
+    private bool lastHiddenScreensValid;
+
+    // Scratch for the per-frame stitch selection, so picking three cameras out of ten costs no
+    // garbage. `stitchCandidates` is cleared and refilled rather than reallocated;
+    // `stitchSelectionBuffer` is handed out as the `selected` array and is safe to reuse
+    // because every consumer either reads it within the frame (RequestBlockCapture) or takes
+    // its own copy (CopySelection).
+    private readonly List<int> stitchCandidates = new List<int>();
+    // The PLANAR equivalents. Only one of the two selection paths runs in a given frame (Update
+    // branches on typeOfStitcher), so they share stitchSelectionBuffer for the output.
+    private readonly List<int> planarCandidates = new List<int>();
+    private readonly List<float> planarDistances = new List<float>();
+    private int[] stitchSelectionBuffer = new int[0];
+    private static readonly int[] emptySelection = new int[0];
+
+    // Camera yaws for the sort below, indexed by camera index and refilled each call. The sort
+    // used to read transform.eulerAngles inside its comparator -- a quaternion-to-euler
+    // conversion twice per comparison, O(n log n) of them per frame -- and the comparator was a
+    // lambda, so it also allocated a delegate every frame. Reading each yaw once into here is
+    // both fewer conversions and none of the garbage, and the ordering is identical because
+    // eulerAngles does not change during the call.
+    private float[] stitchYaw = new float[0];
+    private sealed class StitchYawComparer : IComparer<int>
+    {
+        public float[] yaw;
+        public int Compare(int a, int b) { return yaw[a].CompareTo(yaw[b]); }
+    }
+    private readonly StitchYawComparer stitchYawComparer = new StitchYawComparer();
+
+    // Change-detection for the planarStandoffInUse readout, keyed on the value as DISPLAYED
+    // (hundredths of a metre) rather than the raw float, which now moves every frame.
+    private int lastStandoffReadoutCm;
+    private bool lastStandoffReadoutFromFeed;
+    private PlanarStandoffSource lastStandoffReadoutSource;
+    private int lastStandoffReadoutFacadeId;
+    private bool standoffReadoutValid;
 
     // Other timing values to check the number of camera in the block
     private float cameraUpdateInterval = 3f;
@@ -385,12 +1564,29 @@ public class PyUniSharingFast : MonoBehaviour
             metadataPtr = MapViewOfFile(metadataFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
         }
 
-        // Discover cameras first so the block mapping can be sized to the
-        // exact drone count (matches image_stream.py / StitcherThreading.py).
+        // Discovery is unconditional (it only builds a few lists): the centre-drone
+        // selection publishes CentreStitchDrone every frame, and consumers such as
+        // SwarmPlaneController need it whether or not stitching is running. It no longer
+        // has to precede the mapping -- the section's size is a constant now -- but the
+        // published slot count still comes from it.
+        FindCameras();
+        blockHeaderSize = ActiveBlockHeaderSize();
+        blockImageDataOffset = blockHeaderSize;
+        // Published unconditionally: in the DJI scene the section is created by
+        // ImageSharing.cs rather than here, and this component owns metadata either way.
+        // CreateBlockMap stays gated on enableImageWriting, so this does not make us a
+        // second producer.
+        blockImageCount = PublishedSlotCount();
         if (enableImageWriting)
         {
-            FindCameras();
-            blockImageCount = Mathf.Min(STITCH_COUNT, camerasToCapture.Count);
+            // Two producers writing one block map with different header sizes would
+            // corrupt it. In the DJI scene this component must have image writing off.
+            if (FindObjectOfType<ImageSharing>() != null)
+            {
+                Debug.LogError("PyUniSharingFast: enableImageWriting is on while an ImageSharing " +
+                               "component is present. Both write BlockSharedMemory, and they use " +
+                               "different block header sizes. Turn enableImageWriting off here.");
+            }
         }
 
         CalculateMemorySizes();
@@ -409,6 +1605,11 @@ public class PyUniSharingFast : MonoBehaviour
         {
             GenerateCurvedScreen();
             panoramaRenderer = GetComponent<MeshRenderer>();
+            // An emissive screen neither casts nor needs shadows, and a shadow-receiving object in
+            // the eye cameras' view is what pulls them into the shadow pipeline in a scene whose
+            // sun casts shadows (see ScreenSpawn.SpawnScreens).
+            panoramaRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            panoramaRenderer.receiveShadows = false;
             curvedScreenMaterial = panoramaRenderer.material;
             curvedScreenMaterial.SetFloat("_Glossiness", 0f);
             curvedScreenMaterial.SetColor("_EmissionColor", Color.white);
@@ -434,19 +1635,17 @@ public class PyUniSharingFast : MonoBehaviour
             blockImageBytes = new byte[blockImageSize];
             EnsureConvertedBlockBuffer();
 
-            // Readback pool: enough entries for a couple of in-flight 3-slot
-            // batches. One cached delegate per entry so requests never allocate.
-            pendingReadbacks = new PendingReadback[8];
-            pendingCallbacks = new Action<AsyncGPUReadbackRequest>[pendingReadbacks.Length];
-            for (int i = 0; i < pendingCallbacks.Length; i++)
-            {
-                int idx = i;
-                pendingCallbacks[i] = request => OnBlockReadback(idx, request);
-            }
+            EnsureReadbackPool();
         }
 
         hasStarted = true;
         nextSendTime = Time.time;
+
+        // Arm the automatic recentre instead of performing it here: nothing it needs is ready in
+        // Start (StartupCalibrationReady says what), and the delay is what lets the HMD start
+        // reporting a pose -- and the swarm settle -- before we measure a rotation against them.
+        startupCalibrationPending = calibrateOnStart;
+        startupCalibrationTime = Time.time + Mathf.Max(0f, calibrateOnStartDelay);
     }
 
     void Update()
@@ -457,13 +1656,19 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
-        if (enableImageWriting && Time.time >= nextCameraUpdateTime)
+        if (Time.time >= nextCameraUpdateTime)
         {
             UpdateCameras();
             nextCameraUpdateTime = Time.time + cameraUpdateInterval;
         }
 
-        if (enablePanoramaReading && resize_dimension)
+        // Rebuild the mesh when the shape it was built from has moved. `resize_dimension` rebuilds
+        // unconditionally (so inspector tweaks to radius/angleRange show up live); otherwise only a
+        // change in the height the current stitcher wants costs a rebuild, which is what makes
+        // switching to PLANAR -- via SetStitcherType, from SwarmPlaneController -- reshape the
+        // screen without anything having to call in here.
+        if (enablePanoramaReading &&
+            (resize_dimension || !Mathf.Approximately(CurvedScreenHeight(), curvedScreenHeightApplied)))
         {
             GenerateCurvedScreen();
         }
@@ -486,13 +1691,63 @@ public class PyUniSharingFast : MonoBehaviour
             calibrationRequested = true;
         }
 
+        // The same recentre, run once at the start of the flight so a fresh Play already has the
+        // view on the panorama centre instead of needing the key pressed first. Fired here rather
+        // than in Start so it goes through exactly the keypress path, seed included.
+        if (startupCalibrationPending && StartupCalibrationReady())
+        {
+            startupCalibrationPending = false;
+            SeedBodyYawFromHead();
+            calibrationRequested = true;
+        }
+
         UpdateBodyYaw();
         WriteBodyYaw(bodyYaw);
+        // Joins bodyYaw and the heartbeat in the per-frame set because the standoff now
+        // MOVES: it tracks the formation's distance to the wall rather than being a
+        // constant an operator typed. WriteMetadata runs only on Start/OnValidate/a
+        // stitcher switch, so leaving it there would publish the value once and then
+        // never again.
+        WritePlanarStandoff();
+        // Unconditional, and deliberately before every early return below: the point of the
+        // heartbeat is that it keeps ticking while the stitch path is failing, so gating it
+        // on any of the same conditions would make it agree with the thing it is watching.
+        WriteHeartbeat();
 
-        // Select the centre drone (camera yaw closest to the body yaw) plus the
-        // two yaw-neighbours. centreYaw drives the curved-screen orientation so
-        // the screen snaps to the new view only when the selection changes.
-        float centreYaw = SelectStitchCameras(bodyYaw, out selectedStitchIndices);
+        // Resolve the centre drone. Both branches publish CentreStitchDrone and
+        // centreStitchCameraIndex (which the scene-plane raycast and the intrinsics are taken
+        // from), and both return the centre camera's yaw,
+        // which drives the curved-screen orientation so the screen snaps to the new view only
+        // when the selection changes.
+        //
+        // The rule differs because the two configurations disagree on what "centre" means: a
+        // left/centre/right panorama is centred on what the pilot is looking at, whereas a
+        // planar mosaic is centred on the formation, and under the shared heading of
+        // vertical-plane mode the yaw rule has no unique answer at all.
+        float centreYaw;
+        if (typeOfStitcher == stitcherType.PLANAR)
+        {
+            centreYaw = SelectPlanarCentreCamera();
+        }
+        else
+        {
+            centreYaw = SelectStitchCameras(bodyYaw, out selectedStitchIndices);
+        }
+
+        // Advance the pose-error model once per frame, before any pose is snapshotted.
+        StepPoseNoise();
+
+        // Resolve and publish the scene plane before the capture loop, so the plane
+        // Python sees for this frame matches the frame's pose snapshots.
+        UpdateScenePlane(centreStitchCameraIndex);
+        WriteDynamicState();
+
+        // Planar picks its contributing views separately from its centre, and must do it after
+        // UpdateScenePlane: the selection tests each camera against the current scene plane.
+        if (typeOfStitcher == stitcherType.PLANAR)
+        {
+            SelectPlanarStitchCameras(out selectedStitchIndices);
+        }
 
         // Finish a pending calibration now that the centre drone is known: recentre the view onto
         // it so the head faces the (snapped) panorama centre and the VR velocity forward matches.
@@ -514,24 +1769,33 @@ public class PyUniSharingFast : MonoBehaviour
         // per drone, handshaken independently — matches image_stream.py).
         if (enableImageWriting)
         {
+            smoothedDeltaTime = Mathf.Lerp(smoothedDeltaTime, Time.unscaledDeltaTime, 0.1f);
+
             if (camerasToCapture.Count == 0)
             {
                 FindCameras();
             }
-            else if (Time.time >= nextSendTime && blockPtr != IntPtr.Zero)
+            else if (blockPtr != IntPtr.Zero)
             {
-                // Queue an async GPU readback for the head-aligned drones selected
-                // this frame (slots ordered left/centre/right). The block write to
-                // shared memory happens in the completion callback, 1-2 frames
-                // later — no ReadPixels stall on the main thread.
-                for (int j = 0; j < selectedStitchIndices.Length && j < blockImageCount; j++)
+                bool sendDue = Time.time >= nextSendTime;
+
+                // Finish a spread send before anything else: its next group renders now, and
+                // once the last has rendered the whole send is read back in one wave. A group
+                // still waiting when the next send falls due renders now rather than slipping
+                // into the next interval -- a view is never captured less than once per send.
+                if (spreadToRender.Count > 0 || spreadRendered.Count > 0)
                 {
-                    RequestBlockCapture(j, selectedStitchIndices[j]);
+                    StepSpreadCapture(sendDue ? spreadToRender.Count : spreadPerFrame);
                 }
 
-                // Advance by whole intervals, but never fall more than one interval
-                // behind — a long stall must not trigger a burst of catch-up sends.
-                nextSendTime = Mathf.Max(nextSendTime + sendInterval, Time.time - sendInterval);
+                if (sendDue)
+                {
+                    SendBlocks();
+
+                    // Advance by whole intervals, but never fall more than one interval
+                    // behind — a long stall must not trigger a burst of catch-up sends.
+                    nextSendTime = Mathf.Max(nextSendTime + sendInterval, Time.time - sendInterval);
+                }
             }
         }
 
@@ -539,6 +1803,8 @@ public class PyUniSharingFast : MonoBehaviour
         {
             panoramaUserEnabled = !panoramaUserEnabled;
         }
+
+        UpdatePlanarViewInput();
 
         // Mirror the pilot's panorama toggle from the click switch, but only on an
         // actual change in its reading -- not every frame -- so a disconnected
@@ -577,25 +1843,55 @@ public class PyUniSharingFast : MonoBehaviour
                 // The pilot's click-switch toggle overrides quality: if they turned
                 // the panorama off, hide it and show the feeds regardless of quality.
                 bool panoramaGood = (!qualityFallbackEnabled || qualityOk) && panoramaUserEnabled;
-                if (panoramaGood)
+
+                // Only a panorama that is not already on screen is worth uploading (see
+                // panoramaSeqShift). Sequence 0 is a producer without the counter: upload.
+                int panoramaSeq = (qualityWord >> panoramaSeqShift) & panoramaSeqMask;
+                bool upload = panoramaGood && (panoramaSeq == 0 || panoramaSeq != lastPanoramaSeq);
+                PanoramaQualityWord = qualityWord;
+                if (panoramaSeq != 0 && panoramaSeq != lastSeenPanoramaSeq)
+                {
+                    lastSeenPanoramaSeq = panoramaSeq;
+                    PanoramaLastNewTime = Time.time;
+                }
+                if (upload)
                 {
                     // Upload straight from the mapped view while the flag is held.
                     // Python writes RGB24 bottom-up (flipped + BGR->RGB on its
                     // side), exactly the layout the texture expects — no managed
                     // copy, no per-pixel conversion.
-                    panoTexture.LoadRawTextureData(IntPtr.Add(panoramaPtr, panoramaDataPosition), panoramaImageSize);
+                    using (panoramaLoadMarker.Auto())
+                    {
+                        panoTexture.LoadRawTextureData(IntPtr.Add(panoramaPtr, panoramaDataPosition), panoramaImageSize);
+                    }
+                    lastPanoramaSeq = panoramaSeq;
                 }
                 Marshal.WriteInt32(panoramaPtr, FlagPosition, 0);
 
                 ApplyQualityFallback(panoramaGood, qualityWord);
-                if (panoramaGood)
+                if (upload)
                 {
-                    panoTexture.Apply(false);
+                    using (panoramaApplyMarker.Auto())
+                    {
+                        panoTexture.Apply(false);
+                    }
                 }
 
-                nextReceiveTime += readInterval;
+                // readInterval paces uploads, not looks. While the panorama is showing and
+                // Python has not delivered a new one yet, look again next frame, so a new
+                // panorama reaches the screen one Unity frame after it lands rather than
+                // whenever a timer beating against Python's own cadence next comes round.
+                // Advanced like nextSendTime: whole intervals, never a catch-up burst.
+                if (upload || !panoramaGood)
+                {
+                    nextReceiveTime = Mathf.Max(nextReceiveTime + readInterval, Time.time - readInterval);
+                }
             }
         }
+
+        PanoramaDisplayed = enablePanoramaReading && panoramaDisplayActive;
+        PanoramaPilotEnabled = panoramaUserEnabled;
+        ActiveStitcher = typeOfStitcher;
     }
 
     // Switch between the stitched panorama screen and the individual drone
@@ -638,8 +1934,9 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     // Decode the failing-gate bits of the packed quality word into a readable
-    // reason, so the transition log says *why* the panorama was hidden.
-    private string DescribeQualityReason(int qualityWord)
+    // reason, so the transition log says *why* the panorama was hidden. Public for
+    // ExperimentRecorder, which logs the same reasons against its own clock.
+    public static string DescribeQualityReason(int qualityWord)
     {
         string reasons = "";
         if ((qualityWord & REASON_CANVAS) != 0)
@@ -652,7 +1949,106 @@ public class PyUniSharingFast : MonoBehaviour
             reasons += (reasons.Length > 0 ? ", " : "") + "no overlap (camera yaw gap exceeds FOV)";
         if ((qualityWord & REASON_TOO_FEW_IMAGES) != 0)
             reasons += (reasons.Length > 0 ? ", " : "") + "too few feeds (fewer than 3 selected)";
+        if ((qualityWord & REASON_PLANE_INVALID) != 0)
+            reasons += (reasons.Length > 0 ? ", " : "") + "no usable scene plane / pose (planar)";
         return reasons.Length > 0 ? reasons : "unspecified";
+    }
+
+    // One send: every selected view goes to its slot, and every slot the selection doesn't
+    // reach is explicitly marked empty. Without that they would keep serving a stale frame
+    // from Python's busy-block cache indefinitely.
+    //
+    // Iterates the whole capacity rather than blockImageCount: when the fleet shrinks, the
+    // slots that drop off the end have to be retired too, and blockImageCount has already
+    // moved past them by the time this runs.
+    //
+    // A send selecting more than maxCapturesPerFrame views (only PLANAR, which takes every
+    // alive drone) renders them over the frames one sendInterval spans rather than all in
+    // this one: ten full-city renders in a single frame is a frame the headset misses on every
+    // send, and a missed frame is what gets the app locked at half rate. The readbacks still go
+    // out together once the last view has rendered (StepSpreadCapture), and that is what keeps
+    // the stitch rate exactly as it was. Every view is still captured once per send, and Python
+    // still sees one fresh wave per send: StitcherThreading.first_thread wakes the render on
+    // *any* fresh slot, floored at RENDER_MIN_PERIOD, so two waves a frame apart would re-render
+    // the mosaic up to 40 times a second instead of 30. Each block carries the pose its pixels
+    // were rendered from (FPVCameraScript's render record), so a view rendered a frame before
+    // the wave is still exact for the pose-driven solve, and a frame is far inside
+    // PlanarStitcher.MAX_CAPTURE_SKEW_S. STABSTITCH's three views are never spread.
+    private void SendBlocks()
+    {
+        int n = selectedStitchIndices.Length;
+        int perFrame = SpreadGroupSize(n);
+
+        for (int j = 0; j < blockSlotCapacity; j++)
+        {
+            if (j >= n)
+            {
+                InvalidateBlockSlot(j);
+            }
+            else if (perFrame >= n || !TryQueueSpread(j, selectedStitchIndices[j]))
+            {
+                RequestBlockCapture(j, selectedStitchIndices[j]);
+            }
+        }
+
+        if (spreadToRender.Count > 0)
+        {
+            spreadPerFrame = perFrame;
+            StepSpreadCapture(perFrame);
+        }
+    }
+
+    // Views to render per frame for a send of n: all of them unless the spread is on and n is
+    // over the limit, and never fewer than it takes to finish within one sendInterval. At 36 fps
+    // one interval is a single frame, so nothing is spread there and a pending send never meets
+    // the next one.
+    private int SpreadGroupSize(int n)
+    {
+        if (maxCapturesPerFrame <= 0 || n <= maxCapturesPerFrame) return n;
+        int framesPerSend = Mathf.Max(1, Mathf.FloorToInt(sendInterval / Mathf.Max(1e-4f, smoothedDeltaTime)));
+        return Mathf.Max(maxCapturesPerFrame, Mathf.CeilToInt(n / (float)framesPerSend));
+    }
+
+    // Queues one view for a spread render. Only a camera with its own feed RenderTexture at the
+    // block size and a render gate can be spread: the fallback RenderTexture is shared by every
+    // camera, so a view rendered into it on one frame would be overwritten before the wave.
+    private bool TryQueueSpread(int slot, int camIdx)
+    {
+        if (camIdx < 0 || camIdx >= camerasToCapture.Count) return false;
+        Camera camera = camerasToCapture[camIdx];
+        FPVCameraScript renderer = stitchRenderers != null && camIdx < stitchRenderers.Count
+                                 ? stitchRenderers[camIdx]
+                                 : null;
+        RenderTexture rt = camera != null ? camera.targetTexture : null;
+        if (renderer == null || rt == null || rt.width != blockImageWidth || rt.height != blockImageHeight)
+            return false;
+
+        spreadToRender.Add(new SpreadCapture { slot = slot, camIdx = camIdx, camera = camera, renderer = renderer });
+        return true;
+    }
+
+    // Renders the next `count` queued views, and once none are left reads the whole send back.
+    private void StepSpreadCapture(int count)
+    {
+        using var profilerScope = blockCaptureMarker.Auto();
+        int take = Mathf.Min(Mathf.Max(1, count), spreadToRender.Count);
+        for (int k = 0; k < take; k++)
+        {
+            SpreadCapture c = spreadToRender[k];
+            if (c.renderer != null) c.renderer.EnsureRenderedThisFrame();
+            spreadRendered.Add(c);
+        }
+        spreadToRender.RemoveRange(0, take);
+
+        if (spreadToRender.Count > 0) return;
+
+        for (int k = 0; k < spreadRendered.Count; k++)
+        {
+            SpreadCapture c = spreadRendered[k];
+            if (c.camera == null || c.renderer == null) continue;   // drone destroyed mid-send
+            QueueBlockReadback(c.slot, c.camIdx, c.camera, c.camera.targetTexture, c.renderer);
+        }
+        spreadRendered.Clear();
     }
 
     // Renders (if needed) and queues an async GPU readback of one selected
@@ -663,15 +2059,31 @@ public class PyUniSharingFast : MonoBehaviour
     // here, at the send rate only.
     private void RequestBlockCapture(int slot, int camIdx)
     {
+        using var profilerScope = blockCaptureMarker.Auto();
         if (pendingReadbacks == null) return;  // image writing was off at Start
         if (camIdx < 0 || camIdx >= camerasToCapture.Count) return;
         Camera camera = camerasToCapture[camIdx];
         if (camera == null) return;
 
+        FPVCameraScript renderer = null;
         RenderTexture rt = camera.targetTexture;
         if (rt != null && rt.width == blockImageWidth && rt.height == blockImageHeight)
         {
-            if (!camera.enabled)
+            // Route through the camera's own frame gate rather than testing `enabled`. Under
+            // ScreenSpawn's feed throttle every FPV camera is disabled and driven manually by
+            // two independent schedules — that refresh and this capture — so `!enabled` no
+            // longer means "nobody else will draw it this frame". The gate makes the two
+            // schedules share one render on a drone that is both displayed and stitched, and
+            // still renders on demand for a drone whose screen is hidden (the common case here,
+            // since hideStitchedDroneScreens hides exactly the stitched ones).
+            renderer = stitchRenderers != null && camIdx < stitchRenderers.Count
+                     ? stitchRenderers[camIdx]
+                     : null;
+            if (renderer != null)
+            {
+                renderer.EnsureRenderedThisFrame();
+            }
+            else if (!camera.enabled)
             {
                 camera.Render();
             }
@@ -688,14 +2100,52 @@ public class PyUniSharingFast : MonoBehaviour
             rt = reusableTexture;
         }
 
+        QueueBlockReadback(slot, camIdx, camera, rt, renderer);
+    }
+
+    // Queues the async GPU readback of `rt` into block `slot`. The pose, heading and capture
+    // time recorded with it are those of the pixels in `rt`: the render record when the camera
+    // has a render gate (it may have rendered on an earlier frame of a spread send, or been
+    // refreshed since by the feed schedule -- either way the record and the texture agree), and
+    // the live transform otherwise, which is only reached straight after an on-demand render.
+    private void QueueBlockReadback(int slot, int camIdx, Camera camera, RenderTexture rt,
+                                    FPVCameraScript renderer)
+    {
+        if (pendingReadbacks == null || camera == null || rt == null) return;
+
         int p = AcquirePendingSlot();
-        if (p < 0) return;  // pool exhausted (readbacks piling up) — drop this frame
+        if (p < 0)
+        {
+            // Pool exhausted (readbacks piling up): this slot keeps its previous frame.
+            // Warned about rather than dropped silently — sustained exhaustion starves
+            // the same slots every send (AcquirePendingSlot scans from 0), and a slot
+            // that has never been written still carries the empty-slot sentinel, so the
+            // drone simply never appears in the mosaic.
+            if (Time.time >= nextReadbackPoolWarnTime)
+            {
+                nextReadbackPoolWarnTime = Time.time + readbackPoolWarnInterval;
+                Debug.LogWarning($"[PyUniSharingFast] GPU readback pool exhausted " +
+                                 $"({pendingReadbacks.Length} entries, {blockImageCount} block slots): " +
+                                 "block slots are being skipped. Readbacks are completing slower than " +
+                                 "sendInterval; lower the block resolution or the send rate.");
+            }
+            return;
+        }
+
+        bool fromRecord = renderer != null && rt == camera.targetTexture;
+        Vector3 renderPos = fromRecord ? renderer.LastRenderPosition : camera.transform.position;
+        Quaternion renderRot = fromRecord ? renderer.LastRenderRotation : camera.transform.rotation;
 
         pendingReadbacks[p].slot = slot;
         pendingReadbacks[p].droneId = camIdx;
-        // Heading is recorded now, matching the image being read back — not at
-        // completion, when the drone may have yawed on.
-        pendingReadbacks[p].heading = camera.transform.eulerAngles.y;
+        // Heading and pose are recorded now, matching the image being read back — not
+        // at completion, when the drone may have yawed or flown on.
+        pendingReadbacks[p].heading = renderRot.eulerAngles.y;
+        GetCameraPose(camIdx, renderPos, renderRot,
+                      out pendingReadbacks[p].camPos,
+                      out pendingReadbacks[p].camRot,
+                      out pendingReadbacks[p].poseStatus);
+        pendingReadbacks[p].captureTime = fromRecord ? renderer.LastRenderRealtime : Time.realtimeSinceStartup;
 
         // One-time row-order calibration: capture the same RT synchronously so
         // the completion callback can pick the flip that reproduces the exact
@@ -713,6 +2163,54 @@ public class PyUniSharingFast : MonoBehaviour
         }
 
         AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32, pendingCallbacks[p]);
+    }
+
+    // Marks a block slot as carrying no view this frame, using the same droneId = -1
+    // sentinel the DJI feed map uses. Python drops the slot *and* evicts it from its
+    // busy-block cache, so a drone that leaves the selection stops contributing rather
+    // than lingering in the mosaic forever.
+    private void InvalidateBlockSlot(int slot)
+    {
+        // Bounded by the section, not by blockImageCount: when the fleet shrinks, the slots
+        // that fall off the end of the published count are precisely the ones that must be
+        // retired, and blockImageCount no longer covers them.
+        if (blockPtr == IntPtr.Zero || slot < 0 || slot >= blockSlotCapacity) return;
+
+        IntPtr block = IntPtr.Add(blockPtr, slot * blockSlotStride);
+        if (Marshal.ReadInt32(block, blockFlagOffset) != 0) return;  // consumer mid-read
+
+        Marshal.WriteInt32(block, blockFlagOffset, 1);
+        Marshal.WriteInt32(block, blockDroneIdOffset, -1);
+        Marshal.WriteInt32(block, blockPoseStatusOffset, 0);
+        Marshal.WriteInt32(block, blockFlagOffset, 0);
+    }
+
+    // Sizes the readback pool for two full in-flight batches, one entry per block slot.
+    //
+    // It used to be a flat 8, which was "a couple of in-flight 3-slot batches" back when
+    // every stitcher captured exactly 3 views. PLANAR captures one per alive drone per
+    // send, and a readback completes 1-2 frames later, so an undersized pool does not
+    // merely drop a frame: AcquirePendingSlot scans from index 0, so it is always the
+    // *same* tail slots that lose the race, and a slot that never wins never gets written
+    // at all. Those blocks then sit at their initial contents forever, which is what
+    // surfaced on the Python side as a degenerate quaternion.
+    //
+    // Grow-only, and the array is replaced wholesale rather than re-indexed: a pending
+    // entry keeps its index, so a readback still in flight across the resize completes
+    // into the same entry it reserved.
+    private void EnsureReadbackPool()
+    {
+        int wanted = Mathf.Clamp(blockImageCount * 2, 8, 2 * blockSlotCapacity);
+        int have = pendingReadbacks != null ? pendingReadbacks.Length : 0;
+        if (have >= wanted) return;
+
+        Array.Resize(ref pendingReadbacks, wanted);
+        Array.Resize(ref pendingCallbacks, wanted);
+        for (int i = have; i < wanted; i++)
+        {
+            int idx = i;   // one cached delegate per entry, so requests never allocate
+            pendingCallbacks[i] = request => OnBlockReadback(idx, request);
+        }
     }
 
     private int AcquirePendingSlot()
@@ -735,6 +2233,7 @@ public class PyUniSharingFast : MonoBehaviour
     // path (a busy consumer just drops this frame).
     private void OnBlockReadback(int p, AsyncGPUReadbackRequest request)
     {
+        using var profilerScope = blockReadbackMarker.Auto();
         PendingReadback pending = pendingReadbacks[p];
         pendingReadbacks[p].inUse = false;
         pendingReadbacks[p].verifyReference = null;
@@ -753,35 +2252,84 @@ public class PyUniSharingFast : MonoBehaviour
             CalibrateReadbackFlip(data, pending.verifyReference);
         }
 
-        var job = new ConvertRgbaToBgrJob
-        {
-            src = data,
-            dst = convertedBlock,
-            width = blockImageWidth,
-            height = blockImageHeight,
-            flipRows = readbackFlipRows,
-        };
-        job.Schedule(blockImageHeight, 32).Complete();
-        convertedBlock.CopyTo(blockImageBytes);
-
         IntPtr block = IntPtr.Add(blockPtr, pending.slot * blockSize);
 
-        // Skip this slot if the consumer is mid-read on its block.
+        // Peek the handshake BEFORE converting. The conversion is a parallel job the main
+        // thread immediately joins, plus a full-image copy out of the NativeArray -- at
+        // 1024x576 that is ~1.8 MB of work per block -- and when the consumer is mid-read
+        // every byte of it was being thrown away at the check below. This costs one read of
+        // a word Python is already writing, and it runs on the frame the readbacks land,
+        // which is the frame that was already the most expensive.
+        //
+        // It does not replace the check that follows the conversion on the copy path: this is
+        // a hint, and the flag can still be taken between here and there. The in-place path
+        // takes the flag straight after it instead, and converts while holding it.
+        if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
+            return;
+
+        if (inPlaceReadback)
+        {
+            // Convert straight into the section while holding the flag. The flag is held for
+            // the conversion instead of for the copy the other path ends with -- about the
+            // same time -- and the two full-image passes before it (scratch -> managed array
+            // -> section) are gone. Same bytes land in the block either way.
+            Marshal.WriteInt32(block, blockFlagOffset, 1);
+            WriteBlockHeader(block, pending);
+            ConvertReadback(data, IntPtr.Add(block, blockImageDataOffset), readbackFlipRows);
+            Marshal.WriteInt32(block, blockFlagOffset, 0);
+            return;
+        }
+
+        ConvertReadback(data, ScratchBlockPtr(), readbackFlipRows);
+        convertedBlock.CopyTo(blockImageBytes);
+
+        // Skip this slot if the consumer took the block while we were converting.
         if (Marshal.ReadInt32(block, blockFlagOffset) != 0)
             return;
 
         // Mark busy while we write the header + image.
         Marshal.WriteInt32(block, blockFlagOffset, 1);
-
-        Marshal.WriteInt32(block, blockDroneIdOffset, pending.droneId);
-        byte[] headingBytes = BitConverter.GetBytes(pending.heading);
-        if (!BitConverter.IsLittleEndian) Array.Reverse(headingBytes);
-        Marshal.Copy(headingBytes, 0, IntPtr.Add(block, blockHeadingOffset), 4);
-
+        WriteBlockHeader(block, pending);
         Marshal.Copy(blockImageBytes, 0, IntPtr.Add(block, blockImageDataOffset), blockImageSize);
 
         // Ready for the consumer.
         Marshal.WriteInt32(block, blockFlagOffset, 0);
+    }
+
+    private void WriteBlockHeader(IntPtr block, PendingReadback pending)
+    {
+        Marshal.WriteInt32(block, blockDroneIdOffset, pending.droneId);
+        WriteFloat(block, blockHeadingOffset, pending.heading);
+
+        WriteFloat(block, blockCamPosOffset + 0, pending.camPos.x);
+        WriteFloat(block, blockCamPosOffset + 4, pending.camPos.y);
+        WriteFloat(block, blockCamPosOffset + 8, pending.camPos.z);
+        WriteFloat(block, blockCamRotOffset + 0, pending.camRot.x);
+        WriteFloat(block, blockCamRotOffset + 4, pending.camRot.y);
+        WriteFloat(block, blockCamRotOffset + 8, pending.camRot.z);
+        WriteFloat(block, blockCamRotOffset + 12, pending.camRot.w);
+        WriteFloat(block, blockCaptureTimeOffset, pending.captureTime);
+        Marshal.WriteInt32(block, blockPoseStatusOffset, pending.poseStatus);
+    }
+
+    // Converts one RGBA readback into blockImageSize bytes of top-down BGR at `dst`: the
+    // scratch buffer, or a block in the mapped section. The only pointer code in the bridge.
+    private unsafe void ConvertReadback(NativeArray<byte> src, IntPtr dst, bool flipRows)
+    {
+        var job = new ConvertRgbaToBgrJob
+        {
+            src = src,
+            dst = (byte*)dst.ToPointer(),
+            width = blockImageWidth,
+            height = blockImageHeight,
+            flipRows = flipRows,
+        };
+        job.Schedule(blockImageHeight, 32).Complete();
+    }
+
+    private unsafe IntPtr ScratchBlockPtr()
+    {
+        return (IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(convertedBlock);
     }
 
     // Decides readbackFlipRows by converting the first readback both ways and
@@ -822,15 +2370,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     private int CountConversionMismatches(NativeArray<byte> data, byte[] reference, bool flipRows)
     {
-        var job = new ConvertRgbaToBgrJob
-        {
-            src = data,
-            dst = convertedBlock,
-            width = blockImageWidth,
-            height = blockImageHeight,
-            flipRows = flipRows,
-        };
-        job.Schedule(blockImageHeight, 32).Complete();
+        ConvertReadback(data, ScratchBlockPtr(), flipRows);
 
         int mismatches = 0;
         for (int i = 0; i < blockImageSize; i++)
@@ -862,6 +2402,30 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Height the curved screen should have for the stitcher that is running. The arc width is
+    /// fixed by <c>radius</c> and <c>angleRange</c>, so this is the only free parameter and the
+    /// screen's aspect follows from it.
+    ///
+    /// The panorama always fills the whole screen, so the screen's aspect is what the mosaic is
+    /// displayed at. A left/centre/right panorama is a wide strip and suits the ~2.6:1 arc;
+    /// PLANAR's canvas is roughly 3:2, and showing it on that arc stretches it horizontally --
+    /// hence a separate height here rather than one shared <c>height</c>.
+    /// </summary>
+    private float CurvedScreenHeight()
+    {
+        if (typeOfStitcher != stitcherType.PLANAR) return height;
+        if (!planarMatchCanvasAspect || planarCanvasWidth <= 0 || planarCanvasHeight <= 0)
+        {
+            return planarHeight;
+        }
+
+        // Arc length the mesh spans at `radius`; dividing by the canvas aspect makes a canvas
+        // pixel square on the screen.
+        float arc = radius * angleRange * Mathf.Deg2Rad;
+        return arc * planarCanvasHeight / planarCanvasWidth;
+    }
+
     private void GenerateCurvedScreen()
     {
         MeshFilter meshFilter = GetComponent<MeshFilter>();
@@ -872,7 +2436,8 @@ public class PyUniSharingFast : MonoBehaviour
         int[] triangles = new int[segments * 6];
 
         float angleStep = angleRange / segments;
-        float halfHeight = height / 2f;
+        curvedScreenHeightApplied = CurvedScreenHeight();
+        float halfHeight = curvedScreenHeightApplied / 2f;
 
         for (int i = 0; i <= segments; i++)
         {
@@ -946,6 +2511,27 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
+        // Vertical-plane swarming also spins the drones with the yaw stick (it steers the plane's
+        // shared target heading, which every drone converges on), so it needs the same treatment
+        // as the non-hull modes below — regardless of which attitude algorithm is selected, since
+        // plane mode replaces the heading rule entirely.
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+        if (plane != null && plane.PlaneModeActive)
+        {
+            bodyLockInitialized = false; // reseed the camera-follow path when plane mode ends
+            UpdateBodyYawFromPlane(plane);
+            return;
+        }
+
+        // A single drone left (or spawned): AttitudeAlgorithm hands it the yaw stick in every
+        // attitude mode, so the body is locked to its commanded heading.
+        if (SwarmRegistry.TryGetLoneDrone(out _, out SwarmRegistry.Entry lone) && lone.velocityControl != null)
+        {
+            bodyLockInitialized = false;
+            UpdateBodyYawFromLoneDrone(lone.velocityControl);
+            return;
+        }
+
         // Non-hull attitude modes (NONE/SIMPLE) spin the drone(s) with the yaw stick,
         // so slave the body/rig heading to the drone's ACTUAL heading instead of the
         // raw stick. Matching rate constants wouldn't cancel relative motion: the drone
@@ -959,7 +2545,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Hull modes: the drones hold their heading and the stick steers the view.
         bodyLockInitialized = false; // reseed if we later switch back to a body-locked mode
         float normYaw = InputManager.Instance != null ? InputManager.Instance.InputStatus["yaw"] : 0f;
-        float deltaYaw = normYaw * bodyYawRate * Time.deltaTime;
+        float deltaYaw = ShapeYawStick(normYaw, bodyYawExpo) * bodyYawRate * Time.deltaTime;
         if (deltaYaw == 0f) return;
 
         bodyYaw = Mathf.Repeat(bodyYaw + deltaYaw, 360f);
@@ -969,6 +2555,60 @@ public class PyUniSharingFast : MonoBehaviour
         {
             // Rotate the body about the world vertical at the rig's pivot. The head
             // (centerEyeAnchor) rotates with it but keeps its own HMD-tracked yaw.
+            cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
+        }
+    }
+
+    // Lock the body heading (and the rig) onto the swarming plane's own heading while
+    // vertical-plane mode is on.
+    //
+    // In that mode the yaw stick has two effects at once: SwarmPlaneController integrates it into
+    // the plane's shared target heading (which every drone then converges on), while the hull path
+    // below would *also* integrate the same stick into bodyYaw. Those two integrations don't agree —
+    // different gains (bodyYawRate deg/s vs the plane's targetYawRateDegPerSec), and the drones
+    // additionally lag their setpoint through the yaw filter, the inner rate loop and drag — so the
+    // view drifts off the wall as soon as the stick moves. In the radially-outward configuration
+    // that drift is invisible (the panorama re-snaps to whichever camera is now closest to bodyYaw),
+    // but here every drone shares one heading: bodyYaw is what aims the VR velocity frame at the
+    // wall, and the wall's own heading is the only value that can't be wrong.
+    //
+    // The lock is absolute rather than incremental, so any offset already present when plane mode
+    // was entered is corrected on the first frame instead of being carried forever. Following
+    // TargetYaw and not the drones' measured mean heading is deliberate: it is the heading the wall
+    // is being driven to, and it leads the wall by at most the plane's anti-windup clamp, so the
+    // panorama arrives where the imagery is about to be rather than trailing it.
+    private void UpdateBodyYawFromPlane(SwarmPlaneController plane)
+    {
+        float planeYaw = plane.TargetYaw * Mathf.Rad2Deg;
+        float deltaYaw = Mathf.DeltaAngle(bodyYaw, planeYaw);
+        if (deltaYaw == 0f) return;
+
+        bodyYaw = Mathf.Repeat(planeYaw, 360f);
+        BodyYawDegrees = bodyYaw;
+
+        if (driveCameraRigYaw && cameraRigTransform != null)
+        {
+            cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
+        }
+    }
+
+    // Lock the body heading (and the rig) onto a lone drone's commanded heading — VelocityControl's
+    // heading-hold setpoint, the integral of the stick rate it is flying. The setpoint rather than
+    // the measured heading for the reason UpdateBodyYawFromPlane follows TargetYaw: the view answers
+    // the stick 1:1 instead of trailing the airframe, and the hold keeps the nose within
+    // maxHeadingHoldErrorDeg of it. Absolute like that lock too, so whatever offset the hull modes'
+    // stick-steered view had built up when the swarm dwindled to one drone is cleared at once.
+    private void UpdateBodyYawFromLoneDrone(VelocityControl vc)
+    {
+        float commandedYaw = vc.HeadingSetpointRad * Mathf.Rad2Deg;
+        float deltaYaw = Mathf.DeltaAngle(bodyYaw, commandedYaw);
+        if (deltaYaw == 0f) return;
+
+        bodyYaw = Mathf.Repeat(commandedYaw, 360f);
+        BodyYawDegrees = bodyYaw;
+
+        if (driveCameraRigYaw && cameraRigTransform != null)
+        {
             cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
         }
     }
@@ -1054,6 +2694,33 @@ public class PyUniSharingFast : MonoBehaviour
         bodyYaw = headTransform != null ? headTransform.eulerAngles.y : 0f;
         bodyYawInitialized = true;
         BodyYawDegrees = bodyYaw;
+        BodyYawValid = true;
+    }
+
+    // Whether the automatic startup recentre can run yet. Both halves of CalibrateToCentre read
+    // state that is not settled in Start, which is why the recentre is deferred to Update rather
+    // than done there:
+    //  - it rotates the view onto the *centre drone's* yaw, and swarmSpawn instantiates the fleet
+    //    in its own Start, so on an unlucky script order camerasToCapture is still empty and both
+    //    centre rules just return bodyYaw -- a recentre onto nothing, leaving the view where it was;
+    //  - the rotation is the signed angle from the head's current forward, and the HMD reports no
+    //    pose for the first frames, so an early recentre misses by however far the pilot happens to
+    //    be facing -- which is exactly the miss the manual key exists to correct.
+    // The delay covers both, and is sized by a third thing neither test can see: the swarm takes a
+    // few seconds to settle out of its spawn lattice, and until it has, the centre drone this snaps
+    // the view onto is still changing.
+    // The alive test mirrors the candidate set both centre rules draw from, so this does not have to
+    // know which stitcher is selected.
+    private bool StartupCalibrationReady()
+    {
+        if (headTransform == null || Time.time < startupCalibrationTime) return false;
+        if (camerasToCapture == null) return false;
+
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (camerasToCapture[i] != null && IsAlive(i)) return true;
+        }
+        return false;
     }
 
     // Finishes an on-demand calibration. The panorama stays snapped to the centre drone's yaw,
@@ -1108,7 +2775,18 @@ public class PyUniSharingFast : MonoBehaviour
         bodyYaw = Mathf.Repeat(centreYaw, 360f);
         BodyYawDegrees = bodyYaw;
         bodyYawInitialized = true;
+        BodyYawValid = true;
+        CalibrationCount++;
         WriteBodyYaw(bodyYaw);
+    }
+
+    // The reusable `selected` array, grown only when the selection length changes (which it
+    // does when the fleet crosses three alive candidates, not every frame).
+    private int[] TakeSelectionBuffer(int length)
+    {
+        if (length == 0) return emptySelection;
+        if (stitchSelectionBuffer.Length != length) stitchSelectionBuffer = new int[length];
+        return stitchSelectionBuffer;
     }
 
     // Lazily locate the Arena (same tag ScreenSpawn uses) for screen placement.
@@ -1131,18 +2809,21 @@ public class PyUniSharingFast : MonoBehaviour
     {
         if (camerasToCapture == null || camerasToCapture.Count == 0)
         {
-            selected = new int[0];
+            selected = emptySelection;
+            CentreStitchDrone = null;
+            centreStitchCameraIndex = -1;
             return bodyYaw;
         }
 
         // Candidate set: alive boundary drones only (convex hull). If fewer than three
         // are on the boundary, fall back to all alive drones so the panorama still forms.
-        List<int> candidates = new List<int>(camerasToCapture.Count);
+        List<int> candidates = stitchCandidates;
+        candidates.Clear();
         for (int i = 0; i < camerasToCapture.Count; i++)
         {
             if (IsAlive(i) && IsBoundary(i)) candidates.Add(i);
         }
-        if (candidates.Count < 3)
+        if (candidates.Count < STITCH_COUNT_LRC)
         {
             candidates.Clear();
             for (int i = 0; i < camerasToCapture.Count; i++)
@@ -1156,25 +2837,553 @@ public class PyUniSharingFast : MonoBehaviour
         // Centre = the candidate whose camera yaw is closest to bodyYaw.
         int centreCam = candidates[ClosestInList(candidates, bodyYaw)];
 
+        // Publish the centre drone (the FPV camera's parent is the "Drone N" root, see DroneName)
+        // so other systems can anchor on whatever the pilot is looking at.
+        CentreStitchDrone = camerasToCapture[centreCam].transform.parent;
+        // Also kept as a camera index, for the scene-plane raycast and intrinsics.
+        centreStitchCameraIndex = centreCam;
+
         // Fewer than three candidates total: send what we have.
-        if (n < 3)
+        if (n < STITCH_COUNT_LRC)
         {
-            selected = candidates.ToArray();
+            selected = TakeSelectionBuffer(n);
+            candidates.CopyTo(0, selected, 0, n);
             return camerasToCapture[centreCam].transform.eulerAngles.y;
         }
 
         // Order candidates by yaw ascending (0..360); take centre + circular neighbours.
-        candidates.Sort((a, b) =>
-            camerasToCapture[a].transform.eulerAngles.y.CompareTo(
-            camerasToCapture[b].transform.eulerAngles.y));
+        if (stitchYaw.Length != camerasToCapture.Count) stitchYaw = new float[camerasToCapture.Count];
+        for (int k = 0; k < n; k++)
+        {
+            int cam = candidates[k];
+            stitchYaw[cam] = camerasToCapture[cam].transform.eulerAngles.y;
+        }
+        stitchYawComparer.yaw = stitchYaw;
+        candidates.Sort(stitchYawComparer);
 
         int centrePos = candidates.IndexOf(centreCam);
         int leftPos = (centrePos - 1 + n) % n;
         int rightPos = (centrePos + 1) % n;
 
-        selected = new int[] { candidates[leftPos], candidates[centrePos], candidates[rightPos] };
+        selected = TakeSelectionBuffer(STITCH_COUNT_LRC);
+        selected[0] = candidates[leftPos];
+        selected[1] = candidates[centrePos];
+        selected[2] = candidates[rightPos];
         return camerasToCapture[centreCam].transform.eulerAngles.y;
     }
+
+    /// <summary>
+    /// Picks the centre camera for a planar mosaic: the alive drone nearest the swarm's
+    /// centroid, measured <i>in the plane the swarm is currently constrained to</i>.
+    ///
+    /// Deliberately not <see cref="SelectStitchCameras"/>'s "camera yaw closest to the body
+    /// yaw" rule. In vertical-plane mode <c>AttitudeAlgorithm.ApplyPlaneModeAttitude</c> drives
+    /// every drone to one shared target heading, so yaw proximity becomes a near-tie broken by
+    /// residual jitter and the centre drone changes almost every frame. That is not cosmetic:
+    /// the scene-plane raycast is cast from this camera, so each swap steps the published plane
+    /// offset, and <c>PlanarStitcher</c> builds the canvas frame and origin from the centre of
+    /// the selection — the whole mosaic shifts. Geometric centrality has a unique answer under a
+    /// shared heading; yaw proximity does not.
+    ///
+    /// Returns the centre camera's yaw, for the curved-screen orientation.
+    /// </summary>
+    private float SelectPlanarCentreCamera()
+    {
+        if (camerasToCapture == null || camerasToCapture.Count == 0)
+        {
+            CentreStitchDrone = null;
+            centreStitchCameraIndex = -1;
+            return bodyYaw;
+        }
+
+        // In-plane basis of the swarming plane: the vertical wall while plane mode is on, the
+        // horizontal plane otherwise. GetPlaneAxes already returns (X, Z) for a horizontal
+        // plane, so both configurations share one code path.
+        Vector3 planeRight, planeUp;
+        SwarmPlaneController swarmPlane = SwarmPlaneController.Instance;
+        if (swarmPlane != null)
+        {
+            swarmPlane.GetPlaneAxes(out planeRight, out planeUp);
+        }
+        else
+        {
+            planeRight = Vector3.right;
+            planeUp = Vector3.forward;
+        }
+
+        Vector3 centroid = Vector3.zero;
+        int alive = 0;
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (!IsAlive(i) || camerasToCapture[i] == null) continue;
+            centroid += camerasToCapture[i].transform.position;
+            alive++;
+        }
+        if (alive == 0)
+        {
+            CentreStitchDrone = null;
+            centreStitchCameraIndex = -1;
+            return bodyYaw;
+        }
+        centroid /= alive;
+
+        // Distance is measured in-plane, not in 3D: in vertical-plane mode the swarm's spread
+        // along the plane normal is formation error the restoring term is actively removing,
+        // and letting it vote would hand the centre to whichever drone happens to be lagging
+        // out of the wall.
+        int best = -1;
+        float bestDist = float.MaxValue;
+        float incumbentDist = float.MaxValue;
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (!IsAlive(i) || camerasToCapture[i] == null) continue;
+
+            Vector3 rel = camerasToCapture[i].transform.position - centroid;
+            float dist = new Vector2(Vector3.Dot(rel, planeRight),
+                                     Vector3.Dot(rel, planeUp)).magnitude;
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                best = i;
+            }
+            if (i == centreStitchCameraIndex) incumbentDist = dist;
+        }
+
+        // Hysteresis: two drones straddling the centroid are otherwise still free to swap on
+        // noise alone, which reintroduces exactly the flicker this method exists to remove.
+        // Metres, not squared metres, so the inspector value means what it says.
+        if (incumbentDist < float.MaxValue && incumbentDist <= bestDist + planarCentreHysteresis)
+        {
+            best = centreStitchCameraIndex;
+        }
+
+        centreStitchCameraIndex = best;
+        CentreStitchDrone = camerasToCapture[best].transform.parent;
+        return camerasToCapture[best].transform.eulerAngles.y;
+    }
+
+    /// <summary>
+    /// Picks the cameras that contribute to a planar mosaic: <b>every</b> alive drone
+    /// actually looking at the scene plane. There is no view-count knob — a planar mosaic
+    /// generalises to any number of overlapping views, so capping it was only ever a
+    /// consequence of the block section being sized per stitcher. The only remaining cap
+    /// is <see cref="blockSlotCapacity"/>, i.e. the physical section, which a normal
+    /// fleet never reaches.
+    ///
+    /// Deliberately does <b>not</b> filter on <c>AttitudeAlgorithm.BoundaryEstimate</c>,
+    /// which is the key difference from <see cref="SelectStitchCameras"/>. In
+    /// vertical-plane mode the convex hull is the <i>rim of the wall</i>, so boundary
+    /// drones are precisely the wrong subset -- every drone in the wall, interior
+    /// included, is looking at the facade and contributes footprint. In nadir the hull
+    /// is the outline of the formation and the interior drones tile the middle of the
+    /// ground mosaic. The boundary rule exists because the radially-outward config nests
+    /// interior views inside other views; that reasoning does not transfer.
+    /// </summary>
+    private void SelectPlanarStitchCameras(out int[] selected)
+    {
+        selected = emptySelection;
+        if (camerasToCapture == null || camerasToCapture.Count == 0) return;
+
+        float cosObliquity = Mathf.Cos(maxObliquityDeg * Mathf.Deg2Rad);
+        // Cleared and refilled rather than reallocated: this runs every frame under PLANAR.
+        List<int> candidates = planarCandidates;
+        List<float> distances = planarDistances;
+        candidates.Clear();
+        distances.Clear();
+
+        Vector3 centreHit = Vector3.zero;
+        bool haveCentreHit = false;
+        if (centreStitchCameraIndex >= 0 && centreStitchCameraIndex < camerasToCapture.Count)
+        {
+            haveCentreHit = TryPlaneHit(camerasToCapture[centreStitchCameraIndex],
+                                        out centreHit, out _);
+        }
+
+        for (int i = 0; i < camerasToCapture.Count; i++)
+        {
+            if (!IsAlive(i)) continue;
+            Camera cam = camerasToCapture[i];
+            if (cam == null) continue;
+
+            if (!TryPlaneHit(cam, out Vector3 hit, out float range)) continue;
+            if (range > planarMaxRange) continue;
+
+            // Reject grazing views: they contribute a long thin smear and blow up the
+            // anisotropy gate on the Python side anyway.
+            if (Mathf.Abs(Vector3.Dot(cam.transform.forward, scenePlaneNormal)) < cosObliquity)
+                continue;
+
+            candidates.Add(i);
+            distances.Add(haveCentreHit ? Vector3.SqrMagnitude(hit - centreHit) : range);
+        }
+
+        if (candidates.Count == 0) return;
+
+        // Only reachable with a fleet larger than the section: keep the views whose
+        // footprints cluster around the centre one, so the mosaic is contiguous rather
+        // than a scattered set with holes. PublishedSlotCount has already logged an error
+        // by this point, so this is damage limitation rather than a routine path.
+        if (candidates.Count > blockSlotCapacity)
+        {
+            int[] order = new int[candidates.Count];
+            for (int i = 0; i < order.Length; i++) order[i] = i;
+            Array.Sort(order, (a, b) => distances[a].CompareTo(distances[b]));
+
+            // Rewritten in place so `candidates` stays the reusable list. Allocating here is
+            // acceptable anyway -- PublishedSlotCount has already logged an error by now.
+            int[] keep = new int[blockSlotCapacity];
+            for (int i = 0; i < blockSlotCapacity; i++) keep[i] = candidates[order[i]];
+            candidates.Clear();
+            for (int i = 0; i < keep.Length; i++) candidates.Add(keep[i]);
+        }
+
+        // Sort by camera index, NOT by yaw. The slot a drone occupies must be stable
+        // frame to frame, or Python's busy-block cache serves one drone's frame in
+        // another's slot. Python sorts by drone_id, so index order makes both agree.
+        candidates.Sort();
+        selected = TakeSelectionBuffer(candidates.Count);
+        candidates.CopyTo(0, selected, 0, candidates.Count);
+    }
+
+    /// <summary>
+    /// Draws the scene plane, the centre camera's ray, and each selected view's
+    /// footprint. Worth having: a raycast that latched onto a feed screen, an inverted
+    /// plane normal or a selection that dropped the interior drones all look identical
+    /// from Python (a wrong-looking mosaic) but are obvious here at a glance.
+    /// </summary>
+    private void OnDrawGizmosSelected()
+    {
+        if (!Application.isPlaying || typeOfStitcher != stitcherType.PLANAR) return;
+        if (camerasToCapture == null || !scenePlaneInitialised) return;
+
+        // Plane patch, drawn in the plane's own axes around the centre camera's hit.
+        Vector3 origin = scenePlaneNormal * scenePlaneD;
+        if (centreStitchCameraIndex >= 0 && centreStitchCameraIndex < camerasToCapture.Count)
+        {
+            Camera centre = camerasToCapture[centreStitchCameraIndex];
+            if (centre != null)
+            {
+                Gizmos.color = scenePlaneValid ? Color.cyan : new Color(1f, 0.5f, 0f);
+                Vector3 dir = (resolvedPlaneMode == ScenePlaneMode.Nadir)
+                    ? Vector3.down : centre.transform.forward;
+                if (TryPlaneHit(centre, out Vector3 hit, out _))
+                {
+                    Gizmos.DrawLine(centre.transform.position, hit);
+                    Gizmos.DrawWireSphere(hit, 0.4f);
+                    origin = hit;
+                }
+                else
+                {
+                    Gizmos.DrawRay(centre.transform.position, dir * fallbackPlaneDistance);
+                }
+            }
+        }
+
+        Vector3 right = Vector3.Cross(Vector3.up, scenePlaneNormal);
+        if (right.sqrMagnitude < 1e-6f) right = Vector3.right;
+        right.Normalize();
+        Vector3 up = Vector3.Cross(scenePlaneNormal, right).normalized;
+
+        // Zoom is applied because Unity knows it; AutoFit's scale is NOT, because Python
+        // owns that value and there is no path back (the panorama map's header is full).
+        // So under AutoFit this patch shows the rest framing the fit is quantised about,
+        // not the framing on screen — Python's periodic [PLANAR] line prints the real one.
+        float gizmoMpp = planarMetresPerPixel / Mathf.Max(planarZoom, 1e-3f);
+        float half = Mathf.Max(5f, gizmoMpp * planarCanvasWidth * 0.5f);
+        float halfV = Mathf.Max(5f, gizmoMpp * planarCanvasHeight * 0.5f);
+        Gizmos.color = scenePlaneValid
+            ? new Color(0f, 1f, 1f, 0.8f) : new Color(1f, 0.5f, 0f, 0.8f);
+        Vector3 a = origin + right * half + up * halfV;
+        Vector3 b = origin - right * half + up * halfV;
+        Vector3 c = origin - right * half - up * halfV;
+        Vector3 d = origin + right * half - up * halfV;
+        Gizmos.DrawLine(a, b); Gizmos.DrawLine(b, c);
+        Gizmos.DrawLine(c, d); Gizmos.DrawLine(d, a);
+
+        // Plane normal, so an inverted orientation is immediately visible.
+        Gizmos.color = Color.magenta;
+        Gizmos.DrawRay(origin, scenePlaneNormal * 3f);
+
+        // Each selected view's footprint on the plane.
+        if (selectedStitchIndices == null) return;
+        foreach (int idx in selectedStitchIndices)
+        {
+            if (idx < 0 || idx >= camerasToCapture.Count) continue;
+            Camera cam = camerasToCapture[idx];
+            if (cam == null) continue;
+            DrawFootprintGizmo(cam);
+        }
+    }
+
+    // Back-projects the image corners onto the scene plane. Corners that miss (behind
+    // the camera, or past the horizon) leave the quad open, which is the visual cue
+    // that the view is being clipped.
+    private void DrawFootprintGizmo(Camera cam)
+    {
+        Vector3[] corners = new Vector3[4];
+        bool[] ok = new bool[4];
+        Vector2[] viewport = { new Vector2(0, 0), new Vector2(1, 0),
+                               new Vector2(1, 1), new Vector2(0, 1) };
+
+        for (int i = 0; i < 4; i++)
+        {
+            Ray ray = cam.ViewportPointToRay(viewport[i]);
+            float denom = Vector3.Dot(scenePlaneNormal, ray.direction);
+            if (Mathf.Abs(denom) < 1e-6f) continue;
+            float t = (scenePlaneD - Vector3.Dot(scenePlaneNormal, ray.origin)) / denom;
+            if (t <= 0f || t > planarMaxRange) continue;
+            corners[i] = ray.origin + ray.direction * t;
+            ok[i] = true;
+        }
+
+        Gizmos.color = Color.green;
+        for (int i = 0; i < 4; i++)
+        {
+            int j = (i + 1) % 4;
+            if (ok[i] && ok[j]) Gizmos.DrawLine(corners[i], corners[j]);
+        }
+    }
+
+    // Where a camera's principal ray meets the current scene plane.
+    private bool TryPlaneHit(Camera cam, out Vector3 hit, out float range)
+    {
+        hit = Vector3.zero;
+        range = 0f;
+
+        Vector3 origin = cam.transform.position;
+        Vector3 dir = cam.transform.forward;
+        float denom = Vector3.Dot(scenePlaneNormal, dir);
+        if (Mathf.Abs(denom) < 1e-6f) return false;          // parallel to the plane
+
+        float t = (scenePlaneD - Vector3.Dot(scenePlaneNormal, origin)) / denom;
+        if (t <= 0f) return false;                            // plane is behind the camera
+
+        hit = origin + dir * t;
+        range = t;
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the scene plane from a raycast off the centre stitch camera and
+    /// low-passes it. Called every frame before the capture loop so the plane published
+    /// this frame matches the frame's pose snapshots.
+    /// </summary>
+    private void UpdateScenePlane(int centreCamIdx)
+    {
+        // Auto: the gimbal being pitched hard down is what actually distinguishes a
+        // ground mosaic from a facade one. Deliberately not keyed off
+        // SwarmPlaneController.PlaneModeActive — that describes the formation, not the
+        // surface being imaged.
+        resolvedPlaneMode = scenePlaneMode;
+        if (resolvedPlaneMode == ScenePlaneMode.Auto)
+        {
+            resolvedPlaneMode = (FPVCameraScript.SharedPitch <= FPVCameraScript.NadirPitch)
+                ? ScenePlaneMode.Nadir : ScenePlaneMode.Facade;
+        }
+
+        // FormationRelative needs no camera, no collider and no raycast — that is the
+        // whole point of it, and it is the only mode that can resolve on the real-drone
+        // path. Handled before the camera guard below for exactly that reason: in the DJI
+        // scene camerasToCapture is empty, so anything after that guard never runs and the
+        // plane is never published at all.
+        //
+        // Python derives the normal and the offset from the poses; all that is published
+        // here is the mode (so it knows to) and the standoff (so it knows how far). The
+        // seqlocked normal/offset are left at whatever they were and go unused.
+        if (resolvedPlaneMode == ScenePlaneMode.FormationRelative)
+        {
+            scenePlaneValid = true;
+            scenePlaneInitialised = true;
+            return;
+        }
+
+        if (resolvedPlaneMode == ScenePlaneMode.Manual)
+        {
+            // Also above the camera guard: Manual is likewise raycast-free, and leaving it
+            // below meant it silently produced nothing in a scene with no FPV cameras.
+            scenePlaneNormal = manualPlaneNormal.sqrMagnitude > 1e-6f
+                ? manualPlaneNormal.normalized : Vector3.up;
+            scenePlaneD = manualPlaneDistance;
+            scenePlaneValid = true;
+            scenePlaneInitialised = true;
+            return;
+        }
+
+        // Everything from here needs a real Unity camera to cast from, so the remaining
+        // modes simply cannot resolve without one.
+        if (camerasToCapture == null || centreCamIdx < 0 || centreCamIdx >= camerasToCapture.Count)
+            return;
+        Camera centre = camerasToCapture[centreCamIdx];
+        if (centre == null) return;
+
+        Vector3 origin = centre.transform.position;
+        // Nadir casts along world down rather than camera forward: at a -90 gimbal the
+        // FPV camera's Slerp leaves forward only *almost* down, and world down keeps the
+        // ground normal exactly world up instead of wobbling with the drone.
+        Vector3 dir = (resolvedPlaneMode == ScenePlaneMode.Nadir)
+            ? Vector3.down : centre.transform.forward;
+
+        dir = dir.normalized;
+        bool hit = RaycastScenePlane(origin, dir, out Vector3 hitNormal, out float hitDistance);
+
+        // Normal: the hit surface, overridden where we have a better prior.
+        Vector3 targetNormal;
+        if (resolvedPlaneMode == ScenePlaneMode.Nadir)
+        {
+            targetNormal = Vector3.up;
+        }
+        else if (snapNormalToFormation && SwarmPlaneController.Instance != null
+                 && SwarmPlaneController.Instance.PlaneModeActive)
+        {
+            targetNormal = SwarmPlaneController.Instance.PlaneNormal;
+        }
+        else if (hit)
+        {
+            targetNormal = hitNormal;
+        }
+        else
+        {
+            targetNormal = scenePlaneInitialised ? scenePlaneNormal : -dir;
+        }
+
+        // Orient toward the cameras, so the plane's "front" is unambiguous downstream.
+        if (Vector3.Dot(targetNormal, dir) > 0f) targetNormal = -targetNormal;
+        targetNormal.Normalize();
+
+        // Offset: through the hit point, or out at the fallback distance on a miss.
+        // A wrong distance is only a uniform scale error, so this degrades gracefully.
+        float range = hit ? hitDistance : fallbackPlaneDistance;
+        float targetD = Vector3.Dot(targetNormal, origin + dir * range);
+
+        if (!scenePlaneInitialised || planeFilterTime <= 0f)
+        {
+            scenePlaneNormal = targetNormal;
+            scenePlaneD = targetD;
+            scenePlaneInitialised = true;
+        }
+        else
+        {
+            float alpha = 1f - Mathf.Exp(-Time.deltaTime / planeFilterTime);
+            scenePlaneNormal = Vector3.Slerp(scenePlaneNormal, targetNormal, alpha).normalized;
+            scenePlaneD = Mathf.Lerp(scenePlaneD, targetD, alpha);
+        }
+        scenePlaneValid = hit;
+    }
+
+    // Nearest hit that is actually scenery. The layer mask alone is not enough: drones
+    // and feed screens can sit on default layers, and hitting one silently puts the
+    // scene plane a few metres from the camera, which then looks exactly like a
+    // geometry bug rather than a raycast bug.
+    private bool RaycastScenePlane(Vector3 origin, Vector3 dir,
+                                   out Vector3 normal, out float distance)
+    {
+        normal = Vector3.zero;
+        distance = 0f;
+        if (dir.sqrMagnitude < 1e-6f) return false;
+        dir = dir.normalized;
+
+        int count = Physics.RaycastNonAlloc(origin, dir, scenePlaneHits, planarMaxRange,
+                                            scenePlaneMask, QueryTriggerInteraction.Ignore);
+        bool found = false;
+        float best = float.MaxValue;
+        for (int i = 0; i < count; i++)
+        {
+            Transform t = scenePlaneHits[i].transform;
+            if (t == null) continue;
+            if (t.CompareTag("Screen") || t.CompareTag("DroneBase")) continue;
+            if (t.root != null && t.root.CompareTag("DroneBase")) continue;
+            if (t.IsChildOf(transform)) continue;   // this component's own curved screen
+            if (scenePlaneHits[i].distance < best)
+            {
+                best = scenePlaneHits[i].distance;
+                normal = scenePlaneHits[i].normal;
+                found = true;
+            }
+        }
+        distance = best;
+        return found;
+    }
+
+    /// <summary>
+    /// The intrinsics actually published to Python, from whichever source is configured.
+    ///
+    /// Two sources rather than one because the DJI scene has no sim FPV camera to ask:
+    /// <see cref="camerasToCapture"/> is empty there, so the camera-derived path leaves fx
+    /// at 0 and Python's <c>planar_inputs_ready()</c> refuses the frame with "no camera
+    /// intrinsics" — which is the guard that actually fires on the real-drone path today,
+    /// before the missing pose is ever reached.
+    ///
+    /// Warns rather than silently publishing zeros when neither source is available, since
+    /// a zero fx is indistinguishable downstream from a stitcher that simply has not
+    /// started yet.
+    /// </summary>
+    private void ResolveIntrinsics(out float fx, out float fy, out float cx, out float cy)
+    {
+        if (useManualIntrinsics)
+        {
+            // Square pixels and a centred principal point. Enough to fly; a real
+            // calibration (and DJI's dewarping, since the geometry assumes a pinhole) is
+            // what removes the last of the seam.
+            float f = (blockImageHeight * 0.5f)
+                      / Mathf.Tan(Mathf.Deg2Rad * Mathf.Max(1f, manualVerticalFovDeg) * 0.5f);
+            fx = fy = f;
+            cx = blockImageWidth * 0.5f;
+            cy = blockImageHeight * 0.5f;
+            return;
+        }
+
+        // Any FPV camera will do: SpawnScreens configures them identically, and
+        // DeriveIntrinsics warns if the aspect has drifted from the block resolution.
+        fx = fy = cx = cy = 0f;
+        if (camerasToCapture != null)
+        {
+            for (int i = 0; i < camerasToCapture.Count; i++)
+            {
+                if (camerasToCapture[i] == null) continue;
+                DeriveIntrinsics(camerasToCapture[i], out fx, out fy, out cx, out cy);
+                return;
+            }
+        }
+
+        if (!intrinsicsMissingWarned && typeOfStitcher == stitcherType.PLANAR)
+        {
+            intrinsicsMissingWarned = true;
+            Debug.LogWarning("PyUniSharingFast: PLANAR is selected but there is no FPV camera to " +
+                             "take intrinsics from, so fx is published as 0 and Python will fall " +
+                             "back to the individual feeds. On the real-drone path, enable " +
+                             "useManualIntrinsics and set manualVerticalFovDeg.");
+        }
+    }
+    private bool intrinsicsMissingWarned = false;
+
+    /// <summary>
+    /// Pinhole intrinsics for the block resolution, taken from the camera's own
+    /// projection matrix rather than from a field-of-view number.
+    ///
+    /// ScreenSpawn owns the FOV and aspect while this component owns the block
+    /// resolution, so those two can disagree; the projection matrix cannot disagree
+    /// with the pixels, because it is the matrix Unity rendered them with.
+    /// </summary>
+    private void DeriveIntrinsics(Camera camera, out float fx, out float fy,
+                                  out float cx, out float cy)
+    {
+        Matrix4x4 P = camera.projectionMatrix;
+        fx = P.m00 * blockImageWidth * 0.5f;
+        fy = P.m11 * blockImageHeight * 0.5f;
+        cx = (1f + P.m02) * blockImageWidth * 0.5f;
+        cy = (1f - P.m12) * blockImageHeight * 0.5f;   // NDC +y is up, image row 0 is top
+
+        float expected = (float)blockImageWidth / blockImageHeight;
+        if (!intrinsicsAspectWarned && Mathf.Abs(camera.aspect - expected) > 1e-3f)
+        {
+            intrinsicsAspectWarned = true;
+            Debug.LogWarning($"PyUniSharingFast: FPV camera aspect {camera.aspect:F4} disagrees " +
+                             $"with the block resolution {blockImageWidth}x{blockImageHeight} " +
+                             $"({expected:F4}). Re-run ScreenSpawn after changing block size, or " +
+                             "the planar mosaic will be stretched.");
+        }
+    }
+    private bool intrinsicsAspectWarned = false;
 
     // True when camera i's drone is on the swarm boundary (convex hull). Read live
     // each frame; Unity's null check covers a missing or destroyed AttitudeAlgorithm.
@@ -1219,7 +3428,7 @@ public class PyUniSharingFast : MonoBehaviour
 
     // Anchors the curved panorama screen at the Arena centre and rotates it so
     // its arc faces the centre drone's direction (mirrors the per-drone screen
-    // placement in ScreenSpawn.UpdateRealDroneScreen). The screen therefore
+    // placement in ScreenSpawn.UpdateOuterCircleScreen). The screen therefore
     // snaps to a new direction only when the head turns far enough to change
     // the selected centre view.
     private void UpdateCurvedScreenPose(float centreYaw)
@@ -1241,10 +3450,265 @@ public class PyUniSharingFast : MonoBehaviour
     private void WriteBodyYaw(float yaw)
     {
         if (metadataPtr == IntPtr.Zero) return;
+        WriteFloat(metadataPtr, metadataHeadYawOffset, yaw);
+    }
 
-        byte[] yawBytes = BitConverter.GetBytes(yaw);
-        if (!BitConverter.IsLittleEndian) Array.Reverse(yawBytes);
-        Marshal.Copy(yawBytes, 0, IntPtr.Add(metadataPtr, metadataHeadYawOffset), 4);
+    /// <summary>
+    /// Which scene-plane standoff Python should be told about, and where it came from.
+    ///
+    /// The PC wins whenever it is offering a usable one. It computes the number from a
+    /// facade traced on the GUI map plus the live formation, so it TRACKS — where the
+    /// inspector field is a constant someone typed, and a wrong constant is the single
+    /// largest error in the pose-driven mosaic (30 m against a true 34.3 m on the
+    /// 2026-08-11 MED clips is ~21 px of seam, more than every other term combined).
+    ///
+    /// planarStandoffMetres is not vestigial, though, and is still worth setting: it is
+    /// the only source in every sim scene, in the DJI scene before a controller starts,
+    /// and again the moment one exits. ImageSharing owns the validity decision — it is
+    /// the sole consumer of the map the value arrives on — and reports false in all
+    /// three of those cases, including in scenes where it does not exist at all.
+    ///
+    /// One resolver with two call sites, so the per-frame path and WriteMetadata's
+    /// republish can never disagree about which source is authoritative.
+    /// </summary>
+    private float ResolvePlanarStandoff(out bool fromFeed)
+    {
+        // Manual is an absolute takeover, not a preference: an operator reaching for it is
+        // overriding an auto-pick they believe is wrong, so a silent fall-back to the PC
+        // the moment it looks healthy again would be the opposite of what they asked for.
+        fromFeed = planarStandoffSource == PlanarStandoffSource.Auto
+                   && ImageSharing.FeedStandoffValid;
+        return fromFeed ? ImageSharing.FeedStandoffMetres : planarStandoffMetres;
+    }
+
+    /// <summary>
+    /// Per-frame write of just the standoff, the same lone-scalar pattern as
+    /// <see cref="WriteBodyYaw"/>. A single aligned float32 needs no seqlock: Python
+    /// either reads the previous value or this one, and both are whole.
+    /// </summary>
+    private void WritePlanarStandoff()
+    {
+        if (metadataPtr == IntPtr.Zero) return;
+        float standoff = ResolvePlanarStandoff(out bool fromFeed);
+        WriteFloat(metadataPtr, metaPlanarStandoffOffset, standoff);
+        // The source ACTUALLY in force, not the one asked for. Published so the PC can say
+        // which number Unity is using rather than assume: with the Manual takeover,
+        // clip_replay.py would otherwise keep announcing that it drives the standoff while
+        // the scene quietly used a typed one.
+        Marshal.WriteByte(metadataPtr, metaPlanarStandoffSourceOffset,
+                          (byte)(fromFeed ? standoffSourceFeed : standoffSourceInspector));
+        UpdateStandoffReadout(standoff, fromFeed);
+    }
+
+    /// <summary>
+    /// Refresh the inspector's read-only standoff read-out.
+    ///
+    /// A separate field rather than writing the live value back into planarStandoffMetres,
+    /// which is what "make the inspector mimic it" would mean. That field is the FALLBACK:
+    /// overwrite it and the instant the PC stops publishing, the fallback becomes the last
+    /// PC value instead of the operator's own number — a finished clip_replay would leave
+    /// its clip's standoff sitting in the inspector and every later session would inherit
+    /// it silently. That is the same stale-value failure the producer heartbeat exists to
+    /// prevent, reintroduced through the inspector.
+    /// </summary>
+    private void UpdateStandoffReadout(float standoff, bool fromFeed)
+    {
+        // Runs every frame, and the standoff now tracks the formation, so the raw float changes
+        // every frame -- but the readout only shows two decimals, so most of those frames would
+        // format a string identical to the one already on display and then drop it. Gate on what
+        // is actually rendered (centimetres, plus the two things that pick the wording) and the
+        // formatting becomes rare instead of per-frame.
+        int centimetres = Mathf.RoundToInt(standoff * 100f);
+        int facadeId = ImageSharing.FeedStandoffFacadeId;
+        if (standoffReadoutValid
+            && centimetres == lastStandoffReadoutCm
+            && fromFeed == lastStandoffReadoutFromFeed
+            && planarStandoffSource == lastStandoffReadoutSource
+            && facadeId == lastStandoffReadoutFacadeId)
+        {
+            return;
+        }
+        standoffReadoutValid = true;
+        lastStandoffReadoutCm = centimetres;
+        lastStandoffReadoutFromFeed = fromFeed;
+        lastStandoffReadoutSource = planarStandoffSource;
+        lastStandoffReadoutFacadeId = facadeId;
+
+        string text;
+        if (fromFeed)
+        {
+            text = string.Format("{0:F2} m — from the PC (facade {1})",
+                                 standoff, facadeId);
+        }
+        else if (planarStandoffSource == PlanarStandoffSource.Inspector)
+        {
+            text = string.Format("{0:F2} m — INSPECTOR takeover, ignoring the PC", standoff);
+        }
+        else
+        {
+            text = string.Format("{0:F2} m — inspector fallback (no live value from the PC)",
+                                 standoff);
+        }
+        if (text != planarStandoffInUse) planarStandoffInUse = text;
+    }
+
+    // Little-endian float32 into a shared-memory region. Python unpacks these with
+    // struct '<f', so the byte order has to be explicit rather than inherited.
+    //
+    // Written as the float's raw bits through Marshal.WriteInt32 rather than through
+    // BitConverter.GetBytes, which allocated a 4-byte array on EVERY call -- and this is the
+    // most-called allocator in the file: a dozen times per frame from WriteBodyYaw /
+    // WritePlanarStandoff / WriteDynamicState, plus eight per block readback. Steady garbage on
+    // the per-frame path is a dropped headset frame whenever a collection lands. The bytes are
+    // identical: SingleToInt32Bits is a pure reinterpret, and Marshal.WriteInt32 stores in the
+    // platform's own order, so the little-endian branch below is the same test as before.
+    private static void WriteFloat(IntPtr basePtr, int offset, float value)
+    {
+        int bits = BitConverter.SingleToInt32Bits(value);
+        if (!BitConverter.IsLittleEndian) bits = System.Buffers.Binary.BinaryPrimitives.ReverseEndianness(bits);
+        Marshal.WriteInt32(basePtr, offset, bits);
+    }
+
+    /// <summary>
+    /// Zoom the planar canvas by a ratio. 1.2 zooms in 20%, 1/1.2 back out again.
+    ///
+    /// Public, following SwarmPlaneController.TogglePlaneMode's convention, so an RC
+    /// channel or a controller axis can drive the same thing the keys do without this
+    /// component growing a second input path.
+    /// </summary>
+    public void ZoomBy(float ratio)
+    {
+        if (ratio <= 0f || !float.IsFinite(ratio)) return;
+        planarZoom = Mathf.Clamp(planarZoom * ratio, planarZoomMin, planarZoomMax);
+    }
+
+    /// <summary>
+    /// Pan the planar canvas, in fractions of the canvas. Python clamps the result to the
+    /// imagery's actual footprint, so the loose bound here only stops the value running
+    /// away while the panorama is off.
+    /// </summary>
+    public void PanBy(float da, float db)
+    {
+        if (!float.IsFinite(da) || !float.IsFinite(db)) return;
+        planarPan = new Vector2(
+            Mathf.Clamp(planarPan.x + da, -planarPanLimit, planarPanLimit),
+            Mathf.Clamp(planarPan.y + db, -planarPanLimit, planarPanLimit));
+    }
+
+    /// <summary>
+    /// Back to the canvas mode's own framing: no magnification, no offset. Note this
+    /// resets the <i>view</i> only — the canvas mode itself is the operator's choice and
+    /// is left alone.
+    /// </summary>
+    public void ResetView()
+    {
+        planarZoom = 1f;
+        planarPan = Vector2.zero;
+    }
+
+    // Keyboard/scroll bindings for the three above. Split out of Update so the input
+    // surface is in one place when a controller binding is added beside it.
+    private void UpdatePlanarViewInput()
+    {
+        if (Input.GetKeyDown(planarResetViewKey)) ResetView();
+
+        // Held rather than tapped: zoom and pan are the sort of thing an operator sweeps
+        // to a value, and requiring one keypress per step makes that tedious. Scaled by
+        // deltaTime so the rate does not depend on the frame rate, with the step itself
+        // being the per-second amount.
+        float dt = Time.deltaTime;
+        if (Input.GetKey(planarZoomInKey)) ZoomBy(Mathf.Pow(planarZoomStep, dt));
+        if (Input.GetKey(planarZoomOutKey)) ZoomBy(Mathf.Pow(planarZoomStep, -dt));
+
+        float panX = (Input.GetKey(planarPanRightKey) ? 1f : 0f)
+                   - (Input.GetKey(planarPanLeftKey) ? 1f : 0f);
+        float panY = (Input.GetKey(planarPanUpKey) ? 1f : 0f)
+                   - (Input.GetKey(planarPanDownKey) ? 1f : 0f);
+        if (panX != 0f || panY != 0f)
+            PanBy(panX * planarPanStep * dt, panY * planarPanStep * dt);
+
+        // The wheel reports discrete notches, so it is stepped rather than rate-scaled.
+        if (planarScrollWheelZoom)
+        {
+            float scroll = Input.GetAxis("Mouse ScrollWheel");
+            if (Mathf.Abs(scroll) > 0.001f)
+                ZoomBy(Mathf.Pow(planarZoomStep, Mathf.Sign(scroll)));
+        }
+    }
+
+    /// <summary>
+    /// Per-frame write of the scene plane and gimbal pitch, under a seqlock.
+    ///
+    /// The counter is bumped to an odd value before the payload and to the next even
+    /// value after it, so a reader that sees an odd counter (or a different one either
+    /// side of its read) knows the data was in flux and retries. Unlike the single
+    /// scalars written by <see cref="WriteBodyYaw"/>, these fields are only meaningful
+    /// together: a plane normal torn across a write is not unit length and not
+    /// perpendicular to anything.
+    /// </summary>
+    private void WriteDynamicState()
+    {
+        if (metadataPtr == IntPtr.Zero) return;
+
+        int seq = Marshal.ReadInt32(metadataPtr, metaDynSeqOffset);
+        Marshal.WriteInt32(metadataPtr, metaDynSeqOffset, seq | 1);      // mark in-flux
+        System.Threading.Thread.MemoryBarrier();
+
+        WriteFloat(metadataPtr, metaPlaneNxOffset, scenePlaneNormal.x);
+        WriteFloat(metadataPtr, metaPlaneNyOffset, scenePlaneNormal.y);
+        WriteFloat(metadataPtr, metaPlaneNzOffset, scenePlaneNormal.z);
+        WriteFloat(metadataPtr, metaPlaneDOffset, scenePlaneD);
+        Marshal.WriteByte(metadataPtr, metaPlaneValidOffset, (byte)(scenePlaneValid ? 1 : 0));
+        // Python switches on this byte by number, so the mirror the wire checker compares
+        // against must actually match the enum. Asserted here rather than trusted: the two
+        // are declared 800 lines apart and adding an enum member in the middle would
+        // renumber FormationRelative silently.
+        Debug.Assert((int)ScenePlaneMode.FormationRelative == planeModeFormationRelative,
+                     "ScenePlaneMode.FormationRelative and planeModeFormationRelative disagree; " +
+                     "Python's PLANE_MODE_FORMATION_RELATIVE mirrors the latter.");
+        Marshal.WriteByte(metadataPtr, metaPlaneModeOffset, (byte)resolvedPlaneMode);
+        WriteFloat(metadataPtr, metaGimbalPitchOffset, FPVCameraScript.SharedPitch);
+        // droneId in the block header is the camerasToCapture index, so the centre camera
+        // index is already in Python's id space -- no mapping table to keep in sync.
+        Marshal.WriteInt32(metadataPtr, metaCentreDroneIdOffset, centreStitchCameraIndex);
+
+        // Operator viewing transform. Inside this seqlock rather than beside the static
+        // planar settings because both are offsets from the canvas origin the centre drone
+        // above defines -- a pan paired with the previous frame's centre is a visible jump.
+        // Clamped on write so the wire never carries a value Python has to distrust.
+        WriteFloat(metadataPtr, metaPlanarZoomOffset,
+                   Mathf.Clamp(planarZoom, planarZoomMin, planarZoomMax));
+        WriteFloat(metadataPtr, metaPlanarPanAOffset,
+                   Mathf.Clamp(planarPan.x, -planarPanLimit, planarPanLimit));
+        WriteFloat(metadataPtr, metaPlanarPanBOffset,
+                   Mathf.Clamp(planarPan.y, -planarPanLimit, planarPanLimit));
+
+        System.Threading.Thread.MemoryBarrier();
+        Marshal.WriteInt32(metadataPtr, metaDynSeqOffset, (seq | 1) + 1); // stable again
+    }
+
+    // True when `selection` differs from the previously recorded one. Replaces comparing
+    // string.Join keys, which allocated on the per-frame path to answer a question about a
+    // handful of ints. A null `previous` counts as changed, which is what seeds the first pass.
+    private static bool SelectionChanged(int[] previous, int[] selection)
+    {
+        if (previous == null || selection == null) return true;
+        if (previous.Length != selection.Length) return true;
+        for (int i = 0; i < selection.Length; i++)
+        {
+            if (previous[i] != selection[i]) return true;
+        }
+        return false;
+    }
+
+    // Stores `selection` into `buffer`, reusing it when the length already matches. Only ever
+    // runs on an actual selection change, so the occasional allocation here is not per-frame.
+    private static int[] CopySelection(int[] selection, int[] buffer)
+    {
+        if (selection == null) return null;
+        if (buffer == null || buffer.Length != selection.Length) buffer = new int[selection.Length];
+        Array.Copy(selection, buffer, selection.Length);
+        return buffer;
     }
 
     // Reflects the current stitch selection in the Inspector (read-only). Only
@@ -1252,9 +3716,8 @@ public class PyUniSharingFast : MonoBehaviour
     // frame. Entries are ordered [left, centre, right].
     private void UpdateStitchedDronesDisplay(int[] selected)
     {
-        string key = string.Join(",", selected);
-        if (key == lastStitchedDronesKey) return;
-        lastStitchedDronesKey = key;
+        if (!SelectionChanged(lastStitchedDronesKey, selected)) return;
+        lastStitchedDronesKey = CopySelection(selected, lastStitchedDronesKey);
 
         stitchedDrones.Clear();
         for (int j = 0; j < selected.Length; j++)
@@ -1270,15 +3733,31 @@ public class PyUniSharingFast : MonoBehaviour
     // while the flag is on AND the panorama is actually displayed (panoramaDisplayActive);
     // otherwise pushes an empty set so all feeds show. Change-detected to avoid
     // per-frame allocation.
+    //
+    // This is the SIM half: it resolves the selection to "Drone N" GameObjects, which the
+    // real-drone path has none of (the DJI scene contains no drones, only feeds). There the
+    // selection is made by ImageSharing, which reads HideStitchedFeeds -- published below,
+    // before the ScreenSpawn guard, so the toggle reaches it whatever this half can do.
     private void UpdateStitchedScreenHiding(int[] selected)
     {
+        // Tested alongside panoramaDisplayActive, not instead of it: that starts true and only
+        // ApplyQualityFallback clears it, which never runs with panorama reading off, so on its own
+        // it would hide the three front feeds for a whole session with no panorama in their place.
+        bool hide = hideStitchedDroneScreens && enablePanoramaReading && panoramaDisplayActive;
+        HideStitchedFeeds = hide;
+
         if (screenSpawn == null) screenSpawn = FindObjectOfType<ScreenSpawn>();
         if (screenSpawn == null) return;
 
-        bool hide = hideStitchedDroneScreens && panoramaDisplayActive;
-        string key = hide ? string.Join(",", selected) : "off";
-        if (key == lastHiddenScreensKey) return;
-        lastHiddenScreensKey = key;
+        // While hidden the selection is the key; while showing, every selection is equivalent,
+        // which is what the old "off" sentinel string expressed.
+        bool changed = !lastHiddenScreensValid
+                       || hide != lastHiddenScreensHiding
+                       || (hide && SelectionChanged(lastHiddenScreensKey, selected));
+        if (!changed) return;
+        lastHiddenScreensValid = true;
+        lastHiddenScreensHiding = hide;
+        if (hide) lastHiddenScreensKey = CopySelection(selected, lastHiddenScreensKey);
 
         if (!hide)
         {
@@ -1316,6 +3795,7 @@ public class PyUniSharingFast : MonoBehaviour
         camerasToCapture = new List<Camera>();
         stitchAttitudes = new List<AttitudeAlgorithm>();
         stitchStates = new List<StateFinder>();
+        stitchRenderers = new List<FPVCameraScript>();
 
         GameObject[] drones = GameObject.FindGameObjectsWithTag("DroneBase");
 
@@ -1326,6 +3806,8 @@ public class PyUniSharingFast : MonoBehaviour
             if (camera != null)
             {
                 camerasToCapture.Add(camera);
+                // The gimbal driver on the same object, for the shared render gate below.
+                stitchRenderers.Add(camera.GetComponent<FPVCameraScript>());
                 // Cache this drone's boundary estimator (aligned with camerasToCapture)
                 // so only convex-hull boundary drones are selected for stitching.
                 Transform droneParent = drone.transform.Find("DroneParent");
@@ -1335,7 +3817,7 @@ public class PyUniSharingFast : MonoBehaviour
                 StateFinder state = droneParent?.GetComponent<VelocityControl>()?.State;
                 stitchStates.Add(state);
             }
-            if(camerasToCapture.Count >maxBlockImageCount) break;
+            if(camerasToCapture.Count >blockSlotCapacity) break;
         }
     }
 
@@ -1354,27 +3836,36 @@ public class PyUniSharingFast : MonoBehaviour
 
     private void CalculateMemorySizes()
     {
-        if(blockImageCount>maxBlockImageCount)
+        // Republished here rather than in Update: the stitcher selection only changes from
+        // the inspector, and this runs at Start and on every inspector change. Doing it per
+        // frame would also race ImageSharing's own Update, whose order is undefined.
+        PlanarSelected = typeOfStitcher == stitcherType.PLANAR;
+
+        if(blockImageCount>blockSlotCapacity)
         {
-            blockImageCount = maxBlockImageCount;
-            Debug.LogError("Decrease number of drones or increase maxBlockImageCount constant. Value upperbounded at maxBlockImageCount.");
+            blockImageCount = blockSlotCapacity;
+            Debug.LogError("Decrease number of drones or increase blockSlotCapacity constant. Value upperbounded at blockSlotCapacity.");
         }
 
+        // These two clamps are load-bearing now, not hygiene: the slot stride is sized from
+        // maxBlockWidth/Height, so a payload past the envelope would run into the next slot.
         if(blockImageWidth>maxBlockWidth)
         {
             blockImageWidth = maxBlockWidth;
-            Debug.LogError("Decrease dimensions of images or increase maxBlockWidth constant.");
+            Debug.LogError("Decrease dimensions of images or increase maxBlockWidth constant (and BLOCK_MAX_WIDTH in StitcherThreading.py with it).");
         }
 
         if(blockImageHeight>maxBlockHeight)
         {
             blockImageHeight = maxBlockHeight;
-            Debug.LogError("Decrease dimensions of images or increase maxBlockHeight constant.");
+            Debug.LogError("Decrease dimensions of images or increase maxBlockHeight constant (and BLOCK_MAX_HEIGHT in StitcherThreading.py with it).");
         }
 
         blockImageSize = blockImageWidth*blockImageHeight*3;
-        blockSize = blockHeaderSize + blockImageSize;
-        totalBlockSize = blockImageCount * blockSize;
+        // A constant, not derived from the live resolution or drone count -- see the
+        // blockSlotCapacity block. Assigned here rather than inlined so the call sites that
+        // address a slot keep reading the same field they always did.
+        blockSize = blockSlotStride;
 
         if(panoramaImageWidth>maxPanoramaWidth)
         {
@@ -1388,8 +3879,11 @@ public class PyUniSharingFast : MonoBehaviour
             Debug.LogError("Decrease dimensions of images or increase maxPanoramaHeight constant.");
         }
 
+        // Live payload length only. The section itself is panoramaSectionBytes, a constant,
+        // for the same reason the block section is -- Python now requests that same
+        // constant instead of the live size, which is what stopped the two sides denying
+        // each other whenever the panorama resolution differed from 4000x4000.
         panoramaImageSize = panoramaImageWidth * panoramaImageHeight * 3;
-        totalPanoramaSize = panoramaDataPosition + panoramaImageSize;
     }
 
     private void CreateMemoryMaps()
@@ -1403,7 +3897,7 @@ public class PyUniSharingFast : MonoBehaviour
         // Only create panorama memory map if panorama reading is enabled
         if (enablePanoramaReading)
         {
-            panoramaFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)maxTotalPanoramaSize, panoramaMapName);
+            panoramaFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)panoramaSectionBytes, panoramaMapName);
             if (panoramaFileMap != IntPtr.Zero)
             {
                 panoramaPtr = MapViewOfFile(panoramaFileMap, FILE_MAP_ALL_ACCESS, 0, 0, UIntPtr.Zero);
@@ -1415,25 +3909,44 @@ public class PyUniSharingFast : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning("Unable to create panorama memory-mapped file.");
+                int errorCode = Marshal.GetLastWin32Error();
+                Debug.LogError($"Unable to create {panoramaMapName} ({panoramaSectionBytes} bytes). " +
+                               $"Error Code: {errorCode}" +
+                               (errorCode == ERROR_ACCESS_DENIED
+                                   ? " (ACCESS_DENIED: a section of this name already exists at a smaller " +
+                                     "size — a stitcher built against a different panoramaSectionBytes is " +
+                                     "still running. Stop it, then restart Play.)"
+                                   : ""));
             }
         }
     }
 
-    // Creates (or recreates) the per-drone block mapping, sized exactly to
-    // blockImageCount * blockSize so it matches what image_stream.py and
-    // StitcherThreading.py allocate. All per-block flags are initialised to 0.
+    /// <summary>
+    /// Creates the block section, ONCE, at the constant <see cref="blockSectionBytes"/>.
+    /// Called only from <see cref="CreateMemoryMaps"/>.
+    ///
+    /// Do not add a second call site. This used to be re-invoked whenever the drone count,
+    /// the stitcher or the inspector resolution changed, and each of those was a live
+    /// destroy-and-recreate of a named section that a running Python had mapped — which
+    /// Windows answers with ERROR_ACCESS_DENIED, not a resize. The failure was near-silent
+    /// (blockPtr stayed null and Update's guard stopped publishing for the session), which
+    /// is why it read as an intermittent Unity/Python crash rather than a wire bug.
+    /// </summary>
     private void CreateBlockMap()
     {
         DestroyBlockMap();
 
-        if (blockImageCount <= 0 || totalBlockSize <= 0)
-            return;
-
-        blockFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)totalBlockSize, blockMapName);
+        blockFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0, (uint)blockSectionBytes, blockMapName);
         if (blockFileMap == IntPtr.Zero)
         {
-            Debug.LogWarning("Unable to create block memory-mapped file.");
+            int errorCode = Marshal.GetLastWin32Error();
+            Debug.LogError($"Unable to create {blockMapName} ({blockSectionBytes} bytes). " +
+                           $"Error Code: {errorCode}" +
+                           (errorCode == ERROR_ACCESS_DENIED
+                               ? " (ACCESS_DENIED: a section of this name already exists at a smaller " +
+                                 "size — a stitcher built against a different blockSlotCapacity or image " +
+                                 "envelope is still running. Stop it, then restart Play.)"
+                               : ""));
             return;
         }
 
@@ -1441,14 +3954,27 @@ public class PyUniSharingFast : MonoBehaviour
         if (blockPtr == IntPtr.Zero)
         {
             int errorCode = Marshal.GetLastWin32Error();
-            Debug.LogWarning($"Failed to map view of block file. Error Code: {errorCode}");
+            Debug.LogError($"Failed to map view of {blockMapName}. Error Code: {errorCode}");
             return;
         }
 
-        // Initialise every block's flag to 0 (ready for the consumer).
-        for (int i = 0; i < blockImageCount; i++)
+        // Initialise EVERY slot in the section, not just the ones the current fleet reaches:
+        // flag 0 (ready for the consumer) and droneId -1.
+        //
+        // The droneId matters as much as the flag. A fresh section is zero-filled, and
+        // zero is a *legal* drone id -- so until a slot's first readback lands, the
+        // consumer reads a ready block claiming to be drone 0 with an all-zero pose,
+        // which on the PLANAR path is a degenerate quaternion rather than an empty
+        // slot. -1 is the sentinel that already means "no view here", so say that from
+        // the moment the section exists rather than from the first frame that fills it.
+        // With a fixed-capacity section most slots stay at that sentinel for the whole
+        // session, so this loop is now the only thing standing between a small fleet and
+        // twenty phantom drone-0 views.
+        for (int i = 0; i < blockSlotCapacity; i++)
         {
-            Marshal.WriteInt32(blockPtr, i * blockSize + blockFlagOffset, 0);
+            Marshal.WriteInt32(blockPtr, i * blockSlotStride + blockFlagOffset, 0);
+            Marshal.WriteInt32(blockPtr, i * blockSlotStride + blockDroneIdOffset, -1);
+            Marshal.WriteInt32(blockPtr, i * blockSlotStride + blockPoseStatusOffset, 0);
         }
     }
 
@@ -1505,8 +4031,27 @@ public class PyUniSharingFast : MonoBehaviour
         }
     }
 
+    private void OnEnable()
+    {
+        PublishPilotYawRate();
+    }
+
+    private void OnDisable()
+    {
+        PilotYawRateValid = false;
+    }
+
+    private void PublishPilotYawRate()
+    {
+        PilotYawRateDegPerSec = bodyYawRate;
+        PilotYawExpo = bodyYawExpo;
+        PilotYawRateValid = true;
+    }
+
     private void OnValidate()
     {
+        if (isActiveAndEnabled) PublishPilotYawRate();
+
         if(hasStarted)
         {
             CalculateMemorySizes();
@@ -1516,14 +4061,16 @@ public class PyUniSharingFast : MonoBehaviour
                 WriteMetadata();
             }
 
-            // Update reusable resources for image writing
+            // Update reusable resources for image writing. Note there is no CreateBlockMap
+            // here any more: an inspector resolution change moves the payload length, not
+            // the slot geometry, and recreating the section from OnValidate while Python
+            // held it was one of the three ways to hit ERROR_ACCESS_DENIED mid-session.
             if (enableImageWriting)
             {
                 reusableTexture = new RenderTexture(blockImageWidth, blockImageHeight, 24);
                 image = new Texture2D(blockImageWidth, blockImageHeight, TextureFormat.RGB24, false);
                 blockImageBytes = new byte[blockImageSize];
                 EnsureConvertedBlockBuffer();
-                CreateBlockMap();
             }
 
             // Update reusable resources for panorama reading
@@ -1558,22 +4105,67 @@ public class PyUniSharingFast : MonoBehaviour
 
     private void UpdateCameras()
     {
+        // Re-discovery keeps CentreStitchDrone live for non-stitching consumers, so it runs
+        // regardless; only the metadata republish below depends on image writing.
+        FindCameras();
+        UpdateCameraToStitch();
+
         if (!enableImageWriting) return;
 
-        FindCameras();
+        RepublishSlotCountIfChanged();
+        // Kept on this tick now that the block map no longer has a resize path to hang it
+        // off. It is two size comparisons, and it is the only thing that notices a render
+        // target left behind by an inspector resolution change.
+        ValidateTextures();
+    }
 
-        int newblockImageCount = Mathf.Min(STITCH_COUNT, camerasToCapture.Count);
-        UpdateCameraToStitch();
-        if (newblockImageCount != blockImageCount)
+    // Drones appeared or disappeared. This used to destroy and recreate BlockSharedMemory at
+    // the new size, which is the bug the fixed envelope exists to remove -- a named section
+    // cannot be resized, and asking for a bigger one while Python holds the old one fails
+    // with ERROR_ACCESS_DENIED and silently kills publishing for the rest of the session.
+    //
+    // Now the section never changes: only the scan hint in metadata does, and the slots the
+    // shrunken fleet no longer reaches are retired by Update's InvalidateBlockSlot pass.
+    private void RepublishSlotCountIfChanged()
+    {
+        int newblockImageCount = PublishedSlotCount();
+        if (newblockImageCount == blockImageCount) return;
+
+        blockImageCount = newblockImageCount;
+        WriteMetadata();
+        EnsureReadbackPool();      // more slots per send needs more in-flight entries
+    }
+
+    /// <summary>
+    /// Switches the stitcher at runtime. <see cref="SwarmPlaneController"/> calls this when the
+    /// swarming plane changes: the vertical wall is one dominant plane, where PLANAR's
+    /// pose-driven homographies are exact, while the horizontal ring needs StabStitch++'s
+    /// parallax-tolerant warps.
+    ///
+    /// Python re-reads the stitcher name out of metadata every pass and swaps stitchers live,
+    /// so all that is needed here is to republish it. It deliberately does NOT touch the block
+    /// section: that used to be resized here (3 slots for STABSTITCH, more for PLANAR, from a
+    /// since-removed view-count knob) and this call site — fired mid-flight by the V key, with
+    /// Python attached — was the most reliable way to hit the ERROR_ACCESS_DENIED that a
+    /// non-resizable named section guarantees. The slot geometry is now a constant, and PLANAR
+    /// simply fills more of the same slots.
+    /// </summary>
+    public void SetStitcherType(stitcherType type)
+    {
+        if (typeOfStitcher == type) return;
+        typeOfStitcher = type;
+
+        // Before Start the maps do not exist yet; the serialized value is all there is to set
+        // and Start publishes it.
+        if (!hasStarted) return;
+
+        CalculateMemorySizes();    // republishes PlanarSelected, which ImageSharing.cs reads
+        if (enableImageWriting || enablePanoramaReading)
         {
-            blockImageCount = newblockImageCount;
-            CalculateMemorySizes();
-            CreateBlockMap();          // resize the mapping to the new drone count
             WriteMetadata();
-            blockImageBytes = new byte[blockImageSize];
-            EnsureConvertedBlockBuffer();
-            ValidateTextures();
         }
+
+        Debug.Log($"PyUniSharingFast: stitcher switched to {typeOfStitcher}.");
     }
 
     private void WriteMetadata()
@@ -1590,7 +4182,8 @@ public class PyUniSharingFast : MonoBehaviour
         offset += 4;
         Marshal.WriteInt32(metadataPtr, offset, blockImageHeight);
         offset += 4;
-        Debug.LogWarning(blockImageCount);
+        // Slots Python should scan. A hint only: the section is a fixed array at a fixed
+        // stride, so this no longer sizes anything on either side.
         Marshal.WriteInt32(metadataPtr, offset, blockImageCount);
         offset += 4;
         Marshal.WriteInt32(metadataPtr, offset, panoramaImageWidth);
@@ -1638,7 +4231,11 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteInt32(metadataPtr, offset, focal_length);
         offset += 4;
 
-        Marshal.WriteByte(metadataPtr, offset, (byte)(onlyIHN ? 1 : 0));
+        // Reserved: this byte carried the retired NIS stitcher's onlyIHN flag. It is still
+        // written (as 0) rather than removed because every field after it -- including
+        // metadataHeadYawOffset -- is addressed by a position Python reaches by reading
+        // sequentially, so dropping the byte would shift the whole v1 prefix.
+        Marshal.WriteByte(metadataPtr, offset, 0);
         offset += 1;
 
         byte[] fusionModeBytes = Encoding.UTF8.GetBytes(typeOfFusion.ToString());
@@ -1679,32 +4276,106 @@ public class PyUniSharingFast : MonoBehaviour
         Marshal.WriteByte(metadataPtr, offset, (byte)(printStitchRate ? 1 : 0));
         offset += 1;
 
-        if(hasStarted) return;
-        offset += 64;
+        // ---- Wire v2 tail ---------------------------------------------------------
+        // Everything below is addressed by explicit constant rather than by the running
+        // offset, because the dynamic block is also written per-frame by
+        // WriteDynamicState and the two must agree on where each field lives.
+        Debug.Assert(offset <= metadataTailStart,
+                     $"metadata v1 prefix ended at {offset}, overrunning the v2 tail at {metadataTailStart}");
 
-        Marshal.WriteInt32(metadataPtr, offset, maxTotalBlockSize);
-        offset += 4;
-        Marshal.WriteInt32(metadataPtr, offset, maxTotalPanoramaSize);
+        Marshal.WriteInt32(metadataPtr, metaBlockHeaderSizeOffset, ActiveBlockHeaderSize());
+        Marshal.WriteInt32(metadataPtr, metaWireVersionOffset, metaWireVersion);
+
+        ResolveIntrinsics(out float fx, out float fy, out float cx, out float cy);
+        WriteFloat(metadataPtr, metaFxOffset, fx);
+        WriteFloat(metadataPtr, metaFyOffset, fy);
+        WriteFloat(metadataPtr, metaCxOffset, cx);
+        WriteFloat(metadataPtr, metaCyOffset, cy);
+
+        Marshal.WriteInt32(metadataPtr, metaPlanarCanvasWidthOffset, planarCanvasWidth);
+        Marshal.WriteInt32(metadataPtr, metaPlanarCanvasHeightOffset, planarCanvasHeight);
+        WriteFloat(metadataPtr, metaPlanarMetresPerPixelOffset, planarMetresPerPixel);
+        WriteFloat(metadataPtr, metaPlanarMaxRangeOffset, planarMaxRange);
+        Marshal.WriteInt32(metadataPtr, metaPlanarFeatherPxOffset, planarFeatherPx);
+        WriteFloat(metadataPtr, metaPlanarAnisoMaxOffset, planarAnisoMax);
+        WriteFloat(metadataPtr, metaPlanarMinCoverageOffset, planarMinCoverage);
+        Marshal.WriteByte(metadataPtr, metaPlanarPoseSourceOffset, (byte)poseSource);
+        Marshal.WriteByte(metadataPtr, metaPlanarPsnrGateOffset,
+                          (byte)(planarPsnrGateEnabled ? 1 : 0));
+        Marshal.WriteByte(metadataPtr, metaPlanarBlendModeOffset, (byte)planarBlendMode);
+        Marshal.WriteByte(metadataPtr, metaPlanarDebugViewOffset, (byte)planarDebugView);
+
+        Marshal.WriteByte(metadataPtr, metaPlanarPlaneSweepOffset,
+                          (byte)(planarPlaneSweep ? 1 : 0));
+        Marshal.WriteByte(metadataPtr, metaPlanarPoseRefineOffset,
+                          (byte)(planarPoseRefine ? 1 : 0));
+        WriteFloat(metadataPtr, metaPlanarSweepRangeOffset, planarSweepRange);
+        Marshal.WriteInt32(metadataPtr, metaPlanarSweepStepsOffset, planarSweepSteps);
+        WriteFloat(metadataPtr, metaPlanarRefineRateOffset, planarRefineRate);
+        WriteFloat(metadataPtr, metaPlanarRefineMaxShiftOffset, planarRefineMaxShift);
+        // Through the resolver, not the field: this republish and the per-frame
+        // WritePlanarStandoff must never disagree about which source is authoritative.
+        // The source byte is seeded here too, so a Python that reads metadata between
+        // Start and the first Update is told which source produced the value beside it
+        // rather than reading a zero that happens to mean "inspector".
+        float standoffNow = ResolvePlanarStandoff(out bool standoffFromFeed);
+        WriteFloat(metadataPtr, metaPlanarStandoffOffset, standoffNow);
+        Marshal.WriteByte(metadataPtr, metaPlanarStandoffSourceOffset,
+                          (byte)(standoffFromFeed ? standoffSourceFeed
+                                                  : standoffSourceInspector));
+        Marshal.WriteByte(metadataPtr, metaPlanarCanvasModeOffset, (byte)planarCanvasMode);
+
+        // Section geometry. Constants on both sides; published so Python can verify rather
+        // than assume, and refuse to run against a producer built from another revision.
+        // Written on every call (they used to be written only on the first, which was safe
+        // only because nothing read them).
+        Marshal.WriteInt32(metadataPtr, metaBlockSlotCapacityOffset, blockSlotCapacity);
+        Marshal.WriteInt32(metadataPtr, metaBlockSlotStrideOffset, blockSlotStride);
+        Marshal.WriteInt32(metadataPtr, metaBlockSectionBytesOffset, blockSectionBytes);
+        Marshal.WriteInt32(metadataPtr, metaPanoramaSectionBytesOffset, panoramaSectionBytes);
+
+        // Seed the dynamic block so Python never reads an uninitialised plane before
+        // the first Update tick.
+        WriteDynamicState();
+        // Same for the heartbeat: a zero here is indistinguishable from a producer that
+        // died before its first Update, and Python's watchdog would fire on startup.
+        WriteHeartbeat();
+
+        // The tail's closure, mirrored by tools/check_wire_layout.py: everything the tail
+        // uses, plus whatever is left spare, plus the two trailing size fields, must come to
+        // exactly metadataSize. metadataReservedGap is what shrinks as the tail grows, so
+        // metadataSize -- and hence the section size -- never moves.
+        Debug.Assert(metadataTailEnd + metadataReservedGap + 8 == metadataSize,
+                     $"metadata tail closure is wrong: {metadataTailEnd} + {metadataReservedGap} + 8 " +
+                     $"!= {metadataSize}");
+        Debug.Assert(metaBlockSectionBytesOffset == metadataTailEnd + metadataReservedGap,
+                     "the two trailing size fields must sit immediately after the reserved gap");
     }
 
-    private void CheckExistingMapping(string mapName)
+    /// <summary>
+    /// Bumps the producer-liveness counter. Called every frame from Update, next to
+    /// <see cref="WriteBodyYaw"/>, and once from WriteMetadata to seed it.
+    ///
+    /// This is the only thing that distinguishes "Unity is idle" from "Unity is gone" on
+    /// the Python side. A crashed producer does not invalidate Python's mapping — the
+    /// section object lives as long as any handle to it does — so without a heartbeat the
+    /// stitcher happily re-reads the dead frame forever.
+    /// </summary>
+    private void WriteHeartbeat()
     {
-        IntPtr existingMap = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
-        if (existingMap != IntPtr.Zero)
-        {
-            System.Threading.Thread.Sleep(100);
-
-            IntPtr secondCheck = OpenFileMapping(FILE_MAP_ALL_ACCESS, false, mapName);
-            if (secondCheck != IntPtr.Zero)
-            {
-                Debug.LogError($"Memory map '{mapName}' still exists after closing the handle.");
-                CloseHandle(secondCheck);
-            }
-        }
+        if (metadataPtr == IntPtr.Zero) return;
+        // Unchecked wrap is fine and deliberate: the reader only ever asks "different from
+        // last time?", so the value at the wrap boundary is as good as any other.
+        unchecked { heartbeat++; }
+        Marshal.WriteInt32(metadataPtr, metaHeartbeatOffset, (int)heartbeat);
     }
 
     void OnDestroy()
     {
+        // Leaving a live-looking read-out behind would claim a standoff is in force when
+        // nothing is publishing one. Unity discards Play-mode edits to serialized fields
+        // anyway; this makes it true under Enter Play Mode setups that skip the reload.
+        planarStandoffInUse = "(not playing)";
         // Flush in-flight readbacks before unmapping so a late completion
         // callback can never touch a dead pointer, then free the job buffer.
         AsyncGPUReadback.WaitAllRequests();

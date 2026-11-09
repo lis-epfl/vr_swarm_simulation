@@ -1,0 +1,15 @@
+{
+ "rule": {
+  "base": "C35a",
+  "safe_p": 0.1,
+  "contact_ratio": 1.25,
+  "open_margin": 0.02,
+  "hull_min": 0.5,
+  "split_ratio": 1.1,
+  "spread_ratio": 0.8,
+  "street_floor": 0.98,
+  "wrap_margin": 0.05,
+  "spread_tie": 0.05
+ },
+ "written": "2026-11-02 17:44:48"
+}

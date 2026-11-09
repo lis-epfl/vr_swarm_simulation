@@ -1,0 +1,19 @@
+{
+ "sweep": "tierB",
+ "spread": "pilot",
+ "L1": "C0-G0",
+ "delta_L1": 0.047587355859632204,
+ "rule": {
+  "L2": "delta >= 2.0 x delta(L1), > 3.0 x its across-seed SD, layout feasible",
+  "L3": "feasible, delta <= 1.0 x its SD (vanished or reversed)"
+ },
+ "L2_candidates": [],
+ "L3_candidates": [
+  "C0-G6",
+  "C0-G7",
+  "C1-G6",
+  "C1-G7"
+ ],
+ "pass": false,
+ "L2": null
+}

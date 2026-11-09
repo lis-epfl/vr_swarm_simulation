@@ -1,0 +1,516 @@
+<title>S8 Footprint Avoidance</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (swarmshape_report via swarmtune_report.s4_style),
+   then S8's additions. */
+/*__S4_STYLE__*/
+/* S8: the seven ways a route is flown, on the family's validated slots */
+:root { --k-single_cyl: var(--c-single); --k-single_enc: var(--c-look); --k-a0: var(--m-other); --k-a1: var(--c-hop);
+        --k-b0: var(--c-street); --k-b2: var(--c-pass); --k-c: var(--c-hop2); --k-other: var(--m-firm); }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 150px; font-family: var(--font-body); }
+table.dt tr.pick td { background: color-mix(in srgb, var(--c-hop2) 12%, transparent); font-weight: 600; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+.pair figure svg text { font: 500 11px var(--font-body); fill: var(--ink-2); }
+.pair figure svg text.h { font: 600 12.5px var(--font-body); fill: var(--ink); }
+.seg { display: inline-flex; gap: 0; border: 1px solid var(--rule, color-mix(in srgb, var(--ink) 20%, transparent)); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 0.8rem/1 var(--font-body); padding: 6px 10px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--c-hop2) 18%, transparent); color: var(--ink); font-weight: 600; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S8 · Footprint Avoidance · for the human trials</p>
+      <h1>Should the swarm avoid each building as a tighter shape than the circle round its bounds?</h1>
+      <p class="lead">The trials have pilots search BlockShapedPatchCityWorld with a swarm of ten drones or with one drone. The force law
+        avoids each building as the circle round its axis-aligned bounding box, and in this city that circle reaches well past the facades
+        into the streets the swarm has to fly. S7 ended by naming it the next thing to fix.</p>
+      <p class="lead">S8 adds one Inspector setting, <code>SwarmManager.obstacleShape</code>, with two tighter shapes: the <b>footprint itself</b>
+        (Olfati-Saber's wall on each face) and the <b>smallest circle round the footprint</b>. Flown with S7's slide on and route stragglers off,
+        on S7's harness: screens, a rule fixed before a four-city confirmation, square-on approaches at a wall, and the Unity bench. Scripted pilots at full stick.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const by = (a, b) => ok(a) && ok(b) && b ? `${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+const more = (a, b) => ok(a) && ok(b) && b ? `${Math.round(100 * Math.abs(a / b - 1))}% ${a >= b ? "more" : "fewer"}` : "–";
+const sgn = (a, b) => ok(a) && ok(b) && b ? `${a >= b ? "+" : "−"}${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+
+// ---------------------------------------------------------------- the ways, the runs
+const WAYS = [["single_cyl", "one drone, bounds circles", "one drone · bounds"], ["single_enc", "one drone, enclosing circles", "one drone · enclosing"],
+              ["a0", "bounds circles, no slide (the scene today)", "bounds, no slide"], ["a1", "bounds circles + slide (S7's pick)", "bounds + slide"],
+              ["b0", "footprint, no slide", "footprint, no slide"], ["b2", "footprint + slide", "footprint + slide"],
+              ["c", "enclosing circles + slide", "enclosing + slide"]];
+const kCol = c => `var(--k-${WAYS.some(x => x[0] === c) ? c : "other"})`;
+const kLab = c => (WAYS.find(x => x[0] === c) || [c, c])[1];
+const kShort = c => (WAYS.find(x => x[0] === c) || [c, c, c])[2];
+const code = lab => String(lab || "").split(" ")[0];
+const CF = D.confirm || [], CC = D.confirmc || [], SC = D.screen || [], SCC = D.screenc || [];
+const find = (rows, c) => rows.find(r => code(r.label) === c && !String(r.cand || "").startsWith("single"));
+const findSingle = (rows, c) => rows.find(r => String(r.cand || "").startsWith("single") && code(r.label.replace(/^one drone, /, "")) === c);
+// PC: the rule's pick (an enclosing-circle row, maybe with the adaptive spread); PCB: the same shape and standoff without it
+const PICK = D.pick, PC = PICK ? code(PICK) : "C25", PCB = PC.replace(/a$/, "");
+const conf = c => find(CF, c), confC = c => find(CC, c), confSingle = c => findSingle(CF, c);
+const unity = (set, src = "unity") => (D.unity || []).find(r => r.set === set && r.src === src);
+const unitySingle = (set, src = "unity") => (D.unity_single || []).find(r => r.set === set && r.src === src);
+const unityF = (set, src = "unity") => (D.unity_face12 || []).find(r => r.set === set && r.src === src);
+const CNT = (set, which = "shape") => D.counts && D.counts[which] ? D.counts[which][set] : null;
+const kind = (r, k, m) => r && r.kinds && r.kinds[k] ? r.kinds[k][m] : null;
+const face = (r, m) => r && r.face ? r.face[m] : null;
+const V = D.verdicts || {};
+const vOf = c => { const k = Object.keys(V).find(l => code(l) === c); return k ? V[k] : {}; };
+const GAP = (seed, shape) => (D.gaps || []).find(g => g.seed === seed && g.shape === shape);
+const WAYROW = {a0: "A0", a1: "A1", b0: "B0", b2: "B2", c: PC};
+
+// ---------------------------------------------------------------- tooltip and chart helpers (S5's)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (W, H, label, g) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// Small-multiple horizontal bars: one panel per measure, one bar per row. rows [{c, r, lab}], panels [{title, get, f, unit}]
+function barPanels(el, rows, panels) {
+  const W = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 16, gap = 7, m = {l: 128, r: 46, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x.r)), vmax = Math.max(1e-9, ...vals.filter(ok)) * 1.05;
+    const xx = v => m.l + (W - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = "";
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(x.lab || kShort(x.c))}</text>`;
+      if (ok(v)) g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${kCol(x.c)}"/>
+        <text class="val" x="${(xx(v) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${W}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(W, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100]; return [x.lab || kLab(x.c), [[kCol(x.c), p.f(p.get(x.r)), p.title]]]; });
+}
+
+// ---------------------------------------------------------------- the masthead
+function ANSWER_BOX() {
+  const a1 = conf("A1"), c = conf(PCB), b2 = conf("B2"), a1c = confC("A1"), b0c = confC("B0"), cc = confC(PCB), b2c = confC("B2"), pk = conf(PC);
+  const g = GAP(1, "bounds circle"), ge = GAP(1, "enclosing circle");
+  return `<p class="eyebrow">The short answer</p><ol>
+    <li><b>The circles do take the streets.</b> In the scene's city they leave a median ${fmt(g && g.median, 0)} m of a 25 m street and
+      narrow ${g ? g.under6 : "–"} of ${g ? g.pairs : "–"} streets below 6 m; the smallest circle round each footprint leaves ${fmt(ge && ge.median, 0)} m.</li>
+    <li><b>The footprint itself is not usable.</b> Without the slide a swarm flown square at a wall stalls (split round it in ${fmt(face(b0c, "t_split"), 0)} s against
+      ${fmt(face(a1c, "t_split"), 1)}); with the slide it moves, but drones collect in lanes along the walls and collide: ${fmt(b2 && b2.lost_km, 2)} drones lost per km against ${fmt(a1 && a1.lost_km, 2)}.</li>
+    <li><b>The smallest circle round each footprint is.</b> It keeps the cylinder's curvature: ${by(kind(c, "street", "v_coh"), kind(a1, "street", "v_coh"))} faster in the streets than
+      the bounds circles (both with the slide), splitting round a wall as quickly (${fmt(face(cc, "t_split"), 1)} s), losing ${fmt(c && c.lost_km, 2)} drones per km against ${fmt(a1 && a1.lost_km, 2)}.
+      In Unity (${CNT(PCB) ? CNT(PCB).flights : "–"} flights): ${CNT(PCB) ? CNT(PCB).lost : "–"} drones lost and ${CNT(PCB) ? CNT(PCB).contacts : "–"} contacts, against ${CNT("A1") ? CNT("A1").lost : "–"} and ${CNT("A1") ? CNT("A1").contacts : "–"} for the bounds circles.</li>
+    ${pk && PC.endsWith("a") ? `<li><b>With it, the adaptive spread pays in the replica</b> (the rule's pick, ${esc(PC)}): the streets ${by(kind(pk, "street", "v_coh"), kind(a1, "street", "v_coh"))} faster than the
+      bounds circles, ${fmt(pk.lost_km, 2)} drones lost per km (${fmt(a1 && a1.lost_km, 2)}). Unity is less sure: ${CNT(PC) ? CNT(PC).lost : "–"} drones lost in ${CNT(PC) ? CNT(PC).flights : "–"} flights against ${CNT(PCB) ? CNT(PCB).lost : "–"} without it.</li>` : ""}</ol>
+    <p class="bottom"><b>My reading:</b> set <code>obstacleShape</code> to EnclosingCircle with the slide and d_obs ${fmt(c && c.over && c.over.d_obs, 2)} (${esc(PCB)}) for the trials; add the adaptive spread
+      (${esc(PC)}) only if its extra speed in the streets is worth a few more collisions. The curvature the cylinder was chosen for is what keeps the swarm off the walls; a smaller circle
+      keeps it and gives back the street. <a href="#reading">The full reading</a>.</p>`;
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["flights", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s8tab", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (h === "reading" || /^q\d$/.test(h)) { show("answer", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? D.replay.groups[gi].flights.find(f => f.cond === cond && f.source === "unity") : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (gid, cond, text) => D.replay && D.replay.groups.some(g => g.id === gid) ? `<a class="watch" href="#watch:${gid}:${cond}">${esc(text)}</a>` : "";
+const tag = v => v.safe && v.helps ? '<span class="vp yes">Yes</span>' : v.safe || v.helps ? '<span class="vp part">Partly</span>' : '<span class="vp no">No</span>';
+
+// ---------------------------------------------------------------- the answer
+function ruleTable() {
+  const head = ["", "cohesive speed (m/s)", "in the streets (m/s)", "one group", "buildings surrounded", "split round a wall (s)", "lost /km", "contacts /km", "ended in pieces", "Unity: cohesive speed", "Unity: lost / contacts per km", "rule"];
+  const rows = CF.filter(r => !String(r.cand).startsWith("single")).map(r => {
+    const c = code(r.label), u = unity(c), v = V[r.label] || {};
+    const verdict = c === D.rule.base ? "baseline" : c === D.rule.contact_base ? "contact bound" : `${v.safe ? "safe" : "not safe"} · ${v.helps ? "helps" : "does not help"}`;
+    return `<tr${r.label === PICK ? ' class="pick"' : ""}><td class="l">${esc(r.label)}</td><td>${fmt(r.v_coh, 2)}</td><td>${fmt(kind(r, "street", "v_coh"), 2)}</td><td>${pc(r.one)}</td>
+      <td>${pc(kind(r, "cross", "wrapped"))}</td><td>${fmt(face(r, "t_split"), 1)}</td><td>${fmt(r.lost_km, 2)}</td><td>${fmt(r.contact_km, 2)}</td><td>${pc(r.open)}</td>
+      <td>${u ? fmt(u.v_coh, 2) : "–"}</td><td>${u ? `${fmt(u.lost_km, 2)} / ${fmt(u.contact_km, 2)}` : "–"}</td><td class="l small">${esc(verdict)}</td></tr>`;
+  }).join("");
+  const n = conf("A1"), R = D.rule;
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 || i === head.length - 1 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="small muted">The confirmation (replica): ${n ? n.n : "–"} fresh flights per row (about ${n ? fmt(n.km, 0) : "–"} km of straight lines, blocks and street routes, plus
+      ${D.flights.confirm.face * 4} square-on approaches) in the scene's city and three held out. Cohesive speed, one group and surrounded are over the straight lines and blocks,
+      "in the streets" over the street routes, "split round a wall" over the square-on approaches (the formation at d_ref 2.0; mean seconds from arriving, censored at ${fmt(D.cap, 0)}).
+      Unity: ${CNT("A1") ? CNT("A1").flights : "–"} flights per row in the scene's city. The rule (written ${esc(D.rule_written)}, before the confirmation): safe = losses at most ${R.base}'s + ${R.lost_margin} per km,
+      contacts at most ${R.contact_base}'s (the scene's law as it flies, the bound S7's rule used), ending in pieces at most ${Math.round(100 * R.open_margin)} points above ${R.base}'s, the split round a wall
+      at most ${R.split_ratio}× ${R.base}'s; helps = the streets ${Math.round(100 * R.street_gain)}% faster than ${R.base}, cohesive speed at least ${Math.round(100 * R.v_coh_floor)}% of it,
+      surrounding within ${Math.round(100 * R.wrap_margin)} points.</p>`;
+}
+RENDER.answer = el => {
+  const a0 = conf("A0"), a1 = conf("A1"), b2 = conf("B2"), c = conf(PCB), cs = ["C16", "C25", "C35"].map(conf);
+  const a0c = confC("A0"), a1c = confC("A1"), b0c = confC("B0"), b2c = confC("B2"), cc = confC(PCB);
+  const s1 = confSingle("A1"), s2 = confSingle(PCB) || confSingle("C25"), sb = confSingle("B2");
+  const ua1 = unity("A1"), uc = unity(PCB) || unity("C25"), ub2 = unity("B2"), ua0 = unity("A0"), ub0 = unity("B0");
+  const fa1 = unityF("A1"), fb0 = unityF("B0"), fb2 = unityF("B2"), fc = unityF(PC) || unityF("C25");
+  const caLab = PC.endsWith("a") ? PC : "C25a", ca = conf(caLab), a1a = conf("A1a"), cab = conf(caLab.slice(0, -1));
+  const g1 = GAP(1, "bounds circle"), ge = GAP(1, "enclosing circle"), gf = GAP(1, "facades"), gs = GAP(1, "facades less 1.6 m each side");
+  const ev = D.events || [], evT3 = ev.find(e => e.label === "T3"), evAd = ev.find(e => e.label === "adaptive");
+  const vC = vOf(PC), vB = vOf("B2");
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>How much of the streets do the bounds circles take?</h2>
+      <p class="qa"><span class="vp no">Half</span>The circle round each building's bounding box reaches far past its facades.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-gaps"></div>
+      <div class="qtext"><ul>
+        <li><b>A median ${fmt(g1 && g1.median, 1)} m left of a ${fmt(gf && gf.median, 0)} m street</b> between two buildings in the scene's city, ${g1 ? g1.closed : "–"} streets closed outright and
+          ${g1 ? g1.under6 : "–"} of ${g1 ? g1.pairs : "–"} narrowed below 6 m. The circle reaches a median 8.8 m past the nearest facade, across the 3.5 m footpath and halfway to the street's
+          centre line; the three held-out cities are the same within a metre.</li>
+        <li><b>The smallest circle round the footprint</b> leaves ${fmt(ge && ge.median, 1)} m (${ge ? ge.under6 : "–"} streets under 6 m); <b>the footprint itself</b>, with the field
+          taking hold 1.6 m out, ${fmt(gs && gs.median, 1)} m everywhere. The formation at d_ref 2.0 is a ring about 31 m across.</li>
+        ${evT3 ? (() => { const L = ev.reduce((s, e) => s + (e.losts || 0), 0), G = ev.reduce((s, e) => s + (e.losts || 0) * (e.lost_gap10 || 0), 0),
+            Tm = ev.reduce((s, e) => s + e.time_gap10, 0) / ev.length, F = ev.reduce((s, e) => s + e.flights, 0);
+          return `<li><b>That is where S7's drones were lost.</b> Its confirmation re-flown with every event located (${F} flights, each identical to its stored row, four of its configurations):
+          ${Math.round(G)} of the ${L} drones lost went where the bounds circles leave under 10 m between two buildings, a place the drones spent ${pc(Tm)} of their time: about
+          ${fmt((G / L) / Tm, 0)} times the rate elsewhere. The median gap the circles left at a loss was ${fmt(evAd && evAd.lost_gap_c_med, 1)} m (adaptive spread) where the facades stood ${fmt(evAd && evAd.lost_gap_f_med, 0)} m apart.</li>`; })() : ""}</ul></div></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Can the swarm avoid the footprint itself?</h2>
+      <p class="qa">${tag(vB)}The flat face brings back the stall the cylinder was chosen to avoid, and the slide that cures it puts drones in lanes along the walls.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-face"></div>
+      <div class="qtext"><ul>
+        <li><b>Without the slide, a flat wall stalls the formation</b>, as the bounding box did in the first city: flown square at a wall with the formation at d_ref 1.2, it took
+          ${fmt(face(b0c, "t_split"), 1)} s to split round the building (${pc(face(b0c, "t_split_share"))} within ${fmt(D.cap, 0)} s), against ${fmt(face(a0c, "t_split"), 1)} s for the bounds circles without the slide,
+          and ${fmt(face(b0c, "t_through"), 1)} s to get past it (${fmt(face(a0c, "t_through"), 1)}).${fb0 && fa1 ? ` In Unity: ${fmt(face(fb0, "t_split"), 1)} s against ${fmt(face(fa1, "t_split"), 1)} with the bounds circles and the slide.` : ""}</li>
+        <li><b>The slide restores the sideways push</b>: ${fmt(face(b2c, "t_split"), 1)} s to split with it. But still slower than either circle (${fmt(face(a1c, "t_split"), 1)} s bounds, ${fmt(face(cc, "t_split"), 1)} s enclosing),
+          and it loses drones: ${fmt(b2 && b2.lost_km, 2)} per km over the confirmation against ${fmt(a1 && a1.lost_km, 2)} for the bounds circles${ub2 && CNT("B2") ? ` (Unity: ${CNT("B2").lost} drones lost in ${CNT("B2").flights} flights, against ${CNT("A1") ? CNT("A1").lost : "–"})` : ""}.</li>
+        <li><b>Why</b> (each collision's forces attributed): sliding along a flat face, drones settle 1–2 m off it in single file; one pinned in a pocket between two faces, or slowed at a
+          corner, is hit by the next one sliding along the same wall, and the wall's field pushes neighbours on converging faces together. A longer standoff only moves the lane out (d_obs 0.5 lost more).
+          Sliding the way the stick leans along the wall instead of round the building's own side changed nothing. The circle's curvature spreads drones round a building instead; that is the
+          tangential force the cylinder was chosen for, and it is still needed with the slide.</li></ul>
+        <div class="watches">${watch("s8_face", "b0", "Square on at a wall, without and with the slide")}${watch("s8_lane", "b2", "The footprint's wall lanes")}</div></div></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>Does the smallest circle round each footprint help?</h2>
+      <p class="qa">${tag(vC)}Faster, in the streets most, and as quick round a wall; more building contacts than with the bounds circles.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-enc"></div>
+      <div class="qtext"><ul>
+        <li><b>${by(kind(c, "street", "v_coh"), kind(a1, "street", "v_coh"))} faster in the streets and ${by(c && c.v_coh, a1 && a1.v_coh)} faster overall while together</b> than the bounds circles
+          (${fmt(kind(c, "street", "v_coh"), 2)} against ${fmt(kind(a1, "street", "v_coh"), 2)} m/s in the streets; both with the slide), the swarm one group ${pc(c && c.one)} of the time (${pc(a1 && a1.one)}).
+          ${uc && ua1 ? `Unity: ${fmt(kind(uc, "street", "v_coh"), 2)} against ${fmt(kind(ua1, "street", "v_coh"), 2)} m/s in the streets, ${fmt(uc.v_coh, 2)} against ${fmt(ua1.v_coh, 2)} overall.` : ""}</li>
+        <li><b>It splits round a wall as quickly</b>: ${fmt(face(c, "t_split"), 1)} s at d_ref 2.0 (${fmt(face(a1, "t_split"), 1)}), ${fmt(face(cc, "t_split"), 1)} s at 1.2 (${fmt(face(a1c, "t_split"), 1)}),
+          and surrounds ${pc(kind(c, "cross", "wrapped"))} of the buildings on the straight lines (${pc(kind(a1, "cross", "wrapped"))}).</li>
+        <li><b>The cost is building contacts</b>: ${fmt(c && c.contact_km, 2)} per km against ${fmt(a1 && a1.contact_km, 2)} for the bounds circles with the slide, and ${fmt(a0 && a0.contact_km, 2)} for the scene as it
+          flies today; losses ${fmt(c && c.lost_km, 2)} per km (${fmt(a1 && a1.lost_km, 2)}). A longer standoff trades speed for contacts:
+          ${cs.filter(ok).map(r => `${esc(r.label.replace(/ enclosing circle \+ slide,?/, ""))}: ${fmt(kind(r, "street", "v_coh"), 2)} m/s in the streets, ${fmt(r.contact_km, 2)} contacts per km`).join("; ")}.</li>
+        <li><b>One drone shares the shape</b>: ${fmt(s2 && s2.v_prog, 2)} m/s against ${fmt(s1 && s1.v_prog, 2)} with the bounds circles, so both trial conditions change together.</li></ul>
+        <div class="watches">${watch("s8_street", "c", "Along the streets")}${watch("s8_cross", "c", "A straight line")}</div></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>With a tighter circle, does the adaptive spread pay?</h2>
+      <p class="qa">${tag(V[(Object.keys(V).find(l => code(l) === caLab)) || ""] || {})}The secondary question: S7 left it off because the bounds circles squeezed the narrowed formation.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-adapt"></div>
+      <div class="qtext"><ul>
+        <li><b>With the enclosing circles it pays</b>: the streets ${fmt(kind(cab, "street", "v_coh"), 2)} → ${fmt(kind(ca, "street", "v_coh"), 2)} m/s (${by(kind(ca, "street", "v_coh"), kind(a1, "street", "v_coh"))} above the bounds
+          circles with the slide), the swarm one group in the streets ${pc(kind(ca, "street", "one"))} of the time (${pc(kind(a1, "street", "one"))}), ${fmt(ca && ca.lost_km, 2)} drones lost per km
+          (${fmt(a1 && a1.lost_km, 2)}) and ${fmt(ca && ca.contact_km, 2)} contacts (${fmt(a0 && a0.contact_km, 2)} for the scene today). At every standoff: ${["C16a", "C25a", "C35a"].map(conf).filter(ok).map(r => `${esc(code(r.label))} ${fmt(kind(r, "street", "v_coh"), 2)} m/s, ${fmt(r.lost_km, 2)} lost, ${fmt(r.contact_km, 2)} contacts`).join("; ")}.</li>
+        <li><b>With the bounds circles it pays less</b>: ${fmt(kind(a1, "street", "v_coh"), 2)} → ${fmt(kind(a1a, "street", "v_coh"), 2)} m/s in the streets, ${fmt(a1a && a1a.lost_km, 2)} drones lost per km (${fmt(a1 && a1.lost_km, 2)} without):
+          on these routes it lost no more than the slide alone, unlike S7's confirmation.</li>
+        ${unity(caLab) && unity("A1a") ? `<li><b>Unity</b>: ${fmt(kind(unity(caLab), "street", "v_coh"), 2)} m/s in the streets with ${esc(caLab)} against ${fmt(kind(unity("A1"), "street", "v_coh"), 2)} for the bounds circles with the slide;
+          ${CNT(caLab) ? CNT(caLab).lost : "–"} drones lost and ${CNT(caLab) ? CNT(caLab).contacts : "–"} contacts in ${CNT(caLab) ? CNT(caLab).flights : "–"} flights (${CNT("A1") ? CNT("A1").lost : "–"} and ${CNT("A1") ? CNT("A1").contacts : "–"}).</li>` : ""}</ul></div></div>
+  </section>
+
+  <section class="q" id="q5">
+    <div class="qhead"><span class="qn">5</span><div><h2>Which shape to fly?</h2>
+      <p class="qa"><span class="vp ${PICK ? "yes" : "part"}">${PICK ? esc(PICK) : "None by the rule"}</span>Every configuration against the bounds circles with the slide, by a rule fixed before the confirmation.</p></div></div>
+    <div id="ans-table">${ruleTable()}</div>
+  </section>
+
+  <section class="q reading" id="reading">
+    <div><h2>My reading</h2>
+      <p class="qa" id="reading-text"></p></div>
+    <div class="grid2">
+      <div><h3>What S8 settles</h3><ol>
+        <li><b>The bounds circle is a large part of why the streets are slow</b>: it takes about half of every street between two buildings in this city.</li>
+        <li><b>Curvature is not optional.</b> A flat face stalls a formation flown at it, and once the slide supplies the sideways push, the flat face lines drones up along it to collide.
+          The cylinder's normal turning with the approach is what spreads them.</li>
+        <li><b>A smaller circle keeps the curvature and returns most of the street</b>, at the cost of the drones coming closer to the facades.</li></ol></div>
+      <div><h3>What it cannot settle</h3><ol>
+        <li><b>People.</b> Scripted straight lines, street routes and approaches at full stick.</li>
+        <li><b>Rare losses</b>: differences of a tenth of a drone per km sit near the noise of ~100 km per setting.</li>
+        <li><b>Route stragglers was left off</b> by design; it is what S7 found cuts contacts, and the footprint's contacts are partly its kind.</li></ol></div></div>
+  </section></div>`;
+  const ways = ["a0", "a1", "b0", "b2", "c"];
+  const gapRows = [["bounds circle", "a1", "bounds circle"], ["enclosing circle", "c", "enclosing circle"], ["facades less 1.6 m each side", "b2", "footprint (field at 1.6 m)"]]
+    .map(([s, cc, lab]) => ({c: cc, lab, r: GAP(1, s)}));
+  const draws = [
+    ["#ans-gaps", () => barPanels($("#ans-gaps", el), gapRows, [
+      {title: "Street left between two buildings, median (m)", get: r => r && r.median, f: v => fmt(v, 1), unit: "the scene's city, 794 street pairs; facade to facade 25 m"},
+      {title: "Streets narrowed below 6 m", get: r => r && r.under6, f: v => fmt(v, 0), unit: "of 794"}])],
+    ["#ans-face", () => barPanels($("#ans-face", el), ways.map(w => ({c: w, r: confC(WAYROW[w])})), [
+      {title: "Seconds to split round a wall", get: r => face(r, "t_split"), f: v => fmt(v, 1), unit: `square on, formation at d_ref 1.2, four cities; censored at ${fmt(D.cap, 0)} s`},
+      {title: "Drones lost per km", get: r => (code(r && r.label) && conf(code(r.label)) || {}).lost_km, f: v => fmt(v, 2), unit: "the confirmation at d_ref 2.0"}])],
+    ["#ans-enc", () => barPanels($("#ans-enc", el), [["a0", "A0"], ["a1", "A1"], ["c", "C16"], ["c", "C25"], ["c", "C35"]].map(([w, k]) => ({c: w, r: conf(k), lab: k === "A0" || k === "A1" ? kShort(w) : `enclosing, d_obs ${k.slice(1, 2)}.${k.slice(2)}`})), [
+      {title: "In the streets (m/s)", get: r => kind(r, "street", "v_coh"), f: v => fmt(v, 2), unit: "cohesive speed, street routes"},
+      {title: "Building contacts per km", get: r => r && r.contact_km, f: v => fmt(v, 2), unit: "every flight"}])],
+    ["#ans-adapt", () => barPanels($("#ans-adapt", el), [["a1", "A1"], ["a1", "A1a"], ["c", caLab.slice(0, -1)], ["c", caLab]].map(([w, k]) => ({c: w, r: conf(k), lab: k.endsWith("a") ? `${kShort(w)} + adaptive` : kShort(w)})), [
+      {title: "In the streets (m/s)", get: r => kind(r, "street", "v_coh"), f: v => fmt(v, 2), unit: "cohesive speed, street routes"},
+      {title: "Drones lost per km", get: r => r && r.lost_km, f: v => fmt(v, 2), unit: "every flight"}])]];
+  for (const [sel, draw] of draws) { const cc = $(sel, el); observe(cc, draw); }
+  $("#reading-text", el).innerHTML = READING();
+};
+function READING() {
+  const a1 = conf("A1"), c = conf(PCB), pk = conf(PC), uc = unity(PCB), ua = unity("A1"), up = unity(PC);
+  return `<b>Fly the smallest circle round each footprint, with the slide and a standoff of ${fmt(c && c.over && c.over.d_obs, 2)} (${esc(PCB)}).</b> It gives the swarm back most of the street the bounds circles took
+       (${by(kind(c, "street", "v_coh"), kind(a1, "street", "v_coh"))} faster there${uc && ua ? `, ${by(kind(uc, "street", "v_coh"), kind(ua, "street", "v_coh"))} in Unity` : ""}), loses fewer drones and touches buildings no more often${CNT(PCB) && CNT("A1") ? ` (Unity: ${CNT(PCB).lost} lost and ${CNT(PCB).contacts} contacts in ${CNT(PCB).flights} flights, against ${CNT("A1").lost} and ${CNT("A1").contacts})` : ""}, and it splits round a building as the cylinder does,
+       because it is still a cylinder. The footprint itself is the tempting answer and the wrong one here: without the slide it stalls at a wall exactly as the first city's bounding boxes did, and with the
+       slide it lines drones up along the walls to collide.
+       ${PICK && PC.endsWith("a") ? `The rule, fixed before the confirmation, picked the same shape with the adaptive spread (${esc(PC)}): in the replica it is the fastest safe row, ${by(kind(pk, "street", "v_coh"), kind(a1, "street", "v_coh"))} faster in the streets than the bounds circles with no extra losses.
+       Unity's ${CNT(PC) ? CNT(PC).flights : "–"} flights put ${CNT(PC) ? CNT(PC).lost / 2 : "–"} colliding pairs against it and none against ${esc(PCB)}: too few to settle, but the same direction as S7's Unity flights, so I would add the adaptive spread only if the streets' extra speed${up && uc ? ` (${by(kind(up, "street", "v_coh"), kind(uc, "street", "v_coh"))} more in Unity)` : ""} matters more than that risk.` : ""}
+       The smaller circle brings drones nearer the facades, so its standoff matters: at d_obs 0.16 it touched buildings twice as often. One drone shares the shape, so both trial conditions get the wider streets.`;
+}
+
+// ---------------------------------------------------------------- flights
+const RP = D.replay;
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+function shapeDiagrams() {
+  const W = 250, H = 210, cx = 125, cy = 112;
+  const poly = [[-30, -22], [26, -26], [34, 10], [8, 30], [-28, 20]].map(([x, y]) => [cx + x, cy + y]);
+  const pstr = poly.map(p => p.join(",")).join(" ");
+  const bld = `<polygon points="${pstr}" fill="var(--map-bldg)"/>`;
+  const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]), bx = (Math.min(...xs) + Math.max(...xs)) / 2, byy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const rb = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2;
+  const ring = (x, y, r, col, dash) => `<circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${col}" stroke-width="2"${dash ? ' stroke-dasharray="5 4"' : ""}/>`;
+  const svg = (g, label) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+  const bounds = `${bld}<rect x="${Math.min(...xs)}" y="${Math.min(...ys)}" width="${Math.max(...xs) - Math.min(...xs)}" height="${Math.max(...ys) - Math.min(...ys)}" fill="none" stroke="var(--ink-2)" stroke-dasharray="2 3"/>${ring(bx, byy, rb, "var(--k-a1)")}<text x="8" y="16" class="h">Cylinder (today)</text><text x="8" y="${H - 8}">the circle round the bounding box</text>`;
+  const enc = `${bld}${ring(cx + 2, cy + 2, 37, "var(--k-c)")}<text x="8" y="16" class="h">EnclosingCircle</text><text x="8" y="${H - 8}">the smallest circle round the footprint</text>`;
+  const fp = `${bld}<polygon points="${pstr}" fill="none" stroke="var(--k-b2)" stroke-width="2.4"/><text x="8" y="16" class="h">Footprint</text><text x="8" y="${H - 8}">the facades themselves (a wall per face)</text>`;
+  return `<div class="pair">${[[bounds, "Cylinder"], [enc, "EnclosingCircle"], [fp, "Footprint"]].map(([g, l]) => `<figure style="margin:0">${svg(g, l)}</figure>`).join("")}</div>
+    <p class="small muted">Schematics, not to scale. Grey: a building's footprint; dotted: its axis-aligned bounding box; coloured: what the force law avoids under each setting.
+      The field takes hold d_obs out from that line, the shield d_shield out.</p>`;
+}
+RENDER.flights = el => {
+  if (!RP || !RP.groups || !RP.groups.length) { el.innerHTML = `<div class="intro"><h2>Cities and flights</h2></div><div class="box"><h3>The three shapes</h3>${shapeDiagrams()}</div><p class="notrun">The Unity flights have not been replayed yet.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Cities and flights</h2><p>The scene's city, where the screens, Unity and the replays fly, and the three cities of the same design held
+      out for the confirmation (S6's). Click one to see it whole, and choose the shape to draw round its buildings.</p></div>
+    <div class="gal" id="gal"></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3><div class="seg" role="group" aria-label="Shape drawn">
+        <button type="button" data-s="" aria-pressed="true">bounds circles</button><button type="button" data-s="__enc" aria-pressed="false">enclosing circles</button><button type="button" data-s="__fp" aria-pressed="false">footprints only</button></div></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div></div>
+    <div class="box"><h3>The three shapes</h3>${shapeDiagrams()}</div>
+    <div class="intro" id="flightsx"><h2>Flights</h2><p>Routes from the Unity bench's set in the scene's city, each flown seven ways: one drone with the bounds circles and with the enclosing
+      circles, and the swarm with the bounds circles without and with the slide, the footprint without and with the slide, and the enclosing circles with the slide. Unity's own
+      trajectories, and the replica's twins flown from Unity's recorded start, kept only because they scored identically to the gate's rows. The map draws the shape each way's law avoids
+      (turn on "avoidance cylinders"). Drones are dots in the way's colour, filled while their feed is on the pilot's ring; a ring round a dot marks a drone apart from the main group.
+      Space plays or pauses, ← and → step 5 s.</p></div><div id="c-player"></div>`;
+  const gal = $("#gal", el), thumbs = [];
+  gal.innerHTML = RP.gallery.map((g, i) => `<button type="button" class="thumb" data-i="${i}" aria-pressed="${i === 0}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span>${esc(g.seed === 1 ? "the scene's city" : `held out, seed ${g.seed}`)}</span></button>`).join("");
+  const CM = new RV.MapView($("#c-map", el), {aspect: 0.8, minH: 320, maxH: 760});
+  let city = null, sel = 0, suf = "";
+  CM.draw = (c, v) => { if (city) { RV.drawCity(c, v, city, {cylinders: true}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => { if (b.dataset.z === "in") CM.zoomBy(1.5); else if (b.dataset.z === "out") CM.zoomBy(1 / 1.5); else if (city) CM.fit(city.arena, 10); }));
+  const load = (keepView) => {
+    const g = RP.gallery[sel], st = (g.stats || {})[suf || "bounds"] || {}, i = sel;
+    $("#c-title").textContent = g.what.charAt(0).toUpperCase() + g.what.slice(1);
+    $("#c-stats").innerHTML = [["buildings", st.buildings], ["circle radius (median)", suf === "__fp" ? "–" : `${fmt(st.cyl_r, 1)} m`],
+      ["street left between two buildings (median)", `${fmt(st.gap_median, 1)} m`], ["streets closed", st.pairs ? `${st.closed} of ${st.pairs}` : "–"], ["… narrowed below 6 m", st.narrow]]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v === undefined ? "–" : v}</dd>`).join("");
+    RV.load(RPATH.city(g.city + suf)).then(RV.city).then(C => { if (sel !== i) return; city = C; if (keepView) CM.request(); else CM.fit(C.arena, 10); });
+  };
+  el.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    suf = b.dataset.s; el.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); load(true);
+  }));
+  const pick = i => { sel = i; gal.querySelectorAll(".thumb").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i))); load(false); };
+  gal.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 400, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); };
+    thumbs.push(v);
+    RV.load(RPATH.city(RP.gallery[+b.dataset.i].city)).then(RV.city).then(C => { v.city = C; v.fit([-150, 150, -150, 150], 0); }).catch(() => {});
+    b.addEventListener("click", () => pick(+b.dataset.i));
+  });
+  RV.onTheme(() => { thumbs.forEach(v => v.request()); CM.request(); });
+  pick(0);
+  const labels = {}, colors = {};
+  for (const [k, l] of WAYS) { labels[k] = l; colors[k] = kCol(k); }
+  PLAYER = RV.Player($("#c-player", el), RP.groups.map(g => Object.assign({short: g.title.replace(/^Problem: /, "Problem · ")}, g)),
+    {labels, colors, path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function flightSummaryRows(F, s) {
+  const n = x => ok(x) ? String(x) : "–", r = [];
+  r.push(["shape avoided", s.shape === "Cylinder" ? "the bounds circle" : s.shape === "EnclosingCircle" ? "the enclosing circle" : "the footprint"], ["slide", s.slide ? "on" : "off"]);
+  const k = F.route ? F.route.kind : "";
+  r.push(["route", F.route ? `${k === "cross" ? "a straight line" : k === "pass" ? "through a block" : k === "face" ? "square on at a wall" : "along the streets"}, ${fmt(F.route.L, 0)} m` : "–"]);
+  r.push(["progress speed", `${fmt(s.v_prog, 2)} m/s`]);
+  if (F.n > 1) r.push(["flight as one group", pc(s.one_frac)], ["cohesive speed", `${fmt(s.v_coh, 2)} m/s`], ["ended in pieces", s.open_end ? "yes" : "no"]);
+  if (k === "face") r.push(["split round the building (s from arriving)", ok(s.t_split) ? fmt(s.t_split, 1) : `not within ${fmt(D.cap, 0)}`], ["past it", ok(s.t_through) ? `${fmt(s.t_through, 1)} s` : `not within ${fmt(D.cap, 0)} s`]);
+  else if (s.met) r.push(["buildings met / surrounded", F.n > 1 ? `${s.met} / ${n(s.wrapped)}` : String(s.met)], ["seconds past each, on average", fmt(s.bld_pass, 1)]);
+  r.push(["longest stall (under 1 m/s)", `${fmt(s.stall_s, 1)} s`], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  return r;
+}
+function flightSummaryNote(F) {
+  return F.source === "unity" ? "Unity records contacts as a count, so they are not drawn on the map; a cross marks each drone lost."
+    : "The replica draws each building contact where it happened and a cross where each drone was lost.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const head = ["", "cohesive speed", "progress", "one group", "lost /km", "contacts /km", "ended in pieces", "hull share", "streets", "surrounded", "past a building (s)", "split round a wall (s)", "through (s)"];
+  const line = (lab, r, extra = "") => {
+    if (!r) return "";
+    const one = lab.startsWith("one drone"), sw = x => one ? "–" : x;
+    return `<tr${extra}><td class="l">${esc(lab)}</td><td>${fmt(r.v_coh, 2)}</td><td>${fmt(r.v_prog, 2)}</td><td>${sw(pc(r.one))}</td><td>${fmt(r.lost_km, 3)}</td>
+    <td>${fmt(r.contact_km, 3)}</td><td>${sw(pc(r.open))}</td><td>${sw(pc(r.hull))}</td><td>${fmt(kind(r, "street", "v_coh"), 2)}</td><td>${sw(pc(kind(r, "cross", "wrapped")))}</td>
+    <td>${fmt(kind(r, "cross", "bld_pass"), 1)}</td><td>${sw(fmt(face(r, "t_split"), 1))}</td><td>${fmt(face(r, "t_through"), 1)}</td></tr>`;
+  };
+  const tbl = (title, body, note = "") => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>${note}</div>`;
+  const all = rows => (rows || []).map(r => line(r.label, r, r.label === PICK ? ' class="pick"' : "")).join("");
+  const fhead = ["", "first drone round an end (s)", "split round it (s)", "split within the cap", "surrounded (s)", "past it (s)", "longest stall (s)", "contacts per flight", "drones lost per flight"];
+  const fline = (lab, r) => r ? `<tr><td class="l">${esc(lab)}</td><td>${fmt(face(r, "t_side"), 1)}</td><td>${fmt(face(r, "t_split"), 1)}</td><td>${pc(face(r, "t_split_share"))}</td><td>${fmt(face(r, "t_wrap"), 1)}</td>
+    <td>${fmt(face(r, "t_through"), 1)}</td><td>${fmt(face(r, "stall"), 1)}</td><td>${fmt(face(r, "contacts"), 2)}</td><td>${fmt(face(r, "lost"), 2)}</td></tr>` : "";
+  const ftbl = (title, rows, note = "") => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${fhead.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>${note}</div>`;
+  const u = (src, which = "unity") => (D[which] || []).filter(r => r.src === src).map(r => line(r.set, r)).join("");
+  const uf = src => (D.unity_face12 || []).filter(r => r.src === src).map(r => fline(r.set, r)).join("");
+  const seeds = D.confirm_seed || {}, sl = D.flights.seeds || [];
+  const seedRows = Object.entries(seeds).filter(([l]) => !l.startsWith("one drone")).map(([l, x]) => `<tr><td class="l">${esc(l)}</td>${sl.map(s => `<td>${fmt(x[String(s)] && x[String(s)].v_coh, 2)} · ${fmt(x[String(s)] && x[String(s)].street_v_coh, 2)}</td>`).join("")}</tr>`).join("");
+  const gaps = (D.gaps || []).filter(g => !String(g.shape).startsWith("bounds radius")).map(g => `<tr><td class="l">${g.seed === 1 ? "the scene's city" : `seed ${g.seed}`}</td><td class="l">${esc(g.shape)}</td><td>${fmt(g.median, 1)}</td><td>${fmt(g.p10, 1)}</td><td>${g.closed}</td><td>${g.under6}</td><td>${g.under10}</td></tr>`).join("");
+  const ev = (D.events || []).map(e => `<tr><td class="l">${esc(e.label)}</td><td>${e.flights}</td><td>${fmt(e.km, 0)}</td><td>${e.losts || 0}</td><td>${pc(e.lost_two)}</td><td>${pc(e.time_two)}</td><td>${pc(e.lost_gap10)}</td><td>${pc(e.time_gap10)}</td><td>${e.contacts || 0}</td></tr>`).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every table behind the answer. The confirmation and the screens are the replica (S6's model of Unity on these prism buildings);
+      Unity is the headless bench in BlockShapedPatchCityWorld as baked, with the replica's twins of the same flights beside it.</p></div>
+    <div class="box"><h3>What each shape leaves of the streets</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l">city</th><th class="l">shape</th><th>median (m)</th><th>p10 (m)</th><th>closed</th><th>under 6 m</th><th>under 10 m</th></tr></thead><tbody>${gaps}</tbody></table></div>
+      <p class="small muted">The narrowest clear width along every street with a building on each side. "Facades less x m each side": the footprint with the field taking hold x m out (d_obs).</p></div>
+    ${tbl(`The confirmation (replica): fresh routes in the scene's city and three held out, ${D.flights.confirm.cross} straight lines, ${D.flights.confirm.pass_} blocks, ${D.flights.confirm.street} street routes and ${D.flights.confirm.face} square-on approaches in each`, all(CF))}
+    ${ftbl("Square on at a wall with the formation at d_ref 1.2 (replica, four cities, 36 approaches each)", (CC || []).map(r => fline(r.label, r)).join(""), `<p class="small muted">Seconds from arriving (the centroid within 15 m of the building's bounds circle), censored at ${fmt(D.cap, 0)} s; "split within the cap": the share that split at all.</p>`)}
+    <div class="box"><h3>By city: cohesive speed · in the streets (m/s)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>${sl.map(s => `<th>${s === 1 ? "the scene's city" : `seed ${s}`}</th>`).join("")}</tr></thead><tbody>${seedRows}</tbody></table></div></div>
+    ${(D.unity || []).length ? tbl("Unity: the scene's city, the same routes for every set", u("unity")) + tbl("The replica's twins of those flights, from Unity's recorded starts", u("replica")) : '<div class="box"><p class="notrun">Unity not flown yet.</p></div>'}
+    ${(D.unity_single || []).length ? tbl("Unity: one drone", u("unity", "unity_single")) : ""}
+    ${(D.unity_face12 || []).length ? ftbl("Unity: square on at a wall, formation at d_ref 1.2", uf("unity")) + ftbl("… the replica's twins", uf("replica")) : ""}
+    ${tbl("Screens (replica, the scene's city, the same routes for every row)", all(SC))}
+    ${ftbl("Screens: square on at a wall at d_ref 1.2 (60 approaches)", (SCC || []).map(r => fline(r.label, r)).join(""))}
+    ${ev ? `<div class="box"><h3>S7's confirmation, its events located (re-flown, each flight identical to its stored row)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l">S7 configuration</th><th>flights</th><th>km</th><th>drones lost</th><th>lost within d_obs of two circles</th><th>time spent there</th><th>lost where the circles leave under 10 m</th><th>time spent there</th><th>contacts</th></tr></thead><tbody>${ev}</tbody></table></div>
+      <p class="small muted">Classified by the bounds circles: within 1.6 m (d_obs) of two buildings' circles at once, or where the two nearest circles leave under 10 m between them.</p></div>` : ""}`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The shapes (SwarmManager.obstacleShape)", [
+    ["Cylinder (the bounds circle)", "What the force law has always avoided: the circle round each building's axis-aligned bounding box, an infinite vertical cylinder. For a rotated or long building it reaches well past the facades."],
+    ["EnclosingCircle", "The smallest circle containing the building's footprint (its convex hull from the collider). Still a cylinder, so every part of the law is unchanged; only smaller."],
+    ["Footprint", "The building's footprint itself: Olfati-Saber's wall on each face, the distance measured to the facade, the normal turning round each corner. A flat face has no sideways push, so only the slide moves a drone along it."],
+    ["Bounds circles, enclosing circles (A, B, C)", "A0: bounds circles, no slide (the scene as it flies). A1: bounds circles with S7's slide (the baseline). B0 / B2: the footprint without / with the slide. C16, C25, C35: the enclosing circle with the slide at d_obs 0.16, 0.25, 0.35. A trailing 'a': with the adaptive spread."],
+    ["d_obs, d_shield", "How far out from the shape the obstacle field takes hold (d_obs, ×10 m) and the shield starts removing the stick pointing in (d_shield, ×10 m). Measured from whatever shape the law avoids, so a tighter shape lets drones nearer the facade at the same values."],
+    ["The slide (S7)", "Near a building the shield removes the part of the stick pointing in; with the slide that part is turned along the building instead, so a drone flows round rather than stopping."]]],
+  ["The measures", [
+    ["Cohesive speed", "Progress speed times the share of the flight the swarm was one group: route covered per second with the swarm together (S6's headline)."],
+    ["In the streets", "Cohesive speed on the street routes."],
+    ["Split round a wall", "Flown square at a straight wall: seconds from arriving until drones stand beside the building beyond both ends of the face."],
+    ["Surrounded", "Of the buildings a route aims at, the share whose centre was inside the drones' convex hull at some moment near it."],
+    ["Contact", "A drone touching a facade. In the simulation it does not cost the drone."],
+    ["Drones lost", "Two drones closer than 0.5 m (both lost), or a drone with no neighbour within the cohesion range."],
+    ["Ended in pieces", "Still not one group 10 s after reaching the last waypoint."],
+    ["Street left", "The narrowest clear width a shape leaves along a street between two buildings; the facades are 25 m apart."]]],
+  ["The flights", [
+    ["A straight line across the city", "From one junction to another 250–420 m away at full stick: the formation meets building after building."],
+    ["Through one block", "Along a street to a block's corner, then aimed through the block to beyond its opposite corner."],
+    ["Along the streets", "The shortest street route between a straight line's two ends, junction by junction."],
+    ["Square on at a wall", "From open ground 50 m out along the outward normal of a straight face of a building on the city's edge, offset 0, 0.3 or 0.6 of its half-length, aimed through the building."],
+    ["The replica, its twin", "The 2-D model of the swarm the studies use. A twin is the replica flying a Unity flight again from Unity's own start."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2><p>Every term the page uses, in plain words. The manual (docs/swarm_shape/README.md) has the method.</p></div>
+    <div class="terms">${TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join("")}</dl></div>`).join("")}</div>`;
+};
+
+$("#answer-box").innerHTML = ANSWER_BOX();
+if (!route(location.hash.slice(1))) {
+  let first = "answer";
+  try { const s = localStorage.getItem("s8tab"); if (TABS.some(t => t[0] === s)) first = s; } catch (e) { /* storage blocked */ }
+  show(first);
+}
+</script>

@@ -1,0 +1,2158 @@
+<title>S4 Split and Surround</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: the study pages' family (S3's report) -- a masthead (the question, the findings) over a sticky tab bar, each
+   tab a short intro over its tables and figures. Data colour: the two building variants (R teal, B violet), the
+   surround modes on one blue ramp with aim-and-turn in orange, envelopment on one green ramp; pass / fail pills. */
+:root {
+  --bg: #f2f4f5; --panel: #fbfcfc; --ink: #111c25; --ink-2: #44525e; --muted: #7c8893; --line: #d6dde2;
+  --grid: #e4e8eb; --chip: #e6ebee;
+  --var-r: #1a8f84; --var-b: #8a4fb8;
+  --m-soft: #7aaeea; --m-firm: #1f5fb6; --m-aim: #eb6834; --m-perim: #1a8f84; --m-other: #a9b3bb;
+  --seq-0: #e3f1ea; --seq-1: #0b5e41;
+  --good: #0c8a0c; --good-bg: #e2f3e2; --warn: #b77a00; --warn-bg: #fbf0d6; --bad: #c43535; --bad-bg: #f8e1e1;
+  /* Phase 2's six conditions: the validated categorical order (dataviz palette slots 1-6), assigned in the order the
+     page lists them, so neighbours in a legend or a bar list are the validated adjacent pairs */
+  --c-street: #2a78d6; --c-hop: #eb6834; --c-pass: #1baf7a; --c-hold: #eda100; --c-single: #e87ba4; --c-look: #008300;
+  --c-hop2: #6250d6;
+  /* the maps (the Cities tab): asphalt streets, pale blocks, slate buildings, plazas as lawn, R's cylinders in R's teal */
+  --map-street: #d9dfe3; --map-block: #f8f9f6; --map-edge: #eceeeb; --map-plaza: #e0ead6; --map-bldg: #6b7883;
+  --map-cyl: #1a8f84;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+    --grid: #1d262d; --chip: #1f2830;
+    --var-r: #33b3a6; --var-b: #b07ddb;
+    --m-soft: #649ff0; --m-firm: #bcd9fb; --m-aim: #f08a5d; --m-perim: #33b3a6; --m-other: #5d6b75;
+    --seq-0: #18241f; --seq-1: #6fd3a7;
+    --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+    --c-street: #3987e5; --c-hop: #d95926; --c-pass: #199e70; --c-hold: #c98500; --c-single: #d55181; --c-look: #008300;
+    --c-hop2: #9085e9;
+    --map-street: #0e1418; --map-block: #25303a; --map-edge: #1b242b; --map-plaza: #1f3829; --map-bldg: #66737e;
+    --map-cyl: #33b3a6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+  --grid: #1d262d; --chip: #1f2830;
+  --var-r: #33b3a6; --var-b: #b07ddb;
+  --m-soft: #649ff0; --m-firm: #bcd9fb; --m-aim: #f08a5d; --m-perim: #33b3a6; --m-other: #5d6b75;
+  --seq-0: #18241f; --seq-1: #6fd3a7;
+  --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+  --c-street: #3987e5; --c-hop: #d95926; --c-pass: #199e70; --c-hold: #c98500; --c-single: #d55181; --c-look: #008300;
+  --c-hop2: #9085e9;
+  --map-street: #0e1418; --map-block: #25303a; --map-edge: #1b242b; --map-plaza: #1f3829; --map-bldg: #66737e;
+  --map-cyl: #33b3a6;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 56px; }
+h1, h2, h3, h4 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 3.6vw, 2.7rem); font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 600; line-height: 1.15; margin-bottom: 0.4rem; }
+h3 { font-size: 1.1rem; font-weight: 600; line-height: 1.25; margin-bottom: 0.35rem; }
+p { margin: 0 0 0.65rem; max-width: 74ch; }
+p:last-child { margin-bottom: 0; }
+.eyebrow { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 0.45rem; }
+.muted { color: var(--muted); }
+.small { font-size: 0.86rem; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.code { font-family: var(--font-mono); font-weight: 500; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; font-size: 0.88em; }
+
+.masthead { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr); gap: 28px; padding-block: 28px 22px; align-items: start; }
+.lead { font-size: 1.03rem; color: var(--ink-2); margin-top: 0.7rem; }
+.back { display: inline-block; margin: 0 0 12px; font: 500 0.88rem/1.2 var(--font-body); color: var(--ink-2); text-decoration: none; }
+.back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.back:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { display: inline-flex; align-items: baseline; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 0.84rem; color: var(--ink-2); }
+.chip b { font: 600 0.92rem var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.findings { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; }
+.findings ul { margin: 0.3rem 0 0; padding-left: 1.1rem; display: grid; gap: 7px; }
+.findings li { font-size: 0.93rem; color: var(--ink-2); }
+.findings li b { color: var(--ink); font-weight: 600; }
+@media (max-width: 900px) { .masthead { grid-template-columns: minmax(0, 1fr); } }
+
+.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab-btn { appearance: none; border: 0; background: none; color: var(--ink-2); font: 600 0.98rem/1 var(--font-display); padding: 13px 12px 11px; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.tab-btn:hover { color: var(--ink); }
+.tab-btn[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tab-btn:focus-visible { outline: 2px solid var(--m-firm); outline-offset: -3px; }
+.tab { padding-top: 24px; display: grid; gap: 22px; }
+.intro { display: grid; gap: 4px; max-width: 82ch; }
+
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; }
+.grid2 > * { min-width: 0; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--grid); text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.l { text-align: left; font-family: var(--font-body); }
+tr.sep td { border-top: 1px solid var(--line); }
+.pill { display: inline-block; font: 600 0.72rem/1 var(--font-body); letter-spacing: 0.04em; border-radius: 999px; padding: 3px 8px; }
+.pill.ok { color: var(--good); background: var(--good-bg); }
+.pill.no { color: var(--bad); background: var(--bad-bg); }
+.pill.na { color: var(--muted); background: var(--chip); }
+.v-r { color: var(--var-r); font-weight: 600; }
+.v-b { color: var(--var-b); font-weight: 600; }
+.bad { color: var(--bad); }
+.good { color: var(--good); }
+
+.heat td.c { font-size: 0.8rem; min-width: 46px; position: relative; }
+.heat td.c.star { outline: 2px solid var(--ink); outline-offset: -2px; font-weight: 600; }
+.heat td.c .pred { position: absolute; left: 3px; top: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--m-aim); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--ink-2); align-items: center; }
+.legend .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.legend .ln { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid; margin-right: 5px; vertical-align: 3px; }
+td .ln { display: inline-block; width: 14px; height: 0; border-top: 2.5px solid; margin-right: 7px; vertical-align: 3px; }
+
+.picker { display: grid; gap: 10px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { font: 500 0.88rem/1 var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; cursor: pointer; }
+.seg button:hover { border-color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--m-firm); outline-offset: 1px; }
+.dgrid { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 4px; align-items: center; max-width: 420px; }
+.dgrid .h { font: 600 0.7rem/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: center; }
+.dgrid button { font: 500 0.85rem/1 var(--font-mono); padding: 7px 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink); cursor: pointer; }
+.dgrid button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--ink-2); font: 500 11px var(--font-body); }
+.chart .axis line, .chart .axis path { stroke: var(--line); }
+.chart .gridl { stroke: var(--grid); }
+.notrun { color: var(--muted); font-style: italic; }
+.big { font: 600 1.9rem/1.05 var(--font-display); color: var(--ink); margin: 2px 0 6px; }
+.verdict { font-weight: 600; color: var(--ink); }
+.chart .val { fill: var(--ink); font: 500 11px var(--font-mono); }
+.chart .lbl { fill: var(--ink-2); font: 500 12px var(--font-body); }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:focus-visible { outline: none; stroke: var(--ink); stroke-width: 1; }
+.chart .xh { stroke: var(--muted); stroke-width: 1; }
+.tip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; font-size: 0.82rem; box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 14%, transparent); min-width: 170px; max-width: 320px; }
+.tip .t { color: var(--ink-2); font-weight: 600; margin-bottom: 4px; }
+.tip .tr { display: flex; align-items: center; gap: 8px; line-height: 1.5; }
+.tip .tr b { font: 600 0.86rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); min-width: 3.4em; text-align: right; }
+.tip .tr span:last-child { color: var(--ink-2); }
+.tip .k { display: inline-block; width: 14px; height: 0; border-top: 2px solid; flex: none; }
+@media (prefers-reduced-motion: no-preference) { .tab { animation: fade 160ms ease-out; } }
+@keyframes fade { from { opacity: 0.4; } to { opacity: 1; } }
+
+/* the key under the masthead: what the design codes and the two variants mean */
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; padding-block: 0 20px; }
+.key > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; }
+.key svg { width: 92px; height: auto; display: block; }
+.key p { font-size: 0.88rem; color: var(--ink-2); margin: 0; }
+.key p b { color: var(--ink); }
+.key .eyebrow { margin-bottom: 3px; color: var(--ink); }
+.dcode { font-variant-numeric: tabular-nums; white-space: nowrap; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
+a { color: inherit; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+
+/* the Look down tab: one small chart per design */
+.ldgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 16px 24px; margin-top: 12px; }
+.ldgrid > * { min-width: 0; }
+
+/* the Cities tab */
+.figframe { position: relative; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--panel); }
+.figframe canvas { display: block; width: 100%; touch-action: none; }
+.thumbs { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; max-width: 960px; }
+.thumbs .h { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); text-align: center; }
+.thumbs .h.row { text-align: right; writing-mode: horizontal-tb; }
+.thumb { appearance: none; padding: 0; border: 2px solid transparent; border-radius: 7px; background: none; cursor: pointer; display: grid; gap: 3px; text-align: left; color: var(--ink-2); font: 500 0.78rem/1.25 var(--font-body); min-width: 0; }
+.thumb[aria-pressed="true"] { border-color: var(--ink); }
+.thumb .figframe { border-radius: 5px; }
+.thumb span { padding: 0 3px 3px; }
+.cmap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 290px); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .cmap { grid-template-columns: minmax(0, 1fr); } }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; margin: 0; font-size: 0.86rem; }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.kv .sub { grid-column: 1 / -1; font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+.mapbar { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.mapbar button, .rv-mapbar button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink); font: 600 16px/1 var(--font-body); cursor: pointer; }
+.headrow { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.headrow h3 { margin: 0; }
+
+/* the flight player (citysim/replay_view.js) */
+.rv { display: grid; gap: 12px; }
+.rv-head { display: grid; gap: 6px; }
+.rv-picks .seg button .ln { margin-right: 6px; }
+.rv-about p { color: var(--ink-2); max-width: 90ch; }
+.rv-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 290px); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .rv-work { grid-template-columns: minmax(0, 1fr); } }
+.rv-fig { min-width: 0; display: grid; gap: 8px; }
+.rv-frame { position: relative; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--panel); }
+.rv-frame canvas { display: block; width: 100%; touch-action: none; cursor: grab; }
+.rv-frame canvas:focus-visible { outline: 2px solid var(--m-firm); outline-offset: -2px; }
+.rv-mapbar { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.rv-loading { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--ink-2); }
+.rv-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.rv-ctl input[type="range"] { flex: 1 1 220px; min-width: 140px; accent-color: var(--ink); }
+.rv-ctl label { font-size: 0.86rem; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+.rv-ctl select { font: 500 0.86rem var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+.rv-play { font: 600 0.9rem/1 var(--font-body); color: var(--panel); background: var(--ink); border: 1px solid var(--ink); border-radius: 5px; padding: 8px 14px; cursor: pointer; min-width: 76px; }
+.rv-clock { font-size: 0.86rem; color: var(--ink-2); min-width: 92px; }
+.rv-layers { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--ink-2); }
+.rv-layers label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.rv-side { display: grid; gap: 12px; min-width: 0; }
+.rv-phase { font-weight: 600; color: var(--ink); margin: 2px 0 6px; font-size: 0.92rem; }
+.rv-kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; margin: 0; font-size: 0.85rem; }
+.rv-kv dt { color: var(--ink-2); }
+.rv-kv dd { margin: 0; text-align: right; max-width: 12em; }
+.rv-tip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; font-size: 0.82rem; color: var(--ink-2); box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 14%, transparent); max-width: 320px; }
+.rv-tip .t { color: var(--ink); font-weight: 600; margin-bottom: 3px; }
+
+/* the masthead's answer box */
+.answer-box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; }
+.answer-box .eyebrow { color: var(--ink); }
+.answer-box ol { margin: 0.3rem 0 0; padding-left: 1.2rem; display: grid; gap: 8px; }
+.answer-box li { font-size: 0.95rem; color: var(--ink-2); }
+.answer-box li b { color: var(--ink); font-weight: 600; }
+.answer-box .bottom { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.95rem; }
+
+/* the Answer tab: the idea, five questions, the reading */
+.ans { display: grid; gap: 22px; max-width: 1080px; }
+.q { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; display: grid; gap: 14px; min-width: 0; }
+.qhead { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: start; }
+.qn { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--panel); display: grid; place-items: center; font: 600 1rem/1 var(--font-display); margin-top: 1px; }
+.qhead h2 { margin-bottom: 4px; }
+.qa { margin: 0; font-size: 1.02rem; color: var(--ink); max-width: 80ch; }
+.vp { display: inline-block; font: 600 0.74rem/1 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; border-radius: 999px; padding: 4px 9px; margin-right: 6px; vertical-align: 1px; }
+.vp.yes { color: var(--good); background: var(--good-bg); }
+.vp.part { color: var(--warn); background: var(--warn-bg); }
+.vp.no { color: var(--bad); background: var(--bad-bg); }
+.qbody { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .qbody { grid-template-columns: minmax(0, 1fr); } }
+.qtext p, .qtext li { font-size: 0.93rem; color: var(--ink-2); }
+.qtext ul { margin: 0 0 0.6rem; padding-left: 1.1rem; display: grid; gap: 5px; }
+.qtext b { color: var(--ink); }
+.watch { display: inline-flex; align-items: center; gap: 6px; font: 600 0.88rem/1.2 var(--font-body); color: var(--ink); text-decoration: none; border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; background: var(--bg); }
+.watch:hover { border-color: var(--muted); }
+.watch::before { content: "▶"; font-size: 0.7rem; color: var(--ink-2); }
+.watches { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 760px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+.idea figure { margin: 0; display: grid; gap: 6px; min-width: 0; }
+.idea svg { width: 100%; height: auto; display: block; border-radius: 5px; }
+.idea figcaption { font-size: 0.88rem; color: var(--ink-2); }
+.idea figcaption b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; background: var(--bg); min-width: 0; }
+.tile .k { font-size: 0.84rem; color: var(--ink-2); }
+.tile .v { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 4px; font: 600 1.5rem/1.1 var(--font-display); color: var(--ink); font-variant-numeric: tabular-nums; }
+.tile .v span { font: 500 0.82rem var(--font-body); color: var(--ink-2); }
+.tile .v .arrow { color: var(--muted); font-size: 1.1rem; }
+.reading { border: 2px solid var(--ink); }
+.reading h3 { margin-top: 6px; }
+.reading ol, .reading ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; display: grid; gap: 7px; }
+.reading li { color: var(--ink-2); font-size: 0.95rem; max-width: 92ch; }
+.reading li b { color: var(--ink); }
+.sizes td, .sizes th { white-space: normal; }
+.sizes td.l b { font-weight: 600; }
+
+/* the All results tab: the detail tabs behind one sub-navigation, grouped by what each phase asked */
+.subnav { display: grid; gap: 10px; }
+.subnav .grp { display: grid; grid-template-columns: minmax(160px, 230px) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; }
+@media (max-width: 700px) { .subnav .grp { grid-template-columns: minmax(0, 1fr); } }
+.subnav .gl { font: 600 0.8rem/1.3 var(--font-body); color: var(--ink); }
+.subnav .gl span { display: block; font-weight: 400; color: var(--muted); }
+.subpane { display: grid; gap: 22px; }
+
+/* the Terms tab */
+.terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+.terms dl { margin: 0; display: grid; gap: 9px; }
+.terms dt { font-weight: 600; color: var(--ink); }
+.terms dd { margin: 1px 0 0; color: var(--ink-2); font-size: 0.9rem; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S4 · Split and Surround · for the human trials</p>
+      <h1>Does surrounding a block give the swarm its edge over one drone?</h1>
+      <p class="lead">The human trials will set a pilot flying a ten-drone swarm against a pilot flying one drone, on a
+        visual search through a city, and we hope to show that the swarm helps. S4 tested one way it might: arriving at
+        a block, the swarm flows round both sides of the building and looks down every street leaving the block before
+        the pilot chooses one. One drone passes on one side and sees only the streets on that side.</p>
+      <p class="lead">If seeing every option before choosing leads to better choices, the swarm should find a target
+        sooner. This page follows that argument step by step, in simulation, with scripted pilots.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+
+  <template id="key-tpl"><section class="key" aria-label="How to read the codes">
+    <div>
+      <svg viewBox="0 0 92 70" role="img" aria-label="Two blocks with a street between them: p runs from one block's centre to the next, s across the street">
+        <rect width="92" height="70" rx="4" fill="var(--map-street)"/>
+        <path d="M3 6 L42.6 6 L37.7 64 L6 62 Z" fill="var(--map-block)"/>
+        <path d="M56.6 6 L89 9 L88 63 L51.7 64 Z" fill="var(--map-block)"/>
+        <rect x="11" y="23" width="17" height="22" fill="var(--map-bldg)"/>
+        <rect x="62" y="22" width="18" height="22" fill="var(--map-bldg)"/>
+        <circle cx="21" cy="35" r="2.2" fill="var(--ink)"/><circle cx="71" cy="34" r="2.2" fill="var(--ink)"/>
+        <line x1="23.5" y1="35" x2="68.5" y2="34" stroke="var(--ink)" stroke-width="1.3"/>
+        <text x="46" y="30" text-anchor="middle" style="font:700 10px var(--font-mono);fill:var(--ink)">p</text>
+        <line x1="39" y1="54" x2="53" y2="54" stroke="var(--ink)" stroke-width="1.3"/>
+        <path d="M39 54 l4 -2.5 v5 Z M53 54 l-4 -2.5 v5 Z" fill="var(--ink)"/>
+        <text x="46" y="50" text-anchor="middle" style="font:700 10px var(--font-mono);fill:var(--ink)">s</text>
+      </svg>
+      <div><p class="eyebrow">A design: p 40 · s 18</p>
+        <p>The city grows from random seed points, one per p × p m on average, and each seed's Voronoi cell is a block.
+        So <b>p, the block pitch, is about the distance between neighbouring blocks' centres</b> (41 m at p 40, 81 m at
+        p 75). <b>s is the street width</b>, kerb to kerb, which leaves a block about p − s across. Phase 1 flew
+        p 40, 50, 60 and 75 m, each with 12, 18 and 24 m streets.</p></div>
+    </div>
+    <div>
+      <svg viewBox="0 0 92 70" role="img" aria-label="Variant R: a rectangular building inside its block, with the dashed circle through its corners">
+        <rect width="92" height="70" rx="4" fill="var(--map-street)"/>
+        <path d="M7 9 L70 5 L86 34 L66 65 L10 60 Z" fill="var(--map-block)"/>
+        <rect x="32" y="25" width="26" height="20" fill="var(--map-bldg)"/>
+        <circle cx="45" cy="35" r="16.4" fill="none" stroke="var(--map-cyl)" stroke-width="1.4" stroke-dasharray="3 2.5"/>
+      </svg>
+      <div><p class="eyebrow">Variant R: rectangular</p>
+        <p>One standard rectangular building per block (the pack's BnP_Large_Building_B), scaled until the circle through
+        its corners, <b>the avoidance cylinder the swarm's force law steers round</b> (dashed), fits inside the block with
+        1 m to spare. It covers 28–41% of the block and needs no change to the force law. <b>Phase 2 and BlockCityWorld
+        use R.</b></p></div>
+    </div>
+    <div>
+      <svg viewBox="0 0 92 70" role="img" aria-label="Variant B: a building filling its block up to a footpath">
+        <rect width="92" height="70" rx="4" fill="var(--map-street)"/>
+        <path d="M7 9 L70 5 L86 34 L66 65 L10 60 Z" fill="var(--map-block)"/>
+        <path d="M13.5 14.3 L67 11 L79.7 34.2 L63 59.4 L15.3 55.1 Z" fill="var(--map-bldg)"/>
+      </svg>
+      <div><p class="eyebrow">Variant B: block-shaped</p>
+        <p>The building is the block itself less a 3.5 m footpath, 30–80% of the block. Today's force law cannot see that
+        shape, so B was flown in the replica with a new obstacle model (the closest point of the facade). Its drones were
+        pressed into the buildings they flowed round, and it was dropped after Phase 1. Every other term is in the
+        <a href="#terms">Terms</a> tab.</p></div>
+    </div>
+  </section></template>
+
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+// how far a feed counts as seeing, in Phase 3 and the answer (250 m since 2026-10-28; Phases 1-2's own tabs: 80 m)
+const SIGHT = D.sight || 80;
+// a page opened as a local file carries its replay data (fetch is refused there); the published page fetches it
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const fmt = (x, nd = 2) => x === null || x === undefined || Number.isNaN(x) ? "–" : Number(x).toFixed(nd);
+const pct = x => x === null || x === undefined ? "–" : Math.round(100 * x) + "%";
+const DESIGNS = [];
+[40, 50, 60, 75].forEach(p => [12, 18, 24].forEach(s => DESIGNS.push([p, s])));
+const B = D.bars;
+const MODE_COL = {soft: "var(--m-soft)", firm: "var(--m-firm)", aim: "var(--m-aim)", perim: "var(--m-perim)",
+                  perim125: "var(--m-other)", d10: "var(--m-other)"};
+function row(rows, v, p, s) { return (rows || []).find(r => r.v === v && r.p === p && r.s === s) || null; }
+function pill(ok, yes = "pass", no = "fail") {
+  if (ok === null || ok === undefined) return '<span class="pill na">–</span>';
+  return ok ? `<span class="pill ok">${yes}</span>` : `<span class="pill no">${no}</span>`;
+}
+function vtag(v) { return `<span class="${v === "R" ? "v-r" : "v-b"}" title="${v === "R" ? "variant R: one rectangular building per block, its avoidance cylinder inside the block" : "variant B: the block itself less a 3.5 m footpath"}">${v}</span>`; }
+// a design code with its meaning on hover: neighbouring blocks' centres per block pitch, from the gallery's cities
+const NB = {40: 41, 50: 52, 60: 63, 75: 81};
+(function () {
+  const g = (D.replay && D.replay.gallery) || [];
+  for (const p of [40, 50, 60, 75]) {
+    const v = g.filter(x => x.p === p && x.v === "R" && x.stats).map(x => x.stats.neighbour_m).filter(Number.isFinite);
+    if (v.length) NB[p] = Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+  }
+})();
+const dtitle = (p, s) => `block pitch p ${p}: neighbouring blocks' centres about ${NB[p] || p} m apart; street width s ${s}: ${s} m kerb to kerb; a block about ${Math.max(0, p - s)} m across`;
+function dl(p, s) { p = +p; s = +s; return `<span class="dcode" title="${esc(dtitle(p, s))}">p ${p} · s ${s}</span>`; }
+function dlText(txt) { return esc(txt).replace(/p ?(\d+)(?: ·|_)? ?s ?(\d+)/g, (m, p, s) => dl(p, s)); }
+function screen(key) { return (D.screens || []).find(x => x.key === key) || null; }
+function mix(frac) { return `color-mix(in srgb, var(--seq-1) ${Math.round(8 + 80 * frac)}%, var(--panel))`; }
+
+// ---------------------------------------------------------------- masthead
+// The page answers one question for the human trials (does surrounding a block give the swarm its edge over one
+// drone?), so the masthead states it and its answer, and the Answer tab argues it in five steps. Every number in the
+// answer is read from D.answer (split_report.answer_data); the detail tabs are kept, unchanged, under All results.
+const ANS = D.answer;
+const ansDesign = p => ANS && (ANS.designs || []).find(d => d.p === p && d.s === 18);
+const ansRatio = (blk, a) => blk && (blk.ratios || []).find(r => r.a === a);
+const pc = x => x === null || x === undefined ? "–" : `${Math.round(100 * x)}%`;
+const times = x => x === null || x === undefined ? "–" : `×${fmt(x, 2)}`;
+(function masthead() {
+  const el = $("#answer-box");
+  const d40 = ansDesign(40), B3 = ANS && ANS.b, P2 = ANS && ANS.p2;
+  if (!d40 || !B3 || !P2) { el.innerHTML = '<p class="eyebrow">The short answer</p><p class="notrun">Waiting for Phase 3.</p>'; return; }
+  const st = [ansRatio(B3, "swarm_street"), ansRatio(P2, "swarm_street")], hop = [ansRatio(B3, "swarm_hop"), ansRatio(P2, "swarm_hop")];
+  const lo = a => Math.round(100 * Math.min(...a.map(r => r.ratio))), hi = a => Math.round(100 * Math.max(...a.map(r => r.ratio)));
+  el.innerHTML = `<p class="eyebrow">The short answer</p><ol>
+    <li><b>The idea's first step holds.</b> Surrounding a block lets the pilot look down nearly every street leaving it
+      before choosing: ${pc(d40.hop12.look)} of them on the smallest blocks, against ${pc(d40.single.look)} for one drone
+      and ${pc(d40.street.look)} for the swarm flying the streets.</li>
+    <li><b>But it does not find things sooner.</b> The swarm beats one drone without it, finding a target in
+      ${lo(st)}–${hi(st)}% of one drone's time when it flies the streets. Surrounding every block gives part of that lead
+      back (${lo(hop)}–${hi(hop)}%): each block costs more time than the better choice saves.</li>
+    <li><b>And it is fragile.</b> It works only on small blocks, at a wider spread than the trials' dial reaches, and it
+      loses about ten times as many drones.</li></ol>
+    <p class="bottom"><b>My reading:</b> the swarm's edge in a search is its ten cameras, not its ability to surround.
+      Build the trials on that, and treat surrounding as a separate question that needs a different task.
+      <a href="#reading">The full reading</a>.</p>`;
+})();
+
+// ---------------------------------------------------------------- tabs
+// four tabs: the answer, the flights, every detail behind the answer (the old tabs, grouped by phase), the terms
+const TABS = [["answer", "The answer"], ["cities", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const DETAILS = [
+  ["Phase 1", "can the swarm surround a block?", [["map", "Surround map"], ["surround", "Surround and exit"], ["pass", "Pass round"], ["safety", "Safety"], ["decision", "Decision"]]],
+  ["Phase 2", "does surrounding pay, against one drone?", [["walks", "Block-hop walks"], ["search", "Informed search"], ["screens", "Screens"]]],
+  ["Phase 3", "looking down the streets, and the spread", [["lookdown", "Look down"]]],
+  ["How it was done", "", [["key", "Design codes"], ["method", "Method"]]]];
+const DETAIL_IDS = DETAILS.flatMap(g => g[2].map(x => x[0]));
+let DSUB = "lookdown";
+const RENDER = {};
+const KEEP = {};                  // tabs whose content survives a switch: the Cities tab's maps and its player
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "cities" && PLAYER && id !== "cities") PLAYER.hide();
+  const m = $("#main");
+  m.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { m.appendChild(sec); if (id === "cities" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    m.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "cities") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s4tab2", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) =>
+  `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+// in-page links: #<tab> opens that tab; a detail tab's old id (#walks, #lookdown, ...) opens All results at it;
+// #flights the flights; #watch:<group>[:<condition>] the flights at that set (and flight); #reading the answer's reading
+function route(h) {
+  if (h === "flights") { show("cities", "flights"); return true; }
+  if (h === "reading" || /^q\d$/.test(h)) { show("answer", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("cities", "flights");
+    const gi = PLAYER && RP ? RP.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? RP.groups[gi].flights.find(f => f.cond === cond && f.source === "replica") : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (h === "phase2") h = "walks";                    // the tab's name before Phase 2 split it
+  if (DETAIL_IDS.includes(h)) { DSUB = h; show("details"); return true; }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) {
+    e.preventDefault();
+    if (h !== "flights" && !h.startsWith("watch:") && h !== "reading" && !/^q\d$/.test(h)) $("#tabs").scrollIntoView({block: "start"});
+  }
+});
+
+// ---------------------------------------------------------------- all results: the detail tabs under one sub-navigation
+RENDER.key = el => {
+  el.innerHTML = `<div class="intro"><h2>Design codes</h2><p>What the codes on the detail tabs mean. Every other term is in
+    the <a href="#terms">Terms</a> tab.</p></div>`;
+  el.appendChild($("#key-tpl").content.cloneNode(true));
+};
+RENDER.details = el => {
+  el.innerHTML = `<div class="intro"><h2>All results</h2>
+    <p>Everything behind the answer, as the three phases measured it, with every table and the terms they use. Phase 1
+    tuned the manoeuvre and chose the building type; Phase 2 compared the swarm's ways of taking a block with one drone's
+    on 48 cities; Phase 3, a short pilot, asked what each way looks down and at which spread. The answer tab draws on
+    Phase 3 and Phase 2's informed search.</p></div>
+    <nav class="box subnav" aria-label="Detail sections">${DETAILS.map(([ph, q, items]) => `<div class="grp">
+      <div class="gl">${esc(ph)}${q ? `<span>${esc(q)}</span>` : ""}</div>
+      <div class="seg">${items.map(([id, lab]) => `<button type="button" data-sub="${id}" aria-pressed="${id === DSUB}">${esc(lab)}</button>`).join("")}</div></div>`).join("")}</nav>
+    <div class="subpane" id="subpane"></div>`;
+  const pane = $("#subpane", el);
+  const open = id => {
+    DSUB = id;
+    el.querySelectorAll(".subnav button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.sub === id)));
+    pane.replaceChildren();
+    tipHide();
+    RENDER[id](pane);
+  };
+  el.querySelectorAll(".subnav button").forEach(b => b.addEventListener("click", () => open(b.dataset.sub)));
+  open(DETAIL_IDS.includes(DSUB) ? DSUB : "lookdown");
+};
+
+// ---------------------------------------------------------------- the surround map
+RENDER.map = el => {
+  const c = D.coupling;
+  el.innerHTML = `<div class="intro"><h2>The surround map d*(p, s)</h2>
+    <p>Each cell is the share of 45 s centring holds on a block (S1's hold: stick 0.5, gain 0.25) that enveloped it:
+    no drone lost, the block's centre inside the formation's hull, no bearing gap over 150°, and at least 70% of the
+    drones within the block's clearance. <b>d*</b> (outlined) is the smallest spread enveloping in at least 80% of holds
+    with no drone lost and at most ${B.contacts_per} contacts per hold. The orange dot marks the prediction, the ring
+    round the building (3 m off it) divided by 100: ten drones spaced 10·d_ref m round it.</p></div>
+    <div class="legend"><span><span class="sw" style="background:${mix(0)}"></span>none enveloped</span>
+    <span><span class="sw" style="background:${mix(1)}"></span>all enveloped</span>
+    <span><span class="sw" style="outline:2px solid var(--ink);outline-offset:-2px;background:var(--panel)"></span>d*</span>
+    <span><span class="sw" style="background:var(--m-aim);width:8px;height:8px;border-radius:50%"></span>predicted d* (nearest step)</span></div>
+    <div class="grid2" id="heat"></div><div class="box small" id="mapnote"></div>`;
+  if (!c) { $("#heat").innerHTML = '<p class="notrun">The coupling run has not been read.</p>'; return; }
+  const spreads = c.cells[0].d;
+  $("#heat").innerHTML = ["R", "B"].map(v => {
+    const rows = DESIGNS.map(([p, s]) => {
+      const r = c.cells.find(x => x.v === v && x.p === p && x.s === s);
+      if (!r) return "";
+      const near = r.pred === null ? null : spreads.reduce((a, d) => Math.abs(d - r.pred) < Math.abs(a - r.pred) ? d : a, spreads[0]);
+      const cells = spreads.map((d, i) => {
+        const e = r.env[i], star = d === r.d_star, k = r.cont[i];
+        const title = `spread ${d}: enveloped ${pct(e)}, contacts ${fmt(k)} per hold, envelops in ${fmt(r.t_env[i], 1)} s (median)`;
+        return `<td class="c${star ? " star" : ""}" style="background:${mix(e || 0)};color:${(e || 0) > 0.55 ? "var(--panel)" : "var(--ink)"}" title="${title}">${d === near ? '<span class="pred"></span>' : ""}${pct(e)}</td>`;
+      }).join("");
+      return `<tr${s === 12 && p !== 40 ? ' class="sep"' : ""}><td class="l">${dl(p, s)}</td>${cells}<td>${fmt(r.d_star, 1)}</td><td>${fmt(r.pred, 2)}</td><td>${fmt(r.t_env_star, 0)}</td></tr>`;
+    }).join("");
+    return `<div class="box"><h3>Variant ${vtag(v)} · ${v === "R" ? "a catalogue building whose avoidance cylinder fits the block" : "the block itself, inset 3.5 m"}</h3>
+      <div class="tablewrap"><table class="heat"><thead><tr><th>design (m)</th>${spreads.map(d => `<th>${d}</th>`).join("")}<th>d*</th><th>pred.</th><th>s to env.</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join("");
+  const R = c.cells.filter(x => x.v === "R" && x.d_star !== null && x.pred !== null);
+  const dev = R.map(x => Math.abs(x.d_star - x.pred));
+  const none = c.cells.filter(x => x.rule !== "safe").map(x => `${x.v} p ${x.p} s ${x.s} (${x.rule})`);
+  $("#mapnote").innerHTML = `<p><b>The prediction holds.</b> For R, d* is within ${fmt(Math.max(...dev), 2)} of
+    perimeter/100 at every design, i.e. within one 0.2 step of the grid. Wider streets need less spread (the ring
+    stands closer to the building's own footprint than to its neighbours'), larger blocks need more: 0.8 at p 40 with
+    24 m streets, 2.0 at p 75 with 12 m. Holds took ${fmt(Math.min(...c.cells.map(x => x.t_env_star || 99)), 0)}–${fmt(Math.max(...c.cells.map(x => x.t_env_star || 0)), 0)} s
+    to envelop at d* (${c.trials} holds per cell; ${c.holds.toLocaleString()} in all), and no hold at d* lost a drone.</p>
+    ${none.length ? `<p class="muted">No safe spread: ${none.join("; ")}.</p>` : ""}`;
+};
+
+// ---------------------------------------------------------------- surround and exit
+let SEL = {v: "R", p: 50, s: 12};
+RENDER.surround = el => {
+  el.innerHTML = `<div class="intro"><h2>Surround and exit (M3b)</h2>
+    <p>The formation arrives at a block's entrance corner, surrounds the block, and leaves down a side street (neither
+    the entrance nor the street opposite). The question is how long the surround must last before the pilot has seen
+    the block's streets, and what that costs against flying round the block by the streets to the same exit.
+    The curves are the 30 s screens: the share of trials in which at least 80% of the block's radiating streets had been
+    previewed (60% of each street's first 80 m seen on a shown feed, within 80 m) by T seconds after the entrance.
+    The bar is ${pct(B.preview_trials)} of trials. The table below is the surround flown at its real length.</p></div>
+    <div class="grid2"><div class="box picker" id="pick"></div><div class="box chart" id="curve"></div></div>
+    <div class="box" id="t4"></div><div class="box" id="tprev"></div>`;
+  drawPicker($("#pick"), () => { drawCurve(); drawT4(); });
+  drawCurve(); drawT4(); drawTprev();
+};
+function drawPicker(el, cb) {
+  el.innerHTML = `<div><span class="eyebrow">Variant</span><div class="seg" id="vseg">${["R", "B"].map(v =>
+    `<button aria-pressed="${SEL.v === v}" data-v="${v}">${v === "R" ? "R · cylinder-fit" : "B · block-shaped"}</button>`).join("")}</div></div>
+    <div><span class="eyebrow">Design: block pitch p × street width s (m)</span><div class="dgrid" id="dgrid">
+    <span></span>${[12, 18, 24].map(s => `<span class="h">s ${s}</span>`).join("")}
+    ${[40, 50, 60, 75].map(p => `<span class="h">p ${p}</span>` + [12, 18, 24].map(s =>
+      `<button aria-pressed="${SEL.p === p && SEL.s === s}" data-p="${p}" data-s="${s}" title="${esc(dtitle(p, s))}">${p}·${s}</button>`).join("")).join("")}
+    </div></div>`;
+  el.querySelectorAll("#vseg button").forEach(b => b.addEventListener("click", () => { SEL.v = b.dataset.v; drawPicker(el, cb); cb(); }));
+  el.querySelectorAll("#dgrid button").forEach(b => b.addEventListener("click", () => {
+    SEL.p = +b.dataset.p; SEL.s = +b.dataset.s; drawPicker(el, cb); cb(); }));
+}
+function drawCurve() {
+  const el = $("#curve");
+  const keys = ["soft", "firm", "aim", "perim"];
+  const series = keys.map(k => { const sc = screen(k); const r = sc ? row(sc.rows, SEL.v, SEL.p, SEL.s) : null;
+    return r && r.curve ? {k, label: sc.label, curve: r.curve, t: r.t_prev} : null; }).filter(Boolean);
+  const W = 560, H = 300, m = {l: 44, r: 14, t: 14, b: 38};
+  const T = D.curve_t, tmax = T[T.length - 1];
+  const x = t => m.l + (W - m.l - m.r) * t / tmax, y = v => H - m.b - (H - m.t - m.b) * v;
+  let g = "";
+  for (let v = 0; v <= 1.0001; v += 0.2) g += `<line class="gridl" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`;
+  for (let t = 0; t <= tmax; t += 5) g += `<text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${t}</text>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">seconds after the entrance</text>`;
+  g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(B.preview_trials)}" y2="${y(B.preview_trials)}" stroke="var(--ink)" stroke-dasharray="4 3" stroke-width="1"/>`;
+  for (const sr of series) {
+    const pts = sr.curve.map((v, i) => `${x(T[i]).toFixed(1)},${y(v || 0).toFixed(1)}`).join(" ");
+    g += `<polyline points="${pts}" fill="none" stroke="${MODE_COL[sr.k]}" stroke-width="2.2" stroke-linejoin="round"/>`;
+  }
+  el.innerHTML = `<div class="head"><h3>${vtag(SEL.v)} ${dl(SEL.p, SEL.s)}: streets seen during the surround</h3></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Share of trials with 80% of the streets previewed against time">${g}</svg>
+    <div class="legend">${series.map(sr => `<span><span class="ln" style="border-color:${MODE_COL[sr.k]}"></span>${esc(sr.label)}: ${sr.t === null ? "never" : fmt(sr.t, 1) + " s"}</span>`).join("")}
+    <span><span class="ln" style="border-color:var(--ink);border-top-style:dashed"></span>the ${pct(B.preview_trials)} bar</span></div>`;
+}
+function drawT4() {
+  const el = $("#t4");
+  if (!D.step4 || !D.step4.length) { el.innerHTML = '<h3>The surround at its real length</h3><p class="notrun">Not run yet.</p>'; return; }
+  const body = D.step4.map(x => { const r = row(x.rows, SEL.v, SEL.p, SEL.s); if (!r) return "";
+    const ok = r.m3b_prev_ok !== null && r.m3b_prev_ok >= B.preview_trials, okp = r.m3b_price !== null && r.m3b_price <= B.time_price;
+    return `<tr><td class="l">${esc(x.label)}</td><td>${x.t_hop}</td><td>${pct(r.m3b_prev_ok)} ${pill(ok)}</td><td>${fmt(r.m3b_price, 2)} ${pill(okp)}</td>
+      <td>${fmt(r.m3b_hop, 1)}</td><td>${fmt(r.m3b_street, 1)}</td><td class="${r.m3b_cont > B.contacts_per ? "bad" : ""}">${fmt(r.m3b_cont, 2)}</td>
+      <td class="${r.m3b_lost > 0 ? "bad" : ""}">${fmt(r.m3b_lost, 2)}</td><td>${pct(r.m3b_ref)}</td></tr>`; }).join("");
+  el.innerHTML = `<h3>${vtag(SEL.v)} ${dl(SEL.p, SEL.s)}: the surround at its real length (50 trials each)</h3>
+    <div class="tablewrap"><table><thead><tr><th>mode</th><th>surround (s)</th><th>trials with ≥ 80% previewed</th><th>time price</th>
+    <th>hop (s)</th><th>by streets (s)</th><th>contacts</th><th>lost</th><th>reformed</th></tr></thead><tbody>${body}</tbody></table></div>
+    <p class="small muted">Time price: the median of each trial's entrance-to-next-junction time over the same formation's
+    flight round the block by the streets to the same exit; the bar is ${B.time_price}×. Contacts and losses are per manoeuvre.</p>`;
+}
+function drawTprev() {
+  const el = $("#tprev");
+  const keys = ["soft", "firm", "aim", "perim", "d10"].filter(k => screen(k));
+  const body = ["R", "B"].map(v => DESIGNS.map(([p, s], i) => {
+    const cells = keys.map(k => { const r = row(screen(k).rows, v, p, s); const t = r ? r.t_prev : null;
+      return `<td>${t === null ? "never" : fmt(t, 1)}</td>`; }).join("");
+    return `<tr${i === 0 ? ' class="sep"' : ""}><td class="l">${vtag(v)} ${dl(p, s)}</td>${cells}</tr>`; }).join("")).join("");
+  el.innerHTML = `<h3>Surround needed for the preview bar (seconds, the 30 s screens)</h3>
+    <p class="small">The surround length at which ${pct(B.preview_trials)} of trials had seen at least 80% of the block's streets; "never" when fewer did within the flight.</p>
+    <div class="tablewrap"><table><thead><tr><th>design</th>${keys.map(k => `<th>${esc(screen(k).label)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+// ---------------------------------------------------------------- pass round
+RENDER.pass = el => {
+  const conf = D.confirm, sc = conf ? {rows: conf.summary} : screen("soft");
+  el.innerHTML = `<div class="intro"><h2>Pass round (M3)</h2>
+    <p>The formation arrives at the entrance corner and is aimed at full stick through the block at a point 15 m down
+    the street opposite; it flows round both sides and on to that street's far junction, the next decision point. Its
+    commit is the aim point taken. Reformed means one cluster (every drone within 30 m of free-space path of the next)
+    before the next junction, which in these cities comes only a few seconds after the commit.
+    ${conf ? `Shown at each variant's confirmed profile (R at cohesion cutoff 30, B at 20), ${conf.trials} fresh trials per design on fresh cities.` : "Shown at S1's hold, cohesion cutoff 40 (the screens)."}</p></div>
+    <div class="box" id="ptab"></div><div class="box small" id="pnote"></div>`;
+  if (!sc) { $("#ptab").innerHTML = '<p class="notrun">Not run yet.</p>'; return; }
+  const ex = D.exits || [];
+  const body = ["R", "B"].map(v => DESIGNS.map(([p, s], i) => {
+    const r = row(sc.rows, v, p, s); if (!r) return "";
+    const exs = ex.map(e => { const q = row(e.rows, v, p, s); return `<td>${q ? pct(q.m3_ref) : "–"}</td>`; }).join("");
+    return `<tr${i === 0 ? ' class="sep"' : ""}><td class="l">${vtag(v)} ${dl(p, s)}</td><td>${fmt(r.m3_d, 1)}</td><td>${pct(r.m3_prev)}</td>
+      <td>${fmt(r.m3_pass, 1)}</td><td>${pct(r.m3_pass_ok)}</td><td class="${r.m3_ref < B.reform ? "bad" : ""}">${pct(r.m3_ref)}</td>${exs}
+      <td class="${r.m3_cont > B.contacts_per ? "bad" : ""}">${fmt(r.m3_cont, 2)}</td><td class="${r.m3_lost > 0 ? "bad" : ""}">${fmt(r.m3_lost, 2)}</td></tr>`; }).join("")).join("");
+  $("#ptab").innerHTML = `<div class="tablewrap"><table><thead><tr><th>design</th><th>spread</th><th>streets previewed at commit</th>
+    <th>pass (s)</th><th>exit, no stall</th><th>reformed</th>${ex.map(e => `<th>reformed, exit stick ${e.exit_stick} (cutoff 40)</th>`).join("")}<th>contacts</th><th>lost</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+  $("#pnote").innerHTML = `<p><b>Why the pass does not reform at the larger blocks.</b> In flights continued past the next
+    junction, almost every failure was one drone: a drone that went round the far side of the block alone, still more
+    than 30 m of free-space path from the others when the next junction came. At p 50 it rejoins within about half a
+    second in most flights; at p 75 it takes 3–12 s, or longer than 20 s.</p>`;
+};
+
+// ---------------------------------------------------------------- safety
+RENDER.safety = el => {
+  const conf = D.confirm;
+  el.innerHTML = `<div class="intro"><h2>Safety by variant</h2>
+    <p>Contacts per manoeuvre (a drone touching a facade, as PhysX would resolve it: put back on the surface with friction
+    0.6), for the pass round and the surround and exit. Filled dots: each variant at its confirmed profile (R at
+    cohesion cutoff 30, B at 20). Hollow dots: the screens at cutoff 40, S1's hold. The bar is ${B.contacts_per} per manoeuvre.
+    Losses were rare everywhere except aim-and-turn flown for 30 s, where the formation reversed at full stick.</p></div>
+    <div class="grid2" id="saf"></div><div class="box small" id="safnote"></div>`;
+  const sc = screen("soft");
+  if (!sc) { $("#saf").innerHTML = '<p class="notrun">Not run yet.</p>'; return; }
+  const cf = conf ? conf.summary : [];
+  $("#saf").innerHTML = ["M3", "M3b"].map(kind => {
+    const key = kind === "M3" ? "m3_cont" : "m3b_cont";
+    const vals = sc.rows.concat(cf).map(r => r[key]).filter(x => x !== null && x !== undefined);
+    const xmax = Math.max(0.4, Math.ceil(Math.max(...vals) * 2) / 2);
+    const W = 520, rowH = 22, m = {l: 92, r: 16, t: 26, b: 30}, H = m.t + m.b + rowH * DESIGNS.length;
+    const x = v => m.l + (W - m.l - m.r) * Math.min(v, xmax) / xmax;
+    let g = "";
+    for (let t = 0; t <= xmax + 1e-9; t += xmax > 2 ? 1 : 0.5) g += `<line class="gridl" x1="${x(t)}" x2="${x(t)}" y1="${m.t - 6}" y2="${H - m.b}"/><text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${t}</text>`;
+    g += `<line x1="${x(B.contacts_per)}" x2="${x(B.contacts_per)}" y1="${m.t - 6}" y2="${H - m.b}" stroke="var(--ink)" stroke-dasharray="4 3"/>`;
+    g += `<text x="${x(B.contacts_per) + 4}" y="${m.t - 10}">bar ${B.contacts_per}</text>`;
+    DESIGNS.forEach(([p, s], i) => {
+      const yy = m.t + rowH * i + rowH / 2;
+      g += `<text x="${m.l - 8}" y="${yy + 4}" text-anchor="end" class="mono">p ${p} · s ${s}<title>${esc(dtitle(p, s))}</title></text>`;
+      for (const v of ["R", "B"]) {
+        const r = row(sc.rows, v, p, s), q = row(cf, v, p, s), col = `var(--var-${v.toLowerCase()})`;
+        if (r && r[key] !== null) g += `<circle cx="${x(r[key])}" cy="${yy}" r="4.5" fill="var(--panel)" stroke="${col}" stroke-width="1.6"><title>${v} p ${p} s ${s}, cutoff 40: ${fmt(r[key], 2)} contacts per manoeuvre</title></circle>`;
+        if (q && q[key] !== null && q[key] !== undefined) g += `<circle cx="${x(q[key])}" cy="${yy}" r="5" fill="${col}"><title>${v} p ${p} s ${s}, confirmed profile: ${fmt(q[key], 2)} contacts per manoeuvre</title></circle>`;
+      }
+    });
+    g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">contacts per manoeuvre</text>`;
+    return `<div class="box chart"><h3>${kind === "M3" ? "Pass round (M3)" : "Surround and exit (M3b)"}</h3>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Contacts per manoeuvre by design">${g}</svg>
+      <div class="legend"><span><span class="sw" style="background:var(--var-r);border-radius:50%;width:10px"></span>R · cylinder-fit</span>
+      <span><span class="sw" style="background:var(--var-b);border-radius:50%;width:10px"></span>B · block-shaped</span>
+      <span><span class="sw" style="background:var(--panel);border:1.6px solid var(--ink-2);border-radius:50%;width:10px"></span>cutoff 40 (screens)</span></div></div>`;
+  }).join("");
+  const fu = D.followups || [];
+  const k = fu.filter(x => x.key === "k0" || x.key === "k1");
+  $("#safnote").innerHTML = `<p><b>Why B touches.</b> Nearly all of B's contacts are with the building the formation is
+    taking. Re-flown with every contact located (28 Oct), 183 of 188 in the screens (97%) and 85 of 98 at B's own profile
+    (87%) were with the block's own building, each drone pressed into its facade with the building across the street
+    18–31 m away. They come while the formation passes round the block (M3) or turns off at its corner (M3b's exit).
+    This page and the manual first said three-quarters were with the buildings across the street; that was wrong. Why
+    the formation presses into the facade is not established: the face bend, which gives the closest-point model the
+    sideways push a cylinder has, made it worse (below). R's buildings, steered round as cylinders, stay near the
+    bar.</p>
+    ${k.length ? `<p>Face bend κ: ${k.map(x => esc(x.label) + " gives " + fmt(mean(x.rows.filter(r => r.v === "B").map(r => r.m3_cont)), 2) + " (M3) and " + fmt(mean(x.rows.filter(r => r.v === "B").map(r => r.m3b_cont)), 2) + " (M3b) contacts per manoeuvre over the designs").join("; ")}, against ${fmt(mean(sc.rows.filter(r => r.v === "B").map(r => r.m3_cont)), 2)} and ${fmt(mean(sc.rows.filter(r => r.v === "B").map(r => r.m3b_cont)), 2)} at κ 0.5.</p>` : ""}`;
+};
+function mean(a) { a = a.filter(x => x !== null && x !== undefined); return a.length ? a.reduce((s, x) => s + x, 0) / a.length : null; }
+
+// ---------------------------------------------------------------- decision
+RENDER.decision = el => {
+  const c = D.confirm;
+  el.innerHTML = `<div class="intro"><h2>Criteria and the variant</h2>
+    <p>Fixed before any flight, judged per design at its d*, every one for both the pass round and the surround and
+    exit: safety (drones lost per manoeuvre ≤ ${B.lost_per}, the Wilson 95% upper bound on manoeuvres losing any drone
+    ≤ ${B.any_loss_ub}, contacts ≤ ${B.contacts_per}); reform before the next junction in ≥ ${pct(B.reform)}; preview (the surround: ≥ 80% of the
+    streets in ≥ ${pct(B.preview_trials)} of trials; the pass: the exit reached without a 3 s stall in ≥ ${pct(B.m3_pass)}); time price ≤ ${B.time_price}×;
+    streets (the street run at ≥ ${pct(B.speed_ratio)} of one drone's speed, ≤ ${B.contacts_per_100m} contacts per 100 m).
+    B is chosen if it passes in at least 9 of 12 designs, R if in at least 6; otherwise whichever passes in more, with
+    Phase 2 on those designs only; and S4 stops after Phase 1 if neither is safe in at least 4.</p></div>
+    <div class="box" id="dec"></div><div class="box" id="crit"></div><div class="box" id="unity"></div>`;
+  drawUnity($("#unity"));
+  if (!c) { $("#dec").innerHTML = '<p class="notrun">The confirmation run (100 trials per design at the chosen profile) has not been flown yet.</p>'; $("#crit").remove(); return; }
+  const d = c.decision;
+  $("#dec").innerHTML = `<h3>Decision: ${esc(d.choice)}</h3>
+    <p>Designs passing every criterion: R ${d.designs_passing.R || 0}, B ${d.designs_passing.B || 0}. Designs safe: R ${d.designs_safe.R || 0}, B ${d.designs_safe.B || 0}.
+    ${d.passing && d.passing.length ? "Passing: " + d.passing.map(x => `${vtag(x[0])} ${dl(x[1], x[2])}`).join(", ") + "." : ""}</p>
+    <p class="small muted">Profiles flown (changes from the S4 defaults): ${Object.entries(c.settings).map(([v, st]) => `${vtag(v)} ${esc(Object.entries(st).map(([k, x]) => k + " " + x).join(", ") || "the defaults")}`).join("; ")}; the block spread is each design's d*.
+    ${c.trials} fresh trials per design and manoeuvre on fresh cities (seeds ${c.city_seeds.join(", ")}), ${c.n_jobs.toLocaleString()} manoeuvres.</p>`;
+  const cols = [["M3_lost_per", "M3 lost", 2], ["M3_any_loss_ub", "M3 loss UB", 3], ["M3_contacts_per", "M3 contacts", 2],
+    ["M3b_lost_per", "M3b lost", 2], ["M3b_any_loss_ub", "M3b loss UB", 3], ["M3b_contacts_per", "M3b contacts", 2],
+    ["M3_reform_ok", "M3 reform", -1], ["M3b_reform_ok", "M3b reform", -1], ["M3b_preview_ok", "M3b preview", -1],
+    ["M3_pass_ok", "M3 exit", -1], ["M3b_time_price_median", "time price", 2], ["M1_speed_ratio", "street speed", 2]];
+  const flags = [["pass_safety", "safety"], ["pass_reform", "reform"], ["pass_preview", "preview"], ["pass_time_price", "time"], ["pass_streets", "streets"], ["pass_all", "all"]];
+  const rows = c.rows.slice().sort((a, b) => a.variant.localeCompare(b.variant) * -1 || a.p - b.p || a.s - b.s);
+  $("#crit").innerHTML = `<div class="tablewrap"><table><thead><tr><th>design</th>${cols.map(x => `<th>${x[1]}</th>`).join("")}${flags.map(x => `<th>${x[1]}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr><td class="l">${vtag(r.variant)} ${dl(r.p, r.s)}</td>${cols.map(([k, , nd]) => `<td>${nd < 0 ? pct(r[k]) : fmt(r[k], nd)}</td>`).join("")}${flags.map(([k]) => `<td>${pill(r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+};
+
+// ---------------------------------------------------------------- phase 2: shared pieces
+// The six conditions in the validated colour order (slots 1-6): every Phase 2 legend, bar list and table uses it.
+const CONDS = [["swarm_street", "swarm in the streets", "--c-street"], ["swarm_hop", "swarm surrounding", "--c-hop"],
+               ["swarm_pass", "swarm passing round", "--c-pass"], ["swarm_hold", "swarm holding", "--c-hold"],
+               ["single", "one drone", "--c-single"], ["single_look", "one drone, looking", "--c-look"]];
+const SWARM = ["swarm_street", "swarm_hop", "swarm_pass", "swarm_hold"];
+// Phase 3 adds the surround at Phase 2's setting beside the one its rule picks: slot 7 (violet), after the six
+const CONDS3 = CONDS.concat([["swarm_hop_p2", "swarm surrounding, Phase 2's setting", "--c-hop2"]]);
+const condLabel = c => (CONDS3.find(x => x[0] === c) || [c, c])[1];
+const condCol = c => `var(${(CONDS3.find(x => x[0] === c) || [0, 0, "--m-other"])[2]})`;
+const pfmt = p => p === null || p === undefined ? "–" : p < 0.001 ? "< 0.001" : fmt(p, 3);
+const signed = (x, nd) => {
+  if (x === null || x === undefined) return "–";
+  const a = fmt(Math.abs(x), nd);
+  return (Number(a) === 0 ? "" : x > 0 ? "+" : "−") + a;          // no sign on a value that rounds to zero
+};
+const ratioCI = r => `${fmt(r.lo, 3)}–${fmt(r.hi, 3)}`;
+function lineKey(c) { return `<span class="ln" style="border-color:${condCol(c)}"></span>`; }
+function noP2(el, what) { el.innerHTML = `<div class="intro"><h2>${what}</h2><p class="notrun">Phase 2 is running.</p></div>`; }
+
+// one tooltip for every Phase 2 chart; its rows are built with textContent (labels come from the data)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  // every [data-i] element in root shows rowsFor(i) on hover and on keyboard focus
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+
+// horizontal bars, one per condition, each in its condition's colour, the value at the tip
+function condBars(el, title, rows, o) {
+  const W = 560, rowH = 30, m = {l: 150, r: 58, t: 4, b: 28}, H = m.t + m.b + rowH * rows.length;
+  const x = v => m.l + (W - m.l - m.r) * Math.max(0, Math.min(v, o.xmax)) / o.xmax;
+  let g = "";
+  for (const t of o.ticks) g += `<line class="gridl" x1="${x(t)}" x2="${x(t)}" y1="${m.t}" y2="${H - m.b}"/><text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${o.tick(t)}</text>`;
+  g += `<line class="xh" x1="${m.l}" x2="${m.l}" y1="${m.t}" y2="${H - m.b}"/>`;
+  rows.forEach((r, i) => {
+    const y0 = m.t + rowH * i, bh = 16, yb = y0 + (rowH - bh) / 2, w = Math.max(0, x(r.value) - m.l), rr = Math.min(4, w / 2, bh / 2);
+    const d = `M${m.l},${yb}h${(w - rr).toFixed(1)}a${rr},${rr} 0 0 1 ${rr},${rr}v${bh - 2 * rr}a${rr},${rr} 0 0 1 ${-rr},${rr}h${(-(w - rr)).toFixed(1)}z`;
+    g += `<text class="lbl" x="${m.l - 8}" y="${y0 + rowH / 2 + 4}" text-anchor="end">${esc(condLabel(r.key))}</text>`;
+    if (r.value !== null && r.value !== undefined) {
+      g += `<path d="${d}" fill="${condCol(r.key)}"/><text class="val" x="${x(r.value) + 6}" y="${y0 + rowH / 2 + 4}">${o.fmt(r.value)}</text>`;
+    }
+    g += `<rect class="hit" data-i="${i}" tabindex="0" x="0" y="${y0}" width="${W}" height="${rowH}"/>`;
+  });
+  el.innerHTML = `<h3>${title}</h3><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}">${g}</svg>${o.note || ""}`;
+  hoverMarks(el, i => [condLabel(rows[i].key), [[condCol(rows[i].key), o.fmt(rows[i].value), o.what]]]);
+}
+
+// ---------------------------------------------------------------- block-hop walks
+let CTR_MEAS = "find_rmst_any_r80";
+const CTR_MEASURES = [["find_rmst_any_r80", "time to find, 80 m"], ["find_rmst_head_r80", "… head ahead only"],
+                      ["find_rmst_any_r40", "time to find, 40 m"], ["find_rmst_any_r200", "time to find, 200 m"],
+                      ["street_km_per_min", "street seen per minute"]];
+RENDER.walks = el => {
+  const P = D.phase2;
+  if (!P || !P.walks) return noP2(el, "Block-hop walks");
+  const W = P.walks, pr = P.primaries || {}, h1 = pr.H1 || W.h1, sp = W.spec || {};
+  const dstar = sp.d_star ? Object.entries(sp.d_star).map(([k, v]) => `${v} at p ${k.split("|")[1]} · s ${k.split("|")[2]}`).join(", ") : "d*";
+  el.innerHTML = `<div class="intro"><h2>Block-hop walks</h2>
+    <p>Variant R at the two designs Phase 1 passed (block pitch p 40 m, with 18 and 24 m streets): ${W.n_cities} cities on
+    fresh seeds, ${W.n_walks} walks of ${fmt(sp.T_s, 0)} s, ${W.n_flights.toLocaleString()} flights. Every condition flies the
+    same seeded chain of blocks from the same start, at each block leaving by a street other than the one it came in by,
+    drawn at random, so the chain never reads the flight and every comparison is paired. The swarm flies its block spread d*
+    (${esc(dstar)}) round the blocks and 1.0 in the streets; the surround and the hold both last ${fmt((sp.setting || {}).t_hop, 0)} s.</p>
+    <p><b>Streets previewed</b>: the share of a block's radiating streets with 60% of their first 80 m seen on a shown feed
+    within 80 m (internal_3's search band), at the moment the pilot commits to the exit, over the blocks every condition of
+    the walk reached. <b>Time to find</b>: a target hidden at random on open ground, found when a shown feed sees it within
+    80 m; the restricted mean to ${fmt(sp.T_s, 0)} s over every such point. The chain does not use what is seen, so this tab
+    measures what each way of taking a block shows; the informed search measures whether it pays.</p></div>
+    <div class="grid2"><div class="box" id="w-h1"></div><div class="box chart" id="w-prev"></div></div>
+    <div class="box" id="w-cond"></div>
+    <div class="grid2"><div class="box" id="w-cost"></div><div class="box small" id="w-spread"></div></div>
+    <div class="box" id="w-ctr"></div><div class="box small" id="w-full"></div><div class="box" id="w-bench"></div>`;
+  const per = (W.h1_per || []).map(r => `<tr><td class="l">${dl(r.p, r.s)}</td><td>${r.n_cities}</td><td>${signed(100 * r.diff, 1)}</td><td>${pfmt(r.p_one_sided)}</td><td>${pfmt(r.q)}</td></tr>`).join("");
+  const holds = h1 && (h1.p_holm !== undefined ? h1.p_holm : h1.p_one_sided) < 0.05;
+  $("#w-h1").innerHTML = `<p class="eyebrow">H1 · streets previewed at the decision</p>
+    <div class="big">${h1 ? signed(100 * h1.mean_diff, 1) + " points" : "–"}</div>
+    <p class="small">The surround minus the time-matched hold at the corner, the share of a block's radiating streets
+    previewed when the pilot commits; ${h1 ? h1.n_cities : "–"} cities, one-sided p ${pfmt(h1 && h1.p_one_sided)}${h1 && h1.p_holm !== undefined ? `, Holm over H1 and H2 ${pfmt(h1.p_holm)}` : ""}.
+    <span class="verdict">${h1 ? (holds ? "H1 holds." : "H1 is not shown.") : ""}</span></p>
+    <div class="tablewrap"><table><thead><tr><th>design</th><th>cities</th><th>points</th><th>p</th><th>q (BH)</th></tr></thead><tbody>${per}</tbody></table></div>`;
+  const C = W.conditions || [];
+  const val = (k, c) => { const r = C.find(x => x.condition === k); return r ? r[c] : null; };
+  condBars($("#w-prev"), "Streets previewed at the decision, by condition", CONDS.map(([k]) => ({key: k, value: val(k, "preview_common")})),
+    {xmax: 1, ticks: [0, 0.25, 0.5, 0.75, 1], tick: t => Math.round(100 * t) + "%", fmt: v => pct(v), what: "of the streets previewed",
+     note: `<p class="small muted">Means over cities, at the profile's spread. One drone decides on arrival at the corner; the hold, the surround and the look decide when they end, the pass when it is aimed through the block.</p>`});
+  const condTable = cols => `<div class="tablewrap"><table><thead><tr><th>condition</th>${cols.map(c => `<th>${c[1]}</th>`).join("")}</tr></thead><tbody>
+    ${CONDS.map(([k]) => { const r = C.find(x => x.condition === k); if (!r) return "";
+      return `<tr><td class="l">${lineKey(k)}${condLabel(k)}</td>${cols.map(([c, , nd]) => `<td>${r[c] === undefined || r[c] === null ? "–" : nd < 0 ? pct(r[c]) : fmt(r[c], nd)}</td>`).join("")}</tr>`; }).join("")}
+    </tbody></table></div>`;
+  $("#w-cond").innerHTML = `<h3>What each condition shows (${W.n_walks} walks, ${W.n_cities} cities)</h3>
+    ${condTable([["hops_done", "blocks reached", 1], ["preview_common", "streets previewed", -1],
+                 ["street_km_per_min", "street km seen / min", 2], ["find_rmst_any_r40", "find, 40 m (s)", 0], ["find_rmst_any_r80", "find, 80 m (s)", 0],
+                 ["find_rmst_any_r200", "find, 200 m (s)", 0], ["find_rmst_head_r80", "80 m, head ahead (s)", 0]])}
+    <p class="small muted">Means over cities of the per-city means, at the profile's spread. Find: the restricted mean time to find a hidden point,
+    excluding the ground the start already shows. At the transit band (19.5 m, camera at −15°, nothing seen nearer than 23 m) the streets previewed
+    are ${(() => { const d = C.map(r => Math.abs((r.preview_common || 0) - (r.preview_common_transit || 0)));
+      if (!d.length) return "–";
+      const n = Math.max(1, Math.round(100 * Math.max(...d)));
+      return `within ${n} point${n === 1 ? "" : "s"} of these`; })()}.</p>`;
+  $("#w-cost").innerHTML = `<h3>What it costs, per ${fmt(sp.T_s, 0)} s walk</h3>
+    ${condTable([["lost", "drones lost", 2], ["contacts", "contacts", 2], ["reform_ok_share", "reformed", -1], ["feeds_mean", "feeds shown", 1]])}
+    <p class="small muted">Reformed: one cluster before the next junction, after the blocks where the formation split. Feeds shown: the hull's feeds, out of ten.</p>`;
+  drawWalkContrasts();
+  const spd = (W.spread || []);
+  const spRow = cond => { const g = m => spd.find(r => r.condition === cond && r.measure === m); return [g("preview_common"), g("find_rmst_any_r80"), g("lost"), g("contacts")]; };
+  $("#w-spread").innerHTML = `<h3>d* against spread 1.0</h3>
+    <p>Only at p 40 · s 24, where d* is 0.8 (at s 18 d* is 1.0, so the two are the same flights). Spread 1.0 minus d*, or 1.0 over d*:</p>
+    <div class="tablewrap"><table><thead><tr><th>condition</th><th>streets previewed</th><th>time to find</th><th>lost</th><th>contacts</th></tr></thead><tbody>
+    ${SWARM.filter(c => c !== "swarm_street").map(c => { const [a, b, l, k] = spRow(c);
+      return `<tr><td class="l">${lineKey(c)}${condLabel(c)}</td><td>${a ? signed(100 * a.est, 1) + " pts" : "–"}</td><td>${b ? "× " + fmt(b.est, 3) : "–"}</td><td>${l ? signed(l.est, 2) : "–"}</td><td>${k ? signed(k.est, 2) : "–"}</td></tr>`; }).join("")}
+    </tbody></table></div><p class="muted">The street-bound swarm flies 1.0 throughout in both. The block spread barely matters at these block sizes.</p>`;
+  const F = W.full_length;
+  $("#w-full").innerHTML = F ? `<h3>Walks cut short by the arena's edge</h3>
+    <p>A chain ends when it reaches the edge of the city, and a flight that has ended sees nothing more, so a condition that
+    finishes its chain sooner is charged for the rest of the ${fmt(sp.T_s, 0)} s. ${pct(F.share_full)} of the ${F.walks} walks ran the
+    whole time in every condition; on those alone the time-to-find ratios hardly move:</p>
+    <div class="tablewrap"><table><thead><tr><th>contrast</th><th>every walk</th><th>full-length walks</th></tr></thead><tbody>
+    ${F.rows.map(r => `<tr><td class="l">${condLabel(r.a)} ÷ ${condLabel(r.b)}</td><td>${fmt(r.all, 3)}</td><td>${fmt(r.full, 3)}</td></tr>`).join("")}
+    </tbody></table></div>` : "";
+  drawWalkBench($("#w-bench"), P);
+};
+function drawWalkContrasts() {
+  const W = D.phase2.walks, el = $("#w-ctr");
+  const X = (W.contrasts || []).filter(r => r.measure === CTR_MEAS);
+  const up = CTR_MEAS === "street_km_per_min";
+  el.innerHTML = `<h3>Condition against condition, per design</h3>
+    <div class="seg" id="ctr-seg" style="margin:6px 0 10px">${CTR_MEASURES.map(([k, l]) => `<button aria-pressed="${k === CTR_MEAS}" data-k="${k}">${l}</button>`).join("")}</div>
+    <div class="tablewrap"><table><thead><tr><th>contrast</th><th>design</th><th>cities</th><th>ratio</th><th>95% interval</th><th>q (BH)</th></tr></thead><tbody>
+    ${X.map(r => `<tr><td class="l">${condLabel(r.a)} ÷ ${condLabel(r.b)}</td><td>${dl(r.p, r.s)}</td><td>${r.n_cities}</td><td>${fmt(r.ratio, 3)}</td><td>${ratioCI(r)}</td><td>${pfmt(r.q)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="small muted">The city-mean ratio of each walk's ${up ? "street length seen per minute: above 1, the first condition clears more" : "restricted mean time to find: below 1, the first condition finds sooner"}. t intervals over cities; Benjamini–Hochberg over the two designs within each contrast.</p>`;
+  el.querySelectorAll("#ctr-seg button").forEach(b => b.addEventListener("click", () => { CTR_MEAS = b.dataset.k; drawWalkContrasts(); }));
+}
+function drawWalkBench(el, P) {
+  const Bn = P.bench || [], n = P.bench_n;
+  if (!Bn.length) { el.innerHTML = '<h3>The Unity spot check of the walks</h3><p class="notrun">Flying.</p>'; return; }
+  const BC = P.bench_contrasts || [];
+  const est = (r, log) => !r ? "–" : log ? `× ${fmt(r.est, 3)} (${fmt(r.lo, 2)}–${fmt(r.hi, 2)})` : `${signed(100 * r.est, 1)} pts (${signed(100 * r.lo, 1)} to ${signed(100 * r.hi, 1)})`;
+  el.innerHTML = `<h3>The Unity spot check of the walks</h3>
+    <p class="small">${n ? `${n.walks} of Phase 2's own walks (${n.cities} cities)` : "Phase 2's own walks"} flown again on the headless Unity bench in every
+    condition the bench can fly (one drone cannot look round at zero stick there), scored with the same measures; each beside the replica's flight of the same walk.</p>
+    <div class="tablewrap"><table><thead><tr><th>condition</th><th>blocks</th><th>streets previewed</th><th>street km seen</th><th>find 80 m (s)</th><th>lost</th><th>contacts</th></tr></thead><tbody>
+    ${CONDS.map(([k]) => { const r = Bn.find(x => x.condition === k); if (!r) return "";
+      return `<tr><td class="l">${lineKey(k)}${condLabel(k)}</td><td>${fmt(r.bench_hops, 1)} / ${fmt(r.replica_hops, 1)}</td><td>${pct(r.bench_preview)} / ${pct(r.replica_preview)}</td><td>${fmt(r.bench_street_km, 2)} / ${fmt(r.replica_street_km, 2)}</td><td>${fmt(r.bench_find80, 0)} / ${fmt(r.replica_find80, 0)}</td><td>${fmt(r.bench_lost, 2)} / ${fmt(r.replica_lost, 2)}</td><td>${fmt(r.bench_contacts, 2)} / ${fmt(r.replica_contacts, 2)}</td></tr>`; }).join("")}
+    </tbody></table></div><p class="small muted">Unity / replica, means per walk.</p>
+    ${BC.length ? `<h3 style="margin-top:12px">The contrasts on the bench</h3>
+    <div class="tablewrap"><table><thead><tr><th>contrast</th><th>measure</th><th>Unity</th><th>replica, same walks</th></tr></thead><tbody>
+    ${BC.map(r => { const log = r.measure !== "preview"; return `<tr><td class="l">${condLabel(r.a)} ${log ? "÷" : "−"} ${condLabel(r.b)}</td><td class="l">${log ? "time to find, 80 m" : "streets previewed"}</td><td>${est(r.bench, log)}</td><td>${est(r.replica, log)}</td></tr>`; }).join("")}
+    </tbody></table></div><p class="small muted">City means over the bench's cities, 95% t intervals (few cities: wide).</p>` : ""}`;
+}
+
+// ---------------------------------------------------------------- informed search
+let S_BASIS = "any";
+RENDER.search = el => {
+  const P = D.phase2, Sx = P && P.search;
+  if (!Sx) return noP2(el, "Informed search");
+  const pr = P.primaries || {}, h2 = pr.H2 || Sx.h2, cap = Math.max(...Sx.caps);
+  el.innerHTML = `<div class="intro"><h2>Informed search</h2>
+    ${SIGHT !== 80 ? `<p class="small"><b>This tab is Phase 2's pre-registered run, with an 80 m sight range.</b> The
+    answer tab uses the same search flown again at ${SIGHT} m, the range the pilot sees and finds the target within.</p>` : ""}
+    <p>A target hidden at a random point on open ground at least 300 m by street from the start and out of its sight; ${Sx.n_targets} targets,
+    six per city, every condition flown from the same start for each. The pilot keeps a map of the street it has seen (80 m,
+    on the shown feeds) and at each block takes the exit with the most unseen street within two edges per metre of travel,
+    routing on to the nearest unseen street when nothing near is unseen. The code is the same in every condition; only what
+    each condition sees differs. The flight stops at the first sight of the target within 80 m, or at ${fmt(cap, 0)} s; a swarm
+    that falls under four drones has not found it. <b>H2</b>: the surround finds the target sooner than the swarm kept in the streets.</p></div>
+    <div class="grid2"><div class="box" id="s-h2"></div><div class="box" id="s-eq"></div></div>
+    <div class="box chart" id="s-curve"></div><div class="box" id="s-sum"></div><div class="box" id="s-ctr"></div><div class="box" id="s-routes"></div>`;
+  const pooled = (Sx.contrasts || []).find(r => r.a === "swarm_hop" && r.b === "swarm_street" && r.basis === "any" && r.design === "pooled");
+  const ok = h2 && (h2.p_holm !== undefined ? h2.p_holm : h2.p_one_sided) < 0.05;
+  $("#s-h2").innerHTML = `<p class="eyebrow">H2 · time to find the target</p>
+    <div class="big">${h2 && h2.ratio !== null ? "× " + fmt(h2.ratio, 2) : "–"}</div>
+    <p class="small">The surround over the swarm kept in the streets: the city-mean ratio of the restricted mean time to the
+    first sight at 80 m (any feed)${pooled ? `, 95% interval ${ratioCI(pooled)}` : ""}; ${h2 ? h2.n_cities : "–"} cities; one-sided p ${pfmt(h2 && h2.p_one_sided)}${h2 && h2.p_holm !== undefined ? `, Holm ${pfmt(h2.p_holm)}` : ""}.
+    Below 1 would be sooner. <span class="verdict">${!h2 ? "" : ok ? "H2 holds." : pooled && pooled.lo > 1 ? "H2 fails: the surround is slower."
+      : "H2 is not supported: the interval includes no difference."}</span></p>`;
+  const eq = (h2 && h2.equivalence) || {};
+  $("#s-eq").innerHTML = `<p class="eyebrow">Secondary · equivalence within ±10%</p>
+    <p class="small">The plan's test of whether the surround and the street-bound swarm search equally fast (two one-sided tests, margin ×1.1) in the
+    small-building regime S2 measured, which both of Phase 2's designs are:</p>
+    <div class="tablewrap"><table><thead><tr><th>design</th><th>cities</th><th>ratio</th><th>p (TOST)</th><th>within ±10%</th></tr></thead><tbody>
+    ${Object.entries(eq).map(([k, r]) => r ? `<tr><td class="l">${dlText(k)}</td><td>${r.n_cities}</td><td>${fmt(r.ratio, 3)}</td><td>${pfmt(r.p_tost)}</td><td>${pill(r.equivalent, "yes", "no")}</td></tr>` : "").join("")}
+    </tbody></table></div>`;
+  drawSearchCurve(Sx);
+  const sumCols = [["found_r80", "found", -1], ["rmst_r80", "find, 80 m (s)", 0], ["rmst_r200", "200 m (s)", 0],
+                   ["decisions", "decisions", 1], ["blind", "none unseen near", 1], ["path_m", "path (m)", 0], ["streets", "streets seen", -1],
+                   ["lost", "lost", 2], ["contacts", "contacts", 2]];
+  const rows = [];
+  for (const [k] of CONDS) for (const basis of ["any", "head"]) { const r = Sx.summary.find(x => x.condition === k && x.basis === basis); if (r) rows.push(r); }
+  $("#s-sum").innerHTML = `<h3>Every condition</h3>
+    <div class="tablewrap"><table><thead><tr><th>condition</th><th>knowledge</th>${sumCols.map(c => `<th>${c[1]}</th>`).join("")}</tr></thead><tbody>
+    ${rows.map(r => `<tr><td class="l">${lineKey(r.condition)}${condLabel(r.condition)}</td><td class="l">${r.basis === "head" ? "head ahead" : "any feed"}</td>${sumCols.map(([c, , nd]) => `<td>${r[c] === null || r[c] === undefined ? "–" : nd < 0 ? pct(r[c]) : fmt(r[c], nd)}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>
+    <p class="small muted">Means over targets. Time to find: the restricted mean to the cap (${Sx.caps.join(", ")} s), a target not found counting as found at the cap.
+    Head ahead: the pilot's map holds only what the feed straight ahead showed (flown on half the targets, for the surround and the street-bound swarm).
+    Nothing unseen near: decisions at which no exit had unseen street within two edges, so the pilot routed to the nearest that had.</p>`;
+  drawSearchContrasts();
+  drawRoutes($("#s-routes"), P.routes);
+};
+function drawSearchCurve(Sx) {
+  const el = $("#s-curve"), T = Sx.curve_t, tmax = T[T.length - 1];
+  // drawn at the box's own width, so the text stays at its set size on a full-width box (re-drawn on each tab show)
+  const W = Math.max(520, Math.min(1200, Math.round((el.clientWidth || 672) - 34))), H = 320, m = {l: 44, r: 14, t: 12, b: 38};
+  const x = t => m.l + (W - m.l - m.r) * t / tmax, y = v => H - m.b - (H - m.t - m.b) * v;
+  const series = CONDS.map(([k]) => k).filter(k => Sx.curves[k]);
+  let g = "";
+  for (let v = 0; v <= 1.0001; v += 0.25) g += `<line class="gridl" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`;
+  for (let t = 0; t <= tmax + 1e-6; t += 120) g += `<text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${t}</text>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">seconds into the search</text>`;
+  for (const k of series) {
+    // a step function: the share found holds until the next find
+    let d = "";
+    Sx.curves[k].forEach((v, i) => { const px = x(T[i]).toFixed(1), py = y(v || 0).toFixed(1); d += i === 0 ? `M${px},${py}` : `H${px}V${py}`; });
+    g += `<path d="${d}" fill="none" stroke="${condCol(k)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  g += `<line class="xh" id="s-xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/>`;
+  g += `<rect class="hit" id="s-hit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" tabindex="0"/>`;
+  el.innerHTML = `<h3>Targets found by time t (first sight within 80 m, any feed)</h3>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Share of targets found against time, by condition">${g}</svg>
+    <div class="legend">${series.map(k => `<span>${lineKey(k)}${esc(condLabel(k))}</span>`).join("")}</div>`;
+  const svg = el.querySelector("svg"), hit = el.querySelector("#s-hit"), xh = el.querySelector("#s-xh");
+  const at = i => [`${T[i]} s`, series.map(k => [condCol(k), pct(Sx.curves[k][i]), condLabel(k)])];
+  const place = (i, cx, cy) => { xh.setAttribute("x1", x(T[i])); xh.setAttribute("x2", x(T[i])); xh.setAttribute("visibility", "visible"); const [t, rows] = at(i); tipShow(cx, cy, t, rows); };
+  hit.addEventListener("pointermove", ev => {
+    const b = svg.getBoundingClientRect(), sx = (ev.clientX - b.left) * W / b.width;
+    const i = Math.max(0, Math.min(T.length - 1, Math.round((sx - m.l) / (W - m.l - m.r) * (T.length - 1))));
+    place(i, ev.clientX, ev.clientY);
+  });
+  hit.addEventListener("pointerleave", () => { tipHide(); xh.setAttribute("visibility", "hidden"); });
+  let fi = 0;
+  hit.addEventListener("focus", () => { const b = hit.getBoundingClientRect(); place(fi, b.left + 40, b.top); });
+  hit.addEventListener("keydown", ev => {
+    if (ev.key !== "ArrowRight" && ev.key !== "ArrowLeft") return;
+    ev.preventDefault(); fi = Math.max(0, Math.min(T.length - 1, fi + (ev.key === "ArrowRight" ? 1 : -1)));
+    const b = svg.getBoundingClientRect(); place(fi, b.left + x(T[fi]) * b.width / W, b.top + 20);
+  });
+  hit.addEventListener("blur", () => { tipHide(); xh.setAttribute("visibility", "hidden"); });
+}
+function drawSearchContrasts() {
+  const el = $("#s-ctr"), X = (D.phase2.search.contrasts || []).filter(r => r.basis === S_BASIS);
+  el.innerHTML = `<h3>Condition against condition</h3>
+    <div class="seg" id="sb-seg" style="margin:6px 0 10px">${[["any", "any feed"], ["head", "head ahead only"]].map(([k, l]) => `<button aria-pressed="${k === S_BASIS}" data-k="${k}">${l}</button>`).join("")}</div>
+    ${X.length ? `<div class="tablewrap"><table><thead><tr><th>contrast</th><th>design</th><th>cities</th><th>ratio</th><th>95% interval</th></tr></thead><tbody>
+    ${X.map(r => `<tr${r.design === "pooled" ? ' class="sep"' : ""}><td class="l">${condLabel(r.a)} ÷ ${condLabel(r.b)}</td><td>${r.design === "pooled" ? "pooled" : dlText(r.design)}</td><td>${r.n_cities}</td><td>${fmt(r.ratio, 3)}</td><td>${ratioCI(r)}</td></tr>`).join("")}
+    </tbody></table></div>` : '<p class="notrun">Head-ahead knowledge was flown for the surround and the street-bound swarm only: see the any-feed contrasts.</p>'}
+    <p class="small muted">The city-mean ratio of the restricted mean time to find at 80 m; below 1, the first condition finds sooner. t intervals over cities.</p>`;
+  el.querySelectorAll("#sb-seg button").forEach(b => b.addEventListener("click", () => { S_BASIS = b.dataset.k; drawSearchContrasts(); }));
+}
+function drawRoutes(el, R) {
+  if (!R) { el.innerHTML = '<h3>The search routes on the Unity bench</h3><p class="notrun">Flying.</p>'; return; }
+  const by = CONDS.map(([k]) => {
+    const rs = R.rows.filter(r => r.condition === k);
+    if (!rs.length) return "";
+    const both = rs.filter(r => r.bench_found_r80 !== null && r.replica_found_r80 !== null);
+    const d = both.map(r => Math.abs(r.bench_found_r80 - r.replica_found_r80)).sort((a, b) => a - b);
+    const med = d.length ? d[Math.floor((d.length - 1) / 2)] : null;
+    const one = rs.filter(r => (r.bench_found_r80 === null) !== (r.replica_found_r80 === null)).length;
+    return `<tr><td class="l">${lineKey(k)}${condLabel(k)}</td><td>${rs.length}</td><td>${both.length}</td><td>${fmt(med, 1)}</td><td>${d.filter(v => v <= 10).length}</td><td>${one}</td><td>${rs.reduce((s, r) => s + (r.bench_lost || 0), 0)} / ${rs.reduce((s, r) => s + (r.replica_lost || 0), 0)}</td></tr>`;
+  }).join("");
+  el.innerHTML = `<h3>The search routes on the Unity bench</h3>
+    <p class="small">${R.n} informed searches re-flown open-loop in headless Unity: the waypoints each replica flight's decisions laid, flown by
+    Unity's own force law, then scored for the target's first sight with the replica's rule. ${R.within10} of the ${R.both} found in both
+    were found within 10 s of each other; ${R.one_only} were found in one only.</p>
+    <div class="tablewrap"><table><thead><tr><th>condition</th><th>routes</th><th>found in both</th><th>median gap (s)</th><th>within 10 s</th><th>found in one only</th><th>drones lost (Unity / replica)</th></tr></thead><tbody>${by}</tbody></table></div>`;
+}
+
+// ---------------------------------------------------------------- the screens (view correspondence)
+RENDER.screens = el => {
+  const P = D.phase2;
+  if (!P || !P.walks) return noP2(el, "Screens");
+  const C = (P.walks.conditions || []).filter(r => SWARM.includes(r.condition));
+  el.innerHTML = `<div class="intro"><h2>What surrounding costs the screens</h2>
+    <p>Ten feeds round the pilot are only useful together if the pilot can relate them. These are the options report's
+    measures, on the chain walks, sampled every second on the shown feeds, every screen alike (no anchor feed), the
+    panorama left out, open ground and facades both counting as shared content. No single headline is chosen: which one
+    stands for "can the pilot relate the screens" is your decision.</p></div>
+    <div class="grid2"><div class="box chart" id="x-c4"></div><div class="box small" id="x-key"></div></div>
+    <div class="box" id="x-tab"></div>`;
+  if (C.length < 2 || C.some(r => r.preview_common === null || r.corr_a1_linked === null)) {
+    $("#x-c4").innerHTML = '<p class="notrun">Not enough swarm conditions scored yet.</p>';
+  } else {
+  // C4, as emphasis: the surround in its colour, the other swarm conditions in grey, every point labelled
+  const W = 520, H = 330, m = {l: 52, r: 18, t: 14, b: 44};
+  const px = C.map(r => r.preview_common), py = C.map(r => r.corr_a1_linked);
+  const x0 = Math.floor(Math.min(...px) * 20) / 20 - 0.05, x1 = Math.min(1, Math.ceil(Math.max(...px) * 20) / 20 + 0.02);
+  const y0 = Math.max(0, Math.floor(Math.min(...py) * 10) / 10 - 0.1), y1 = Math.min(1, Math.ceil(Math.max(...py) * 10) / 10 + 0.05);
+  const x = v => m.l + (W - m.l - m.r) * (v - x0) / (x1 - x0), y = v => H - m.b - (H - m.t - m.b) * (v - y0) / (y1 - y0);
+  let g = "";
+  for (let v = Math.ceil(y0 * 10) / 10; v <= y1 + 1e-9; v += 0.1) g += `<line class="gridl" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`;
+  for (let v = Math.ceil(x0 * 20) / 20; v <= x1 + 1e-9; v += 0.05) g += `<text x="${x(v)}" y="${H - m.b + 16}" text-anchor="middle">${Math.round(v * 100)}%</text>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 6}" text-anchor="middle">streets previewed at the decision</text>`;
+  g += `<text transform="translate(13 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle">neighbouring screens sharing content</text>`;
+  C.forEach((r, i) => {
+    const hop = r.condition === "swarm_hop", cx = x(r.preview_common), cy = y(r.corr_a1_linked);
+    const right = cx < (m.l + W - m.r) / 2;
+    g += `<circle cx="${cx}" cy="${cy}" r="${hop ? 6 : 5}" fill="${hop ? condCol("swarm_hop") : "var(--m-other)"}" stroke="var(--panel)" stroke-width="2"/>`;
+    g += `<text class="lbl" x="${cx + (right ? 10 : -10)}" y="${cy + 4}" text-anchor="${right ? "start" : "end"}">${esc(condLabel(r.condition))}</text>`;
+    g += `<circle class="hit" data-i="${i}" tabindex="0" cx="${cx}" cy="${cy}" r="14"/>`;
+  });
+  $("#x-c4").innerHTML = `<h3>Preview gained against screens linked</h3><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Streets previewed against the share of neighbouring screens sharing content, by swarm condition">${g}</svg>`;
+  hoverMarks($("#x-c4"), i => [condLabel(C[i].condition), [[C[i].condition === "swarm_hop" ? condCol("swarm_hop") : "var(--m-other)", pct(C[i].preview_common), "streets previewed"],
+    [C[i].condition === "swarm_hop" ? condCol("swarm_hop") : "var(--m-other)", pct(C[i].corr_a1_linked), "neighbouring screens sharing content"]]]);
+  }
+  $("#x-key").innerHTML = `<h3>The measures</h3>
+    <p><b>A1 shared content</b>: a pair of neighbouring screens is linked when both show at least 20 m² of the same open ground,
+    or 4 m of the same face of the same building, within 40 m. <b>A2</b>: both show some face of the same building.
+    <b>A3</b>: islands of linked screens round the ring, screens with no linked neighbour (orphans), the largest island.
+    <b>A4 overlap reach</b>: whether two neighbours' fields of view start to overlap before the first building between them.
+    <b>B1</b>: the angle between two cameras' lines of sight to a building both see. <b>B2 placement error</b>: for what a screen
+    shows, the angle between its direction from the camera and from the formation's centre, and the share of pairs of things on
+    different screens shown in the reverse of their true left-to-right order. <b>C1</b>: the share of the ground seen that is on
+    a screen with a linked neighbour.</p>`;
+  const cols = [["corr_a1_linked", "A1 linked", -1], ["corr_a2_linked", "A2 linked", -1], ["corr_islands", "islands", 2], ["corr_orphan_share", "orphans", -1],
+                ["corr_largest_island", "largest", -1], ["corr_a4_reach", "A4 reach", -1], ["corr_b1_deg", "B1 (°)", 1], ["corr_b2_err_deg", "B2 (°)", 1],
+                ["corr_b2_order_rev", "reversed", -1], ["corr_c1_linked_share", "C1", -1], ["feeds_mean", "screens", 1]];
+  $("#x-tab").innerHTML = `<h3>Every swarm condition</h3>
+    <div class="tablewrap"><table><thead><tr><th>condition</th>${cols.map(c => `<th>${c[1]}</th>`).join("")}</tr></thead><tbody>
+    ${SWARM.map(k => { const r = C.find(x => x.condition === k); if (!r) return "";
+      return `<tr><td class="l">${lineKey(k)}${condLabel(k)}</td>${cols.map(([c, , nd]) => `<td>${r[c] === undefined || r[c] === null ? "–" : nd < 0 ? pct(r[c]) : fmt(r[c], nd)}</td>`).join("")}</tr>`; }).join("")}
+    </tbody></table></div><p class="small muted">Means over cities of the per-walk means, at the profile's spread, over every sample with two or more screens shown.</p>`;
+};
+
+function drawUnity(el) {
+  const u = D.unity;
+  if (!u) { el.innerHTML = '<h3>The Unity bench check</h3><p class="notrun">Not flown yet.</p>'; return; }
+  const Q = [["preview_search", "streets previewed", -1], ["reform_ok", "reformed", -1], ["enveloped", "enveloped", -1],
+             ["t_envelop", "s to envelop", 1], ["lost", "lost", 2], ["contacts", "contacts", 2]];
+  const gate = u.gate || [];
+  const keys = [...new Set(gate.map(r => `${r.p}|${r.s}|${r.kind}`))];
+  const cell = (r, nd) => {
+    if (!r) return "<td>–</td>";
+    const v = x => nd < 0 ? pct(x) : fmt(x, nd);
+    const mark = r.verdict === "agree" ? '<span class="good">✓</span>' : r.verdict === "differ" ? '<span class="bad">✗</span>' : '<span class="muted" title="the bench\'s standard error is too large to judge">?</span>';
+    return `<td>${v(r.bench)} / ${v(r.replica)} ${mark}</td>`;
+  };
+  const body = keys.map(k => { const [p, s, kind] = k.split("|");
+    const rows = gate.filter(r => `${r.p}|${r.s}|${r.kind}` === k);
+    return `<tr><td class="l">${dl(p, s)} ${kind}</td>${Q.map(([q, , nd]) => cell(rows.find(r => r.quantity === q), nd)).join("")}</tr>`; }).join("");
+  const val = (u.validate || []).map(r => `<tr><td class="l mono">${esc(r.run)}</td><td>${r.flights}</td><td>${r.lost_bench} / ${r.lost_replica}</td><td>${r.contacts_bench} / ${r.contacts_replica}</td><td>${fmt(100 * r.track, 1)}%</td><td>${fmt(100 * r.nn, 1)}%</td><td>${pill(r.verdict === "PASS")}</td></tr>`).join("");
+  const nAgree = gate.filter(r => r.verdict === "agree").length, nMore = gate.filter(r => r.verdict === "more flights").length,
+        nDiff = gate.filter(r => r.verdict === "differ").length;
+  el.innerHTML = `<h3>The Unity bench check</h3>
+    <p>R's profile flown in headless Unity at four designs (two that pass and two that do not), 30 trials each of the pass
+    round, the surround and exit, and the surround hold, recorded; each flight is set beside a replica twin flown from
+    Unity's recorded start. Bench / replica; ✓ within 15%, ? the bench's standard error too large to judge (rare
+    counts). ${nAgree} of ${gate.length} comparisons agree, ${nMore} need more flights, ${nDiff} differ.</p>
+    <div class="tablewrap"><table><thead><tr><th>design, manoeuvre</th>${Q.map(q => `<th>${q[1]}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
+    ${val ? `<h3 style="margin-top:14px">The replica's own gate (swarm_replica.py validate)</h3>
+    <div class="tablewrap"><table><thead><tr><th>run</th><th>flights</th><th>lost</th><th>contacts</th><th>track error</th><th>spacing error</th><th>verdict</th></tr></thead><tbody>${val}</tbody></table></div>
+    <p class="small muted">Limits: track 10%, spacing 15%, 2 drones lost per 10 flights; contacts as PhysX resolves them (friction 0.6).</p>` : ""}`;
+}
+
+// ---------------------------------------------------------------- phase 3: looking down the streets
+// Part A (citysim.lookdown): one block per trial, every way of taking it at every block spread; Part B
+// (citysim.lookdown_search): a search for a goal at a building with the surround Part A's rule picked.
+const LDD = D.lookdown;
+const LD_MEAS = [["look_c", "looked down at the decision", "share", true],
+                 ["look_F", "looked down by the next junction", "share", false],
+                 ["ent_c", "entered at the decision (the old preview)", "share", true],
+                 ["end_c", "seen to its far end at the decision", "share", true],
+                 ["hop_s", "arrival at the block to the next junction", "s", false],
+                 ["contacts", "building contacts per manoeuvre", "rate", false]];
+const LD_LINES = [["street", "swarm_street"], ["hop", "swarm_hop"], ["pass", "swarm_pass"], ["hold", "swarm_hold"]];
+const LD_DES = [[40, 18], [50, 18], [60, 18], [75, 18]];
+let LDS = {m: "look_c", T: 12, mode: "aim"};
+const ldLab = (k, T = LDS.T, mode = LDS.mode) => k === "street" ? "street" : k === "pass" ? "pass" : k === "hold" ? `hold ${T} s` : `surround (${mode}) ${T} s`;
+const ldCell = (p, s, d, lab) => (LDD.a.cells || []).find(c => c.p === p && c.s === s && c.d === d && c.label === lab) || null;
+const ldUnsafe = c => !!c && ((c.lost || 0) > LDD.a.rule.lost || (c.contacts || 0) > LDD.a.rule.contacts);
+const ldMode = m => m === "aim" ? "aim and turn" : "firm hold";
+const ldSet = c => `${ldMode(c.mode)} ${fmt(c.T, 0)} s at d_ref ${fmt(c.d, 1)}`;
+const ldDstar = (p, s) => (LDD.a.p1_dstar || {})[`${p}|${s}`];
+const ldGrid = () => LDD.a.spec.d_grid;
+const ldNear = v => ldGrid().reduce((a, d) => Math.abs(d - v) < Math.abs(a - v) ? d : a, ldGrid()[0]);
+const DIAL_MAX = 1.6;
+
+// the three levels of sight, drawn: a schematic, not to scale
+function ldSchematic() {
+  const T = "var(--ink-2)";
+  const num = (x, y, n) => `<circle cx="${x}" cy="${y}" r="9" fill="var(--ink)"/><text x="${x}" y="${y + 4}" text-anchor="middle" style="fill:var(--panel);font:600 11px var(--font-body)">${n}</text>`;
+  const dots = Array.from({length: 9}, (_, i) => `<circle cx="402" cy="${72 + i * 8}" r="2.6" fill="var(--c-hop)"/>`).join("");
+  return `<svg viewBox="0 0 480 200" role="img" aria-label="An exit street from the block's corner to its far junction, and the building beyond it">
+    <rect x="0" y="0" width="480" height="200" fill="var(--map-street)"/>
+    <rect x="0" y="0" width="92" height="200" fill="var(--map-block)"/><rect x="14" y="30" width="62" height="140" rx="2" fill="var(--map-bldg)"/>
+    <rect x="118" y="0" width="230" height="82" fill="var(--map-block)"/><rect x="150" y="12" width="150" height="50" rx="2" fill="var(--map-bldg)"/>
+    <rect x="118" y="118" width="230" height="82" fill="var(--map-block)"/><rect x="160" y="138" width="140" height="48" rx="2" fill="var(--map-bldg)"/>
+    <rect x="374" y="22" width="106" height="156" fill="var(--map-block)"/><rect x="408" y="48" width="66" height="104" rx="2" fill="var(--map-bldg)"/>
+    <rect x="402" y="42" width="78" height="116" rx="7" fill="none" stroke="${T}" stroke-dasharray="2 3" stroke-width="1"/>
+    ${dots}
+    <line x1="105" y1="100" x2="361" y2="100" stroke="${T}" stroke-dasharray="5 4" stroke-width="1.2"/>
+    <path d="M105,100 L230,74 L230,126 Z" fill="var(--c-hop)" opacity="0.16"/>
+    <circle cx="101" cy="95" r="4.5" fill="var(--c-hop)" stroke="var(--panel)" stroke-width="1.5"/><circle cx="108" cy="106" r="4.5" fill="var(--c-hop)" stroke="var(--panel)" stroke-width="1.5"/>
+    <text x="105" y="196" text-anchor="middle" style="fill:${T};font:600 11px var(--font-body)">V</text>
+    <text x="361" y="196" text-anchor="middle" style="fill:${T};font:600 11px var(--font-body)">F</text>
+    <line x1="105" y1="186" x2="105" y2="118" stroke="${T}" stroke-width="0.8"/><line x1="361" y1="186" x2="361" y2="118" stroke="${T}" stroke-width="0.8"/>
+    <line x1="120" y1="90" x2="232" y2="90" stroke="var(--ink)" stroke-width="2"/>${num(176, 90, 1)}
+    <line x1="331" y1="90" x2="361" y2="90" stroke="var(--ink)" stroke-width="2"/>${num(346, 90, 2)}
+    ${num(445, 100, 3)}
+  </svg>`;
+}
+
+RENDER.lookdown = el => {
+  if (!LDD || !LDD.a) {
+    el.innerHTML = `<div class="intro"><h2>Looking down the streets</h2><p class="notrun">Phase 3's pilot has not run yet.</p></div>`;
+    return;
+  }
+  const A = LDD.a, sp = A.spec;
+  el.innerHTML = `<div class="intro"><h2>Looking down the streets (Phase 3, a short pilot)</h2>
+    <p>Phases 1 and 2 counted a street as previewed once a shown feed had seen 60% of its first 80 m. From a corner a feed
+    sees the near end of a street, often from across the junction, and that says nothing about what lies down it. A
+    searcher needs to see down the street to the building at its far end: is that the one with the goal? This pilot
+    scores every exit of a block at three levels, each on what a shown feed saw within ${SIGHT} m through a clear line of
+    sight at the search band, and asks whether surrounding the block looks down more of them, at which spread (d_ref),
+    for how long, and at what cost.</p></div>
+    <div class="grid2"><div class="box"><h3>Three levels of sight down an exit street</h3>
+      <div style="margin-top:6px">${ldSchematic()}</div>
+      <ol class="small" style="margin:8px 0 0;padding-left:1.2rem;display:grid;gap:4px">
+        <li><b>Entered</b>: 60% of the street's first 80 m seen (the old preview, Phases 1 and 2).</li>
+        <li><b>Seen to its end</b>: 60% of the last ${fmt(sp.street_end_m, 0)} m before the far junction F seen.</li>
+        <li><b>Looked down</b>, the measure here: half the footpath in front of the building where the street ends seen
+        (the dots: ${fmt(sp.footpath_off_m, 0)} m outside its footprint, within ${fmt(sp.end_reach_m, 0)} m of its point
+        nearest F). Where the block ahead is a plaza, its lawn near F.</li></ol>
+      <p class="small muted" style="margin-top:6px">Not to scale. V is the block's corner the exit leaves from; the wedge is a feed looking down the street.</p></div>
+    <div class="box small"><h3>What Part A flew</h3>
+      <p>Variant R with 18 m streets at four block pitches (p 40, 50, 60 and 75 m): ${A.n_trials} trials, each one block
+      in one of Phase 1's cities (seeds ${sp.city_seeds.join(", ")}), flown ${A.n_flights.toLocaleString()} times in all.
+      Every condition flies the same block from the same start with the same seed, and leaves by the same exit, a side
+      street drawn by Phase 2's chain rule, so every comparison is paired.</p>
+      <ul style="margin:0 0 0.6rem;padding-left:1.1rem;display:grid;gap:3px">
+        <li><b>${lineKey("swarm_street")}Street</b>: decides on arrival at the corner, at d_ref 1.0 throughout.</li>
+        <li><b>${lineKey("swarm_hold")}Hold</b>: a centring hold on the corner for T seconds at the block spread.</li>
+        <li><b>${lineKey("swarm_pass")}Pass</b>: aimed through the block at its exit at the block spread. It decides on
+        arrival, so what it sees going round counts for the next block.</li>
+        <li><b>${lineKey("swarm_hop")}Surround</b> for T seconds, then off down the exit: <i>aim and turn</i> (full stick
+        at the opposite street, Phase 2's surround) or a <i>firm hold</i> on the block's centre.</li></ul>
+      <p>Each trial is flown at every block spread d_ref ${ldGrid().map(d => fmt(d, 1)).join(", ")}, with T ${sp.T_grid.join(", ")} s; the
+      streets are flown at 1.0. The trials' spread dial runs from 0.4 to ${DIAL_MAX}: everything right of the shaded line
+      is wider than a pilot can dial today. 30 trials in 3 cities per cell; the intervals are over trials.</p></div></div>
+    <div class="box"><div class="headrow"><h3 id="ld-title"></h3></div>
+      <div class="picker" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));align-items:start">
+        <div><span class="eyebrow">Measure</span><div class="seg" id="ld-m">${LD_MEAS.map(([k, l]) => `<button type="button" aria-pressed="${k === LDS.m}" data-k="${k}">${esc(l)}</button>`).join("")}</div></div>
+        <div style="display:grid;gap:10px"><div><span class="eyebrow">Surround or hold, T</span><div class="seg" id="ld-T">${sp.T_grid.map(T => `<button type="button" aria-pressed="${T === LDS.T}" data-t="${T}">${T} s</button>`).join("")}</div></div>
+        <div><span class="eyebrow">How it surrounds</span><div class="seg" id="ld-mode">${["aim", "firm"].map(k => `<button type="button" aria-pressed="${k === LDS.mode}" data-k="${k}">${ldMode(k)}</button>`).join("")}</div></div></div></div>
+      <div class="ldgrid" id="ld-panels"></div>
+      <div class="legend" id="ld-legend" style="margin-top:6px"></div>
+      <p class="small muted" id="ld-note" style="margin-top:6px"></p></div>
+    <div class="box" id="ld-spread"></div>
+    <div class="box" id="ld-rule"></div>
+    <div class="box" id="ld-b"></div>
+    <div class="box" id="ld-notes"></div>`;
+  const bind = (sel, key, num) => el.querySelectorAll(`${sel} button`).forEach(b => b.addEventListener("click", () => {
+    LDS[key] = num ? +b.dataset.t : b.dataset.k;
+    el.querySelectorAll(`${sel} button`).forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    ldDraw();
+  }));
+  bind("#ld-m", "m"); bind("#ld-T", "T", true); bind("#ld-mode", "mode");
+  ldDraw(); ldSpread(); ldRule(); ldPartB();
+  $("#ld-notes").innerHTML = LDD.notes || '<h3>What this means for the next study</h3><p class="notrun">Written once Part B is in.</p>';
+};
+
+function ldDraw() {
+  const meas = LD_MEAS.find(m => m[0] === LDS.m), atDec = meas[3];
+  $("#ld-title").textContent = `${meas[1][0].toUpperCase()}${meas[1].slice(1)}, against the block spread d_ref`;
+  const host = $("#ld-panels");
+  host.innerHTML = LD_DES.map(([p, s]) => `<div class="chart ldpanel" data-p="${p}" data-s="${s}"></div>`).join("");
+  host.querySelectorAll(".ldpanel").forEach(div => ldPanel(div, +div.dataset.p, +div.dataset.s, meas));
+  const lines = LD_LINES.filter(([k]) => !(k === "pass" && atDec));
+  $("#ld-legend").innerHTML = lines.map(([k, c]) => `<span>${lineKey(c)}${esc(k === "street" ? "swarm in the streets" : k === "hop" ? `surround, ${ldMode(LDS.mode)} ${LDS.T} s` : k === "hold" ? `hold at the corner ${LDS.T} s` : "pass round")}</span>`).join("") +
+    `<span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4" fill="var(--panel)" stroke="var(--ink-2)" stroke-width="1.6"/></svg> over the safety bar (more than ${LDD.a.rule.contacts} contacts or ${LDD.a.rule.lost} drones lost per manoeuvre)</span>
+     <span><svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--ink)" stroke-width="1.4"/></svg> the rule's pick, where it is this T and mode</span>
+     <span><span class="ln" style="border-color:var(--ink-2);border-top-style:dashed;border-top-width:1.5px"></span>Phase 1's d*</span>
+     <span><span class="sw" style="background:var(--chip)"></span>wider than the dial (${DIAL_MAX})</span>`;
+  $("#ld-note").textContent = atDec ? "The pass is not drawn on this measure: it decides on arrival at the corner, as the street-bound swarm does, so at its decision it has seen what that swarm has. What it sees going round the block is for the next one: see 'looked down by the next junction'." :
+    LDS.m === "hop_s" ? "Median seconds from arriving at the block's corner to reaching the exit street's far junction, the next decision." :
+    LDS.m === "contacts" ? `Mean building contacts per manoeuvre; the dashed line is the safety bar (${LDD.a.rule.contacts}). Drones lost are in the tooltips.` :
+    "By the next junction: the block's exits looked down by the time the formation reaches the next decision point, so the pass's sight while going round counts here.";
+}
+
+function ldPanel(el, p, s, meas) {
+  const [key, , kind, atDec] = meas, ds = ldGrid();
+  const lines = LD_LINES.filter(([k]) => !(k === "pass" && atDec));
+  const val = (k, d) => { const c = ldCell(p, s, d, ldLab(k)); return c ? c[key] : null; };
+  let ymax = 1, tick = v => `${Math.round(v * 100)}%`, ticks = [0, 0.25, 0.5, 0.75, 1];
+  if (kind !== "share") {
+    const all = []; lines.forEach(([k]) => ds.forEach(d => { const v = val(k, d); if (v !== null && v !== undefined) all.push(v); }));
+    const top = Math.max(...all, kind === "s" ? 10 : 0.2);
+    if (kind === "s") { ymax = Math.ceil(top / 10) * 10; ticks = []; for (let v = 0; v <= ymax + 1e-9; v += ymax > 40 ? 20 : 10) ticks.push(v); tick = v => `${v}`; }
+    else { ymax = Math.ceil(top * 5) / 5; ticks = []; for (let v = 0; v <= ymax + 1e-9; v += ymax > 0.6 ? 0.2 : 0.1) ticks.push(+v.toFixed(2)); tick = v => fmt(v, 1); }
+  }
+  // drawn at the panel's own width, so the text keeps its set size on a phone
+  const W = Math.max(300, Math.min(560, Math.round(el.clientWidth || 460))), H = 250, m = {l: 40, r: 12, t: 24, b: 36}, x0 = ds[0] - 0.15, x1 = ds[ds.length - 1] + 0.15;
+  const x = d => m.l + (W - m.l - m.r) * (d - x0) / (x1 - x0), y = v => H - m.b - (H - m.t - m.b) * Math.min(v, ymax) / ymax;
+  let g = `<rect x="${x(DIAL_MAX)}" y="${m.t}" width="${x(x1) - x(DIAL_MAX)}" height="${H - m.t - m.b}" fill="var(--chip)" opacity="0.7"/>`;
+  for (const v of ticks) g += `<line class="gridl" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${m.l - 5}" y="${y(v) + 4}" text-anchor="end">${tick(v)}</text>`;
+  for (const d of ds) g += `<text x="${x(d)}" y="${H - m.b + 15}" text-anchor="middle">${fmt(d, 1)}</text>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 3}" text-anchor="middle">d_ref at the block</text>`;
+  const dstar = ldDstar(p, s);
+  if (dstar !== undefined) g += `<line x1="${x(dstar)}" x2="${x(dstar)}" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-2)" stroke-dasharray="4 3" stroke-width="1.2"/><text x="${x(dstar) + 3}" y="${m.t + 10}">d* ${fmt(dstar, 1)}</text>`;
+  if (key === "contacts") g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(LDD.a.rule.contacts)}" y2="${y(LDD.a.rule.contacts)}" stroke="var(--ink)" stroke-dasharray="4 3" stroke-width="1"/>`;
+  for (const [k, c] of lines) {
+    const pts = ds.map(d => [d, val(k, d)]).filter(([, v]) => v !== null && v !== undefined);
+    g += `<polyline points="${pts.map(([d, v]) => `${x(d).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${condCol(c)}" stroke-width="2" stroke-linejoin="round"/>`;
+    for (const [d, v] of pts) {
+      const un = ldUnsafe(ldCell(p, s, d, ldLab(k)));
+      g += `<circle cx="${x(d).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4" fill="${un ? "var(--panel)" : condCol(c)}" stroke="${un ? condCol(c) : "var(--panel)"}" stroke-width="${un ? 1.8 : 1.5}"/>`;
+    }
+  }
+  const ch = (LDD.a.chosen || {})[`${p}|${s}`];
+  if (ch && ch.mode === LDS.mode && ch.T === LDS.T) {
+    const v = val("hop", ch.d);
+    if (v !== null && v !== undefined) g += `<circle cx="${x(ch.d)}" cy="${y(v)}" r="8" fill="none" stroke="var(--ink)" stroke-width="1.4"/>`;
+  }
+  g += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/><rect class="hit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" tabindex="0"/>`;
+  el.innerHTML = `<p class="small" style="margin:0 0 2px"><b>${dl(p, s)}</b> <span class="muted">blocks about ${p - s} m across</span></p>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(meas[1])} against d_ref, p ${p} s ${s}">${g}</svg>`;
+  const svg = el.querySelector("svg"), hit = el.querySelector(".hit"), xh = el.querySelector(".xh");
+  const fmtv = v => v === null || v === undefined ? "–" : kind === "share" ? pct(v) : kind === "s" ? `${fmt(v, 1)} s` : fmt(v, 2);
+  const rowsAt = i => {
+    const d = ds[i], rows = [];
+    for (const [k, c] of lines) {
+      const cell = ldCell(p, s, d, ldLab(k));
+      if (!cell) continue;
+      let lab = k === "street" ? "in the streets" : k === "hop" ? `surround ${LDS.T} s` : k === "hold" ? `hold ${LDS.T} s` : "pass round";
+      if (key === "look_c" && cell.look_lo !== null && k !== "street") lab += ` (${pct(cell.look_lo)}–${pct(cell.look_hi)})`;
+      if (ldUnsafe(cell)) lab += `: over the bar (${fmt(cell.contacts, 2)} contacts, ${fmt(cell.lost, 2)} lost)`;
+      rows.push([condCol(c), fmtv(cell[key]), lab]);
+    }
+    return [`${dl(p, s).replace(/<[^>]+>/g, "")} · d_ref ${fmt(d, 1)}${d > DIAL_MAX ? " (wider than the dial)" : ""}`, rows];
+  };
+  const place = (i, cx, cy) => { xh.setAttribute("x1", x(ds[i])); xh.setAttribute("x2", x(ds[i])); xh.setAttribute("visibility", "visible"); const [t, r] = rowsAt(i); tipShow(cx, cy, t, r); };
+  hit.addEventListener("pointermove", ev => {
+    const b = svg.getBoundingClientRect(), sx = (ev.clientX - b.left) * W / b.width;
+    let i = 0; ds.forEach((d, j) => { if (Math.abs(x(d) - sx) < Math.abs(x(ds[i]) - sx)) i = j; });
+    place(i, ev.clientX, ev.clientY);
+  });
+  hit.addEventListener("pointerleave", () => { tipHide(); xh.setAttribute("visibility", "hidden"); });
+  let fi = 0;
+  hit.addEventListener("focus", () => { const b = hit.getBoundingClientRect(); place(fi, b.left + 30, b.top); });
+  hit.addEventListener("keydown", ev => {
+    if (ev.key !== "ArrowRight" && ev.key !== "ArrowLeft") return;
+    ev.preventDefault(); fi = Math.max(0, Math.min(ds.length - 1, fi + (ev.key === "ArrowRight" ? 1 : -1)));
+    const b = svg.getBoundingClientRect(); place(fi, b.left + x(ds[fi]) * b.width / W, b.top + 20);
+  });
+  hit.addEventListener("blur", () => { tipHide(); xh.setAttribute("visibility", "hidden"); });
+}
+
+// d_ref at a glance: per design, the spread that encloses (Phase 1's d*), the widest a surround stays safe at, and
+// where looking down peaks, from every surround setting's cell (the rule's candidate list)
+function ldSpread() {
+  const A = LDD.a, el = $("#ld-spread");
+  const safeC = c => c.lost <= A.rule.lost && c.contacts <= A.rule.contacts;
+  const body = LD_DES.map(([p, s]) => {
+    const ch = (A.chosen || {})[`${p}|${s}`];
+    if (!ch) return "";
+    const cand = ch.candidates || [], safe = cand.filter(safeC), ds = ldDstar(p, s);
+    const widest = safe.length ? Math.max(...safe.map(c => c.d)) : null;
+    const best = safe.slice().sort((a, b) => b.look_c - a.look_c || a.T - b.T || a.d - b.d)[0];
+    const atD = best ? cand.find(c => c.mode === best.mode && c.T === best.T && c.d === ldNear(ds)) : null;
+    return `<tr><td class="l">${dl(p, s)}</td><td>${fmt(ds, 1)}</td><td>${fmt(widest, 1)}</td>
+      <td class="l">${best ? ldSet(best) : "–"}</td><td>${pct(best && best.look_c)}</td><td>${pct(atD && atD.look_c)}</td></tr>`;
+  }).join("");
+  const L = A.contacts;
+  el.innerHTML = `<h3>d_ref at a glance</h3>
+    <p class="small">The spread that encloses a block (Phase 1's d*) is not the one that looks down its exits. Wider
+    spreads look down more until drones start touching the building being surrounded${L ? `: re-flying trials at
+    d_ref ${L.d.map(d => fmt(d, 1)).join(", ")} (p ${L.p.join(" and ")}), ${L.own} of the ${L.n} contacts were with
+    that building (${L.own_before_decision} of them between arriving and the decision), ${L.across} with a building
+    across the street` : ""}. The trials' dial stops at ${DIAL_MAX}.</p>
+    <div class="tablewrap"><table><thead><tr><th>design</th><th>Phase 1's d*</th><th>widest safe spread</th><th style="text-align:left">the safe surround that looks down most</th><th>looked down</th><th>same surround at d*</th></tr></thead>
+    <tbody>${body}</tbody></table></div>
+    <p class="small muted">Safe: at most ${A.rule.lost} drones lost and ${A.rule.contacts} building contacts per
+    manoeuvre, over every surround setting flown (two ways, three lengths) at that spread. Same surround at d*: that
+    setting at the grid spread nearest d*.</p>`;
+}
+
+function ldRule() {
+  const A = LDD.a, el = $("#ld-rule");
+  const body = LD_DES.map(([p, s]) => {
+    const ch = (A.chosen || {})[`${p}|${s}`];
+    if (!ch) return "";
+    const ds = ldDstar(p, s), dg = ldNear(ds);
+    const safe = (ch.candidates || []).filter(c => c.lost <= A.rule.lost && c.contacts <= A.rule.contacts);
+    const best = safe.slice().sort((a, b) => b.look_c - a.look_c || a.T - b.T || a.d - b.d)[0];
+    const sur = c => c ? ldCell(p, s, c.d, `surround (${c.mode}) ${c.T} s`) : null;
+    const rows = [
+      ["swarm in the streets", "d_ref 1.0 throughout", ldCell(p, s, ch.d, "street"), "swarm_street"],
+      ["Phase 2's surround", `aim and turn 6 s at d_ref ${fmt(dg, 1)}${Math.abs(dg - ds) > 1e-9 ? ` (d* ${fmt(ds, 1)})` : ""}`, ldCell(p, s, dg, "surround (aim) 6 s"), "swarm_hop_p2"],
+      ["the rule's pick", ldSet(ch), sur(ch), "swarm_hop"],
+      ["the most a safe surround looks down", best ? ldSet(best) : "–", sur(best), "swarm_hop"]];
+    return rows.map(([what, set, c, cond], i) => `<tr${i === 0 ? ' class="sep"' : ""}>
+      <td class="l">${i === 0 ? dl(p, s) : ""}</td><td class="l">${lineKey(cond)}${i === 2 ? `<b>${esc(what)}</b>` : esc(what)}</td><td class="l">${esc(set)}</td>
+      <td>${pct(c && c.look_c)}</td><td>${pct(c && c.ent_c)}</td><td>${fmt(c && c.hop_s, 1)}</td><td>${fmt(c && c.price, 2)}</td>
+      <td class="${c && c.contacts > A.rule.contacts ? "bad" : ""}">${fmt(c && c.contacts, 2)}</td><td class="${c && c.lost > A.rule.lost ? "bad" : ""}">${fmt(c && c.lost, 2)}</td></tr>`).join("");
+  }).join("");
+  el.innerHTML = `<h3>The surround the rule picks, against Phase 2's</h3>
+    <p class="small">The rule, fixed before Part A's results were read: among the surround settings (how, T, d_ref) that
+    are safe (at most ${A.rule.lost} drones lost and ${A.rule.contacts} contacts per manoeuvre) and cost at most
+    ${A.rule.time_price}× the street-bound swarm's time from the block to the next junction (the median of each trial's
+    ratio), the one that looks down the most exits at the decision. It is what Part B searches with. The last row of each
+    design drops the time bar: the most a safe surround can look down, and its price.</p>
+    <div class="tablewrap"><table><thead><tr><th>design</th><th style="text-align:left">way</th><th style="text-align:left">setting</th><th>looked down</th><th>entered</th><th>to the next junction (s)</th><th>price</th><th>contacts</th><th>lost</th></tr></thead>
+    <tbody>${body}</tbody></table></div>
+    <p class="small muted">Looked down and entered: the share of the block's exits at the decision. To the next junction:
+    median seconds from arriving at the block. Price: that time over the street-bound swarm's, the median of each trial's
+    ratio. Contacts and drones lost: per manoeuvre. Phase 2 surrounded with aim and turn for 6 s at Phase 1's d*; on Part
+    A's grid, the spread nearest it.</p>`;
+}
+
+function ldPartB() {
+  const el = $("#ld-b"), Bp = LDD.b;
+  if (!Bp) { el.innerHTML = `<h3>Part B: searching for a goal at a building</h3><p class="notrun">Running.</p>`; return; }
+  const sp = Bp.spec, designs = sp.designs || [];
+  const conds = ["swarm_street", "swarm_hop", "swarm_hop_p2", "swarm_pass", "swarm_hold", "single"];
+  const rowsFor = (p, s) => conds.map(c => (Bp.summary || []).find(r => r.p === p && r.s === s && r.condition === c)).filter(Boolean);
+  const top = Math.max(...(Bp.summary || []).map(r => (r.rmst || 0) / 60), 1);
+  const step = top > 10 ? 4 : 2, xmax = Math.ceil(top / step) * step;
+  const ticks = []; for (let v = 0; v <= xmax + 1e-9; v += step) ticks.push(v);
+  const hop = r => r.t_hop === null || r.t_hop === undefined ? "–" : `${fmt(r.t_hop, 0)} s${r.mode ? `, ${r.mode === "aim" ? "aim" : "firm"}` : ""}`;
+  const body = designs.map(([p, s]) => rowsFor(p, s).map((r, i) => `<tr${i === 0 ? ' class="sep"' : ""}>
+      <td class="l">${i === 0 ? dl(p, s) : ""}</td><td class="l">${lineKey(r.condition)}${esc(condLabel(r.condition))}</td>
+      <td>${fmt(r.rmst / 60, 1)} min</td><td>${pct(r.found)}</td><td>${pct(r.found_r40)}</td>
+      <td>${r.condition === "single" ? "–" : fmt(r.d_block, 1)}</td><td>${hop(r)}</td><td>${fmt(r.lost, 2)}</td><td>${fmt(r.contacts, 2)}</td></tr>`).join("")).join("");
+  const X = Bp.ratios || [];
+  el.innerHTML = `<h3>Part B: searching for a goal at a building</h3>
+    <p class="small">The target stands on the footpath in front of a random interior building, as a goal does, at least
+    300 m by street from the start and out of its sight. Each condition's pilot keeps a map of the footpath its own feeds
+    have seen and takes the exit with the most unseen footpath along it and at its far junction per metre of travel; the
+    flight stops at the first sight of the target within ${Bp.sight_m || 80} m, or at ${fmt(sp.T_s / 60, 0)} minutes. ${sp.cities} cities per
+    design, ${sp.targets} targets each (${Bp.n_targets} searches, ${Bp.n_flights} flights). The surround is the rule's pick
+    above; Phase 2's surround flies aim and turn 6 s at Phase 1's d*.</p>
+    <div class="grid2">${designs.map((d, i) => `<div class="chart" id="ld-bc${i}"></div>`).join("")}</div>
+    <div class="tablewrap" style="margin-top:6px"><table><thead><tr><th>design</th><th style="text-align:left">condition</th>
+      <th>mean time to find</th><th>found (${Bp.sight_m || 80} m)</th><th>found (40 m)</th><th>d_ref at the block</th><th>surround / hold</th>
+      <th>drones lost</th><th>contacts</th></tr></thead><tbody>${body}</tbody></table></div>
+    ${X.length ? `<h3 style="margin-top:14px">Condition against condition</h3><div class="tablewrap"><table><thead><tr><th>contrast</th><th>design</th><th>cities</th><th>ratio</th><th>95% interval</th></tr></thead><tbody>
+    ${X.map(r => `<tr${r.design === "pooled" ? ' class="sep"' : ""}><td class="l">${esc(condLabel(r.a))} ÷ ${esc(condLabel(r.b))}</td><td>${r.design === "pooled" ? "pooled" : dlText(r.design)}</td><td>${r.n_cities}</td><td>${fmt(r.ratio, 2)}</td><td>${fmt(r.lo, 2)}–${fmt(r.hi, 2)}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+    <p class="small muted">Mean time to find: the restricted mean to the cap, a target not found counting at the cap.
+    Found: the share of searches that saw the target by then. Drones lost and contacts: per search. Ratio: the
+    city-mean ratio of the mean time; below 1 the first finds sooner. Eight cities per design make this a pilot: read
+    the direction and the size, not significance.</p>`;
+  designs.forEach(([p, s], i) => condBars($(`#ld-bc${i}`), `p ${p} · s ${s}: mean time to find (minutes)`,
+    rowsFor(p, s).map(r => ({key: r.condition, value: r.rmst / 60})),
+    {xmax, ticks, tick: v => `${v}`, fmt: v => `${fmt(v, 1)} min`, what: "mean time to find"}));
+}
+
+// ---------------------------------------------------------------- the cities, and the flights in them
+const RP = D.replay;                                  // replay/index.json: the gallery and the flight library
+const RPATH = {city: id => `replay/cities/${id}.json`, flight: id => `replay/flights/${id}.json`};
+const CWIN = 240;                                     // the thumbnails' window, m
+const SHORT_GROUP = {phase1: "Phase 1: one block each", walk_s18: "Walk · p 40 · s 18", walk_s24: "Walk · p 40 · s 24",
+                     search_s18: "Search · p 40 · s 18", search_s24: "Search · p 40 · s 24",
+                     p3_p40: "Look down · p 40 · s 18", p3_p75: "Look down · p 75 · s 18",
+                     p3b_p40: "Goal search · p 40 · s 18", p3b_p60: "Goal search · p 60 · s 18"};
+let CSEL = {v: "R", p: 40, s: 18}, CMAP = null, CCITY = null, ANAT = null;
+const THUMBS = [];
+const galleryRow = (v, p, s) => ((RP && RP.gallery) || []).find(g => g.v === v && g.p === p && g.s === s) || null;
+const loadCity = (v, p, s) => { const g = galleryRow(v, p, s); return g ? RV.load(RPATH.city(g.city)).then(RV.city) : Promise.reject(new Error("no city")); };
+const f1 = (x, nd = 1) => x === null || x === undefined || Number.isNaN(x) ? "–" : Number(x).toFixed(nd);
+RENDER.cities = el => {
+  if (!RP || typeof RV === "undefined") {
+    el.innerHTML = `<div class="intro"><h2>The cities</h2><p class="notrun">The replays have not been built: run python -B -m citysim.split_replays, then rebuild the page.</p></div>`;
+    return;
+  }
+  const nF = RP.groups.reduce((a, g) => a + g.flights.length, 0);
+  el.innerHTML = `<div class="intro"><h2>The cities</h2>
+    <p>Every city is generated, 730 m square. Random seed points are scattered one per p × p m on average and never
+    closer than 0.8 p; each seed's Voronoi cell is a block, and the streets between them are s wide. Each block holds one
+    building or, when it is too small for one, none: a plaza. Below are one block drawn to scale with what the codes mean,
+    all twelve designs at one scale, and any city whole. <a href="#flights">The flights are further down.</a></p></div>
+    <div class="grid2"><div class="box"><h3 id="an-title">One block, to scale</h3>
+        <div class="figframe" style="margin-top:8px"><canvas id="an-canvas" aria-label="One block of the selected design, annotated"></canvas></div>
+        <p class="small" id="an-note" style="margin-top:8px"></p></div>
+      <div class="box" id="c-key"></div></div>
+    <div class="box"><div class="headrow"><h3>The twelve designs at one scale</h3><div class="seg" id="c-var"></div></div>
+      <div class="thumbs" id="c-thumbs"></div>
+      <p class="small muted" style="margin-top:8px">Each square is the same ${CWIN} m of the middle of a city: the first city Phase 1
+      flew in each design (seed 0). Streets grey, blocks pale, plazas green, buildings slate. Pick one to see it whole below
+      and drawn to scale above.</p></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3><label class="small" id="c-cyl-wrap"><input type="checkbox" id="c-cyl"> show the avoidance cylinders</label></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div>
+      <p class="small muted" style="margin-top:8px">Drag to pan; double-click, or ctrl / ⌘ and the wheel, to zoom. Hover over a block for its
+      sizes. The paler blocks round the edge touch a street on the city's boundary: manoeuvres, walks and targets keep off them.</p></div>
+    <div class="intro" id="flights"><h2>Flights</h2>
+      <p><b>To see the answer's argument, start with</b> the set <i>Look down · p 40 · s 18</i> (one block flown six ways,
+      one drone first), then <i>Goal search · p 40 · s 18</i> (a whole search, every way). The other sets are the detail
+      behind All results.</p>
+      <p>${nF} flights from the study's own runs, played back over the cities they flew in. Each replica flight was flown
+      again from its job and kept only because its scores came out identical to the ones the run stored, so what plays is
+      what was scored. The Unity flights are the headless bench's recorded trajectories of the same walks and search routes.</p>
+      <p>Drones are dots in the condition's colour, filled while their feed is on the pilot's ring; an orange ring marks a
+      drone apart from the formation's main group. The streets light up where a shown feed has seen them, within 80 m. The
+      block being taken is outlined, its streets dashed until a feed previews them, and an arrow marks the exit taken. Space
+      plays or pauses, ← and → step 5 s (with shift, 30 s), and the timeline below the map can be clicked.</p></div>
+    <div id="c-player"></div>`;
+  // the variant switch and the thumbnails
+  const vseg = $("#c-var");
+  const drawVar = () => {
+    vseg.innerHTML = ["R", "B"].map(v => `<button type="button" aria-pressed="${CSEL.v === v}" data-v="${v}">${v === "R" ? "R · rectangular" : "B · block-shaped"}</button>`).join("");
+    vseg.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { CSEL.v = b.dataset.v; drawVar(); fillThumbs(); selectDesign(CSEL.p, CSEL.s); }));
+  };
+  const grid = $("#c-thumbs");
+  grid.innerHTML = `<span></span>${[12, 18, 24].map(s => `<span class="h">s ${s} m streets</span>`).join("")}` +
+    [40, 50, 60, 75].map(p => `<span class="h row">p ${p}</span>` + [12, 18, 24].map(s =>
+      `<button type="button" class="thumb" data-p="${p}" data-s="${s}" aria-pressed="false" title="${esc(dtitle(p, s))}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span></span></button>`).join("")).join("");
+  grid.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 600, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); else { c.fillStyle = RV.tokens().panel; c.fillRect(0, 0, vv.W, vv.H); } };
+    THUMBS.push({b, v, p: +b.dataset.p, s: +b.dataset.s});
+    b.addEventListener("click", () => selectDesign(+b.dataset.p, +b.dataset.s));
+  });
+  const fillThumbs = () => {
+    for (const th of THUMBS) {
+      th.v.city = null; th.v.request();
+      const g = galleryRow(CSEL.v, th.p, th.s);
+      th.b.querySelector("span").textContent = g ? `p ${th.p} · s ${th.s}: blocks ${f1(g.stats.block_m, 0)} m across${g.stats.plaza_share_interior > 0.05 ? `, ${Math.round(100 * g.stats.plaza_share_interior)}% plazas` : ""}` : `p ${th.p} · s ${th.s}`;
+      loadCity(CSEL.v, th.p, th.s).then(C => { th.v.city = C; th.v.fit([-CWIN / 2, CWIN / 2, -CWIN / 2, CWIN / 2], 0); }).catch(() => {});
+    }
+  };
+  // the selected city whole
+  CMAP = new RV.MapView($("#c-map"), {aspect: 0.8, minH: 320, maxH: 760, onHover: cityHover});
+  CMAP.draw = (c, v) => { if (CCITY) { RV.drawCity(c, v, CCITY, {cylinders: $("#c-cyl").checked}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.z === "in") CMAP.zoomBy(1.5); else if (b.dataset.z === "out") CMAP.zoomBy(1 / 1.5); else if (CCITY) CMAP.fit(CCITY.arena, 10);
+  }));
+  $("#c-cyl").addEventListener("change", () => CMAP.request());
+  ANAT = new RV.MapView($("#an-canvas"), {aspect: 0.7, minH: 230, maxH: 440, interactive: false});
+  ANAT.draw = drawAnatomy;
+  RV.onTheme(() => { for (const th of THUMBS) th.v.request(); CMAP.request(); ANAT.request(); });
+  drawVar(); fillThumbs(); selectDesign(CSEL.p, CSEL.s);
+  // the flights
+  PLAYER = RV.Player($("#c-player"), RP.groups.map(g => Object.assign({short: SHORT_GROUP[g.id] || g.title}, g)), {
+    labels: Object.fromEntries(CONDS3.map(([k, l]) => [k, l])), colors: Object.fromEntries(CONDS3.map(([k, , c]) => [k, `var(${c})`])),
+    path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function selectDesign(p, s) {
+  CSEL.p = p; CSEL.s = s;
+  for (const th of THUMBS) th.b.setAttribute("aria-pressed", String(th.p === p && th.s === s));
+  const g = galleryRow(CSEL.v, p, s);
+  $("#c-title").innerHTML = `${vtag(CSEL.v)} ${dl(p, s)}: the whole city <span class="muted small">(seed 0)</span>`;
+  $("#c-cyl-wrap").hidden = CSEL.v !== "R";
+  designKey(g);
+  loadCity(CSEL.v, p, s).then(C => {
+    if (CSEL.p !== p || CSEL.s !== s) return;
+    CCITY = C; CMAP.fit(C.arena, 10); cityStats(C); ANAT.city = C;
+    const A = C.anatomy;
+    if (A) {
+      const b = [C.blockBox[A.block], C.blockBox[A.neighbour]];
+      ANAT.fit([Math.min(b[0][0], b[1][0]) - 8, Math.max(b[0][2], b[1][2]) + 8, Math.min(b[0][1], b[1][1]) - 8, Math.max(b[0][3], b[1][3]) + 8], 10);
+    }
+    anatomyNote(C);
+  }).catch(err => { $("#c-stats").innerHTML = `<dt>Could not load the city</dt><dd>${esc(err.message)}</dd>`; });
+}
+function designKey(g) {
+  const p = CSEL.p, s = CSEL.s, v = CSEL.v, st = g ? g.stats : {};
+  const cp = D.coupling && D.coupling.cells ? D.coupling.cells.find(x => x.v === v && x.p === p && x.s === s) : null;
+  const cr = D.confirm && D.confirm.rows ? D.confirm.rows.find(x => x.variant === v && x.p === p && x.s === s) : null;
+  const fails = cr ? [["pass_safety", "safety"], ["pass_reform", "reform"], ["pass_preview", "preview"], ["pass_time_price", "time"], ["pass_streets", "streets"]].filter(([k]) => cr[k] === false).map(x => x[1]) : [];
+  $("#c-key").innerHTML = `<h3>${vtag(v)} ${dl(p, s)} in numbers</h3>
+    <dl class="kv" style="margin-top:8px">
+      <dt>neighbouring blocks' centres (p ${p})</dt><dd>${f1(st.neighbour_m, 0)} m</dd>
+      <dt>the street, kerb to kerb (s ${s})</dt><dd>${s} m</dd>
+      <dt>a block inside its kerbs, √area</dt><dd>${f1(st.block_m, 0)} m</dd>
+      <dt>a street, junction to junction</dt><dd>${f1(st.street_m, 0)} m</dd>
+      ${v === "R" && st.building_m ? `<dt>the building (R)</dt><dd>${f1(st.building_m[0])} × ${f1(st.building_m[1])} m</dd>
+      <dt>its avoidance cylinder, radius</dt><dd>${f1(st.cyl_r)} m</dd>
+      <dt>clear gap between cylinders across a street</dt><dd>${f1(st.cyl_gap_median)} m</dd>` : ""}
+      ${v === "B" ? `<dt>the facade gap across a street</dt><dd>${f1(st.facade_gap_median)} m</dd>` : ""}
+      <dt>the building's share of its block</dt><dd>${pct(st.block_share)}</dd>
+      <dt>interior blocks that are plazas</dt><dd>${pct(st.plaza_share_interior)}</dd>
+      <dt>the ground built over (α)</dt><dd>${pct(st.alpha)}</dd>
+      <dt class="sub">The surround</dt><dd class="sub" hidden></dd>
+      <dt>predicted spread, ring perimeter ÷ 100</dt><dd>${f1(st.d_star_pred, 2)}</dd>
+      <dt>matched spread d* (Phase 1's holds)</dt><dd>${cp ? f1(cp.d_star, 1) : "–"}</dd>
+      <dt>Phase 1's criteria</dt><dd>${!cr ? "–" : cr.pass_all ? '<span class="pill ok">pass</span>' : `<span class="pill no">fail</span> ${esc(fails.join(", "))}`}</dd>
+    </dl><p class="small muted" style="margin-top:8px">Medians over the city's interior blocks and streets (seed 0). The spread is the swarm's
+    dial: neighbouring drones are commanded about 10 × d_ref m apart.</p>`;
+}
+function cityStats(C) {
+  const st = C.stats;
+  $("#c-stats").innerHTML = `<dt>blocks</dt><dd>${st.blocks}</dd><dt>interior blocks</dt><dd>${st.interior}</dd><dt>buildings</dt><dd>${st.buildings}</dd>
+    <dt>plazas</dt><dd>${st.plazas}</dd><dt>built over (α)</dt><dd>${pct(st.alpha)}</dd><dt>building's share of its block</dt><dd>${pct(st.block_share)}</dd>
+    ${C.v === "R" ? `<dt>streets with a cylinder gap ≥ 6 m</dt><dd>${pct(st.cyl_gap_ge6)}</dd>` : ""}`;
+}
+function cityHover(x, z, ev) {
+  const C = CCITY; if (!C) return;
+  for (let b = 0; b < C.blocks.length; b++) {
+    const bb = C.blockBox[b];
+    if (!bb || x < bb[0] || x > bb[2] || z < bb[1] || z > bb[3] || !RV.inside(C.blocks[b], x, z)) continue;
+    const f = C.flags[b], bi = C.blockBld ? C.blockBld[b] : -1, lines = [`about ${Math.round(Math.sqrt(RV.area(C.blocks[b])))} m across (√area)`];
+    if (bi >= 0) {
+      const box = C.bldBox[bi];
+      if (C.v === "R") {
+        lines.push(`building ${f1(box[2] - box[0])} × ${f1(box[3] - box[1])} m`);
+        if (C.cyl) lines.push(`its avoidance cylinder: radius ${f1(C.cyl[3 * bi + 2])} m`);
+      } else lines.push(`building: ${pct(RV.area(C.bld[bi]) / RV.area(C.blocks[b]))} of the block`);
+    } else lines.push("a plaza: too small for a building");
+    if (!(f & 1)) lines.push("on the city's edge (not interior)");
+    return RV.tipShow(ev.clientX, ev.clientY, `Block ${b}`, lines);
+  }
+  RV.tipHide();
+}
+function drawAnatomy(c, v) {
+  const C = ANAT.city, A = C && C.anatomy;
+  if (!A) return;
+  RV.drawCity(c, v, C, {highlight: A.block});
+  const T = RV.tokens(), hop = RV.colour("var(--c-hop)");
+  const circle = (x, z, r, stroke, dash, w) => { c.beginPath(); c.arc(v.sx(x), v.sy(z), r * v.k, 0, 2 * Math.PI); c.setLineDash(dash); c.strokeStyle = stroke; c.lineWidth = w; c.stroke(); c.setLineDash([]); };
+  c.beginPath(); RV.poly(c, v, C.blocks[A.block]); c.strokeStyle = T.ink; c.lineWidth = 1.4; c.stroke();
+  if (A.cylinder) {
+    circle(A.incircle[0], A.incircle[1], A.incircle[2], RV.rgba(T["ink-2"], 0.9), [1.5, 3], 1.4);
+    circle(A.cylinder[0], A.cylinder[1], A.cylinder[2], T["map-cyl"], [5, 4], 1.8);
+    circle(A.ring[0], A.ring[1], A.ring[2], hop, [], 2.2);
+  } else if (A.ring_poly) {
+    const rp = A.ring_poly; c.beginPath(); c.moveTo(v.sx(rp[0]), v.sy(rp[1]));
+    for (let j = 2; j < rp.length; j += 2) c.lineTo(v.sx(rp[j]), v.sy(rp[j + 1]));
+    c.closePath(); c.strokeStyle = hop; c.lineWidth = 2.2; c.stroke();
+  }
+  const arrow = (x0, y0, x1, y1, both) => {
+    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+    const head = (ax, ay, bx, by) => { const a = Math.atan2(by - ay, bx - ax); c.beginPath(); c.moveTo(bx, by); c.lineTo(bx - 8 * Math.cos(a - 0.45), by - 8 * Math.sin(a - 0.45)); c.lineTo(bx - 8 * Math.cos(a + 0.45), by - 8 * Math.sin(a + 0.45)); c.closePath(); c.fill(); };
+    head(x0, y0, x1, y1); if (both) head(x1, y1, x0, y0);
+  };
+  // p: from this block's centre to its neighbour's
+  c.strokeStyle = T.ink; c.fillStyle = T.ink; c.lineWidth = 1.6;
+  const [cx0, cz0] = A.centre, [cx1, cz1] = A.nb_centre;
+  const P0 = [v.sx(cx0), v.sy(cz0)], P1 = [v.sx(cx1), v.sy(cz1)];
+  for (const P of [P0, P1]) { c.beginPath(); c.arc(P[0], P[1], 3.2, 0, 2 * Math.PI); c.fill(); }
+  arrow(P0[0], P0[1], P1[0], P1[1], true);
+  const pm = [(P0[0] + P1[0]) / 2, (P0[1] + P1[1]) / 2], pl = Math.hypot(P1[0] - P0[0], P1[1] - P0[1]) || 1;
+  const pn = [-(P1[1] - P0[1]) / pl, (P1[0] - P0[0]) / pl];
+  // s: across the street the two blocks share, kerb to kerb, at its middle
+  const st = A.street, mx = (st[0] + st[2]) / 2, mz = (st[1] + st[3]) / 2, dx = st[2] - st[0], dz = st[3] - st[1], L = Math.hypot(dx, dz) || 1;
+  const nx = -dz / L, nz = dx / L, h = C.s / 2;
+  const S0 = [v.sx(mx - nx * h), v.sy(mz - nz * h)], S1 = [v.sx(mx + nx * h), v.sy(mz + nz * h)];
+  // keep the s arrow off the p arrow: slide it along the street, away from where p crosses
+  const off = 0.3 * L, side = ((cx0 + cx1) / 2 - mx) * dx + ((cz0 + cz1) / 2 - mz) * dz > 0 ? -1 : 1;
+  const ux = dx / L * off * side, uz = dz / L * off * side;
+  const Q0 = [v.sx(mx - nx * h + ux), v.sy(mz - nz * h + uz)], Q1 = [v.sx(mx + nx * h + ux), v.sy(mz + nz * h + uz)];
+  c.lineWidth = 1.6; arrow(Q0[0], Q0[1], Q1[0], Q1[1], true);
+  const font = "700 13px 'IBM Plex Mono', monospace";
+  RV.label(c, pm[0] + pn[0] * 13, pm[1] + pn[1] * 13, "p", {color: T.ink, font, align: "center"});
+  RV.label(c, (Q0[0] + Q1[0]) / 2 + (Q1[1] - Q0[1] ? 12 : 0), (Q0[1] + Q1[1]) / 2 - 12, "s", {color: T.ink, font, align: "center"});
+  void S0; void S1;
+  RV.drawScale(c, v);
+}
+function anatomyNote(C) {
+  const A = C.anatomy, el = $("#an-note");
+  if (!A) { el.textContent = ""; return; }
+  const p = CSEL.p, s = CSEL.s, d = Math.hypot(A.nb_centre[0] - A.centre[0], A.nb_centre[1] - A.centre[1]);
+  const bi = C.blockBld ? C.blockBld[A.block] : -1, box = bi >= 0 ? C.bldBox[bi] : null;
+  const cp = D.coupling && D.coupling.cells ? D.coupling.cells.find(x => x.v === CSEL.v && x.p === p && x.s === s) : null;
+  const hop = `<span style="color:var(--c-hop);font-weight:600">Orange</span>`;
+  $("#an-title").innerHTML = `One block of ${vtag(CSEL.v)} ${dl(p, s)}, to scale`;
+  el.innerHTML = `<b>p</b>: this block's centre to its neighbour's, ${f1(d, 0)} m here (${NB[p]} m on average at p ${p}).
+    <b>s</b>: the street between them, ${s} m kerb to kerb. Slate: the building${box ? `, ${f1(box[2] - box[0])} × ${f1(box[3] - box[1])} m` : ""}.
+    ${A.cylinder ? `<span style="color:var(--map-cyl);font-weight:600">Dashed</span>: its avoidance cylinder, radius ${f1(A.cylinder[2])} m, the circle
+    through its corners, which the force law steers round. Dotted: the block's largest inscribed circle, which the cylinder
+    stays 1 m inside. ${hop}: where the ring of drones sits when the formation surrounds the block, 3 m outside the
+    cylinder.` : `The building is the block less a 3.5 m footpath. ${hop}: the ring of drones 3 m outside its facades when the
+    formation surrounds it.`} The ring's perimeter ÷ 100 is ${f1(A.d_pred, 2)}, the spread that spaces ten drones evenly round
+    it${cp && cp.d_star !== null ? `; Phase 1 measured d* = ${f1(cp.d_star, 1)} for this design` : ""}.`;
+}
+function flightSummaryRows(F, s) {
+  const r = [], n = x => x === null || x === undefined ? "–" : String(x);
+  const spreads = () => { if (s.d_block !== undefined && s.d_block !== null) r.push(["spread at the block (d_ref)", f1(s.d_block, 1)]);
+                          if (s.d_street !== undefined && s.d_street !== null) r.push(["spread in the streets", f1(s.d_street, 1)]); };
+  if (F.kind === "M3" || F.kind === "M3b" || F.kind === "M4") {
+    spreads();
+    if (F.kind !== "M4") r.push(["streets previewed at the commit", pct(s.preview)]);
+    if (F.kind === "M3") r.push(["entrance to the aim point", `${f1(s.pass_s)} s`]);
+    if (F.kind === "M3b") r.push(["the surround", `${f1(s.t_hop, 0)} s, ${s.mode === "aim" ? "aim and turn" : esc(s.mode || "")}`],
+      ["entrance to the next junction", `${f1(s.hop_s)} s`], ["round by the streets instead", s.street_s === null || s.street_s === undefined ? "–" : `${f1(s.street_s)} s`]);
+    if (F.kind !== "M4") r.push(["one group before the next junction", s.reform_ok ? `yes, after ${f1(s.reform_s)} s` : "no"]);
+    if (F.kind === "M4") r.push(["enveloped (S1's test)", s.enveloped ? `yes, after ${f1(s.t_envelop)} s` : "no"]);
+    r.push(["drones lost", n(s.lost)], ["building contacts", n(s.contacts)], ["cohesion cutoff r0_coh", f1(s.r0_coh, 0)]);
+  } else if (F.kind === "A") {
+    r.push(["spread at the block (d_ref)", s.d_block === null || s.d_block === undefined ? `${f1(s.d_street, 1)}: stays in the street` : f1(s.d_block, 1)],
+      ["spread in the streets", f1(s.d_street, 1)]);
+    if (s.T !== null && s.T !== undefined) r.push([F.cond === "swarm_hold" ? "the hold" : "the surround", `${f1(s.T, 0)} s${s.mode ? `, ${s.mode === "aim" ? "aim and turn" : "firm hold"}` : ""}`]);
+    r.push(["exits looked down at the decision", pct(s.look_c)], ["… entered (the old preview)", pct(s.ent_c)],
+      ["… seen to the far end", pct(s.end_c)], ["… looked down by the next junction", pct(s.look_F)],
+      ["arrival to the next junction", `${f1(s.hop_s)} s`],
+      ["one group before the next junction", s.reform_ok ? `yes, after ${f1(s.reform_s)} s` : s.reform_ok === false ? "no" : "–"]);
+    if (s.enveloped !== null && s.enveloped !== undefined) r.push(["enveloped (S1's test)", s.enveloped ? `yes, after ${f1(s.t_envelop)} s` : "no"]);
+    r.push(["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  } else if (F.kind === "searchB") {
+    const fm = s.find_m || 80, fv = s.find_m ? s.found : s.found80;
+    r.push([`target first seen within ${fm} m`, fv === null || fv === undefined ? `not by ${RV.fmtT(s.t_end)}` : RV.fmtT(fv)],
+      ["… within 40 m", s.found40 === null || s.found40 === undefined ? "–" : RV.fmtT(s.found40)],
+      ["… within 200 m", s.found200 === null || s.found200 === undefined ? "–" : RV.fmtT(s.found200)]);
+    if (F.n > 1) r.push(["spread at the block (d_ref)", f1(s.d_block, 1)], ["spread in the streets", f1(s.d_street, 1)]);
+    if (s.T !== null && s.T !== undefined) r.push([F.cond === "swarm_hold" ? "the hold" : "the surround", `${f1(s.T, 0)} s${s.mode ? `, ${s.mode === "aim" ? "aim and turn" : "firm hold"}` : ""}`]);
+    r.push(["decisions", n(s.decisions)], ["with nothing unseen nearby", n(s.blind)], ["path flown", `${f1((s.path_m || 0) / 1000, 2)} km`],
+      ["footpath seen, interior buildings", pct(s.footpath)], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  } else if (F.kind === "walk") {
+    spreads();
+    r.push(["blocks reached", n(s.blocks)], ["streets previewed, mean", pct(s.preview)], ["street seen", `${f1(s.street_km, 1)} km`],
+      ["time to find, 80 m (RMST)", `${f1(s.find80, 0)} s`], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+    if (s.reform !== undefined && s.reform !== null) r.push(["one group again after a split", pct(s.reform)]);
+    if (s.a1 !== undefined && s.a1 !== null) r.push(["neighbouring screens linked (A1)", pct(s.a1)]);
+  } else {
+    r.push(["target first seen within 80 m", s.found80 === null || s.found80 === undefined ? `not by ${RV.fmtT(s.t_end)}` : RV.fmtT(s.found80)],
+      ["… within 200 m", s.found200 === null || s.found200 === undefined ? "–" : RV.fmtT(s.found200)]);
+    spreads();
+    if (s.decisions !== undefined) r.push(["decisions", n(s.decisions)], ["with nothing unseen nearby", n(s.blind)], ["path flown", `${f1((s.path_m || 0) / 1000, 2)} km`],
+      ["interior streets seen", pct(s.streets)]);
+    r.push(["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  }
+  return r;
+}
+function flightSummaryNote(F) {
+  const u = F.source === "unity" ? " Unity's contacts are the bench's count; its losses are where a drone stopped being alive in the trajectory." : "";
+  if (F.kind === "walk") return `Time to find: S3's measure, the mean over the open ground the start does not show of the time a shown feed first saw it within 80 m, capped at 600 s.${u}`;
+  if (F.kind === "search") return `The informed pilot stops at the first sight within 80 m; one that falls under four drones has not found it.${u}`;
+  if (F.kind === "A") return `Part A's measures, from the run's own row for this trial. An exit is looked down once a shown feed has seen, within ${SIGHT} m, half the footpath in front of the building at its far end.`;
+  if (F.kind === "searchB") return `Part B's pilot stops at the first sight within ${F.find_m || 80} m; one that falls under four drones has not found it. The dots are the footpath round the buildings that its feeds have seen.`;
+  return "Phase 1's measures, from the run's own row for this trial.";
+}
+
+// ---------------------------------------------------------------- the answer
+// Five questions in the order the argument needs them: does the swarm see more (Part A with the lone drone), can it
+// surround at all (Part A's safe settings), does it find sooner (Part B and Phase 2's search, against one drone), why
+// not (the decisions against the time per decision), and what it costs (Phase 2's walks). Then the reading.
+const ANS_SERIES = [["single", "one drone", "var(--c-single)"], ["single_look", "one drone, stopping to look at each corner", "var(--c-look)"],
+                    ["street", "swarm in the streets", "var(--c-street)"],
+                    ["hop6", "swarm surrounding for 6 s", "color-mix(in srgb, var(--c-hop) 50%, var(--panel))"],
+                    ["hop12", "swarm surrounding for 12 s", "var(--c-hop)"]];
+const ansBlock = d => d && d.block_m ? `blocks ${Math.round(d.block_m)} m across, buildings about ${Math.round(d.building_m[0])} × ${Math.round(d.building_m[1])} m` : "";
+const ansWidth = (el, lo = 280, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function ansObserve(el, draw) {           // redraw at the chart's own width, so its text keeps its size on a phone
+  let w = 0;
+  new ResizeObserver(() => {
+    const n = Math.round(el.clientWidth);
+    if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); }
+  }).observe(el);
+}
+// an answer chart's svg is drawn at its container's width up to a cap, and never scaled up past it
+const ansSvg = (W, H, label, g) => `<svg viewBox="0 0 ${W} ${H}" style="max-width:${W}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// the idea, drawn: one block (a hexagon, not to scale) with five exits and the building at each one's far end
+function ideaPanel(kind, col, share) {
+  const cx = 150, cy = 115, R = 55, f = ([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`;
+  const P = (r, k) => [cx + r * Math.cos(k * Math.PI / 3), cy + r * Math.sin(k * Math.PI / 3)];
+  const hex = r => [0, 1, 2, 3, 4, 5].map(k => f(P(r, k))).join(" ");
+  // as many of the five exits filled as the measured share, the ones nearest the arrival corner (3) first
+  const exits = [0, 1, 2, 4, 5], seen = [2, 4, 1, 5, 0].slice(0, Math.round(5 * Math.max(0, Math.min(1, share || 0))));
+  const wedge = (a, b, half, len) => {    // a feed at a looking towards b
+    const t = Math.atan2(b[1] - a[1], b[0] - a[0]), L = len || Math.hypot(b[0] - a[0], b[1] - a[1]);
+    return `<polygon points="${f(a)} ${f([a[0] + L * Math.cos(t - half), a[1] + L * Math.sin(t - half)])} ${f([a[0] + L * Math.cos(t + half), a[1] + L * Math.sin(t + half)])}" fill="${col}" opacity="0.2"/>`;
+  };
+  const dot = p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4.3" fill="${col}" stroke="var(--panel)" stroke-width="1.4"/>`;
+  let g = `<rect width="300" height="230" fill="var(--map-block)"/>
+    <g stroke="var(--map-street)" stroke-width="13" fill="none"><polygon points="${hex(R)}"/>
+    ${exits.map(k => `<line x1="${P(R, k)[0]}" y1="${P(R, k)[1]}" x2="${P(97, k)[0]}" y2="${P(97, k)[1]}"/>`).join("")}
+    <line x1="0" y1="${cy}" x2="${cx - R}" y2="${cy}"/></g>
+    <rect x="${cx - 22}" y="${cy - 19}" width="44" height="38" rx="2" fill="var(--map-bldg)"/>`;
+  const end = k => P(107, k);
+  if (kind === "single") {
+    const a = [cx - R - 6, cy];           // at the corner, its camera along the side it is about to fly
+    g += wedge(a, P(R, 2), 0.42, 58);
+    g += `<polyline points="${f(a)} ${f(P(R, 3))} ${f(P(R, 2))} ${f(P(R, 1))} ${f(P(92, 1))}" fill="none" stroke="var(--ink-2)" stroke-width="1.3" stroke-dasharray="4 3"/>`;
+    g += dot(a);
+  } else if (kind === "street") {
+    const c3 = P(R, 3), ring = Array.from({length: 10}, (_, i) => [c3[0] + 19 * Math.cos(i * Math.PI / 5), c3[1] + 19 * Math.sin(i * Math.PI / 5)]);
+    for (const k of seen) {
+      const ck = P(R, k), u = Math.hypot(ck[0] - c3[0], ck[1] - c3[1]);
+      g += wedge([c3[0] + 19 * (ck[0] - c3[0]) / u, c3[1] + 19 * (ck[1] - c3[1]) / u], end(k), 0.1);
+    }
+    g += ring.map(dot).join("");
+  } else {
+    const pts = [];                      // ten drones spaced evenly round the hexagon's street
+    for (let i = 0; i < 10; i++) {
+      const s = (i + 0.5) * 6 / 10, k = Math.floor(s), a = P(R, k), b = P(R, k + 1), u = s - k;
+      pts.push([a[0] + u * (b[0] - a[0]), a[1] + u * (b[1] - a[1])]);
+    }
+    for (const k of seen) g += wedge(P(R, k), end(k), 0.11);
+    g += pts.map(dot).join("");
+  }
+  for (const k of exits) {
+    const [x, y] = end(k), on = seen.includes(k);
+    g += `<rect x="${(x - 8).toFixed(1)}" y="${(y - 8).toFixed(1)}" width="16" height="16" rx="2" fill="${on ? col : "var(--map-bldg)"}" opacity="${on ? 1 : 0.4}"/>`;
+    if (!on) g += `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" style="font:600 11px var(--font-body);fill:var(--ink)">?</text>`;
+  }
+  return `<svg viewBox="0 0 300 230" role="img" aria-label="${kind === "single" ? "One drone at the block's corner" : kind === "street" ? "The swarm at the block's corner" : "The swarm surrounding the block"}: buildings at the far ends of the exits it has looked down are filled">${g}</svg>`;
+}
+
+// 1: the share of a block's exits looked down when the pilot chooses, per block size
+function ansLookChart(el) {
+  const ds = [40, 50, 60, 75].map(ansDesign).filter(Boolean);
+  const series = ANS_SERIES.filter(([k]) => ds.some(d => d[k]));
+  const W = ansWidth(el), narrow = W < 520, bh = 11, gap = 3, ggap = 20, m = {l: narrow ? 92 : 132, r: 40, t: 4, b: 30};
+  const gh = series.length * (bh + gap) - gap, H = m.t + m.b + ds.length * gh + (ds.length - 1) * ggap;
+  const x = v => m.l + (W - m.l - m.r) * Math.max(0, Math.min(1, v));
+  let g = "";
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) g += `<line class="gridl" x1="${x(t)}" x2="${x(t)}" y1="${m.t}" y2="${H - m.b}"/><text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${Math.round(100 * t)}%</text>`;
+  const marks = [];
+  ds.forEach((d, i) => {
+    const y0 = m.t + i * (gh + ggap);
+    g += `<text class="lbl" x="${m.l - 10}" y="${y0 + gh / 2 - 4}" text-anchor="end" style="font-weight:600">p ${d.p}</text>
+      <text x="${m.l - 10}" y="${y0 + gh / 2 + 10}" text-anchor="end">${Math.round(d.block_m)} m blocks</text>`;
+    series.forEach(([k, lab, col], j) => {
+      const c = d[k];
+      if (!c) return;
+      const yb = y0 + j * (bh + gap);
+      g += `<rect x="${m.l}" y="${yb}" width="${Math.max(1.5, x(c.look) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${col}"/>
+        <text class="val" x="${(x(c.look) + 5).toFixed(1)}" y="${yb + bh - 1.5}">${pc(c.look)}</text>
+        <rect class="hit" data-i="${marks.length}" tabindex="0" x="0" y="${yb - 1.5}" width="${W}" height="${bh + 3}"/>`;
+      marks.push([d, k, lab, col, c]);
+    });
+  });
+  el.innerHTML = `${ansSvg(W, H, "Exits looked down when the pilot chooses, by block size and way of flying", g)}
+    <div class="legend" style="margin-top:4px">${series.map(([, lab, col]) => `<span><span class="sw" style="background:${col}"></span>${esc(lab)}</span>`).join("")}</div>`;
+  hoverMarks(el, i => {
+    const [d, , lab, col, c] = marks[i];
+    return [`p ${d.p} (${ansBlock(d)}): ${lab}`, [[col, pc(c.look), `looked down when choosing${c.lo !== null ? ` (95%: ${pc(c.lo)}–${pc(c.hi)})` : ""}`],
+      [col, pc(c.look_F), "looked down by the next junction"], [col, `${fmt(c.hop_s, 1)} s`, "from the block to the next junction (median)"]]];
+  });
+}
+
+// 3: time to find the target as a share of one drone's, with 95% intervals over cities
+function ansRatioChart(el, blk, found) {
+  const rows = ANSWER_ORDER.map(c => ansRatio(blk, c)).filter(Boolean);
+  const W = ansWidth(el, 280, 560), narrow = W < 420, m = {l: narrow ? 118 : 146, r: 16, t: 18, b: 30}, rh = 30, H = m.t + m.b + rh * rows.length;
+  const xmax = 1.2, x = v => m.l + (W - m.l - m.r) * Math.max(0, Math.min(v, xmax)) / xmax;
+  let g = "";
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) g += `<line class="gridl" x1="${x(t)}" x2="${x(t)}" y1="${m.t}" y2="${H - m.b}"/><text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${Math.round(100 * t)}%</text>`;
+  g += `<line x1="${x(1)}" x2="${x(1)}" y1="${m.t - 6}" y2="${H - m.b}" stroke="var(--c-single)" stroke-width="2"/>
+    <text x="${x(1)}" y="${m.t - 9}" text-anchor="middle" style="fill:var(--c-single);font-weight:600">one drone</text>`;
+  rows.forEach((r, i) => {
+    const y = m.t + rh * i + rh / 2, col = condCol(r.a);
+    g += `<text class="lbl" x="${m.l - 8}" y="${y + 4}" text-anchor="end">${esc(narrow ? condLabel(r.a).replace("swarm ", "") : condLabel(r.a))}</text>
+      <line x1="${x(r.lo)}" x2="${x(r.hi)}" y1="${y}" y2="${y}" stroke="${col}" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="${x(r.ratio)}" cy="${y}" r="6" fill="${col}" stroke="var(--panel)" stroke-width="1.5"/>
+      <text class="val" x="${Math.min(x(r.hi) + 6, W - m.r - 26)}" y="${y - 7}">${pc(r.ratio)}</text>
+      <rect class="hit" data-i="${i}" tabindex="0" x="0" y="${y - rh / 2}" width="${W}" height="${rh}"/>`;
+  });
+  el.innerHTML = ansSvg(W, H, "Time to find the target as a share of one drone's", g);
+  hoverMarks(el, i => {
+    const r = rows[i], col = condCol(r.a);
+    return [condLabel(r.a), [[col, pc(r.ratio), `of one drone's time (95%: ${pc(r.lo)}–${pc(r.hi)}, ${r.n_cities} cities)`],
+      [col, pc(found[r.a]), "of targets found within 20 minutes"], ["var(--c-single)", pc(found.single), "one drone's"]]];
+  });
+}
+const ANSWER_ORDER = ["swarm_street", "swarm_pass", "swarm_hop", "swarm_hold"];
+
+// 4: against the swarm in the streets, on the searches both found: decisions needed, time per decision, time to find
+let ANS_WHY = "b40";
+function ansWhyChart(el) {
+  const src = {b40: ANS.b && ANS.b.decomp["40"], b60: ANS.b && ANS.b.decomp["60"], p2: ANS.p2 && ANS.p2.decomp}[ANS_WHY];
+  if (!src) { el.innerHTML = '<p class="notrun">Not run.</p>'; return; }
+  const bars = [["decisions", "decisions needed"], ["per_decision", "time per decision"], ["time", "time to find"]];
+  const rows = [];
+  for (const c of ["single", "swarm_hop"]) if (src[c]) bars.forEach(([k, lab], j) => rows.push({c, k, lab, j, v: src[c][k] - 1, d: src[c]}));
+  const vals = rows.map(r => r.v), lo = Math.min(-0.25, Math.floor(Math.min(...vals) * 4) / 4), hi = Math.max(0.5, Math.ceil(Math.max(...vals) * 4) / 4);
+  const W = ansWidth(el, 280, 620), m = {l: 118, r: 50, t: 4, b: 30}, bh = 13, gap = 4, head = 20, ggap = 14;
+  const gh = head + bars.length * (bh + gap) - gap, H = m.t + m.b + 2 * gh + ggap;
+  const x = v => m.l + (W - m.l - m.r) * (v - lo) / (hi - lo);
+  let g = "";
+  const step = hi - lo > 2 || W < 440 ? 0.5 : 0.25;
+  for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step) g += `<line class="gridl" x1="${x(t)}" x2="${x(t)}" y1="${m.t + head}" y2="${H - m.b}"/><text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${t > 0 ? "+" : t < 0 ? "−" : ""}${Math.round(100 * Math.abs(t))}%</text>`;
+  g += `<line x1="${x(0)}" x2="${x(0)}" y1="${m.t + head}" y2="${H - m.b}" stroke="var(--c-street)" stroke-width="2"/>`;
+  rows.forEach((r, i) => {
+    const gy = m.t + (r.c === "single" ? 0 : gh + ggap), y0 = gy + head + r.j * (bh + gap);
+    const col = r.c === "single" ? "var(--c-single)" : condCol("swarm_hop");
+    const xa = Math.min(x(0), x(r.v)), w = Math.abs(x(r.v) - x(0));
+    if (r.j === 0) g += `<text class="lbl" x="0" y="${gy + 13}" style="font-weight:600">${r.c === "single" ? "One drone" : "Swarm surrounding"}</text>`;
+    g += `<text x="${m.l - 8}" y="${y0 + bh - 2}" text-anchor="end">${esc(r.lab)}</text>
+      <rect x="${xa.toFixed(1)}" y="${y0}" width="${Math.max(1.5, w).toFixed(1)}" height="${bh}" rx="2" fill="${col}" opacity="${r.k === "time" ? 1 : 0.55}"/>
+      <text class="val" x="${(r.v >= 0 ? x(r.v) + 5 : x(0) + 5).toFixed(1)}" y="${y0 + bh - 2}">${r.v >= 0 ? "+" : "−"}${Math.round(100 * Math.abs(r.v))}%</text>
+      <rect class="hit" data-i="${i}" tabindex="0" x="0" y="${y0 - 2}" width="${W}" height="${bh + 4}"/>`;
+  });
+  el.innerHTML = ansSvg(W, H, "Decisions, time per decision and time to find, against the swarm in the streets", g);
+  hoverMarks(el, i => {
+    const r = rows[i], col = r.c === "single" ? "var(--c-single)" : condCol("swarm_hop");
+    const extra = r.k === "per_decision" ? [[col, `${fmt(r.d.s_per_a, 1)} s`, "per decision (median)"], ["var(--c-street)", `${fmt(r.d.s_per_b, 1)} s`, "the swarm in the streets'"]] : [];
+    return [`${r.c === "single" ? "One drone" : "Swarm surrounding"}: ${r.lab}`, [[col, times(r.d[r.k]), `the swarm in the streets' (${r.d.n} searches both found)`], ...extra]];
+  });
+}
+
+RENDER.answer = el => {
+  if (!ANS || !ANS.designs) { el.innerHTML = '<div class="intro"><h2>The answer</h2><p class="notrun">Phase 3 has not run.</p></div>'; return; }
+  const d40 = ansDesign(40), d60 = ansDesign(60), d75 = ansDesign(75), B3 = ANS.b || {}, P2 = ANS.p2 || {};
+  const r3 = c => ansRatio(B3, c), r2 = c => ansRatio(P2, c);
+  const W = (D.phase2 && D.phase2.walks) || {}, wc = c => (W.conditions || []).find(r => r.condition === c) || {};
+  const wst = wc("swarm_street"), whop = wc("swarm_hop");
+  const dec3 = (B3.decomp || {}), dec2 = P2.decomp || {};
+  const fewer = [dec3["40"], dec3["60"], dec2].filter(Boolean).map(x => x.swarm_hop && 1 - x.swarm_hop.decisions).filter(v => v !== null && v !== undefined);
+  const longer = [dec3["40"], dec3["60"], dec2].filter(Boolean).map(x => x.swarm_hop && x.swarm_hop.per_decision - 1).filter(v => v !== null && v !== undefined);
+  const more1 = [dec3["40"], dec3["60"], dec2].filter(Boolean).map(x => x.single && x.single.decisions).filter(Boolean);
+  const rng = (a, f) => a.length ? `${f(Math.min(...a))}–${f(Math.max(...a))}` : "–";
+  const P = v => `${Math.round(100 * v)}%`;
+  // the Unity check: the largest gap between Unity and the replica on Phase 2's walk ratios of the time to find
+  const bc = ((D.phase2 && D.phase2.bench_contrasts) || []).filter(r => r.measure === "find80" && r.bench && r.replica);
+  const gapU = bc.length ? Math.max(...bc.map(r => Math.abs(r.bench.est / r.replica.est - 1))) : null;
+  // whether the formation gets round the block: S1's enclosure test, which no sight range changes. Yes when a 12 s
+  // surround encloses the block in at least 70% of trials, slowly when a 20 s one encloses it in at least half (the
+  // larger blocks sit at 20-21 of 30 trials, so no cut between them would mean anything), otherwise no
+  const ENC = 0.7, ENC_SLOW = 0.5;
+  const encl = (d, T) => d.enclose && d.enclose[T] ? d.enclose[T].env : null;
+  const sizeRows = [40, 50, 60, 75].map(ansDesign).filter(Boolean).map(d => {
+    const e12 = encl(d, "12"), e20 = encl(d, "20"), h12 = d.enclose && d.enclose["12"];
+    const verdict = e12 !== null && e12 >= ENC ? ["yes", "Yes"] : e20 !== null && e20 >= ENC_SLOW ? ["part", "Slowly"] : ["no", "No"];
+    return `<tr><td class="l"><b>${dl(d.p, d.s)}</b><br><span class="muted small">${ansBlock(d)}</span></td>
+      <td>${fmt(d.widest_safe, 1)}</td>
+      <td>${pc(e12)}</td><td>${pc(e20)}</td>
+      <td>${h12 ? `${fmt(h12.hop_s, 0)} s <span class="muted small">vs ${fmt(d.street.hop_s, 0)} s</span>` : "–"}</td>
+      <td class="l"><span class="vp ${verdict[0]}">${verdict[1]}</span></td></tr>`;
+  }).join("");
+  const d75e20 = d75 ? encl(d75, "20") : null;
+  // what the size of the block does to each way's share (Q1), described from the numbers
+  const gainS = d => d.hop12.look - d.street.look;
+  el.innerHTML = `<div class="ans">
+  <section class="q" aria-labelledby="idea-h">
+    <div><h2 id="idea-h">The idea being tested</h2>
+      <p class="qa">At every block the pilot has to choose which street to take. The more of those streets the pilot has
+      already seen down, the better the choice should be, and the sooner the target should turn up.</p></div>
+    <div class="idea">
+      <figure>${ideaPanel("single", "var(--c-single)", d40.single.look)}<figcaption><b>${pc(d40.single.look)}</b> · One drone at the
+        corner. Its single camera looks along its own street, and it goes round the block by one side.</figcaption></figure>
+      <figure>${ideaPanel("street", "var(--c-street)", d40.street.look)}<figcaption><b>${pc(d40.street.look)}</b> · The swarm at the
+        corner. Ten cameras spread across the junction already see down many of the streets.</figcaption></figure>
+      <figure>${ideaPanel("hop", "var(--c-hop)", d40.hop12.look)}<figcaption><b>${pc(d40.hop12.look)}</b> · The swarm surrounding the
+        block. It flows round both sides of the building and can see down every street before choosing.</figcaption></figure>
+    </div>
+    <p class="small muted" style="margin:0">A drawing, not to scale. The numbers are the share of a block's exits each
+      has <b>looked down</b> when the pilot chooses, on the smallest blocks flown (p 40). Looked down means a camera has seen,
+      within ${SIGHT} m, the footpath in front of the building at the street's far end: enough to tell whether a target
+      standing there is there. Filled squares are buildings looked down; "?" ones are not.</p>
+  </section>
+
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>Does the swarm see down more streets than one drone before choosing?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>Far more, and much of the gain comes without surrounding at all.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-look"></div>
+      <div class="qtext">
+        <ul><li><b>One drone</b>, arriving at a corner, has looked down ${pc(d40.single.look)} of the block's exits.
+          Stopping to turn and look down each street there raises that to ${pc(d40.single_look && d40.single_look.look)}.</li>
+        <li><b>The swarm in the streets</b> spreads its ten cameras across the junction: ${pc(d40.street.look)}.</li>
+        <li><b>Surrounding adds the rest</b>: ${pc(d40.hop6.look)} after 6 s and ${pc(d40.hop12.look)} after 12 s.</li>
+        ${d75 ? `<li><b>On bigger blocks everyone sees less</b>, and surrounding adds ${gainS(d75) > gainS(d40) + 0.05 ? "more" :
+          gainS(d75) < gainS(d40) - 0.05 ? "less" : "about as much"}: on the largest (p 75) one drone looks down
+          ${pc(d75.single.look)}, the swarm in the streets ${pc(d75.street.look)} and a 12 s surround ${pc(d75.hop12.look)}.
+          The share is of the streets leaving the block the pilot is at, and most leave from its other corners; on a
+          bigger block their far ends are further away and hidden behind bigger buildings.</li>` : ""}</ul>
+        <p class="small muted">Phase 3, Part A: ${(d40.street.n || 0)} trials per block size, each one block flown every way
+          from the same start with the same exit; the lone drone flew the same blocks. The swarm surrounds at a spread
+          (d_ref) of ${fmt(ANS.d, 1)} and flies the streets at 1.0. Hover for intervals and timings.</p>
+        <div class="watches"><a class="watch" href="#watch:p3_p40:swarm_hop">One block flown six ways (p 40)</a>
+          <a class="watch" href="#watch:p3_p75:swarm_hop">The same on a large block (p 75)</a></div></div></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Can the swarm surround any block?</h2>
+      <p class="qa"><span class="vp part">Only small ones</span>And only at a spread wider than the trials' dial reaches.</p></div></div>
+    <div class="tablewrap"><table class="sizes"><thead><tr><th>block size</th><th>widest safe spread</th>
+      <th>encloses the block after 12 s</th><th>after 20 s</th><th>from the block to the next junction: 12 s surround vs streets</th><th style="text-align:left">surrounds it?</th></tr></thead>
+      <tbody>${sizeRows}</tbody></table></div>
+    <div class="qtext"><ul>
+      <li><b>A wider formation gets round the block sooner</b>, until its drones start touching the building it is
+        wrapped round. The widest safe spread is ${fmt(d40.widest_safe, 1)} (${fmt(d75 && d75.widest_safe, 1)} on the
+        largest blocks). <b>The trials' spread dial stops at ${fmt(ANS.dial_max, 1)}.</b></li>
+      ${d75e20 !== null ? `<li><b>Beyond the smallest blocks it is slow.</b> A 12 s surround rarely encloses a larger
+        block; after 20 s it encloses ${pc(encl(ansDesign(50), "20"))} at p 50, ${pc(encl(ansDesign(60), "20"))} at p 60
+        and ${pc(d75e20)} on the largest, which needs the widest spread of all (${fmt(d75.widest_safe, 1)}).</li>` : ""}
+      <li>Phase 1 also asked that the formation be one group again before the next junction. Only the smallest blocks (p 40)
+        passed, so the searches below fly those (and p 60 in Phase 3).</li></ul>
+      <p class="small muted">Encloses: S1's test, the block's centre inside the formation with no gap in bearing over
+        150° and most drones close to the block, over the last seconds of the surround; for the aim-and-turn surround at the
+        widest safe spread. It does not depend on how far a camera counts as seeing. Safe: at most
+        ${fmt(D.lookdown && D.lookdown.a.rule.lost, 2)} drones lost and ${fmt(D.lookdown && D.lookdown.a.rule.contacts, 1)}
+        building contacts per block. Surrounds it: yes if a 12 s surround encloses it in at least ${pc(ENC)} of trials,
+        slowly if a 20 s one encloses it in at least half.</p></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>Does seeing more find the target sooner?</h2>
+      <p class="qa"><span class="vp no">No</span>Sooner than one drone, yes. Sooner than the swarm that simply flies the streets, no.</p></div></div>
+    <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr))">
+      <div><h3>A goal at a building</h3><p class="small muted" style="margin-bottom:6px">Phase 3: ${B3.n_targets} searches in
+        ${B3.n_cities} cities, blocks p 40 and p 60.</p><div class="chart" id="ans-r3"></div></div>
+      <div><h3>A target hidden anywhere</h3><p class="small muted" style="margin-bottom:6px">Phase 2: ${P2.n_targets} searches
+        in ${P2.n_cities} cities, blocks p 40.</p><div class="chart" id="ans-r2"></div></div></div>
+    <div class="qtext"><ul>
+      <li><b>Every way of flying the swarm beats one drone</b>, and flying the streets is as quick as any way:
+        ${pc(r3("swarm_street").ratio)} of one drone's time for a goal at a building, ${pc(r2("swarm_street").ratio)} for a
+        target hidden anywhere. The swarm also finds more targets within 20 minutes (${pc(B3.found.swarm_street)} against
+        ${pc(B3.found.single)}; ${pc(P2.found.swarm_street)} against ${pc(P2.found.single)}).</li>
+      <li><b>Surrounding every block is slower than flying the streets</b>: ${pc(r3("swarm_hop").ratio)} and
+        ${pc(r2("swarm_hop").ratio)} of one drone's time.</li>
+      <li>Passing round each block on the way through (aimed at the chosen street, no pause) is almost as quick as the streets;
+        holding at each corner is the slowest.</li></ul>
+      <p class="small muted">Dots are city means of the time to find (a search that has not found it by 20 minutes counts
+        at 20), lines their 95% intervals. The pilot is a script that takes the street with the most unseen ground ahead,
+        using everything every camera has shown. Phase 3's surround is the setting chosen in advance for looking down
+        the most within a time limit (6 s at p 40, 12 s at p 60, spread 1.8); Phase 2's is 6 s at the spread that just
+        encloses the block.</p>
+      <div class="watches"><a class="watch" href="#watch:p3b_p40:swarm_hop">A search for a goal at a building, every way (p 40)</a></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>Why doesn't seeing more pay off?</h2>
+      <p class="qa">Because every surround costs time at every block, and in a search a wrong turn costs only one block.</p></div></div>
+    <div class="qbody"><div><div class="seg" id="ans-why-pick" style="margin-bottom:8px">
+        <button type="button" data-k="b40" aria-pressed="true">Goal at a building, p 40</button>
+        <button type="button" data-k="b60" aria-pressed="false">Goal at a building, p 60</button>
+        <button type="button" data-k="p2" aria-pressed="false">Target anywhere (Phase 2)</button></div>
+        <div class="chart" id="ans-why"></div>
+        <p class="small muted">Against the swarm in the streets (the blue line), over the searches both found.</p></div>
+      <div class="qtext"><ul>
+        <li><b>Seeing more does steer the pilot better:</b> surrounding needs ${rng(fewer, P)} fewer decisions than the swarm in the streets.</li>
+        <li><b>But it makes every decision slower</b>, by ${rng(longer, P)}, because the formation has to go round the
+          block before it chooses. The net is a slower search.</li>
+        <li><b>The swarm's real gain is in the top half.</b> One drone needs ${rng(more1, v => fmt(v, 1))} times as many
+          decisions as the swarm in the streets, because it sees so little round each one. The swarm already has most of
+          the information; surrounding buys the remainder earlier, at a price.</li>
+        <li><b>And the swarm in the streets learns it anyway, a block later.</b> By the next junction it has looked down
+          ${pc(d40.street.look_F)} of the exits of the block it passed (surrounding ${pc(d40.hop12.look_F)}, one drone
+          ${pc(d40.single.look_F)}).</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q5">
+    <div class="qhead"><span class="qn">5</span><div><h2>What does surrounding cost?</h2>
+      <p class="qa">Drones, and screens the pilot can relate to one another.</p></div></div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Drones lost per 10-minute flight</div><div class="v">${fmt(wst.lost, 2)}<span class="arrow">→</span>${fmt(whop.lost, 2)}<span>streets → surrounding</span></div></div>
+      <div class="tile"><div class="k">Building contacts per 10-minute flight</div><div class="v">${fmt(wst.contacts, 2)}<span class="arrow">→</span>${fmt(whop.contacts, 2)}<span>streets → surrounding</span></div></div>
+      <div class="tile"><div class="k">Screens whose neighbours show nothing related</div><div class="v">${pc(wst.corr_orphan_share)}<span class="arrow">→</span>${pc(whop.corr_orphan_share)}<span>streets → surrounding</span></div></div></div>
+    <p class="small muted" style="margin:0">Phase 2's block-by-block flights, ${W.n_walks || "–"} per way of flying in ${W.n_cities || "–"}
+      cities. Nearly every loss is two drones colliding as the formation turns off the block. The same flights in Unity
+      lost more drones than the replica, so these costs are if anything understated.</p>
+  </section>
+
+  <section class="q reading" id="reading">
+    <div><h2>Does S4 answer the question? My reading</h2>
+      <p class="qa"><b>Partly.</b> It answers whether surrounding blocks is how the swarm will beat one drone in a search:
+      it is not. It cannot answer whether people will gain from the swarm at all, because every pilot here is a script.</p></div>
+    <div class="grid2">
+      <div><h3>What S4 settles</h3><ol>
+        <li><b>The swarm's advantage over one drone in a search is large and steady.</b> Flown any of four ways, in every
+          city tried, it found the target in ${pc(Math.min(r3("swarm_street").ratio, r2("swarm_street").ratio))}–${pc(Math.max(r3("swarm_hold").ratio, r2("swarm_hold").ratio))}
+          of one drone's time and found more targets within the time limit${gapU !== null ? `; Unity reproduced the replica's time-to-find ratios within ${fmt(100 * gapU, 1)}%` : ""}.</li>
+        <li><b>That advantage comes from ten cameras seeing at once, not from the formation's shape.</b> Spread across a
+          junction, the swarm already looks down about ${Math.round(d40.street.look / d40.single.look)} times as many exits
+          as one drone, and needs only ${rng(more1.map(v => 1 / v), P)} as many decisions. This is S2's finding again, in
+          cities built to give surrounding its best chance.</li>
+        <li><b>Surrounding works as a manoeuvre, but only just:</b> small blocks only, a spread past the dial, about ten
+          times the drone losses, and a quarter of the screens out of context.</li></ol></div>
+      <div><h3>What S4 cannot settle</h3><ol>
+        <li><b>People.</b> The scripted pilot takes in everything every screen shows, at once. Whether a person can do that
+          with ten screens is the real question for the trials, and no simulation here answers it. Surrounding could help a
+          person (every option on screen at once, nothing to remember) or hurt (a quarter of the screens unrelated to
+          their neighbours). Both are untested.</li>
+        <li><b>Other tasks.</b> In a race to first sight, knowing more before a choice is worth little, because a wrong
+          turn costs one block and the swarm sees down the passing streets anyway. Surrounding could pay where choosing is
+          the expensive part: a pilot who must commit to a street without flying it, a target that must be confirmed from
+          more than one side, or a limited number of moves. None of these was simulated.</li></ol></div></div>
+    <div><h3>What I would take into the trial design</h3><ol>
+      <li><b>Compare the swarm with one drone on a search, with the swarm flying the streets.</b> Don't ask pilots to
+        surround blocks, and don't build the city or the instructions around it: the advantage is there without it.</li>
+      <li><b>Keep the spread dial at 0.4–1.6 for a search.</b> S4 gives no reason to widen it; widen it only for a task
+        that needs surrounding.</li>
+      <li><b>If showing what the formation's shape adds is itself a goal,</b> it needs a task where the decision is the
+        cost (above). That would be a new study: S4 shows a plain search will not reveal it.</li></ol></div>
+    <div><h3>What this rests on</h3><ul class="small">
+      <li>The replica, a 2-D model of the swarm's force law, flown by scripted pilots. Phase 2's flights were re-flown on
+        the Unity bench and agreed on everything the conclusions use, except that Unity lost more drones.</li>
+      ${SIGHT !== 80 ? `<li><b>A camera counts as seeing within ${SIGHT} m.</b> The study was first scored at 80 m, which was
+        too short to mean much, and everything this tab uses was flown again at ${SIGHT} m on 2026-10-28. The answer is
+        the same at both: everyone sees far more at ${SIGHT} m, the swarm still beats one drone, and surrounding still
+        finds nothing sooner than flying the streets. The Unity checks were of the 80 m runs; the flying they checked
+        is the same at either range. Phase 2's own tabs under All results are its 80 m record.</li>` : ""}
+      <li>Phase 3's search for a goal at a building is a short pilot (${B3.n_cities} cities); Phase 2's larger search
+        (${P2.n_cities} cities) points the same way, more weakly (surrounding against the streets ×${fmt(r2("swarm_hop").ratio / r2("swarm_street").ratio, 2)}
+        there, ×${fmt(r3("swarm_hop").ratio / r3("swarm_street").ratio, 2)} in Phase 3).</li>
+      <li>Voronoi cities with one rectangular building per block, 18 and 24 m streets, ten drones. Every table behind this
+        page is under <a href="#details">All results</a>, and the flights can be watched under <a href="#flights">Cities and flights</a>.</li></ul></div>
+  </section></div>`;
+  const look = $("#ans-look", el), r3el = $("#ans-r3", el), r2el = $("#ans-r2", el), why = $("#ans-why", el);
+  ansObserve(look, () => ansLookChart(look));
+  if (B3.ratios) ansObserve(r3el, () => ansRatioChart(r3el, B3, B3.found));
+  if (P2.ratios) ansObserve(r2el, () => ansRatioChart(r2el, P2, P2.found));
+  ansObserve(why, () => ansWhyChart(why));
+  el.querySelectorAll("#ans-why-pick button").forEach(b => b.addEventListener("click", () => {
+    ANS_WHY = b.dataset.k;
+    el.querySelectorAll("#ans-why-pick button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    ansWhyChart(why);
+  }));
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The answer tab", [
+    ["Looked down", `A street leaving the block is looked down once a shown camera has seen, within ${SIGHT} m and through a clear line of sight, half the footpath in front of the building at the street's far end: enough to tell whether a target standing there is there. Counted when the pilot chooses an exit, or by the next junction.`],
+    ["One drone", "A single drone along the streets, round each block by the shorter side to the exit it has chosen. Its one camera faces the way it flies."],
+    ["One drone, stopping to look", "The same, stopping at each corner to turn and look down every street there before going on."],
+    ["Swarm in the streets", "The ten-drone swarm flying the one drone's path along the streets, at spread 1.0. It chooses on arrival at the corner."],
+    ["Swarm surrounding", "Arriving at a block, the swarm is aimed through it at the street opposite for a set time (6 or 12 s), so the formation flows round both sides of the building; then it turns off down the chosen street. The pilot chooses at the end of the surround."],
+    ["Swarm passing round", "The swarm aimed through the block at the street already chosen: it flows round the building on its way, without stopping."],
+    ["Swarm holding", "The swarm holding at the corner for the surround's time before choosing: the control for time spent at a block."],
+    ["Block size, p 40 to p 75", "The spacing of the blocks' centres in metres (about 42, 52, 64 and 81 m). With 18 m streets the blocks are about 23, 33, 44 and 59 m across, each holding one building about 14, 21, 29 and 38 m across."],
+    ["Spread (d_ref)", "The swarm's spread dial: neighbouring drones are commanded about 10 × d_ref m apart. The trials' dial runs from 0.4 to 1.6."],
+    ["Safe", "At most 0.03 drones lost and 0.1 building contacts per block taken."],
+    ["Time to find", `From the start to the first sight of the target on a shown camera within ${SIGHT} m. A search that has not found it in 20 minutes counts as 20 minutes; a swarm reduced below four drones counts as not finding it.`]]],
+  ["The cities", [
+    ["Design, e.g. p 40 · s 18", "One of Phase 1's twelve kinds of city: a block pitch p (40, 50, 60 or 75 m) and a street width s (12, 18 or 24 m). Each design was generated on many seeds."],
+    ["Block pitch, p", "The city's random seed points are scattered one per p × p m on average (never closer than 0.8 p), and each seed's Voronoi cell is a block. So p is about the distance between neighbouring blocks' centres: 41, 52, 63 and 81 m at p 40, 50, 60 and 75."],
+    ["Street width, s", "Kerb to kerb. Every block is its Voronoi cell shrunk by s/2 on every side, so a block is about p − s across."],
+    ["Block, kerb, footpath", "A block is the ground inside its kerbs. Variant B's building stands 3.5 m inside the kerb, the footpath of the scenes' street dressing."],
+    ["Variant R (rectangular)", "One standard rectangular building per block (BnP_Large_Building_B, near square), turned to the block's long axis and scaled until its avoidance cylinder fits inside the block's largest inscribed circle with 1 m to spare. 28–41% of the block. The force law sees it exactly as in every scene today. Phase 2 and BlockCityWorld use R."],
+    ["Variant B (block-shaped)", "The building is the block less its 3.5 m footpath: 30–80% of the block. A cylinder round such a building would close the streets, so B was flown with a closest-point obstacle model that exists in the replica only. Dropped after Phase 1: its drones were pressed into the building they flowed round (nearly all its contacts; not the buildings across the street, as first reported)."],
+    ["Avoidance cylinder", "What the swarm's force law steers round for each building: the circle through the corners of its axis-aligned bounding box (OlfatiSaber.GetObstacleCylinder). For R it fits inside the block, so every street keeps at least its own width clear."],
+    ["Plaza", "A block too small for a building (narrower than 8 m), left empty. Every condition crosses one by the streets. Half the interior blocks at p 40 · s 24 are plazas."],
+    ["Interior", "A block, street or junction that touches no street on the city's boundary. Manoeuvres, walks and targets keep to interior ones."],
+    ["Built over, α", "The share of the city's ground covered by buildings."],
+    ["Seed", "A city's random seed. Phase 1 tuned on seeds 0–2 and confirmed on 3–5; Phase 2 flew seeds 100–123, 24 cities per design."]]],
+  ["The swarm", [
+    ["Spread, d_ref", "The swarm's spread dial (the force law's reference distance). Neighbouring drones are commanded about 10 × d_ref m apart; ten drones settle 5.8, 14.2 and 24.3 m across at 0.4, 1.0 and 1.6. The trials' dial runs from 0.4 to 1.6."],
+    ["Matched spread, d*", "The smallest spread at which a 45 s centring hold on a block surrounded it (S1's envelopment) in at least 80% of holds, losing no drone and within the contact bar. Predicted as the ring's perimeter ÷ 100: ten drones spaced 10 · d_ref m round a ring 3 m outside the building."],
+    ["Envelopment", "S1's test that a formation surrounds a point: no drone lost, the point inside the formation's hull, no gap in bearing over 150°, and at least 70% of the drones within the block's clearance."],
+    ["Cohesion's range, r0_coh", "How far apart two drones still pull together. At the scenes' 20 the pull becomes a push beyond about 74 m. The screens used 40 (about 139 m); R's confirmed profile, which Phase 2 flew, uses 30 (about 106 m)."],
+    ["The profile", "One set of swarm and pilot settings for every design, so that only the spread changes with the design. R: cohesion 30, the surround flown aim-and-turn for 6 s. B: cohesion 20."],
+    ["Shown feed", "A drone's camera on the pilot's ring of screens: the drones on the formation's edge (its convex hull), after a 0.5 s debounce and a turn to face outward at 75°/s."]]],
+  ["The manoeuvres", [
+    ["Entrance corner, exits", "The formation arrives at a block's corner along a street, the entrance. The block's exits are every street leaving one of its corners except the entrance. The opposite exit is the one furthest round the block; a side exit is any other."],
+    ["M1 street run", "Full stick along about 200 m of streets: speed against one drone's, contacts."],
+    ["M3 pass round", "Aimed at full stick through the block at a point 15 m down the opposite exit: the formation flows round both sides of the building and on."],
+    ["M3b surround and exit", "The formation surrounds the block, then leaves by a side exit. Three ways to surround: S1's hold (a centring hold on the block's centre, stick 0.5), a firm hold (stick 1.0), and aim and turn (full stick through the block at the opposite exit for the surround's length, then off down the side exit). Phase 2's surround is aim and turn for 6 s."],
+    ["M4 surround hold", "S1's centring hold on the block's centre for 45 s at a fixed spread: the surround map d*."],
+    ["M5 spread steps", "Spread commands 1.0 → 1.6 → 0.4 → 1.0 in open sky: how fast the formation follows the dial."],
+    ["M6 head-on face", "Variant B only: full stick at one block-shaped building's flat face."],
+    ["Commit", "The moment the pilot takes an exit: the end of the surround or the hold, the aim point taken for the pass, arrival at the corner for the street-bound swarm and one drone."],
+    ["Next junction", "The exit street's far end: the next decision."],
+    ["Group, split, straggler", "Two drones are in one group when at most 30 m of free path (round buildings, not through them) separates them. Split: two groups of two or more drones. Straggler: one drone alone."],
+    ["Reform", "The formation is one group again before the next junction."],
+    ["Time price", "Surround and exit, entrance to the next junction, over the same formation's time round the block by the streets to the same exit."],
+    ["Contact, loss", "A contact is a drone touching a facade, resolved as Unity's physics would (pushed back out, friction 0.6). A loss is a drone killed in a collision with another (both die) or left beyond cohesion's reach (isolated)."]]],
+  ["The measures", [
+    ["Streets previewed", "A street is previewed when 60% of its first 80 m (2 m centreline samples) has been seen on a shown feed within 80 m through a clear line of sight, from 12.4 m up with the camera 20.8° down (internal_3's search band). Streets previewed: the share of a block's exits previewed by the commit."],
+    ["Street seen", "A centreline sample seen on a shown feed within 80 m."],
+    ["Time to find (walks)", "S3's measure: for a target hidden at a random point of open ground, the time to its first sight on a shown feed within 40, 80 or 200 m; the restricted mean (RMST) to 600 s over every such point the start does not already show. Head ahead: only the feeds in the headset's view facing the way of travel."],
+    ["Informed search (H2)", "A target hidden at least 300 m by street from the start and out of its sight. At each block the pilot takes the exit with the most street its own feeds have not yet seen within two edges, per metre of travel; the flight stops at the first sight within 80 m, or at 20 minutes."],
+    ["View correspondence (A1–C1)", "Whether neighbouring screens show related ground or facades: defined on the Screens tab."]]],
+  ["Phase 2", [
+    ["Conditions", "One drone along the streets (one drone); the same stopping at each corner to look down every street (one drone, looking); the ten-drone swarm on the drone's path (swarm in the streets); the same holding 6 s at each corner (swarm holding); passing round each block (swarm passing round); and surrounding each block for 6 s (swarm surrounding)."],
+    ["Block-hop chain", "A seeded walk from block to block, each exit drawn at random among the block's exits, laid without reading the flight, so every condition flies the same blocks."],
+    ["H1, H2", "H1: the surround previews more of a block's streets at the commit than holding at the corner for the same time. H2: the surround finds a hidden target sooner than the swarm kept in the streets. Cities are the units; Holm's correction over the two."]]],
+  ["Phase 3 (Look down tab)", [
+    ["Entered", `Phases 1 and 2's preview: 60% of an exit street's first 80 m seen on a shown feed (within 80 m in Phases 1 and 2, ${SIGHT} m in Phase 3). A feed at the corner can meet it from across the junction.`],
+    ["Seen to its end", "60% of the street's last 10 m before its far junction seen."],
+    ["Looked down", `Half the footpath in front of the building where the exit street ends seen within ${SIGHT} m: the points 2 m outside its footprint within 12 m of its point nearest the far junction (a plaza's lawn when the block ahead is a plaza). The measure a searcher needs: could the goal be at that building?`],
+    ["At the decision", "When the pilot takes the exit: the end of the surround or the hold, arrival at the corner for the swarm in the streets. The pass is aimed by its decision, so it decides on arrival too; what it sees going round counts for the next block."],
+    ["By the next junction", "When the formation reaches the exit street's far end, the next decision point."],
+    ["Spread at the block, in the streets", "Every flight's two spreads (d_ref): the block spread, flown round or at the block, and the street spread, 1.0 in Phase 3. Part A flew every block spread from 1.0 to 2.6; the trials' dial stops at 1.6."],
+    ["Aim and turn, firm hold", "Two ways to surround for T seconds: full stick through the block at the street opposite the entrance (Phase 2's surround), or a centring hold on the block's centre at stick 1.0 (Phase 1's firm hold). Then off down the exit."],
+    ["Time price", "From arriving at the block to the next junction, over the swarm in the streets' time in the same trial; the median over trials."],
+    ["Safe", "At most 0.03 drones lost and 0.1 building contacts per manoeuvre, Phase 1's bar."],
+    ["The rule's pick", "Part B's surround, by a rule fixed before Part A's results were read: the safe setting (how, T, d_ref) with a time price of at most 1.5 that looks down the most exits at the decision."],
+    ["Part A, Part B", "Part A flies one block per trial every way at every spread (6,600 flights). Part B searches for a target standing on the footpath in front of a building, with a pilot whose map is the footpath its feeds have seen."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2><p>Every code and term the page uses, in plain words. The manual
+    (docs/split_study/README.md) has the full method.</p></div>
+    <div class="terms">${TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join("")}</dl></div>`).join("")}</div>`;
+};
+
+// ---------------------------------------------------------------- method
+RENDER.method = el => {
+  const sc = D.screens || [], fu = D.followups || [];
+  const st = D.steps && D.steps.rows ? D.steps.rows : [];
+  el.innerHTML = `<div class="intro"><h2>Method</h2>
+    <p>Everything here is the 2-D replica of the force law (swarm_replica, with PhysX-like contacts), flown under the
+    Unity bench's own pilot, so the bench can fly the same scenarios: a waypoint is taken when the centroid comes within
+    10 m of it, a negative stick is a centring hold, and the spread is set per waypoint. The screens flew
+    ProceduralCityWorld's SwarmManager with cohesion's cutoff raised from 20 to 40 (attractive to ~140 m rather than ~75 m);
+    R's confirmed profile, which Phase 2 and BlockCityWorld use, sets it to 30 (contacts rose at 40).
+    Ten drones; preview scored at internal_3's search band (12.4 m, −20.8°) on the shown feeds (hull, 0.5 s debounce, 75°/s yaw).</p></div>
+    <div class="grid2"><div class="box"><h3>The cities</h3><div class="tablewrap" id="feas"></div></div>
+    <div class="box"><h3>Runs</h3><div class="tablewrap"><table><thead><tr><th>run</th><th>what changed</th><th>manoeuvres</th></tr></thead><tbody>
+    ${sc.concat(fu).map(x => `<tr><td class="l mono">${esc(x.run)}</td><td class="l" style="white-space:normal">${esc(x.what)}</td><td>${x.n_jobs.toLocaleString()}</td></tr>`).join("")}
+    </tbody></table></div><p class="small muted">Screens: 50 trials per design × variant × manoeuvre (3 cities), a 30 s surround so the time to preview is measured.</p></div></div>
+    <div class="box"><h3>Spread response (M5)</h3>${st.length ? `<div class="tablewrap"><table><thead><tr><th>profile</th><th>expand t90 (s)</th><th>overshoot</th><th>contract t90 (s)</th><th>overshoot</th><th>re-expand t90 (s)</th><th>kills</th></tr></thead><tbody>
+    ${st.map(r => `<tr><td class="l">${esc(r.label || r.variant)}</td><td>${fmt(r.expand_t90, 2)}</td><td>${fmt(r.expand_over_pct, 1)}%</td><td>${fmt(r.contract_t90, 2)}</td><td>${fmt(r.contract_over_pct, 1)}%</td><td>${fmt(r.reexpand_t90, 2)}</td><td>${r.kills}</td></tr>`).join("")}
+    </tbody></table></div><p class="small muted">The bar: t90 within 1.25× the bench references (expansion 3.5 s, contraction 5.6 s), overshoot ≤ 15%.</p>` : '<p class="notrun">Not run.</p>'}</div>`;
+  const f = D.feasibility || [];
+  $("#feas").innerHTML = f.length ? `<table><thead><tr><th>design</th><th>built (α)</th><th>block built</th><th>plazas</th><th>R gap ≥ 6 m</th><th>B facade gap</th></tr></thead><tbody>
+    ${DESIGNS.map(([p, s]) => { const r = f.find(x => x.v === "R" && x.p === p && x.s === s), b = f.find(x => x.v === "B" && x.p === p && x.s === s);
+      return `<tr><td class="l">${dl(p, s)}</td><td>${fmt(r && r.alpha_achieved, 2)} / ${fmt(b && b.alpha_achieved, 2)}</td><td>${pct(r && r.block_share)} / ${pct(b && b.block_share)}</td>
+      <td>${fmt(r && r.n_plazas, 0)}</td><td>${pct(r && r.cyl_gap_frac_ge6)}</td><td>${fmt(b && b.facade_gap_median, 1)} m</td></tr>`; }).join("")}</tbody></table>
+    <p class="small muted">R / B where two values; 3 seeds per design.</p>` : '<p class="notrun">No feasibility table.</p>';
+};
+
+if (!route(location.hash.slice(1))) {
+  let first = "answer";
+  try { const s = localStorage.getItem("s4tab2"); if (TABS.some(t => t[0] === s)) first = s; } catch (e) { /* storage blocked */ }
+  show(first);
+}
+</script>

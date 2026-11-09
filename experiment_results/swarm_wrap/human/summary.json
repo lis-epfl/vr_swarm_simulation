@@ -1,0 +1,22 @@
+{
+ "check_mean_abs": 0.0005474342699684039,
+ "wrapped_share": 0.506773955168733,
+ "Off": {
+  "wrapped_full": 0.36049902786779003,
+  "wrapped_narrowed": 0.39014906027219703,
+  "street_narrowed": 0.8649908440153155,
+  "mean": 0.9176176179454729
+ },
+ "Hold": {
+  "wrapped_full": 0.6453337653920933,
+  "wrapped_narrowed": 0.08846403110823071,
+  "street_narrowed": 0.7388047278175462,
+  "mean": 0.9472492818033605
+ },
+ "HoldUntilLeaving": {
+  "wrapped_full": 0.5194426441996112,
+  "wrapped_narrowed": 0.2303953337653921,
+  "street_narrowed": 0.8438488430164808,
+  "mean": 0.932046596504494
+ }
+}

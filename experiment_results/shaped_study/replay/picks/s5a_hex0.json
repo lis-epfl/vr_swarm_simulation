@@ -1,0 +1,60 @@
+{
+ "pick": {
+  "key": "s5a_hex0",
+  "design": "hex0",
+  "p": 40.0,
+  "s": 18.0,
+  "city_seed": 0,
+  "trial": 0,
+  "title": "Looking down a block: an exact hexagonal lattice",
+  "job": {
+   "city": {
+    "variant": "B",
+    "seeds": "hex",
+    "jitter": 0.0
+   },
+   "design": "hex0",
+   "conds": [
+    [
+     "street",
+     null,
+     null
+    ],
+    [
+     "hold",
+     null,
+     20.0
+    ],
+    [
+     "pass",
+     null,
+     null
+    ],
+    [
+     "hop",
+     "firm",
+     20.0
+    ]
+   ],
+   "look_range": 250.0,
+   "d_street": 1.2
+  },
+  "chosen": {
+   "d": 1.2,
+   "mode": "firm",
+   "T": 20.0
+  },
+  "median_diff": 0.4,
+  "n_trials": 30
+ },
+ "identical": true,
+ "flights": [
+  "s5a_hex0_street",
+  "s5a_hex0_hold_20_d1.2",
+  "s5a_hex0_pass_d1.2",
+  "s5a_hex0_hop_firm_20_d1.2",
+  "s5a_hex0_single"
+ ],
+ "target": null,
+ "wall_s": 29.9
+}

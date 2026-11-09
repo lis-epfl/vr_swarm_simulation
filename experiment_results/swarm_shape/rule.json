@@ -1,0 +1,14 @@
+{
+ "rule": {
+  "base": "A1",
+  "contact_base": "A0",
+  "lost_margin": 0.05,
+  "open_margin": 0.02,
+  "hull_min": 0.5,
+  "split_ratio": 1.1,
+  "street_gain": 0.05,
+  "v_coh_floor": 0.98,
+  "wrap_margin": 0.1
+ },
+ "written": "2026-11-01 23:59:39"
+}

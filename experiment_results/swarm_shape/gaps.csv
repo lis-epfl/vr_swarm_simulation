@@ -1,0 +1,29 @@
+seed,shape,pairs,median,p10,closed,under6,under10
+1,bounds circle,794,13.91,6.64,3,69,161
+1,enclosing circle,794,20.09,12.71,0,15,44
+1,facades,794,25.0,25.0,0,0,0
+1,facades less 1.6 m each side,794,21.8,21.8,0,0,0
+1,facades less 2.5 m each side,794,20.0,20.0,0,0,0
+1,facades less 3.5 m each side,794,18.0,18.0,0,0,0
+1,bounds radius / enclosing radius (median m),289,15.41,12.75,0,0,0
+2,bounds circle,808,13.81,7.65,8,50,160
+2,enclosing circle,808,19.67,12.54,0,10,41
+2,facades,808,25.0,25.0,0,0,0
+2,facades less 1.6 m each side,808,21.8,21.8,0,0,0
+2,facades less 2.5 m each side,808,20.0,20.0,0,0,0
+2,facades less 3.5 m each side,808,18.0,18.0,0,0,0
+2,bounds radius / enclosing radius (median m),293,15.43,12.93,0,0,0
+3,bounds circle,824,14.19,7.62,3,46,163
+3,enclosing circle,824,19.88,12.85,1,8,39
+3,facades,824,25.0,25.0,0,0,0
+3,facades less 1.6 m each side,824,21.8,21.8,0,0,0
+3,facades less 2.5 m each side,824,20.0,20.0,0,0,0
+3,facades less 3.5 m each side,824,18.0,18.0,0,0,0
+3,bounds radius / enclosing radius (median m),298,15.33,12.59,0,0,0
+4,bounds circle,791,13.88,6.44,6,70,185
+4,enclosing circle,791,19.67,11.37,2,13,55
+4,facades,791,25.0,25.0,0,0,0
+4,facades less 1.6 m each side,791,21.8,21.8,0,0,0
+4,facades less 2.5 m each side,791,20.0,20.0,0,0,0
+4,facades less 3.5 m each side,791,18.0,18.0,0,0,0
+4,bounds radius / enclosing radius (median m),287,15.59,13.02,0,0,0

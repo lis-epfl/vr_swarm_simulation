@@ -1,0 +1,37 @@
+{
+ "part": "B",
+ "study": "S5",
+ "design": "foot15",
+ "what": "a 1.5 m footpath",
+ "city": {
+  "variant": "B",
+  "inset": 1.5
+ },
+ "designs": [
+  [
+   40.0,
+   18.0
+  ]
+ ],
+ "city_seed0": 200,
+ "cities": 8,
+ "targets": 4,
+ "T_s": 1200.0,
+ "conditions": [
+  "single",
+  "swarm_street",
+  "swarm_hold",
+  "swarm_pass",
+  "swarm_hop"
+ ],
+ "chosen": {
+  "40|18": {
+   "mode": "firm",
+   "T": 20.0,
+   "d": 1.2
+  }
+ },
+ "sight_m": 250.0,
+ "d_street": 1.2,
+ "frontier_min_m": 20.0
+}

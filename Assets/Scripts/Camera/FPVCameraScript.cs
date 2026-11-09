@@ -35,9 +35,61 @@ public class FPVCameraScript : MonoBehaviour {
 	// doesn't see its own body. Cached in Start (the body hierarchy is fixed per prefab).
 	private Renderer[] ownBodyRenderers;
 
+	// This camera, and the frame its last render was issued on. See EnsureRenderedThisFrame.
+	private Camera cam;
+	private int lastRenderedFrame = -1;
+
+	/// <summary>
+	/// <c>Time.time</c> of this camera's last render, or -infinity before the first. What the feed
+	/// schedule reads to tell that the stitch capture has already refreshed a screen this interval.
+	/// </summary>
+	public float LastRenderTime { get; private set; } = float.NegativeInfinity;
+
+	/// <summary>
+	/// The camera pose the last render was drawn from. A stitch block must carry the pose of the
+	/// pixels it holds, and when the capture renders a view on one frame and reads it back on a
+	/// later one (PLANAR's spread, see PyUniSharingFast) the live transform has moved on by then.
+	/// Whichever schedule rendered last, the RenderTexture and this record describe the same frame.
+	/// </summary>
+	public Vector3 LastRenderPosition { get; private set; }
+	public Quaternion LastRenderRotation { get; private set; } = Quaternion.identity;
+
+	/// <summary><c>Time.realtimeSinceStartup</c> of the last render, the block's captureTime.</summary>
+	public float LastRenderRealtime { get; private set; }
+
+	// Swarm-wide render counters. Every FPV render in the project goes through
+	// EnsureRenderedThisFrame or CountRenders, so these see all of them: the per-frame count is what ScreenSpawn
+	// levels its feed refresh against (captures land first, in Update, and the feeds make way), and
+	// the running total is what ExperimentRecorder logs as renders per sample.
+	private static int renderCountFrame = -1;
+	private static int rendersThisFrame;
+	public static long TotalRenders { get; private set; }
+
+	/// <summary>FPV renders issued so far in the current frame, by any schedule.</summary>
+	public static int RendersThisFrame => renderCountFrame == Time.frameCount ? rendersThisFrame : 0;
+
+	[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+	private static void ResetStatics () {
+		// Statics survive a Play session in the editor when domain reload is off.
+		renderCountFrame = -1;
+		rendersThisFrame = 0;
+		TotalRenders = 0;
+		sharedPitch = 0f;
+	}
+
 	/// <summary>DJI-style gimbal tilt limits (degrees): straight down to slightly up.</summary>
 	public const float MinPitch = -90f;
 	public const float MaxPitch = 60f;
+
+	/// <summary>
+	/// Gimbal pitch at or below which the swarm counts as looking <b>down</b> rather than out, so
+	/// the scene is a ground plane and not a facade. Shared by everything that has to tell the two
+	/// configurations apart — <c>PyUniSharingFast.ScenePlaneMode.Auto</c> picking its raycast
+	/// direction and <c>SwarmPlaneController</c> picking the stitcher and screen layout — because
+	/// two copies that disagreed would put the panorama and the feeds in different configurations.
+	/// Well clear of a level horizon; the exact value is not critical, only that there is one.
+	/// </summary>
+	public const float NadirPitch = -60f;
 
 	[Header("Gimbal")]
 	[Tooltip("Gimbal pitch in degrees (DJI convention): 0 = level horizon, negative = look " +
@@ -60,6 +112,54 @@ public class FPVCameraScript : MonoBehaviour {
 	/// </summary>
 	public static void SetPitch(float degrees) {
 		sharedPitch = Mathf.Clamp(degrees, MinPitch, MaxPitch);
+	}
+
+	void Awake () {
+		cam = GetComponent<Camera>();
+	}
+
+	/// <summary>
+	/// Renders this FPV camera, at most once per frame. Returns true if a render was issued.
+	/// </summary>
+	/// <remarks>
+	/// The FPV cameras are the whole rendering cost of this project: the pilot's eye cameras are
+	/// culling-masked to the feed screens, so every full pass over the city is one of these. They
+	/// are therefore driven manually rather than left <c>enabled</c>, by two independent schedules
+	/// — <c>ScreenSpawn</c>'s feed refresh and <c>PyUniSharingFast</c>'s stitch capture — and a
+	/// drone that is both displayed and stitched would otherwise be drawn twice in the same frame
+	/// for two consumers of the same RenderTexture. The frame stamp is what makes the two
+	/// schedules coincide on such a drone instead of doubling it.
+	///
+	/// One render per frame is also all that is *meaningful*: the camera pose is written once per
+	/// frame in <see cref="Update"/>, so a second pass would re-draw an identical view.
+	/// </remarks>
+	public bool EnsureRenderedThisFrame () {
+		if (lastRenderedFrame == Time.frameCount) return false;
+		if (cam == null) {
+			cam = GetComponent<Camera>();
+			if (cam == null) return false;
+		}
+		lastRenderedFrame = Time.frameCount;
+		LastRenderTime = Time.time;
+		LastRenderRealtime = Time.realtimeSinceStartup;
+		LastRenderPosition = transform.position;
+		LastRenderRotation = transform.rotation;
+		CountRenders(1);
+		cam.Render();
+		return true;
+	}
+
+	/// <summary>
+	/// Counts renders of the city made outside <see cref="EnsureRenderedThisFrame"/>, so the counters still see every
+	/// one. Sphere360Display's cube camera counts one per face it draws.
+	/// </summary>
+	public static void CountRenders (int n) {
+		if (renderCountFrame != Time.frameCount) {
+			renderCountFrame = Time.frameCount;
+			rendersThisFrame = 0;
+		}
+		rendersThisFrame += n;
+		TotalRenders += n;
 	}
 
 	// Use this for initialization
@@ -131,7 +231,8 @@ public class FPVCameraScript : MonoBehaviour {
 		SetOwnBodyHidden(false);
 	}
 
-	private void SetOwnBodyHidden (bool hidden) {
+	// Public for Sphere360Display, whose cube camera renders from this drone with its own camera.
+	public void SetOwnBodyHidden (bool hidden) {
 		if (ownBodyRenderers == null) return;
 		for (int i = 0; i < ownBodyRenderers.Length; i++) {
 			if (ownBodyRenderers[i] != null) {

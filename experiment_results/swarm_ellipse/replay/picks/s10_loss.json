@@ -1,0 +1,37 @@
+{
+ "pick": {
+  "key": "s10_loss",
+  "kind": "street",
+  "k": 18002,
+  "title": "Cost: the ellipse's worst loss in Unity",
+  "conds": [
+   "c35a",
+   "e35a",
+   "c35",
+   "e35"
+  ],
+  "first": "e35a",
+  "met": 0,
+  "why": "the route where the ellipse (adaptive) lost the most drones in Unity (2)"
+ },
+ "flights": {
+  "c35a": [
+   "s10_loss_c35a_replica",
+   "s10_loss_c35a_unity"
+  ],
+  "c35": [
+   "s10_loss_c35_replica",
+   "s10_loss_c35_unity"
+  ],
+  "e35a": [
+   "s10_loss_e35a_replica",
+   "s10_loss_e35a_unity"
+  ],
+  "e35": [
+   "s10_loss_e35_replica",
+   "s10_loss_e35_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

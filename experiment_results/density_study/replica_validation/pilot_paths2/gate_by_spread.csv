@@ -1,0 +1,9 @@
+city,spread,flights,lost_bench,lost_replica,track,nn_rel,lost_diff_per10,verdict
+C1p,0.4,6,24,26,0.009,0.152,3.33,"FAIL (spacing, losses)"
+C1p,1.0,6,6,6,0.005,0.117,0.0,PASS
+C2p,0.4,6,30,31,0.017,0.207,1.67,FAIL (spacing)
+C2p,1.0,6,2,6,0.01,0.139,6.67,FAIL (losses)
+L1,0.4,6,8,8,0.004,0.094,0.0,PASS
+L1,1.0,6,2,2,0.003,0.035,0.0,PASS
+L3,0.4,6,41,36,0.025,0.409,8.33,"FAIL (spacing, losses)"
+L3,1.0,6,9,8,0.008,0.329,1.67,FAIL (spacing)

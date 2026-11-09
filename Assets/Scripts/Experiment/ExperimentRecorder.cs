@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.XR;
 
 /// <summary>
 /// Captures all per-run data for the city search task (find three goal patches, identify the
@@ -11,12 +13,43 @@ using UnityEngine;
 ///
 /// Lives on the scene's <c>gameManager</c> object. Session metadata (participant / trial / condition)
 /// is set in the Inspector before pressing Play; the recorder then samples continuous state at a
-/// fixed rate and logs an "identify" event whenever the experimenter presses a key (correct /
-/// incorrect / skip) — the participant reports verbally, the experimenter records the outcome. The
-/// identify action also marks that goal complete (there is no separate proximity trigger).
+/// fixed rate and logs an "identify" event for each answer.
+///
+/// <para><b>Identify, AutoScore (<see cref="identifyMode"/>, the default since 2026-10-12).</b> The pilot presses
+/// the RC's C2 button (<c>rcjoy bridge --profile sim</c>, <see cref="UDPReceiverManager.MarkPresses"/>) when they
+/// believe the hat is on screen, and the press is scored on the spot. It is <c>correct</c> for an open goal whose
+/// hat is inside the central <see cref="identifyCentralFraction"/> of some shown feed's image, within
+/// <see cref="identifyMaxRangeM"/> of its camera, with no building in the way — at the press, or on any frame in the
+/// <see cref="identifyLookbackSec"/> before it, wherever the centroid is (the goal at the centroid first, else the
+/// most recent). With no such hat it is a <c>false_alarm</c> at the goal whose zone — the patch grown by
+/// <see cref="identifyZoneM"/>, analyse.py's 15 m zone — contains the ALIVE drones' centroid (logged, the goal stays
+/// open), or <c>out_of_zone</c> with no zone round the centroid. Every press is logged with the scoring camera's
+/// distance, how long before the press the hat passed (<c>passAgo</c>), its feed and the feed the pilot's gaze was
+/// on. The range, the look-back and the zone-free attribution date from 2026-11-06 (40 m, the press's frame only, and
+/// the centroid's zone before): all five of ERKS's presses the old rule refused were the right hat. The experimenter's keys override the latest press's score (an
+/// <c>outcome_override</c> event) and never create an identify of their own. The session finishes once every goal
+/// is resolved — identified correctly, or overridden — or on the end key. The verbal hat report is a secondary
+/// check only: with three hats it is right by chance a third of the time.</para>
+///
+/// <para><b>Legacy</b> is the protocol before that: a press marks the moment of an answer and the experimenter's
+/// key (correct / incorrect / skip) gives its outcome; a key with no press waiting is the identify itself; an
+/// identify answers the nearest unanswered goal; the session finishes once every goal has an outcome.</para>
+///
+/// <para><b>The task clock starts at the <see cref="StartLine"/>, not at Play.</b> Every file's <c>t</c> stays on the
+/// session clock (t = 0 at Play; crash matching against the editor log needs that), and the first live drone's
+/// crossing is logged as a <c>start_line</c> event and <c>startLineSec</c>, with the alive centroid's crossing beside
+/// it (<c>start_line_centroid</c>, <c>startCentroidSec</c>). <c>totalTaskTime</c> keeps its old meaning, Play → last
+/// identify; <c>taskTimeFromStartLine</c> is the timed task. analyse.py times from the line when there is one.</para>
+///
+/// <para><b>What a run flew is part of its record.</b> <c>drone_lost</c> events give each loss's reason and, for a
+/// collision, the other drone; the session JSON has the commit and the uncommitted changes, the scoring constants and
+/// the screen settings; <c>_swarm.json</c> dumps the components behind them; <c>display</c> events give the layout in
+/// force whenever it changes. The session JSON is written from the first frame on (see
+/// <see cref="FlushSessionJson"/>), with <c>finalized</c> false until the run ends.</para>
 ///
 /// Condition is a recorded label only: this component does not change the drone count — the
-/// experimenter still configures <see cref="swarmSpawn"/> as usual.
+/// experimenter still configures <see cref="swarmSpawn"/> as usual, and a label that disagrees with the count is an
+/// error in the console and a <c>condition_mismatch</c> event (see <see cref="CheckConditionLabel"/>).
 ///
 /// Output (one set per run) goes to <c>Application.persistentDataPath/experiment/</c> as ';'-delimited
 /// CSVs (long format, so a variable drone count needs no schema change) plus a session JSON summary.
@@ -24,7 +57,14 @@ using UnityEngine;
 /// </summary>
 public class ExperimentRecorder : MonoBehaviour
 {
-    public enum Condition { Swarm, SingleDrone }
+    // Values spelled out: Unity serialises enum fields by integer. Names are letters only, because analyse.py reads
+    // the condition out of the file stem with [A-Za-z]+ and skips a run whose name does not match.
+    public enum Condition
+    {
+        Swarm = 0,
+        SingleDrone = 1,
+        SingleSphere = 2    // one drone's 360 camera on a sphere (InterfaceManager.DisplayMode.SPHERE)
+    }
 
     [Header("Session (set before Play)")]
     [Tooltip("Participant code. Convention is a 4-letter code; trimmed/upper-cased for the filename.")]
@@ -44,28 +84,110 @@ public class ExperimentRecorder : MonoBehaviour
     [Tooltip("Manually finish/abort the session (also fires automatically after all goals answered).")]
     public KeyCode endSessionKey = KeyCode.Backspace;
 
+    [Header("Identify from the pilot's RC")]
+    [Tooltip("The RC's C2 button (rcjoy bridge --profile sim) marks the moment of an identify; the keys above " +
+             "then give its outcome. Off: presses are ignored and the keys alone identify, as before.")]
+    public bool rcIdentify = true;
+    [Tooltip("An RC press this soon after the previous RC identify is a double tap, logged and ignored.")]
+    public float rcIdentifyDebounceSec = 1f;
+
+    public enum IdentifyMode { AutoScore, Legacy }
+
+    [Header("Identify scoring")]
+    [Tooltip("AutoScore: an RC press is scored against what the shown feeds show (see the class summary) and the " +
+             "keys only override it. Legacy: a press or key answers the nearest unanswered goal and the key gives " +
+             "the outcome.")]
+    public IdentifyMode identifyMode = IdentifyMode.AutoScore;
+    [Tooltip("A press with no hat on screen is a false alarm at the goal whose patch the alive drones' centroid is " +
+             "within this many metres of (analyse.py's zone), and out of zone with none.")]
+    public float identifyZoneM = 15f;
+    // 80 m since 2026-11-06 (40 before: ERKS named a hat at 43 m). Renamed from identifyRangeM then, so every scene
+    // takes the new value rather than the 40 its YAML still holds under the old name; the session JSON keeps the key.
+    [Tooltip("The hat must be within this of the camera whose feed shows it (analyse.py --range).")]
+    public float identifyMaxRangeM = 80f;
+    [Tooltip("...and inside this central share of that feed's image, horizontally and vertically.")]
+    [Range(0.1f, 1f)]
+    public float identifyCentralFraction = 0.8f;
+    [Tooltip("A press also counts a hat that passed the test this many seconds before it: a drone closing on the " +
+             "walker carries the hat down its frame in the second the pilot takes to press. 0 = the press's frame only.")]
+    public float identifyLookbackSec = 3f;
+
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
+    private ScreenSpawn screenSpawn;   // which drones' feeds are on screen, and where the quads hang
+    private InterfaceManager interfaceManager;   // the display mode: feed screens or a 360 sphere
+    private PyUniSharingFast stitching;
+    private StartLine startLine;       // null in a scene without one (or with it removed)
+    private bool startLineLogged, startCentroidLogged;
     private Transform headTransform;   // OVRCameraRig.centerEyeAnchor (fallback Camera.main)
+    private int obstacleMask;
 
     private class GoalInfo
     {
         public Transform goal;
         public Transform special;          // the SpecialWalker's transform (may be null)
+        public SpecialWalker marker;       // the SpecialWalker itself, which knows where its hat is (null with special)
         public Vector3 specialSpawnPos;    // captured at resolve time
+        public string hat = "";            // which hat this goal's special walker wears
+        // The seeded choices that put the hat there (GoalSpecialWalker), so a replay can be checked against them.
+        public int dealOrdinal = -1;
+        public int targetPatrolIndex = -1;
+        public string targetPatrol = "";
+        public int targetWalkerIndex = -1;
+        // The patch's shape and geometry (IGoalZone on the goal root; a tile goal has none).
+        public string zoneShape = "tile";
+        public float patchRadius = GoalZones.TileHalf;
+        public float ringRadius = -1f, occluderWidth = -1f, clearance = -1f;
+        // A procedural goal's buildings (ProceduralGoal): the record of a goal drawn at Play, which no layout file holds.
+        public string centreBox = "";
+        public string[] ringBoxes = new string[0];
         public bool answered;
         // Filled in when the goal is answered:
-        public string outcome = "";        // correct / incorrect / skip
+        public string source = "";         // rc (the pilot's C2) / key (the experimenter's key)
+        public string outcome = "";        // correct / incorrect / skip; "" while an RC identify awaits its key
         public float decisionTimeSec = -1f;
         public float swarmToWalkerDist = -1f;
         public Vector3 centroidAtAnswer;
+        // AutoScore: presses scored wrong at this goal, and the scoring camera of the correct one.
+        public int falseAlarms;
+        public int scoredFeed = -1;
+        public float scoredCamDist = -1f;
+        public int gazeFeedAtAnswer = -1;
+        // SPHERE: the angles from the hat to the head's and the gaze's direction in the city at that press (-1 none).
+        public float headHatDegAtAnswer = -1f;
+        public float gazeHatDegAtAnswer = -1f;
+        // AutoScore: the last frame the hat passed HatOnShownFeed (session clock), and through which camera.
+        public float lastPassTime = float.NegativeInfinity;
+        public int lastPassFeed = -1;
+        public float lastPassCamDist = -1f;
     }
     private readonly List<GoalInfo> goals = new List<GoalInfo>();
     private bool referencesResolved = false;
 
     // ---- output ----
-    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter;
+    private StreamWriter dronesWriter, headWriter, walkersWriter, eventsWriter, shapeWriter, stitchWriter, perfWriter;
     private string dirPath, fileStem;
+
+    // ---- frame timing (see WritePerfSample) ----
+    // Accumulated every frame and written, then reset, at each sample: frames rendered and the
+    // longest frame since the previous row, and the FPV render count at the previous row.
+    private int perfFrames;
+    private float perfDtSum, perfDtMax;
+    private long perfLastRenders = -1;
+    // Seconds with an XR device running and with the headset on someone's head, and the last device seen.
+    private float headsetActiveSec, headsetWornSec;
+    private string xrDeviceName = "";
+    private float displayRefreshHz;
+    private int eyeTextureWidth, eyeTextureHeight;
+    private float eyeTextureScale;
+
+    // ---- stitching (see UpdateStitchState) ----
+    // A panorama on screen with no new frame for this long is frozen, not stitching. Python writes
+    // at ~30 Hz and exits after 5 s without a Unity heartbeat, so 1 s is well clear of both.
+    private const float PanoramaStaleSec = 1f;
+    private bool stitchFunctional = false;
+    private float stitchFunctionalSec = 0f;
+    private int stitchOnCount = 0;
 
     // ---- timing / state ----
     private float sessionStartTime;
@@ -73,6 +195,32 @@ public class ExperimentRecorder : MonoBehaviour
     private float nextSampleTime;
     private bool sessionOpen = false;   // files open, sampling active
     private bool finalized = false;     // summary written, files closed
+    private string endReason = "";
+    private bool sessionJsonDirty;      // something the session JSON holds has changed (see FlushSessionJson)
+
+    // ---- what the run flew ----
+    private Task<GitState> gitQuery;    // see StartGitQuery
+    private GitState git = new GitState();
+    private bool conditionChecked, conditionMismatch;
+    private int dronesLost;
+    // The layout last logged (see LogDisplay).
+    private bool displayLogged;
+    private ScreenSpawn.ScreenStyle loggedStyle;
+    private float loggedRadius, loggedScale;
+    private Vector3 loggedOffset;
+    private int loggedWidth, loggedHeight;
+    private string loggedRoom;
+    private bool loggedSphere, loggedSplit;
+    private Sphere360Display.HeadingMode loggedHeading;
+    private float loggedRefreshHz, loggedBand;
+
+    // ---- RC identify (see PollRcIdentify) ----
+    private int rcPressesSeen;
+    private float lastRcIdentifyTime = float.NegativeInfinity;
+    // AutoScore: the latest scored press, which the experimenter's key overrides. -2 none yet, -1 out of zone.
+    private int lastPressGoal = -2;
+    private float lastPressTime = -1f;
+    private Vector3 lastPressCentroid;
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -99,8 +247,21 @@ public class ExperimentRecorder : MonoBehaviour
         if (!referencesResolved)
         {
             ResolveGoalsAndWalkers();
+            startLine = FindObjectOfType<StartLine>();
             referencesResolved = true;
+            sessionJsonDirty = true;
         }
+        CheckConditionLabel();
+
+        // Every frame, not at sampleHz, so transitions are timed to the frame.
+        UpdateStitchState();
+        LogStartLine();
+        LogDisplay();
+
+        float dt = Time.unscaledDeltaTime;
+        perfFrames++;
+        perfDtSum += dt;
+        if (dt > perfDtMax) perfDtMax = dt;
 
         // Fixed-rate continuous sampling (nextSampleTime pattern mirrors PyUniSharingFast.Update).
         if (Time.time >= nextSampleTime)
@@ -110,6 +271,9 @@ public class ExperimentRecorder : MonoBehaviour
             WriteDroneSample(t, ms);
             WriteHeadSample(t, ms);
             WriteWalkerSample(t, ms);
+            WriteShapeSample(t, ms);
+            WriteStitchSample(t, ms);
+            WritePerfSample(t, ms);
 
             float interval = sampleHz > 0f ? 1f / sampleHz : 0.1f;
             // Advance from the scheduled time; if we fell behind, resync to now to avoid a burst.
@@ -117,42 +281,70 @@ public class ExperimentRecorder : MonoBehaviour
             if (nextSampleTime < Time.time) nextSampleTime = Time.time + interval;
         }
 
-        // Identify actions (edge-detected).
-        if (Input.GetKeyDown(correctKey)) RecordIdentify("correct");
-        else if (Input.GetKeyDown(incorrectKey)) RecordIdentify("incorrect");
-        else if (Input.GetKeyDown(skipKey)) RecordIdentify("skip");
+        // Identify actions: the pilot's RC press, then the experimenter's key (edge-detected).
+        TrackHatPasses();
+        PollRcIdentify();
+        if (Input.GetKeyDown(correctKey)) RecordOutcome("correct");
+        else if (Input.GetKeyDown(incorrectKey)) RecordOutcome("incorrect");
+        else if (Input.GetKeyDown(skipKey)) RecordOutcome("skip");
 
         if (Input.GetKeyDown(endSessionKey)) Finalize("manual_end");
+
+        if (finalized) return;
+        CollectGitQuery(0);
+        FlushSessionJson();
     }
 
     void OnApplicationQuit() => Finalize("app_quit");
-    void OnDestroy() => Finalize("destroyed");
+
+    void OnDestroy()
+    {
+        DroneHealthMonitor.DroneLost -= OnDroneLost;
+        Finalize("destroyed");
+    }
 
     // ------------------------------------------------------------------ setup
 
     private void OpenSession()
     {
         spawner = FindObjectOfType<swarmSpawn>();
+        screenSpawn = FindObjectOfType<ScreenSpawn>();
+        interfaceManager = FindObjectOfType<InterfaceManager>();
+        stitching = FindObjectOfType<PyUniSharingFast>();
         headTransform = ResolveHeadTransform();
+        obstacleMask = LayerMask.GetMask("Obstacle");
 
-        dirPath = Path.Combine(Application.persistentDataPath, "experiment");
+        // EXPERIMENT_RECORDER_DIR redirects a headless check (ProceduralCityProbe) away from the experiment folder.
+        string redirect = Environment.GetEnvironmentVariable("EXPERIMENT_RECORDER_DIR");
+        dirPath = string.IsNullOrEmpty(redirect) ? Path.Combine(Application.persistentDataPath, "experiment") : redirect;
         Directory.CreateDirectory(dirPath);
 
         string pid = string.IsNullOrWhiteSpace(participantId) ? "XXXX" : participantId.Trim().ToUpperInvariant();
         wallStart = DateTime.Now;
         fileStem = $"{pid}_t{trialNumber}_{condition}_{wallStart:yyyyMMdd_HHmmss}";
 
-        dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive");
+        dronesWriter = NewWriter("drones", "t;unixMs;droneId;gtX;gtY;gtZ;yawDeg;alive;hull;shown;stitched");
         headWriter = NewWriter("head",
-            "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread");
-        walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ");
+            "t;unixMs;headX;headY;headZ;headYaw;headPitch;headRoll;bodyYaw;inThrottle;inYaw;inPitch;inRoll;inSpread;" +
+            "gimbalPitch;gazeX;gazeY;gazeZ;gazeConf;gazeFeed;sphereYaw");
+        walkersWriter = NewWriter("walkers", "t;unixMs;goalIndex;specialX;specialY;specialZ;hat;hatX;hatY;hatZ");
         eventsWriter = NewWriter("events", "t;unixMs;eventType;goalIndex;outcome;swarmToWalkerDist;note");
+        shapeWriter = NewWriter("shape",
+            "t;unixMs;nAlive;hullVerts;interior;maxGapDeg;meanNNm;ringRadiusM;coreRadiusM;dRef;r0Eff;hollowCore;" +
+            "lookGapDeg;lookGapRawDeg;lookGapFill;spreadScale");
+        stitchWriter = NewWriter("stitch", "t;unixMs;stitcher;shown;qualityOk;pilotOn;reasonBits;panoAgeSec;functional");
+        perfWriter = NewWriter("perf", "t;unixMs;frames;fps;dtMaxMs;fpvRenders;hmdActive;hmdWorn");
+        WriteSwarmSettings();
 
         sessionStartTime = Time.time;
         nextSampleTime = Time.time;
+        rcPressesSeen = UDPReceiverManager.MarkPresses;   // a press before the session is not an answer
         sessionOpen = true;
+        DroneHealthMonitor.DroneLost += OnDroneLost;
+        StartGitQuery();
 
-        WriteEvent("session_start", -1, "", -1f, $"pid={pid};trial={trialNumber};condition={condition}");
+        // No ';' in the note: pandas readers of _events.csv split on it.
+        WriteEvent("session_start", -1, "", -1f, $"pid={pid} trial={trialNumber} condition={condition} identify={identifyMode}");
         Debug.Log($"ExperimentRecorder: logging to {dirPath} ({fileStem}_*.csv)", this);
     }
 
@@ -162,6 +354,207 @@ public class ExperimentRecorder : MonoBehaviour
         var w = new StreamWriter(path, false, new UTF8Encoding(false));
         w.WriteLine(header);
         return w;
+    }
+
+    /// <summary>
+    /// The swarm's settings as this run started, as <c>&lt;stem&gt;_swarm.json</c>: the scene and every
+    /// SwarmManager field, as JsonUtility serialises the component. The CSVs record only the live d_ref and
+    /// the core flag, and a scene's gains change between tests (ScaledCityWorld's hollow core was on for
+    /// internal_2 and is off now), so without this an offline replay has to be told by hand what a run
+    /// flew. Read by <c>Assets/Scripts/swarm/Bench/swarm_params.py</c>. Its d_ref is the starting value;
+    /// the spread stick moves it, and shape.csv has it per sample.
+    ///
+    /// The display and stitching components are dumped beside it, as authored at the start of the run. A style
+    /// change resets ScreenSpawn's radius and scale, so what is in force later is in the <c>display</c> events.
+    /// </summary>
+    private void WriteSwarmSettings()
+    {
+        if (SwarmManager.Instance == null) return;
+        try
+        {
+            string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            string json = "{\n\"scene\": \"" + scene + "\",\n\"swarmManager\": "
+                        + JsonUtility.ToJson(SwarmManager.Instance, true)
+                        + SettingsBlock("interfaceManager", FindObjectOfType<InterfaceManager>())
+                        + SettingsBlock("screenSpawn", screenSpawn)
+                        + SettingsBlock("stitching", stitching)
+                        + SettingsBlock("cockpitRoom", FindObjectOfType<CockpitRoom>())
+                        + "\n}\n";
+            File.WriteAllText(Path.Combine(dirPath, $"{fileStem}_swarm.json"), json, new UTF8Encoding(false));
+        }
+        catch (Exception e)
+        {
+            // The run's own data matters more than this summary of its settings.
+            Debug.LogWarning($"ExperimentRecorder: could not write {fileStem}_swarm.json. {e.Message}", this);
+        }
+    }
+
+    private static string SettingsBlock(string key, MonoBehaviour component) =>
+        component != null ? ",\n\"" + key + "\": " + JsonUtility.ToJson(component, true) : "";
+
+    /// <summary>What git says about the project as the run started; <c>error</c> says why it could not say.</summary>
+    private class GitState
+    {
+        public string commit = "", error = "";
+        public string[] changes = new string[0];
+    }
+
+    /// <summary>
+    /// The commit this run flew and what differed from it, on a worker thread because it starts processes; the answer
+    /// reaches the session JSON a moment into the run. Limited to what decides how the sim behaves: UserSettings (the
+    /// editor's layouts) differs nearly always, and would make every run look modified. A file's name is all it keeps,
+    /// since <c>_swarm.json</c> has the values that matter most and a scene's diff can run to megabytes.
+    /// </summary>
+    private void StartGitQuery()
+    {
+        string root = Path.GetDirectoryName(Application.dataPath);   // main thread only, so read here
+        gitQuery = Task.Run(() => QueryGit(root));
+    }
+
+    private static GitState QueryGit(string root)
+    {
+        var state = new GitState();
+        try
+        {
+            state.commit = RunGit(root, "rev-parse HEAD").Trim();
+            string[] lines = RunGit(root, "status --porcelain -- Assets Packages ProjectSettings")
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            state.changes = lines;
+        }
+        catch (Exception e)
+        {
+            state.error = e.Message;   // no git on PATH, or a project copy with no repository
+        }
+        return state;
+    }
+
+    private static string RunGit(string root, string args)
+    {
+        // --no-optional-locks: this must never hold the index lock against a commit being made in the same tree.
+        var info = new System.Diagnostics.ProcessStartInfo("git", "--no-optional-locks " + args)
+        {
+            WorkingDirectory = root,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(info))
+        {
+            // Read on the side: a child blocked on a full stderr pipe would never finish its stdout.
+            Task<string> stderr = p.StandardError.ReadToEndAsync();
+            string stdout = p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            if (p.ExitCode != 0) throw new InvalidOperationException($"git {args}: {stderr.Result.Trim()}");
+            return stdout;
+        }
+    }
+
+    /// <summary>Takes git's answer if it has arrived, waiting up to <paramref name="waitMs"/> for it.</summary>
+    private void CollectGitQuery(int waitMs)
+    {
+        if (gitQuery == null || !gitQuery.Wait(waitMs)) return;
+        git = gitQuery.Result;
+        gitQuery = null;
+        sessionJsonDirty = true;
+        if (git.error != "") Debug.LogWarning($"ExperimentRecorder: no commit recorded for this run. {git.error}", this);
+    }
+
+    /// <summary>
+    /// Whether the label agrees with what spawned. The label is typed by hand and the count is set on another
+    /// component, so one left over from the previous run went unnoticed: 6 of the first 102 sessions disagree, one of
+    /// them in internal_1. Waits for the swarm to exist, which it does by the first frame in every scene so far.
+    /// SingleSphere is the one condition set in three places (the label, the count and InterfaceManager's display
+    /// mode), so the display is checked too: one drone on the feed screens is SingleDrone, on the sphere SingleSphere.
+    /// </summary>
+    private void CheckConditionLabel()
+    {
+        if (conditionChecked) return;
+        int n = spawner != null && spawner.swarm != null ? spawner.swarm.Count : 0;
+        if (n == 0) return;
+        conditionChecked = true;
+        InterfaceManager.DisplayMode mode = DisplayModeInForce();
+        bool sphere = mode == InterfaceManager.DisplayMode.SPHERE;
+        conditionMismatch = condition == Condition.Swarm ? n < 2 || sphere
+                          : n != 1 || sphere != (condition == Condition.SingleSphere);
+        if (!conditionMismatch) return;
+        sessionJsonDirty = true;
+        WriteEvent("condition_mismatch", -1, "", -1f, $"condition={condition} drones={n} display={mode}");
+        Debug.LogError($"ExperimentRecorder: this run is labelled {condition} but {n} drone(s) spawned with the {mode} " +
+                       "display. Fix the label, the count or InterfaceManager's displayMode before flying: analyse.py " +
+                       "goes by the label.", this);
+    }
+
+    private InterfaceManager.DisplayMode DisplayModeInForce() =>
+        interfaceManager != null ? interfaceManager.displayMode : InterfaceManager.DisplayMode.SCREENS;
+
+    /// <summary>
+    /// A loss, at the physics tick it happened, with what _drones.csv cannot show: alive there is a 10 Hz flag, and a
+    /// parked drone has lost its velocity and its place. Must not throw: <see cref="DroneHealthMonitor"/> is
+    /// mid-FixedUpdate.
+    /// </summary>
+    private void OnDroneLost(DroneHealthMonitor.Loss loss)
+    {
+        try
+        {
+            List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+            int drone = swarm != null ? swarm.IndexOf(loss.drone) : -1;
+            int partner = swarm != null && loss.partner != null ? swarm.IndexOf(loss.partner) : -1;
+            dronesLost++;
+            sessionJsonDirty = true;
+            Vector3 p = loss.position, v = loss.velocity;
+            WriteEvent("drone_lost", -1, "", -1f,
+                $"drone={drone} reason={loss.reason} partner={partner} x={F(p.x)} y={F(p.y)} z={F(p.z)} " +
+                $"vx={F(v.x)} vy={F(v.y)} vz={F(v.z)} speed={F(v.magnitude)}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"ExperimentRecorder: could not log a drone loss. {e.Message}", this);
+        }
+    }
+
+    /// <summary>
+    /// The screen layout in force, at the start of the run and whenever it changes. Read off ScreenSpawn, not
+    /// InterfaceManager's inspector fields: AUTO and the panorama fallback resolve there, and the identify rule and
+    /// analyse.py's head visibility both assume a screen scale. Compared rather than formatted, since this runs every
+    /// frame. Under the SPHERE display the screens are not spawned and their fields are only what would have been;
+    /// <c>mode=SPHERE</c> and the sphere's settings (which can be changed in Play, all but the cube size) say so.
+    /// </summary>
+    private void LogDisplay()
+    {
+        if (screenSpawn == null) return;
+        ScreenSpawn s = screenSpawn;
+        bool sphere = Sphere360Display.Active;
+        Sphere360Display.Settings sc = sphere ? Sphere360Display.Instance.Config : null;
+        if (displayLogged && s.screenStyle == loggedStyle && s.radius == loggedRadius && s.scale == loggedScale &&
+            s.offset == loggedOffset && s.width == loggedWidth && s.height == loggedHeight &&
+            CockpitRoom.InForce == loggedRoom && sphere == loggedSphere &&
+            (!sphere || (sc.refreshHz == loggedRefreshHz && sc.splitFaces == loggedSplit &&
+                         sc.heading == loggedHeading && sc.bandHalfDeg == loggedBand))) return;
+        displayLogged = true;
+        loggedRoom = CockpitRoom.InForce;
+        loggedStyle = s.screenStyle;
+        loggedRadius = s.radius;
+        loggedScale = s.scale;
+        loggedOffset = s.offset;
+        loggedWidth = s.width;
+        loggedHeight = s.height;
+        loggedSphere = sphere;
+        string sphereNote = "";
+        if (sphere)
+        {
+            loggedRefreshHz = sc.refreshHz;
+            loggedSplit = sc.splitFaces;
+            loggedHeading = sc.heading;
+            loggedBand = sc.bandHalfDeg;
+            sphereNote = $" cube={Sphere360Display.Instance.CubeEdge} hz={F(sc.refreshHz)} split={sc.splitFaces} " +
+                         $"heading={sc.heading} band={F(sc.bandHalfDeg)}";
+        }
+        WriteEvent("display", -1, "", -1f,
+            $"mode={(sphere ? "SPHERE" : DisplayModeInForce().ToString())} " +
+            $"style={s.screenStyle} radius={F(s.radius)} scale={F(s.scale)} " +
+            $"offset={F(s.offset.x)},{F(s.offset.y)},{F(s.offset.z)} feed={s.width}x{s.height} " +
+            $"room={loggedRoom}{sphereNote}");
     }
 
     private Transform ResolveHeadTransform()
@@ -175,12 +568,20 @@ public class ExperimentRecorder : MonoBehaviour
     {
         goals.Clear();
 
-        // Prefer the registry exposed by GoalPatchReplacer; fall back to name-scanning if empty.
+        // Prefer the registries, which keep the goals' order: GoalPatchReplacer's (tile cities), then the procedural
+        // city's (layout order). Only with neither does it fall back to scanning for special walkers, whose order
+        // FindObjectsByType does not define.
         List<GameObject> goalObjects = new List<GameObject>();
         GoalPatchReplacer replacer = FindObjectOfType<GoalPatchReplacer>();
+        ProceduralCityBuilder procedural = FindObjectOfType<ProceduralCityBuilder>();
         if (replacer != null && replacer.PlacedGoals != null && replacer.PlacedGoals.Count > 0)
         {
             foreach (GameObject g in replacer.PlacedGoals)
+                if (g != null) goalObjects.Add(g);
+        }
+        else if (procedural != null && procedural.PlacedGoals.Count > 0)
+        {
+            foreach (GameObject g in procedural.PlacedGoals)
                 if (g != null) goalObjects.Add(g);
         }
         else
@@ -198,11 +599,15 @@ public class ExperimentRecorder : MonoBehaviour
         {
             GoalSpecialWalker gsw = g.GetComponent<GoalSpecialWalker>();
             Transform special = null;
+            SpecialWalker marker = null;
+            string hat = "";
             foreach (SpecialWalker sw in specials)
             {
                 if (gsw != null && sw.GetComponentInParent<GoalSpecialWalker>() == gsw)
                 {
                     special = sw.transform;
+                    marker = sw;
+                    hat = sw.HatId;
                     break;
                 }
             }
@@ -210,8 +615,31 @@ public class ExperimentRecorder : MonoBehaviour
             {
                 goal = g.transform,
                 special = special,
+                marker = marker,
                 specialSpawnPos = special != null ? special.position : Vector3.zero,
+                hat = hat,
+                dealOrdinal = gsw != null ? gsw.DealOrdinal : -1,
+                targetPatrolIndex = gsw != null ? gsw.TargetPatrolIndex : -1,
+                targetPatrol = gsw != null ? gsw.TargetPatrolName : "",
+                targetWalkerIndex = gsw != null ? gsw.TargetWalkerIndex : -1,
             });
+            IGoalZone zone = g.GetComponent<IGoalZone>();
+            if (zone != null)
+            {
+                GoalInfo info = goals[goals.Count - 1];
+                info.zoneShape = zone.ZoneShape;
+                info.patchRadius = zone.PatchRadius;
+                info.ringRadius = zone.RingRadius;
+                info.occluderWidth = zone.OccluderWidth;
+                info.clearance = zone.Clearance;
+            }
+            ProceduralGoal pg = g.GetComponent<ProceduralGoal>();
+            if (pg != null)
+            {
+                GoalInfo info = goals[goals.Count - 1];
+                info.centreBox = pg.centreBox ?? "";
+                info.ringBoxes = pg.ringBoxes ?? new string[0];
+            }
         }
 
         if (goals.Count == 0)
@@ -241,11 +669,69 @@ public class ExperimentRecorder : MonoBehaviour
                 alive = vc.State.IsAlive;
             }
             float yaw = dp.eulerAngles.y;
+            // hull: AttitudeAlgorithm's debounced boundary flag; shown: the drone's feed quad is on screen (interior
+            // drones, a feed held back while it turns, and the stitched triplet under the panorama all are not);
+            // stitched: that last case, its view in the live panorama instead. Appended last, so runs recorded before
+            // it simply lack the column.
+            AttitudeAlgorithm att = dp.GetComponent<AttitudeAlgorithm>();
+            bool hull = att != null && att.BoundaryEstimate;
+            bool shown = FeedShown(drone);
             dronesWriter.WriteLine(
-                $"{F(t)};{ms};{i};{F(pos.x)};{F(pos.y)};{F(pos.z)};{F(yaw)};{(alive ? 1 : 0)}");
+                $"{F(t)};{ms};{i};{F(pos.x)};{F(pos.y)};{F(pos.z)};{F(yaw)};{(alive ? 1 : 0)};{(hull ? 1 : 0)};{(shown ? 1 : 0)};" +
+                $"{(InLivePanorama(drone) ? 1 : 0)}");
         }
     }
 
+    /// <summary>
+    /// Swarm-shape read-outs: how many drones are on the hull (and therefore on screen), how wide the
+    /// pilot's largest unobserved sector is, and how far the formation is from the spacing that was
+    /// actually commanded. This is what the hollow-core feature is judged on, so it is logged whether
+    /// or not the feature is enabled — the disabled runs are the baseline the enabled ones are
+    /// compared against.
+    ///
+    /// The look-gap columns do the same for the look-direction gap fill: how far the pilot's body yaw
+    /// is from the nearest heading a hull drone is driven to, before (<c>lookGapRawDeg</c>) and after
+    /// (<c>lookGapDeg</c>) the fill, and whether it was acting (<c>lookGapFill</c>). Appended at the end so readers that
+    /// index columns by name are unaffected; NaN while there is no body yaw or no usable hull.
+    /// </summary>
+    private void WriteShapeSample(float t, long ms)
+    {
+        List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+        if (swarm == null) return;
+
+        // Recomputed at most once per physics tick and shared with the drones' own hull pass, so
+        // asking for it here costs nothing beyond the first caller in the tick.
+        AttitudeAlgorithm.EnsureSharedGlobalHull(swarm);
+
+        SwarmManager manager = SwarmManager.Instance;
+        SwarmPlaneController plane = SwarmPlaneController.Instance;
+
+        float dRef = manager != null ? manager.GetDRef() : 0f;
+        bool hollow = manager != null && manager.GetHollowSwarmCore();
+        float r0Eff = manager != null ? manager.GetEffectiveR0Coh() : 0f;
+        float coreR = plane != null ? plane.CoreRadiusMetres : 0f;
+        // S7's adaptive spread: the scale on dRef actually in force (1 when the switch is off). Appended last,
+        // so runs recorded before it simply lack the column.
+        float spreadScale = plane != null ? plane.SpreadScale : 1f;
+
+        shapeWriter.WriteLine(
+            $"{F(t)};{ms};{AttitudeAlgorithm.SharedAliveCount};{AttitudeAlgorithm.SharedHullVertexCount};" +
+            $"{AttitudeAlgorithm.SharedInteriorCount};{F(AttitudeAlgorithm.SharedMaxGapDeg)};" +
+            $"{F(AttitudeAlgorithm.SharedMeanNearestNeighbourM)};{F(AttitudeAlgorithm.SharedRingRadiusM)};" +
+            $"{F(coreR)};{F(dRef)};{F(r0Eff)};{(hollow ? 1 : 0)};" +
+            $"{F(AttitudeAlgorithm.SharedLookGapDeg)};{F(AttitudeAlgorithm.SharedLookGapRawDeg)};" +
+            $"{(AttitudeAlgorithm.SharedLookGapFillActive ? 1 : 0)};{F(spreadScale)}");
+    }
+
+    /// <summary>
+    /// Head pose, body yaw and the pilot's inputs. <c>gimbalPitch</c> is the swarm-wide camera pitch
+    /// the joystick dial commands (<see cref="FPVCameraScript.SharedPitch"/>, degrees, 0 = level,
+    /// -90 = straight down); the dial itself is not in <c>InputStatus</c>, and the pitch it sets is a
+    /// linear map of it. Appended last, so runs recorded before it simply lack the column.
+    /// <c>sphereYaw</c> (empty unless the SPHERE display is on, since 2026-11-06) is
+    /// <see cref="Sphere360Display.SphereYawDegrees"/>: the head and the gaze are logged in the arena, and a direction
+    /// at yaw theta there shows the city at yaw theta - sphereYaw.
+    /// </summary>
     private void WriteHeadSample(float t, long ms)
     {
         Vector3 hp = Vector3.zero, he = Vector3.zero;
@@ -268,9 +754,118 @@ public class ExperimentRecorder : MonoBehaviour
             s.TryGetValue("spread", out spr);
         }
 
+        // Gaze: the combined ray's world direction and confidence, and the feed it lands on (-1 none / no tracking).
+        EyeGazeTracker.GazeSample gaze = EyeGazeTracker.Combined;
+        bool gazeOk = EyeGazeTracker.EyeTrackingActive && gaze.IsValid;
+        Vector3 gd = gazeOk ? gaze.Direction : new Vector3(float.NaN, float.NaN, float.NaN);
+        int gazeFeed = gazeOk ? GazeFeed(gaze) : -1;
+
         headWriter.WriteLine(
             $"{F(t)};{ms};{F(hp.x)};{F(hp.y)};{F(hp.z)};{F(he.y)};{F(he.x)};{F(he.z)};{F(bodyYaw)};" +
-            $"{F(thr)};{F(yaw)};{F(pit)};{F(rol)};{F(spr)}");
+            $"{F(thr)};{F(yaw)};{F(pit)};{F(rol)};{F(spr)};{F(FPVCameraScript.SharedPitch)};" +
+            $"{F(gd.x)};{F(gd.y)};{F(gd.z)};{F(gazeOk ? gaze.Confidence : 0f)};{gazeFeed};" +
+            $"{(Sphere360Display.Active ? F(Sphere360Display.SphereYawDegrees) : "")}");
+    }
+
+    /// <summary>
+    /// Whether the stitched panorama is <b>functional and visible</b>: on screen (quality verdict
+    /// good and not toggled off by the pilot) and still being refreshed by Python. Runs every frame
+    /// and writes a <c>stitch_on</c> / <c>stitch_off</c> event on each change, the off event's note
+    /// saying why, so the durations come from frame-timed events rather than the sample grid.
+    ///
+    /// The freshness test is not redundant with the quality verdict: a Python that dies leaves its
+    /// last panorama and quality word in the section, so the screen stays up showing a frozen image
+    /// with no transition logged anywhere. Before this existed only PyUniSharingFast's untimed
+    /// <c>[Panorama] hidden/restored</c> lines in Editor.log recorded any of it.
+    /// </summary>
+    private void UpdateStitchState()
+    {
+        bool shown = PyUniSharingFast.PanoramaDisplayed;
+        float age = PanoramaAgeSec();
+        bool functional = shown && age <= PanoramaStaleSec;
+
+        if (functional) stitchFunctionalSec += Time.deltaTime;
+        if (functional == stitchFunctional) return;
+        stitchFunctional = functional;
+
+        if (functional)
+        {
+            stitchOnCount++;
+            WriteEvent("stitch_on", -1, "", -1f, PyUniSharingFast.ActiveStitcher.ToString());
+            return;
+        }
+
+        string reason;
+        if (!PyUniSharingFast.PanoramaPilotEnabled) reason = "pilot_off";
+        else if (!shown) reason = "quality: " + PyUniSharingFast.DescribeQualityReason(PyUniSharingFast.PanoramaQualityWord);
+        else reason = $"stale: no new panorama for {age.ToString("F1", Inv)} s";
+        WriteEvent("stitch_off", -1, "", -1f, reason);
+    }
+
+    /// <summary>Seconds since Python last delivered a new panorama; NaN before the first.</summary>
+    private static float PanoramaAgeSec()
+    {
+        float last = PyUniSharingFast.PanoramaLastNewTime;
+        return last < 0f ? float.NaN : Time.time - last;
+    }
+
+    /// <summary>
+    /// The components of <see cref="UpdateStitchState"/> at the sample rate: which stitcher, whether
+    /// the panorama is on screen, Python's quality bit and the pilot's toggle (the two things that
+    /// hide it), the raw failing-gate bits (<c>PyUniSharingFast.DescribeQualityReason</c> decodes
+    /// them), and the age of the newest panorama. <c>functional</c> is the combined verdict.
+    /// </summary>
+    private void WriteStitchSample(float t, long ms)
+    {
+        int word = PyUniSharingFast.PanoramaQualityWord;
+        stitchWriter.WriteLine(
+            $"{F(t)};{ms};{PyUniSharingFast.ActiveStitcher};{(PyUniSharingFast.PanoramaDisplayed ? 1 : 0)};" +
+            $"{word & 1};{(PyUniSharingFast.PanoramaPilotEnabled ? 1 : 0)};{word & 0xFFFE};" +
+            $"{F(PanoramaAgeSec())};{(stitchFunctional ? 1 : 0)}");
+    }
+
+    /// <summary>
+    /// Unity's own frame timing since the previous row: frames rendered, the mean rate over them,
+    /// the longest single frame, and how many drone FPV cameras rendered
+    /// (<see cref="FPVCameraScript.TotalRenders"/>, every schedule). With a headset attached the
+    /// frame time is quantised to the refresh (13.9 ms at 72 Hz), so <c>dtMaxMs</c> near 27.8
+    /// means a frame was missed, and a run of rows at ~36 fps is the runtime's half-rate lock.
+    /// Unscaled time, so a time-scaled session still reports real frame rates.
+    ///
+    /// <c>hmdActive</c> says an XR device was running at this row and <c>hmdWorn</c> that it was on
+    /// someone's head. A desktop run's frame rate says nothing about the headset (no 72 Hz lock, no
+    /// eye pass, no compositor), and a Link session can be up with the headset on the desk, so the two
+    /// are separate. Both are per row because XR starts a moment after this session opens and the
+    /// headset can come off mid-run. Appended last, so older runs simply lack the columns; for those,
+    /// a head position that never moves in <c>_head.csv</c> marks a run flown without the headset.
+    /// </summary>
+    private void WritePerfSample(float t, long ms)
+    {
+        long renders = FPVCameraScript.TotalRenders;
+        long rendersSince = perfLastRenders >= 0 ? renders - perfLastRenders : 0;
+        float fps = perfDtSum > 0f ? perfFrames / perfDtSum : 0f;
+
+        bool hmdActive = XRSettings.isDeviceActive;
+        bool hmdWorn = hmdActive && OVRPlugin.userPresent;
+        if (hmdActive)
+        {
+            headsetActiveSec += perfDtSum;
+            xrDeviceName = XRSettings.loadedDeviceName;
+            displayRefreshHz = XRDevice.refreshRate;
+            eyeTextureWidth = XRSettings.eyeTextureWidth;
+            eyeTextureHeight = XRSettings.eyeTextureHeight;
+            eyeTextureScale = XRSettings.eyeTextureResolutionScale;
+        }
+        if (hmdWorn) headsetWornSec += perfDtSum;
+
+        perfWriter.WriteLine(
+            $"{F(t)};{ms};{perfFrames};{F(fps)};{F(perfDtMax * 1000f)};{rendersSince};" +
+            $"{(hmdActive ? 1 : 0)};{(hmdWorn ? 1 : 0)}");
+
+        perfLastRenders = renders;
+        perfFrames = 0;
+        perfDtSum = 0f;
+        perfDtMax = 0f;
     }
 
     private void WriteWalkerSample(float t, long ms)
@@ -280,39 +875,421 @@ public class ExperimentRecorder : MonoBehaviour
             Transform sp = goals[i].special;
             if (sp == null) continue;
             Vector3 p = sp.position;
-            walkersWriter.WriteLine($"{F(t)};{ms};{i};{F(p.x)};{F(p.y)};{F(p.z)}");
+            Vector3 h = goals[i].marker.HatCentre;
+            walkersWriter.WriteLine($"{F(t)};{ms};{i};{F(p.x)};{F(p.y)};{F(p.z)};{goals[i].hat};{F(h.x)};{F(h.y)};{F(h.z)}");
         }
     }
 
     // ------------------------------------------------------------------ identify
 
-    private void RecordIdentify(string outcome)
+    /// <summary>
+    /// The pilot's RC button: an identify timed at the press, its outcome left for the experimenter's
+    /// key. Every press is logged — an ignored one as <c>rc_press_ignored</c> — so a mistaken or
+    /// doubled press can be found afterwards. Presses arriving in one frame count once.
+    /// </summary>
+    private void PollRcIdentify()
     {
-        int idx = NearestUnansweredGoal(out float dist, out Vector3 centroid);
+        int presses = UDPReceiverManager.MarkPresses;
+        if (presses == rcPressesSeen) return;
+        bool pressed = presses > rcPressesSeen;   // lower: the counter was reset under us
+        rcPressesSeen = presses;
+        if (!pressed || !rcIdentify) return;
+
+        if (Time.time - lastRcIdentifyTime < rcIdentifyDebounceSec)
+        {
+            WriteEvent("rc_press_ignored", -1, "", -1f, "debounce");
+            return;
+        }
+        if (identifyMode == IdentifyMode.AutoScore)
+        {
+            ScorePress();
+            lastRcIdentifyTime = Time.time;
+            return;
+        }
+        if (RecordIdentify("", "rc")) lastRcIdentifyTime = Time.time;
+        else WriteEvent("rc_press_ignored", -1, "", -1f, "all goals answered");
+    }
+
+    /// <summary>
+    /// AutoScore: note, every frame, when each open goal's hat passes <see cref="HatOnShownFeed"/>, so that a press
+    /// can count a hat that passed up to <see cref="identifyLookbackSec"/> before it (<see cref="SeenGoal"/>).
+    /// </summary>
+    private void TrackHatPasses()
+    {
+        if (identifyMode != IdentifyMode.AutoScore || !rcIdentify || identifyLookbackSec <= 0f) return;
+        float t = Time.time - sessionStartTime;
+        foreach (GoalInfo g in goals)
+        {
+            if (g.answered && g.outcome == "correct") continue;
+            if (!HatOnShownFeed(g, out int feed, out float camDist)) continue;
+            g.lastPassTime = t;
+            g.lastPassFeed = feed;
+            g.lastPassCamDist = camDist;
+        }
+    }
+
+    /// <summary>
+    /// The open goal whose hat is on a shown feed at the press or passed the test within
+    /// <see cref="identifyLookbackSec"/> before it, or -1: the goal at the centroid if it qualifies, else the most
+    /// recent pass. Its camera and how long before the press it passed (0 = at the press) come with it.
+    /// </summary>
+    private int SeenGoal(int zoneGoal, float t, out int feed, out float camDist, out float passAgo)
+    {
+        int best = -1;
+        feed = -1;
+        camDist = -1f;
+        passAgo = -1f;
+        for (int i = 0; i < goals.Count; i++)
+        {
+            GoalInfo g = goals[i];
+            if (g.answered && g.outcome == "correct") continue;
+            float ago;
+            if (HatOnShownFeed(g, out int f, out float d)) ago = 0f;
+            else if (t - g.lastPassTime <= identifyLookbackSec)
+            {
+                ago = t - g.lastPassTime;
+                f = g.lastPassFeed;
+                d = g.lastPassCamDist;
+            }
+            else continue;
+            bool better = best < 0 || (i == zoneGoal) || (best != zoneGoal && ago < passAgo);
+            if (!better) continue;
+            best = i;
+            feed = f;
+            camDist = d;
+            passAgo = ago;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// AutoScore: score a press (see the class summary). Correct answers the goal; a false alarm is counted and
+    /// leaves it open; out of zone touches no goal. The press is remembered for the experimenter's override.
+    /// </summary>
+    private void ScorePress()
+    {
+        sessionJsonDirty = true;
+        Vector3 centroid = AliveCentroid();
+        int gazeFeed = EyeGazeTracker.EyeTrackingActive && EyeGazeTracker.Combined.IsValid ? GazeFeed(EyeGazeTracker.Combined) : -1;
+        float t = Time.time - sessionStartTime;
+        int zoneGoal = GoalAtCentroid(centroid, out _);
+        // A hat on a shown feed answers its goal wherever the centroid is (ERKS pressed for one from 15 m past the
+        // zone's edge); the zone only decides which goal a press with no hat on screen is a false alarm at.
+        int seenGoal = SeenGoal(zoneGoal, t, out int feed, out float camDist, out float passAgo);
+        int gi = seenGoal >= 0 ? seenGoal : zoneGoal;
+        lastPressGoal = gi;
+        lastPressTime = t;
+        lastPressCentroid = centroid;
+        string where = $"centroid={F(centroid.x)},{F(centroid.y)},{F(centroid.z)} source=rc score=auto gazeFeed={gazeFeed}";
+        if (gi < 0)
+        {
+            WriteEvent("identify", -1, "out_of_zone", -1f, where);
+            Debug.Log("ExperimentRecorder: RC press outside every goal's zone (out_of_zone).", this);
+            return;
+        }
+        GoalInfo g = goals[gi];
+        float walkerDist = g.special != null ? Vector3.Distance(centroid, g.special.position) : -1f;
+        float zoneDist = g.goal != null ? GoalZones.DistanceToPatch(g.goal, centroid) : -1f;
+        bool seen = seenGoal >= 0;
+        string note = $"{where} feed={feed} camDist={F(camDist)} passAgo={F(passAgo)} zoneDist={F(zoneDist)}";
+        float headHatDeg = -1f, gazeHatDeg = -1f;
+        if (Sphere360Display.Active)
+        {
+            SphereLookAngles(g, out headHatDeg, out gazeHatDeg);
+            note += $" headHatDeg={F(headHatDeg)} gazeHatDeg={F(gazeHatDeg)}";
+        }
+        if (g.answered && g.outcome == "correct")
+        {
+            WriteEvent("identify", gi, "repeat", walkerDist, note);
+            return;
+        }
+        if (!seen)
+        {
+            g.falseAlarms++;
+            WriteEvent("identify", gi, "false_alarm", walkerDist, note);
+            Debug.Log($"ExperimentRecorder: RC press at goal {gi} ({g.hat}) scored a false alarm: the hat is on no " +
+                      "shown feed.", this);
+            return;
+        }
+        g.answered = true;
+        g.source = "rc";
+        g.outcome = "correct";
+        g.decisionTimeSec = t;
+        g.swarmToWalkerDist = walkerDist;
+        g.centroidAtAnswer = centroid;
+        g.scoredFeed = feed;
+        g.scoredCamDist = camDist;
+        g.gazeFeedAtAnswer = gazeFeed;
+        g.headHatDegAtAnswer = headHatDeg;
+        g.gazeHatDegAtAnswer = gazeHatDeg;
+        WriteEvent("identify", gi, "correct", walkerDist, note);
+        Debug.Log($"ExperimentRecorder: RC press at goal {gi} ({g.hat}) scored correct: feed {feed}, {F(camDist)} m.", this);
+        FinalizeIfComplete();
+    }
+
+    /// <summary>The goal whose zone contains the point (the nearest such patch if zones overlap), or -1.</summary>
+    private int GoalAtCentroid(Vector3 point, out float zoneDist)
+    {
+        int best = -1;
+        zoneDist = float.PositiveInfinity;
+        for (int i = 0; i < goals.Count; i++)
+        {
+            if (goals[i].goal == null) continue;
+            float d = GoalZones.DistanceToPatch(goals[i].goal, point);
+            if (d <= identifyZoneM && d < zoneDist)
+            {
+                zoneDist = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Whether the goal's hat is inside the central part of an alive drone's shown feed, within range, with no
+    /// building between camera and hat. The nearest such camera is reported (index in the swarm list, distance). A view
+    /// in the live panorama counts as shown: its own quad is hidden only because the pilot is looking at it there.
+    /// </summary>
+    private bool HatOnShownFeed(GoalInfo g, out int feed, out float camDist)
+    {
+        feed = -1;
+        camDist = -1f;
+        List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+        if (g.special == null || swarm == null) return false;
+        Vector3 hat = g.marker.HatCentre;
+        if (Sphere360Display.Active) return HatOnSphere(hat, swarm, out feed, out camDist);
+        float half = 0.5f * identifyCentralFraction;
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < swarm.Count; i++)
+        {
+            GameObject drone = swarm[i];
+            if (drone == null || !(FeedShown(drone) || InLivePanorama(drone))) continue;
+            Transform dp = drone.transform.Find("DroneParent");
+            VelocityControl vc = dp != null ? dp.GetComponent<VelocityControl>() : null;
+            if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
+            Transform fpv = drone.transform.Find("FPV");
+            Camera cam = fpv != null ? fpv.GetComponent<Camera>() : null;
+            if (cam == null) continue;
+            float d = Vector3.Distance(cam.transform.position, hat);
+            if (d > identifyMaxRangeM || d >= best) continue;
+            Vector3 v = cam.WorldToViewportPoint(hat);
+            if (v.z <= 0f || Mathf.Abs(v.x - 0.5f) > half || Mathf.Abs(v.y - 0.5f) > half) continue;
+            if (Physics.Linecast(cam.transform.position, hat, obstacleMask, QueryTriggerInteraction.Ignore)) continue;
+            best = d;
+            feed = i;
+            camDist = d;
+        }
+        return feed >= 0;
+    }
+
+    /// <summary>
+    /// SPHERE: <see cref="HatOnShownFeed"/> for the 360 camera, which shows every direction at once, so there is no
+    /// image frame to test: the hat counts within range of where the cube on the sphere was rendered, with no building
+    /// in the way, and inside the band when the view is masked to one (the feeds' central-fraction rule applied to the
+    /// band's height). Wherever the pilot was looking, as for the ring of feeds; the press logs the head's and the
+    /// gaze's angle to the hat (<see cref="SphereLookAngles"/>) for reading that afterwards.
+    /// </summary>
+    private bool HatOnSphere(Vector3 hat, List<GameObject> swarm, out int feed, out float camDist)
+    {
+        feed = -1;
+        camDist = -1f;
+        Sphere360Display s = Sphere360Display.Instance;
+        if (s == null || !s.HasRendered || s.Drone == null) return false;
+        Transform dp = s.Drone.transform.Find("DroneParent");
+        VelocityControl vc = dp != null ? dp.GetComponent<VelocityControl>() : null;
+        if (vc != null && vc.State != null && !vc.State.IsAlive) return false;
+        Vector3 cam = s.LastRenderPosition;
+        Vector3 rel = hat - cam;
+        float d = rel.magnitude;
+        if (d > identifyMaxRangeM) return false;
+        float band = s.Config.bandHalfDeg;
+        if (band > 0f)
+        {
+            float elevation = Mathf.Atan2(rel.y, new Vector2(rel.x, rel.z).magnitude) * Mathf.Rad2Deg;
+            float limit = Mathf.Atan(identifyCentralFraction * Mathf.Tan(band * Mathf.Deg2Rad)) * Mathf.Rad2Deg;
+            if (Mathf.Abs(elevation - FPVCameraScript.SharedPitch) > limit) return false;
+        }
+        if (Physics.Linecast(cam, hat, obstacleMask, QueryTriggerInteraction.Ignore)) return false;
+        feed = swarm.IndexOf(s.Drone);
+        camDist = d;
+        return true;
+    }
+
+    /// <summary>
+    /// SPHERE: the angles (degrees) between the hat, seen from the 360 camera, and where the pilot's head and gaze
+    /// point in the city (turned through <see cref="Sphere360Display.DisplayToCity"/>); -1 where there is no reading.
+    /// </summary>
+    private void SphereLookAngles(GoalInfo g, out float headHatDeg, out float gazeHatDeg)
+    {
+        headHatDeg = -1f;
+        gazeHatDeg = -1f;
+        Sphere360Display s = Sphere360Display.Instance;
+        if (s == null || !s.HasRendered || g.marker == null) return;
+        Vector3 toHat = g.marker.HatCentre - s.LastRenderPosition;
+        if (toHat.sqrMagnitude < 1e-6f) return;
+        if (headTransform != null) headHatDeg = Vector3.Angle(Sphere360Display.DisplayToCity * headTransform.forward, toHat);
+        EyeGazeTracker.GazeSample gaze = EyeGazeTracker.Combined;
+        if (EyeGazeTracker.EyeTrackingActive && gaze.IsValid)
+        {
+            gazeHatDeg = Vector3.Angle(Sphere360Display.DisplayToCity * gaze.Direction, toHat);
+        }
+    }
+
+    /// <summary>Whether a drone's feed quad is on screen (false when there is no ScreenSpawn). Under the SPHERE
+    /// display the carrying drone's view is always on screen.</summary>
+    private bool FeedShown(GameObject drone)
+    {
+        if (drone == null) return false;
+        if (Sphere360Display.Active) return drone == Sphere360Display.Instance.Drone;
+        if (screenSpawn == null) return false;
+        GameObject screen = screenSpawn.ScreenFor(drone);
+        return screen != null && screen.activeInHierarchy;
+    }
+
+    /// <summary>Whether a drone's feed is hidden because its view is in the panorama, and that panorama is still being
+    /// refreshed. A frozen one (<see cref="UpdateStitchState"/>) shows the pilot nothing new from this camera.</summary>
+    private bool InLivePanorama(GameObject drone) =>
+        stitchFunctional && screenSpawn != null && drone != null && screenSpawn.IsHiddenInPanorama(drone);
+
+    /// <summary>
+    /// The swarm-list index of the drone whose feed quad the gaze ray meets first, or -1. The quads carry no
+    /// collider (ScreenSpawn removes them), so this intersects the ray with each shown quad's plane: Unity's Quad
+    /// spans [-0.5, 0.5] in its local X and Y.
+    /// </summary>
+    private int GazeFeed(EyeGazeTracker.GazeSample gaze)
+    {
+        if (screenSpawn == null || spawner == null || spawner.swarm == null || !gaze.IsValid) return -1;
+        float bestT = float.PositiveInfinity;
+        GameObject hit = null;
+        foreach (GameObject screen in screenSpawn.Screens)
+        {
+            if (screen == null || !screen.activeInHierarchy) continue;
+            Transform s = screen.transform;
+            float denom = Vector3.Dot(gaze.Direction, s.forward);
+            if (Mathf.Abs(denom) < 1e-6f) continue;
+            float t = Vector3.Dot(s.position - gaze.Origin, s.forward) / denom;
+            if (t <= 0f || t >= bestT) continue;
+            Vector3 local = s.InverseTransformPoint(gaze.Origin + t * gaze.Direction);
+            if (Mathf.Abs(local.x) > 0.5f || Mathf.Abs(local.y) > 0.5f) continue;
+            bestT = t;
+            hit = screen;
+        }
+        if (hit == null) return -1;
+        GameObject drone = screenSpawn.DroneFor(hit);
+        return drone != null ? spawner.swarm.IndexOf(drone) : -1;
+    }
+
+    /// <summary>
+    /// An experimenter key. It gives the outcome of the latest RC identify still waiting for one; with
+    /// none waiting it is the identify itself, timed at the key, exactly as before the RC button existed.
+    /// </summary>
+    private void RecordOutcome(string outcome)
+    {
+        sessionJsonDirty = true;
+        if (identifyMode == IdentifyMode.AutoScore)
+        {
+            OverrideLatestPress(outcome);
+            return;
+        }
+        int idx = LatestAwaitingOutcome();
         if (idx < 0)
         {
-            Debug.Log("ExperimentRecorder: identify pressed but all goals already answered (ignored).", this);
+            RecordIdentify(outcome, "key");
             return;
         }
 
         GoalInfo g = goals[idx];
+        g.outcome = outcome;
+        float lag = Time.time - sessionStartTime - g.decisionTimeSec;
+        WriteEvent("outcome", idx, outcome, g.swarmToWalkerDist, $"source=key lagSec={F(lag)}");
+        FinalizeIfComplete();
+    }
+
+    /// <summary>
+    /// AutoScore: the experimenter's key overrides the latest press's score. It never makes an identify of its own:
+    /// with no scored press, or the latest out of every zone, it is logged and changes nothing.
+    /// </summary>
+    private void OverrideLatestPress(string outcome)
+    {
+        if (lastPressGoal < 0)
+        {
+            WriteEvent("outcome_override", -1, outcome, -1f,
+                       lastPressGoal == -1 ? "source=key ignored: the latest press was out of zone"
+                                           : "source=key ignored: no press to override");
+            return;
+        }
+        GoalInfo g = goals[lastPressGoal];
+        string before = g.outcome;
+        g.outcome = outcome;
         g.answered = true;
+        g.source = string.IsNullOrEmpty(g.source) ? "key_override" : (g.source.EndsWith("+key") ? g.source : g.source + "+key");
+        if (g.decisionTimeSec < 0f)
+        {
+            g.decisionTimeSec = lastPressTime;
+            g.centroidAtAnswer = lastPressCentroid;
+        }
+        WriteEvent("outcome_override", lastPressGoal, outcome, g.swarmToWalkerDist, $"source=key before={before}");
+        FinalizeIfComplete();
+    }
+
+    /// <summary>Answers the nearest unanswered goal; false if none remain.</summary>
+    private bool RecordIdentify(string outcome, string source)
+    {
+        sessionJsonDirty = true;
+        int idx = NearestUnansweredGoal(out float dist, out Vector3 centroid);
+        if (idx < 0)
+        {
+            Debug.Log($"ExperimentRecorder: identify ({source}) but all goals already answered (ignored).", this);
+            return false;
+        }
+
+        GoalInfo g = goals[idx];
+        g.answered = true;
+        g.source = source;
         g.outcome = outcome;
         g.decisionTimeSec = Time.time - sessionStartTime;
         g.swarmToWalkerDist = dist;
         g.centroidAtAnswer = centroid;
+        // No ';' in the note: pandas readers of _events.csv split on it.
         WriteEvent("identify", idx, outcome, dist,
-            $"centroid={F(centroid.x)},{F(centroid.y)},{F(centroid.z)}");
+            $"centroid={F(centroid.x)},{F(centroid.y)},{F(centroid.z)} source={source}");
+        if (outcome == "")
+            Debug.Log($"ExperimentRecorder: RC identify -> goal {idx} ({g.hat}, walker {F(dist)} m away); " +
+                      "press the outcome key.", this);
 
-        int answered = 0;
-        foreach (GoalInfo gi in goals) if (gi.answered) answered++;
-        if (goals.Count > 0 && answered >= goals.Count) Finalize("all_goals_answered");
+        FinalizeIfComplete();
+        return true;
+    }
+
+    /// <summary>The most recent RC identify with no outcome yet; -1 if none.</summary>
+    private int LatestAwaitingOutcome()
+    {
+        int best = -1;
+        for (int i = 0; i < goals.Count; i++)
+        {
+            GoalInfo g = goals[i];
+            if (g.answered && g.outcome == "" && (best < 0 || g.decisionTimeSec > goals[best].decisionTimeSec))
+                best = i;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Finishes once every goal has an outcome, so an RC identify still waiting for its key holds the
+    /// session open. Where no key is pressed (answers noted by hand) it ends manually, as it always has.
+    /// </summary>
+    private void FinalizeIfComplete()
+    {
+        if (goals.Count == 0) return;
+        foreach (GoalInfo g in goals)
+            if (!g.answered || g.outcome == "") return;
+        Finalize(identifyMode == IdentifyMode.AutoScore ? "all_goals_identified" : "all_goals_answered");
     }
 
     /// <summary>Nearest not-yet-answered goal to the swarm centroid; -1 if none remain.</summary>
     private int NearestUnansweredGoal(out float swarmToWalkerDist, out Vector3 centroid)
     {
-        centroid = SwarmCentroid();
+        centroid = AliveCentroid();
         swarmToWalkerDist = -1f;
         int best = -1;
         float bestSq = float.MaxValue;
@@ -325,6 +1302,30 @@ public class ExperimentRecorder : MonoBehaviour
         if (best >= 0 && goals[best].special != null)
             swarmToWalkerDist = Vector3.Distance(centroid, goals[best].special.position);
         return best;
+    }
+
+    /// <summary>
+    /// Centroid of the alive drones. A crashed drone stays in the swarm list where it fell (below ground, once
+    /// parked), so averaging every drone pulled the centroid down and sideways and could attribute a press to the
+    /// wrong goal; every centroid this recorder logs or scores with is now this one.
+    /// </summary>
+    private Vector3 AliveCentroid()
+    {
+        List<GameObject> swarm = spawner != null ? spawner.swarm : null;
+        if (swarm == null || swarm.Count == 0) return Vector3.zero;
+        Vector3 sum = Vector3.zero;
+        int n = 0;
+        foreach (GameObject drone in swarm)
+        {
+            if (drone == null) continue;
+            Transform dp = drone.transform.Find("DroneParent");
+            if (dp == null) continue;
+            VelocityControl vc = dp.GetComponent<VelocityControl>();
+            if (vc != null && vc.State != null && !vc.State.IsAlive) continue;
+            sum += (vc != null && vc.State != null) ? vc.State.GroundTruthPosition : dp.position;
+            n++;
+        }
+        return n > 0 ? sum / n : SwarmCentroid();
     }
 
     private Vector3 SwarmCentroid()
@@ -346,15 +1347,41 @@ public class ExperimentRecorder : MonoBehaviour
         return n > 0 ? sum / n : Vector3.zero;
     }
 
+    /// <summary>
+    /// Logs the start line's crossings, each at the frame <see cref="StartLine"/> detected it rather than this one's
+    /// (the two components' Updates are not ordered). The first live drone's is the clock; the centroid's is kept
+    /// beside it because a swarm's front drone leads its centroid by ~1 s, which a single drone does not.
+    /// </summary>
+    private void LogStartLine()
+    {
+        if (startLine == null) return;
+        if (!startLineLogged && startLine.Crossed)
+        {
+            startLineLogged = true;
+            sessionJsonDirty = true;
+            Vector3 p = startLine.CrossedPosition;
+            WriteEventAt(startLine.CrossedTime, "start_line", -1, "", -1f,
+                $"drone={startLine.CrossedDrone} x={F(p.x)} z={F(p.z)} centroidBehindM={F(startLine.CentroidBehindAtCross)}");
+        }
+        if (!startCentroidLogged && startLine.CentroidCrossed)
+        {
+            startCentroidLogged = true;
+            Vector3 p = startLine.CentroidCrossedPosition;
+            WriteEventAt(startLine.CentroidCrossedTime, "start_line_centroid", -1, "", -1f, $"x={F(p.x)} z={F(p.z)}");
+        }
+    }
+
     // ------------------------------------------------------------------ finalize
 
     private void Finalize(string reason)
     {
         if (!sessionOpen || finalized) return;
         finalized = true;
+        endReason = reason;
 
         try
         {
+            CollectGitQuery(2000);   // only waits on a run a moment long
             WriteEvent("session_end", -1, "", -1f, reason);
             WriteSessionJson();
         }
@@ -370,26 +1397,85 @@ public class ExperimentRecorder : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Rewrites the session JSON if anything in it has changed: first as the goals are resolved, then on a press, a
+    /// loss, the start line and git's answer. The final write is <see cref="Finalize"/>'s. Otherwise a crash would lose
+    /// the file, and with it the goals, the hats and the seed, which a goal seed drawn fresh at Play cannot give back;
+    /// the CSVs alone do not say where a goal was. Until the end <c>finalized</c> is false, and analyse.py does not
+    /// analyse such a run. It costs a handful of ~5 KB writes a run, each on a frame where something else happened.
+    /// </summary>
+    private void FlushSessionJson()
+    {
+        if (!sessionJsonDirty) return;
+        sessionJsonDirty = false;
+        try
+        {
+            WriteSessionJson();
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"ExperimentRecorder: could not write {fileStem}_session.json. {e.Message}", this);
+        }
+    }
+
     private void WriteSessionJson()
     {
         var data = new SessionData
         {
+            finalized = finalized,
+            endReason = endReason,
             participantId = participantId,
             trialNumber = trialNumber,
             condition = condition.ToString(),
+            conditionMismatch = conditionMismatch,
             droneCount = (spawner != null && spawner.swarm != null) ? spawner.swarm.Count : 0,
+            dronesLost = dronesLost,
+            gitCommit = git.commit,
+            gitDirty = git.changes.Length > 0,
+            gitChanges = git.changes,
+            gitError = git.error,
             sampleHz = sampleHz,
             wallStartIso = wallStart.ToString("o"),
             wallEndIso = DateTime.Now.ToString("o"),
             durationSec = Time.time - sessionStartTime,
+            stitchFunctionalSec = stitchFunctionalSec,
+            stitchOnCount = stitchOnCount,
+            goalSeed = GoalSession.HasSeed ? GoalSession.Seed : 0,
+            goalSeedSource = GoalSession.HasSeed ? GoalSession.Source : "",
+            identifyMode = identifyMode.ToString(),
+            identifyZoneM = identifyZoneM,
+            identifyRangeM = identifyMaxRangeM,
+            identifyCentralFraction = identifyCentralFraction,
+            identifyLookbackSec = identifyLookbackSec,
+            rcIdentifyDebounceSec = rcIdentifyDebounceSec,
+            stitchingEnabled = stitching != null && stitching.StitchingEnabled,
+            screenStyle = screenSpawn != null ? screenSpawn.screenStyle.ToString() : "",
+            screenRadius = screenSpawn != null ? screenSpawn.radius : 0f,
+            screenScale = screenSpawn != null ? screenSpawn.scale : 0f,
+            cockpitRoom = CockpitRoom.Active,
+            cockpitRoomStyle = CockpitRoom.InForce,
+            layout = CityLayoutInfo.Current ?? new CityLayoutInfo.Record(),
+            headsetActive = headsetActiveSec > 0f,
+            headsetActiveSec = headsetActiveSec,
+            headsetWornSec = headsetWornSec,
+            xrDevice = xrDeviceName,
+            displayRefreshHz = displayRefreshHz,
+            eyeTextureWidth = eyeTextureWidth,
+            eyeTextureHeight = eyeTextureHeight,
+            eyeTextureScale = eyeTextureScale,
+            feedWidth = screenSpawn != null ? screenSpawn.width : 0,
+            feedHeight = screenSpawn != null ? screenSpawn.height : 0,
+            displayMode = DisplayModeInForce().ToString(),
+            sphere360 = SphereRecord(),
         };
 
-        int nCorrect = 0;
+        int nCorrect = 0, falseAlarms = 0;
         float lastIdentifyT = 0f;
         for (int i = 0; i < goals.Count; i++)
         {
             GoalInfo g = goals[i];
             if (g.outcome == "correct") nCorrect++;
+            falseAlarms += g.falseAlarms;
             if (g.answered && g.decisionTimeSec > lastIdentifyT) lastIdentifyT = g.decisionTimeSec;
             // g.goal may be a destroyed Transform if finalizing during scene teardown.
             Vector3 goalPos = g.goal != null ? g.goal.position : Vector3.zero;
@@ -398,19 +1484,56 @@ public class ExperimentRecorder : MonoBehaviour
                 goalIndex = i,
                 goalX = goalPos.x, goalY = goalPos.y, goalZ = goalPos.z,
                 specialSpawnX = g.specialSpawnPos.x, specialSpawnY = g.specialSpawnPos.y, specialSpawnZ = g.specialSpawnPos.z,
+                hat = g.hat,
+                dealOrdinal = g.dealOrdinal,
+                targetPatrolIndex = g.targetPatrolIndex,
+                targetPatrol = g.targetPatrol,
+                targetWalkerIndex = g.targetWalkerIndex,
+                zoneShape = g.zoneShape,
+                patchRadius = g.patchRadius,
+                r_g = g.ringRadius,
+                w_c = g.occluderWidth,
+                c_g = g.clearance,
+                centreBox = g.centreBox,
+                ringBoxes = g.ringBoxes,
                 answered = g.answered,
+                identifySource = g.source,
                 outcome = g.outcome,
                 decisionTimeSec = g.decisionTimeSec,
                 swarmToWalkerDist = g.swarmToWalkerDist,
                 centroidAtAnswerX = g.centroidAtAnswer.x,
                 centroidAtAnswerY = g.centroidAtAnswer.y,
                 centroidAtAnswerZ = g.centroidAtAnswer.z,
+                falseAlarms = g.falseAlarms,
+                scoredFeed = g.scoredFeed,
+                scoredCamDist = g.scoredCamDist,
+                gazeFeedAtAnswer = g.gazeFeedAtAnswer,
+                headHatDegAtAnswer = g.headHatDegAtAnswer,
+                gazeHatDegAtAnswer = g.gazeHatDegAtAnswer,
             });
         }
         data.nCorrect = nCorrect;
+        data.falseAlarms = falseAlarms;
         data.nGoals = goals.Count;
-        // Total task time = start → last identify (0 if nothing was answered).
+        // Total task time = start → last identify: the pilot's RC press where there was one, else the
+        // key (0 if nothing was answered).
         data.totalTaskTime = lastIdentifyT;
+
+        // The start line, on the session clock; -1 = no line in the scene, or never crossed.
+        if (startLine != null && startLine.Placed)
+        {
+            data.startLineX = startLine.Point.x;
+            data.startLineZ = startLine.Point.z;
+            data.startLineHeadingDeg = startLine.PlacedHeadingDeg;
+            data.startLineDistanceM = startLine.PlacedDistance;
+            if (startLine.Crossed)
+            {
+                data.startLineSec = startLine.CrossedTime - sessionStartTime;
+                data.startLineDrone = startLine.CrossedDrone;
+                if (lastIdentifyT > 0f) data.taskTimeFromStartLine = lastIdentifyT - data.startLineSec;
+            }
+            if (startLine.CentroidCrossed) data.startCentroidSec = startLine.CentroidCrossedTime - sessionStartTime;
+        }
 
         string json = JsonUtility.ToJson(data, true);
         File.WriteAllText(Path.Combine(dirPath, $"{fileStem}_session.json"), json, new UTF8Encoding(false));
@@ -418,11 +1541,15 @@ public class ExperimentRecorder : MonoBehaviour
 
     // ------------------------------------------------------------------ helpers
 
-    private void WriteEvent(string type, int goalIndex, string outcome, float swarmToWalkerDist, string note)
+    private void WriteEvent(string type, int goalIndex, string outcome, float swarmToWalkerDist, string note) =>
+        WriteEventAt(Time.time, type, goalIndex, outcome, swarmToWalkerDist, note);
+
+    /// <summary>An event that happened at <paramref name="time"/> (<c>Time.time</c>), not necessarily this frame.</summary>
+    private void WriteEventAt(float time, string type, int goalIndex, string outcome, float swarmToWalkerDist, string note)
     {
         if (eventsWriter == null) return;
         eventsWriter.WriteLine(
-            $"{F(Time.time - sessionStartTime)};{UnixMs()};{type};{goalIndex};{outcome};{F(swarmToWalkerDist)};{note}");
+            $"{F(time - sessionStartTime)};{UnixMs()};{type};{goalIndex};{outcome};{F(swarmToWalkerDist)};{note}");
         eventsWriter.Flush();
     }
 
@@ -432,6 +1559,9 @@ public class ExperimentRecorder : MonoBehaviour
         SafeClose(ref headWriter);
         SafeClose(ref walkersWriter);
         SafeClose(ref eventsWriter);
+        SafeClose(ref shapeWriter);
+        SafeClose(ref stitchWriter);
+        SafeClose(ref perfWriter);
     }
 
     private static void SafeClose(ref StreamWriter w)
@@ -448,15 +1578,67 @@ public class ExperimentRecorder : MonoBehaviour
     [Serializable]
     private class SessionData
     {
+        // false: the run has not ended, or never did (see FlushSessionJson). Absent = a run before 2026-11-03, whose
+        // file was only ever written at the end. endReason is session_end's note.
+        public bool finalized;
+        public string endReason;
         public string participantId;
         public int trialNumber;
         public string condition;
+        public bool conditionMismatch;     // the label disagrees with droneCount (see CheckConditionLabel)
         public int droneCount;
+        public int dronesLost;             // drone_lost events
+        // The commit, and whether Assets, Packages or ProjectSettings differed from it (gitChanges: porcelain lines).
+        // An empty gitCommit is explained by gitError.
+        public string gitCommit;
+        public bool gitDirty;
+        public string[] gitChanges;
+        public string gitError;
         public float sampleHz;
         public string wallStartIso;
         public string wallEndIso;
         public float durationSec;
-        public float totalTaskTime;
+        public float totalTaskTime;        // Play -> last identify
+        // The start line (StartLine): the first live drone's crossing starts the timed task. -1 = none / not crossed.
+        public float startLineSec = -1f;
+        public int startLineDrone = -1;
+        public float startCentroidSec = -1f;   // the alive centroid's crossing (a swarm's ~1 s after its front drone)
+        public float taskTimeFromStartLine = -1f;   // start line -> last identify
+        public float startLineX, startLineZ, startLineHeadingDeg, startLineDistanceM;
+        public float stitchFunctionalSec;  // panorama on screen and live (UpdateStitchState)
+        public int stitchOnCount;          // times it came on
+        // GoalSession's seed: the goal tiles, hat deal, target walkers and walker starts all follow from it, and
+        // GoalPatchReplacer's Replay reads it back. An empty source = no goal seed was set (no goals).
+        public int goalSeed;
+        public string goalSeedSource;
+        public string identifyMode;        // AutoScore or Legacy (absent = Legacy: runs before 2026-10-12)
+        // The identify rule this run was scored by (absent = a run before 2026-11-03: the 15 / 40 / 0.8 / 1 defaults,
+        // unless a scene overrode them).
+        public float identifyZoneM, identifyRangeM, identifyCentralFraction, rcIdentifyDebounceSec;
+        public float identifyLookbackSec;
+        public int falseAlarms;            // AutoScore presses scored wrong, over every goal
+        // False: no stitcher had any part in this run, so _stitch.csv's zeros are not a stitcher that failed to start.
+        public bool stitchingEnabled;
+        // The layout in force when this file was written; display events have every change.
+        public string screenStyle;
+        public float screenRadius, screenScale;
+        // The room-fixed backdrop (CockpitRoom) was drawn when this file was written; display events have every
+        // change. Absent = a run before 2026-11-04: the screens hung in a black, world-fixed Arena box.
+        public bool cockpitRoom;
+        public string cockpitRoomStyle;        // FloorAndWall, FloorAndCeiling, or "off"
+        public CityLayoutInfo.Record layout;   // the generated layout the city was built from (empty id in tile cities)
+        // Was this flown in the headset? Absent = a run before 2026-11-03 (see WritePerfSample for those).
+        public bool headsetActive;
+        public float headsetActiveSec, headsetWornSec;
+        public string xrDevice;
+        public float displayRefreshHz;
+        public int eyeTextureWidth, eyeTextureHeight;   // the eye buffer: what the screens are drawn into
+        public float eyeTextureScale;
+        public int feedWidth, feedHeight;  // each drone's feed render texture
+        // SCREENS (the feeds) or SPHERE (one drone's 360 camera on a sphere: the screen fields above are then what
+        // would have been, and sphere360 is what was shown). Absent = a run before 2026-11-06, all SCREENS.
+        public string displayMode;
+        public SphereInfo sphere360;
         public int nCorrect;
         public int nGoals;
         public List<GoalResult> goals = new List<GoalResult>();
@@ -468,10 +1650,56 @@ public class ExperimentRecorder : MonoBehaviour
         public int goalIndex;
         public float goalX, goalY, goalZ;
         public float specialSpawnX, specialSpawnY, specialSpawnZ;
+        public string hat;
+        public int dealOrdinal;            // this goal's place in the hat deal (GoalSpecialWalker)
+        public int targetPatrolIndex;      // which of the goal's patrols carries the hat, and its building
+        public string targetPatrol;
+        public int targetWalkerIndex;      // which of that patrol's walkers wears it
+        public string zoneShape;           // "tile" (analyse.py's square) or "disc" (a procedural goal)
+        public float patchRadius;          // the tile's half-width, or the disc's radius
+        public float r_g, w_c, c_g;        // a procedural goal's ring radius, occluder width and clearance (-1 tile)
+        public string centreBox;           // a procedural goal's occluder and ring buildings, by layout name ("" / [] tile)
+        public string[] ringBoxes;
         public bool answered;
+        public string identifySource;   // rc: decisionTimeSec is the pilot's press; key: the experimenter's key
         public string outcome;
         public float decisionTimeSec;
         public float swarmToWalkerDist;
         public float centroidAtAnswerX, centroidAtAnswerY, centroidAtAnswerZ;
+        public int falseAlarms;            // AutoScore presses at this goal scored wrong
+        public int scoredFeed;             // the swarm-list index of the camera that scored the correct press
+        public float scoredCamDist;        // its distance to the hat (m)
+        public int gazeFeedAtAnswer;       // the feed the pilot's gaze was on at that press (-1 none)
+        // SPHERE: the angle from the hat to the head's and to the gaze's direction in the city at that press (-1 none)
+        public float headHatDegAtAnswer, gazeHatDegAtAnswer;
+    }
+
+    // The sphere as shown when the file was written (all zero / empty without one); display events have every change.
+    [Serializable]
+    private class SphereInfo
+    {
+        public bool active;
+        public int cubeSize;               // pixels per cube face edge
+        public float refreshHz;
+        public bool splitFaces;
+        public string heading;             // TurnWithDrone or WorldFixed
+        public float bandHalfDeg;          // 0 = the whole sphere
+        public long refreshes;             // complete cube refreshes so far
+    }
+
+    private static SphereInfo SphereRecord()
+    {
+        Sphere360Display s = Sphere360Display.Instance;
+        if (!Sphere360Display.Active || s == null) return new SphereInfo { heading = "" };
+        return new SphereInfo
+        {
+            active = true,
+            cubeSize = s.CubeEdge,
+            refreshHz = s.Config.refreshHz,
+            splitFaces = s.Config.splitFaces,
+            heading = s.Config.heading.ToString(),
+            bandHalfDeg = s.Config.bandHalfDeg,
+            refreshes = s.Refreshes,
+        };
     }
 }

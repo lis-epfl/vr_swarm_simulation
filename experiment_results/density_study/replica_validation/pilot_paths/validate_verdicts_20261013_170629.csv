@@ -1,0 +1,10 @@
+run,flights,buildings,friction,lost_bench,lost_replica,contacts_bench,contacts_replica,track_frac_median,nn_rel_median,lost_diff_per10,t90_diff_median,verdict
+gate_pilot_C1p_n1,2,contact,0.6,0,0,0,0,0.003,,0.0,,PASS
+gate_pilot_C1p_n10,4,contact,0.6,8,10,5,2,0.012,0.061,5.0,,FAIL (losses)
+gate_pilot_C1pb_n10,4,contact,0.6,18,12,2,0,0.01,0.157,15.0,,"FAIL (spacing, losses)"
+gate_pilot_L1_n1,2,contact,0.6,0,0,0,0,0.004,,0.0,,PASS
+gate_pilot_L1_n10,4,contact,0.6,3,4,2,1,0.004,0.099,2.5,,FAIL (losses)
+gate_pilot_L1b_n10,4,contact,0.6,0,3,2,2,0.005,0.094,7.5,,FAIL (losses)
+gate_pilot_L3_n1,2,contact,0.6,0,0,0,0,0.029,,0.0,,PASS
+gate_pilot_L3_n10,4,contact,0.6,18,13,2,3,0.018,0.116,12.5,,FAIL (losses)
+gate_pilot_L3b_n10,4,contact,0.6,13,16,3,0,0.016,0.445,7.5,,"FAIL (spacing, losses)"

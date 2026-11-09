@@ -1,0 +1,26 @@
+{
+ "hypothesis": "H2",
+ "measure": "informed search: RMST of the time to find at 80 m (any feed), capped",
+ "contrast": "log(swarm_hop / swarm_street) at the profile's separation, city means",
+ "n_cities": 48,
+ "mean_log_ratio": 0.0153,
+ "ratio": 1.0154,
+ "t": 0.3099833860725057,
+ "p_one_sided": 0.6210280373618855,
+ "equivalence": {
+  "p40_s18": {
+   "n_cities": 24,
+   "ratio": 1.0701,
+   "margin": 1.1,
+   "p_tost": 0.33963039866251676,
+   "equivalent": false
+  },
+  "p40_s24": {
+   "n_cities": 24,
+   "ratio": 0.9636,
+   "margin": 1.1,
+   "p_tost": 0.21829516783012243,
+   "equivalent": false
+  }
+ }
+}

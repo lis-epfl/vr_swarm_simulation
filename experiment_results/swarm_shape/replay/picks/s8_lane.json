@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s8_lane",
+  "kind": "street",
+  "k": 9007,
+  "title": "Problem: the footprint's wall lanes",
+  "first": "b2",
+  "met": 0,
+  "why": "the route where the footprint with the slide lost the most drones in Unity (4)"
+ },
+ "flights": {
+  "single_enc": [
+   "s8_lane_single_enc_replica",
+   "s8_lane_single_enc_unity"
+  ],
+  "single_cyl": [
+   "s8_lane_single_cyl_replica",
+   "s8_lane_single_cyl_unity"
+  ],
+  "b0": [
+   "s8_lane_b0_replica",
+   "s8_lane_b0_unity"
+  ],
+  "a0": [
+   "s8_lane_a0_replica",
+   "s8_lane_a0_unity"
+  ],
+  "a1": [
+   "s8_lane_a1_replica",
+   "s8_lane_a1_unity"
+  ],
+  "b2": [
+   "s8_lane_b2_replica",
+   "s8_lane_b2_unity"
+  ],
+  "c": [
+   "s8_lane_c_replica",
+   "s8_lane_c_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

@@ -6,6 +6,10 @@ public class SwarmManager : MonoBehaviour
 {
     public static SwarmManager Instance;
 
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics() => Instance = null;
+
     public enum SwarmAlgorithm
     {
         NONE,
@@ -25,17 +29,291 @@ public class SwarmManager : MonoBehaviour
     [Header("Olfati-Saber Parameters")]
     public float d_ref = 7.0f;
     public float r0_coh = 20.0f;
+    [Tooltip("Flat-top fraction of the rho_h bump, and one value for every bump there is: the alpha " +
+             "neighbour weight (over r0_coh), the obstacle field (over d_obs), the pilot shield's fade " +
+             "(over d_shield) and the hollow core. Lowering it fades attraction beyond delta*r0_coh, and " +
+             "weakens the obstacle field and the shield through the middle of their ranges, so both " +
+             "build up more gradually as a drone closes in.")]
     public float delta = 0.1f;
+    [Tooltip("Attraction per neighbour at long range, m/s^2. With r0_coh far larger than the swarm every " +
+             "neighbour pulls, so a drone the formation leaves behind a building is dragged through it by " +
+             "the whole swarm while the obstacle force saturates at maxObstacleAccel -- that was nearly " +
+             "every building contact in ScaledCityWorld.\n\n" +
+             "It is also the formation's stiffness, and the two cannot be separated: the sigma_1 shape " +
+             "ties the slope of phi near d_ref to this asymptote (b moves the ratio by ~5% at most). So " +
+             "lowering it slows how fast the swarm follows the spread stick -- mostly contraction, which " +
+             "only attraction drives. It is the one dial between crash safety and spread response.")]
     public float a = 0.3f;
     public float b = 0.5f;
     private float c;
     public float gamma = 1.0f;
+    [Tooltip("Alpha-agent velocity consensus gain only. The obstacle (beta-agent) velocity match " +
+             "has its own gain, c2_beta -- setting this to 0 no longer disables obstacle damping.\n\n" +
+             "Summed over every alive neighbour with no distance weighting, so a drone feels (N-1) times " +
+             "this, and it hands a drone the pilot shield is braking back the command the shield just " +
+             "removed. Near buildings even a few hundredths trades building contacts for fewer " +
+             "drone-drone collisions, and it damps the formation's response to the spread stick.")]
     public float c_vm = 1.0f;
     public float d_obs = 4.0f;
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
     public float c_obs = 4.3f;
+    [Tooltip("Beta-agent velocity-matching gain (Olfati-Saber c2_beta), s^-1. This is what stops a " +
+             "drone rebounding off an obstacle: without it the obstacle field is conservative and " +
+             "returns all the approach energy. Roughly critical at 2*sqrt(peak accel / field depth).")]
+    public float c2_beta = 1.6f;
+    [Tooltip("Ceiling on the obstacle force in m/s^2 (world units, not scaled by scaleFactor). " +
+             "Further clamped per drone to its own tilt budget, g*tan(min(maxPitch, maxRoll)).")]
+    public float maxObstacleAccel = 4.0f;
+    [Tooltip("Range of the pilot-command shield in swarm units (metres / scaleFactor). Inward stick " +
+             "is faded out over this distance so the pilot cannot fly straight into an obstacle. " +
+             "Size it to the stopping distance, which is much larger than the d_obs standoff. 0 = off.\n\n" +
+             "That is one drone's floor; a swarm wants more. The fade also decides how differently " +
+             "neighbours brake beside a building, and an abrupt one builds the closing speed behind most " +
+             "drone-drone collisions there.")]
+    public float d_shield = 1.4f;
     public float scaleFactor = 10.0f;
+
+    [Header("Hollow Swarm Core")]
+    [Tooltip("Hollow the middle of the swarm so more drones sit on the convex hull and therefore " +
+             "have their camera feed shown to the pilot. Works by standing a virtual Olfati-Saber " +
+             "beta-agent (a cylinder) at the swarm centroid, so being in the middle costs energy " +
+             "and the equilibrium becomes a ring. No formation, no assigned slots: the drones stay " +
+             "interchangeable and the swarm still deforms freely around obstacles.\n\n" +
+             "This is the single switch for the whole feature. Unticked, every field below is inert " +
+             "and the swarm behaves exactly as it did before the feature existed.")]
+    public bool hollowSwarmCore = false;
+
+    [Tooltip("Core radius as a fraction of how big the formation measurably is (its mean distance " +
+             "from the centroid). 0.5 is the recommended value; 0.4-0.6 all put every drone on the " +
+             "hull.\n\n" +
+             "It MUST stay well under 1: a beta-agent only has a gradient outside its cylinder, so " +
+             "a core sized to the ring the drones should end up on swallows the whole swarm in its " +
+             "flat interior, where the result is either no effect at all or the swarm escaping " +
+             "outright. Measured rather than predicted from d_ref because the swarm's equilibrium " +
+             "spacing is about half of d_ref, so a radius derived from the commanded spacing lands " +
+             "roughly twice as far out as the drones ever go.")]
+    public float coreRadiusFraction = 0.5f;
+
+    [Tooltip("Time constant (s) of the low-pass on the core radius. It exists for drone losses and " +
+             "for the mild feedback in measuring the core off the swarm it is shaping. Seeded on " +
+             "the first tick, so there is no ramp at scene start or on leaving plane mode.\n\n" +
+             "Its lag is felt when the pilot pulls the spread in: the core is still sized to the old, " +
+             "wider ring and pushes outward against the contraction. 0.5 s cut the settling time after " +
+             "a spread change by about a third with no change to the ring or to crashes; " +
+             "the loop gain is low enough (see SwarmPlaneController.UpdateCoreRadius) that a fast " +
+             "filter does not oscillate.")]
+    public float coreRadiusFilterTime = 2.0f;
+
+    [Tooltip("Core repulsion gain. 1.5 is verified to put every drone on the hull at 6 and 10 " +
+             "drones, from any starting spread, and is insensitive to the cohesion range.")]
+    public float c_core = 1.5f;
+
+    [Tooltip("OPTIONAL, off by default. Cohesion interaction range as a multiple of the live d_ref " +
+             "(which the spread stick rewrites every tick, so a fixed r0_coh changes the shape of " +
+             "the well under the pilot's hand). 0 = off, use r0_coh verbatim.\n\n" +
+             "Kept as a knob, but relaxing the coded force law says it does NOT help the hull " +
+             "count: from the current 18.5 down to 5 the equilibrium is unchanged (9 of 10 on the " +
+             "hull, spacing 0.50 d_ref), at 4 it gets worse, and at 3 the swarm disperses. The core " +
+             "above does the whole job on its own and is unaffected by this. Clamped to a floor of " +
+             "3 in OnValidate. NOTE this is not the paper's ~1.2 -- see OlfatiSaber.r0CohRatio.")]
+    public float r0CohRatio = 0.0f;
+
+    [Tooltip("Core beta-agent velocity-match gain (s^-1). Damps radial overshoot without touching " +
+             "travel around the ring. Set to 0 and the core becomes conservative: drones pushed out " +
+             "spring back in and the ring breathes.\n\n" +
+             "With coreRelativeVelocity unticked it is measured against each drone's absolute velocity " +
+             "while the core travels with the swarm, so at cruise it is also a drag on the whole " +
+             "formation (about 0.7 m/s^2 at 1.6) -- one that fades out beside buildings, i.e. differs " +
+             "between neighbours exactly there.")]
+    public float c2_core = 1.6f;
+
+    [Tooltip("Measure the core's velocity match against the swarm's mean velocity instead of each " +
+             "drone's absolute velocity. The core stands on the centroid and travels with the swarm, so " +
+             "the absolute form treats a moving obstacle as a static one: in cruise it brakes every ring " +
+             "drone, by an amount that depends on where the drone sits on the ring, which shears " +
+             "neighbours into each other and costs cruise speed. Relative, it damps only motion relative " +
+             "to the formation -- the radial overshoot it exists for.\n\n" +
+             "In a replica driven by internal_2's recorded pilot inputs this took drone-drone kills at " +
+             "d_ref 0.4 from 0.82 to 0.62 a minute, raised the drones on the hull there from 85% to 91%, " +
+             "and restored the 2-4% of full-stick cruise speed the brake cost, with the spread step " +
+             "response unchanged. Unticked reproduces the old behaviour exactly.")]
+    public bool coreRelativeVelocity = true;
+
+    [Tooltip("Core standoff as a multiple of the live d_ref, in swarm units. Sized to the lattice " +
+             "spacing so the annulus comes out about one cell thick -- deliberately not d_obs, " +
+             "which is sized to the surface of a building.")]
+    public float coreStandoffRatio = 0.5f;
+
+    [Tooltip("Ceiling on the core force in m/s^2. Keep it well under maxObstacleAccel: that gap is " +
+             "what guarantees a building wins where the two disagree, and the swarm can still " +
+             "deform freely around obstacles.")]
+    public float maxCoreAccel = 2.0f;
+
+    [Header("Close-Range Damping")]
+    [Tooltip("Gain (s^-1) of a damper on the closing speed of any two drones closer than d_damp. It acts " +
+             "only on the part of their relative velocity along the line between them, only while they " +
+             "approach, and equally and oppositely on both -- so it never pulls drones together, never " +
+             "resists spreading out, and leaves the pair's shared motion alone. It has no position term: " +
+             "the lattice still sets the spacing. 0 = off.\n\n" +
+             "Why it exists: at the spread stick's tightest d_ref the lattice cannot push a pair apart " +
+             "harder than ~0.45 m/s^2 each, even at the 0.5 m kill distance, so whatever builds a closing " +
+             "speed -- the core, the shield braking neighbours unequally, a stick reversal -- is resisted " +
+             "only by each drone's own velocity loop. This is Olfati-Saber's velocity consensus (c_vm) " +
+             "cut down to the one component that causes collisions, which is why it does not share " +
+             "c_vm's cost to the spread response.")]
+    public float c_damp = 2.0f;
+
+    [Tooltip("Range of the close-range damper, in swarm units (metres / scaleFactor). It fades in over " +
+             "this range with the same rho_h bump the obstacle field uses. It needs room to shed a closing " +
+             "speed before contact: 0.3 (3 m) beat 0.2 in the replica. At d_ref 0.4 the lattice's " +
+             "neighbours sit about 2 m apart, inside it; at d_ref 1 and above they are 5-11 m apart and it " +
+             "only wakes when something squeezes a pair together.")]
+    public float d_damp = 0.3f;
+
+    [Tooltip("Ceiling on the damper's force in m/s^2, a smooth sigma_1 saturation like the obstacle " +
+             "field's. Further clamped per drone to its tilt budget. The damper is also projected out of " +
+             "any building within d_shield, as the pilot's stick is, so it can never push a drone the " +
+             "shield is braking into the facade.")]
+    public float maxDampAccel = 4.57f;
+
+    // ---- S7 Building Flow (docs/swarm_flow/README.md) ------------------------------------------
+    // Three independent switches on how the swarm moves among buildings. Each one off is the force law
+    // exactly as it was, and each acts in horizontal swarming only (not in vertical-plane mode).
+
+    [Header("Slide Round Buildings")]
+    [Tooltip("Flown at a building, turn the part of the stick the obstacle shield removes along the building " +
+             "instead of deleting it, so the drone flows round it rather than stalling against the facade. The " +
+             "shield alone leaves a drone flown straight at a building with nothing to push it sideways. Head-on " +
+             "approaches only (slideHeadOnFraction): a drone passing beside a building is untouched, and the " +
+             "command is turned, never lengthened.\n\n" +
+             "Which way round: when the swarm flies squarely at the building (slideSplitAimFraction) the formation " +
+             "splits in halves, left half left, so it surrounds it; a drone that cannot see the swarm's centroid " +
+             "past the building goes round on the swarm's side; any other drone goes round its own side, the " +
+             "short way. Splitting by halves everywhere sends trailing drones round the wrong side of a corner " +
+             "building whenever the route turns. The single drone shares the shield, so it slides too.")]
+    public bool slideRoundBuildings = false;
+
+    [Tooltip("How head-on an approach must be for the slide: the stick's line from the drone must pass within " +
+             "this share of the building's avoidance radius of its centre. Full slide at the centre, fading to " +
+             "none at this offset; a glancing approach already slides on the cylinder's own curve. 1 and above " +
+             "is faster still and starts costing drones in the streets.")]
+    [Range(0.1f, 1.5f)]
+    public float slideHeadOnFraction = 0.8f;
+
+    [Tooltip("The formation splits in halves round a building only when the swarm flies squarely at it: the " +
+             "stick's line from the swarm's centroid (surroundLookAhead long) passes within this share of the " +
+             "building's avoidance radius of its centre. Wider, the split also fires where a street bends past a " +
+             "corner building, and the street flights fragment.")]
+    [Range(0.0f, 1.5f)]
+    public float slideSplitAimFraction = 0.6f;
+
+    [Header("Route Stragglers Round Buildings")]
+    [Tooltip("Turn a drone's pull towards neighbours it cannot see past a building round that building instead " +
+             "of through it. Cohesion is otherwise never shielded, so a drone left on the far side of a building " +
+             "was dragged into its facade by the rest of the swarm while the obstacle field saturated against " +
+             "it: nearly every building contact. Only attraction to a neighbour whose straight line passes " +
+             "through a building within d_shield is touched, so the lattice's repulsion and everything between " +
+             "drones that can see each other is exactly as before. Part of the pull is kept " +
+             "(stragglerPressShare): it is what holds the halves of a formation wrapped round a building it " +
+             "surrounds, and with all of it turned the swarm splits instead.")]
+    public bool routeStragglers = false;
+
+    [Tooltip("How hard the pull towards hidden neighbours may still press a drone towards the building, as a " +
+             "share of the obstacle field's ceiling (maxObstacleAccel, clamped to the tilt budget). The excess is " +
+             "turned along the building towards those neighbours' side. Below 1 the field always wins, so the " +
+             "pull alone can no longer drive a drone into a facade; lower values cut contacts further but leave " +
+             "the swarm in pieces more often.")]
+    [Range(0.0f, 1.0f)]
+    public float stragglerPressShare = 0.7f;
+
+    [Header("Adaptive Spread")]
+    [Tooltip("Narrow the formation among buildings and widen it back when the swarm flies at one, so it fits the " +
+             "streets and can still surround what it meets. The spread in force is the scene's d_ref (the RC's " +
+             "spread dial is ignored while this is on; the keyboard's A/D still sets it) times one swarm-wide " +
+             "scale: streetSpreadFactor among buildings, 1 while a building lies " +
+             "on the swarm's track within surroundLookAhead, and 1 with no building near at all (open ground). " +
+             "The lattice needs ~5 s to follow a change, so the look-ahead is what buys time to widen.\n\n" +
+             "Its cost is drone collisions: a narrower formation is squeezed together in the tight gaps between " +
+             "BlockShapedPatchCityWorld's buildings (S7: about twice the swarm's loss rate even at the gentle " +
+             "defaults below). The cure is a tighter avoidance shape, not a gentler setting.")]
+    public bool adaptiveSpread = false;
+
+    [Tooltip("The share of d_ref held among buildings with none ahead: in the streets. 0.85 takes 2.0 to 1.7. " +
+             "Narrower squeezes drones together in tight gaps between buildings and loses more of them: S7 " +
+             "confirmed 0.8 (with a 1 s filter), which lost 8 drones in 64 Unity flights against 2 with the " +
+             "switch off; 0.85 with a 3 s filter lost 4, for nearly the same gain in the streets.")]
+    [Range(0.5f, 1.0f)]
+    public float streetSpreadFactor = 0.85f;
+
+    [Tooltip("How far ahead of the swarm's centroid, along the stick, a building counts as being flown at, in " +
+             "swarm units (metres / scaleFactor). Shared with the slide's split test. Longer widens earlier, " +
+             "and so narrows less of the time.")]
+    public float surroundLookAhead = 4.0f;
+
+    [Tooltip("The swarm widens for a building when the stick's line from its centroid passes within this share of " +
+             "the building's avoidance radius of its centre.")]
+    [Range(0.0f, 1.5f)]
+    public float surroundAimFraction = 0.8f;
+
+    [Tooltip("Time constant (s) of the low-pass on the spread scale, so it does not chatter as buildings come " +
+             "into and out of the look-ahead, and does not snap the formation narrower or wider: half of S7's " +
+             "collisions under the adaptive spread came while it was changing. Seeded, not ramped, when the " +
+             "feature turns on.")]
+    public float spreadFilterTime = 3.0f;
+
+    // ---- S11 Wrap Hold (docs/swarm_wrap/README.md) ------------------------------------------------
+    // What the adaptive spread does while the formation is wrapped round a building. Values spelled out: Unity
+    // serialises enums by integer, and swarm_params maps the members by position.
+    public enum SpreadWrapRule
+    {
+        Off = 0,
+        Hold = 1,
+        HoldUntilLeaving = 2,
+    }
+
+    [Tooltip("S11, under adaptiveSpread: what the spread does while a building's centre lies inside the formation " +
+             "(the alive drones' bearings round it leave no gap of 180 degrees). Off is S7's rule exactly: full " +
+             "spread only while the stick's line ahead, or with no stick the centroid itself, is near a building's " +
+             "centre, so a formation still wrapped round one narrows as soon as its centroid drifts off the " +
+             "building's middle or the pilot steers (39% of the time ERKS's swarm was wrapped, internal_4). Hold: " +
+             "full spread while any building is wrapped. HoldUntilLeaving: the same, except while the pilot steers " +
+             "away from that building (its centre behind the centroid along the stick), so the formation starts " +
+             "narrowing as it leaves rather than in the next street.")]
+    public SpreadWrapRule spreadWrapRule = SpreadWrapRule.Off;
+
+    // ---- S8 Footprint Avoidance (docs/swarm_shape/README.md) -------------------------------------
+    // What each building is avoided as. Values spelled out: Unity serialises enums by integer, and swarm_params maps
+    // the members by position, so a new one goes at the end with the next value.
+    public enum ObstacleShape
+    {
+        Cylinder = 0,
+        EnclosingCircle = 1,
+        Footprint = 2,
+        Ellipse = 3,        // S10 Ellipse Avoidance (docs/swarm_ellipse/README.md)
+    }
+
+    [Header("Obstacle Shape")]
+    [Tooltip("What the swarm avoids each building as. Cylinder: the circle round the collider's axis-aligned " +
+             "bounds, as always -- in BlockShapedPatchCityWorld it reaches a median 8.8 m past the facade and " +
+             "leaves 14 m of a 25 m street. EnclosingCircle: the smallest circle round the building's footprint. " +
+             "Footprint: the footprint itself, Olfati-Saber's wall beta-agent on each face, so d_obs and d_shield " +
+             "are measured from the facade. A flat face has no sideways push of its own, which is why the " +
+             "cylinder was chosen; under Footprint the slide (slideRoundBuildings) supplies it, with its head-on " +
+             "gate measured where the stick meets the wall. Both new shapes take the S7 rules' centre and radius " +
+             "from the footprint's enclosing circle.\n\n" +
+             "Ellipse (S10): the smallest ellipse round the footprint, its aspect capped at ellipseMaxAspect, so it " +
+             "stands at a more even distance from every wall than the circle does, and the S7 rules aim by that " +
+             "ellipse. A footprint round enough to need no ellipse is avoided as its enclosing circle exactly.")]
+    public ObstacleShape obstacleShape = ObstacleShape.Cylinder;
+
+    [Tooltip("S10, under obstacleShape Ellipse: the longest the ellipse may be against its width. The smallest " +
+             "ellipse round the footprint is used up to this aspect; a longer footprint gets a rounder ellipse that " +
+             "still encloses it. 1 is the enclosing circle exactly. A long ellipse has nearly flat sides, and flat " +
+             "faces are what stall a formation flown square at a building (S8).")]
+    [Range(1.0f, 2.0f)]
+    public float ellipseMaxAspect = 1.5f;
+
     public enum AttitudeAlgorithm
     {
         NONE,
@@ -47,11 +325,69 @@ public class SwarmManager : MonoBehaviour
         GLOBAL_CONVEXHULL,
     }
 
+    [Header("Altitude Limit")]
+    [Tooltip("Metres above the TERRAIN surface that a drone may be commanded to. 0 (or a scene " +
+             "with no Terrain, e.g. DJIScene and FactoryScene) = no limit. The height measured " +
+             "from is the Unity Terrain under the drone, not the rooftops, so the ceiling stays " +
+             "flat over the city: at 50 in ScaledCityWorld, whose buildings are all exactly 50 " +
+             "tall, the swarm must fly around a building rather than over it. This is a hard cap " +
+             "on the height SETPOINT (the symmetric counterpart of VelocityControl.MinHeight), so " +
+             "the climb stick simply stops having effect upward and nothing winds up; the swarm's " +
+             "own upward force is dropped above the ceiling as well, since in a horizontal " +
+             "formation it reaches thrust directly rather than through the setpoint. Per scene, " +
+             "because the value is a property of the scene's geometry: the city pack's unscaled " +
+             "buildings reach ~136 m, so CityWorld and CrowdWorld need far more headroom than " +
+             "ScaledCityWorld's uniform 50 m skyline. NOTE the height loop holds each drone about " +
+             "1.3 m above its setpoint (see the ForceMode note in CLAUDE.md), so the flown ceiling " +
+             "is about 1.3 m above this number.")]
+    public float maxHeightAboveTerrain = 50.0f;
+
     [Header("Attitude Control")]
     public AttitudeAlgorithm SelectedAttitudeAlgorithm;
     public int numNeighbours = 5;
     public int numDimensions = 2;
     public bool pointInwards = true;
+    [Tooltip("A drone that has just joined the swarm boundary keeps its feed screen hidden until its " +
+             "heading is first within this many degrees of its target heading, so the pilot never " +
+             "watches it swing round. Latched: once shown, the screen stays up until the drone leaves " +
+             "the boundary. 180 disables the wait.")]
+    [Range(0.0f, 180.0f)]
+    public float feedHeadingToleranceDeg = 5.0f;
+
+    [Header("Look-Direction Gap Fill")]
+    [Tooltip("Turn the two hull drones either side of the pilot's body yaw slightly towards it when " +
+             "neither is facing that way. The hull rule points every boundary drone along its outward " +
+             "vertex bisector, which leaves a blind spot exactly where the pilot is flying when the " +
+             "swarm splits around a building: the front drone is stopped and swallowed, its two " +
+             "neighbours pass either side ahead of the lagging swarm, and the sharp hull corners they " +
+             "form point them 40-50 deg off the flight direction.\n\n" +
+             "Only that bracketing pair moves, by at most lookGapMaxShiftDeg, and never past the look " +
+             "direction. Acts in GLOBAL_CONVEXHULL only, and not in vertical-plane mode (which has its " +
+             "own shared heading) or with the gimbal at or below FPVCameraScript.NadirPitch (a camera " +
+             "looking down has no direction to fill). Unticked, every field below is inert and the hull " +
+             "rule is exactly what it was.\n\n" +
+             "On ScaledCityWorld's 120 held-out flights (headless, pilot facing the way they fly) it cut " +
+             "the time the look direction sat more than 30 deg from every shown drone's heading from 8.8% " +
+             "to 1.1%, and the time it sat outside every shown image from 0.4% to zero, with drones lost " +
+             "and building contacts unchanged.")]
+    public bool fillLookDirectionGap = false;
+
+    [Tooltip("The look direction counts as covered, and nothing moves, while a hull drone's target " +
+             "heading is within this many degrees of the pilot's body yaw. Beyond it the pair turns one " +
+             "degree per degree, up to lookGapMaxShiftDeg.\n\n" +
+             "An evenly spread ring of 9-10 hull drones puts the outward headings 36-40 deg apart, so at 20 " +
+             "the rule is idle there. A flying swarm is not that ring: in ScaledCityWorld's held-out " +
+             "flights about 7.7 of 10 drones are on the hull, and the fill turns a pair about a quarter of " +
+             "the time, by 7 deg on average. Raise this to keep it for the large gaps only.")]
+    [Range(0.0f, 90.0f)]
+    public float lookGapCoverageDeg = 20.0f;
+
+    [Tooltip("The most either drone of the bracketing pair may be turned off its hull heading. The " +
+             "FPV camera sees about 98 deg horizontally, so a front pair at +/-50 deg leaves no overlap " +
+             "at all straight ahead; 15 takes it to +/-35 deg, about 28 deg of overlap. The price is " +
+             "paid beside the pair: the gaps to their outer neighbours widen by the same amount.")]
+    [Range(0.0f, 45.0f)]
+    public float lookGapMaxShiftDeg = 15.0f;
 
     [Header("Camera Gimbal")]
     [Tooltip("Swarm-wide FPV camera gimbal pitch in degrees (DJI convention): 0 = level " +
@@ -70,6 +406,13 @@ public class SwarmManager : MonoBehaviour
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
+
+            // The swarming plane is toggled at runtime and read by every drone, so it must exist
+            // wherever a swarm does. Attach it here rather than making every scene remember to.
+            if (SwarmPlaneController.Instance == null && GetComponent<SwarmPlaneController>() == null)
+            {
+                gameObject.AddComponent<SwarmPlaneController>();
+            }
         }
         else
         {
@@ -86,6 +429,11 @@ public class SwarmManager : MonoBehaviour
     // Called whenever a value is changed in the Inspector
     private void OnValidate()
     {
+        // Below ~3 the cohesion well is too shallow to hold the swarm together (see the tooltip),
+        // and with c_vm = 0 there is no velocity consensus to catch a drone that falls out of range.
+        // Clamped here rather than trusted to the inspector because the failure is irrecoverable.
+        if (r0CohRatio > 0.0f) r0CohRatio = Mathf.Max(r0CohRatio, 3.0f);
+
         // Trigger the event to notify all subscribed drones
         swarmParamsChanged?.Invoke();
 
@@ -100,14 +448,14 @@ public class SwarmManager : MonoBehaviour
     }
 
     // Drives the swarm-wide FPV gimbal pitch from a normalized dial input in [-1, 1]
-    // (e.g. the joystick pitch dial), mapping linearly across the full gimbal range
-    // (dial -1 = straight down, +1 = up). Updates the Inspector field so the value is
-    // visible/tunable, then pushes it to every drone's camera.
+    // (e.g. the joystick pitch dial): -1 = straight down, 0 = level, +1 = fully up, linear
+    // on each side. Centre is level, not the middle of the range (-15 deg), because the
+    // rcjoy bridge's knob starts at 0 every launch. Updates the Inspector field so the value
+    // is visible/tunable, then pushes it to every drone's camera.
     public void SetGimbalPitchNormalized(float dial)
     {
         dial = Mathf.Clamp(dial, -1f, 1f);
-        gimbalPitch = Mathf.Lerp(FPVCameraScript.MinPitch, FPVCameraScript.MaxPitch,
-                                 (dial + 1f) * 0.5f);
+        gimbalPitch = dial * (dial < 0f ? -FPVCameraScript.MinPitch : FPVCameraScript.MaxPitch);
         ApplyGimbalPitch();
     }
 
@@ -124,6 +472,15 @@ public class SwarmManager : MonoBehaviour
     // Setter so the keyboard/joystick spread command is reflected in the inspector.
     public void SetDRef(float value) => d_ref = value;
     public float GetR0Coh() => r0_coh;
+
+    /// <summary>
+    /// The cohesion interaction range actually in force, in swarm units: a multiple of the live
+    /// d_ref while the hollow-core feature is on, the raw r0_coh otherwise. Mirrors
+    /// <see cref="OlfatiSaber.EffectiveR0Coh"/>, and exists so that consumers reasoning about how
+    /// far away is "still attached to the swarm" — DroneHealthMonitor — cannot go on using a range
+    /// the swarm itself has stopped using.
+    /// </summary>
+    public float GetEffectiveR0Coh() => (hollowSwarmCore && r0CohRatio > 0.0f) ? r0CohRatio * d_ref : r0_coh;
     public float GetDelta() => delta;
     public float GetA() => a;
     public float GetB() => b;
@@ -134,13 +491,61 @@ public class SwarmManager : MonoBehaviour
     public float GetR0Obs() => r0_obs;
     public float GetLambdaObs() => lambda_obs;
     public float GetCObs() => c_obs;
+    public float GetC2Beta() => c2_beta;
+    public float GetMaxObstacleAccel() => maxObstacleAccel;
+    public float GetDShield() => d_shield;
     public float GetScaleFactor() => scaleFactor;
+
+    // Getters for the hollow swarm core
+    public bool GetHollowSwarmCore() => hollowSwarmCore;
+    public float GetR0CohRatio() => r0CohRatio;
+    public float GetCoreRadiusFraction() => coreRadiusFraction;
+    public float GetCoreRadiusFilterTime() => coreRadiusFilterTime;
+    public float GetCCore() => c_core;
+    public float GetC2Core() => c2_core;
+    public bool GetCoreRelativeVelocity() => coreRelativeVelocity;
+    public float GetCoreStandoffRatio() => coreStandoffRatio;
+    public float GetMaxCoreAccel() => maxCoreAccel;
+
+    // Getters for the close-range damper
+    public float GetCDamp() => c_damp;
+    public float GetDDamp() => d_damp;
+    public float GetMaxDampAccel() => maxDampAccel;
+
+    // Getters for S7 Building Flow
+    public bool GetSlideRoundBuildings() => slideRoundBuildings;
+    public float GetSlideHeadOnFraction() => slideHeadOnFraction;
+    public float GetSlideSplitAimFraction() => slideSplitAimFraction;
+    public bool GetRouteStragglers() => routeStragglers;
+    public float GetStragglerPressShare() => stragglerPressShare;
+    public bool GetAdaptiveSpread() => adaptiveSpread;
+    public float GetStreetSpreadFactor() => streetSpreadFactor;
+    public float GetSurroundLookAhead() => surroundLookAhead;
+    public float GetSurroundAimFraction() => surroundAimFraction;
+    public float GetSpreadFilterTime() => spreadFilterTime;
+    public SpreadWrapRule GetSpreadWrapRule() => spreadWrapRule;
+
+    /// <summary>Whether any S7 Building Flow switch is on, i.e. whether the swarm-wide aggregates are needed.</summary>
+    public bool GetBuildingFlowActive() => slideRoundBuildings || routeStragglers || adaptiveSpread;
+
+    // Getters for S8 Footprint Avoidance and S10 Ellipse Avoidance
+    public ObstacleShape GetObstacleShape() => obstacleShape;
+    public float GetEllipseMaxAspect() => ellipseMaxAspect;
+
+    // Getter for the altitude ceiling
+    public float GetMaxHeightAboveTerrain() => maxHeightAboveTerrain;
 
     // Getters for the attitude control
     public int GetNumNeighbours() => numNeighbours;
     public int GetNumDimensions() => numDimensions;
-    public bool GetPointInwards() => pointInwards;  
+    public bool GetPointInwards() => pointInwards;
+    public float GetFeedHeadingToleranceDeg() => feedHeadingToleranceDeg;
     public AttitudeAlgorithm GetSelectedAttitudeAlgorithm() => SelectedAttitudeAlgorithm;
+
+    // Getters for the look-direction gap fill
+    public bool GetFillLookDirectionGap() => fillLookDirectionGap;
+    public float GetLookGapCoverageDeg() => lookGapCoverageDeg;
+    public float GetLookGapMaxShiftDeg() => lookGapMaxShiftDeg;
 
     // Getter for the swarm-wide FPV camera gimbal pitch
     public float GetGimbalPitch() => gimbalPitch;

@@ -122,7 +122,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -778,7 +778,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -1378,7 +1378,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -2667,7 +2667,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -2902,7 +2902,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -5103,7 +5103,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -5443,7 +5443,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -5677,7 +5677,7 @@ MonoBehaviour:
   walkerPrefab: {fileID: 5094124037760320590, guid: a7571994606416641b8db84bccc191e8,
     type: 3}
   verticalOffset: 0
-  numWalkers: 12
+  numWalkers: 8
   speedMetersPerSec: 2
   baseOffset: 0.5
   margin: 3
@@ -7095,5 +7095,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ebe3f873c1124387b98ecb64e55b5214, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  specialWalkerPrefab: {fileID: 5094124037760320590, guid: f5abe014cd51c914b85838ddec9970e0,
-    type: 3}
+  specialWalkerPrefabs:
+  - {fileID: 7159716781563447104, guid: 984e7cc49b6d6a84c8e333a0965cbdb4, type: 3}
+  - {fileID: 5094124037760320590, guid: f5abe014cd51c914b85838ddec9970e0, type: 3}
+  - {fileID: 4022510991903748776, guid: 999f6df44f6fb9044bae304f2db03a8f, type: 3}

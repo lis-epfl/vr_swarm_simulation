@@ -1,0 +1,59 @@
+{
+ "pick": {
+  "key": "s5a_foot0",
+  "design": "foot0",
+  "p": 40.0,
+  "s": 18.0,
+  "city_seed": 1,
+  "trial": 13,
+  "title": "Looking down a block: no footpath",
+  "job": {
+   "city": {
+    "variant": "B",
+    "inset": 0.0
+   },
+   "design": "foot0",
+   "conds": [
+    [
+     "street",
+     null,
+     null
+    ],
+    [
+     "hold",
+     null,
+     20.0
+    ],
+    [
+     "pass",
+     null,
+     null
+    ],
+    [
+     "hop",
+     "firm",
+     20.0
+    ]
+   ],
+   "look_range": 250.0,
+   "d_street": 1.2
+  },
+  "chosen": {
+   "d": 1.2,
+   "mode": "firm",
+   "T": 20.0
+  },
+  "median_diff": 0.14285714285714285,
+  "n_trials": 30
+ },
+ "identical": true,
+ "flights": [
+  "s5a_foot0_street",
+  "s5a_foot0_hold_20_d1.2",
+  "s5a_foot0_pass_d1.2",
+  "s5a_foot0_hop_firm_20_d1.2",
+  "s5a_foot0_single"
+ ],
+ "target": null,
+ "wall_s": 157.8
+}

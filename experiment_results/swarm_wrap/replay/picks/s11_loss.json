@@ -1,0 +1,36 @@
+{
+ "pick": {
+  "key": "s11_loss",
+  "kind": "cross",
+  "k": 21018,
+  "first": "hold",
+  "title": "Hold's worst loss in Unity",
+  "why": "the route where Hold lost the most drones in Unity (2)",
+  "conds": [
+   "off",
+   "hold",
+   "leave",
+   "f20"
+  ]
+ },
+ "flights": {
+  "off": [
+   "s11_loss_off_replica",
+   "s11_loss_off_unity"
+  ],
+  "hold": [
+   "s11_loss_hold_replica",
+   "s11_loss_hold_unity"
+  ],
+  "f20": [
+   "s11_loss_f20_replica",
+   "s11_loss_f20_unity"
+  ],
+  "leave": [
+   "s11_loss_leave_replica",
+   "s11_loss_leave_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

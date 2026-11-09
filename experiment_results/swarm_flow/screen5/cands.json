@@ -1,0 +1,162 @@
+{
+ "90357708df": {
+  "over": {},
+  "d": 2.0,
+  "label": "T3"
+ },
+ "c123c5bcad": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "slide"
+ },
+ "17a08d6a0a": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 1.0,
+   "slideSplitAimFraction": 0.6
+  },
+  "d": 2.0,
+  "label": "slide head-on 1.0"
+ },
+ "a6d081936c": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.8
+  },
+  "d": 2.0,
+  "label": "slide split 0.8"
+ },
+ "ee884a4bba": {
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  },
+  "d": 2.0,
+  "label": "route"
+ },
+ "6f49137f14": {
+  "over": {
+   "routeStragglers": true,
+   "stragglerPressShare": 0.6
+  },
+  "d": 2.0,
+  "label": "route 0.6"
+ },
+ "6b5447b702": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7
+  },
+  "d": 2.0,
+  "label": "slide + route"
+ },
+ "b2a69ea914": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  },
+  "d": 2.0,
+  "label": "adaptive 0.8"
+ },
+ "2bfa5ab69e": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 5.0
+  },
+  "d": 2.0,
+  "label": "adaptive 0.8 look 5"
+ },
+ "d283709e01": {
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  },
+  "d": 2.0,
+  "label": "adaptive 0.85"
+ },
+ "3ff79b99af": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  },
+  "d": 2.0,
+  "label": "slide + adaptive"
+ },
+ "14c876cfc6": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 5.0
+  },
+  "d": 2.0,
+  "label": "slide + adaptive look 5"
+ },
+ "3e753d9819": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  },
+  "d": 2.0,
+  "label": "slide + route + adaptive"
+ },
+ "7658e4536b": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.8,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 5.0
+  },
+  "d": 2.0,
+  "label": "slide + route + adaptive look 5"
+ },
+ "f555b26889": {
+  "over": {
+   "slideRoundBuildings": true,
+   "slideHeadOnFraction": 0.8,
+   "slideSplitAimFraction": 0.6,
+   "routeStragglers": true,
+   "stragglerPressShare": 0.7,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.7,
+   "surroundAimFraction": 0.8,
+   "surroundLookAhead": 4.0
+  },
+  "d": 2.0,
+  "label": "slide + route + adaptive 0.7"
+ }
+}

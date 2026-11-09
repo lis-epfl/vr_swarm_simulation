@@ -1,0 +1,36 @@
+{
+ "pick": {
+  "key": "s11_search",
+  "kind": "search",
+  "k": 21011,
+  "first": "hold",
+  "title": "A typical goal search",
+  "why": "the typical search: Hold's gain in the hold window's share at full spread nearest the median (+13%)",
+  "conds": [
+   "off",
+   "hold",
+   "leave",
+   "f20"
+  ]
+ },
+ "flights": {
+  "off": [
+   "s11_search_off_replica",
+   "s11_search_off_unity"
+  ],
+  "f20": [
+   "s11_search_f20_replica",
+   "s11_search_f20_unity"
+  ],
+  "hold": [
+   "s11_search_hold_replica",
+   "s11_search_hold_unity"
+  ],
+  "leave": [
+   "s11_search_leave_replica",
+   "s11_search_leave_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

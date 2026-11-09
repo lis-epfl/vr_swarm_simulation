@@ -567,13 +567,13 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: typeOfStitcher
-      value: 4
+      propertyPath: scenePlaneMode
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blockImageWidth
-      value: 768
+      propertyPath: typeOfStitcher
+      value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -582,28 +582,53 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: blockImageHeight
-      value: 432
+      propertyPath: bridge.maxStitchViews
+      value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: qualityThreshold
-      value: 16
+      propertyPath: bridge.blockImageWidth
+      value: 1152
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: panoramaImageWidth
-      value: 1600
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: panoramaImageHeight
-      value: 600
+      propertyPath: bridge.blockImageHeight
+      value: 648
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
       propertyPath: hideStitchedDroneScreens
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.panoramaImageWidth
+      value: 2160
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.panoramaImageHeight
+      value: 810
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: stabStitch.qualityThreshold
+      value: 17.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: stabStitch.blurKernelSize
+      value: 61
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: stabStitch.blurSigma
+      value: 22.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: stabStitch.borderSize
+      value: 90
       objectReference: {fileID: 0}
     - target: {fileID: 6847994249360662215, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -3811,7 +3836,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0279b7ec075322248bc32f336079b1db, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  inputMode: 1
+  inputMode: 2
   commandFrame: 2
   spreadInitial: 1
   spreadMin: 0.5
@@ -3834,12 +3859,17 @@ MonoBehaviour:
   width: 640
   height: 360
   radius: 2
-  scale: 1
-  offset: {x: 0.5, y: -0.3, z: 0}
+  scale: 1.3
+  offset: {x: 0.5, y: 0, z: 0}
   lookAtOffset: {x: 0, y: 0, z: 0}
   invertBottomScreen: 0
   doubleView: 0
   rotatingCircleDistance: 2
+  formationWallPadding: 1.08
+  formationWallColumns: 0
+  formationWallMaxSpanDeg: 120
+  formationWallSmoothTime: 0.15
+  formationMapRollScreens: 1
 --- !u!114 &1839174498
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3867,8 +3897,12 @@ MonoBehaviour:
   d_obs: 0.4
   r0_obs: 5
   lambda_obs: 1
-  c_obs: 4
+  c_obs: 2.2
+  c2_beta: 1.6
+  maxObstacleAccel: 4
+  d_shield: 1.4
   scaleFactor: 10
+  maxHeightAboveTerrain: 150
   SelectedAttitudeAlgorithm: 3
   numNeighbours: 9
   numDimensions: 2
@@ -3897,6 +3931,11 @@ MonoBehaviour:
   doubleView: 0
   rotatingCircleDistance: 1
   numScreens: 2
+  formationWallPadding: 1.08
+  formationWallColumns: 0
+  formationWallMaxSpanDeg: 120
+  formationWallSmoothTime: 0.15
+  formationMapRollScreens: 1
   screenLayerName: UI
 --- !u!114 &1839174500
 MonoBehaviour:
@@ -3917,7 +3956,7 @@ MonoBehaviour:
   dronesAlongX: 3
   dronesAlongZ: 3
   droneSpacing: 5
-  circleDroneCount: 10
+  circleDroneCount: 3
   circleRadius: 5
   start_x: -400
   start_y: 0

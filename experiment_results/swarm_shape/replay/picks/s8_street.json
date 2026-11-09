@@ -1,0 +1,43 @@
+{
+ "pick": {
+  "key": "s8_street",
+  "kind": "street",
+  "k": 9002,
+  "title": "Along the streets",
+  "first": "c",
+  "why": "the typical street route: its difference in cohesive speed, enclosing circles minus bounds circles (both with the slide), +1.02 m/s, is the nearest to the median of its kind (+1.08 m/s, 14 routes)",
+  "met": 0
+ },
+ "flights": {
+  "single_enc": [
+   "s8_street_single_enc_replica",
+   "s8_street_single_enc_unity"
+  ],
+  "single_cyl": [
+   "s8_street_single_cyl_replica",
+   "s8_street_single_cyl_unity"
+  ],
+  "a0": [
+   "s8_street_a0_replica",
+   "s8_street_a0_unity"
+  ],
+  "b0": [
+   "s8_street_b0_replica",
+   "s8_street_b0_unity"
+  ],
+  "b2": [
+   "s8_street_b2_replica",
+   "s8_street_b2_unity"
+  ],
+  "c": [
+   "s8_street_c_replica",
+   "s8_street_c_unity"
+  ],
+  "a1": [
+   "s8_street_a1_replica",
+   "s8_street_a1_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

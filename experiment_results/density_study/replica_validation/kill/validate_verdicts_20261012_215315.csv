@@ -1,0 +1,4 @@
+run,flights,track_frac_median,nn_rel_median,lost_diff_per10,t90_diff_median,verdict
+val_L1_20261012,17,0.003,0.003,0.59,0.0,PASS
+val_L3_20261012,17,0.031,0.196,7.65,0.0,"FAIL (spacing, losses)"
+val_diamond_20261012,17,0.003,0.016,1.18,0.1,PASS

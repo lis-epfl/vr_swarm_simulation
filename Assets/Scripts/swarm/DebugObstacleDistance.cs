@@ -52,10 +52,12 @@ public class DebugObstacleDistance : MonoBehaviour
 
         foreach (Collider obstacleCollider in obstacles)
         {
-            Vector3 closestPoint = obstacleCollider.ClosestPointOnBounds(dronePosition);
-            Vector3 directionToObstacle = closestPoint - dronePosition;
-            float worldDistance = directionToObstacle.magnitude;
-            float distanceToObstacle = worldDistance / olfatiSaber.ScaleFactor;  // value the algorithm uses
+            // Ask OlfatiSaber itself rather than re-deriving: the surface distance is now measured
+            // to the enclosing cylinder, not to the bounding box.
+            OlfatiSaber.ObstacleFrame frame = olfatiSaber.GetObstacleFrame(obstacleCollider, dronePosition);
+            if (!frame.valid) continue;
+            float distanceToObstacle = frame.distance;                            // value the algorithm uses
+            float worldDistance = distanceToObstacle * olfatiSaber.ScaleFactor;
 
             Transform obstacleParent = obstacleCollider.transform.parent;
             string parentName = obstacleParent != null ? obstacleParent.name : "(none)";

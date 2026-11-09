@@ -1,0 +1,129 @@
+{
+ "step": "A",
+ "designs": {
+  "base": {
+   "p": 40.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B"
+   },
+   "what": "BlockShapedCityWorld: p 40, s 18, 3.5 m footpath, RSA seeds"
+  },
+  "foot15": {
+   "p": 40.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B",
+    "inset": 1.5
+   },
+   "what": "a 1.5 m footpath"
+  },
+  "foot0": {
+   "p": 40.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B",
+    "inset": 0.0
+   },
+   "what": "no footpath: the facade on the kerb"
+  },
+  "p35": {
+   "p": 35.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B"
+   },
+   "what": "blocks 35 m apart"
+  },
+  "p30": {
+   "p": 30.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B",
+    "inset": 1.5
+   },
+   "what": "blocks 30 m apart, 1.5 m footpath"
+  },
+  "s20": {
+   "p": 40.0,
+   "s": 20.0,
+   "city": {
+    "variant": "B"
+   },
+   "what": "20 m streets"
+  },
+  "lloyd2": {
+   "p": 40.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B",
+    "relax": 2
+   },
+   "what": "RSA seeds relaxed twice (Lloyd)"
+  },
+  "hex15": {
+   "p": 40.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B",
+    "seeds": "hex",
+    "jitter": 0.15
+   },
+   "what": "a jittered hexagonal lattice"
+  },
+  "hex0": {
+   "p": 40.0,
+   "s": 18.0,
+   "city": {
+    "variant": "B",
+    "seeds": "hex",
+    "jitter": 0.0
+   },
+   "what": "an exact hexagonal lattice"
+  }
+ },
+ "trials": 30,
+ "city_seeds": [
+  0,
+  1,
+  2
+ ],
+ "sight_m": 250.0,
+ "chosen": {
+  "d": 1.2,
+  "mode": "firm",
+  "T": 20.0
+ },
+ "conditions": [
+  [
+   "street",
+   null,
+   null
+  ],
+  [
+   "hold",
+   null,
+   20.0
+  ],
+  [
+   "pass",
+   null,
+   null
+  ],
+  [
+   "hop",
+   "firm",
+   20.0
+  ],
+  [
+   "single",
+   null,
+   null
+  ],
+  [
+   "single_look",
+   null,
+   null
+  ]
+ ]
+}

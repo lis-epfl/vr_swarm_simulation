@@ -1,0 +1,453 @@
+<title>S11 Wrap Hold</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (swarmwrap_report via swarmtune_report.s4_style),
+   then S11's additions. */
+/*__S4_STYLE__*/
+/* S11: the four ways, on the family's validated slots (the scene the neutral, as S10's base) */
+:root { --k-off: var(--m-other); --k-hold: var(--c-hop2); --k-leave: var(--c-pass); --k-f20: var(--c-hop); --k-erks: var(--m-firm);
+        --k-other: var(--m-firm); }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 150px; font-family: var(--font-body); }
+table.dt tr.pick td { background: color-mix(in srgb, var(--c-hop2) 12%, transparent); font-weight: 600; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S11 · Wrap Hold · for the human trials</p>
+      <h1>Should the swarm stay wide while it is wrapped round a building?</h1>
+      <p class="lead">On the map of ERKS's first swarm trial (internal_4), the swarm widened as it surrounded the building at a goal, then narrowed while it was still round it.
+        The adaptive spread the trial scene flies (0.85 of d_ref in the streets) keeps the full spread only while the stick's line ahead, or with the stick centred the swarm's
+        centre itself, is near a building's middle: a swarm drifted off the middle, or a pilot steering round the building, narrows a formation that is still wrapped round it.</p>
+      <p class="lead">S11 adds a rule to the same setting (<code>SwarmManager.spreadWrapRule</code>): <b>Hold</b> keeps the full spread while any building's centre lies inside the formation,
+        <b>HoldUntilLeaving</b> releases it while the pilot steers away from that building. Flown against the rule as the scene has it on ERKS's own flights, a four-city replica
+        confirmation with a search flight calibrated on ERKS's, and the Unity bench. Scripted pilots.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const sgn = (a, b, nd = 0) => ok(a) && ok(b) && b ? `${a >= b ? "+" : "−"}${(100 * Math.abs(a / b - 1)).toFixed(nd)}%` : "–";
+const times = (a, b) => ok(a) && ok(b) && b ? `×${(a / b).toFixed(2)}` : "–";
+
+// ---------------------------------------------------------------- the ways, the rows, the runs
+const WAYS = [["off", "the scene's rule (wrap rule Off)", "the scene"], ["hold", "Hold", "Hold"],
+              ["leave", "HoldUntilLeaving", "until leaving"], ["f20", "the spread held at 2.0 (F20)", "held 2.0"]];
+const ROWCOL = {E15_35a: "off", H15_35a: "hold", L15_35a: "leave", F20: "f20"};
+const kCol = c => `var(--k-${ROWCOL[c] || (WAYS.some(x => x[0] === c) ? c : "other")})`;
+const CF = D.confirm || {}, SC = D.screen || {}, V = D.verdicts || {}, HU = D.human || {}, CAL = D.calib || {};
+const PICK = D.pick || "H15_35a", BASE = D.rule.base;
+const SHORT = {E15_35a: "the scene", H15_35a: "Hold", L15_35a: "until leaving", F20: "held at 2.0"};
+const U = (set, src = "unity") => (D.unity || []).find(r => r.set === set && r.src === src);
+const CNT = set => D.counts ? D.counts[set] : null;
+const LOSS = D.unity_losses ? D.unity_losses.losses : [];
+const KD = (c, k, m) => ((D.kinds || {})[c] || {})[k] ? D.kinds[c][k][m] : null;
+
+// ---------------------------------------------------------------- tooltip and chart helpers (S5's)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (Wd, H, label, g) => `<svg viewBox="0 0 ${Wd} ${H}" style="max-width:${Wd}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// Small-multiple horizontal bars: one panel per measure, one bar per row; rows [{c, lab, ...}], panels [{title, get, f, lo?, hi?, unit?}]
+function barPanels(el, rows, panels) {
+  const Wd = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 16, gap = 7, m = {l: 136, r: 58, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x)), his = rows.map(x => p.hi ? p.hi(x) : null);
+    const vmax = Math.max(1e-9, ...vals.filter(ok), ...his.filter(ok)) * 1.05;
+    const xx = v => m.l + (Wd - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = "";
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(x.lab)}</text>`;
+      if (ok(v)) {
+        g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${kCol(x.c)}"/>`;
+        if (p.lo && ok(p.lo(x)) && ok(p.hi(x))) g += `<line x1="${xx(p.lo(x)).toFixed(1)}" x2="${xx(p.hi(x)).toFixed(1)}" y1="${yy + bh / 2}" y2="${yy + bh / 2}" stroke="var(--ink)" stroke-width="1.4"/>`;
+        g += `<text class="val" x="${(Math.max(xx(v), p.hi && ok(p.hi(x)) ? xx(p.hi(x)) : 0) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      } else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${Wd}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(Wd, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100]; return [x.lab, [[kCol(x.c), p.f(p.get(x)), p.title]]]; });
+}
+
+// ---------------------------------------------------------------- the masthead
+function ANSWER_BOX() {
+  const b = CF[BASE] || {}, h = CF.H15_35a || {}, ub = U(BASE), uh = U("H15_35a");
+  const hl = LOSS.filter(x => x.set === "H15_35a"), same = hl.filter(x => Math.abs(x.scale - x.base_scale) <= 0.01).length;
+  return `<p class="eyebrow">The short answer</p><ol>
+    <li><b>Yes, it narrows while it is still round the building.</b> Replayed on ERKS's three flights, the rule as flown held a narrowed spread for ${pc((HU.Off || {}).wrapped_narrowed)}
+      of the time a building lay inside the formation; in the four-city replica, ${pc(b.wrap_narrow)}.</li>
+    <li><b>Hold keeps the spread at full:</b> narrowed for ${pc(h.wrap_narrow)} of that time (${pc((HU.Hold || {}).wrapped_narrowed)} on ERKS's flights); the mean scale while wrapped ${fmt(b.wrap_sigma, 3)} → ${fmt(h.wrap_sigma, 3)}
+      ${ub && uh ? `(Unity ${fmt(ub.wrap_sigma, 3)} → ${fmt(uh.wrap_sigma, 3)})` : ""}. The ring round the building widens less than that suggests, ${fmt(KD("H15_35a", "search", "wrap_ring") - KD(BASE, "search", "wrap_ring"), 1)} m
+      in a search: round a building the building mostly sets its size.</li>
+    <li><b>It costs nothing measured.</b> Street speed ${sgn(h.street_v_coh, b.street_v_coh, 1)}, leaving a building ${sgn(h.search_leave_v, b.search_leave_v, 1)}, ${h.all_loss_events} loss events against ${b.all_loss_events}
+      in ${fmt(b.all_h, 0)} h of flight, contacts ${sgn(h.all_contact_ph, b.all_contact_ph)}. Unity's ${hl.length} losses against ${LOSS.filter(x => x.set === BASE).length} all fell where its spread was the scene's (${same} of ${hl.length}).</li></ol>
+    <p class="bottom"><b>My reading:</b> fly Hold: set <code>spreadWrapRule</code> to Hold in BlockShapedPatchCityWorld, nothing else changed. The single drone is not affected. <a href="#q4">What to fly</a>.</p>`;
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["flights", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s11tab", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (/^q\d$/.test(h)) { show("answer", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? D.replay.groups[gi].flights.find(f => f.cond === cond && f.source === "unity") : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (gid, cond, text) => D.replay && D.replay.groups.some(g => g.id === gid) ? `<a class="watch" href="#watch:${gid}:${cond}">${esc(text)}</a>` : "";
+
+// ---------------------------------------------------------------- the answer
+RENDER.answer = el => {
+  const b = CF[BASE] || {}, h = CF.H15_35a || {}, l = CF.L15_35a || {}, f = CF.F20 || {};
+  const ub = U(BASE), uh = U("H15_35a"), ul = U("L15_35a"), tb = U(BASE, "replica"), th = U("H15_35a", "replica");
+  const E = CAL.erks || {}, S = CAL.scripted || {};
+  const hl = LOSS.filter(x => x.set === "H15_35a"), bl = LOSS.filter(x => x.set === BASE);
+  const same = hl.filter(x => Math.abs(x.scale - x.base_scale) <= 0.01).length, before = hl.filter(x => !x.wrapped_before).length;
+  const city = D.city || {}, seeds = D.seeds || [];
+  const cityNar = c => seeds.map(s => (city[c] || {})[String(s)]).filter(Boolean);
+  const range = (xs, k) => { const v = xs.map(x => x[k]).filter(ok); return v.length ? `${pc(Math.min(...v))}–${pc(Math.max(...v))}` : "–"; };
+  const factor = ((b.over || {}).streetSpreadFactor) || 0.85;
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>Does the swarm narrow while it is still wrapped round a building?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>For ${pc((HU.Off || {}).wrapped_narrowed)} of the time a building was inside ERKS's formation, and ${pc(b.wrap_narrow)} of it in the replica's flights.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-q1"></div>
+      <div class="qtext"><ul>
+        <li><b>Why:</b> the scene's adaptive spread keeps the full spread only while the stick's line 40 m ahead passes within 0.8 of a building's radius of its centre, or, with the
+          stick centred, while the swarm's centre itself is that close. A formation wrapped round a building is not tested at all: once its centre drifts off the building's middle, or
+          the pilot steers so the line misses it, the target drops to 0.85 and the formation narrows round the building it is still surrounding.</li>
+        <li><b>ERKS's flights</b> (the rule replayed on the drones as they flew, reproducing the logged scale to ${fmt(HU.check_mean_abs, 4)}): a building lay inside the formation
+          ${pc(HU.wrapped_share)} of the time from the start line to the last find. Then the swarm's centre sat a median ${fmt(E.off_median, 2)} of the building's radius off its middle,
+          beyond the rule's 0.8 for ${pc(E.beyond)} of the time, and the stick was held for ${pc(E.held)} of it.</li>
+        <li><b>A search flight built on those moments</b>: the street circuit of a building's block at full stick, pausing beside the building and holding on it, then away. Under the
+          scene's rule it narrows ${pc(S.narrowed)} of its wrapped time (ERKS ${pc(E.narrowed)}), with the stick held ${pc(S.held)} of it (ERKS ${pc(E.held)}): ERKS's regime, a little
+          harder on the rule. ${watch("s11_narrow", "off", "Watch the search where it narrowed most")}</li>
+        <li>Narrowing is not a mistake in itself: the formation flies ${pc(1 - factor)} narrower in the streets, which S9 found faster and in Unity no costlier. What it means
+          round a building is a ring of drones ${fmt((f.wrap_ring || 0) - (b.wrap_ring || 0), 1)} m smaller in radius than held at 2.0, around the building the pilot is searching.</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Does holding the spread keep the swarm wide round the building?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>Hold cuts the narrowed time while wrapped from ${pc(b.wrap_narrow)} to ${pc(h.wrap_narrow)}, in the replica and in Unity alike.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-q2"></div>
+      <div class="qtext"><ul>
+        <li><b>The rule:</b> a building is wrapped when its centre lies inside the drones' outline (their bearings round it leave no gap of 180°). Hold returns the full spread while any
+          building is wrapped; HoldUntilLeaving does too, except while the stick points away from that building.</li>
+        <li><b>Replica, four cities</b> (${fmt(b.all_h, 0)} h of flight a row): the mean scale while wrapped ${fmt(b.wrap_sigma, 3)} under the scene's rule, ${fmt(h.wrap_sigma, 3)} under Hold
+          (the shortfall from full spread ${fmt(1 - b.wrap_sigma, 3)} → ${fmt(1 - h.wrap_sigma, 3)}, ${sgn(1 - h.wrap_sigma, 1 - b.wrap_sigma)}), ${fmt(l.wrap_sigma, 3)} until leaving. At full spread for ${pc(b.wrap_full)},
+          ${pc(h.wrap_full)} and ${pc(l.wrap_full)} of the wrapped time: what is left is the 3 s filter climbing back from 0.85 on wraps that last a few seconds.
+          The same in every one of the four cities: narrowed while wrapped ${range(cityNar("H15_35a"), "wrap_narrow")} under Hold against ${range(cityNar(BASE), "wrap_narrow")}.</li>
+        <li><b>Unity</b> (${CNT("H15_35a") ? CNT("H15_35a").flights : "–"} flights a set in the scene's city): ${fmt(ub && ub.wrap_sigma, 3)} → ${fmt(uh && uh.wrap_sigma, 3)}, at full spread ${pc(ub && ub.wrap_full)} → ${pc(uh && uh.wrap_full)};
+          the replica's twins of the same flights ${fmt(tb && tb.wrap_sigma, 3)} → ${fmt(th && th.wrap_sigma, 3)}.</li>
+        <li><b>On ERKS's own flights</b>, open loop: narrowed while wrapped ${pc((HU.Off || {}).wrapped_narrowed)} → ${pc((HU.Hold || {}).wrapped_narrowed)} under Hold, ${pc((HU.HoldUntilLeaving || {}).wrapped_narrowed)} until leaving.
+          ${watch("s11_search", "hold", "Watch a typical search under Hold")}</li>
+        <li><b>The search's hold window</b>: wrapped and at full spread ${pc(b.search_hold_full)} of it under the scene's rule, ${pc(h.search_hold_full)} under Hold (F20, always at full,
+          ${pc(f.search_hold_full)}: the share of the window the building is inside the formation).</li>
+        <li><b>What it does to the formation is smaller than the setting.</b> In the searches the ring round the building, the drones' mean distance from their centre while it is wrapped,
+          is ${fmt(KD(BASE, "search", "wrap_ring"), 1)} m under the scene's rule and ${fmt(KD("H15_35a", "search", "wrap_ring"), 1)} m under Hold; even the spread held at 2.0 everywhere gives only
+          ${fmt(KD("F20", "search", "wrap_ring"), 1)} m. Wrapped round a building, the drones stand where the building's field puts them, so the 15% the setting moves becomes
+          ${sgn(KD("H15_35a", "search", "wrap_ring"), KD(BASE, "search", "wrap_ring"), 1)} of ring. It also keeps the building inside a little longer: ${fmt(KD(BASE, "search", "wrap_s"), 0)} → ${fmt(KD("H15_35a", "search", "wrap_s"), 0)} s a search.</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>What does it cost?</h2>
+      <p class="qa"><span class="vp yes">Nothing measured</span>Not in the streets, not leaving a building, not in losses or contacts.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-q3"></div>
+      <div class="qtext"><ul>
+        <li><b>The predicted cost</b> was the street entered next: replayed on ERKS's flights, Hold left the formation wide into it (narrowed street time ${pc((HU.Off || {}).street_narrowed)} → ${pc((HU.Hold || {}).street_narrowed)}).
+          Flown, the formation leaves at ${fmt(h.exit_sigma, 3)} of d_ref against ${fmt(b.exit_sigma, 3)} in the ${D.exit_s} s after a building, and is not slower: street speed
+          ${fmt(h.street_v_coh, 2)} against ${fmt(b.street_v_coh, 2)} m/s (${sgn(h.street_v_coh, b.street_v_coh, 1)}), leaving a search ${fmt(h.search_leave_v, 2)} against ${fmt(b.search_leave_v, 2)} (${sgn(h.search_leave_v, b.search_leave_v, 1)}),
+          within 0.5% in each of the four cities. Holding the spread everywhere (F20) costs ${sgn(f.street_v_coh, b.street_v_coh, 1)} in the streets. ${watch("s11_leave", "hold", "Watch the search Hold leaves widest")}</li>
+        <li><b>Losses</b>: ${h.all_loss_events} loss events (a colliding pair counted once) in ${fmt(h.all_h, 1)} h against ${b.all_loss_events} in ${fmt(b.all_h, 1)} h (${fmt(h.ev_ph, 2)} per hour, 95% ${fmt(h.ev_lo, 2)}–${fmt(h.ev_hi, 2)},
+          against ${fmt(b.ev_ph, 2)}); in the ${D.exit_s} s after leaving a building, where the cost was predicted, ${h.loss_exit} against ${b.loss_exit}.</li>
+        <li><b>Contacts</b> ${fmt(h.all_contact_ph, 1)} per hour against ${fmt(b.all_contact_ph, 1)}, fewer in every city; buildings met on a straight line surrounded ${pc(h.cross_wrapped)} against ${pc(b.cross_wrapped)};
+          the split square on at a wall unchanged.</li>
+        <li><b>Unity</b> lost ${hl.length} pairs under Hold against ${bl.length} (one-sided p ${fmt(D.unity_p, 2)}). Placed in time, all ${same} of Hold's happened with its spread
+          equal to the scene's at that moment and ${before} before any building had been wrapped in that flight, where the two rules do the same: they are Unity flying the same route
+          differently, not the rule. Its contacts ${CNT("H15_35a") ? CNT("H15_35a").contacts : "–"} against ${CNT(BASE) ? CNT(BASE).contacts : "–"}, street speed ${fmt(uh && uh.street_v_coh, 2)} against ${fmt(ub && ub.street_v_coh, 2)} m/s.
+          ${watch("s11_loss", "hold", "Watch Hold's worst Unity loss")}</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>What should the trials fly?</h2>
+      <p class="qa"><span class="vp yes">${esc(SHORT[PICK] || PICK)}</span>The scene's law with <code>spreadWrapRule</code> Hold.</p></div></div>
+    <div class="qbody"><div class="qtext" style="grid-column: 1 / -1">${ruleTable()}
+      <p id="reading-text"></p></div></div>
+  </section></div>`;
+  const rowsOf = cs => cs.filter(c => CF[c]).map(c => ({c, lab: SHORT[c] || c, r: CF[c]}));
+  const urows = cs => cs.map(c => ({c, lab: `${SHORT[c]} · Unity`, r: U(c)})).filter(x => x.r);
+  const draws = [
+    ["#ans-q1", () => barPanels($("#ans-q1", el), [
+      {c: "erks", lab: "ERKS (as flown)", v: (HU.Off || {}).wrapped_narrowed}, {c: "off", lab: "search, calibration", v: S.narrowed},
+      {c: "off", lab: "replica, 4 cities", v: b.wrap_narrow}, {c: "off", lab: "Unity", v: ub && ub.wrap_narrow}].filter(x => ok(x.v)), [
+      {title: "Narrowed (under 0.95) while wrapped", get: x => x.v, f: v => pc(v), unit: "the share of the time a building lay inside the formation; the scene's rule"}])],
+    ["#ans-q2", () => barPanels($("#ans-q2", el), rowsOf(["E15_35a", "H15_35a", "L15_35a", "F20"]).concat(urows(["E15_35a", "H15_35a"])), [
+      {title: "Narrowed while wrapped", get: x => x.r.wrap_narrow, f: v => pc(v), unit: "share of the wrapped time under 0.95 of d_ref"},
+      {title: "Mean scale while wrapped", get: x => x.r.wrap_sigma, f: v => fmt(v, 3), unit: "× d_ref 2.0"}])],
+    ["#ans-q3", () => barPanels($("#ans-q3", el), rowsOf(["E15_35a", "H15_35a", "L15_35a", "F20"]), [
+      {title: "Cohesive speed in the streets (m/s)", get: x => x.r.street_v_coh, f: v => fmt(v, 2), unit: "the street routes, four cities"},
+      {title: "Speed leaving a search (m/s)", get: x => x.r.search_leave_v, f: v => fmt(v, 2), unit: "from the hold on the building to the last junction"},
+      {title: "Loss events per hour", get: x => x.r.ev_ph, lo: x => x.r.ev_lo, hi: x => x.r.ev_hi, f: v => fmt(v, 2), unit: "every flight; exact 95% intervals"},
+      {title: "Building contacts per hour", get: x => x.r.all_contact_ph, f: v => fmt(v, 1), unit: "every flight"}])]];
+  for (const [sel, draw] of draws) { const cc = $(sel, el); observe(cc, draw); }
+  $("#reading-text", el).innerHTML = READING();
+};
+function ruleTable() {
+  const R = D.rule, head = ["", "narrowed while wrapped", "mean scale wrapped", "streets vs the scene", "leaving vs the scene", "loss events (h)", "contacts / h", "surrounded", "rule"];
+  const b = CF[BASE] || {};
+  const rows = D.order.filter(c => CF[c]).map(c => {
+    const r = CF[c], v = V[c] || {};
+    const verdict = c === BASE ? "the scene (base)" : `${v.role === "reference" ? "reference · " : ""}${v.safe ? "safe" : "not safe"} · ${v.delivers ? "delivers" : "does not deliver"}${(v.unsafe || []).length ? ` (${v.unsafe.join("; ")})` : ""}${(v.short || []).length ? ` (${v.short.join("; ")})` : ""}`;
+    return `<tr${c === PICK ? ' class="pick"' : ""}><td class="l">${esc(r.label)}</td><td>${pc(r.wrap_narrow)}</td><td>${fmt(r.wrap_sigma, 3)}</td>
+      <td>${sgn(r.street_v_coh, b.street_v_coh, 1)}</td><td>${sgn(r.search_leave_v, b.search_leave_v, 1)}</td><td>${r.all_loss_events} (${fmt(r.all_h, 1)})</td>
+      <td>${fmt(r.all_contact_ph, 1)}</td><td>${pc(r.cross_wrapped)}</td><td class="l small">${esc(verdict)}</td></tr>`;
+  }).join("");
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 || i === head.length - 1 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="small muted">The confirmation (replica: the scene's city and three held out, ${D.flights.confirm.street} street routes, ${D.flights.confirm.search} searches, ${D.flights.confirm.cross} straight lines,
+      ${D.flights.confirm.pass_} block passes and ${D.flights.confirm.face} square-on approaches per city and row). The rule, written ${esc(D.rule_written)}, after the screen and before the confirmation flew:
+      a candidate is <b>safe</b> when, against the scene, its loss events per hour are not more frequent at one-sided exact p ≥ ${R.safe_p}, its contacts per hour at most ${R.contact_ratio}×, its street
+      speed and its speed leaving a search at least ${Math.round(100 * R.street_floor)}% and ${Math.round(100 * R.leave_floor)}%, its share ending in pieces at most ${Math.round(100 * R.open_margin)} points more,
+      its square-on split at most ${R.split_ratio}×, its hull share at least ${R.hull_min} and its buildings surrounded at most ${Math.round(100 * R.surround_margin)} points fewer; it <b>delivers</b> when its
+      shortfall from full spread while wrapped is at most ${R.deficit_ratio}× the scene's and its wrapped time at full spread at least ${Math.round(100 * R.full_gain)} points more. The pick: the safe and
+      delivering candidate nearest full spread while wrapped, ties within ${R.tie} by street speed. F20 is a reference, not a candidate.</p>`;
+}
+function READING() {
+  const b = CF[BASE] || {}, h = CF.H15_35a || {}, l = CF.L15_35a || {};
+  return `<b>Fly Hold.</b> It does what the question asks: the swarm stays at full spread round the building it is wrapped round, instead of narrowing as soon as its centre or the
+     stick drifts off the building's middle. Expect the difference in the headset to be small: the ring round a building the pilot is searching is about
+     ${fmt(KD("H15_35a", "search", "wrap_ring") - KD(BASE, "search", "wrap_ring"), 1)} m wider, because round a building the building, not the spread, mostly sets where the drones stand. It costs nothing the
+     replica or Unity could find: the streets are as fast, the swarm leaves a building as fast, and it loses and touches no more. The formation still narrows in the streets, which is
+     where S9 found the adaptive spread pays. HoldUntilLeaving is safe too, but keeps the swarm wide only part of the time (narrowed while wrapped ${pc(l.wrap_narrow)} against Hold's ${pc(h.wrap_narrow)}),
+     and the cost it was built to avoid did not appear. The single drone has no formation to wrap anything, so the rule changes nothing in that condition. <b>Adopted on 9 November 2026</b>, at your word:
+     <code>python -B -m citysim.swarmtune apply --cand experiment_results/swarm_wrap/confirm_cands.json --label "${esc(PICK)} ..." --scene &lt;scene&gt;</code> wrote <code>spreadWrapRule: 1</code>
+     into the SwarmManager of BlockShapedPatchCityWorld and of PracticeBlockWorld and nothing else. Stored Hold flights re-fly identical against the scene as it now stands.`;
+}
+
+// ---------------------------------------------------------------- flights
+const RP = D.replay;
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+RENDER.flights = el => {
+  if (!RP || !RP.groups || !RP.groups.length) { el.innerHTML = `<div class="intro"><h2>Cities and flights</h2></div><p class="notrun">The Unity flights have not been replayed yet.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Cities and flights</h2><p>The scene's city, where the screen, Unity and the replays fly, and the three cities of the same design held
+      out for the confirmation (S6's), drawn with the ellipse the force law avoids round each building (S10's). Click one to see it whole.</p></div>
+    <div class="gal" id="gal"></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div></div>
+    <div class="intro" id="flightsx"><h2>Flights</h2><p>Routes from the Unity bench's set in the scene's city, each flown four ways: the scene's rule, Hold, HoldUntilLeaving and the spread held at 2.0.
+      Unity's own trajectories, and the replica's twins flown from Unity's recorded start, kept only because they scored identically to the gate's rows. Under the map, the timeline's
+      green band marks the stretches with a building inside the formation, the amber band the ${D.exit_s} s after leaving one, and the line is the spread scale (0.80 to 1.00 of d_ref).
+      Drones are dots in the way's colour; a ring round a dot marks a drone apart from the main group. Space plays or pauses, ← and → step 5 s.</p></div><div id="c-player"></div>`;
+  const gal = $("#gal", el), thumbs = [];
+  gal.innerHTML = RP.gallery.map((g, i) => `<button type="button" class="thumb" data-i="${i}" aria-pressed="${i === 0}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span>${esc(g.seed === 1 ? "the scene's city" : `held out, seed ${g.seed}`)}</span></button>`).join("");
+  const CM = new RV.MapView($("#c-map", el), {aspect: 0.8, minH: 320, maxH: 760});
+  let city = null, sel = 0;
+  CM.draw = (c, v) => { if (city) { RV.drawCity(c, v, city, {cylinders: true}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => { if (b.dataset.z === "in") CM.zoomBy(1.5); else if (b.dataset.z === "out") CM.zoomBy(1 / 1.5); else if (city) CM.fit(city.arena, 10); }));
+  const load = () => {
+    const g = RP.gallery[sel], st = (g.stats || {}).ellipse || {}, i = sel;
+    $("#c-title").textContent = g.what.charAt(0).toUpperCase() + g.what.slice(1);
+    $("#c-stats").innerHTML = [["buildings", st.buildings], ["street left between two buildings' ellipses, median", `${fmt(st.gap_median, 1)} m`], ["streets under 10 m", st.pairs ? `${st.under10} of ${st.pairs}` : "–"]]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v === undefined ? "–" : v}</dd>`).join("");
+    RV.load(RPATH.city(g.city)).then(RV.city).then(C => { if (sel !== i) return; city = C; CM.fit(C.arena, 10); });
+  };
+  const pick = i => { sel = i; gal.querySelectorAll(".thumb").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i))); load(); };
+  gal.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 400, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); };
+    thumbs.push(v);
+    RV.load(RPATH.city(RP.gallery[+b.dataset.i].city)).then(RV.city).then(C => { v.city = C; v.fit([-150, 150, -150, 150], 0); }).catch(() => {});
+    b.addEventListener("click", () => pick(+b.dataset.i));
+  });
+  RV.onTheme(() => { thumbs.forEach(v => v.request()); CM.request(); });
+  pick(0);
+  const labels = {}, colors = {};
+  for (const [k, l] of WAYS) { labels[k] = l; colors[k] = kCol(k); }
+  PLAYER = RV.Player($("#c-player", el), RP.groups.map(g => Object.assign({short: g.title}, g)),
+    {labels, colors, path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function flightSummaryRows(F, s) {
+  const n = x => ok(x) ? String(x) : "–", r = [];
+  r.push(["wrap rule", s.adaptive ? s.rule : "none: the spread held at 2.0"]);
+  const k = F.route ? F.route.kind : "";
+  const what = {cross: "a straight line", pass: "through a block", face: "square on at a wall", street: "along the streets", search: "a goal search round one building"}[k] || k;
+  r.push(["route", F.route ? `${what}, ${fmt(F.route.L, 0)} m` : "–"]);
+  r.push(["a building inside the formation", `${fmt(s.wrap_s, 0)} s`], ["… at full spread then", ok(s.wrap_s) && s.wrap_s > 0 ? pc(s.wrap_full) : "–"],
+         ["mean scale then", fmt(s.wrap_sigma, 3)], ["scale in the 10 s after leaving one", fmt(s.exit_sigma, 3)]);
+  if (k === "search") r.push(["the search window wrapped and at full spread", pc(s.hold_full)], ["speed leaving", `${fmt(s.leave_v, 2)} m/s`]);
+  r.push(["cohesive speed", `${fmt(s.v_coh, 2)} m/s`], ["flight as one group", pc(s.one_frac)], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  return r;
+}
+function flightSummaryNote(F) {
+  return F.source === "unity" ? "Unity records contacts as a count, so they are not drawn on the map; a cross marks each drone lost."
+    : "The replica draws each building contact where it happened and a cross where each drone was lost.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const head = ["", "wrapped (share of flight)", "narrowed while wrapped", "at full while wrapped", "mean scale wrapped", "ring radius wrapped (m)", "scale after leaving",
+                "search: wrapped at full", "leaving speed", "street speed", "cohesive speed", "loss events (h)", "contacts / h", "surrounded", "split (s)"];
+  const line = (lab, r, extra = "") => !r ? "" : `<tr${extra}><td class="l">${esc(lab)}</td><td>${pc(r.wrap_share)}</td><td>${pc(r.wrap_narrow)}</td><td>${pc(r.wrap_full)}</td>
+    <td>${fmt(r.wrap_sigma, 3)}</td><td>${fmt(r.wrap_ring, 1)}</td><td>${fmt(r.exit_sigma, 3)}</td><td>${pc(r.search_hold_full)}</td><td>${fmt(r.search_leave_v, 2)}</td>
+    <td>${fmt(r.street_v_coh, 2)}</td><td>${fmt(r.v_coh, 2)}</td><td>${ok(r.all_loss_events) ? r.all_loss_events : "–"} (${fmt(r.all_h, 1)})</td><td>${fmt(r.all_contact_ph, 1)}</td>
+    <td>${pc(r.cross_wrapped)}</td><td>${fmt(r.face_t_split, 2)}</td></tr>`;
+  const tbl = (title, body, note = "") => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>${note}</div>`;
+  const all = R => D.order.filter(c => R[c]).map(c => line(R[c].label, R[c], c === PICK ? ' class="pick"' : "")).join("");
+  const u = src => (D.unity || []).filter(r => r.src === src).map(r => line(r.set, r)).join("");
+  const phase = D.order.filter(c => CF[c]).map(c => { const r = CF[c]; return `<tr><td class="l">${esc(SHORT[c])}</td>${["wrap", "exit", "other"].map(p =>
+    `<td>${fmt(r[`${p}_h`], 1)}</td><td>${r[`loss_${p}`]} (${fmt(r[`loss_${p}_ph`], 2)}/h)</td><td>${fmt(r[`contact_${p}_ph`], 1)}</td>`).join("")}</tr>`; }).join("");
+  const seeds = D.seeds, city = D.city || {};
+  const cityRows = D.order.filter(c => city[c]).map(c => `<tr><td class="l">${esc(SHORT[c])}</td>${seeds.map(s => { const x = city[c][String(s)] || {};
+    return `<td>${fmt(x.wrap_sigma, 3)} · ${fmt(x.street, 2)} · ${fmt(x.leave, 2)} · ${ok(x.events) ? x.events : "–"}</td>`; }).join("")}</tr>`).join("");
+  const hu = ["Off", "Hold", "HoldUntilLeaving"].map(w => { const x = HU[w] || {}; return `<tr><td class="l">${w === "Off" ? "Off (as flown)" : w}</td><td>${pc(x.wrapped_full)}</td><td>${pc(x.wrapped_narrowed)}</td><td>${pc(x.street_narrowed)}</td><td>${fmt(x.mean, 3)}</td></tr>`; }).join("");
+  const E = CAL.erks || {}, S = CAL.scripted || {};
+  const lossRows = LOSS.slice().sort((a, b) => a.set.localeCompare(b.set) || a.kind.localeCompare(b.kind) || a.k - b.k).map(x =>
+    `<tr><td class="l">${esc(x.set)}</td><td class="l">${esc(x.kind)} ${x.k}</td><td>${fmt(x.t, 1)}</td><td class="l">${esc({wrap: "wrapped", exit: "leaving", other: "elsewhere"}[x.phase])}</td>
+     <td>${x.wrapped_before ? `yes, ${fmt(x.since_wrap, 1)} s before` : "no"}</td><td>${fmt(x.scale, 3)}</td><td>${fmt(x.base_scale, 3)}</td></tr>`).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every table behind the answer. The confirmation and the screen are the replica (S6's model of Unity on these prism
+      buildings, with S10's ellipses); Unity is the headless bench in BlockShapedPatchCityWorld as baked, with the replica's twins of the same flights beside it.</p></div>
+    ${tbl("The confirmation (replica): fresh routes in the scene's city and three held out", all(CF))}
+    <div class="box"><h3>Where the losses and contacts fell (replica, the confirmation)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>
+      <th>wrapped: h</th><th>loss events</th><th>contacts / h</th><th>leaving (${D.exit_s} s): h</th><th>loss events</th><th>contacts / h</th><th>elsewhere: h</th><th>loss events</th><th>contacts / h</th></tr></thead><tbody>${phase}</tbody></table></div>
+      <p class="small muted">The phases are geometric (a building inside the formation, the ${D.exit_s} s after the last one left it, the rest), so every row carries the same moments
+      (S9's lesson 47). F20 spends more time wrapped because its wider formation encloses more buildings.</p></div>
+    <div class="box"><h3>By city: mean scale while wrapped · street speed · leaving speed · loss events</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>${seeds.map(s => `<th>${s === 1 ? "the scene's city" : `seed ${s}`}</th>`).join("")}</tr></thead><tbody>${cityRows}</tbody></table></div></div>
+    <div class="box"><h3>ERKS's three flights, the rule replayed open loop (internal_4)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l">wrap rule</th><th>wrapped: at full</th><th>wrapped: narrowed</th><th>not wrapped: narrowed</th><th>mean scale</th></tr></thead><tbody>${hu}</tbody></table></div>
+      <p class="small muted">The drones as they flew, the recorded stick rotated by the body yaw, the 3 s filter; the rule as flown reproduces the logged scale to a mean of ${fmt(HU.check_mean_abs, 4)}. A building was inside the formation ${pc(HU.wrapped_share)} of the time. Open loop is only what each rule decides on the same drones.</p></div>
+    <div class="box"><h3>The search flight's calibration (while a building was wrapped)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th>narrowed</th><th>stick held</th><th>centre off the building's, median (unit)</th><th>beyond the rule's 0.8</th></tr></thead><tbody>
+      <tr><td class="l">ERKS (internal_4)</td><td>${pc(E.narrowed)}</td><td>${pc(E.held)}</td><td>${fmt(E.off_median, 2)}</td><td>${pc(E.beyond)}</td></tr>
+      <tr><td class="l">scripted search, the scene's rule (${CAL.scripted_n} flights)</td><td>${pc(S.narrowed)}</td><td>${pc(S.held)}</td><td>${fmt(S.off_median, 2)}</td><td>${pc(S.beyond)}</td></tr></tbody></table></div>
+      <p class="small muted">The offset in the building's ellipse's unit space, which the rule's aim test reads (0.8). ${esc(CAL.note || "")}</p></div>
+    ${(D.unity || []).length ? tbl("Unity: the scene's city, the same routes for every set", u("unity")) + tbl("… the replica's twins, from Unity's recorded starts", u("replica")) : ""}
+    <div class="box"><h3>Every Unity loss, placed</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l">set</th><th class="l">route</th><th>t (s)</th><th class="l">phase</th><th>a building wrapped before it</th><th>the set's scale then</th><th>the scene's scale then, same route</th></tr></thead><tbody>${lossRows}</tbody></table></div>
+      <p class="small muted">A loss where the two scales agree and no building had been wrapped yet happened where the two rules do the same thing: Unity flying the same route differently, not the rule.</p></div>
+    ${tbl("The screen (replica, the scene's city, the same routes for every row)", all(SC))}`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The rule (SwarmManager.spreadWrapRule)", [
+    ["The adaptive spread (S7, the scene since S8)", "The formation flies at d_ref 2.0 × a scale: 0.85 among buildings, 1 while the stick's line 40 m ahead passes within 0.8 of a building's radius of its centre (with the stick centred, the swarm's centre itself), or with no building near. Low-passed at 3 s."],
+    ["Wrapped", "A building's centre (its ellipse's) lies inside the alive drones' outline: their bearings round it leave no gap of 180°."],
+    ["Off (the scene)", "S7's rule exactly."],
+    ["Hold", "Full spread while any building is wrapped, whatever the stick's line says."],
+    ["HoldUntilLeaving", "Hold, except while the stick points away from that building (its centre behind the swarm's along the stick)."],
+    ["F20", "The adaptive spread off, the spread held at 2.0 everywhere (S9's row): the end point of holding."],
+    ["Row codes", "E15_35a: the scene's law (ellipse cap 1.5, d_obs 0.35, adaptive spread); H and L: the same with the wrap rule Hold or HoldUntilLeaving."]]],
+  ["The measures", [
+    ["Narrowed while wrapped", "The share of the time a building was wrapped with the scale under 0.95: the question."],
+    ["At full while wrapped", "The share of that time at 0.99 or more; held back by the 3 s filter on wraps of a few seconds."],
+    ["Mean scale while wrapped", "Its mean then; 1 − it is the shortfall from full spread the rule's bar halves."],
+    ["Scale after leaving", "The mean scale in the 10 s after the last building left the formation: where the cost was predicted."],
+    ["Search window", "A search flight's circuit of the building's block and its hold on the building."],
+    ["Loss events", "Instants at which drones were lost, a colliding pair counted once (S9); per hour of flight, with exact Poisson intervals."],
+    ["Cohesive speed", "Progress speed times the share of the flight the swarm was one group (S6); in the streets, on the street routes."],
+    ["Surrounded", "Of the buildings a straight line aims at, the share whose centre was inside the drones' outline at some moment near it."]]],
+  ["The flights", [
+    ["cross, pass, street, face", "S6's straight line, block pass and street route; S8's square-on approach to a wall."],
+    ["search", "A goal search round one building, calibrated on ERKS's wrapped moments: the street circuit of its block at full stick, pausing beside the building 0.4–1.2 of its radius off its centre, a hold on it, away by the streets."],
+    ["Twin", "The replica flown from Unity's recorded start under the values the bench recorded; the page's replays are kept only where the twin scores identically to the gate's row."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2></div>` + TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl class="terms">${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`).join("")
+    + `<p class="small muted">Built ${esc(D.built)} from experiment_results/swarm_wrap (citysim/swarmwrap_report.py); the manual is docs/swarm_wrap/README.md.</p>`;
+};
+
+$("#answer-box").innerHTML = ANSWER_BOX();
+let first = "answer";
+try { const t = localStorage.getItem("s11tab"); if (t && TABS.some(x => x[0] === t)) first = t; } catch (e) { /* private window */ }
+if (!route(location.hash.slice(1))) show(first);
+</script>

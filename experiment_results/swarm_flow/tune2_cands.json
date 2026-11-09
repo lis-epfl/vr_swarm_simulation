@@ -1,0 +1,59 @@
+[
+ {
+  "label": "T3",
+  "d": 2.0,
+  "over": {}
+ },
+ {
+  "label": "slide",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true
+  }
+ },
+ {
+  "label": "slide + adaptive 0.8, filter 1 s",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true
+  }
+ },
+ {
+  "label": "slide + adaptive 0.8, filter 3 s",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "slide + adaptive 0.85, filter 1 s",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85
+  }
+ },
+ {
+  "label": "slide + adaptive 0.85, filter 3 s",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ },
+ {
+  "label": "adaptive 0.85, filter 3 s",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0
+  }
+ }
+]

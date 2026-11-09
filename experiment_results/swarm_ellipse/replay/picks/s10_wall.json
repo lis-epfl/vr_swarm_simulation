@@ -1,0 +1,27 @@
+{
+ "pick": {
+  "key": "s10_wall",
+  "kind": "along",
+  "k": 18051,
+  "title": "The question: one drone along a wall",
+  "conds": [
+   "single_c",
+   "single_e"
+  ],
+  "first": "single_c",
+  "met": 0,
+  "why": "the along probe 6 m off a wall where the circle stands furthest off that wall (10.3 m at the wall's middle; the ellipse 4.7 m)"
+ },
+ "flights": {
+  "single_c": [
+   "s10_wall_single_c_replica",
+   "s10_wall_single_c_unity"
+  ],
+  "single_e": [
+   "s10_wall_single_e_replica",
+   "s10_wall_single_e_unity"
+  ]
+ },
+ "identical": true,
+ "mismatch": {}
+}

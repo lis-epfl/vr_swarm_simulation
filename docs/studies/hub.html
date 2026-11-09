@@ -1,0 +1,434 @@
+<title>Swarm Study Index</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: the study pages' family. A masthead (how to cite a study), then one card per study in date order, the
+   lessons carried forward grouped by kind, and where everything lives. Swarm blue is the one accent; study IDs are
+   set in mono so they read as handles. */
+:root {
+  --bg: #f2f4f5; --panel: #fbfcfc; --ink: #111c25; --ink-2: #44525e; --muted: #7c8893; --line: #d6dde2; --chip: #e6ebee;
+  --accent: #2a78d6; --accent-soft: #dfeaf8; --good: #0b7a0b; --warn: #8a5a00; --warn-soft: #fbefd5; --good-soft: #e3f3e3;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a; --chip: #1f2830;
+    --accent: #3987e5; --accent-soft: #16263a; --good: #6fd36f; --warn: #f2c25a; --warn-soft: #2e2510; --good-soft: #142a14;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a; --chip: #1f2830;
+  --accent: #3987e5; --accent-soft: #16263a; --good: #6fd36f; --warn: #f2c25a; --warn-soft: #2e2510; --good-soft: #142a14;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 56px; display: grid; gap: 34px; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(2rem, 3.6vw, 2.6rem); font-weight: 700; line-height: 1.05; }
+h2 { font-size: 1.45rem; font-weight: 600; margin-bottom: 0.6rem; }
+h3 { font-size: 1.25rem; font-weight: 600; }
+p { margin: 0 0 0.6rem; max-width: 72ch; }
+a { color: var(--accent); }
+.eyebrow { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 0.45rem; }
+.lead { font-size: 1.05rem; color: var(--ink-2); max-width: 70ch; margin-top: 0.6rem; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; overflow-wrap: anywhere; }
+.cite { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cite span { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 0.88rem; color: var(--ink-2); }
+.cite b { font-family: var(--font-mono); color: var(--ink); font-weight: 600; margin-right: 4px; }
+.studies { display: grid; gap: 16px; }
+.study { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 8px 28px; }
+@media (max-width: 820px) { .study { grid-template-columns: minmax(0, 1fr); } }
+.study header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.id { font: 600 1.35rem/1 var(--font-mono); color: var(--accent); }
+.was { color: var(--muted); font-size: 0.9rem; }
+.status { font-size: 0.8rem; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
+.status.done { background: var(--good-soft); color: var(--good); }
+.status.hold { background: var(--warn-soft); color: var(--warn); }
+.q { color: var(--ink-2); }
+.study h4 { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 8px 0 4px; }
+.study ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 4px; }
+.study li { font-size: 0.93rem; }
+.links { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.9rem; margin-top: 6px; }
+.lessons { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.lessons section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.lessons ol { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; }
+.lessons li { font-size: 0.92rem; color: var(--ink-2); }
+.lessons li b { color: var(--ink); font-weight: 600; }
+.tag { font: 500 0.75rem var(--font-mono); color: var(--accent); white-space: nowrap; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+tr:last-child td { border-bottom: 0; }
+.steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 6px; max-width: 80ch; }
+.foot { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Simulation studies for the swarm-vs-single-drone trials</p>
+    <h1>Swarm Study Index</h1>
+    <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span><span><b>S10</b>Ellipse Avoidance</span><span><b>S11</b>Wrap Hold</span></div>
+  </header>
+
+  <section>
+    <h2>The studies</h2>
+    <div class="studies">
+      <article class="study">
+        <header><span class="id">S1</span><h3>Goal Visibility</h3><span class="was">formerly the density study · 12–19 Oct 2026</span><span class="status hold">Done · L3 on hold</span></header>
+        <div>
+          <p class="q">What each interface sees at a goal, by goal geometry and city clutter; it picked the trial levels by a rule fixed in advance.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted single-drone policies under-predict real pilots about 2.7×, so the small-goal advantage is an upper bound.</li>
+            <li>Its "What each sees" sweep widths saturate for the swarm (found in S3).</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc" target="_blank" rel="noopener">Explorer</a><span class="mono">docs/studies/S1_goal_visibility.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>At a goal, its geometry decides who sees more and clutter barely matters: swarm − single exposure +0.048 at today's 7 m occluder, +0.106 at a 28 m one, −0.047 at a cramped goal the formation cannot surround.</li>
+            <li>Trial levels L1 C0-G0, L2 C0-G10, L3 C2-G7. On pilot paths L3 loses 2.99 drones per run against a bar of 2.5, mostly at spread 0.4.</li>
+            <li>Predicted discovery time of an unannounced goal, swarm ÷ single: 0.58–0.69 on shown feeds.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="study">
+        <header><span class="id">S2</span><h3>Hidden Goal Search</h3><span class="was">formerly the search study · 15–16 Oct 2026</span><span class="status done">Done</span></header>
+        <div>
+          <p class="q">How soon each interface finds a goal patch whose position it does not know, flown by a random walker and by internal_3's fitted pilots.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>People found goals 2.3× (swarm) and 10× (single drone) faster than the fitted pilot, so the human advantage may be smaller.</li>
+            <li>Counting only the head's view, the advantage shrinks to 0.81–1.03.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59" target="_blank" rel="noopener">Results dashboard (light rebuild)</a><span class="mono">docs/studies/S2_hidden_goal_search.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The swarm finds a hidden goal 6–18% sooner (restricted mean time ratio 0.82–0.94, random walker; 0.77–0.92 fitted pilot).</li>
+            <li>It is the cameras, not the morphing: a swarm steered like the single drone does as well, except in the packed city, where steering splits it.</li>
+            <li>At spread 0.4 the swarm is slower than one drone in dense cities (1.12–1.34) and loses half its searches.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="study">
+        <header><span class="id">S3</span><h3>City Roaming</h3><span class="was">formerly the clutter study · 20–21 Oct 2026</span><span class="status done">Done · refined re-run proposed</span></header>
+        <div>
+          <p class="q">What each interface sees on task-free walks across 63 Voronoi city designs (block size × building coverage), at spreads 0.4, 1.0 and 1.6, and where spreading stops helping.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Its sweep width capped at 84 m and understated the swarm; fixed in code, not yet re-flown.</li>
+            <li>Its hidden-target measure saturates and is dominated by the view from the start; refinements proposed.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s" target="_blank" rel="noopener">S3 report (for VoronoiCityWorld)</a><span class="mono">docs/studies/S3_city_roaming.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The swarm is ahead on every measure, in all 63 designs, at every spread (q &lt; 0.05).</li>
+            <li>Its lead in finding a hidden target grows with building coverage: 1.48× at 0.02 to 3.5× at 0.14 (spread 1.0); block size barely matters.</li>
+            <li>Spread 1.6 beats 1.0 (11% faster coverage), 0.4 is worst everywhere and loses 4.8 drones per walk; wider spreads lose screen-to-screen overlap.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="study">
+        <header><span class="id">S4</span><h3>Split and Surround</h3><span class="was">the split study · 27–28 Oct 2026</span><span class="status done">Done</span></header>
+        <div>
+          <p class="q">In a city of small blocks with one large building each, can the swarm surround a block, show the pilot every street round it, and reform down the one chosen quickly enough to explore block by block?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Only the smallest blocks (40 m, buildings about 13 m across) passed Phase 1, so Phase 2 measured the regime S2 did; at larger blocks the surround needs 9–20 s or more and the pass round strands a drone.</li>
+            <li>Scripted pilots and one 6 s surround; on head-ahead knowledge alone the surround leaned slower (×1.16).</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD#cities" target="_blank" rel="noopener">Cities and flights</a><a href="https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD#lookdown" target="_blank" rel="noopener">Look down (Phase 3)</a><span class="mono">docs/studies/S4_split_and_surround.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Surrounding a block shows the pilot more of its streets: 95.5% at the decision, 7.1 points more than a pause of the same length (H1).</li>
+            <li>It finds a hidden target no sooner than the swarm kept in the streets (×1.02, 0.92–1.12; H2 not supported): it saves 10% of the blocks searched, and each block takes 21% longer.</li>
+            <li>The cameras are the effect, as in S2: the swarm in the streets finds a target in 62% of one drone's time. Surrounding costs about ten times the drones lost, and a quarter of its screens share nothing with a neighbour.</li>
+            <li>Phase 3, a short pilot: scored on looking down each street to the building at its end, the swarm in the streets knows 41% of a block's exits at 40 m blocks (the old preview said 71%), and a 12 s surround looks down 93%, more the wider d_ref, up to where its drones touch the building (1.8, past the trials' dial). Searching for a goal at a building, the surround still took ×1.48 the street-bound swarm's time.</li>
+            <li>Its page shows every design's city and replays 73 of its flights, Unity's beside the replica's.</li>
+          </ul>
+        </div>
+      </article>
+      <article class="study">
+        <header><span class="id">S5</span><h3>Block-Shaped Surround</h3><span class="was">the block-shaped study · 28–29 Oct 2026</span><span class="status done">Done</span></header>
+        <div>
+          <p class="q">S4's question in BlockShapedCityWorld's city, where each building fills its block: which spread gets the swarm round a block, does surrounding pay, and do footpaths, block size, street width or the layout of the blocks change what one drone can see?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>The 2-D replica and scripted pilots; S5's settings have not been flown on the Unity bench (the scene's smoke test lost a pair in 16 flights, in line).</li>
+            <li>Under today's force law each building is avoided as the circle round its bounding box; a tighter shape might allow a narrower footpath and a quicker surround, untested.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9#cities" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S5_block_shaped_surround.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The scene's streets are too tight for the swarm at the usual spread: drones collide in the streets (0.33 a block at d_ref 1.0, none in S4's catalogue city), fewer at 1.2, none from 1.6.</li>
+            <li>A pre-study picked d_ref 1.2 with a 20 s firm hold on the block's centre; flowing round does not get round these blocks within 12 s.</li>
+            <li>The buildings hide more: one drone looks down 28% of a block's exits when choosing, the swarm in the streets 74%, surrounding 95%. A footpath shows one drone more, but a narrower one lets the avoidance circles close streets.</li>
+            <li>Even block layouts put up to six streets round every building but have fewer exits, so the scene's random layout hides the most from one drone.</li>
+            <li>Searching for a goal at a building, the swarm in the streets takes 46% of one drone's time; surrounding is slower than the streets on all six designs searched (×1.19–1.66).</li>
+          </ul>
+        </div>
+      </article>
+      <article class="study">
+        <header><span class="id">S6</span><h3>Patch City Tuning</h3><span class="was">the patch-city tuning · 30 Oct 2026</span><span class="status done">Done · applied to the scene</span></header>
+        <div>
+          <p class="q">How should the swarm be set up to move through BlockShapedPatchCityWorld: the spread that suits its buildings, and the obstacle-avoidance and swarm gains that let it surround each building it meets and close up again beyond it without breaking up? With measures for that, the headline being the speed made with the swarm together.</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots flying straight lines and street routes at full stick; real pilots steer round buildings and stop to look.</li>
+            <li>The tuned swarm touches buildings 2.5 times as often (about once every 2 km in Unity). The simulation forgives contacts; what they would mean on real aircraft, and the force-law change that would remove them (shielding cohesion as the stick is shielded), are untested.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF#cities" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S6_patch_city_tuning.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The scene as it was lost drones at its own spread: 32 in 64 Unity flights at d_ref 1.08, drone-drone collisions in streets the avoidance circles narrow, and it surrounded only 67% of the buildings it met.</li>
+            <li>d_ref 2.0 fits these buildings: the formation's ring (31 m) is as wide as a building's avoidance circle, and it surrounds 98% of the buildings it meets.</li>
+            <li>Speed through the city was held back by the obstacle shield, for one drone too (4.0 m/s, stalling head-on against buildings). A shorter shield (1.6) and a thinner standoff (0.16) make the swarm 27% quicker while together in Unity, with the same losses as the old gains at that spread.</li>
+            <li>One drone shares the obstacle gains and gains as much (25%), so on these routes the two are now equally quick: the swarm's edge in the trials stays its cameras.</li>
+            <li>The new values are saved in the scene; fly it with the RC's spread dial centred on 2.0 (<code>launch_sim_scripts.ps1 -SpreadRange 1.4,2.6</code>). Its page replays 50 flights, Unity's beside the replica's.</li>
+          </ul>
+        </div>
+      </article>
+      <article class="study">
+        <header><span class="id">S7</span><h3>Building Flow</h3><span class="was">the flow study · 30–31 Oct 2026</span><span class="status done">Done · three switches, the slide recommended</span></header>
+        <div>
+          <p class="q">Three changes to how the Olfati-Saber law treats BlockShapedPatchCityWorld's buildings, each behind its own SwarmManager switch: slide round a building instead of stalling at it, route a straggler round a building instead of through its facade, and narrow the spread in the streets while widening it at a building. Do they move the swarm through the city faster, together, and still surrounding what it flies at?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick; losses are rare, and a tenth of a drone per km is near the noise of ~100 km per setting.</li>
+            <li>Movement and surrounding only, not what the pilot's screens show.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S7_building_flow.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Sliding round a building (the part of the stick the shield removes turned along it, head-on approaches only) makes the swarm 22% faster while together (23% in Unity), passing a building in 10.6 s instead of 12.6, with fewer contacts, the same losses and no flight ending in pieces. One drone shares it and gets 17% faster.</li>
+            <li>The way round decided it: the formation in halves round a building the swarm flies squarely at, each drone its own way elsewhere. Halves everywhere sent trailing drones round the far side of corner buildings and broke up the street flights.</li>
+            <li>Routing stragglers (only attraction to hidden neighbours, only beyond 0.7 of the obstacle field's ceiling) cuts contacts 28%, and with the slide leaves one contact in 64 Unity flights.</li>
+            <li>The adaptive spread makes the streets 14–23% faster but loses drones (Unity 8 against 2 in 64 flights): a narrower formation is squeezed in the gaps the avoidance circles narrow. It ships at a gentler 0.85 / 3 s and stays off for the trials.</li>
+            <li>Tick Slide Round Buildings for both trial conditions; route is optional. Its page replays five routes seven ways, Unity's beside the replica's.</li>
+          </ul>
+        </div>
+      </article>
+      <article class="study">
+        <header><span class="id">S8</span><h3>Footprint Avoidance</h3><span class="was">the shape study · 1–2 Nov 2026</span><span class="status done">Done · applied to the scene</span></header>
+        <div>
+          <p class="q">The force law avoids each building as the circle round its bounding box, which reaches into BlockShapedPatchCityWorld's streets. With S7's slide on, is a tighter shape better: the building's footprint itself, or the smallest circle round it? The cylinder was chosen because a flat wall gave a swarm flown square at it no sideways push; does that still hold?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick; losses are rare, and a tenth of a drone per km is near the noise of ~100 km per setting.</li>
+            <li>The rule's pick sits exactly at its contact bound; route stragglers was left off by design.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S8_footprint_avoidance.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The bounds circles leave a median 14 m of the 25 m between two facades. Half of the drones S7 lost went down where they leave under 10 m, a place the drones spent a tenth of their time.</li>
+            <li>The footprint fails for the cylinder's own reason: without the slide a formation flown square at a wall took 20 s to split round it (3.8 s with the circles); with the slide drones line up along the walls and collide (54 lost against 2 in 100 Unity flights).</li>
+            <li>The smallest circle round each footprint keeps the curvature and leaves 20 m: with the slide the streets are 9–15% faster, a tenth of the drones are lost, and the split round a wall is as quick; the cost is building contacts, which a standoff of 0.35 holds down (Unity: none lost, 5 contacts in 100 flights).</li>
+            <li>The rule picked it with the adaptive spread too (20% faster in the replica's streets than S7's pick, no extra losses), but in Unity that lost 3 pairs in 100 flights against none without it. The scene now flies it (enclosing circle, slide, d_obs 0.35, adaptive spread: the user's choice); watch its collisions in the trials. Both trial conditions change together.</li>
+          </ul>
+        </div>
+      </article>
+      <article class="study">
+        <header><span class="id">S9</span><h3>Street Spread</h3><span class="was">the spread study · 2 Nov 2026</span><span class="status done">Done · settled in Unity</span></header>
+        <div>
+          <p class="q">Does S7's adaptive spread, which the scene now flies, narrow the swarm too much in BlockShapedPatchCityWorld's streets and should it stay a bit wider? What do the same spreads do held fixed, and what happens at the pilot's dial ends? Then, the same day: is any of it significant, do the losses really happen while the spread changes, and does the narrower street spread cost drones in Unity?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick with the dial fixed; a pilot turns the dial, which the adaptive spread then scales.</li>
+            <li>The replica under-counts Unity's collisions (about half), and its own flights doubled the losses at the narrower spread where Unity and its twins did not; a rise up to ×1.9 is not excluded in Unity, and the dial ends were flown only in the first run.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S9_street_spread.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Narrower in the streets is faster, beyond doubt: route by route over 1,000 street routes, the adaptive spread at 0.85 is 8% faster than 2.0 held and 1.7 held 11%, in every city; Unity, 8% at 0.85.</li>
+            <li>In Unity the narrower street spread costs no drones. The replica's own flights lose about twice as many at it, held or adaptive (48 loss events at 0.85 against 24 at 2.0 held, 431 km each). A settling run in Unity, 300 fresh street routes each judged by a rule written first, found 18 against 18, and over all three benches ×1.07 (95%: 0.62–1.86): the doubling is ruled out. The replica's twins of those flights side with Unity (17 against 16), so the doubling is the replica's own flights, not the law. In Unity the narrower spread also touches buildings 39% less.</li>
+            <li>The adaptive spread's changes cost nothing, in the replica and in Unity: losses cluster as the swarm enters a street in every row, even 2.0 held where the spread never moves, and the adaptive spread's excess is the same there as elsewhere. It flies like 1.8 held. The first run's "held spreads lose alike" and "losses during the change" were noise and a confound.</li>
+            <li>For the trials: keep the scene as it is (C35a, the adaptive spread at 0.85). 1.7 held is about 3% faster again but was not flown enough in Unity to clear it. Its page has an "Is it significant?" tab, the settling run, and replays of four routes six ways.</li>
+          </ul>
+        </div>
+      </article>
+      <article class="study">
+        <header><span class="id">S10</span><h3>Ellipse Avoidance</h3><span class="was">the ellipse study · 2 Nov 2026</span><span class="status done">Done · in the scene</span></header>
+        <div>
+          <p class="q">The enclosing circle the scene avoids each building as lies very close to some of its walls and far from others, so how far a drone is pushed off a wall depends on which wall it is. Does an ellipse fitted to each footprint (its aspect capped) keep the swarm at a more even distance from every wall, how much street does it give back, and what does it cost?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>Scripted pilots at full stick; Unity flew 37 km per setting, too short for rare losses or contacts.</li>
+            <li>The ellipse narrows about 3% of streets by more than 2 m past the ends of long buildings; BlockShapedPatchCityWorld only.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S10_ellipse_avoidance.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>It fits the walls more evenly: the median building's farthest wall stands 5.7 m further from the circle than its nearest, and 3.3 m from the ellipse (cap 1.5); 173 of 289 buildings have a wall more than 6 m from the circle, 47 from the ellipse.</li>
+            <li>A drone then meets every wall at a more even distance: flown along a wall, the distance it keeps varies about half as much from wall to wall (×0.55 in the replica, ×0.56 in Unity).</li>
+            <li>The narrow streets come back at the same standoff: corridors under 6 m go from 376 to 57 over four cities, and the formation is 7.5% faster in the streets (Unity 5%), faster in every city, with fewer losses and contacts in the replica and no stall at flat sides.</li>
+            <li>For the trials: fly the ellipse at cap 1.5 with everything else as the scene has it (E15_35a); one setting, <code>obstacleShape</code> Ellipse, in BlockShapedPatchCityWorld since 3 Nov 2026. Unity's contacts are the one dissent (17 against 12 in 37 km); watch them in the first sessions.</li>
+          </ul>
+        </div>
+      </article>
+      <article class="study">
+        <header><span class="id">S11</span><h3>Wrap Hold</h3><span class="was">the wrap study · 6–8 Nov 2026</span><span class="status done">Done · in the scene</span></header>
+        <div>
+          <p class="q">In ERKS's first swarm trial the adaptive spread narrowed the swarm while it was still wrapped round a building. Does holding the full spread while a building lies inside the formation keep it wide there, and what does that cost in the streets?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>The goal search is scripted, calibrated against one participant's three flights; it is a little harder on the scene's rule than ERKS was.</li>
+            <li>Nothing measures what the cameras see of the building; "the pilot would see little change" rests on the formation's size.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD#flights" target="_blank" rel="noopener">Cities and flights</a><span class="mono">docs/studies/S11_wrap_hold.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>Hold does what was asked of the setting: while a building is wrapped, the spread scale averages 0.98 instead of 0.94 and is narrowed 15% of the time instead of 48% (4,352 replica flights in four cities; Unity agrees to 0.003). On ERKS's own flights, replayed, narrowed while wrapped falls from 39% to 9%.</li>
+            <li>It costs nothing measurable: 45 loss events against 45 over 30 h of flight, contacts 7% fewer, the streets 0.1% slower. Unity's 9 against 6 were all located, and none fell while Hold was acting.</li>
+            <li>The formation itself barely changes: the ring round a wrapped building is 2% wider (0.3 m), and only 3.5% even with the spread held at 2.0. The building, not the spread, sets its size while it is wrapped.</li>
+            <li>For the trials: Hold is cheap and harmless and stops the setting from pulsing round buildings, but expect little visible change. Adopted on 9 November 2026: BlockShapedPatchCityWorld and PracticeBlockWorld fly <code>spreadWrapRule</code> Hold.</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lessons carried forward</h2>
+    <p>The full list, with what to do instead, is <code>docs/studies/lessons.md</code>. A new study should work through it before its design is fixed.</p>
+    <div class="lessons">
+      <section>
+        <h3>Measures</h3>
+        <ol>
+          <li><b>Check every measure for a ceiling.</b> Sweep width capped at 84 m and hid spread 1.6's reach. <span class="tag">S3</span></li>
+          <li><b>Compare rates or times, not a chance within a fixed time</b>, which saturates. <span class="tag">S3</span></li>
+          <li><b>Hide targets out of sight of the start</b>, or the view from the start dominates. <span class="tag">S2 S3</span></li>
+          <li><b>Report range and attention as dimensions</b>: 40, 80 and 200 m; any screen, head ahead, fitted head. <span class="tag">S1 S2 S3</span></li>
+          <li><b>Separate the goal from the transit</b>: geometry rules one, coverage the other. <span class="tag">S1 S3</span></li>
+          <li><b>Seeing more is not finding sooner</b> until a pilot acts on it; split the result into decisions × time per decision. <span class="tag">S4</span></li>
+          <li><b>Score a view by the decision it informs</b>: seeing the start of a street is not seeing down it to the building at its end. <span class="tag">S4</span></li>
+          <li><b>Score each condition at its own decision</b>: a pass decides at the corner, before it goes round. <span class="tag">S4</span></li>
+          <li><b>Choose the sight range for what is being seen</b>, and record it with the run: 80 m, a hat's range, set most of S4's numbers for seeing a building down a street. <span class="tag">S4</span></li>
+          <li><b>Measure the question with a probe built for it</b>: S10's formation flights met facades mostly at corners, where every shape touches; one drone flown along each wall answered it directly. <span class="tag">S10</span></li>
+          <li><b>Read what a censored measure counts</b>: S10's 60° "never split" was the formation going round one side whole, as fast. <span class="tag">S4 S10</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Models and statistics</h3>
+        <ol>
+          <li><b>Scripted pilots are not people</b>; calibrate against a pilot block. <span class="tag">S1 S2</span></li>
+          <li><b>Spread 0.4 loses drones in every model</b>; report per spread, consider a dial floor. <span class="tag">S1 S2 S3</span></li>
+          <li><b>Validate the replica in each new kind of city</b> with a Unity spot check. <span class="tag">S1 S3 S4 S6 S9</span></li>
+          <li><b>Start a replica flight from a settled formation</b>, as the bench does: S6's first screens counted start-up contacts as flight contacts and favoured narrow spreads. <span class="tag">S6</span></li>
+          <li><b>Cities are the statistical units</b>; tests over walks overstate. <span class="tag">S3</span></li>
+          <li><b>Pair every condition</b> on one intent chain from one start. <span class="tag">S2 S3</span></li>
+          <li><b>Size a pass/fail run to its bar</b>, then confirm on fresh trials in fresh cities. <span class="tag">S4</span></li>
+          <li><b>Read the full run, not the first rounds</b>: S4's H2 read ×1.12–1.39 early and ×1.02 in the end. <span class="tag">S4</span></li>
+          <li><b>Check an adaptive pilot for dead ends</b>, and a walk for early ends, before the run. <span class="tag">S4</span></li>
+          <li><b>Count rare events with exact intervals and pool every run of a setting, within a platform</b>: S9's first run called the adaptive spread safe (p 0.20); four times the distance made it 48 against 24, while Unity disagreed. <span class="tag">S9</span></li>
+          <li><b>A timing claim needs a placebo of the same moments</b>: S9's "losses during the spread's change" appeared just as much in rows whose spread never changes. <span class="tag">S9</span></li>
+          <li><b>When the replica and Unity disagree on a cost, ask the twins before flying more replica</b>: S9's twins sided with Unity (no doubling), so the replica's doubling was its own flights, not the law. <span class="tag">S9</span></li>
+          <li><b>Before reading a difference in losses, check they fell where the rows differ</b>: none of Unity's 9 Hold losses came while Hold was acting. <span class="tag">S11</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Manoeuvres and tuning</h3>
+        <ol>
+          <li><b>A stronger long-range attraction can raise building contacts</b>: it drags drones across a block. <span class="tag">S4</span></li>
+          <li><b>A manoeuvre's timing scales with its geometry</b>; one length for every design fits only the small blocks. <span class="tag">S4</span></li>
+          <li><b>Look past a censored recovery measure</b> before reading it. <span class="tag">S4</span></li>
+          <li><b>Screen a mitigation against the failure it might cause.</b> <span class="tag">S4</span></li>
+          <li><b>Check what a rule's fallback would pick</b>, and when nothing qualifies, look for the factor held fixed: S5's street spread. <span class="tag">S5</span></li>
+          <li><b>Treat the separation (d_ref) as a factor</b>, sized to the task: looking down a block paid for spreads past d* and past the trials' dial. <span class="tag">S4</span></li>
+          <li><b>Gate a rule that moves the whole formation on where it is going</b>: S7's slide split in halves everywhere broke up the street flights at every turn. <span class="tag">S7</span></li>
+          <li><b>Redirect only the part of a force that causes the failure</b>, found by attributing forces at the failure. <span class="tag">S7</span></li>
+          <li><b>A spread that changes in flight inherits the narrowest spread's collisions</b>, and adds its own in the transitions. <span class="tag">S7</span></li>
+          <li><b>A tighter obstacle shape must keep its curvature</b>: flat faces stall a formation without the slide and line drones up to collide with it. <span class="tag">S8</span></li>
+          <li><b>Bound a safety measure by the configuration the scene flies</b>, and report every bar a candidate misses. <span class="tag">S8</span></li>
+          <li><b>Before tuning a setting that moves between values in flight, fly those values held, far enough to compare costs</b>: 1.8 held flew exactly like the adaptive spread. <span class="tag">S9</span></li>
+          <li><b>Measure the formation, not the setting</b>: holding the spread round a building moved the ring 2%, because the building sets its size. <span class="tag">S11</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Running on this machine</h3>
+        <ol>
+          <li><b>The CPU faults</b>: dead-worker recovery, retries, a bit-for-bit recheck, E-core pinning. <span class="tag">S1 S2 S3</span></li>
+          <li><b>Make long runs resumable</b>, replicate by replicate, under a time budget. <span class="tag">S3</span></li>
+          <li><b>Never edit modules a running pool imports.</b> <span class="tag">S3</span></li>
+          <li><b>Subset scenarios by index</b>, never by drawing fewer. <span class="tag">S2</span></li>
+          <li><b>Never rewrite a script a stopped process may still be reading.</b> <span class="tag">S4</span></li>
+        </ol>
+      </section>
+      <section>
+        <h3>Reporting</h3>
+        <ol>
+          <li><b>Every study's page has a Cities tab</b>: its cities drawn, and its own flights to replay, each re-flown and checked identical to the run. A standing requirement. <span class="tag">S4</span></li>
+          <li><b>Open a study's page on the question it serves and its answer</b>, against one drone, with the detail behind it. <span class="tag">S4</span></li>
+          <li><b>Define every code in plain words</b> where a reader first meets it: a key under the masthead, hover definitions, a Terms tab. <span class="tag">S4</span></li>
+          <li><b>Check a claim about why something happens against the events it is about</b>: S4's replays showed B's contacts were with the building being passed, not across the street. Know what a counter counts, too. <span class="tag">S4</span></li>
+        </ol>
+      </section>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where everything is</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Study</th><th>Registry entry</th><th>Manual</th><th>Code</th><th>Outputs</th></tr></thead>
+      <tbody>
+        <tr><td><b class="mono">S1</b> Goal Visibility</td><td><code>docs/studies/S1_goal_visibility.md</code></td><td><code>docs/density_study/</code></td><td><code>citysim/vissim.py</code>, <code>capability.py</code></td><td><code>experiment_results/density_study/</code></td></tr>
+        <tr><td><b class="mono">S2</b> Hidden Goal Search</td><td><code>docs/studies/S2_hidden_goal_search.md</code></td><td><code>docs/search_study/</code></td><td><code>citysim/search.py</code>, <code>pilots.py</code></td><td><code>experiment_results/search_study/</code></td></tr>
+        <tr><td><b class="mono">S3</b> City Roaming</td><td><code>docs/studies/S3_city_roaming.md</code></td><td><code>docs/clutter_study/</code></td><td><code>citysim/clutter.py</code>, <code>clutter_stats.py</code></td><td><code>experiment_results/clutter_study/clutter/</code></td></tr>
+        <tr><td><b class="mono">S4</b> Split and Surround</td><td><code>docs/studies/S4_split_and_surround.md</code></td><td><code>docs/split_study/</code></td><td><code>citysim/split_probe.py</code>, <code>split.py</code></td><td><code>experiment_results/split_study/</code></td></tr>
+        <tr><td><b class="mono">S5</b> Block-Shaped Surround</td><td><code>docs/studies/S5_block_shaped_surround.md</code></td><td><code>docs/shaped_study/</code></td><td><code>citysim/shaped.py</code></td><td><code>experiment_results/shaped_study/</code></td></tr>
+        <tr><td><b class="mono">S6</b> Patch City Tuning</td><td><code>docs/studies/S6_patch_city_tuning.md</code></td><td><code>docs/swarm_tune/</code></td><td><code>citysim/swarmtune.py</code></td><td><code>experiment_results/swarm_tune/</code></td></tr>
+        <tr><td><b class="mono">S7</b> Building Flow</td><td><code>docs/studies/S7_building_flow.md</code></td><td><code>docs/swarm_flow/</code></td><td><code>citysim/swarmflow.py</code>; <code>OlfatiSaber.cs</code>, <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_flow/</code></td></tr>
+        <tr><td><b class="mono">S8</b> Footprint Avoidance</td><td><code>docs/studies/S8_footprint_avoidance.md</code></td><td><code>docs/swarm_shape/</code></td><td><code>citysim/swarmshape.py</code>; <code>ObstacleFootprint.cs</code>, <code>OlfatiSaber.cs</code></td><td><code>experiment_results/swarm_shape/</code></td></tr>
+        <tr><td><b class="mono">S9</b> Street Spread</td><td><code>docs/studies/S9_street_spread.md</code></td><td><code>docs/swarm_spread/</code></td><td><code>citysim/swarmspread.py</code></td><td><code>experiment_results/swarm_spread/</code></td></tr>
+        <tr><td><b class="mono">S10</b> Ellipse Avoidance</td><td><code>docs/studies/S10_ellipse_avoidance.md</code></td><td><code>docs/swarm_ellipse/</code></td><td><code>citysim/swarmellipse.py</code></td><td><code>experiment_results/swarm_ellipse/</code></td></tr>
+        <tr><td><b class="mono">S11</b> Wrap Hold</td><td><code>docs/studies/S11_wrap_hold.md</code></td><td><code>docs/swarm_wrap/</code></td><td><code>citysim/swarmwrap.py</code>; <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_wrap/</code></td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape, spread, ellipse, wrap), so nothing that reads them broke.</p>
+  </section>
+
+  <section>
+    <h2>Starting a new study</h2>
+    <ol class="steps">
+      <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
+      <li>Take the next ID (S12), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S12_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
+      <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
+      <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>
+    </ol>
+  </section>
+
+  <footer class="foot">Last updated 9 November 2026. Source: <span class="mono">docs/studies/hub.html</span> in the vr_swarm_simulation repository.</footer>
+</div>

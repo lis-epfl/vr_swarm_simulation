@@ -1,0 +1,61 @@
+[
+ {
+  "label": "T3",
+  "d": 2.0,
+  "over": {}
+ },
+ {
+  "label": "adaptive",
+  "d": 2.0,
+  "over": {
+   "adaptiveSpread": true
+  }
+ },
+ {
+  "label": "route",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true
+  }
+ },
+ {
+  "label": "route + adaptive",
+  "d": 2.0,
+  "over": {
+   "routeStragglers": true,
+   "adaptiveSpread": true
+  }
+ },
+ {
+  "label": "slide",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true
+  }
+ },
+ {
+  "label": "slide + adaptive",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "adaptiveSpread": true
+  }
+ },
+ {
+  "label": "slide + route",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "routeStragglers": true
+  }
+ },
+ {
+  "label": "slide + route + adaptive",
+  "d": 2.0,
+  "over": {
+   "slideRoundBuildings": true,
+   "routeStragglers": true,
+   "adaptiveSpread": true
+  }
+ }
+]

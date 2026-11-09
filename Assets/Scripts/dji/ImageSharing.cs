@@ -11,10 +11,30 @@ public class ImageSharing : MonoBehaviour
     // Memory mapping constants and parameters
     private const uint FILE_MAP_ALL_ACCESS = 0xF001F;
     private const uint PAGE_READWRITE = 0x04;
+    // What CreateFileMapping returns when the named section already exists at a SMALLER
+    // size than the one requested. Windows never resizes a section, so an unequal size
+    // between the two producers, or between a producer and a stale Python, is fatal —
+    // which is why every section here has a compile-time constant size.
+    private const int ERROR_ACCESS_DENIED = 5;
     
-    // Block layout for each image:
-    //   int flag (4 bytes), int imageIndex (4 bytes), float yaw (4 bytes), image data (ImageSize bytes)
-    private const int MetadataSize = 12;  // flag (4) + index (4) + yaw (4)
+    // Block layout for each image (wire v2), mirroring PyUniSharingFast's
+    // blockPoseHeaderSize and utils/imageSharingUtil.py's BLOCK_HEADER_BYTES:
+    //   int flag | int droneId | float yaw
+    //   | float camPos[3] | float camRot[4] xyzw | float captureTime | int poseStatus
+    //   | image data (ImageSize bytes)
+    //
+    // The pose is what the sim's PLANAR stitcher needs and the v1 12-byte header could
+    // not carry: a heading alone is one scalar, giving no position and one of three
+    // rotation degrees of freedom. It is passed straight through from the feed map to
+    // the stitch map -- this component does not compute it, because the pose has to be
+    // the pose of *that* frame and only the producer knows which telemetry arrived with
+    // the pixels.
+    private const int MetadataSize = 48;
+    private const int PoseOffset = 12;          // float32 x, y, z
+    private const int RotOffset = 24;           // float32 x, y, z, w
+    private const int CaptureTimeOffset = 40;   // float32, seconds since producer start
+    private const int PoseStatusOffset = 44;    // int32 bitfield
+    private const int POSE_VALID = 1 << 0;
 
     // Processed image dimensions and sizes (RGB24). Must match the producer
     // (image_stream_feed.py width/height) — the block layout is offset-based,
@@ -22,14 +42,172 @@ public class ImageSharing : MonoBehaviour
     private const int ImageWidth = 800;
     private const int ImageHeight = 450;
     private const int ImageSize = ImageWidth * ImageHeight * 3; // 3 bytes per pixel
-    private int BlockSize = MetadataSize + ImageSize; // size per image block
+    // Stride of a DroneFeedSharedMemory block. Fitted exactly to the 800x450 feed, because
+    // that map's producer (image_stream_feed.py) uses the same arithmetic. NOT the stride of
+    // a BlockSharedMemory slot — see StitchSlotStride below, which is larger.
+    private const int BlockSize = MetadataSize + ImageSize;
 
-    // Fixed capacity of the feed mapping (must match MAX_DRONES in
-    // image_stream_feed.py). The mapping is always this many blocks so its size
-    // never depends on the fleet size or on which process creates it first.
-    // droneId == -1 marks a block that holds no new frame (never written, or
-    // already consumed by the read loop); producers rewrite droneId every write.
+    // Fixed capacity of the feed mapping (must match FEED_MAX_DRONES in the
+    // DJI_Swarm repo's utils/imageSharingUtil.py). The mapping is always this many
+    // blocks so its size never depends on the fleet size or on which process creates
+    // it first. droneId == -1 marks a block that holds no new frame (never written,
+    // or already consumed by the read loop); producers rewrite droneId every write.
     private const int MaxFeedBlocks = 10;
+    private const int FeedBlocksBytes = MaxFeedBlocks * BlockSize;
+
+    // ---------------------------------------------------------------------------
+    // Scene-plane trailer, appended after the blocks. Carries the PLANAR standoff
+    // the PC computes (from a facade traced on the GUI map plus the live formation)
+    // so planarStandoffMetres stops being typed into the inspector by hand. Getting
+    // it wrong is the dominant mosaic error: 30 m typed against a true 34.3 m on the
+    // 2026-08-11 MED clips is ~21 px of seam, more than everything else combined.
+    //
+    // WHY GROWING THIS SECTION IS SAFE. A named Windows section cannot be resized,
+    // so asking for a larger one than a peer already created normally fails with
+    // ERROR_ACCESS_DENIED. It works here only because Windows compares PAGE-ROUNDED
+    // sizes, and the block array (10,800,480 B) rounds up to 10,801,152, leaving 672
+    // already-backed bytes. Measured: create at the block size and open at +672
+    // succeed in either order; +673 is denied. So a Unity carrying this trailer and
+    // a DJI_Swarm predating it interoperate in both start orders, with the trailer
+    // simply reading zero. check_wire_layout.py asserts the <= 672 bound, because
+    // past it both cross orders become a hard failure and the feed dies.
+    //
+    // This component is the SOLE consumer; the PC is the sole producer. Unity must
+    // never write these bytes -- in particular Start()'s block-init loop stops at
+    // MaxFeedBlocks, because the PC may legitimately have written already.
+    private const int FeedTrailerOffset = FeedBlocksBytes;
+    private const int FeedTrailerBytes = 64;
+    private const int FeedSectionBytes = FeedTrailerOffset + FeedTrailerBytes;
+
+    // 'PSO1'. A fresh section is zero-filled, so a non-zero magic is what separates
+    // "a PC has written here" from "this value happens to be 0" -- without it an
+    // untouched trailer reads as a legal-looking 0.0 m standoff.
+    private const int FeedTrailerMagic = 0x50534F31;
+    private const int FeedTrailerVersion = 1;
+
+    private const int FeedTrMagicOffset = 0;
+    private const int FeedTrVersionOffset = 4;
+    private const int FeedTrSeqOffset = 8;
+    private const int FeedTrHeartbeatOffset = 12;
+    private const int FeedTrStandoffOffset = 16;
+    private const int FeedTrStatusOffset = 20;
+    private const int FeedTrFacadeIdOffset = 24;
+    private const int FeedTrLookOffOffset = 28;
+    private const int FeedTrSpreadOffset = 32;
+    private const int FeedTrPxPerMOffset = 36;
+    private const int FeedTrTiltOffset = 40;
+    private const int FeedTrViewCountOffset = 44;
+    private const int FeedTrEnd = 48;
+
+    private const int FeedTrStatusLocked = 1;
+    private const int FeedTrStatusDwelling = 2;
+    private const int FeedTrStatusNoFacade = 4;
+    private const int FeedTrStatusNoOrigin = 8;
+
+    // How long the trailer's heartbeat may stand still before the standoff is treated
+    // as dead. This is the load-bearing validity test, not a nicety: closing the
+    // producer's handle does NOT destroy the section, so every byte it last wrote stays
+    // readable forever. Without it, one finished clip_replay would pin its clip's
+    // standoff into every later session of the editor.
+    private const float FeedStandoffMaxAgeSeconds = 2.0f;
+    // Sanity envelope. Nothing plausible is outside it, and a value that is says the
+    // producer is confused rather than that the wall is 900 m away.
+    private const float FeedStandoffMinM = 0.5f;
+    private const float FeedStandoffMaxM = 500.0f;
+
+    // The PC-computed PLANAR scene-plane standoff, for PyUniSharingFast to republish.
+    //
+    // Static for the same reason PyUniSharingFast.PlanarSelected and BodyYawDegrees are,
+    // pointing the other way: the component that owns this map and the component that
+    // owns MetadataSharedMemory are not the same one, and in every sim scene one of them
+    // does not exist. PyUniSharingFast must NOT map DroneFeedSharedMemory itself — one
+    // producer, one consumer, and this component is the consumer.
+    public static bool FeedStandoffValid { get; private set; }
+    public static float FeedStandoffMetres { get; private set; }
+    public static int FeedStandoffFacadeId { get; private set; } = -1;
+    public static int FeedStandoffStatus { get; private set; }
+
+    // False when the section was already held at the pre-trailer size (see Start).
+    private bool feedTrailerAvailable = true;
+    private int lastTrailerHeartbeat = int.MinValue;
+    private float lastTrailerBeatTime = -1f;
+
+    private static void ClearFeedStandoff()
+    {
+        FeedStandoffValid = false;
+        FeedStandoffMetres = 0f;
+        FeedStandoffFacadeId = -1;
+        FeedStandoffStatus = 0;
+    }
+
+    // --- Fleet configuration, for ScreenStyle.AUTO ------------------------------
+    //
+    // The AUTO screen layout has to answer two questions about the fleet — is it
+    // swarming in a vertical plane, and is the gimbal pitched down past
+    // FPVCameraScript.NadirPitch — and out here BOTH of the sim's answers are
+    // unavailable. There is no SwarmPlaneController (this scene contains no swarm at
+    // all: the wall is commanded by the PC's swarm_plane.py) and no FPVCameraScript,
+    // so its swarm-wide SharedPitch sits at its 0 default forever and would report
+    // "looking out" under a nadir fleet.
+    //
+    // Both are derivable from what the feed blocks already carry, so nothing is added
+    // to the wire — same argument as the screen layouts taking their positions from
+    // the pose beside the pixels:
+    //   * the gimbal pitch is the elevation of the camera's own forward axis, and the
+    //     block's rotation IS the gimbal attitude (dji_camera_pose.CameraPoseSolver
+    //     uses the gimbal's, not the aircraft's);
+    //   * "vertical plane" becomes "do the drones share a heading", which is what the
+    //     configuration means for the display. A facade wall points every aircraft at
+    //     the same surface; the radially-outward ring OUTER_CIRCLE exists for is
+    //     exactly the case that spreads them. Deliberately NOT a plane fitted to the
+    //     positions: a single-row wall (the case PlanarStitcher._plane_from_formation
+    //     reports as `forward`) fits no plane, and it is still a wall.
+    //
+    // Read by SwarmPlaneController.ResolveDisplayConfiguration, which is the one place
+    // the sim's and the fleet's answers are put behind a single question.
+    //
+    // Static for the same reason the standoff above is: the component that owns this
+    // map and the components that consume the answer are never in the same scene.
+    public static bool FeedSourcePresent { get; private set; }
+    public static int LiveFeedCount { get; private set; }
+    public static float LiveFeedYawResultant { get; private set; }
+    public static bool LiveFeedHeadingsShared { get; private set; }
+    public static bool LiveFeedGimbalValid { get; private set; }
+    public static float LiveFeedGimbalPitchDegrees { get; private set; }
+
+    // Statics survive a Play session in the editor when domain reload is off.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        FeedStandoffValid = false;
+        FeedStandoffMetres = 0f;
+        FeedStandoffFacadeId = -1;
+        FeedStandoffStatus = 0;
+        FeedSourcePresent = false;
+        LiveFeedCount = 0;
+        LiveFeedYawResultant = 0f;
+        LiveFeedHeadingsShared = false;
+        LiveFeedGimbalValid = false;
+        LiveFeedGimbalPitchDegrees = 0f;
+    }
+
+    // Hysteresis band on the circular-mean resultant of the headings, in [0, 1]. The two
+    // configurations sit at the ends of that range — a wall holds its aircraft within a
+    // few degrees of each other (resultant > 0.99) and a ring of three or more cancels to
+    // near 0 — so the band is wide on purpose. What it is guarding is not a close call
+    // but a fleet mid-turn, where a straggler can drop the resultant for a second: the
+    // layout must not swap under the pilot and swap back.
+    private const float HeadingsSharedEnter = 0.85f;
+    private const float HeadingsSharedExit = 0.60f;
+
+    private static void ClearFleetConfiguration()
+    {
+        LiveFeedCount = 0;
+        LiveFeedYawResultant = 0f;
+        LiveFeedHeadingsShared = false;
+        LiveFeedGimbalValid = false;
+        LiveFeedGimbalPitchDegrees = 0f;
+    }
 
     // Number of screens/indicators to spawn (the fleet size for this run).
     // All MaxFeedBlocks blocks are polled regardless.
@@ -40,7 +218,9 @@ public class ImageSharing : MonoBehaviour
     [SerializeField] private string processedMapName = "DroneFeedSharedMemory";
 
     [Header("Stitcher Feed")]
-    [Tooltip("Re-publish the 3 body-yaw-selected feeds into the stitcher's 3-slot BlockSharedMemory, mirroring PyUniSharingFast.SelectStitchCameras in the sim.")]
+    [Tooltip("Re-publish the selected feeds into the stitcher's BlockSharedMemory: the 3 " +
+             "body-yaw-selected ones under STABSTITCH (mirroring PyUniSharingFast." +
+             "SelectStitchCameras in the sim), every fresh feed under PLANAR.")]
     [SerializeField] private bool enableStitchWriting = true;
 
     [Tooltip("Frames older than this (seconds) are excluded from stitch selection, so a drone that stops streaming drops out of the panorama.")]
@@ -49,10 +229,31 @@ public class ImageSharing : MonoBehaviour
     [Tooltip("Degrees added to every drone's compass heading to align compass north with the Unity/HMD yaw frame. Applied to screens, indicators and stitch selection alike.")]
     [SerializeField] private float headingOffsetDegrees = 0f;
 
-    // The stitcher input map: 3 slots ordered [left, centre, right], consumed by
-    // StitcherThreading.py. Same contract PyUniSharingFast produces in the sim.
+    // The stitcher input map, consumed by StitcherThreading.py. Same contract
+    // PyUniSharingFast produces in the sim: a FIXED array of StitchSlotCapacity slots at a
+    // FIXED StitchSlotStride, created once and never resized.
+    //
+    // The three constants below are mirrors of PyUniSharingFast's blockSlotCapacity /
+    // maxBlockWidth x maxBlockHeight / blockSlotStride, and tools/check_wire_layout.py
+    // asserts they agree. They must, for two independent reasons: this component CREATES
+    // the section while PyUniSharingFast DESCRIBES it (only that component writes metadata),
+    // and both components request the same named section — Windows opens the existing one
+    // rather than resizing, so unequal sizes mean whichever starts second is denied.
+    //
+    // There is deliberately no slot-count knob here any more. It used to default to 3
+    // (STABSTITCH's number) and had to be raised by hand to the fleet size before flying
+    // PLANAR — and only took effect on a Play restart, because the section was created in
+    // Start. PLANAR now simply fills as many of these slots as there are aircraft with a
+    // fresh, posed frame.
     private const string stitchMapName = "BlockSharedMemory";
-    private const int StitchSlots = 3;
+    private const int StitchSlotCapacity = 24;
+    private const int StitchMaxImageWidth = 1280;
+    private const int StitchMaxImageHeight = 720;
+    private const int StitchSlotStride = MetadataSize + StitchMaxImageWidth * StitchMaxImageHeight * 3;
+    private const int StitchSectionBytes = StitchSlotCapacity * StitchSlotStride;
+
+    // A left/centre/right panorama is always exactly three views.
+    private const int STITCH_COUNT_LRC = 3;
     private IntPtr stitchFileMap = IntPtr.Zero;
     private IntPtr stitchPtr = IntPtr.Zero;
 
@@ -63,9 +264,25 @@ public class ImageSharing : MonoBehaviour
         public byte[] imageBytes;
         public float yaw;
         public float lastUpdateTime;
+
+        // Carried through from the feed block untouched. poseStatus == 0 means the
+        // producer had no pose to give (no GPS lock, or a tool like image_replay.py that
+        // has no telemetry at all); the planar solve drops such a view and STABSTITCH
+        // never looks at it.
+        public Vector3 pos;
+        public Quaternion rot;
+        public float captureTime;
+        public int poseStatus;
     }
     private readonly Dictionary<int, CachedFrame> frameCache = new Dictionary<int, CachedFrame>();
     private readonly List<int> stitchCandidates = new List<int>();
+
+    // The drone ids this frame's selection put into the panorama, and change-detection on the
+    // set actually pushed to ScreenSpawn. Feeds the "hide the screens of the drones already in
+    // the panorama" rule, which the sim gets from PyUniSharingFast.UpdateStitchedScreenHiding —
+    // that half resolves the selection to "Drone N" GameObjects, of which this scene has none.
+    private readonly List<int> publishedStitchIds = new List<int>();
+    private string lastHiddenFeedsKey;
 
     // Update interval for reading from the memory mapped file
     [SerializeField] private float readInterval = 0.05f;
@@ -117,15 +334,51 @@ public class ImageSharing : MonoBehaviour
     void Start()
     {
         if (enableDebugLogging) Debug.Log("[ImageSharing] Starting ImageSharing component...");
-        
+
+        // Statics survive a Play session in the editor (domain reload is configurable),
+        // so a sim scene entered after this one would otherwise inherit a dead
+        // controller's standoff and use it as if it were live. Cleared here and in
+        // OnDestroy, at both ends of this component's life.
+        ClearFeedStandoff();
+        ClearFleetConfiguration();
+
+        // "A real-drone feed source exists in this scene." What it buys AUTO is the
+        // difference between "the fleet is horizontal and looking out" and "no aircraft
+        // has streamed yet", which are the same reading of the statics above and want
+        // opposite behaviour — resolve, or hold the layout the scene came up in.
+        FeedSourcePresent = true;
+
         // The feed mapping always has the full fixed capacity (matches
-        // image_stream_feed.py) so its size never depends on the fleet size.
-        TotalProcessedSize = MaxFeedBlocks * BlockSize;
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({MaxFeedBlocks} blocks x {BlockSize} bytes per block, {numImages} screens)");
+        // imageSharingUtil.FEED_*) so its size never depends on the fleet size. Note this
+        // is the FEED stride, fitted to the 800x450 feed — not StitchSlotStride, which is
+        // sized to the block section's larger envelope.
+        TotalProcessedSize = FeedSectionBytes;
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Total memory size: {TotalProcessedSize} bytes ({MaxFeedBlocks} blocks x {BlockSize} bytes per block + {FeedTrailerBytes} trailer, {numImages} screens)");
 
         // Create (or open) the memory-mapped file for the processed images and metadata
         processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
             (uint)TotalProcessedSize, processedMapName);
+        if (processedFileMap == IntPtr.Zero && Marshal.GetLastWin32Error() == ERROR_ACCESS_DENIED)
+        {
+            // A DJI_Swarm predating the scene-plane trailer already holds this section at
+            // the smaller size. The blocks are laid out identically, so retry without the
+            // trailer: the feeds are worth more than the standoff, and losing them both
+            // over a setting that has a perfectly good fallback would be the wrong trade.
+            //
+            // This should not be reachable — the trailer fits inside the section's 4 KB
+            // page rounding, which is why check_wire_layout.py asserts that bound. It is
+            // here because "unreachable" and "untested" are the same thing in a path that
+            // otherwise kills the feed for the whole session.
+            feedTrailerAvailable = false;
+            TotalProcessedSize = FeedBlocksBytes;
+            processedFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
+                (uint)TotalProcessedSize, processedMapName);
+            Debug.LogWarning(
+                $"[ImageSharing] {processedMapName} already exists at the pre-trailer size " +
+                $"({FeedBlocksBytes} bytes). Feeds are unaffected; the PLANAR standoff falls " +
+                $"back to PyUniSharingFast.planarStandoffMetres. Restart the DJI_Swarm " +
+                $"producer to get the PC-computed standoff.");
+        }
         if (processedFileMap == IntPtr.Zero)
         {
             int error = Marshal.GetLastWin32Error();
@@ -177,7 +430,12 @@ public class ImageSharing : MonoBehaviour
 
         ScreenSpawn.numScreens = numImages;
 
-        // Spawn screens
+        // Share the staleness threshold, so the screens and the stitch selection agree on what
+        // counts as still flying: a drone that drops out leaves the panorama and the layout together.
+        ScreenSpawn.SetRealFeedTimeout(stitchFrameMaxAge);
+
+        // Spawn screens. No swarm list means the real-drone path: ScreenSpawn binds one screen per
+        // feed index and every screen style then works off the state pushed by UpdateRealDroneFeed.
         ScreenSpawn.SpawnScreens();
         if (enableDebugLogging) Debug.Log($"[ImageSharing] ScreenSpawn component found and spawned {numImages} screens.");
 
@@ -194,20 +452,46 @@ public class ImageSharing : MonoBehaviour
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Initialization complete. Read interval: {readInterval}s");
     }
 
-    // Finds all GameObjects with the tag "Screen" and initializes their textures.
-    // Assumes each screen's name is in the format "screen_{i}" where i is an integer.
+    // Binds a texture to each screen ScreenSpawn created, keyed by its spawn index.
+    //
+    // Takes the screens from ScreenSpawn.Screens rather than searching the scene for the "Screen"
+    // tag. GameObject.FindGameObjectsWithTag only returns ACTIVE objects, and the layouts hide any
+    // screen whose feed has not arrived yet — which, when this runs from Start, is every one of
+    // them. The tag search therefore found nothing, and since assigning the texture here is what
+    // the per-frame update needs in order to push a feed's heading and position back into
+    // ScreenSpawn, nothing ever un-hid them. That deadlock presented exactly as "the DJI scene
+    // displays no feeds", and the Update() retry below could never break it either.
+    //
+    // Falls back to the tag search only when ScreenSpawn has nothing to offer, so a scene that
+    // wires the screens up some other way still works.
     private void FindAndSetupScreens()
     {
         if (enableDebugLogging) Debug.Log("[ImageSharing] Finding and setting up screens...");
         screens.Clear();
-        GameObject[] screenObjects = GameObject.FindGameObjectsWithTag("Screen");
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Found {screenObjects.Length} GameObjects with 'Screen' tag");
-        
+
+        IReadOnlyList<GameObject> spawned = ScreenSpawn != null ? ScreenSpawn.Screens : null;
+        List<GameObject> screenObjects = new List<GameObject>();
+        if (spawned != null && spawned.Count > 0)
+        {
+            screenObjects.AddRange(spawned);
+            if (enableDebugLogging) Debug.Log($"[ImageSharing] Taking {screenObjects.Count} screens from ScreenSpawn");
+        }
+        else
+        {
+            screenObjects.AddRange(GameObject.FindGameObjectsWithTag("Screen"));
+            if (enableDebugLogging) Debug.Log($"[ImageSharing] Found {screenObjects.Count} GameObjects with 'Screen' tag");
+        }
+
         foreach (GameObject go in screenObjects)
         {
+            if (go == null)
+            {
+                continue;
+            }
+
             int index = ParseIndexFromName(go.name);
             if (enableDebugLogging) Debug.Log($"[ImageSharing] Processing screen '{go.name}' with index {index}");
-            
+
             if (screens.ContainsKey(index))
             {
                 Debug.LogWarning($"[ImageSharing] Multiple screens found with index {index}. Only one will be updated.");
@@ -270,9 +554,15 @@ public class ImageSharing : MonoBehaviour
 
         if (Time.time >= nextReceiveTime && processedPtr != IntPtr.Zero)
         {
+            // Before the block scan and outside its bookkeeping, deliberately: the
+            // standoff must keep being reported honestly even while the feed path is
+            // producing nothing, which is exactly when someone is looking at it. Same
+            // argument WriteHeartbeat uses for sitting ahead of every early return.
+            ReadFeedTrailer();
+
             totalReadsAttempted++;
             bool anyDataRead = false;
-            
+
             // Loop through each capacity block in the memory mapped file
             for (int block = 0; block < MaxFeedBlocks; block++)
             {
@@ -333,6 +623,28 @@ public class ImageSharing : MonoBehaviour
                         SaveDebugImage(imageBytes, imageIndex, yaw);
                     }
 
+                    // Read the pose out of the same block as the pixels, so the two stay
+                    // paired all the way to the stitcher. Deliberately not the
+                    // yaw-offset-corrected heading above: headingOffsetDegrees exists to
+                    // line the feed SCREENS up with the HMD's yaw frame, while the pose
+                    // defines its own frame (+Z = North) that the derived scene plane is
+                    // expressed in. Applying that offset to one and not the other would
+                    // yaw the whole mosaic off the facade.
+                    //
+                    // Read unconditionally, not under enableStitchWriting: the screen
+                    // layouts need the position too (ScreenSpawn ranks the formation
+                    // grids by it), and making that depend on an unrelated stitcher
+                    // toggle is the kind of coupling nobody finds from the symptom.
+                    Vector3 camPos = new Vector3(ReadFloat(blockPtr, PoseOffset + 0),
+                                                 ReadFloat(blockPtr, PoseOffset + 4),
+                                                 ReadFloat(blockPtr, PoseOffset + 8));
+                    Quaternion camRot = new Quaternion(ReadFloat(blockPtr, RotOffset + 0),
+                                                       ReadFloat(blockPtr, RotOffset + 4),
+                                                       ReadFloat(blockPtr, RotOffset + 8),
+                                                       ReadFloat(blockPtr, RotOffset + 12));
+                    float blockCaptureTime = ReadFloat(blockPtr, CaptureTimeOffset);
+                    int blockPoseStatus = Marshal.ReadInt32(blockPtr, PoseStatusOffset);
+
                     // Cache the frame for the stitch re-publish. imageBytes is a
                     // fresh array each read, so keeping the reference is safe.
                     if (enableStitchWriting)
@@ -345,6 +657,10 @@ public class ImageSharing : MonoBehaviour
                         cached.imageBytes = imageBytes;
                         cached.yaw = yaw;
                         cached.lastUpdateTime = Time.time;
+                        cached.pos = camPos;
+                        cached.rot = camRot;
+                        cached.captureTime = blockCaptureTime;
+                        cached.poseStatus = blockPoseStatus;
                     }
 
                     // If a screen with the matching index exists, update its texture and orientation
@@ -361,8 +677,13 @@ public class ImageSharing : MonoBehaviour
                         screenData.texture.Apply();
                         if (enableDebugLogging) Debug.Log($"[ImageSharing] Texture updated for screen {imageIndex}");
 
-                        // Update screen orientation
-                        ScreenSpawn.UpdateRealDroneScreen(imageIndex, yaw);
+                        // Hand the layout this drone's heading and position. ScreenSpawn places
+                        // the screen itself, in whatever style is configured — the feeds go
+                        // through the same styles as simulated ones, which is why this pushes
+                        // state rather than a position.
+                        ScreenSpawn.UpdateRealDroneFeed(
+                            imageIndex, yaw, LayoutPosition(camPos),
+                            (blockPoseStatus & POSE_VALID) != 0);
 
                         // Update drone heading indicator
                         DroneIndicator?.UpdateYaw(imageIndex, yaw);
@@ -395,6 +716,11 @@ public class ImageSharing : MonoBehaviour
                 Debug.LogWarning($"[ImageSharing] No data read this cycle. Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
             }
 
+            // What configuration the fleet is flying, for ScreenStyle.AUTO. Ahead of the
+            // stitch publish because it reads the same cache the publish is about to
+            // select from, and both want this cycle's frames.
+            UpdateFleetConfiguration();
+
             // Re-publish the 3 body-yaw-selected feeds to the stitcher.
             PublishStitchBlocks();
 
@@ -402,39 +728,276 @@ public class ImageSharing : MonoBehaviour
         }
     }
 
-    // Creates (or opens) the stitcher's 3-slot BlockSharedMemory and readies its
-    // flags. Same layout PyUniSharingFast produces in the sim: per slot
-    // int flag | int droneId | float heading | 800x450 BGR top-down image.
+    // The pose position expressed in the same yaw frame as the heading pushed alongside it.
+    //
+    // headingOffsetDegrees rotates the compass heading into the HMD's yaw frame and is deliberately
+    // NOT applied to the pose on the stitcher path (see the read loop): there the pose defines its
+    // own +Z = North frame, which the derived scene plane is expressed in, and turning one without
+    // the other would yaw the mosaic off the facade. The screen layouts are the one place the two
+    // meet — FORMATION_WALL takes its basis from the headings and then projects these positions onto
+    // it — so the rotation is applied here, at the push, and nowhere else. A zero offset (the
+    // default) leaves the position untouched.
+    private Vector3 LayoutPosition(Vector3 camPos)
+    {
+        if (Mathf.Approximately(headingOffsetDegrees, 0f))
+        {
+            return camPos;
+        }
+        return Quaternion.Euler(0f, headingOffsetDegrees, 0f) * camPos;
+    }
+
+    // Creates the stitcher's BlockSharedMemory and readies its flags. Called once, from
+    // Start. Same layout PyUniSharingFast produces in the sim (wire v2, see MetadataSize)
+    // and — crucially — the same size, since both request the same name.
     private void CreateStitchMap()
     {
-        int totalStitchSize = StitchSlots * BlockSize;
         stitchFileMap = CreateFileMapping(new IntPtr(-1), IntPtr.Zero, PAGE_READWRITE, 0,
-            (uint)totalStitchSize, stitchMapName);
+            (uint)StitchSectionBytes, stitchMapName);
         if (stitchFileMap == IntPtr.Zero)
         {
-            Debug.LogError($"[ImageSharing] Unable to create stitch memory map '{stitchMapName}'. Error code: {Marshal.GetLastWin32Error()}");
+            int errorCode = Marshal.GetLastWin32Error();
+            Debug.LogError($"[ImageSharing] Unable to create stitch memory map '{stitchMapName}' " +
+                           $"({StitchSectionBytes} bytes). Error code: {errorCode}" +
+                           (errorCode == ERROR_ACCESS_DENIED
+                               ? " (ACCESS_DENIED: a section of this name already exists at a smaller " +
+                                 "size — a stitcher built against a different StitchSlotCapacity or " +
+                                 "image envelope is still running. Stop it, then restart Play.)"
+                               : ""));
             return;
         }
 
-        stitchPtr = MapViewOfFile(stitchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)totalStitchSize);
+        stitchPtr = MapViewOfFile(stitchFileMap, FILE_MAP_ALL_ACCESS, 0, 0, (UIntPtr)StitchSectionBytes);
         if (stitchPtr == IntPtr.Zero)
         {
             Debug.LogError($"[ImageSharing] Unable to map view of stitch memory map. Error code: {Marshal.GetLastWin32Error()}");
             return;
         }
 
-        for (int slot = 0; slot < StitchSlots; slot++)
+        for (int slot = 0; slot < StitchSlotCapacity; slot++)
         {
-            Marshal.WriteInt32(IntPtr.Add(stitchPtr, slot * BlockSize), 0, 0);
+            IntPtr p = IntPtr.Add(stitchPtr, slot * StitchSlotStride);
+            Marshal.WriteInt32(p, 0, 0);
+            // droneId = -1 at creation, not just when a slot goes unused. A fresh
+            // section is zero-filled and 0 is a legal drone id, so a never-written slot
+            // would otherwise advertise itself as a ready block from drone 0 carrying an
+            // all-zero pose — which is a degenerate quaternion downstream. With a
+            // fixed-capacity section most slots stay at this sentinel for the whole
+            // session, so this loop is the only thing standing between a small fleet and
+            // a section full of phantom drone-0 views.
+            Marshal.WriteInt32(p, 4, -1);
+            Marshal.WriteInt32(p, PoseStatusOffset, 0);
         }
-        if (enableDebugLogging) Debug.Log($"[ImageSharing] Stitch map '{stitchMapName}' ready ({StitchSlots} slots x {BlockSize} bytes).");
+        if (enableDebugLogging) Debug.Log($"[ImageSharing] Stitch map '{stitchMapName}' ready ({StitchSlotCapacity} slots x {StitchSlotStride} bytes).");
     }
 
-    // Selects the three fresh feeds straddling the pilot's body yaw and writes
-    // them to the stitch map, ordered [left, centre, right]. Mirrors
-    // PyUniSharingFast.SelectStitchCameras and Python's get_subsets_from_order
-    // so both sides of the bridge agree on which views form the panorama.
+    // Chooses which feeds form the panorama and writes them to the stitch map.
+    //
+    // Two rules, because the two stitchers want different things:
+    //   STABSTITCH  the three fresh feeds straddling the pilot's body yaw, ordered
+    //               [left, centre, right]. Mirrors PyUniSharingFast.SelectStitchCameras
+    //               and Python's get_subsets_from_order, so both sides of the bridge
+    //               agree on which views form the panorama.
+    //   PLANAR      every fresh feed, full stop (the section's capacity is the only cap,
+    //               and a real fleet never reaches it). A facade wall has all its drones
+    //               looking at the same surface, so a yaw-ordered pick of three would throw
+    //               away most of the mosaic; and the planar solve does not use ring order
+    //               at all.
+    //
+    // Always followed by the screen-hiding push, including on the early returns below: "nothing
+    // was published" has to reach ScreenSpawn as an empty set, or the last selection stays hidden
+    // after the feeds stop arriving.
+    /// <summary>
+    /// Read the PC-computed scene-plane standoff out of the feed map's trailer and
+    /// publish it on the statics PyUniSharingFast republishes into metadata.
+    ///
+    /// Four independent tests have to pass before the value is used, and each one
+    /// exists because of a distinct way a shared section lies:
+    ///   * magic    — a fresh section is zero-filled, so this separates "a PC wrote
+    ///                here" from "the value written happens to be 0".
+    ///   * version  — a producer from another revision must be refused, not misread.
+    ///   * status   — the producer itself saying it has no facade or no pose origin.
+    ///   * heartbeat— the only test that catches a producer that has EXITED. Closing
+    ///                its handle leaves every byte readable forever, so without this a
+    ///                finished clip_replay pins its clip's standoff into every later
+    ///                session.
+    /// </summary>
+    private void ReadFeedTrailer()
+    {
+        if (!feedTrailerAvailable || processedPtr == IntPtr.Zero) return;
+        IntPtr tr = IntPtr.Add(processedPtr, FeedTrailerOffset);
+
+        if (Marshal.ReadInt32(tr, FeedTrMagicOffset) != FeedTrailerMagic ||
+            Marshal.ReadInt32(tr, FeedTrVersionOffset) != FeedTrailerVersion)
+        {
+            SetFeedStandoff(false, 0f, -1, 0, "no producer has written a scene plane");
+            return;
+        }
+
+        // Seqlock, matching PyUniSharingFast.WriteDynamicState. The standoff is a lone
+        // aligned float32 and cannot tear on its own; the lock is what stops a standoff
+        // being paired with a DIFFERENT facade's id in the log line, and it is what the
+        // 16 reserved trailer bytes will need the day a plane normal goes in them.
+        int standoffBits = 0, status = 0, facadeId = -1, beat = 0;
+        bool clean = false;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            int seq = Marshal.ReadInt32(tr, FeedTrSeqOffset);
+            if ((seq & 1) != 0) continue;                // writer mid-update
+            standoffBits = Marshal.ReadInt32(tr, FeedTrStandoffOffset);
+            status = Marshal.ReadInt32(tr, FeedTrStatusOffset);
+            facadeId = Marshal.ReadInt32(tr, FeedTrFacadeIdOffset);
+            beat = Marshal.ReadInt32(tr, FeedTrHeartbeatOffset);
+            if (Marshal.ReadInt32(tr, FeedTrSeqOffset) == seq) { clean = true; break; }
+        }
+        if (!clean)
+        {
+            // Take the standoff and the heartbeat anyway and let only the DIAGNOSTICS be
+            // stale. A busy writer must never cost the mosaic its plane — dropping the
+            // frame here would make the panorama flicker on a race that is, at worst, a
+            // wrong facade id in a log line.
+            standoffBits = Marshal.ReadInt32(tr, FeedTrStandoffOffset);
+            status = Marshal.ReadInt32(tr, FeedTrStatusOffset);
+            beat = Marshal.ReadInt32(tr, FeedTrHeartbeatOffset);
+        }
+
+        if (beat != lastTrailerHeartbeat)
+        {
+            lastTrailerHeartbeat = beat;
+            lastTrailerBeatTime = Time.time;
+        }
+
+        float standoff = BitConverter.ToSingle(BitConverter.GetBytes(standoffBits), 0);
+        if ((status & (FeedTrStatusNoFacade | FeedTrStatusNoOrigin)) != 0)
+        {
+            SetFeedStandoff(false, 0f, -1, status,
+                            (status & FeedTrStatusNoOrigin) != 0
+                                ? "producer has no pose origin yet"
+                                : "producer has no facade to measure against");
+            return;
+        }
+        if (lastTrailerBeatTime < 0f ||
+            Time.time - lastTrailerBeatTime > FeedStandoffMaxAgeSeconds)
+        {
+            SetFeedStandoff(false, 0f, -1, status,
+                            $"producer heartbeat stalled for " +
+                            $"{Time.time - lastTrailerBeatTime:F1} s");
+            return;
+        }
+        if (float.IsNaN(standoff) || float.IsInfinity(standoff) ||
+            standoff < FeedStandoffMinM || standoff > FeedStandoffMaxM)
+        {
+            SetFeedStandoff(false, 0f, -1, status,
+                            $"standoff {standoff:F2} m outside " +
+                            $"[{FeedStandoffMinM}, {FeedStandoffMaxM}] m");
+            return;
+        }
+        SetFeedStandoff(true, standoff, facadeId, status, null);
+    }
+
+    /// <summary>
+    /// Publish the statics, logging only on a transition — never the value.
+    ///
+    /// The standoff moves by centimetres every frame; a per-frame log would bury the
+    /// two things worth seeing, which are that the SOURCE changed (the operator has
+    /// silently gone back to the inspector value) and that the FACADE changed (a step
+    /// in the published plane, which the plane sweep has to re-acquire from).
+    /// The operator's live read-outs are the controller console and the GUI.
+    /// </summary>
+    private void SetFeedStandoff(bool valid, float metres, int facadeId, int status,
+                                 string why)
+    {
+        if (valid != FeedStandoffValid)
+        {
+            if (valid)
+                Debug.Log($"[ImageSharing] PLANAR standoff now from the PC: " +
+                          $"{metres:F2} m (facade {facadeId}). " +
+                          $"planarStandoffMetres in the inspector is the fallback.");
+            else
+                Debug.Log($"[ImageSharing] PLANAR standoff falling back to " +
+                          $"PyUniSharingFast.planarStandoffMetres — {why}.");
+        }
+        else if (valid && facadeId != FeedStandoffFacadeId)
+        {
+            Debug.Log($"[ImageSharing] PLANAR scene plane switched to facade " +
+                      $"{facadeId}: {metres:F2} m (was facade {FeedStandoffFacadeId}). " +
+                      $"The plane has stepped; the stitcher's sweep will re-acquire.");
+        }
+        FeedStandoffValid = valid;
+        FeedStandoffMetres = metres;
+        FeedStandoffFacadeId = valid ? facadeId : -1;
+        FeedStandoffStatus = status;
+    }
+
+    /// <summary>
+    /// Recompute the fleet-configuration statics from the cached frames. See their
+    /// declarations for why these two quantities are derived here rather than read off a
+    /// SwarmPlaneController and an FPVCameraScript that this scene does not contain.
+    ///
+    /// Called every read cycle, not only when a frame arrived: the answer has to decay
+    /// when the aircraft stop streaming, exactly as the screens themselves do, or a fleet
+    /// that lands leaves the layout pinned to the configuration it last flew.
+    /// </summary>
+    private void UpdateFleetConfiguration()
+    {
+        float yawSin = 0f, yawCos = 0f;
+        float pitchSum = 0f;
+        int live = 0, posed = 0;
+
+        foreach (KeyValuePair<int, CachedFrame> kv in frameCache)
+        {
+            CachedFrame frame = kv.Value;
+            // The same freshness test the stitch selection and the screens use, so all
+            // three agree on which aircraft are still flying.
+            if (Time.time - frame.lastUpdateTime > stitchFrameMaxAge) continue;
+
+            live++;
+            float yawRad = frame.yaw * Mathf.Deg2Rad;
+            yawSin += Mathf.Sin(yawRad);
+            yawCos += Mathf.Cos(yawRad);
+
+            // The gimbal pitch needs the rotation and so needs a pose; the heading above
+            // does not, and arrives even from a producer with no telemetry at all
+            // (image_replay.py). Hence the two independent counts.
+            if ((frame.poseStatus & POSE_VALID) == 0) continue;
+            Quaternion rot = frame.rot;
+            if (rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w < 1e-6f) continue;
+
+            // DJI convention, matching FPVCameraScript.SharedPitch: 0 is a level horizon
+            // and -90 is straight down, which is the elevation of the camera's forward
+            // axis. A plain mean is safe where a circular one is not — pitch is bounded
+            // to [-90, 90] and cannot wrap.
+            Vector3 forward = (rot * Vector3.forward).normalized;
+            pitchSum += Mathf.Asin(Mathf.Clamp(forward.y, -1f, 1f)) * Mathf.Rad2Deg;
+            posed++;
+        }
+
+        LiveFeedCount = live;
+        LiveFeedGimbalValid = posed > 0;
+        LiveFeedGimbalPitchDegrees = posed > 0 ? pitchSum / posed : 0f;
+
+        if (live == 0)
+        {
+            LiveFeedYawResultant = 0f;
+            LiveFeedHeadingsShared = false;
+            return;
+        }
+
+        // Resultant length of the circular mean, in [0, 1]: 1 when every aircraft points
+        // the same way, 0 when they cancel. Same construction ScreenSpawn's wall basis and
+        // SwarmPlaneController's mean heading use.
+        LiveFeedYawResultant = Mathf.Sqrt(yawSin * yawSin + yawCos * yawCos) / live;
+        LiveFeedHeadingsShared = LiveFeedYawResultant >=
+            (LiveFeedHeadingsShared ? HeadingsSharedExit : HeadingsSharedEnter);
+    }
+
     private void PublishStitchBlocks()
+    {
+        publishedStitchIds.Clear();
+        WriteStitchBlocks();
+        PushStitchedScreenHiding();
+    }
+
+    private void WriteStitchBlocks()
     {
         if (!enableStitchWriting || stitchPtr == IntPtr.Zero) return;
 
@@ -448,53 +1011,148 @@ public class ImageSharing : MonoBehaviour
             }
         }
 
-        // Fewer than three live feeds can't form a left/centre/right panorama
-        // (matches MIN_STITCH_IMAGES in StitcherThreading.py); leave the slots
-        // untouched so the stitcher's own gates hide the panorama.
-        if (stitchCandidates.Count < StitchSlots) return;
+        bool planar = PyUniSharingFast.PlanarSelected;
 
-        // Centre = heading closest to the pilot's body yaw (circular distance).
-        float bodyYaw = PyUniSharingFast.BodyYawDegrees;
-        int centreId = stitchCandidates[0];
-        float bestDiff = float.MaxValue;
-        foreach (int id in stitchCandidates)
+        // A planar mosaic is worth showing from two overlapping views (MIN_PLANAR_IMAGES);
+        // a left/centre/right panorama needs three (MIN_STITCH_IMAGES). Below that, leave
+        // the slots untouched so the stitcher's own gates hide the panorama.
+        int minViews = planar ? 2 : STITCH_COUNT_LRC;
+        if (stitchCandidates.Count < minViews) return;
+
+        int published;
+        if (planar)
         {
-            float diff = Mathf.Abs(Mathf.DeltaAngle(frameCache[id].yaw, bodyYaw));
-            if (diff < bestDiff)
+            // Sorted by drone id rather than by yaw: under a shared heading the yaws are
+            // all nearly equal, so ordering by them is a tie broken by noise and the slot
+            // a drone lands in would change every frame. Python keys its debug palette and
+            // its per-drone corrections on the id, not the slot, but a stable order still
+            // makes the logs readable.
+            stitchCandidates.Sort();
+            published = Mathf.Min(stitchCandidates.Count, StitchSlotCapacity);
+            for (int j = 0; j < published; j++)
             {
-                bestDiff = diff;
-                centreId = id;
+                WriteStitchSlot(j, stitchCandidates[j]);
+                publishedStitchIds.Add(stitchCandidates[j]);
+            }
+        }
+        else
+        {
+            // Centre = heading closest to the pilot's body yaw (circular distance).
+            float bodyYaw = PyUniSharingFast.BodyYawDegrees;
+            int centreId = stitchCandidates[0];
+            float bestDiff = float.MaxValue;
+            foreach (int id in stitchCandidates)
+            {
+                float diff = Mathf.Abs(Mathf.DeltaAngle(frameCache[id].yaw, bodyYaw));
+                if (diff < bestDiff)
+                {
+                    bestDiff = diff;
+                    centreId = id;
+                }
+            }
+
+            // Order candidates by heading ascending and take the circular neighbours.
+            stitchCandidates.Sort((a, b) => frameCache[a].yaw.CompareTo(frameCache[b].yaw));
+            int n = stitchCandidates.Count;
+            int centrePos = stitchCandidates.IndexOf(centreId);
+            int[] selected =
+            {
+                stitchCandidates[(centrePos - 1 + n) % n],
+                centreId,
+                stitchCandidates[(centrePos + 1) % n],
+            };
+
+            published = STITCH_COUNT_LRC;
+            for (int j = 0; j < published; j++)
+            {
+                WriteStitchSlot(j, selected[j]);
+                publishedStitchIds.Add(selected[j]);
             }
         }
 
-        // Order candidates by heading ascending and take the circular neighbours.
-        stitchCandidates.Sort((a, b) => frameCache[a].yaw.CompareTo(frameCache[b].yaw));
-        int n = stitchCandidates.Count;
-        int centrePos = stitchCandidates.IndexOf(centreId);
-        int[] selected =
+        // Retire the slots this frame's selection did not reach — all the way to the
+        // section's capacity, not just to some published count. Without it a drone that
+        // drops out leaves its last frame in the mosaic forever: the flag handshake alone
+        // cannot distinguish a fresh block from a stale one, which is why droneId == -1 is
+        // the marker on both maps.
+        for (int j = published; j < StitchSlotCapacity; j++)
         {
-            stitchCandidates[(centrePos - 1 + n) % n],
-            centreId,
-            stitchCandidates[(centrePos + 1) % n],
-        };
-
-        for (int j = 0; j < StitchSlots; j++)
-        {
-            CachedFrame frame = frameCache[selected[j]];
-            IntPtr slot = IntPtr.Add(stitchPtr, j * BlockSize);
-
-            // Skip this slot if the stitcher is mid-read (same handshake as the
-            // sim producer in PyUniSharingFast).
+            IntPtr slot = IntPtr.Add(stitchPtr, j * StitchSlotStride);
             if (Marshal.ReadInt32(slot, 0) != 0) continue;
-            Marshal.WriteInt32(slot, 0, 1);
-
-            Marshal.WriteInt32(slot, 4, selected[j]);
-            byte[] yawBytes = BitConverter.GetBytes(frame.yaw);
-            Marshal.Copy(yawBytes, 0, IntPtr.Add(slot, 8), 4);
-            Marshal.Copy(frame.imageBytes, 0, IntPtr.Add(slot, MetadataSize), ImageSize);
-
-            Marshal.WriteInt32(slot, 0, 0);
+            Marshal.WriteInt32(slot, 4, -1);
+            Marshal.WriteInt32(slot, PoseStatusOffset, 0);
         }
+    }
+
+    // Hide the individual screens of the feeds now composited into the panorama — the real-drone
+    // half of PyUniSharingFast's hideStitchedDroneScreens, which reaches those screens only if it
+    // comes from here: that component resolves its selection to "Drone N" GameObjects and this
+    // scene has none, so its set is always empty and every feed stayed visible.
+    //
+    // The gate stays where the toggle and the quality fallback live (PyUniSharingFast.
+    // HideStitchedFeeds) so both paths hide on exactly the same condition; only the membership is
+    // decided here. Change-detected because the set is otherwise identical every read cycle.
+    private void PushStitchedScreenHiding()
+    {
+        if (ScreenSpawn == null) return;
+
+        bool hide = PyUniSharingFast.HideStitchedFeeds && publishedStitchIds.Count > 0;
+        string key = hide ? string.Join(",", publishedStitchIds) : "off";
+        if (key == lastHiddenFeedsKey) return;
+        lastHiddenFeedsKey = key;
+
+        ScreenSpawn.SetStitchedRealFeedsHidden(hide ? publishedStitchIds : null);
+    }
+
+    // Copies one cached frame, pose included, into stitch slot j.
+    private void WriteStitchSlot(int j, int droneId)
+    {
+        CachedFrame frame = frameCache[droneId];
+        IntPtr slot = IntPtr.Add(stitchPtr, j * StitchSlotStride);
+
+        // Skip this slot if the stitcher is mid-read (same handshake as the sim
+        // producer in PyUniSharingFast).
+        if (Marshal.ReadInt32(slot, 0) != 0) return;
+        Marshal.WriteInt32(slot, 0, 1);
+
+        Marshal.WriteInt32(slot, 4, droneId);
+        WriteFloat(slot, 8, frame.yaw);
+
+        // Passed through unchanged from the feed block. This component never computes a
+        // pose: it has to be the pose of the frame the pixels came from, and only the
+        // producer knows which telemetry sample arrived with them.
+        WriteFloat(slot, PoseOffset + 0, frame.pos.x);
+        WriteFloat(slot, PoseOffset + 4, frame.pos.y);
+        WriteFloat(slot, PoseOffset + 8, frame.pos.z);
+        WriteFloat(slot, RotOffset + 0, frame.rot.x);
+        WriteFloat(slot, RotOffset + 4, frame.rot.y);
+        WriteFloat(slot, RotOffset + 8, frame.rot.z);
+        WriteFloat(slot, RotOffset + 12, frame.rot.w);
+        WriteFloat(slot, CaptureTimeOffset, frame.captureTime);
+        Marshal.WriteInt32(slot, PoseStatusOffset, frame.poseStatus);
+
+        Marshal.Copy(frame.imageBytes, 0, IntPtr.Add(slot, MetadataSize), ImageSize);
+
+        Marshal.WriteInt32(slot, 0, 0);
+    }
+
+    // Marshal has no WriteSingle, so floats go through their bytes. Same approach the
+    // yaw write has always used here; the 4-byte array per call is a few KB/s at the
+    // 20 Hz publish rate and is not worth an unsafe block to avoid.
+    private static void WriteFloat(IntPtr basePtr, int offset, float value)
+    {
+        byte[] bytes = BitConverter.GetBytes(value);
+        Marshal.Copy(bytes, 0, IntPtr.Add(basePtr, offset), 4);
+    }
+
+    private static readonly byte[] readScratch = new byte[4];
+
+    private static float ReadFloat(IntPtr basePtr, int offset)
+    {
+        // Reads run on the main thread only (Update), so one shared scratch buffer is
+        // safe and keeps the per-frame allocation out of the read loop.
+        Marshal.Copy(IntPtr.Add(basePtr, offset), readScratch, 0, 4);
+        return BitConverter.ToSingle(readScratch, 0);
     }
 
     // Efficiently converts RGB24 byte array to Color32 array with vertical flip
@@ -530,7 +1188,14 @@ public class ImageSharing : MonoBehaviour
     void OnDestroy()
     {
         if (enableDebugLogging) Debug.Log("[ImageSharing] Cleaning up resources...");
-        
+
+        // The statics outlive this component (see the declarations). Leaving a standoff
+        // behind would have the next scene — quite possibly a sim scene with no feed map
+        // at all — republish a dead controller's number as if it were live.
+        ClearFeedStandoff();
+        ClearFleetConfiguration();
+        FeedSourcePresent = false;
+
         // Clean up memory mapped file resources
         if (processedPtr != IntPtr.Zero)
         {
@@ -556,6 +1221,15 @@ public class ImageSharing : MonoBehaviour
         }
 
         if (enableDebugLogging) Debug.Log($"[ImageSharing] Final stats - Total attempts: {totalReadsAttempted}, Successful: {successfulReads}, Skipped: {skippedReads}");
+    }
+
+    // Mirrors PyUniSharingFast, which has had both hooks for a while. OnDestroy alone is
+    // not enough: on a quit that tears the scene down in an unusual order, a section whose
+    // handle is never closed outlives the process only until the OS reclaims it — but the
+    // window in between is exactly when a restarted Play tries to create it again.
+    void OnApplicationQuit()
+    {
+        OnDestroy();
     }
 
     // Validates image data to check if it looks reasonable

@@ -1,0 +1,136 @@
+{
+ "rule": {
+  "base": "A1",
+  "contact_base": "A0",
+  "lost_margin": 0.05,
+  "open_margin": 0.02,
+  "hull_min": 0.5,
+  "split_ratio": 1.1,
+  "street_gain": 0.05,
+  "v_coh_floor": 0.98,
+  "wrap_margin": 0.1
+ },
+ "verdicts": {
+  "A0 cylinder (the scene today)": {
+   "safe": false,
+   "helps": false,
+   "score": 3.369443328241052,
+   "street_gain": -0.1206645531563203,
+   "v_coh_gain": -0.18937939627507372,
+   "wrap_change": 0.07237512742099905,
+   "split_ratio": 1.216142270861833,
+   "lost_change": -0.11514690345987659,
+   "contact_change": 0.14393362932484577,
+   "open_change": 0.04166666666666667
+  },
+  "A1 cylinder + slide": {
+   "safe": true,
+   "helps": false,
+   "score": 4.311443716936103,
+   "street_gain": 0.0,
+   "v_coh_gain": 0.0,
+   "wrap_change": 0.0,
+   "split_ratio": 1.0,
+   "lost_change": 0.0,
+   "contact_change": 0.0,
+   "open_change": 0.0
+  },
+  "B2 footprint + slide, d_obs 0.25": {
+   "safe": false,
+   "helps": true,
+   "score": -0.768821303837707,
+   "street_gain": 0.06416013551030009,
+   "v_coh_gain": 0.06563099903653224,
+   "wrap_change": 0.00984477124183003,
+   "split_ratio": 1.8823529411764703,
+   "lost_change": 1.3241893897885806,
+   "contact_change": 5.0664637522345695,
+   "open_change": 0.05555555555555555
+  },
+  "C16 enclosing circle + slide": {
+   "safe": false,
+   "helps": true,
+   "score": 4.927321644879686,
+   "street_gain": 0.14891292388548183,
+   "v_coh_gain": 0.14248965901929123,
+   "wrap_change": 0.024550653594771266,
+   "split_ratio": 0.9562243502051984,
+   "lost_change": -0.21110265634310707,
+   "contact_change": 1.0843000075805045,
+   "open_change": -0.008333333333333333
+  },
+  "C25 enclosing circle + slide, d_obs 0.25": {
+   "safe": false,
+   "helps": true,
+   "score": 5.0828729708811915,
+   "street_gain": 0.13463265603770558,
+   "v_coh_gain": 0.11821244105097706,
+   "wrap_change": 0.017197712418300704,
+   "split_ratio": 0.9616963064295485,
+   "lost_change": -0.2111026563431071,
+   "contact_change": 0.48937433970447547,
+   "open_change": -0.0027777777777777775
+  },
+  "C35 enclosing circle + slide, d_obs 0.35": {
+   "safe": false,
+   "helps": true,
+   "score": 4.972023406738114,
+   "street_gain": 0.09019776418239656,
+   "v_coh_gain": 0.093065204320393,
+   "wrap_change": 0.020874183006535985,
+   "split_ratio": 0.9835841313269492,
+   "lost_change": -0.21110265634310707,
+   "contact_change": 0.3742274362445989,
+   "open_change": 0.008333333333333333
+  },
+  "A1a cylinder + slide + adaptive": {
+   "safe": true,
+   "helps": true,
+   "score": 4.588403814297912,
+   "street_gain": 0.09382860096361756,
+   "v_coh_gain": 0.025343552371362543,
+   "wrap_change": -0.010742107421074176,
+   "split_ratio": 1.0218878248974008,
+   "lost_change": -0.07676460230658438,
+   "contact_change": -0.019191150576646082,
+   "open_change": 0.0027777777777777783
+  },
+  "C16a enclosing circle + slide + adaptive": {
+   "safe": false,
+   "helps": true,
+   "score": 5.122960106041997,
+   "street_gain": 0.23469176268298098,
+   "v_coh_gain": 0.166243127141543,
+   "wrap_change": 0.006320081549439416,
+   "split_ratio": 0.9781121751025991,
+   "lost_change": -0.23029380691975318,
+   "contact_change": 0.9595575288323048,
+   "open_change": -0.0027777777777777775
+  },
+  "C25a enclosing circle + slide + adaptive, d_obs 0.25": {
+   "safe": false,
+   "helps": true,
+   "score": 5.18364237629411,
+   "street_gain": 0.19592445607813347,
+   "v_coh_gain": 0.15032996964713918,
+   "wrap_change": -0.0030228758169934533,
+   "split_ratio": 0.9986320109439124,
+   "lost_change": -0.17272035518981488,
+   "contact_change": 0.45099203855118336,
+   "open_change": -0.0027777777777777775
+  },
+  "C35a enclosing circle + slide + adaptive, d_obs 0.35": {
+   "safe": true,
+   "helps": true,
+   "score": 5.027205471532206,
+   "street_gain": 0.20180185712567722,
+   "v_coh_gain": 0.12536021384641005,
+   "wrap_change": -0.006699346405228734,
+   "split_ratio": 1.0205198358413132,
+   "lost_change": -0.09595575288323052,
+   "contact_change": 0.1439336293248457,
+   "open_change": 0.005555555555555555
+  }
+ },
+ "pick": "C35a enclosing circle + slide + adaptive, d_obs 0.35"
+}

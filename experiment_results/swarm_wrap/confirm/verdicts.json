@@ -1,0 +1,56 @@
+{
+ "rule": {
+  "base": "E15_35a",
+  "references": [
+   "F20"
+  ],
+  "deficit_ratio": 0.5,
+  "full_gain": 0.25,
+  "safe_p": 0.1,
+  "contact_ratio": 1.25,
+  "open_margin": 0.02,
+  "street_floor": 0.97,
+  "leave_floor": 0.97,
+  "split_ratio": 1.1,
+  "hull_min": 0.5,
+  "surround_margin": 0.05,
+  "tie": 0.005,
+  "written": "2026-11-06 20:29:40",
+  "note": "Written after the screen (screen1) and before the confirmation. Base: the scene (E15_35a, spreadWrapRule Off); F20 (the spread held) is a reference, not a candidate. Safe against the base: loss events over every flight (instants with a drone lost: a colliding pair is one) not more frequent per hour of flight at one-sided exact p >= safe_p; contacts per hour at most contact_ratio x; ending in pieces at most open_margin more; street cohesive speed and the speed leaving a search at least street_floor x and leave_floor x (the cost ERKS's open-loop replay predicts); the square-on split at most split_ratio x; hull share at least hull_min; buildings met on a straight line surrounded at most surround_margin less. Delivers (the question): the shortfall from full spread while wrapped, 1 - the mean scale then, at most deficit_ratio x the base's, and the share of the wrapped time at full spread (scale >= 0.99) at least full_gain above it. The full-spread share alone measures mostly the 3 s filter's lag on short wraps, which is why the mean scale carries the bar. Pick: among the safe and delivering candidates, the one nearest full spread while wrapped; within `tie` of it, the fastest in the streets. None: the scene stays as it is."
+ },
+ "verdicts": {
+  "E15_35a": {
+   "role": "base"
+  },
+  "H15_35a": {
+   "role": "candidate",
+   "safe": true,
+   "delivers": true,
+   "unsafe": [],
+   "short": [],
+   "loss_p": 0.5441
+  },
+  "L15_35a": {
+   "role": "candidate",
+   "safe": true,
+   "delivers": false,
+   "unsafe": [],
+   "short": [
+    "shortfall from full spread while wrapped 0.0302 against 0.0592",
+    "wrapped time at full spread 0.555 against 0.314"
+   ],
+   "loss_p": 0.5427
+  },
+  "F20": {
+   "role": "reference",
+   "safe": false,
+   "delivers": true,
+   "unsafe": [
+    "street speed 5.783 against 6.182"
+   ],
+   "short": [],
+   "loss_p": 0.4102
+  }
+ },
+ "pick": "H15_35a"
+}

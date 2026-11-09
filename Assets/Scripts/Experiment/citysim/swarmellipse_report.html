@@ -1,0 +1,498 @@
+<title>S10 Ellipse Avoidance</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (swarmellipse_report via swarmtune_report.s4_style),
+   then S10's additions. */
+/*__S4_STYLE__*/
+/* S10: the ways a route is flown, on the family's validated slots */
+:root { --k-single_c: var(--c-single); --k-single_e: var(--c-look); --k-c35a: var(--m-other); --k-e35a: var(--c-hop2);
+        --k-c35: var(--c-street); --k-e35: var(--c-pass); --k-e125: var(--c-hop); --k-c45a: var(--m-firm); --k-e45a: var(--c-look);
+        --k-other: var(--m-firm); }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 150px; font-family: var(--font-body); }
+table.dt tr.pick td { background: color-mix(in srgb, var(--c-hop2) 12%, transparent); font-weight: 600; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 10px; }
+.pair figure svg text, .bldg svg text { font: 500 11px var(--font-body); fill: var(--ink-2); }
+.pair figure svg text.h, .bldg svg text.h { font: 600 12.5px var(--font-body); fill: var(--ink); }
+.seg { display: inline-flex; gap: 0; border: 1px solid var(--rule, color-mix(in srgb, var(--ink) 20%, transparent)); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 0.8rem/1 var(--font-body); padding: 6px 10px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--c-hop2) 18%, transparent); color: var(--ink); font-weight: 600; }
+.bldg { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px; }
+.bldg svg { width: 100%; height: auto; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S10 · Ellipse Avoidance · for the human trials</p>
+      <h1>Should the swarm avoid each building as an ellipse instead of the circle round it?</h1>
+      <p class="lead">The trials fly BlockShapedPatchCityWorld, where the force law avoids each building as the smallest circle round its footprint (S8). A circle fits a long
+        building badly: it lies very close to some of its walls and far from others, so how far a drone is pushed off a wall depends on which wall it is.</p>
+      <p class="lead">S10 adds an ellipse to the same setting (<code>SwarmManager.obstacleShape</code> Ellipse, its aspect capped by <code>ellipseMaxAspect</code>), fitted to each footprint
+        so it encloses it as closely as an ellipse can, and flies it against the circle: the geometry, one drone along the walls, the formation on S8's flights, a rule fixed before a
+        four-city confirmation, and the Unity bench. Scripted pilots at full stick.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const by = (a, b) => ok(a) && ok(b) && b ? `${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+const sgn = (a, b) => ok(a) && ok(b) && b ? `${a >= b ? "+" : "−"}${Math.round(100 * Math.abs(a / b - 1))}%` : "–";
+const times = (a, b) => ok(a) && ok(b) && b ? `×${(a / b).toFixed(2)}` : "–";
+
+// ---------------------------------------------------------------- the ways, the rows, the runs
+const WAYS = [["single_c", "one drone, enclosing circles", "one drone · circle"], ["single_e", "one drone, ellipses (cap 1.5)", "one drone · ellipse"],
+              ["c35a", "enclosing circles, adaptive spread (the scene)", "circle · the scene"], ["e35a", "ellipses, adaptive spread", "ellipse · adaptive"],
+              ["c35", "enclosing circles, spread held", "circle · held"], ["e35", "ellipses, spread held", "ellipse · held"]];
+const ROWCOL = {C35a: "c35a", E15_35a: "e35a", C35: "c35", E15_35: "e35", E125_35a: "e125", C45a: "c45a", E15_45a: "e45a"};
+const kCol = c => `var(--k-${ROWCOL[c] || (WAYS.some(x => x[0] === c) ? c : "other")})`;
+const kLab = c => (WAYS.find(x => x[0] === c) || [c, c])[1];
+const code = lab => String(lab || "").replace(/^one drone, /, "").split(" ")[0];
+const CF = D.confirm || [], SC = D.screen || [], RW = D.rows || {}, V = D.verdicts || {};
+const PICK = D.pick || "E15_35a", BASE = D.rule.base;
+const sw = (rows, c, d = 2.0) => rows.find(r => code(r.label) === c && !String(r.cand || "").startsWith("single") && Math.abs((r.d || 2) - d) < 1e-6);
+const one = (rows, c) => rows.find(r => String(r.cand || "").startsWith("single") && code(r.label) === c);
+const kind = (r, k, m) => r && r.kinds && r.kinds[k] ? r.kinds[k][m] : null;
+const fc = (r, m) => r && r.face ? r.face[m] : null, an = (r, m) => r && r.ang ? r.ang[m] : null, al = (r, m) => r && r.along ? r.along[m] : null;
+const U = (rows, set, src = "unity") => (rows || []).find(r => r.set === set && r.src === src);
+const CNT = (run, set) => D.counts && D.counts[run] ? D.counts[run][set] : null;
+const W = (seed, shape) => (D.walls || []).find(g => g.seed === seed && g.shape === shape);
+const G = (seed, shape) => (D.gaps || []).find(g => g.seed === seed && g.shape === shape);
+const COR = (cap, dobs) => (D.corridors || {})[`${cap === null ? "None" : cap}|${dobs}`];
+const LABEL = c => { const r = CF.find(x => code(x.label) === c && !String(x.cand).startsWith("single")); return r ? r.label.replace(/^\S+ /, "") : c; };
+const SHORT = {C35a: "circle · the scene", E15_35a: "ellipse 1.5 · adaptive", E125_35a: "ellipse 1.25 · adaptive", C45a: "circle · d_obs 0.45", E15_45a: "ellipse · d_obs 0.45",
+               C35: "circle · held", E15_35: "ellipse · held"};
+
+// ---------------------------------------------------------------- tooltip and chart helpers (S5's)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 760) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (Wd, H, label, g) => `<svg viewBox="0 0 ${Wd} ${H}" style="max-width:${Wd}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// Small-multiple horizontal bars: one panel per measure, one bar per row; rows [{c, lab, v: [values per panel], lo, hi}]
+function barPanels(el, rows, panels) {
+  const Wd = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 16, gap = 7, m = {l: 136, r: 52, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x)), his = rows.map(x => p.hi ? p.hi(x) : null);
+    const vmax = Math.max(1e-9, ...vals.filter(ok), ...his.filter(ok)) * 1.05;
+    const xx = v => m.l + (Wd - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = "";
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(x.lab)}</text>`;
+      if (ok(v)) {
+        g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${kCol(x.c)}"/>`;
+        if (p.lo && ok(p.lo(x)) && ok(p.hi(x))) g += `<line x1="${xx(p.lo(x)).toFixed(1)}" x2="${xx(p.hi(x)).toFixed(1)}" y1="${yy + bh / 2}" y2="${yy + bh / 2}" stroke="var(--ink)" stroke-width="1.4"/>`;
+        g += `<text class="val" x="${(Math.max(xx(v), p.hi && ok(p.hi(x)) ? xx(p.hi(x)) : 0) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      } else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${Wd}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(Wd, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100]; return [x.lab, [[kCol(x.c), p.f(p.get(x)), p.title]]]; });
+}
+
+// ---------------------------------------------------------------- the masthead
+function ANSWER_BOX() {
+  const p = RW[PICK] || {}, b = RW[BASE] || {}, pc1 = one(CF, "E15_35"), cc1 = one(CF, "C35");
+  const uc = U(D.unity1, "C35"), ue = U(D.unity1, "E15_35"), up = U(D.unity, PICK), ub = U(D.unity, BASE);
+  const sc = D.example.spread, cor0 = COR(null, 0.35), cor1 = COR(1.5, 0.35);
+  return `<p class="eyebrow">The short answer</p><ol>
+    <li><b>Yes, it fits the walls more evenly.</b> The median building's farthest wall stands ${fmt(sc.circle.median, 1)} m further from the circle than its nearest does, and
+      ${fmt(sc.ellipse.median, 1)} m from the ellipse; ${sc.circle.far6} of ${D.example.n} buildings have a wall more than 6 m from the circle, ${sc.ellipse.far6} from the ellipse.
+      One drone flown along a wall keeps a distance from it that varies ${times(al(pc1, "spread"), al(cc1, "spread"))} as much from wall to wall${ue && uc ? ` (Unity ${times(al(ue, "spread"), al(uc, "spread"))})` : ""}.</li>
+    <li><b>It gives back the narrow streets at the same standoff.</b> The corridor left once d_obs is taken off both sides: a median ${fmt(cor1 && cor1[0], 1)} m against ${fmt(cor0 && cor0[0], 1)} m,
+      and ${cor1 ? cor1[2] : "–"} streets under 6 m against ${cor0 ? cor0[2] : "–"} (four cities). The formation is ${sgn(p.street_v_coh, b.street_v_coh)} faster in the streets
+      ${up && ub ? `(Unity ${sgn(kind(up, "street", "v_coh"), kind(ub, "street", "v_coh"))})` : ""}.</li>
+    <li><b>It costs nothing the rule could find.</b> ${p.events} loss events in ${fmt(p.km, 0)} km against the scene's ${b.events}, contacts ${times(p.contact_km, b.contact_km)},
+      and it splits round a building as quickly. Unity's ${CNT("bench1", PICK) ? CNT("bench1", PICK).flights : "–"} flights agree, except that it touched buildings ${CNT("bench1", PICK) ? CNT("bench1", PICK).contacts : "–"} times against ${CNT("bench1", BASE) ? CNT("bench1", BASE).contacts : "–"}.</li></ol>
+    <p class="bottom"><b>My reading:</b> fly it: set <code>obstacleShape</code> to Ellipse with <code>ellipseMaxAspect</code> 1.5 and keep everything else as the scene has it (${esc(PICK)}). <a href="#q5">What to fly</a>.</p>`;
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["flights", "Cities and flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s10tab", id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (/^q\d$/.test(h)) { show("answer", h); return true; }
+  if (h.startsWith("watch:")) {
+    const [, gid, cond] = h.split(":");
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.id === gid) : -1;
+    if (gi >= 0) { const keep = cond ? D.replay.groups[gi].flights.find(f => f.cond === cond && f.source === "unity") : null; PLAYER.selectGroup(gi, keep || undefined); }
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (gid, cond, text) => D.replay && D.replay.groups.some(g => g.id === gid) ? `<a class="watch" href="#watch:${gid}:${cond}">${esc(text)}</a>` : "";
+
+// ---------------------------------------------------------------- the example building
+function buildingSvg(which) {
+  const X = D.example, P = X.poly, xs = P.map(p => p[0]), zs = P.map(p => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+  const R = Math.max(X.circle.r, X.ellipse.a) + 3, S = 120 / R, Wd = 280, H = 280;
+  const sx = x => Wd / 2 + (x - cx) * S, sy = z => H / 2 - (z - cz) * S;
+  let g = `<polygon points="${P.map(p => `${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(" ")}" fill="var(--map-bldg)"/>`;
+  const col = which === "circle" ? "var(--k-c35a)" : "var(--k-e35a)";
+  if (which === "circle") g += `<circle cx="${sx(X.circle.c[0])}" cy="${sy(X.circle.c[1])}" r="${X.circle.r * S}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
+  else { const th = Math.atan2(X.ellipse.e[1], X.ellipse.e[0]) * 180 / Math.PI;
+    g += `<ellipse cx="${sx(X.ellipse.c[0])}" cy="${sy(X.ellipse.c[1])}" rx="${X.ellipse.a * S}" ry="${X.ellipse.b * S}" transform="rotate(${-th} ${sx(X.ellipse.c[0])} ${sy(X.ellipse.c[1])})" fill="none" stroke="${col}" stroke-width="2.2"/>`; }
+  for (const w of X.walls) {
+    const d = w[which], x0 = w.mid[0], z0 = w.mid[1], x1 = x0 + w.n[0] * d, z1 = z0 + w.n[1] * d;
+    g += `<line x1="${sx(x0)}" y1="${sy(z0)}" x2="${sx(x1)}" y2="${sy(z1)}" stroke="var(--ink)" stroke-width="1.4"/>`;
+    const lx = x0 + w.n[0] * (d + 2.2), lz = z0 + w.n[1] * (d + 2.2);
+    g += `<text x="${sx(lx)}" y="${sy(lz) + 4}" text-anchor="middle">${fmt(d, 1)}</text>`;
+  }
+  const ds = X.walls.map(w => w[which]);
+  g += `<text class="h" x="8" y="16">${which === "circle" ? "The enclosing circle (the scene)" : "The ellipse (cap 1.5)"}</text>`;
+  g += `<text x="8" y="${H - 8}">farthest wall − nearest: ${fmt(Math.max(...ds) - Math.min(...ds), 1)} m</text>`;
+  return svgOf(Wd, H, which, g);
+}
+
+// ---------------------------------------------------------------- the answer
+RENDER.answer = el => {
+  const p = RW[PICK] || {}, b = RW[BASE] || {}, X = D.example;
+  const cc1 = one(CF, "C35"), pc1 = one(CF, "E15_35"), uc = U(D.unity1, "C35"), ue = U(D.unity1, "E15_35");
+  const up = U(D.unity, PICK), ub = U(D.unity, BASE), uh = U(D.unity, "E15_35"), uhc = U(D.unity, "C35");
+  const g1 = G(1, "enclosing circle"), ge = G(1, "ellipse 1.5"), w1 = W(1, "enclosing circle"), we = W(1, "ellipse 1.5");
+  const cor0 = COR(null, 0.35), cor1 = COR(1.5, 0.35), cor45 = COR(1.5, 0.45);
+  el.innerHTML = `<div class="ans">
+  <section class="q" id="q1">
+    <div class="qhead"><span class="qn">1</span><div><h2>Does the ellipse stand at a more even distance from a building's walls?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>About 40% less spread between a building's nearest and farthest wall.</p></div></div>
+    <div class="qbody"><div class="chart"><div class="bldg"><figure style="margin:0">${buildingSvg("circle")}</figure><figure style="margin:0">${buildingSvg("ellipse")}</figure></div>
+      <p class="small muted">Building ${X.building} of the scene's city (its footprint's aspect ${fmt(X.aspect, 2)}, near the city's 90th percentile), to scale. Each line runs from a wall's middle, along its normal, to the shape; the number is that distance in metres.</p>
+      <div id="ans-walls"></div></div>
+      <div class="qtext"><ul>
+        <li><b>The circle has to touch the footprint's far corners</b>, so it stands off the long sides of a long building and close to its ends. Across the scene's ${X.n} buildings
+          the median spread between a building's farthest wall and its nearest is ${fmt(X.spread.circle.median, 1)} m under the circle and ${fmt(X.spread.ellipse.median, 1)} m under the ellipse
+          (90th percentile ${fmt(X.spread.circle.p90, 1)} against ${fmt(X.spread.ellipse.p90, 1)} m).</li>
+        <li><b>Walls far from the shape mostly disappear:</b> ${X.spread.circle.far6} buildings have a wall more than 6 m from the circle, ${X.spread.ellipse.far6} from the ellipse.
+          A wall's median distance falls from ${fmt(w1 && w1.wall_med, 1)} to ${fmt(we && we.wall_med, 1)} m, its 90th percentile from ${fmt(w1 && w1.wall_p90, 1)} to ${fmt(we && we.wall_p90, 1)} m.</li>
+        <li><b>It cannot reach zero</b>: an ellipse that encloses the footprint still touches its corners. A cap of 2 fits no closer than 1.5 (${fmt(W(1, "ellipse 2") && W(1, "ellipse 2").spread_med, 1)} m) and has flatter sides, so 1.5 is the cap.</li>
+        <li>The three held-out cities are within 0.3 m of these figures.</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q2">
+    <div class="qhead"><span class="qn">2</span><div><h2>Does a drone then keep an even distance from every wall?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>One drone flown along a wall keeps a distance that varies about half as much from wall to wall, in the replica and in Unity.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-along"></div>
+      <div class="qtext"><ul>
+        <li><b>The probe:</b> one drone flown down a street parallel to one of its walls, 6, 9 or 12.5 m off it, at full stick. Where the shape stands within d_obs of its line it is pushed
+          out to roughly the shape's distance from that wall plus d_obs, and how far it is pushed follows the shape's distance from that wall (correlation ${fmt(al(cc1, "o6_shell_corr"), 2)}
+          under the circle and ${fmt(al(pc1, "o6_shell_corr"), 2)} under the ellipse, 6 m off).</li>
+        <li><b>The spread of the distance it keeps</b>, across ${al(cc1, "n") ? fmt(al(cc1, "n") / 3, 0) : "–"} walls at each offset over four cities (p90 − p10, averaged over the three offsets):
+          ${fmt(al(cc1, "spread"), 2)} m under the circle, ${fmt(al(pc1, "spread"), 2)} m under the ellipse${uc && ue ? `; Unity ${fmt(al(uc, "spread"), 2)} against ${fmt(al(ue, "spread"), 2)} m` : ""}.
+          6 m off the wall: ${fmt(al(cc1, "o6_spread"), 1)} against ${fmt(al(pc1, "o6_spread"), 1)} m.</li>
+        <li><b>At a face</b>, square on and at 60° and 30° to it, the facade distance where its approach starts to slow varies ${fmt(an(cc1, "onset_spread"), 1)} m from face to face under the circle and
+          ${fmt(an(pc1, "onset_spread"), 1)} m under the ellipse${uc && ue ? ` (Unity ${fmt(an(uc, "onset_spread"), 1)} and ${fmt(an(ue, "onset_spread"), 1)} m)` : ""}.</li>
+        <li>On average the drone keeps ${fmt(al(cc1, "o6_standoff") - al(pc1, "o6_standoff"), 1)} m nearer a wall it is flown 6 m off; flown at a face, its median closest approach is
+          ${fmt(an(pc1, "closest"), 1)} m against ${fmt(an(cc1, "closest"), 1)} m. One drone touched no building with either shape.
+          ${watch("s10_wall", "single_c", "Watch the probe where the circle stands furthest off its wall")}</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q3">
+    <div class="qhead"><span class="qn">3</span><div><h2>Does it give back the narrow streets?</h2>
+      <p class="qa"><span class="vp yes">Yes</span>Wider streets at the same standoff, and a faster formation in them.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-streets"></div>
+      <div class="qtext"><ul>
+        <li><b>The narrow streets come back.</b> Between two buildings' shapes the scene's city keeps a median ${fmt(g1 && g1.gap_med, 1)} m under the circle and ${fmt(ge && ge.gap_med, 1)} m under the
+          ellipse (facades 25 m apart), but the 1st percentile goes from ${fmt(g1 && g1.gap_p1, 1)} to ${fmt(ge && ge.gap_p1, 1)} m, and ${g1 ? g1.under10 : "–"} streets under 10 m become ${ge ? ge.under10 : "–"}.</li>
+        <li><b>What the drones get</b> is that gap less d_obs on each side. At the scene's d_obs 0.35, over four cities: a median ${fmt(cor0 && cor0[0], 1)} m for the circle, ${fmt(cor1 && cor1[0], 1)} m for the ellipse;
+          ${cor0 ? cor0[2] : "–"} against ${cor1 ? cor1[2] : "–"} streets under 6 m. A thicker standoff to buy safety was not needed: at 0.45 the ellipse would leave ${fmt(cor45 && cor45[0], 1)} m.</li>
+        <li><b>The cost is past the ends of long buildings</b>: the ellipse reaches further there, and narrows ${pc(ge && ge.narrower)} of the scene's streets, ${pc(ge && ge.narrower2)} by more than 2 m (the worst by
+          ${fmt(ge && -ge.worst, 1)} m, leaving ${fmt(ge && ge.narrowed_min, 1)}). ${watch("s10_narrow", "e35a", "Watch the street it narrows most")}</li>
+        <li><b>The formation flies the streets ${sgn(p.street_v_coh, b.street_v_coh)} faster</b> (${fmt(p.street_v_coh, 2)} against ${fmt(b.street_v_coh, 2)} m/s, cohesive speed; faster in every one of the four cities),
+          ${up && ub ? `${sgn(kind(up, "street", "v_coh"), kind(ub, "street", "v_coh"))} in Unity` : ""}; with the spread held, ${sgn((RW.E15_35 || {}).street_v_coh, (RW.C35 || {}).street_v_coh)}.
+          ${watch("s10_pinch", "c35a", "Watch the street the circles pinch most")}</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q4">
+    <div class="qhead"><span class="qn">4</span><div><h2>What does it cost?</h2>
+      <p class="qa"><span class="vp yes">Nothing measurable</span>Fewer losses and contacts in the replica; Unity agrees except on a small count of contacts.</p></div></div>
+    <div class="qbody"><div class="chart" id="ans-cost"></div>
+      <div class="qtext"><ul>
+        <li><b>Losses:</b> ${p.events} loss events (a colliding pair is one) in ${fmt(p.km, 0)} km, ${fmt(p.ev_km, 3)} per km (95% ${fmt(p.ev_lo, 3)}–${fmt(p.ev_hi, 3)}), against the scene's ${b.events}
+          (${fmt(b.ev_km, 3)}, ${fmt(b.ev_lo, 3)}–${fmt(b.ev_hi, 3)}); fewer in three of the four cities. Unity: ${CNT("bench1", PICK) ? CNT("bench1", PICK).lost : "–"} drones lost in ${CNT("bench1", PICK) ? CNT("bench1", PICK).flights : "–"} flights against ${CNT("bench1", BASE) ? CNT("bench1", BASE).lost : "–"}.</li>
+        <li><b>Contacts:</b> ${fmt(p.contact_km, 2)} per km against ${fmt(b.contact_km, 2)} in the replica. Unity counted ${CNT("bench1", PICK) ? CNT("bench1", PICK).contacts : "–"} against
+          ${CNT("bench1", BASE) ? CNT("bench1", BASE).contacts : "–"} (about 37 km each), the one measure where it leans the other way; with the spread held it counted ${CNT("bench1", "E15_35") ? CNT("bench1", "E15_35").contacts : "–"} against ${CNT("bench1", "C35") ? CNT("bench1", "C35").contacts : "–"}.
+          Counts this small cannot tell 1.4× from no difference.</li>
+        <li><b>Flat sides do not stall it</b> (lesson 43). Square on at a face it splits in ${fmt(p.split, 1)} s against ${fmt(b.split, 1)} s, and with the formation at d_ref 1.2, where the ring cannot simply
+          enclose the building, in ${fmt(p.split12, 1)} against ${fmt(b.split12, 1)} s${U(D.unity12, PICK) && U(D.unity12, BASE) ? ` (Unity ${fmt(fc(U(D.unity12, PICK), "t_split"), 1)} against ${fmt(fc(U(D.unity12, BASE), "t_split"), 1)} s, and every approach split)` : ""}.
+          ${watch("s10_square", "e35a", "Watch it square on at a long building")}</li>
+        <li><b>It surrounds no less</b>: ${pc(p.wrapped)} of the buildings met against ${pc(b.wrapped)}; in one group ${pc(kind(sw(CF, PICK), "street", "one"))} of the street flights against ${pc(kind(sw(CF, BASE), "street", "one"))}.
+          At a glancing 60° the formation sometimes goes round one side whole where the circle splits it; it gets past as fast. ${watch("s10_angle", "e35a", "Watch it at 60°")}</li></ul></div></div>
+  </section>
+
+  <section class="q" id="q5">
+    <div class="qhead"><span class="qn">5</span><div><h2>What should the trials fly?</h2>
+      <p class="qa"><span class="vp yes">${esc(PICK)}</span>The scene's law with the ellipse in place of the circle.</p></div></div>
+    <div class="qbody"><div class="qtext" style="grid-column: 1 / -1">${ruleTable()}
+      <p id="reading-text"></p></div></div>
+  </section></div>`;
+  const rowsOf = cs => cs.map(c => ({c, lab: SHORT[c] || c, r: RW[c]})).filter(x => x.r);
+  const sp = D.example.spread;
+  const draws = [
+    ["#ans-walls", () => barPanels($("#ans-walls", el), [{c: "C35a", lab: "enclosing circle", s: sp.circle}, {c: "E15_35a", lab: "ellipse (cap 1.5)", s: sp.ellipse}], [
+      {title: "Farthest wall − nearest, median (m)", get: x => x.s.median, f: v => fmt(v, 1), unit: `the scene's ${D.example.n} buildings`},
+      {title: "Buildings with a wall > 6 m from the shape", get: x => x.s.far6, f: v => fmt(v, 0), unit: `of ${D.example.n}`}])],
+    ["#ans-along", () => barPanels($("#ans-along", el), [
+      {c: "single_c", lab: "circle · replica", r: cc1}, {c: "single_e", lab: "ellipse · replica", r: pc1}, {c: "single_c", lab: "circle · Unity", r: uc}, {c: "single_e", lab: "ellipse · Unity", r: ue}].filter(x => x.r), [
+      {title: "Spread of the distance kept from a wall (m)", get: x => al(x.r, "spread"), f: v => fmt(v, 2), unit: "p90 − p10 across walls, averaged over 6, 9, 12.5 m off"},
+      {title: "Spread of where the approach slows at a face (m)", get: x => an(x.r, "onset_spread"), f: v => fmt(v, 1), unit: "p90 − p10 across faces, three angles"}])],
+    ["#ans-streets", () => barPanels($("#ans-streets", el), rowsOf(["C35a", "E15_35a", "C35", "E15_35"]), [
+      {title: "Cohesive speed in the streets (m/s)", get: x => x.r.street_v_coh, f: v => fmt(v, 2), unit: "the confirmation, four cities"},
+      {title: "Corridor left, median (m)", get: x => { const c = COR(x.r.cap === undefined ? null : x.r.cap, x.r.d_obs); return c ? c[0] : null; }, f: v => fmt(v, 1), unit: "street gap less d_obs each side"}])],
+    ["#ans-cost", () => barPanels($("#ans-cost", el), rowsOf(["C35a", "E15_35a", "E125_35a", "C35", "E15_35"]), [
+      {title: "Loss events per km", get: x => x.r.ev_km, lo: x => x.r.ev_lo, hi: x => x.r.ev_hi, f: v => fmt(v, 3), unit: "with exact 95% intervals; ~390 km a row"},
+      {title: "Building contacts per km", get: x => x.r.contact_km, f: v => fmt(v, 2), unit: "every formation flight"}])]];
+  for (const [sel, draw] of draws) { const cc = $(sel, el); observe(cc, draw); }
+  $("#reading-text", el).innerHTML = READING();
+};
+function ruleTable() {
+  const R = D.rule, head = ["", "standoff spread vs its circle", "streets vs the scene", "loss events / km (95%)", "contacts / km", "split (s): d_ref 2.0 · 1.2", "surrounded", "corridor (m)", "rule"];
+  const rows = D.order.filter(c => RW[c]).map(c => {
+    const r = RW[c], v = V[c], cor = COR(r.cap === undefined ? null : r.cap, r.d_obs);
+    const part = v ? RW[v.partner] : null;
+    const verdict = c === BASE ? "the scene (base)" : v ? `${v.safe ? "safe" : "not safe"} · ${v.delivers ? "delivers" : "does not deliver"}${v.missed.length ? ` (missed: ${v.missed.join(", ")})` : ""}` : "partner";
+    return `<tr${c === PICK ? ' class="pick"' : ""}><td class="l">${esc(c)} ${esc(LABEL(c))}</td><td>${part ? times(r.along_spread, part.along_spread) : "–"}</td>
+      <td>${sgn(r.street_v_coh, (RW[BASE] || {}).street_v_coh)}</td><td>${fmt(r.ev_km, 3)} (${fmt(r.ev_lo, 3)}–${fmt(r.ev_hi, 3)})</td><td>${fmt(r.contact_km, 2)}</td>
+      <td>${fmt(r.split, 2)} · ${fmt(r.split12, 2)}</td><td>${pc(r.wrapped)}</td><td>${cor ? `${fmt(cor[0], 1)} (${cor[2]} under 6 m)` : "–"}</td><td class="l small">${esc(verdict)}</td></tr>`;
+  }).join("");
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 || i === head.length - 1 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="small muted">The confirmation (replica, the scene's city and three held out, about 390 km of formation flights a row, ${D.flights.confirm.along * 4} along probes per shape). The rule, written ${esc(D.rule_written)}, before
+      the confirmation flew: an ellipse row is <b>safe</b> when, against both its partner (the circle at its d_obs and spread) and the scene, its loss events are not more frequent at one-sided exact p ≥ ${R.safe_p},
+      its contacts at most ${R.contact_ratio}×, its share ending in pieces at most ${Math.round(100 * R.open_margin)} points more, its square-on split at most ${R.split_ratio}× at both d_ref, and its hull share at least ${R.hull_min};
+      it <b>delivers</b> when one drone's standoff spread is at most ${R.spread_ratio}× its partner's, its street speed at least ${Math.round(100 * R.street_floor)}% of the scene's and it surrounds within
+      ${Math.round(100 * R.wrap_margin)} points of it. The pick: among rows that are safe and deliver, those within ${Math.round(100 * R.spread_tie)}% of the evenest standoff, then the roundest, then the best score.
+      The corridor is shown, not judged: the user's call, had a thicker standoff been needed.</p>`;
+}
+function READING() {
+  const p = RW[PICK] || {}, b = RW[BASE] || {};
+  return `<b>Fly the ellipse, with the cap at 1.5 and nothing else changed.</b> It answers the question it was built for: a drone meets every wall of a building at nearly the same
+     distance, because the shape round the building is nearly the same distance from each wall. The narrow streets open as a consequence, and the formation is faster in them,
+     with no cost the rule or Unity could find beyond a handful of contacts in Unity that the replica, flying ten times the distance, does not show. The rule picked the cap of 1.5 over
+     1.25 because it fits closer (the adaptive rows' standoff spread ${times((RW.E15_35a || {}).along_spread, (RW.E125_35a || {}).along_spread)} the 1.25's) and over 2 because 2 fits no closer
+     and has flatter sides. It needs no thicker standoff, so the corridor question never arises. The single drone shares the shape, so both trial conditions get it; watch the contacts
+     in the first Unity sessions. <b>Adopted on 3 November 2026</b>: BlockShapedPatchCityWorld flies it, written by <code>python -B -m citysim.swarmtune apply --cand experiment_results/swarm_ellipse/confirm_cands.json --label "${esc(PICK)} ${esc(LABEL(PICK))}"</code>,
+     which changed <code>obstacleShape</code> 1 → 3 and nothing else (the cap of 1.5 is the field's default). Nine of the pick's stored flights re-flew identical from the scene as saved.`;
+}
+
+// ---------------------------------------------------------------- flights
+const RP = D.replay;
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+RENDER.flights = el => {
+  if (!RP || !RP.groups || !RP.groups.length) { el.innerHTML = `<div class="intro"><h2>Cities and flights</h2></div><p class="notrun">The Unity flights have not been replayed yet.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Cities and flights</h2><p>The scene's city, where the screens, Unity and the replays fly, and the three cities of the same design held
+      out for the confirmation (S6's). Click one to see it whole, and choose the shape to draw round its buildings.</p></div>
+    <div class="gal" id="gal"></div>
+    <div class="box"><div class="headrow"><h3 id="c-title"></h3><div class="seg" role="group" aria-label="Shape drawn">
+        <button type="button" data-s="" aria-pressed="true">enclosing circles</button><button type="button" data-s="__ell" aria-pressed="false">ellipses (cap 1.5)</button></div></div>
+      <div class="cmap"><div class="figframe"><canvas id="c-map" aria-label="The selected city from above"></canvas>
+        <div class="mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div></div>
+        <dl class="kv" id="c-stats"></dl></div></div>
+    <div class="intro" id="flightsx"><h2>Flights</h2><p>Routes from the Unity bench's set in the scene's city: the formation flown four ways (the circle or the ellipse, the spread adaptive as the scene has
+      it or held at 2.0), one drone two ways (the circle or the ellipse). Unity's own trajectories, and the replica's twins flown from Unity's recorded start, kept only because they
+      scored identically to the gate's rows. Turn on "avoidance cylinders" to see the shape each way's law avoids. Drones are dots in the way's colour; a ring round a dot marks a
+      drone apart from the main group. Space plays or pauses, ← and → step 5 s.</p></div><div id="c-player"></div>`;
+  const gal = $("#gal", el), thumbs = [];
+  gal.innerHTML = RP.gallery.map((g, i) => `<button type="button" class="thumb" data-i="${i}" aria-pressed="${i === 0}"><div class="figframe"><canvas aria-hidden="true"></canvas></div><span>${esc(g.seed === 1 ? "the scene's city" : `held out, seed ${g.seed}`)}</span></button>`).join("");
+  const CM = new RV.MapView($("#c-map", el), {aspect: 0.8, minH: 320, maxH: 760});
+  let city = null, sel = 0, suf = "";
+  CM.draw = (c, v) => { if (city) { RV.drawCity(c, v, city, {cylinders: true}); RV.drawScale(c, v); } };
+  el.querySelectorAll(".mapbar button").forEach(b => b.addEventListener("click", () => { if (b.dataset.z === "in") CM.zoomBy(1.5); else if (b.dataset.z === "out") CM.zoomBy(1 / 1.5); else if (city) CM.fit(city.arena, 10); }));
+  const load = (keepView) => {
+    const g = RP.gallery[sel], st = (g.stats || {})[suf || "circle"] || {}, i = sel;
+    $("#c-title").textContent = g.what.charAt(0).toUpperCase() + g.what.slice(1);
+    $("#c-stats").innerHTML = [["buildings", st.buildings], ["a building's farthest wall − nearest, median", `${fmt(st.wall_spread, 1)} m`],
+      ["buildings with a wall > 6 m from the shape", st.far6], ["street left between two buildings, median", `${fmt(st.gap_median, 1)} m`], ["streets under 10 m", st.pairs ? `${st.under10} of ${st.pairs}` : "–"]]
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v === undefined ? "–" : v}</dd>`).join("");
+    RV.load(RPATH.city(g.city + suf)).then(RV.city).then(C => { if (sel !== i) return; city = C; if (keepView) CM.request(); else CM.fit(C.arena, 10); });
+  };
+  el.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    suf = b.dataset.s; el.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); load(true);
+  }));
+  const pick = i => { sel = i; gal.querySelectorAll(".thumb").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i))); load(false); };
+  gal.querySelectorAll(".thumb").forEach(b => {
+    const v = new RV.MapView(b.querySelector("canvas"), {aspect: 1, minH: 40, maxH: 400, minW: 40, interactive: false});
+    v.draw = (c, vv) => { if (vv.city) RV.drawCity(c, vv, vv.city, {}); };
+    thumbs.push(v);
+    RV.load(RPATH.city(RP.gallery[+b.dataset.i].city)).then(RV.city).then(C => { v.city = C; v.fit([-150, 150, -150, 150], 0); }).catch(() => {});
+    b.addEventListener("click", () => pick(+b.dataset.i));
+  });
+  RV.onTheme(() => { thumbs.forEach(v => v.request()); CM.request(); });
+  pick(0);
+  const labels = {}, colors = {};
+  for (const [k, l] of WAYS) { labels[k] = l; colors[k] = kCol(k); }
+  PLAYER = RV.Player($("#c-player", el), RP.groups.map(g => Object.assign({short: g.title}, g)),
+    {labels, colors, path: RPATH, summaryRows: flightSummaryRows, summaryNote: flightSummaryNote});
+  PLAYER.start(0);
+};
+function flightSummaryRows(F, s) {
+  const n = x => ok(x) ? String(x) : "–", r = [];
+  r.push(["shape avoided", s.shape === "Ellipse" ? `the ellipse (cap ${fmt(s.cap, 2)})` : "the enclosing circle"], ["spread", s.adaptive ? "adaptive (0.85 in the streets)" : "held at d_ref"]);
+  const k = F.route ? F.route.kind : "";
+  const what = {cross: "a straight line", pass: "through a block", face: "square on at a wall", angle: `at ${fmt(Math.abs(s.angle || 0), 0)}° from a wall's normal`, along: `along a wall, ${fmt(s.along_off, 1)} m off it`, street: "along the streets"}[k] || k;
+  r.push(["route", F.route ? `${what}, ${fmt(F.route.L, 0)} m` : "–"]);
+  r.push(["progress speed", `${fmt(s.v_prog, 2)} m/s`]);
+  if (F.n > 1) r.push(["flight as one group", pc(s.one_frac)], ["cohesive speed", `${fmt(s.v_coh, 2)} m/s`], ["ended in pieces", s.open_end ? "yes" : "no"]);
+  if (k === "face" || k === "angle") r.push(["split round the building (s from arriving)", ok(s.t_split) ? fmt(s.t_split, 1) : `not within ${fmt(D.cap, 0)}`], ["past it", ok(s.t_through) ? `${fmt(s.t_through, 1)} s` : `not within ${fmt(D.cap, 0)} s`]);
+  if (k === "angle" && F.n === 1) r.push(["approach slows at (facade distance)", `${fmt(s.onset, 1)} m`], ["closest to the facade", `${fmt(s.closest, 1)} m`]);
+  if (k === "along") r.push(["the shape's distance from that wall", `${fmt(s.shell, 1)} m`], ["distance kept from the wall (median)", `${fmt(s.standoff, 1)} m`], ["pushed off its line", `${fmt(s.push, 1)} m`]);
+  else if (s.met && k !== "face" && k !== "angle") r.push(["buildings met / surrounded", F.n > 1 ? `${s.met} / ${n(s.wrapped)}` : String(s.met)]);
+  r.push(["longest stall (under 1 m/s)", `${fmt(s.stall_s, 1)} s`], ["drones lost", n(s.lost)], ["building contacts", n(s.contacts)]);
+  return r;
+}
+function flightSummaryNote(F) {
+  return F.source === "unity" ? "Unity records contacts as a count, so they are not drawn on the map; a cross marks each drone lost."
+    : "The replica draws each building contact where it happened and a cross where each drone was lost.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const head = ["", "cohesive speed", "progress", "one group", "lost /km", "contacts /km", "ended in pieces", "hull share", "streets", "surrounded", "split (s)", "60° past (s)", "standoff spread (m)"];
+  const line = (lab, r, extra = "") => {
+    if (!r) return "";
+    const single = /^one drone/.test(lab), s = x => single ? "–" : x;
+    return `<tr${extra}><td class="l">${esc(lab)}</td><td>${s(fmt(r.v_coh, 2))}</td><td>${s(fmt(r.v_prog, 2))}</td><td>${s(pc(r.one))}</td><td>${s(fmt(r.lost_km, 3))}</td>
+    <td>${s(fmt(r.contact_km, 3))}</td><td>${s(pc(r.open))}</td><td>${s(pc(r.hull))}</td><td>${s(fmt(kind(r, "street", "v_coh"), 2))}</td><td>${s(pc(kind(r, "cross", "wrapped")))}</td>
+    <td>${s(fmt(fc(r, "t_split"), 2))}</td><td>${fmt(an(r, "t_through_a60"), 1)}</td><td>${fmt(al(r, "spread"), 2)}</td></tr>`;
+  };
+  const tbl = (title, body, note = "") => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i === 0 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>${note}</div>`;
+  const all = rows => (rows || []).filter(r => (r.d || 2) === 2).map(r => line(r.label, r, code(r.label) === PICK && !String(r.cand).startsWith("single") ? ' class="pick"' : "")).join("");
+  const at12 = rows => (rows || []).filter(r => r.d === 1.2).map(r => `<tr><td class="l">${esc(r.label)}</td><td>${fmt(fc(r, "t_side"), 2)}</td><td>${fmt(fc(r, "t_split"), 2)}</td><td>${pc(fc(r, "t_split_share"))}</td><td>${fmt(fc(r, "t_through"), 2)}</td><td>${fmt(fc(r, "contacts"), 2)}</td><td>${fmt(fc(r, "lost"), 2)}</td></tr>`).join("");
+  const u = (rows, src) => (rows || []).filter(r => r.src === src).map(r => line(r.set, r)).join("");
+  const walls = (D.walls || []).map(g => `<tr><td class="l">${g.seed === 1 ? "the scene's city" : `seed ${g.seed}`}</td><td class="l">${esc(g.shape)}</td><td>${fmt(g.wall_med, 2)}</td><td>${fmt(g.wall_p90, 2)}</td><td>${fmt(g.nearest_med, 2)}</td><td>${fmt(g.farthest_med, 2)}</td><td>${fmt(g.spread_med, 2)}</td><td>${fmt(g.spread_p90, 2)}</td><td>${g.bld_wall_over6}</td></tr>`).join("");
+  const gaps = (D.gaps || []).map(g => `<tr><td class="l">${g.seed === 1 ? "the scene's city" : `seed ${g.seed}`}</td><td class="l">${esc(g.shape)}</td><td>${fmt(g.gap_med, 1)}</td><td>${fmt(g.gap_p10, 1)}</td><td>${fmt(g.gap_p1, 1)}</td><td>${g.under10}</td><td>${fmt(g.corr35_med, 1)}</td><td>${ok(g.corr35_under6) ? g.corr35_under6 : "–"}</td><td>${pc(g.narrower)}</td><td>${pc(g.narrower2)}</td><td>${fmt(g.worst, 1)}</td></tr>`).join("");
+  const seeds = D.seeds, city = D.city || {};
+  const cityRows = D.order.filter(c => city[c]).map(c => `<tr><td class="l">${esc(c)}</td>${seeds.map(s => { const x = city[c][String(s)] || {}; return `<td>${fmt(x.street, 2)} · ${ok(x.events) ? x.events : "–"}</td>`; }).join("")}</tr>`).join("")
+    + ["1:C35", "1:E15_35"].filter(c => city[c]).map(c => `<tr><td class="l">one drone, ${esc(c.slice(2))}: standoff spread (m)</td>${seeds.map(s => `<td>${fmt((city[c][String(s)] || {}).along_spread, 2)}</td>`).join("")}</tr>`).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every table behind the answer. The geometry is exact; the confirmation and the screen are the replica (S6's model of Unity on these
+      prism buildings); Unity is the headless bench in BlockShapedPatchCityWorld as baked, with the replica's twins of the same flights beside it.</p></div>
+    <div class="box"><h3>Each wall's distance to the shape (m)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l">city</th><th class="l">shape</th><th>median</th><th>p90</th><th>nearest wall, median</th><th>farthest wall, median</th><th>farthest − nearest, median</th><th>… p90</th><th>buildings with a wall > 6 m</th></tr></thead><tbody>${walls}</tbody></table></div>
+      <p class="small muted">At each wall's middle, along its outward normal, walls of 4 m or more.</p></div>
+    <div class="box"><h3>What each shape leaves of the streets (m)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l">city</th><th class="l">shape</th><th>median</th><th>p10</th><th>p1</th><th>under 10 m</th><th>corridor at d_obs 0.35, median</th><th>… under 6 m</th><th>narrower than the circle</th><th>… by > 2 m</th><th>worst change</th></tr></thead><tbody>${gaps}</tbody></table></div>
+      <p class="small muted">The narrowest clear width along every street with a building on each side (S8's measure); the corridor takes d_obs (× 10 m) off both sides.</p></div>
+    ${tbl("The confirmation (replica): fresh routes in the scene's city and three held out", all(CF))}
+    <div class="box"><h3>Square on at a wall with the formation at d_ref 1.2 (replica, four cities, 36 approaches each)</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th>first drone round an end (s)</th><th>split (s)</th><th>split within the cap</th><th>past it (s)</th><th>contacts per flight</th><th>lost per flight</th></tr></thead><tbody>${at12(CF)}</tbody></table></div></div>
+    <div class="box"><h3>By city: street cohesive speed (m/s) · loss events</h3><div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>${seeds.map(s => `<th>${s === 1 ? "the scene's city" : `seed ${s}`}</th>`).join("")}</tr></thead><tbody>${cityRows}</tbody></table></div></div>
+    ${(D.unity || []).length ? tbl("Unity: the scene's city, the same routes for every set", u(D.unity, "unity")) + tbl("… the replica's twins, from Unity's recorded starts", u(D.unity, "replica")) : ""}
+    ${(D.unity1 || []).length ? tbl("Unity: one drone (along probes and angled run-ins)", u(D.unity1, "unity")) + tbl("… the replica's twins", u(D.unity1, "replica")) : ""}
+    ${(D.unity12 || []).length ? tbl("Unity: square on at d_ref 1.2", u(D.unity12, "unity")) : ""}
+    ${tbl("The screen (replica, the scene's city, the same routes for every row)", all(SC))}`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The shapes (SwarmManager.obstacleShape)", [
+    ["EnclosingCircle (the scene, since S8)", "The smallest circle containing the building's footprint, an infinite vertical cylinder. It touches the footprint at its far corners."],
+    ["Ellipse (S10)", "The smallest ellipse containing the footprint, its aspect (length over width) capped at ellipseMaxAspect: a longer footprint gets a rounder ellipse that still encloses it. A cap of 1 is the enclosing circle."],
+    ["Cap (ellipseMaxAspect)", "1.25, 1.5 or 2 in this study. The scene's buildings have a median aspect of 1.33 and 90% are under 1.70, so the cap only bites on the longest."],
+    ["d_obs, d_shield", "How far out from the shape the obstacle field takes hold (d_obs, × 10 m) and the shield starts removing the stick pointing in (d_shield, × 10 m). Measured from the shape, so a tighter shape lets drones nearer the facades at the same values."],
+    ["Row codes", "C: the enclosing circle; E15, E125: the ellipse at cap 1.5, 1.25; the number after: d_obs (35 = 0.35); a trailing 'a': the adaptive spread (0.85 of d_ref in the streets, as the scene flies), none: the spread held at d_ref 2.0; 'c' after it: the S7 rules aiming by the enclosing circle. C35a is the scene."]]],
+  ["The measures", [
+    ["A wall's distance to the shape", "From the middle of a wall, along its outward normal, to the shape: how far out the shape stands from that wall. Its spread over a building's walls is the question."],
+    ["Along probe, standoff", "One drone flown down a street parallel to one wall, 6, 9 or 12.5 m off it; its standoff is its median distance from that wall while alongside. The spread of the standoff across walls (p90 − p10) is how unevenly the walls are avoided."],
+    ["Onset", "One drone flown at a face: the facade distance at which its speed towards the building first falls below 0.8 of its run-in speed, i.e. where avoidance takes hold."],
+    ["Street gap, corridor", "The narrowest clear width two buildings' shapes leave along the street between them (the facades are 25 m apart); the corridor is that less d_obs on each side, what the drones actually get."],
+    ["Cohesive speed", "Progress speed times the share of the flight the swarm was one group (S6's headline); in the streets, on the street routes."],
+    ["Loss events", "Drones lost, a colliding pair counted once (S9). With exact Poisson intervals."],
+    ["Split", "Flown square at a straight wall: seconds from arriving until drones stand beside the building beyond both ends of the face."],
+    ["Surrounded", "Of the buildings a route aims at, the share whose centre was inside the drones' convex hull at some moment near it."]]],
+  ["The flights", [
+    ["cross, pass, street", "S6's: a straight line across the city, through one block, along the streets."],
+    ["face, angle", "S8's head-on flight at an edge face (50 m run-in, offsets 0, 0.3, 0.6 of the half-face), and S10's at 30° and 60° from the face's normal."],
+    ["along", "S10's one-drone wall probe (above)."],
+    ["Twin", "The replica flown from Unity's recorded start under the values the bench recorded; the page's replays are kept only where the twin scores identically to the gate's row."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2></div>` + TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl class="terms">${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`).join("")
+    + `<p class="small muted">Built ${esc(D.built)} from experiment_results/swarm_ellipse (citysim/swarmellipse_report.py); the manual is docs/swarm_ellipse/README.md.</p>`;
+};
+
+$("#answer-box").innerHTML = ANSWER_BOX();
+let first = "answer";
+try { const t = localStorage.getItem("s10tab"); if (t && TABS.some(x => x[0] === t)) first = t; } catch (e) { /* private window */ }
+if (!route(location.hash.slice(1))) show(first);
+</script>

@@ -45,6 +45,10 @@ All values up to ~2 m are safe. **Recommended: use the GNSS column** for visible
 > is the highest of any DJI Mini-class drone. Max angular velocity is estimated at ~150°/s based
 > on DJI Mini 2/Air 2S class performance (not officially published for Mini 3).
 
+> **Two rows below are stale and must not be applied as written — see the note under the table.**
+> `maxAlpha` changed units, and `maxYawRate` is set from the Mini 3 Pro's actual 75 °/s rather than
+> this table's 150 °/s estimate.
+
 | Parameter | Code Field | Current Value | DJI Mini 3 Real | Recommended for Sim |
 |---|---|---|---|---|
 | Max pitch angle | `maxPitch` | 0.175 rad (10°) | **0.698 rad (40°)** | **0.436 rad (25°)** — good balance for swarm flight ¹ |
@@ -54,6 +58,18 @@ All values up to ~2 m are safe. **Recommended: use the GNSS column** for visible
 | Max speed | `maxSpeed` | 5.0 m/s | **16 m/s** (Sport mode) | **10.0 m/s** (swarm-safe) |
 | Max ascent speed | (via height PID) | — | **5 m/s** | **4.0 m/s** |
 | Max descent speed | (via height PID) | — | **3.5 m/s** | **3.0 m/s** |
+
+**Stale rows (yaw work, superseding the two yaw-adjacent recommendations above):**
+
+- **`maxYawRate` is 1.309 rad/s (75 °/s), the Mini 3 Pro's maximum yaw rate** — not the ~150 °/s
+  estimated above, and not the "90 °/s" recommendation. It models the *airframe's* limit. The real
+  fleet's PC additionally clamps its own commands at 40 °/s (`MAX_YAW_RATE_DEG_S`), which the sim does
+  not reproduce, so a full-stick yaw can reach rates here that the fleet never commands.
+- **`maxAlpha` changed units — the "15.0" recommendation is now roughly 4× too large.** The torque is
+  applied with `ForceMode.Force`, so `maxAlpha` is the acceleration actually achieved; it used to be
+  pre-multiplied by the inertia tensor and applied as an acceleration, delivering 0.3893× on
+  pitch/roll and 0.7688× on yaw. The current 3.38 is the *same* delivered authority as the old 8.68.
+  Any real-world target for this field must be compared against the new scale.
 
 ¹ 25° allows the drone to respond aggressively to wind and swarm forces without looking unnatural.
   The real 40° limit is rarely reached in practice; 25° is a good operational ceiling.

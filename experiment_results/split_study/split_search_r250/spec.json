@@ -1,0 +1,37 @@
+{
+ "name": "split",
+ "note": "S4 Phase 2 (docs/split_study/README.md section 5), fixed before it ran, from Phase 1's decision (2026-10-27): variant R, the two designs where both manoeuvres passed every criterion (p1_confirm), R's confirmed profile. 24 cities per design (the plan's 8 was for 12 designs) on seeds 100-123, apart from the cities Phase 1 tuned on.",
+ "variant": "R",
+ "designs": [
+  [
+   40,
+   18
+  ],
+  [
+   40,
+   24
+  ]
+ ],
+ "cities_per_design": 24,
+ "city_seed0": 100,
+ "walks_per_city": 8,
+ "T_s": 600,
+ "targets_per_city": 6,
+ "search_T_s": 1200,
+ "hours": 12.5,
+ "setting": {
+  "r0_coh": 30.0,
+  "m3b_mode": "aim",
+  "t_hop": 6.0,
+  "d_rule": "fixed"
+ },
+ "spreads": [
+  "profile",
+  1.0
+ ],
+ "d_star": {
+  "R|40|18": 1.0,
+  "R|40|24": 0.8
+ },
+ "sight_m": 250.0
+}

@@ -18,12 +18,13 @@ public class StateFinder : MonoBehaviour {
 	public Vector3 Inertia;
 	public float Mass;
 
-	// State estimation noise (simulates IMU/GPS sensor noise)
+	// State estimation noise (simulates IMU/GPS sensor noise). Defaults match DroneReduced.prefab's
+	// serialized values.
 	public bool enableStateNoise = true;
-	public float positionNoiseSigma = 0.03f;
-	public float altitudeNoiseSigma = 0.015f;
-	public float attitudeNoiseSigma = 0.004f;
-	public float velocityNoiseSigma = 0.06f;
+	public float positionNoiseSigma = 0.05f;
+	public float altitudeNoiseSigma = 0.01f;
+	public float attitudeNoiseSigma = 0.02f;
+	public float velocityNoiseSigma = 0.025f;
 	private System.Random _rng;
 	private bool _hasSpare = false;
 	private float _spare;
