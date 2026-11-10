@@ -1437,7 +1437,7 @@ there reaches the practice world only through a rebuild — which also discards 
 scene** (`Tools/Swarm/Build practice block world`, `PracticeBlockWorldBuilder`, 2026-11-03). It is the training scene
 for the block-shaped trials: a file copy of BlockShapedPatchCityWorld with a 20-building city baked in place of the
 trial city, the recorder stripped, and PracticeWorld's start line and hat stations
-(`PracticeWorldBuilder.AddStartLineAndStations`, 30 and 45 m down ParkRoad). Points worth keeping:
+(`PracticeWorldBuilder.AddStartLineAndStations`: the walkers 45 m down ParkRoad, the line behind them at 65 m, so they are not seen through its tint). Points worth keeping:
 - **The copy is the only way the trial tuning gets there.** S6's, S8's and S10's SwarmManager values (d_ref, `d_shield`,
   `d_obs`, the slide, the adaptive spread, the ellipse) were written into BlockShapedPatchCityWorld's YAML by
   `swarmtune apply`, and no builder sets them, so a scene built through `ProceduralCityWorldBuilder.Build` would fly

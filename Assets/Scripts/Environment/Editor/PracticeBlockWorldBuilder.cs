@@ -27,8 +27,8 @@ using UnityEngine.SceneManagement;
 /// building, while its hat and target walker change from session to session, as in PracticeWorld.</para>
 ///
 /// <para>The <see cref="ExperimentRecorder"/> goes, as from PracticeWorld, so practice sessions write no runs; the start
-/// line and the hat stations are PracticeWorld's (<see cref="PracticeWorldBuilder.AddStartLineAndStations"/>), 30 and
-/// 45 m down ParkRoad. Batch: <c>-executeMethod PracticeBlockWorldBuilder.Run</c>.</para>
+/// line and the hat stations are PracticeWorld's (<see cref="PracticeWorldBuilder.AddStartLineAndStations"/>): the
+/// walkers 45 m down ParkRoad, the line behind them at 65 m. Batch: <c>-executeMethod PracticeBlockWorldBuilder.Run</c>.</para>
 /// </summary>
 public static class PracticeBlockWorldBuilder
 {

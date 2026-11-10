@@ -63,6 +63,10 @@ public static class PracticeWorldBuilder
     private static readonly Vector3 DownRange = Vector3.right;
     private const float WalkerRowDistance = 45f; // spawn to the row of walkers, metres
     private const float WalkerSpacing = 7f;      // between neighbouring walkers
+    // Spawn to the start line. It stands behind the walkers, so they are never seen through its tint, and far enough
+    // behind that a formation centred over them (a ~15.5 m ring at d_ref 2.0) stays short of it. The first buildings
+    // stand beyond it in both scenes: PracticeWorld's tile kerb at ~90 m, PracticeBlockWorld's nearest facade at 103.5 m.
+    private const float StartLineDistance = WalkerRowDistance + 20f;
     private const float TileCentreDistance = 120f; // spawn to the tile's block centre
     private const float GoalCentreDistance = TileCentreDistance + CityTiles.Pitch; // spawn to the goal's block centre
 
@@ -327,9 +331,10 @@ public static class PracticeWorldBuilder
     internal static string AddStartLineAndStations(Vector3 spawn, Parts parts)
     {
         // StartLine's bootstrap only fires in a scene with a recorder, and the practice scenes have none; the
-        // participants practise crossing the line all the same. It stands short of the walker row.
-        new GameObject("StartLine").AddComponent<StartLine>().headingDeg =
-            Mathf.Atan2(DownRange.x, DownRange.z) * Mathf.Rad2Deg;
+        // participants practise crossing the line all the same, after the walkers.
+        StartLine line = new GameObject("StartLine").AddComponent<StartLine>();
+        line.headingDeg = Mathf.Atan2(DownRange.x, DownRange.z) * Mathf.Rad2Deg;
+        line.distanceFromSpawn = StartLineDistance;
 
         // The walkers stand on the surface the altitude ceiling is measured from. Its cache follows runtime scene
         // loads, not an editor OpenScene, so it is dropped first.
@@ -375,7 +380,7 @@ public static class PracticeWorldBuilder
         }
         float fontSize = MatchLabelSizes(labels);
         return $"stood {Stations.Length} walkers at {rowCentre} under signs {boardBottom:F2} m up, lettered at font " +
-               $"size {fontSize:F2}";
+               $"size {fontSize:F2}, the start line {StartLineDistance:F0} m from the spawn";
     }
 
     /// <summary>
