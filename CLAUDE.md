@@ -370,7 +370,18 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   the yaw stick in every attitude mode (a hull needs three points, so the hull rule would otherwise
   freeze its heading while the stick turned only the view), and `PyUniSharingFast.UpdateBodyYaw` locks
   body yaw absolutely to its **commanded** heading (`VelocityControl.HeadingSetpointRad`), for the
-  same answers-the-stick reason the plane lock follows `TargetYaw`. `ScreenSpawn` always shows its
+  same answers-the-stick reason the plane lock follows `TargetYaw`. That setpoint only moves on physics
+  steps, so the lock reads it **interpolated one step behind** (`InterpolatedLoneHeading`, 2026-11-10,
+  after the user found the screen jerky while yawing one drone). Read raw it held still on 31% of frames
+  at 72 Hz: the rig stopped and caught up all through a turn, and the feed screen, placed from a heading
+  filtered every frame, jerked against the CockpitRoom by 0.70° peak to peak at 40 °/s (0.12° now,
+  measured headless at an exact 72 Hz). The rest of a lone-drone yaw's judder is the feed's 30 Hz
+  refresh, a picture every 2 or 3 frames (the picture is 1.49° off smooth motion before, 0.92° after),
+  and it stays, the user's choice, because it matches the real drones. `BodyYawDegrees` carries the
+  interpolated value, so the rig, `BodyYawCompass`, the `FORMATION_MAP` panel and the sphere's step-back
+  still agree with it exactly; so do the VR velocity frame and `_head.csv`'s `bodyYaw`, which now lag the
+  setpoint by 0.41° at 40 °/s, so a lone drone's flight is not bit for bit what it was. The plane lock's
+  `TargetYaw` is integrated in FixedUpdate too and is not interpolated. `ScreenSpawn` always shows its
   feed — no stitched-hide, no boundary gate, placed as `OUTER_CIRCLE` even under `OFF` — counted over
   its bindings so a single live real feed qualifies too. Python cannot stitch one view, so the curved
   screen is holding a stale panorama by then.
@@ -448,8 +459,9 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     in a 360 video. The shader is the project's first stereo-instanced one; without its `UNITY_*` macros it draws in
     one eye only.
   - **The camera's position and the heading are interpolated** (physics is 50 Hz with no Rigidbody interpolation),
-    one physics step behind, which leaves the flight bit for bit. PyUniSharingFast's lone-drone lock still turns the
-    rig in 50 Hz steps, and the sphere takes each step back (`90 + (bodyYaw - h)`), so a turn is smooth at 72 Hz.
+    one physics step behind, which leaves the flight bit for bit. The sphere takes back whatever the rig has turned
+    (`90 + (bodyYaw - h)`), which kept a turn smooth at 72 Hz while PyUniSharingFast's lone-drone lock turned the rig
+    in 50 Hz steps; that lock is interpolated too since 2026-11-10, and the step-back stays exact either way.
     `WorldFixed` turns the sphere with the rig instead, re-latched at each recentre (`PyUniSharingFast.CalibrationCount`).
   - **It owns the backdrop while on:** CockpitRoom is disabled, the Arena box is hidden and the eye cameras clear
     to black. A sphere that writes no depth is otherwise drawn over by the skybox or the box. The FPV camera's

@@ -1394,6 +1394,13 @@ public class PyUniSharingFast : MonoBehaviour
     private Camera bodyLockCamera;
     private float previousDroneYaw;
     private bool bodyLockInitialized = false;
+    // Lone-drone lock: the drone followed, the frame and physics step last read, and the heading setpoint at
+    // the last two physics steps, in degrees. See InterpolatedLoneHeading.
+    private VelocityControl loneLockVelocity;
+    private int loneLockFrame = -1;
+    private float loneLockFixedTime;
+    private float lonePreviousStepYaw;
+    private float loneCurrentStepYaw;
     // Set when the calibrate key is pressed; consumed the same frame once the centre-drone yaw
     // is known, so the recentre snaps the view onto the (discrete) panorama centre.
     private bool calibrationRequested = false;
@@ -2598,9 +2605,10 @@ public class PyUniSharingFast : MonoBehaviour
     // the stick 1:1 instead of trailing the airframe, and the hold keeps the nose within
     // maxHeadingHoldErrorDeg of it. Absolute like that lock too, so whatever offset the hull modes'
     // stick-steered view had built up when the swarm dwindled to one drone is cleared at once.
+    // Interpolated between physics steps (InterpolatedLoneHeading), so the rig turns every frame.
     private void UpdateBodyYawFromLoneDrone(VelocityControl vc)
     {
-        float commandedYaw = vc.HeadingSetpointRad * Mathf.Rad2Deg;
+        float commandedYaw = InterpolatedLoneHeading(vc);
         float deltaYaw = Mathf.DeltaAngle(bodyYaw, commandedYaw);
         if (deltaYaw == 0f) return;
 
@@ -2611,6 +2619,55 @@ public class PyUniSharingFast : MonoBehaviour
         {
             cameraRigTransform.Rotate(0f, deltaYaw, 0f, Space.World);
         }
+    }
+
+    // The lone drone's heading setpoint in degrees, one physics step behind and interpolated between the last
+    // two steps, as Rigidbody interpolation would place a body (and Sphere360Display places its camera).
+    //
+    // The setpoint only advances in VelocityControl's FixedUpdate, at 50 Hz, so read raw it holds still on
+    // three headset frames in ten at 72 Hz: the rig stopped and caught up all through a turn, and the feed
+    // screen, which is placed from a filtered heading that moves every frame, jerked against the CockpitRoom
+    // (which turns with the rig) by ~0.7 deg peak to peak at the full 40 deg/s. Behind rather than
+    // extrapolated, so the rig never turns past a heading the drone has been given; that costs 20 ms of
+    // latency at the rig, against 10 ms on average before.
+    //
+    // The previous step's value is recovered here rather than recorded in a FixedUpdate ahead of
+    // VelocityControl's, as Sphere360Display records it: that needs an earlier execution order, which would also
+    // move this component's Update ahead of the input and the FPV cameras it reads. The setpoint does not
+    // change between steps, so last frame's reading IS the previous step's whenever one step has passed since,
+    // which at 72 fps is every step. When more have (36 fps, a hitch), the change is split evenly across them,
+    // exact for a steady turn.
+    private float InterpolatedLoneHeading(VelocityControl vc)
+    {
+        float live = vc.HeadingSetpointRad * Mathf.Rad2Deg;
+        float step = Time.fixedDeltaTime;
+        bool continuous = vc == loneLockVelocity && loneLockFrame >= Time.frameCount - 1 && step > 0f;
+        loneLockVelocity = vc;
+        loneLockFrame = Time.frameCount;
+
+        if (!continuous)
+        {
+            // A new lock, or a gap in this one: nothing to interpolate from, and the lock is absolute anyway.
+            lonePreviousStepYaw = loneCurrentStepYaw = live;
+            loneLockFixedTime = Time.fixedTime;
+            return live;
+        }
+
+        if (Time.fixedTime != loneLockFixedTime)
+        {
+            int steps = Mathf.Max(1, Mathf.RoundToInt((Time.fixedTime - loneLockFixedTime) / step));
+            lonePreviousStepYaw = loneCurrentStepYaw + Mathf.DeltaAngle(loneCurrentStepYaw, live) * (steps - 1) / steps;
+            loneCurrentStepYaw = live;
+            loneLockFixedTime = Time.fixedTime;
+        }
+        else if (live != loneCurrentStepYaw)
+        {
+            // Moved without a physics step: a reset (VelocityControl.ResetToPos seeds it from the transform).
+            lonePreviousStepYaw = loneCurrentStepYaw = live;
+        }
+
+        float a = Mathf.Clamp01((Time.time - Time.fixedTime) / step);
+        return Mathf.LerpAngle(lonePreviousStepYaw, loneCurrentStepYaw, a);
     }
 
     // True in the non-hull attitude modes, where the yaw stick spins the drone(s)
