@@ -357,7 +357,8 @@ public class ProceduralCityBuilder : MonoBehaviour
         int nCity = PlaceCity(file, buildings, out error);
         if (nCity < 0) return false;
         if (!BuildGoals(file, Child(GoalsName), Place, out error)) return false;
-        if (Application.isPlaying)
+        // A scenic city batches its own buildings, once every one has its detailed mesh (ScenicCity.Finish).
+        if (Application.isPlaying && GetComponent<ScenicCity>() == null)
         {
             StaticBatchingUtility.Combine(buildings.gameObject);
         }
@@ -642,6 +643,8 @@ public class ProceduralCityBuilder : MonoBehaviour
         prismNote = prismLooks.Count == 0 ? ""
             : $", {prismLooks.Count} block-shaped in {Mathf.Max(prismStyle.Colours, 1)} colours" +
               (clashes > 0 ? $" ({clashes} beside a building of their own colour)" : "");
+        ScenicCity scenic = GetComponent<ScenicCity>();
+        if (scenic != null && prismLooks.Count > 0) prismNote = $", {prismLooks.Count} block-shaped, {scenic.Deal(file)}";
     }
 
     /// <summary>At Play, a block-shaped layout with no goals of its own (<see cref="BlockGoals.Applies"/>) takes
@@ -741,6 +744,8 @@ public class ProceduralCityBuilder : MonoBehaviour
             TerrainHeightSampler.Invalidate();
         }
 #endif
+        ScenicCity scenicCity = GetComponent<ScenicCity>();
+        if (scenicCity != null) scenicCity.Finish(file);
         if (setSpawn && file.layout.spawn != null && file.layout.spawn.Length >= 3)
         {
             swarmSpawn spawner = FindObjectOfType<swarmSpawn>(true);
@@ -811,7 +816,11 @@ public class ProceduralCityBuilder : MonoBehaviour
         {
             error = null;
             prismLooks.TryGetValue(b.name, out PrismBuilding.Look look);
-            return PrismBuilding.Create(b, parent, prismStyle, look);
+            GameObject prism = PrismBuilding.Create(b, parent, prismStyle, look);
+            // The scenic city keeps the prism as the collider and draws a building of its own on it.
+            ScenicCity scenic = GetComponent<ScenicCity>();
+            if (scenic != null) scenic.Dress(prism, b);
+            return prism;
         }
         BuildingCatalogue.Entry e = catalogue.Find(b.design);
         GameObject go = Instantiate(e.source, parent);

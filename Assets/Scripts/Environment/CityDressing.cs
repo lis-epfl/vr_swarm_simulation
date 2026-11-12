@@ -88,6 +88,10 @@ public class CityDressing : MonoBehaviour
     /// <summary>m off a block-shaped building's facade a planter or a frontage bench may reach: a goal's walkers take the
     /// lane 1.1-1.5 m off it (<c>ProceduralCityBuilder.prismWalkOffset</c>), less a walker's half-width.</summary>
     private const float FrontageReach = 0.8f;
+    /// <summary>m in front of a scenic building's doorway (<see cref="ScenicCity.Doors"/>) kept free of furniture, and
+    /// the most of its width that is: the furniture against the facade (planters, benches, corner props, all within
+    /// 0.9 m of it) keeps out, the trees and shelters at the kerb are not touched.</summary>
+    private const float DoorClear = 0.7f, DoorWidth = 1.6f;
     /// <summary>m a kerb bin (<see cref="Extras.binShare"/>) keeps from any other bin.</summary>
     private const float BinSpacing = 3f;
     /// <summary>Bump when the defaults in <see cref="Rules"/> change. A scene keeps the rules it was saved with, so without
@@ -149,6 +153,20 @@ public class CityDressing : MonoBehaviour
              "one (Swarm/Double-sided Cutout). Merged at Play, blended leaves would draw in index order rather than by " +
              "distance, and overlapping trees would show through each other.")]
     public Material cutoutLeaves;
+
+    /// <summary>A prop material, and the one a scene draws it in instead.</summary>
+    [Serializable]
+    public class MaterialSwap
+    {
+        public Material from;
+        public Material to;
+    }
+
+    [Header("Look")]
+    [Tooltip("Every copied prop part drawn in a 'from' material is drawn in its 'to' instead (after the leaves' swap " +
+             "above): how a scene restyles the pack's props without touching the pack. Empty in every scene but " +
+             "ScenicPatchCityWorld, whose builder fills it (the pack's atlas and bark in Swarm/Scenic Prop).")]
+    public MaterialSwap[] materialSwaps = new MaterialSwap[0];
 
     /// <summary>A prop made of several objects that are not one hierarchy (a green-belt tree: its bark and its leaves).</summary>
     [Serializable]
@@ -479,6 +497,13 @@ public class CityDressing : MonoBehaviour
             Add(o != null ? o.name : "-");
         }
         foreach (GameObject o in cornerProps ?? new GameObject[0]) Add(o != null ? o.name : "-");
+        // A scenic city's doorways are kept clear; without one nothing is added, so other scenes' bakes stay current.
+        if (GetComponent<ScenicCity>() != null) Add("doors " + DoorClear.ToString(CultureInfo.InvariantCulture));
+        // Empty, they change nothing: a bake made before they existed stays current.
+        foreach (MaterialSwap s in materialSwaps ?? new MaterialSwap[0])
+        {
+            Add((s?.from != null ? s.from.name : "-") + ">" + (s?.to != null ? s.to.name : "-"));
+        }
         foreach (PropModel m in lawnTrees ?? new PropModel[0])
         {
             foreach (GameObject o in m?.parts ?? new GameObject[0]) Add(o != null ? o.name : "-");
@@ -764,6 +789,8 @@ public class CityDressing : MonoBehaviour
         private readonly HashSet<int> medianStreets = new HashSet<int>();
         private readonly int seed;
         private readonly List<string> notes = new List<string>();
+        private readonly Grid doors = new Grid();
+        private int doorways;
         private float medianMetres, pavementMetres;
         private int medianCount;
 
@@ -816,6 +843,23 @@ public class CityDressing : MonoBehaviour
                 var loops = new Obb(box.c, box.u + box.u.normalized * walk, box.v + box.v.normalized * walk);
                 zone.walks.Add(loops);
                 zone.parts.Add(loops);
+            }
+            // The scenic city's facades have doors (ScenicBuilding): the footpath in front of each is taken before any
+            // prop is placed, so a bench or a planter that would stand in a doorway slides along or is skipped.
+            ScenicCity scenic = d.GetComponent<ScenicCity>();
+            if (scenic != null)
+            {
+                foreach ((Vector2 a, Vector2 b) in scenic.Doors(file))
+                {
+                    Vector2 e = b - a;
+                    float len = e.magnitude;
+                    if (len < 1e-3f) continue;
+                    Vector2 dir = e / len, outward = new Vector2(dir.y, -dir.x);
+                    doors.Add(new Obb(0.5f * (a + b) + outward * (0.5f * DoorClear), dir * (0.5f * Mathf.Min(len, DoorWidth)),
+                                      outward * (0.5f * DoorClear)));
+                    doorways++;
+                }
+                if (doorways > 0) notes.Add($"{doorways} doorways kept clear");
             }
         }
 
@@ -1935,7 +1979,14 @@ public class CityDressing : MonoBehaviour
         {
             string why = null;
             body = default;
-            foreach (float shift in slide > 0f ? new[] { 0f, slide, -slide } : new[] { 0f })
+            // Where there are doorways to keep out of, a spot gets two more steps each way, a doorway's width apart:
+            // a bench that would stand in one moves along the wall rather than being lost.
+            float door = DoorWidth + 0.4f;
+            bool along = doorways > 0 && dir.sqrMagnitude > 0.25f;
+            float[] shifts = slide > 0f ? (along ? new[] { 0f, slide, -slide, door, -door, 2f * DoorWidth, -2f * DoorWidth }
+                                                 : new[] { 0f, slide, -slide })
+                                        : (along ? new[] { 0f, door, -door } : new[] { 0f });
+            foreach (float shift in shifts)
             {
                 Vector2 q = at + dir * shift;
                 Obb b = p.Body(q, yaw, k), mine = new Obb(b.c, b.u * shrink, b.v * shrink);
@@ -1943,6 +1994,7 @@ public class CityDressing : MonoBehaviour
                               : AtBuilding(b, clearance >= 0f ? clearance : r.buildingClearance) ? "at a building"
                               : (street ? InGoalWay(b) : InGoal(b.c, b.Extent.magnitude)) ? "in a goal patch"
                               : !overlap && props.Near(mine, r.propGap) ? "at another prop"
+                              : doorways > 0 && doors.Near(mine, 0f) ? "in a doorway"
                               : null;
                 if (reason == null)
                 {
@@ -2148,14 +2200,24 @@ public class CityDressing : MonoBehaviour
             return p;
         }
 
-        /// <summary>A part's materials, any blended one (the trees' leaves) replaced by <see cref="cutoutLeaves"/>.</summary>
+        /// <summary>A part's materials, any blended one (the trees' leaves) replaced by <see cref="cutoutLeaves"/>, then
+        /// any listed in <see cref="materialSwaps"/> by its swap.</summary>
         private Material[] Swap(Material[] mats)
         {
-            if (d.cutoutLeaves == null) return mats;
+            bool swaps = d.materialSwaps != null && d.materialSwaps.Length > 0;
+            if (d.cutoutLeaves == null && !swaps) return mats;
             var o = (Material[])mats.Clone();
             for (int i = 0; i < o.Length; i++)
             {
-                if (o[i] != null && o[i].renderQueue > (int)RenderQueue.GeometryLast) o[i] = d.cutoutLeaves;
+                if (o[i] == null) continue;
+                if (d.cutoutLeaves != null && o[i].renderQueue > (int)RenderQueue.GeometryLast) o[i] = d.cutoutLeaves;
+                if (!swaps) continue;
+                foreach (MaterialSwap s in d.materialSwaps)
+                {
+                    if (s == null || s.from == null || s.to == null || o[i] != s.from) continue;
+                    o[i] = s.to;
+                    break;
+                }
             }
             return o;
         }

@@ -153,6 +153,12 @@ public class ScreenSpawn : MonoBehaviour
              "(never more). Never delays a stitch capture.")]
     public bool levelFeedRenders = true;
 
+    [Tooltip("Leave empty for the screens as they have always been: the Standard shader with the feed as emission " +
+             "over a black base, which still reflects the scene's sky and sun as a faint veil over the picture. " +
+             "With a material here (Swarm/Feed Screen, unlit) each screen shows its feed's own pixels and nothing " +
+             "else, the same on every screen of the ring; the feed goes in its main texture. The scenic city sets it.")]
+    public Material feedScreenMaterial;
+
     // GameObject references
     private OVRCameraRig cameraRig;
     private List<GameObject> swarm = new List<GameObject>();
@@ -501,11 +507,27 @@ public class ScreenSpawn : MonoBehaviour
             rt.autoGenerateMips = true;
             rt.filterMode = FilterMode.Trilinear;
 
+            // CityLighting (the scenic city) rebuilds each pixel's world position from this depth buffer, out to
+            // the far plane: a float depth keeps that exact where 24 bits are a metre apart. Other scenes keep
+            // the default.
+            if (CityLighting.Active != null) rt.depthStencilFormat = CityLighting.FeedDepthFormat;
+
             // Name the render texture 'rt_' followed by the drone number
             rt.name = "rt_" + droneNumber;
 
             // Create a new Material object
-            Material screenMaterial = new Material(Shader.Find("Standard"));
+            Material screenMaterial;
+            if (feedScreenMaterial != null)
+            {
+                // Unlit: the feed's pixels as they are. The texture is sharpened where a screen is seen at a slant,
+                // which the screens beside the pilot on the ring are.
+                screenMaterial = new Material(feedScreenMaterial);
+                screenMaterial.mainTexture = rt;
+                rt.anisoLevel = 4;
+            }
+            else
+            {
+            screenMaterial = new Material(Shader.Find("Standard"));
 
             // Black for a sim feed, where only the emission map carries the image; white on the
             // real-drone path, where ImageSharing assigns the frame to `mainTexture` (albedo) as
@@ -534,6 +556,7 @@ public class ScreenSpawn : MonoBehaviour
 
             // Turn on emission for the material
             screenMaterial.EnableKeyword("_EMISSION");
+            }
 
             // Set the screens material to the screen material
             screen.GetComponent<Renderer>().material = screenMaterial;

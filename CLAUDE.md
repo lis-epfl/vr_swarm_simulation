@@ -1413,6 +1413,7 @@ is silent, since neither side fails to compile, it just reads a float from the m
 
 Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
 (generated from ScaledCityWorld, below), `PracticeBlockWorld` (generated from BlockShapedPatchCityWorld, below),
+`ScenicPatchCityWorld` (BlockShapedPatchCityWorld with a realistic look, generated from it; its own section below),
 `DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld`,
 `BlockCityWorld`, `BlockShapedCityWorld` and `BlockShapedPatchCityWorld` (generated cities, below), `FactoryScene`,
 `RingChallenge`, `NBackExperiment`, and `DJIScene`
@@ -1662,6 +1663,149 @@ forces at every crash:
 - **The fleet size is a limit no tuning here removes.** The values are sized for 10 drones: cohesion sums
   over neighbours, so at 15 contacts come back (0.8/km) until `a` is scaled by about 9/(N−1), and
   drone-drone losses still rise with N.
+
+## ScenicPatchCityWorld: the patch city with a realistic look
+
+BlockShapedPatchCityWorld made to look like a city (2026-11-12, the user's request: nicer and more realistic while
+playing, more difference between buildings, at the frame rate the trial scene holds). **Same layout file, same
+colliders, same swarm tuning, rig, input, dressing rules, goals drawn at Play and recorder; only the look differs.**
+`Tools/Swarm/Build scenic patch city world` (`ScenicPatchCityWorldBuilder`; batch `.Run`) makes it from a file copy of
+BlockShapedPatchCityWorld, as PracticeBlockWorld is made and for the same reason (the trial tuning lives only in that
+scene's YAML). **Rebuild it after changing BlockShapedPatchCityWorld**; a rebuild discards hand edits to the scenic
+scene. Not yet flown in the headset. Everything it adds is in `Assets/Scenic/` and ten shaders; no project setting
+changed, the render pipeline is still the built-in one, and no other scene is touched. Points worth keeping:
+
+- **The buildings are drawn by `ScenicCity` + `ScenicBuilding`, and their colliders are still PrismBuilding's.** A
+  root with a `ScenicCity` gives each prism a scenic mesh and the one material `ScenicFacade.mat`
+  (`Swarm/Scenic Facade`); the MeshCollider keeps the 50 m prism, so the avoidance shapes, contacts, the recorder's
+  line of sight, `CitySignature` and analyse.py see the trial city. A root without it builds byte for byte as before.
+  - **Below the roof the mesh keeps to the prism.** Walls stand on the footprint; relief (cornices, fins, ledges,
+    balcony fronts) stands at most `ScenicBuilding.MaxProud` (0.5 m) out and only above the ground floor. A pedestrian
+    walks 1.1 m or more off the wall, so nothing drawn can hide one that the recorder's raycast counts as visible.
+    **No awnings, canopies or parked cars, for that reason**: they would hide hats the scoring sees.
+  - **Above the roof (50 m) the mesh is free**, because the ceiling is 45 m: extra floors on 140 of the 289 (the tallest 69 m), set-back
+    tops, roof plant, masts. `ScenicFacades.extraHeight` scales it (0 = the flat 50 m skyline).
+    It is 0.5 because of the landmarks, which were made taller to show over the roofs: of the street points that see a
+    landmark over the plain 50 m roofs, about 7% lose it at 0.5 (1-11% by landmark and eye height) and about 14% at 1,
+    where the tallest stands 88 m (scratch probe, every footprint taken to its full height, so an overstatement).
+  - **Six families dealt from the layout's seed** (brick, plaster, concrete, stone, glass curtain wall, dark cladding;
+    `ScenicBuilding.Deal`): each building takes, of seven candidates, the one least like those already dealt within
+    1.6 block spacings, so neighbours differ in material, colour and window pattern. 13 photographed wall materials
+    (Poly Haven, CC0) in two texture arrays built at Play from the imported textures (`ScenicFacades.Apply`; saved as
+    assets they would be tens of MB), which is why every wall texture must share one size, format and mip count.
+  - **A facade is a flat quad per edge and the shader does the rest**: windows set back by the view ray, frames,
+    sills, the sun's shadow of the reveal, a room behind each window (interior mapping), blinds, the sky's reflection
+    (or the street's other side below the roofline), shopfronts with sign bands, stains. No draw call or vertex is
+    added for any of it. **The per-face constants are `nointerpolation`**: interpolated, a "constant" differs in its
+    last bits from pixel to pixel and the hashes turn that into hatching.
+  - **Two meshes of one building.** The bake saves a lite mesh (walls and roofs, ~100 vertices); `ScenicCity.Finish`
+    swaps in the detailed one at Play (188,000 vertices in all, ~80 ms, and ~20 ms to batch) and static-batches them. Both report the same bounds, so the
+    occlusion baked on the lite mesh holds. The bake keeps the buildings out of load-time static batching for this.
+  - **The street level is kept dark behind the pedestrians, on purpose.** Shop glass and lobbies are dim by day
+    (`_ShopExposure` 0.08) and a ground floor's wall is capped at `MaxBaseLuminance` (sRGB 0.52), whatever the
+    building above is painted, because the walkers are pale figures seen against it. **Measured, they show better here, not worse**: over 237 views
+    of the same pedestrians from the same poses in both scenes (20, 40 and 70 m; 8 and 20 m up), rendered with and
+    without them, the clearly different pixels (dE > 20) are x1.26 the trial scene's (95% 1.20-1.32) and the
+    pedestrian's lightness against what is behind it 27 L* against 16. What is behind them is as dark as before
+    (L* 37 against 39); the figures are brighter, because this scene's light is. So **identification in this scene
+    is not comparable with runs flown in BlockShapedPatchCityWorld**; keep a series in one scene.
+- **The sun's shadows cost an FPV render nothing on the CPU (`CityLighting`).** A shadow-casting light would cull and
+  draw the city again from the sun in every one of ~140-300 renders a second. The city never moves, so its shadow is
+  drawn once at Play into one 8192 depth map, with a 512 x 32 x 512 volume of how much sky each point sees and a map
+  of where street furniture stands (~100 ms in all), and each drone camera gets two full-screen draws after its opaque
+  geometry that rebuild world position and facet normal from the depth buffer and multiply the picture by
+  (ambient x sky + sun x N.L x shadow) / (ambient + sun x N.L). That ratio does not depend on the surface's colour,
+  so the terrain, the pack's props, the trees, the pedestrians and the drones are all shaded without a new shader.
+  - **The shadows are gentle because the user asked** (2026-11-11: "there shouldn't be that much variance in lighting
+    when trying to identify the pedestrians"): `shadowStrength` 0.5, `skyOcclusionStrength` 0.5, `leastSky` 0.5, and
+    a sky as bright as the sun (ambient 0.60 up against a sun of 0.85). Ground in shade is about two thirds as bright as ground
+    in sun. Do not raise them without asking.
+  - It sets the ambient probe itself from three colours, so its ratio and the scene's shaders agree exactly, and
+    draws the skybox into the reflection cube once. The feeds' RenderTextures get a float depth while it is active
+    (`ScreenSpawn`), which the rebuilt positions need at range.
+  - **Only cameras with an `FPVCameraScript` are shaded** (and any a probe passes to `Include`). **The SPHERE
+    display's cube camera is not**: a 360 condition flown here would show the city without shadows or haze, unlike
+    the feeds. Pedestrians and drones cast no shadow (the walkers keep `WalkerGroundShadows`).
+  - Written for Direct3D 11; other platforms' row order and depth range are handled from `SystemInfo`, untested.
+- **The ground.** Roads, footpaths and lawns are `Swarm/Scenic Ground`: the road keeps StreetSurface's mesh and reads
+  the pack's road textures only as a mask for the paint and the tyre tracks, over photographed asphalt laid in world
+  metres. The footpath is tinted to be no lighter than BlockShapedPatchCityWorld's.
+  - **The land round the city is this scene's own copies of the four city Terrain tiles**
+    (`Assets/Scenic/Terrain/CityTile_*.asset`, ~2 MB each): the shared tiles were one 512 px grass photograph every
+    7 m. Three photographed grounds mixed by noise, worn strips along the road in and round the city, the woods' edge
+    thinned raggedly, clumps planted in the clearing. **Heights are untouched**, so the ceiling and the height floor
+    are too. No tree stands within 75 m of the city, 45 m of the road in or 110 m of the spawn, and Tree9_3 has no
+    collider.
+  - **The landmarks' ground is this scene's own as well** (2026-11-12, the user's request: the turbine ridge's grass
+    did not match). `ScenicGroundBuilder.Landmarks` copies the ring's twelve tiles to `Scenic/Terrain/Ring_*.asset`
+    (~0.5 MB each) and repaints them: the ridge and the hills, which were a dark generated forest texture, are the
+    city's grassland with rock where the ground is steepest and copses of real trees where the forest paint was (few
+    on the ridge, none within 140 m of a turbine); the mountain keeps its rock and snow where they were painted, in
+    photographed rock and snow. Heights, the turbines, the mast, the lake and the mountain's own trees are untouched.
+    **The Landmarks prefab instance is unpacked in this scene first**, because *Place models* applies a scene
+    instance's overrides to the prefab the other four scenes share. So a change to Landmarks.prefab reaches this
+    scene only through a rebuild (which starts from BlockShapedPatchCityWorld's instance).
+  - **Every tile is drawn in `Swarm/Scenic Terrain`** (`ScenicTerrain.mat`, the terrains' `materialTemplate`): the
+    layers are laid in world metres, so tiles join without a seam; each is sampled at two scales, against the repeat;
+    steep ground is projected from the side, or the mountain's rock stretches into streaks. Four layers a tile, one
+    pass: grass, sand, field, dry grass on the city tiles; rock for sand on the ring; snow for dry grass on the
+    mountain's tiles. `drawInstanced` is off on them (the material builds no instanced mesh) and `basemapDistance`
+    is 20 km, or the far hills are drawn from Unity's low-resolution base map in the old flat look.
+  - **The ground runs on to the horizon**: a skirt mesh (`Distant ground`, 2000 to 3000 m) where the ring used to
+    end in a straight edge, and below the horizon the sky is the horizon's own colour blurred sideways (it was the
+    photograph's bottom row drawn out into streaks).
+  - The beaches are photographed sand (`ScenicSand`), not Landmarks' Sand layer. If the lake is edited in this
+    scene, `ClearTreesUnderLakes` adds Landmarks' Sand as a fifth layer: rebuild the scene after such an edit.
+  - `Mathf.SmoothStep(a, b, t)` interpolates between a and b; it is not GLSL's smoothstep. The first paint used it as
+    one and came out uniform sand with no trees.
+- **The street furniture is the same props in the same rules, restyled** (2026-11-12, the user's request;
+  `ScenicPropsBuilder`). The pack draws nearly every prop in one material, a Standard (Specular) atlas at smoothness
+  0.95 with saturated paint, which read as plastic under this sky.
+  - **`CityDressing.materialSwaps` does it** (empty in every other scene, and left out of the dressing's signature
+    while empty, so their bakes stay current): every copied prop part drawn in a `from` material is drawn in its
+    `to`. Here the pack's atlas and bark go to `Swarm/Scenic Prop` (desaturated, matte, grime, darker at the foot),
+    and `cutoutLeaves` is `Swarm/Scenic Leaves` (light through the leaves, a different green tree to tree). The
+    materials only reference the pack's textures. The swaps live on the scene's CityDressing, so any redress keeps
+    them.
+  - **Furniture keeps out of the doorways.** The facade shader and `ScenicBuilding.Doors` place each door by the same
+    integer rule (a door to every shop, or to every eight bays of a lobby or a masonry base; the door seed rides in
+    `uv7.w` with the shop's bay count), and the dressing takes a 1.6 × 0.7 m zone in front of each (1,947 of them)
+    before placing anything; a bench or planter that would stand in one slides along the wall, else it is skipped
+    (128 of 5,036 spots). Only with a `ScenicCity` on the root, where it adds `doors` to the signature.
+  - **`Tools/Swarm/Block-shaped city…` knows the scene**: before a redress or a bake it re-applies the scenic
+    surfaces and prop materials (`ScenicPatchCityWorldBuilder.KeepLook`), and after a bake it rebakes the flight
+    occlusion where the scene has one. Anything in BlockShapedPatchCityWorld that should reach this scene still
+    wants the full `Build scenic patch city world`.
+- **The feed screens are unlit here** (`ScreenSpawn.feedScreenMaterial`, `Swarm/Feed Screen`; empty in every other
+  scene, which keeps the Standard emissive screens). A black Standard surface still reflects the sky and the sun, a
+  different veil on each screen of the ring; under this scene's brighter sky that would wash the feeds out.
+- **Measured** (2026-11-12, headless, the recorded headset flight `BBCC_t4_Swarm_20261103_172549` replayed at 72 Hz
+  pacing with 1920x1080 feeds; eight interleaved pairs, the last five on the scene with its landmark ground and
+  restyled props): 71.96-71.97 fps and 99.7-99.9% of the 10 Hz rows at 72 in both scenes, no more than 0.02% of
+  frames over 13.9 ms in either; main thread 3.3-3.5 ms a frame in the trial scene and 3.2-3.7 here (worst 1%: 6.0-6.5
+  and 5.8-6.6); one FPV render 0.81-0.84 ms of main thread there and 0.74-0.87 here (every building in one material);
+  GPU 30-31% there and 31-33% here, video memory 3.0 -> 3.3 GB.
+  - **The swarm flies the same city**: Unity fits all 289 buildings' avoidance shapes identically in the two scenes
+    (`EllipseFitProbe`, every number equal), and SwarmManager, swarmSpawn, InputManager and InterfaceManager are
+    equal field for field. The replays' tracks agree to 0.2 m for 40 s and then drift apart by the same amount
+    within a scene as between them.
+  - **Drone losses in the replays: a colliding pair in 4 of 8 runs here (5 pairs), in 1 of 8 in the trial scene**
+    (Fisher two-sided p ~ 0.28; the feed-resolution bench's baseline lost a pair in one run of two). Four of the six
+    pairs, the trial scene's one among them, collided where the swarm enters the city (x -275 to -217, z 12 to 70),
+    which is where the recorded headset flight lost its own pair in the trial scene: the replay sits on a near
+    miss there. Nothing found that could make the scenes differ, and sixteen runs cannot show that they do; if
+    losses in the headset look more frequent here, that spot is where to look.
+  **A probe that saves a RenderTexture must make it sRGB** (`RenderTextureDescriptor.sRGB = true`): the descriptor's
+  default is linear, and every picture judged from one is far too dark and too contrasty.
+- The textures and the sky are Poly Haven's (CC0): the sky kloofendal_48d_partly_cloudy_puresky; walls red_brick_03,
+  brick_wall_006, brown_brick_02, painted_brick, concrete_wall_008, concrete_wall_004, white_stucco,
+  painted_plaster_wall, stone_tile_wall, granite_tile_03, marble_01, exterior_wall_cladding_03, concrete_tile_facade,
+  bitumen; ground asphalt_02, concrete_pavement, forrest_ground_01, leafy_grass, withered_grass, aerial_grass_rock,
+  coast_sand_01, aerial_rocks_02, snow_field_aerial (the grasses graded greener, the snow brighter). 36 MB under
+  `Assets/Scenic`, 15 MB of it the sixteen terrain tiles and the distant ground; the scene file is 24 MB. They were prepared by scripts kept outside the repo (`D:\claude_scenic_bench\probe`: `fetch_assets.py`,
+  `prep_assets.py`, and the probes that made every number here).
+- Not done: a scenic practice scene (PracticeBlockWorld still has the plain prisms); the SPHERE condition's lighting;
+  the pedestrians (unchanged, at the user's word).
 
 ## Testing swarm changes offline (headless bench + replica)
 

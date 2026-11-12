@@ -1,0 +1,103 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 426632b35129c26469cdee8b9336e16a, type: 3}
+  m_Name: ScenicFacades
+  m_EditorClassIdentifier: 
+  walls:
+  - name: red_brick_03
+    albedo: {fileID: 2800000, guid: 0d92f5d4e3af08b42a1b57051195659c, type: 3}
+    normal: {fileID: 2800000, guid: 52a67cbff6af7c24ab6bf1c1a0d9db6f, type: 3}
+    metres: 1
+    paintable: 0
+    mean: {r: 0.155, g: 0.1, b: 0.083, a: 1}
+  - name: brick_wall_006
+    albedo: {fileID: 2800000, guid: b35750dc5b17c5a439876e67cc7dd803, type: 3}
+    normal: {fileID: 2800000, guid: bb920039a00c30a4b9664815b57984eb, type: 3}
+    metres: 3
+    paintable: 0
+    mean: {r: 0.434, g: 0.193, b: 0.101, a: 1}
+  - name: brown_brick_02
+    albedo: {fileID: 2800000, guid: afcfad9a291654f499d74b08aa7f23b5, type: 3}
+    normal: {fileID: 2800000, guid: f25d5e6acadd4ff45897b1ad24089245, type: 3}
+    metres: 1
+    paintable: 0
+    mean: {r: 0.494, g: 0.303, b: 0.157, a: 1}
+  - name: painted_brick
+    albedo: {fileID: 2800000, guid: 95eabd9795a1e0849b2d2b13edd8e038, type: 3}
+    normal: {fileID: 2800000, guid: f12d73044ce21104b94b57c9816435cb, type: 3}
+    metres: 1.8
+    paintable: 1
+    mean: {r: 0.604, g: 0.604, b: 0.604, a: 1}
+  - name: concrete_wall_008
+    albedo: {fileID: 2800000, guid: df06a361918d26645989e825d25ecddf, type: 3}
+    normal: {fileID: 2800000, guid: 8d2320f016b616d429235fadfd07940f, type: 3}
+    metres: 2.71
+    paintable: 0
+    mean: {r: 0.266, g: 0.237, b: 0.162, a: 1}
+  - name: concrete_wall_004
+    albedo: {fileID: 2800000, guid: 38ab940914bd83b4f98d92d2939d7a96, type: 3}
+    normal: {fileID: 2800000, guid: 55dc3253676f95f418078d4cb043e670, type: 3}
+    metres: 2
+    paintable: 0
+    mean: {r: 0.181, g: 0.171, b: 0.126, a: 1}
+  - name: white_stucco
+    albedo: {fileID: 2800000, guid: e9310fc89d4f4c24ead3f2203352019f, type: 3}
+    normal: {fileID: 2800000, guid: 0ed8dbcdcd76fa541a1bf5b89e0fd706, type: 3}
+    metres: 2
+    paintable: 1
+    mean: {r: 0.604, g: 0.604, b: 0.604, a: 1}
+  - name: painted_plaster_wall
+    albedo: {fileID: 2800000, guid: a8671a1b2317cc8469d904cf45f3e716, type: 3}
+    normal: {fileID: 2800000, guid: 0c06b3ee042971f43ba1f88cd1da7fdb, type: 3}
+    metres: 2
+    paintable: 1
+    mean: {r: 0.604, g: 0.604, b: 0.604, a: 1}
+  - name: stone_tile_wall
+    albedo: {fileID: 2800000, guid: 1468192f196163f46bdd2f510a8dc18d, type: 3}
+    normal: {fileID: 2800000, guid: 8c5b0908f8171294fb1342c1541976bc, type: 3}
+    metres: 2
+    paintable: 0
+    mean: {r: 0.406, g: 0.381, b: 0.357, a: 1}
+  - name: granite_tile_03
+    albedo: {fileID: 2800000, guid: be951a41086cce8499a4eb74a701c99a, type: 3}
+    normal: {fileID: 2800000, guid: 0bd5877124939754c95f4eb665603b38, type: 3}
+    metres: 1.8
+    paintable: 0
+    mean: {r: 0.132, g: 0.107, b: 0.087, a: 1}
+  - name: marble_01
+    albedo: {fileID: 2800000, guid: c616bba7e54fe4e45bc0063f9f0d59bc, type: 3}
+    normal: {fileID: 2800000, guid: f26cb5921537e284bbe7f38cabe49880, type: 3}
+    metres: 1.5
+    paintable: 0
+    mean: {r: 0.443, g: 0.338, b: 0.194, a: 1}
+  - name: exterior_wall_cladding_03
+    albedo: {fileID: 2800000, guid: 66a9f8e7b2eb9784f93e78bb2984775a, type: 3}
+    normal: {fileID: 2800000, guid: 3014114557865a947a7f4fa219a054e9, type: 3}
+    metres: 1.96
+    paintable: 1
+    mean: {r: 0.603, g: 0.603, b: 0.603, a: 1}
+  - name: concrete_tile_facade
+    albedo: {fileID: 2800000, guid: f29fdb9bd3a6da542a5f7c555131d301, type: 3}
+    normal: {fileID: 2800000, guid: 533c7d3b86a2d204984e68f39442a311, type: 3}
+    metres: 2.09
+    paintable: 0
+    mean: {r: 0.038, g: 0.04, b: 0.046, a: 1}
+  - name: bitumen
+    albedo: {fileID: 2800000, guid: a60147a7c18cfc7459aee6782cce4487, type: 3}
+    normal: {fileID: 2800000, guid: 638ec868d1786114492152eb3ff4076f, type: 3}
+    metres: 20
+    paintable: 0
+    mean: {r: 0.043, g: 0.038, b: 0.035, a: 1}
+  material: {fileID: 2100000, guid: 6fbf9606d6d2c844384c5c4d204c75c0, type: 2}
+  noise: {fileID: 2800000, guid: 62b38b851caa0974a9d4dbb5e04ee066, type: 3}
+  canyon: {x: 50, y: 25, z: 0.9}
+  extraHeight: 0.5

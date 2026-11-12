@@ -78,6 +78,13 @@ public class BlockShapedCityWindow : EditorWindow
             EditorGUILayout.LabelField("Scene", builder.gameObject.scene.name);
             EditorGUILayout.LabelField("Baked layout", string.IsNullOrEmpty(builder.BakedLayout) ? "(none)" : builder.BakedLayout,
                                        EditorStyles.wordWrappedLabel);
+            if (builder.GetComponent<ScenicCity>() != null)
+            {
+                EditorGUILayout.HelpBox("A scenic city: a bake or a redress here keeps its buildings, ground and prop " +
+                                        "materials, and keeps the furniture out of the buildings' doorways. Its terrain's " +
+                                        "worn strips and the landmarks follow the city only on a rebuild " +
+                                        "(Tools/Swarm/Build scenic patch city world).", MessageType.Info);
+            }
         }
 
         EditorGUILayout.Space();
@@ -168,6 +175,7 @@ public class BlockShapedCityWindow : EditorWindow
                     "Footpaths and street furniture (CityDressing) made again from the baked layout. Every bake dresses too.")))
             {
                 BlockShapedCityWorldBuilder.EnsureDressing(builder);
+                ScenicPatchCityWorldBuilder.KeepLook(builder);
                 bool ok = builder.Redress(out string summary);
                 report = ok ? $"Redressed — save the scene to keep it.\n{summary}" : "Redress failed: " + summary;
             }
@@ -274,14 +282,23 @@ public class BlockShapedCityWindow : EditorWindow
         }
         BlockShapedCityWorldBuilder.EnsureDressing(builder);
         BlockShapedCityWorldBuilder.EnsureStyle(builder);
+        ScenicPatchCityWorldBuilder.KeepLook(builder);
         if (!builder.Bake(out string error))
         {
             report = (generated != null ? generated + "\n" : "") + "Bake failed: " + error;
             Debug.LogError("BlockShapedCityWindow: " + error);
             return;
         }
+        // A bake makes the buildings anew, and the scene's occlusion data is of the ones it replaced.
+        string occlusion = "";
+        if (!string.IsNullOrEmpty(builder.occlusionCitySignature))
+        {
+            occlusion = FlightOcclusionBaker.BakeForOpenScene(out string baked)
+                ? "\nOcclusion rebaked: " + baked
+                : "\nOcclusion NOT rebaked (" + baked + "): run Tools/Swarm/Bake flight occlusion.";
+        }
         EditorSceneManager.MarkSceneDirty(builder.gameObject.scene);
-        report = $"Baked {builder.layoutPath} into {builder.gameObject.scene.name} — save the scene to keep it." +
+        report = $"Baked {builder.layoutPath} into {builder.gameObject.scene.name} — save the scene to keep it." + occlusion +
                  (string.IsNullOrEmpty(generated) ? "" : "\n" + generated);
         Debug.Log("BlockShapedCityWindow: " + report);
     }
