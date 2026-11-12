@@ -2846,6 +2846,22 @@ time a new series is ready to analyse:
 This only fires on request — never invent a new test folder or re-group an existing one without being
 told which runs belong in it.
 
+**Every series also has a results page, and the series an index, the User Trial Index** (2026-11-10, the user's
+request; [docs/trials/README.md](docs/trials/README.md) is the registry). `Assets/Scripts/Experiment/trials_report.py
+all` runs analyse.py in memory on each series and writes a page in the study pages' family (S4's styles, the three times
+in all, at the goals and between them, how the pilot flew, the drones lost, what changed since the series before, every
+run replayed through `citysim/replay_view.js`) to `experiment_results/trials/`. Points worth keeping:
+- **The pages time every run from the start line** (analyse's `--start line`: the recorded crossing, or the one derived
+  from the drone logs before 26 October 2026), so internal_2's and internal_3's times there are ~25 s shorter than in
+  their own `results/` tables, which run from Play. That is the one definition across the series, the user's choice.
+- **The prose is `docs/trials/<series>.md` and nothing else**: the changes since the series before (with commits), the
+  setup side by side, the captions and the reading, read by fixed headings. Run results are never typed into it; the
+  page computes them. The page addresses are `docs/trials/pages.json`.
+- **A new series needs its `.md` before its page**, and the series before it a `render` so its page links forward.
+- internal_1 has no task times (the July recorder wrote no answers; they were timed by hand and are not on this
+  machine): its page shows recording lengths under a banner, and a `manual_times.csv` in its folder (run;timeSec;source)
+  would replace them.
+
 **The pilot identifies with the RC's C2 button, and since 2026-10-12 the press is scored on the spot**
 (`ExperimentRecorder.identifyMode`, `AutoScore` by default). Under `rcjoy bridge --profile sim` (what
 `launch_sim_scripts.ps1` runs) C2 no longer resets the knobs: it counts into a cumulative `marks` field that

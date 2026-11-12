@@ -1,0 +1,2317 @@
+{
+ "built": "2026-11-10 17:45",
+ "test": "internal_2",
+ "notes": {
+  "title": "internal_2 \u00b7 ScaledCityWorld",
+  "meta": {
+   "dates": "23 September 2026",
+   "pilots": "AABB, AABC",
+   "city": "ScaledCityWorld"
+  },
+  "summary": "<p>Two pilots on 23 September, three runs in each condition: AABB flew the swarm first, AABC the single drone. The first run in each condition was practice, which leaves two counted runs per pilot and condition. The city was ScaledCityWorld, the city pack's tiles with every building a quarter as wide and 50 m tall. Answers were said aloud and entered after the session, so each run ends where the experimenter stopped the recording.</p>",
+  "changes_title": "Changes since internal_1",
+  "changes": [
+   {
+    "area": "City",
+    "items": [
+     "<b>ScaledCityWorld replaces CityWorld:</b> the pack's buildings at a quarter of their width and all 50 m tall, so the streets are wide and the skyline flat (<span class=\"code\">287cf27e</span>), with the streets widened further (<span class=\"code\">a588d2fd</span>).",
+     "<b>The buildings are obstacles at last:</b> in CityWorld they stood on the wrong layer, and the swarm's avoidance never saw them (<span class=\"code\">287cf27e</span>, <span class=\"code\">d3cae643</span>).",
+     "<b>Goal patches with buildings twice as wide and a centre building</b> (<span class=\"code\">fa1b302f</span>, <span class=\"code\">512f49fd</span>), and <b>an altitude ceiling</b> 50 m above the ground (<span class=\"code\">518f532e</span>)."
+    ],
+    "leads": [
+     "ScaledCityWorld replaces CityWorld",
+     "The buildings are obstacles at last",
+     "Goal patches with buildings twice as wide and a centre building"
+    ]
+   },
+   {
+    "area": "Swarm",
+    "items": [
+     "<b>Each building avoided as a cylinder,</b> damped and shielded (<span class=\"code\">23e49a1e</span>, <span class=\"code\">eaffb2e1</span>); <b>a hollow core,</b> so more drones stand on the formation's edge with their feeds shown (<span class=\"code\">e0d9d30b</span>); <b>the gains retuned</b> for flying through the city (<span class=\"code\">1cb148ec</span>).",
+     "<b>A heading loop:</b> each drone turns at its full 75 \u00b0/s, where a drag bug had held it near 35 \u00b0/s (<span class=\"code\">37094462</span>, <span class=\"code\">1f612c27</span>), and a feed waits until its drone faces its heading (<span class=\"code\">5ea29c90</span>)."
+    ],
+    "leads": [
+     "Each building avoided as a cylinder",
+     "A heading loop"
+    ]
+   },
+   {
+    "area": "Display",
+    "items": [
+     "<b>Feeds 1152\u00d7648 and the panorama 2160\u00d7810</b> (<span class=\"code\">0f65d325</span>, <span class=\"code\">1afd5a23</span>), StabStitch faster (<span class=\"code\">6250581b</span>), and the feeds rendered at 30 Hz to lift the frame rate (<span class=\"code\">d130fcfb</span>)."
+    ],
+    "leads": [
+     "Feeds 1152\u00d7648 and the panorama 2160\u00d7810"
+    ]
+   },
+   {
+    "area": "Walkers",
+    "items": [
+     "<b>Three hats,</b> a cowboy hat, a cap and a bucket hat, a different one at each goal (<span class=\"code\">87138574</span>, <span class=\"code\">21cfafe4</span>), hung on the walker's head, with 8 walkers per patrol (<span class=\"code\">38143432</span>)."
+    ],
+    "leads": [
+     "Three hats"
+    ]
+   },
+   {
+    "area": "Task and scoring",
+    "items": [
+     "<b>The single-drone condition</b> shows its one feed in front of the pilot (<span class=\"code\">041ed4fd</span>), and <b>a practice world</b> (<span class=\"code\">a36371b8</span>).",
+     "<b>Answers said aloud and entered after the session</b> from the experimenter's notes, matched to the goals in the order visited."
+    ],
+    "leads": [
+     "The single-drone condition",
+     "Answers said aloud and entered after the session"
+    ]
+   }
+  ],
+  "within": [],
+  "setup": {
+   "head": [
+    "",
+    "internal_1",
+    "internal_2"
+   ],
+   "rows": [
+    [
+     "City",
+     "CityWorld: full-width buildings of mixed height",
+     "ScaledCityWorld: quarter-width buildings, all 50 m"
+    ],
+    [
+     "Obstacles",
+     "the buildings unseen by the swarm's avoidance",
+     "every building a cylinder the swarm avoids"
+    ],
+    [
+     "Swarm law",
+     "no hollow core",
+     "hollow core, gains retuned for the city"
+    ],
+    [
+     "Drone yaw",
+     "about 35 \u00b0/s at most",
+     "75 \u00b0/s, with a heading loop"
+    ],
+    [
+     "Spread",
+     "the dial",
+     "the dial, d_ref 0.4 to 1.6"
+    ],
+    [
+     "Screens",
+     "the feed ring, a panorama on a switch",
+     "feeds 1152\u00d7648, panorama 2160\u00d7810"
+    ],
+    [
+     "Hats",
+     "one cowboy hat",
+     "three hats, one per goal"
+    ],
+    [
+     "Answers",
+     "none recorded (timed by hand)",
+     "said aloud, entered afterwards"
+    ],
+    [
+     "Task clock",
+     "from Play (by hand)",
+     "from Play (here, from the start line, derived)"
+    ]
+   ]
+  },
+  "notable": {
+   "smoothness": {
+    "title": "How the pilot flew",
+    "html": "<p>The stick measures are what this series was first analysed for: whether pilots hold one command and let the swarm find its way, or keep re-steering.</p>"
+   },
+   "losses": {
+    "title": "Drones lost",
+    "html": "<p>Nearly every loss was a pair of drones colliding at the tightest spread the dial allows (d_ref 0.4): the hollow core braked each ring drone by a different amount, and the lattice could not push a close pair apart hard enough. The next series flew the fix.</p>"
+   },
+   "panorama": {
+    "title": "The stitched panorama",
+    "html": "<p>How long the stitched panorama was on screen in place of the three front feeds. These runs predate the recorder's panorama events: the editor log of the day records each switch, but not always when, so most of each run is unknown and the share is a wide range.</p>"
+   }
+  },
+  "reading": "<p>In total the swarm was level with one drone for AABB and quicker for AABC, and neither the goals nor the way between them separate the two conditions.</p><p>AABC flew the swarm second, so its lead is also a lead of practice; AABB, who flew the swarm first, was level. The clearest difference is in how the pilots flew: AABC steered the swarm far less than the single drone (less stick movement, fewer adjustments, much less turning), AABB more. Both of AABB's counted swarm runs lost drones to collisions at the tightest spread (d_ref 0.4), the failure the next series' damper was built for; AABC's did not.</p>",
+  "data_notes": [
+   "The first run of each pilot in each condition was practice (test.json): drawn, counted in no summary.",
+   "The answers were entered after the session, so no run records when a hat was named: the total time ends where the experimenter stopped the recording, at the last answer said aloud.",
+   "The task is timed from the start line, found in the drone logs; the series itself was timed from Play.",
+   "Drone losses are attributed from the editor log kept that day."
+  ],
+  "summary_text": "Two pilots on 23 September, three runs in each condition: AABB flew the swarm first, AABC the single drone. The first run in each condition was practice, which leaves two counted runs per pilot and condition. The city was ScaledCityWorld, the city pack's tiles with every building a quarter as wide and 50 m tall. Answers were said aloud and entered after the session, so each run ends where the experimenter stopped the recording."
+ },
+ "timed": true,
+ "total_col": "time_s",
+ "pages": {},
+ "hub": "https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5",
+ "nav": {
+  "prev": "internal_1",
+  "next": "internal_3"
+ },
+ "zone": 15.0,
+ "range": 40.0,
+ "pilots": [
+  "AABB",
+  "AABC"
+ ],
+ "n_runs": 12,
+ "n_practice": 4,
+ "dates": [
+  "20260923"
+ ],
+ "city": [
+  "ScaledCityWorld"
+ ],
+ "start_sources": {
+  "derived": 12
+ },
+ "time_sources": {
+  "duration": 12
+ },
+ "runs": [
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "trial": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "date": "20260923",
+   "durationSec": 602.1384,
+   "startSec": 20.2171,
+   "startSource": "derived",
+   "time_s": 581.9212,
+   "time_source": "duration",
+   "transit_s": 161.9836,
+   "search_s": 419.7858,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 6,
+   "crashes": 3,
+   "stick_tv_per_min": 29.8059,
+   "adj_per_min": 17.7796,
+   "mean_hold_s": 3.3747,
+   "course_turn_per_min": 649.5746,
+   "cmd_straightness": 0.9115,
+   "act_path_ratio": 1.0957,
+   "stitch_visibleMinPct": 0.0,
+   "stitch_visibleMaxPct": 64.3,
+   "cond": "swarm"
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "trial": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 431.6746,
+   "startSec": 31.8059,
+   "startSource": "derived",
+   "time_s": 399.8687,
+   "time_source": "duration",
+   "transit_s": 192.4849,
+   "search_s": 207.3109,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 4,
+   "crashes": 2,
+   "stick_tv_per_min": 26.2969,
+   "adj_per_min": 15.5856,
+   "mean_hold_s": 3.8497,
+   "course_turn_per_min": 509.4103,
+   "cmd_straightness": 0.884,
+   "act_path_ratio": 1.1728,
+   "stitch_visibleMinPct": 0.0,
+   "stitch_visibleMaxPct": 100.0,
+   "cond": "swarm"
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "trial": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 363.5885,
+   "startSec": 31.3032,
+   "startSource": "derived",
+   "time_s": 332.2853,
+   "time_source": "duration",
+   "transit_s": 155.2983,
+   "search_s": 177.0011,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 6,
+   "crashes": 3,
+   "stick_tv_per_min": 26.9221,
+   "adj_per_min": 16.2268,
+   "mean_hold_s": 3.6976,
+   "course_turn_per_min": 482.3007,
+   "cmd_straightness": 0.7047,
+   "act_path_ratio": 1.8028,
+   "stitch_visibleMinPct": 0.0,
+   "stitch_visibleMaxPct": 10.5,
+   "cond": "swarm"
+  },
+  {
+   "run": "AABB_t4_SingleDrone_20260923_175015",
+   "pid": "AABB",
+   "order": 4,
+   "trial": 4,
+   "condition": "SingleDrone",
+   "practice": true,
+   "date": "20260923",
+   "durationSec": 264.0969,
+   "startSec": 15.4085,
+   "startSource": "derived",
+   "time_s": 248.6884,
+   "time_source": "duration",
+   "transit_s": 148.0866,
+   "search_s": 100.5011,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 24.7079,
+   "adj_per_min": 18.2326,
+   "mean_hold_s": 3.2908,
+   "course_turn_per_min": 334.6295,
+   "cmd_straightness": 0.9301,
+   "act_path_ratio": 1.0903,
+   "stitch_visibleMinPct": null,
+   "stitch_visibleMaxPct": null,
+   "cond": "single"
+  },
+  {
+   "run": "AABB_t5_SingleDrone_20260923_175457",
+   "pid": "AABB",
+   "order": 5,
+   "trial": 5,
+   "condition": "SingleDrone",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 467.4586,
+   "startSec": 36.6291,
+   "startSource": "derived",
+   "time_s": 430.8295,
+   "time_source": "duration",
+   "transit_s": 257.9017,
+   "search_s": 172.9298,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 24.5491,
+   "adj_per_min": 17.2159,
+   "mean_hold_s": 3.4852,
+   "course_turn_per_min": 398.5507,
+   "cmd_straightness": 0.2832,
+   "act_path_ratio": 3.8085,
+   "stitch_visibleMinPct": null,
+   "stitch_visibleMaxPct": null,
+   "cond": "single"
+  },
+  {
+   "run": "AABB_t6_SingleDrone_20260923_180336",
+   "pid": "AABB",
+   "order": 6,
+   "trial": 6,
+   "condition": "SingleDrone",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 331.7492,
+   "startSec": 24.2065,
+   "startSource": "derived",
+   "time_s": 307.5427,
+   "time_source": "duration",
+   "transit_s": 90.5888,
+   "search_s": 217.0207,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 14.7778,
+   "adj_per_min": 13.909,
+   "mean_hold_s": 4.3138,
+   "course_turn_per_min": 304.9758,
+   "cmd_straightness": 0.9774,
+   "act_path_ratio": 1.0396,
+   "stitch_visibleMinPct": null,
+   "stitch_visibleMaxPct": null,
+   "cond": "single"
+  },
+  {
+   "run": "AABC_t1_SingleDrone_20260923_182257",
+   "pid": "AABC",
+   "order": 1,
+   "trial": 1,
+   "condition": "SingleDrone",
+   "practice": true,
+   "date": "20260923",
+   "durationSec": 514.4706,
+   "startSec": 25.8119,
+   "startSource": "derived",
+   "time_s": 488.6587,
+   "time_source": "duration",
+   "transit_s": 152.9071,
+   "search_s": 335.692,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 32.3254,
+   "adj_per_min": 14.911,
+   "mean_hold_s": 4.0239,
+   "course_turn_per_min": 633.48,
+   "cmd_straightness": 0.7821,
+   "act_path_ratio": 1.2432,
+   "stitch_visibleMinPct": null,
+   "stitch_visibleMaxPct": null,
+   "cond": "single"
+  },
+  {
+   "run": "AABC_t2_SingleDrone_20260923_183211",
+   "pid": "AABC",
+   "order": 2,
+   "trial": 2,
+   "condition": "SingleDrone",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 372.0884,
+   "startSec": 26.078,
+   "startSource": "derived",
+   "time_s": 346.0104,
+   "time_source": "duration",
+   "transit_s": 259.6854,
+   "search_s": 86.3181,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 28.5189,
+   "adj_per_min": 19.1771,
+   "mean_hold_s": 3.1287,
+   "course_turn_per_min": 731.496,
+   "cmd_straightness": 0.5755,
+   "act_path_ratio": 1.7448,
+   "stitch_visibleMinPct": null,
+   "stitch_visibleMaxPct": null,
+   "cond": "single"
+  },
+  {
+   "run": "AABC_t3_SingleDrone_20260923_183845",
+   "pid": "AABC",
+   "order": 3,
+   "trial": 3,
+   "condition": "SingleDrone",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 470.9703,
+   "startSec": 31.302,
+   "startSource": "derived",
+   "time_s": 439.6682,
+   "time_source": "duration",
+   "transit_s": 84.4767,
+   "search_s": 355.2019,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 35.9498,
+   "adj_per_min": 20.5974,
+   "mean_hold_s": 2.913,
+   "course_turn_per_min": 1223.2757,
+   "cmd_straightness": 0.8672,
+   "act_path_ratio": 1.1483,
+   "stitch_visibleMinPct": null,
+   "stitch_visibleMaxPct": null,
+   "cond": "single"
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "trial": 4,
+   "condition": "Swarm",
+   "practice": true,
+   "date": "20260923",
+   "durationSec": 515.5615,
+   "startSec": 25.9229,
+   "startSource": "derived",
+   "time_s": 489.6386,
+   "time_source": "duration",
+   "transit_s": 176.3066,
+   "search_s": 313.3478,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 2,
+   "crashes": 1,
+   "stick_tv_per_min": 23.3579,
+   "adj_per_min": 14.2933,
+   "mean_hold_s": 4.1978,
+   "course_turn_per_min": 552.2133,
+   "cmd_straightness": 0.8445,
+   "act_path_ratio": 1.2614,
+   "stitch_visibleMinPct": 0.0,
+   "stitch_visibleMaxPct": 97.1,
+   "cond": "swarm"
+  },
+  {
+   "run": "AABC_t5_Swarm_20260923_190547",
+   "pid": "AABC",
+   "order": 5,
+   "trial": 5,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 312.061,
+   "startSec": 22.3211,
+   "startSource": "derived",
+   "time_s": 289.7399,
+   "time_source": "duration",
+   "transit_s": 107.4833,
+   "search_s": 182.0886,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 22.188,
+   "adj_per_min": 11.7228,
+   "mean_hold_s": 5.1183,
+   "course_turn_per_min": 274.688,
+   "cmd_straightness": 0.9275,
+   "act_path_ratio": 1.0838,
+   "stitch_visibleMinPct": 0.0,
+   "stitch_visibleMaxPct": 100.0,
+   "cond": "swarm"
+  },
+  {
+   "run": "AABC_t6_Swarm_20260923_191155",
+   "pid": "AABC",
+   "order": 6,
+   "trial": 6,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20260923",
+   "durationSec": 286.5108,
+   "startSec": 21.5498,
+   "startSource": "derived",
+   "time_s": 264.961,
+   "time_source": "duration",
+   "transit_s": 120.8764,
+   "search_s": 143.9928,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 17.6197,
+   "adj_per_min": 11.913,
+   "mean_hold_s": 5.0365,
+   "course_turn_per_min": 250.125,
+   "cmd_straightness": 0.8456,
+   "act_path_ratio": 1.2651,
+   "stitch_visibleMinPct": 0.0,
+   "stitch_visibleMaxPct": 100.0,
+   "cond": "swarm"
+  }
+ ],
+ "goals": [
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": true,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 89.2,
+   "transit": 22.8,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": true,
+   "hat": "Cap",
+   "leg": 3,
+   "search": 124.9,
+   "transit": 65.6,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": true,
+   "hat": "Bucket",
+   "leg": 1,
+   "search": 205.7,
+   "transit": 73.7,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 1,
+   "search": 98.9,
+   "transit": 66.0,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 89.6,
+   "transit": 85.9,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 18.8,
+   "transit": 40.7,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 38.3,
+   "transit": 126.4,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 62.9,
+   "transit": 16.9,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 1,
+   "search": 75.8,
+   "transit": 12.0,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t4_SingleDrone_20260923_175015",
+   "pid": "AABB",
+   "order": 4,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": true,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 22.0,
+   "transit": 40.5,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t4_SingleDrone_20260923_175015",
+   "pid": "AABB",
+   "order": 4,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": true,
+   "hat": "Cap",
+   "leg": 3,
+   "search": 43.1,
+   "transit": 39.2,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t4_SingleDrone_20260923_175015",
+   "pid": "AABB",
+   "order": 4,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": true,
+   "hat": "Bucket",
+   "leg": 1,
+   "search": 35.4,
+   "transit": 68.5,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t5_SingleDrone_20260923_175457",
+   "pid": "AABB",
+   "order": 5,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 1,
+   "search": 41.8,
+   "transit": 10.9,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t5_SingleDrone_20260923_175457",
+   "pid": "AABB",
+   "order": 5,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 32.5,
+   "transit": 233.5,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t5_SingleDrone_20260923_175457",
+   "pid": "AABB",
+   "order": 5,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 98.5,
+   "transit": 13.6,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t6_SingleDrone_20260923_180336",
+   "pid": "AABB",
+   "order": 6,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 2,
+   "search": 77.8,
+   "transit": 27.6,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t6_SingleDrone_20260923_180336",
+   "pid": "AABB",
+   "order": 6,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 1,
+   "search": 66.9,
+   "transit": 33.2,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t6_SingleDrone_20260923_180336",
+   "pid": "AABB",
+   "order": 6,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 3,
+   "search": 72.2,
+   "transit": 29.8,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t1_SingleDrone_20260923_182257",
+   "pid": "AABC",
+   "order": 1,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": true,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 69.6,
+   "transit": 8.3,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t1_SingleDrone_20260923_182257",
+   "pid": "AABC",
+   "order": 1,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": true,
+   "hat": "Bucket",
+   "leg": 1,
+   "search": 32.8,
+   "transit": 49.0,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t1_SingleDrone_20260923_182257",
+   "pid": "AABC",
+   "order": 1,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": true,
+   "hat": "Cap",
+   "leg": 3,
+   "search": 233.3,
+   "transit": 95.7,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t2_SingleDrone_20260923_183211",
+   "pid": "AABC",
+   "order": 2,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 1,
+   "search": 6.4,
+   "transit": 58.3,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t2_SingleDrone_20260923_183211",
+   "pid": "AABC",
+   "order": 2,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 3,
+   "search": 59.5,
+   "transit": 91.4,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t2_SingleDrone_20260923_183211",
+   "pid": "AABC",
+   "order": 2,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 2,
+   "search": 20.4,
+   "transit": 110.0,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t3_SingleDrone_20260923_183845",
+   "pid": "AABC",
+   "order": 3,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 1,
+   "search": 286.9,
+   "transit": 48.1,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t3_SingleDrone_20260923_183845",
+   "pid": "AABC",
+   "order": 3,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 58.0,
+   "transit": 14.7,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t3_SingleDrone_20260923_183845",
+   "pid": "AABC",
+   "order": 3,
+   "condition": "SingleDrone",
+   "cond": "single",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 10.3,
+   "transit": 21.7,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": true,
+   "hat": "Bucket",
+   "leg": 2,
+   "search": 174.3,
+   "transit": 19.1,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": true,
+   "hat": "Cap",
+   "leg": 1,
+   "search": 107.7,
+   "transit": 70.0,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": true,
+   "hat": "Cowboy",
+   "leg": 3,
+   "search": 31.2,
+   "transit": 87.3,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t5_Swarm_20260923_190547",
+   "pid": "AABC",
+   "order": 5,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 69.2,
+   "transit": 75.8,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t5_Swarm_20260923_190547",
+   "pid": "AABC",
+   "order": 5,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 41.0,
+   "transit": 19.0,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t5_Swarm_20260923_190547",
+   "pid": "AABC",
+   "order": 5,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 1,
+   "search": 71.9,
+   "transit": 12.8,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t6_Swarm_20260923_191155",
+   "pid": "AABC",
+   "order": 6,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 1,
+   "search": 60.3,
+   "transit": 76.6,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t6_Swarm_20260923_191155",
+   "pid": "AABC",
+   "order": 6,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 3,
+   "search": 31.0,
+   "transit": 21.7,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t6_Swarm_20260923_191155",
+   "pid": "AABC",
+   "order": 6,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 2,
+   "search": 52.7,
+   "transit": 22.6,
+   "outcome": "correct",
+   "decision": null,
+   "sight_to_press": null
+  }
+ ],
+ "stats": {
+  "total": {
+   "per": [
+    {
+     "pid": "AABB",
+     "n_s": 2,
+     "n_d": 2,
+     "gm_s": 364.5141,
+     "gm_d": 364.0034,
+     "mean_s": 366.077,
+     "mean_d": 369.1861,
+     "ratio": 1.0014
+    },
+    {
+     "pid": "AABC",
+     "n_s": 2,
+     "n_d": 2,
+     "gm_s": 277.0736,
+     "gm_d": 390.0382,
+     "mean_s": 277.3504,
+     "mean_d": 392.8393,
+     "ratio": 0.7104
+    }
+   ],
+   "ratio": 0.8434,
+   "p": 0.2778,
+   "floor": 0.0556,
+   "n_perm": 36,
+   "typ_s": 317.8006,
+   "typ_d": 376.796,
+   "n_lower": 1,
+   "n_pilots": 2,
+   "mean_s": 321.7137,
+   "mean_d": 381.0127
+  },
+  "search": {
+   "per": [
+    {
+     "pid": "AABB",
+     "n_s": 2,
+     "n_d": 2,
+     "gm_s": 191.5575,
+     "gm_d": 193.7249,
+     "mean_s": 192.156,
+     "mean_d": 194.9752,
+     "ratio": 0.9888
+    },
+    {
+     "pid": "AABC",
+     "n_s": 2,
+     "n_d": 2,
+     "gm_s": 161.9242,
+     "gm_d": 175.101,
+     "mean_s": 163.0407,
+     "mean_d": 220.76,
+     "ratio": 0.9247
+    }
+   ],
+   "ratio": 0.9562,
+   "p": 0.8889,
+   "floor": 0.0556,
+   "n_perm": 36,
+   "typ_s": 176.1187,
+   "typ_d": 184.1777,
+   "n_lower": 2,
+   "n_pilots": 2,
+   "mean_s": 177.5984,
+   "mean_d": 207.8676
+  },
+  "transit": {
+   "per": [
+    {
+     "pid": "AABB",
+     "n_s": 2,
+     "n_d": 2,
+     "gm_s": 172.8947,
+     "gm_d": 152.8496,
+     "mean_s": 173.8916,
+     "mean_d": 174.2453,
+     "ratio": 1.1311
+    },
+    {
+     "pid": "AABC",
+     "n_s": 2,
+     "n_d": 2,
+     "gm_s": 113.9833,
+     "gm_d": 148.1127,
+     "mean_s": 114.1798,
+     "mean_d": 172.0811,
+     "ratio": 0.7696
+    }
+   ],
+   "ratio": 0.933,
+   "p": 0.8333,
+   "floor": 0.0556,
+   "n_perm": 36,
+   "typ_s": 140.382,
+   "typ_d": 150.4625,
+   "n_lower": 1,
+   "n_pilots": 2,
+   "mean_s": 144.0357,
+   "mean_d": 173.1631
+  },
+  "smooth": {
+   "stick_tv_per_min": {
+    "per": [
+     {
+      "pid": "AABB",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 26.6076,
+      "gm_d": 19.0468,
+      "mean_s": 26.6095,
+      "mean_d": 19.6635,
+      "ratio": 1.397
+     },
+     {
+      "pid": "AABC",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 19.7724,
+      "gm_d": 32.0195,
+      "mean_s": 19.9039,
+      "mean_d": 32.2343,
+      "ratio": 0.6175
+     }
+    ],
+    "ratio": 0.9288,
+    "p": 0.8333,
+    "floor": 0.0556,
+    "n_perm": 36,
+    "typ_s": 22.9368,
+    "typ_d": 24.6955,
+    "n_lower": 1,
+    "n_pilots": 2,
+    "mean_s": 23.2567,
+    "mean_d": 25.9489
+   },
+   "adj_per_min": {
+    "per": [
+     {
+      "pid": "AABB",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 15.903,
+      "gm_d": 15.4743,
+      "mean_s": 15.9062,
+      "mean_d": 15.5624,
+      "ratio": 1.0277
+     },
+     {
+      "pid": "AABC",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 11.8175,
+      "gm_d": 19.8745,
+      "mean_s": 11.8179,
+      "mean_d": 19.8872,
+      "ratio": 0.5946
+     }
+    ],
+    "ratio": 0.7817,
+    "p": 0.2222,
+    "floor": 0.0556,
+    "n_perm": 36,
+    "typ_s": 13.7089,
+    "typ_d": 17.537,
+    "n_lower": 1,
+    "n_pilots": 2,
+    "mean_s": 13.8621,
+    "mean_d": 17.7248
+   },
+   "mean_hold_s": {
+    "per": [
+     {
+      "pid": "AABB",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 3.7729,
+      "gm_d": 3.8774,
+      "mean_s": 3.7736,
+      "mean_d": 3.8995,
+      "ratio": 0.973
+     },
+     {
+      "pid": "AABC",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 5.0772,
+      "gm_d": 3.0189,
+      "mean_s": 5.0774,
+      "mean_d": 3.0209,
+      "ratio": 1.6818
+     }
+    ],
+    "ratio": 1.2792,
+    "p": 0.2222,
+    "floor": 0.0556,
+    "n_perm": 36,
+    "typ_s": 4.3767,
+    "typ_d": 3.4213,
+    "n_lower": 1,
+    "n_pilots": 2,
+    "mean_s": 4.4255,
+    "mean_d": 3.4602
+   },
+   "course_turn_per_min": {
+    "per": [
+     {
+      "pid": "AABB",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 495.6702,
+      "gm_d": 348.6378,
+      "mean_s": 495.8555,
+      "mean_d": 351.7633,
+      "ratio": 1.4217
+     },
+     {
+      "pid": "AABC",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 262.1189,
+      "gm_d": 945.9499,
+      "mean_s": 262.4065,
+      "mean_d": 977.3859,
+      "ratio": 0.2771
+     }
+    ],
+    "ratio": 0.6277,
+    "p": 0.3333,
+    "floor": 0.0556,
+    "n_perm": 36,
+    "typ_s": 360.4505,
+    "typ_d": 574.2769,
+    "n_lower": 1,
+    "n_pilots": 2,
+    "mean_s": 379.131,
+    "mean_d": 664.5746
+   },
+   "cmd_straightness": {
+    "per": [
+     {
+      "pid": "AABB",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 0.7893,
+      "gm_d": 0.5261,
+      "mean_s": 0.7944,
+      "mean_d": 0.6303,
+      "ratio": 1.5002
+     },
+     {
+      "pid": "AABC",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 0.8856,
+      "gm_d": 0.7064,
+      "mean_s": 0.8866,
+      "mean_d": 0.7213,
+      "ratio": 1.2537
+     }
+    ],
+    "ratio": 1.3714,
+    "p": 0.4444,
+    "floor": 0.0556,
+    "n_perm": 36,
+    "typ_s": 0.8361,
+    "typ_d": 0.6096,
+    "n_lower": 0,
+    "n_pilots": 2,
+    "mean_s": 0.8405,
+    "mean_d": 0.6758
+   },
+   "act_path_ratio": {
+    "per": [
+     {
+      "pid": "AABB",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 1.4541,
+      "gm_d": 1.9898,
+      "mean_s": 1.4878,
+      "mean_d": 2.4241,
+      "ratio": 0.7308
+     },
+     {
+      "pid": "AABC",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 1.1709,
+      "gm_d": 1.4155,
+      "mean_s": 1.1744,
+      "mean_d": 1.4465,
+      "ratio": 0.8273
+     }
+    ],
+    "ratio": 0.7775,
+    "p": 0.6111,
+    "floor": 0.0556,
+    "n_perm": 36,
+    "typ_s": 1.3049,
+    "typ_d": 1.6783,
+    "n_lower": 2,
+    "n_pilots": 2,
+    "mean_s": 1.3311,
+    "mean_d": 1.9353
+   }
+  }
+ },
+ "identify": [
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t4_SingleDrone_20260923_175015",
+   "pid": "AABB",
+   "order": 4,
+   "condition": "SingleDrone",
+   "practice": true,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t5_SingleDrone_20260923_175457",
+   "pid": "AABB",
+   "order": 5,
+   "condition": "SingleDrone",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABB_t6_SingleDrone_20260923_180336",
+   "pid": "AABB",
+   "order": 6,
+   "condition": "SingleDrone",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t1_SingleDrone_20260923_182257",
+   "pid": "AABC",
+   "order": 1,
+   "condition": "SingleDrone",
+   "practice": true,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t2_SingleDrone_20260923_183211",
+   "pid": "AABC",
+   "order": 2,
+   "condition": "SingleDrone",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t3_SingleDrone_20260923_183845",
+   "pid": "AABC",
+   "order": 3,
+   "condition": "SingleDrone",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "condition": "Swarm",
+   "practice": true,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t5_Swarm_20260923_190547",
+   "pid": "AABC",
+   "order": 5,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  },
+  {
+   "run": "AABC_t6_Swarm_20260923_191155",
+   "pid": "AABC",
+   "order": 6,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "entered afterwards",
+   "presses": 0,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": null
+  }
+ ],
+ "losses": [
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 0,
+   "t": 77.8957,
+   "t_task": 57.6786,
+   "x": -114.6996,
+   "z": 26.9874,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 1,
+   "t": 286.109,
+   "t_task": 265.8919,
+   "x": 49.7589,
+   "z": 53.657,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 3,
+   "t": 70.8925,
+   "t_task": 50.6754,
+   "x": -156.5182,
+   "z": 35.9488,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 5,
+   "t": 70.8925,
+   "t_task": 50.6754,
+   "x": -156.0611,
+   "z": 36.2799,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 6,
+   "t": 286.109,
+   "t_task": 265.8919,
+   "x": 49.3374,
+   "z": 54.0731,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 9,
+   "t": 77.8957,
+   "t_task": 57.6786,
+   "x": -115.2028,
+   "z": 26.9328,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 1,
+   "t": 110.5899,
+   "t_task": 78.784,
+   "x": -235.8722,
+   "z": 260.317,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 3,
+   "t": 209.7099,
+   "t_task": 177.904,
+   "x": -132.4237,
+   "z": 159.0693,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 7,
+   "t": 110.5899,
+   "t_task": 78.784,
+   "x": -236.3973,
+   "z": 260.2488,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 9,
+   "t": 209.7099,
+   "t_task": 177.904,
+   "x": -132.4041,
+   "z": 158.4962,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 0,
+   "t": 249.1177,
+   "t_task": 217.8145,
+   "x": 81.6357,
+   "z": -81.4789,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 1,
+   "t": 38.1047,
+   "t_task": 6.8015,
+   "x": -322.8476,
+   "z": 3.9151,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 2,
+   "t": 265.615,
+   "t_task": 234.3118,
+   "x": 140.2009,
+   "z": -85.6666,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 5,
+   "t": 249.1177,
+   "t_task": 217.8145,
+   "x": 81.9254,
+   "z": -81.9465,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 6,
+   "t": 265.615,
+   "t_task": 234.3118,
+   "x": 139.6386,
+   "z": -85.7621,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 9,
+   "t": 38.1047,
+   "t_task": 6.8015,
+   "x": -323.2123,
+   "z": 3.5778,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 0.4
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 0,
+   "t": 500.9341,
+   "t_task": 475.0112,
+   "x": -217.0992,
+   "z": 259.7209,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": null,
+   "speed": null,
+   "spread": 1.263
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "condition": "Swarm",
+   "practice": true,
+   "drone": 9,
+   "t": 500.9341,
+   "t_task": 475.0112,
+   "x": -216.6892,
+   "z": 259.368,
+   "reason": "ExternallyKilled",
+   "partner": null,
+   "speed": null,
+   "spread": 1.263
+  }
+ ],
+ "restarts": [
+  {
+   "pid": "AABB",
+   "trial": 1,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    1
+   ],
+   "lengths": [
+    602.1384
+   ],
+   "practice": true
+  },
+  {
+   "pid": "AABB",
+   "trial": 2,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    2
+   ],
+   "lengths": [
+    431.6746
+   ],
+   "practice": false
+  },
+  {
+   "pid": "AABB",
+   "trial": 3,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    3
+   ],
+   "lengths": [
+    363.5885
+   ],
+   "practice": false
+  },
+  {
+   "pid": "AABB",
+   "trial": 4,
+   "condition": "SingleDrone",
+   "n": 1,
+   "order": [
+    4
+   ],
+   "lengths": [
+    264.0969
+   ],
+   "practice": true
+  },
+  {
+   "pid": "AABB",
+   "trial": 5,
+   "condition": "SingleDrone",
+   "n": 1,
+   "order": [
+    5
+   ],
+   "lengths": [
+    467.4586
+   ],
+   "practice": false
+  },
+  {
+   "pid": "AABB",
+   "trial": 6,
+   "condition": "SingleDrone",
+   "n": 1,
+   "order": [
+    6
+   ],
+   "lengths": [
+    331.7492
+   ],
+   "practice": false
+  },
+  {
+   "pid": "AABC",
+   "trial": 1,
+   "condition": "SingleDrone",
+   "n": 1,
+   "order": [
+    1
+   ],
+   "lengths": [
+    514.4706
+   ],
+   "practice": true
+  },
+  {
+   "pid": "AABC",
+   "trial": 2,
+   "condition": "SingleDrone",
+   "n": 1,
+   "order": [
+    2
+   ],
+   "lengths": [
+    372.0884
+   ],
+   "practice": false
+  },
+  {
+   "pid": "AABC",
+   "trial": 3,
+   "condition": "SingleDrone",
+   "n": 1,
+   "order": [
+    3
+   ],
+   "lengths": [
+    470.9703
+   ],
+   "practice": false
+  },
+  {
+   "pid": "AABC",
+   "trial": 4,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    4
+   ],
+   "lengths": [
+    515.5615
+   ],
+   "practice": true
+  },
+  {
+   "pid": "AABC",
+   "trial": 5,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    5
+   ],
+   "lengths": [
+    312.061
+   ],
+   "practice": false
+  },
+  {
+   "pid": "AABC",
+   "trial": 6,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    6
+   ],
+   "lengths": [
+    286.5108
+   ],
+   "practice": false
+  }
+ ],
+ "setups": null,
+ "long_legs": [
+  {
+   "kind": "at a goal",
+   "run": "AABC_t3_SingleDrone_20260923_183845",
+   "pid": "AABC",
+   "order": 3,
+   "condition": "SingleDrone",
+   "hat": "Cap",
+   "leg": 1,
+   "s": 286.9
+  },
+  {
+   "kind": "at a goal",
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "hat": "Cap",
+   "leg": 1,
+   "s": 98.9
+  },
+  {
+   "kind": "at a goal",
+   "run": "AABB_t5_SingleDrone_20260923_175457",
+   "pid": "AABB",
+   "order": 5,
+   "condition": "SingleDrone",
+   "hat": "Cowboy",
+   "leg": 2,
+   "s": 98.5
+  },
+  {
+   "kind": "at a goal",
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "hat": "Cowboy",
+   "leg": 2,
+   "s": 89.6
+  },
+  {
+   "kind": "at a goal",
+   "run": "AABB_t6_SingleDrone_20260923_180336",
+   "pid": "AABB",
+   "order": 6,
+   "condition": "SingleDrone",
+   "hat": "Bucket",
+   "leg": 2,
+   "s": 77.8
+  },
+  {
+   "kind": "at a goal",
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "hat": "Cap",
+   "leg": 1,
+   "s": 75.8
+  },
+  {
+   "kind": "between goals",
+   "run": "AABB_t5_SingleDrone_20260923_175457",
+   "pid": "AABB",
+   "order": 5,
+   "condition": "SingleDrone",
+   "hat": "Bucket",
+   "leg": 3,
+   "s": 233.5
+  },
+  {
+   "kind": "between goals",
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "condition": "Swarm",
+   "hat": "Bucket",
+   "leg": 3,
+   "s": 126.4
+  },
+  {
+   "kind": "between goals",
+   "run": "AABC_t2_SingleDrone_20260923_183211",
+   "pid": "AABC",
+   "order": 2,
+   "condition": "SingleDrone",
+   "hat": "Cap",
+   "leg": 2,
+   "s": 110.0
+  },
+  {
+   "kind": "between goals",
+   "run": "AABC_t2_SingleDrone_20260923_183211",
+   "pid": "AABC",
+   "order": 2,
+   "condition": "SingleDrone",
+   "hat": "Cowboy",
+   "leg": 3,
+   "s": 91.4
+  },
+  {
+   "kind": "between goals",
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "condition": "Swarm",
+   "hat": "Cowboy",
+   "leg": 2,
+   "s": 85.9
+  },
+  {
+   "kind": "between goals",
+   "run": "AABC_t6_Swarm_20260923_191155",
+   "pid": "AABC",
+   "order": 6,
+   "condition": "Swarm",
+   "hat": "Bucket",
+   "leg": 1,
+   "s": 76.6
+  }
+ ],
+ "panorama": [
+  {
+   "run": "AABB_t1_Swarm_20260923_171616",
+   "pid": "AABB",
+   "order": 1,
+   "practice": true,
+   "lo": 0.0,
+   "hi": 64.3,
+   "source": "editor_log"
+  },
+  {
+   "run": "AABB_t2_Swarm_20260923_173231",
+   "pid": "AABB",
+   "order": 2,
+   "practice": false,
+   "lo": 0.0,
+   "hi": 100.0,
+   "source": "editor_log"
+  },
+  {
+   "run": "AABB_t3_Swarm_20260923_174158",
+   "pid": "AABB",
+   "order": 3,
+   "practice": false,
+   "lo": 0.0,
+   "hi": 10.5,
+   "source": "editor_log"
+  },
+  {
+   "run": "AABC_t4_Swarm_20260923_185306",
+   "pid": "AABC",
+   "order": 4,
+   "practice": true,
+   "lo": 0.0,
+   "hi": 97.1,
+   "source": "editor_log"
+  },
+  {
+   "run": "AABC_t5_Swarm_20260923_190547",
+   "pid": "AABC",
+   "order": 5,
+   "practice": false,
+   "lo": 0.0,
+   "hi": 100.0,
+   "source": "editor_log"
+  },
+  {
+   "run": "AABC_t6_Swarm_20260923_191155",
+   "pid": "AABC",
+   "order": 6,
+   "practice": false,
+   "lo": 0.0,
+   "hi": 100.0,
+   "source": "editor_log"
+  }
+ ],
+ "replay": {
+  "groups": [
+   {
+    "id": "AABB",
+    "title": "AABB",
+    "short": "AABB",
+    "kind": "runs",
+    "flights": [
+     {
+      "id": "AABB_t1_Swarm_20260923_171616",
+      "title": "1. Swarm t1 (practice)",
+      "cond": "swarm",
+      "city": "ScaledCityWorld__5aa7f881",
+      "source": "trial",
+      "about": "AABB_t1_Swarm_20260923_171616: 10 drone(s), recorded 10:02. A practice run: shown, counted in no summary."
+     },
+     {
+      "id": "AABB_t2_Swarm_20260923_173231",
+      "title": "2. Swarm t2",
+      "cond": "swarm",
+      "city": "ScaledCityWorld__920cc624",
+      "source": "trial",
+      "about": "AABB_t2_Swarm_20260923_173231: 10 drone(s), recorded 7:11."
+     },
+     {
+      "id": "AABB_t3_Swarm_20260923_174158",
+      "title": "3. Swarm t3",
+      "cond": "swarm",
+      "city": "ScaledCityWorld__96227fe4",
+      "source": "trial",
+      "about": "AABB_t3_Swarm_20260923_174158: 10 drone(s), recorded 6:03."
+     },
+     {
+      "id": "AABB_t4_SingleDrone_20260923_175015",
+      "title": "4. Single drone t4 (practice)",
+      "cond": "single",
+      "city": "ScaledCityWorld__49cc7bba",
+      "source": "trial",
+      "about": "AABB_t4_SingleDrone_20260923_175015: 1 drone(s), recorded 4:24. A practice run: shown, counted in no summary."
+     },
+     {
+      "id": "AABB_t5_SingleDrone_20260923_175457",
+      "title": "5. Single drone t5",
+      "cond": "single",
+      "city": "ScaledCityWorld__230d7b25",
+      "source": "trial",
+      "about": "AABB_t5_SingleDrone_20260923_175457: 1 drone(s), recorded 7:47."
+     },
+     {
+      "id": "AABB_t6_SingleDrone_20260923_180336",
+      "title": "6. Single drone t6",
+      "cond": "single",
+      "city": "ScaledCityWorld__efa8dfd9",
+      "source": "trial",
+      "about": "AABB_t6_SingleDrone_20260923_180336: 1 drone(s), recorded 5:31."
+     }
+    ],
+    "about": "AABB's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."
+   },
+   {
+    "id": "AABC",
+    "title": "AABC",
+    "short": "AABC",
+    "kind": "runs",
+    "flights": [
+     {
+      "id": "AABC_t1_SingleDrone_20260923_182257",
+      "title": "1. Single drone t1 (practice)",
+      "cond": "single",
+      "city": "ScaledCityWorld__ee865370",
+      "source": "trial",
+      "about": "AABC_t1_SingleDrone_20260923_182257: 1 drone(s), recorded 8:34. A practice run: shown, counted in no summary."
+     },
+     {
+      "id": "AABC_t2_SingleDrone_20260923_183211",
+      "title": "2. Single drone t2",
+      "cond": "single",
+      "city": "ScaledCityWorld__139ecaf2",
+      "source": "trial",
+      "about": "AABC_t2_SingleDrone_20260923_183211: 1 drone(s), recorded 6:12."
+     },
+     {
+      "id": "AABC_t3_SingleDrone_20260923_183845",
+      "title": "3. Single drone t3",
+      "cond": "single",
+      "city": "ScaledCityWorld__aaeb6619",
+      "source": "trial",
+      "about": "AABC_t3_SingleDrone_20260923_183845: 1 drone(s), recorded 7:50."
+     },
+     {
+      "id": "AABC_t4_Swarm_20260923_185306",
+      "title": "4. Swarm t4 (practice)",
+      "cond": "swarm",
+      "city": "ScaledCityWorld__36b82701",
+      "source": "trial",
+      "about": "AABC_t4_Swarm_20260923_185306: 10 drone(s), recorded 8:35. A practice run: shown, counted in no summary."
+     },
+     {
+      "id": "AABC_t5_Swarm_20260923_190547",
+      "title": "5. Swarm t5",
+      "cond": "swarm",
+      "city": "ScaledCityWorld__21021e28",
+      "source": "trial",
+      "about": "AABC_t5_Swarm_20260923_190547: 10 drone(s), recorded 5:12."
+     },
+     {
+      "id": "AABC_t6_Swarm_20260923_191155",
+      "title": "6. Swarm t6",
+      "cond": "swarm",
+      "city": "ScaledCityWorld__b060774f",
+      "source": "trial",
+      "about": "AABC_t6_Swarm_20260923_191155: 10 drone(s), recorded 4:46."
+     }
+    ],
+    "about": "AABC's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."
+   }
+  ]
+ },
+ "manual": false,
+ "warnings": []
+}

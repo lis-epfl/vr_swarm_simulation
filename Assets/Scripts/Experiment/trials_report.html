@@ -1,0 +1,582 @@
+<title>User trial results</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (trials_report via swarmtune_report.s4_style),
+   then the trial pages' additions. */
+/*__S4_STYLE__*/
+/* the conditions, on the family's validated slots: the swarm as S4's street-bound swarm, one drone as S4's single */
+:root { --k-swarm: var(--c-street); --k-single: var(--c-single); --k-sphere: var(--c-pass); }
+.backs { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 90px; font-family: var(--font-body); }
+table.dt tr.prac td { color: var(--muted); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.cards > .box { display: grid; gap: 10px; align-content: start; }
+.cards .cap p, .cards .cap li { font-size: 0.92rem; color: var(--ink-2); }
+.cards .cap ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 4px; }
+.banner { border: 1px solid var(--warn); background: var(--warn-bg); border-radius: var(--r); padding: 12px 16px; font-size: 0.94rem; }
+.banner b { color: var(--ink); }
+.keyline { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline; font-size: 0.88rem; color: var(--ink-2); padding-block: 0 18px; }
+.keyline b { color: var(--ink); }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.dot.hollow { background: var(--panel) !important; border: 2px solid; }
+.areas { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
+.areas ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 7px; }
+.areas li { font-size: 0.93rem; color: var(--ink-2); }
+.areas li b { color: var(--ink); }
+.areas li .code { white-space: normal; }
+tr.diff td { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.navrow { display: flex; flex-wrap: wrap; gap: 10px; }
+.vp.na { color: var(--muted); background: var(--chip); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <div class="backs"><a class="back" id="back-index" href="#" target="_blank" rel="noopener" hidden>← User Trial Index</a>
+        <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a></div>
+      <p class="eyebrow" id="eyebrow"></p>
+      <h1 id="h1"></h1>
+      <div class="lead" id="lead"></div>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <div class="keyline" id="keyline"></div>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const secs = x => ok(x) ? `${Math.round(x)} s` : "–";
+const mmss = x => ok(x) ? `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}` : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const times = r => ok(r) ? `×${r.toFixed(2)}` : "–";
+const pv = p => !ok(p) ? "–" : p < 0.001 ? "< 0.001" : p.toFixed(p < 0.1 ? 3 : 2);
+const N = D.notes, ST = D.stats, RUNS = D.runs, PILOTS = D.pilots;
+const CONDS = {swarm: "Swarm", single: "Single drone", sphere: "360 sphere"};
+const kCol = c => `var(--k-${c || "single"})`;
+const condOf = c => ({Swarm: "swarm", SingleDrone: "single", SingleSphere: "sphere"}[c] || "single");
+const TITLE = r => `${r.pid}, flight ${r.order}: ${CONDS[condOf(r.condition)]} t${r.trial}${r.practice ? " (practice)" : ""}`;
+const counted = RUNS.filter(r => !r.practice);
+const PG = D.pages || {};
+
+// ---------------------------------------------------------------- tooltip and chart helpers (S5's, as on S11's page)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 1080) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (Wd, H, label, g) => `<svg viewBox="0 0 ${Wd} ${H}" style="max-width:${Wd}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+function niceMax(v) { const s = [10, 20, 25, 50, 100, 120, 150, 200, 250, 300, 400, 500, 600, 750, 900, 1000, 1200]; const step = s.find(x => v / x <= 5) || 300; return {step, top: Math.ceil(v / step) * step}; }
+
+// Every run of each pilot by flight order, its value as a dot in its condition's colour (hollow: practice).
+function orderChart(el, get, unit, label) {
+  const per = PILOTS.map(p => RUNS.filter(r => r.pid === p).sort((a, b) => a.order - b.order));
+  const vals = RUNS.map(get).filter(ok), {step, top} = niceMax(Math.max(1, ...vals) * 1.05);
+  const n = per.length, total = cw(el), pw = Math.max(200, Math.floor(total / Math.min(n, Math.max(1, Math.floor(total / 230)))) - 14);
+  const H = 230, m = {l: 46, r: 10, t: 12, b: 34};
+  const yy = v => m.t + (H - m.t - m.b) * (1 - v / top);
+  const all = [];
+  const panel = (runs, pi) => {
+    const k = runs.length, xx = j => m.l + (pw - m.l - m.r) * (j + 0.5) / Math.max(1, k);
+    let g = "";
+    for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gridl" x1="${m.l}" x2="${pw - m.r}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${m.l - 6}" y="${yy(v) + 4}" text-anchor="end">${v}</text>`;
+    g += `<text x="${m.l - 34}" y="${m.t + 2}" text-anchor="start" style="font-size:10px">${esc(unit)}</text>`;
+    runs.forEach((r, j) => {
+      const v = get(r), c = kCol(condOf(r.condition));
+      g += `<text x="${xx(j)}" y="${H - m.b + 16}" text-anchor="middle">${r.order}</text>`;
+      if (!ok(v)) { g += `<text x="${xx(j)}" y="${yy(0) - 4}" text-anchor="middle" class="val">–</text>`; return; }
+      const i = all.length; all.push(r);
+      g += r.practice ? `<circle cx="${xx(j)}" cy="${yy(v)}" r="5.5" fill="var(--panel)" stroke="${c}" stroke-width="2"/>`
+                      : `<circle cx="${xx(j)}" cy="${yy(v)}" r="6" fill="${c}"/>`;
+      g += `<circle class="hit" data-i="${i}" tabindex="0" cx="${xx(j)}" cy="${yy(v)}" r="11"/>`;
+    });
+    g += `<text x="${(m.l + pw - m.r) / 2}" y="${H - 4}" text-anchor="middle" style="font-size:10px">flight, in the order flown</text>`;
+    return `<div><h4>${esc(PILOTS[pi])}</h4>${svgOf(pw, H, `${label}: ${PILOTS[pi]}`, g)}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${per.map(panel).join("")}</div>`;
+  hoverMarks(el, i => { const r = all[i]; return [TITLE(r), [[kCol(condOf(r.condition)), unit === "s" ? secs(get(r)) : fmt(get(r), 1), label]]]; });
+}
+
+// Each goal (or leg) of every counted run, by pilot and condition: dots placed by leg, the median a bar.
+function goalChart(el, key, label) {
+  const G = D.goals.filter(g => !g.practice);
+  const vals = G.map(g => g[key]).filter(ok), {step, top} = niceMax(Math.max(1, ...vals) * 1.05);
+  const n = PILOTS.length, total = cw(el), pw = Math.max(200, Math.floor(total / Math.min(n, Math.max(1, Math.floor(total / 230)))) - 14);
+  const H = 230, m = {l: 46, r: 10, t: 12, b: 30};
+  const yy = v => m.t + (H - m.t - m.b) * (1 - v / top);
+  const all = [], cols = ["single", "swarm"];
+  const panel = pid => {
+    const xx = ci => m.l + (pw - m.l - m.r) * (ci + 0.5) / cols.length, span = (pw - m.l - m.r) / cols.length * 0.6;
+    let g = "";
+    for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gridl" x1="${m.l}" x2="${pw - m.r}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${m.l - 6}" y="${yy(v) + 4}" text-anchor="end">${v}</text>`;
+    g += `<text x="${m.l - 34}" y="${m.t + 2}" text-anchor="start" style="font-size:10px">s</text>`;
+    cols.forEach((c, ci) => {
+      const gs = G.filter(x => x.pid === pid && x.cond === c).sort((a, b) => a.order - b.order || a.leg - b.leg);
+      const orders = [...new Set(gs.map(x => x.order))];
+      g += `<text x="${xx(ci)}" y="${H - m.b + 16}" text-anchor="middle">${CONDS[c]}</text>`;
+      const v = gs.map(x => x[key]).filter(ok).sort((a, b) => a - b);
+      if (v.length) { const med = v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+        g += `<line x1="${xx(ci) - span / 2 - 6}" x2="${xx(ci) + span / 2 + 6}" y1="${yy(med)}" y2="${yy(med)}" stroke="var(--ink)" stroke-width="2"/>`; }
+      gs.forEach(x => {
+        if (!ok(x[key])) return;
+        const oi = orders.indexOf(x.order), off = ((oi + 0.5) / Math.max(1, orders.length) - 0.5) * span + (x.leg - 2) * 3;
+        const i = all.length; all.push(x);
+        g += `<circle cx="${(xx(ci) + off).toFixed(1)}" cy="${yy(x[key]).toFixed(1)}" r="4.6" fill="${kCol(c)}" fill-opacity="0.85"/>`;
+        g += `<circle class="hit" data-i="${i}" tabindex="0" cx="${(xx(ci) + off).toFixed(1)}" cy="${yy(x[key]).toFixed(1)}" r="8"/>`;
+      });
+    });
+    return `<div><h4>${esc(pid)}</h4>${svgOf(pw, H, `${label}: ${pid}`, g)}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${PILOTS.map(panel).join("")}</div><p class="small muted">One dot per goal of each counted run, spread by run (in the order flown); the bar is the median.</p>`;
+  hoverMarks(el, i => { const x = all[i]; return [`${x.pid}, flight ${x.order}: the ${x.hat || "goal"} (leg ${x.leg})`, [[kCol(x.cond), secs(x[key]), label]]]; });
+}
+
+// The swarm / single-drone ratio, each pilot's and the pooled, on a log axis.
+function ratioStrip(el, s) {
+  if (!s) { el.innerHTML = ""; return; }
+  const rs = s.per.map(p => p.ratio).concat([s.ratio]);
+  let lo = 0.25, hi = 4; while (Math.min(...rs) < lo) lo /= 2; while (Math.max(...rs) > hi) hi *= 2;
+  const Wd = Math.min(640, cw(el)), H = 62, m = {l: 14, r: 14, t: 18, b: 20};
+  const xx = r => m.l + (Wd - m.l - m.r) * (Math.log(r) - Math.log(lo)) / (Math.log(hi) - Math.log(lo));
+  let g = `<line x1="${m.l}" x2="${Wd - m.r}" y1="${m.t + 12}" y2="${m.t + 12}" stroke="var(--line)"/>`;
+  for (let r = lo; r <= hi * 1.0001; r *= 2) g += `<line x1="${xx(r)}" x2="${xx(r)}" y1="${m.t + 6}" y2="${m.t + 18}" stroke="${Math.abs(r - 1) < 1e-9 ? "var(--ink)" : "var(--line)"}" stroke-width="${Math.abs(r - 1) < 1e-9 ? 1.6 : 1}"/><text x="${xx(r)}" y="${H - 4}" text-anchor="middle">×${r >= 1 ? r : r.toFixed(r < 0.25 ? 3 : 2)}</text>`;
+  g += `<text x="${m.l}" y="10" style="font-size:10px">← swarm sooner</text><text x="${Wd - m.r}" y="10" text-anchor="end" style="font-size:10px">swarm slower →</text>`;
+  s.per.forEach((p, i) => { g += `<circle cx="${xx(p.ratio)}" cy="${m.t + 12}" r="4.5" fill="var(--panel)" stroke="var(--ink-2)" stroke-width="1.6"/><circle class="hit" data-i="${i}" tabindex="0" cx="${xx(p.ratio)}" cy="${m.t + 12}" r="9"/>`; });
+  const x = xx(s.ratio), y = m.t + 12;
+  g += `<path d="M${x} ${y - 7} L${x + 7} ${y} L${x} ${y + 7} L${x - 7} ${y} Z" fill="var(--ink)"/><circle class="hit" data-i="${s.per.length}" tabindex="0" cx="${x}" cy="${y}" r="9"/>`;
+  el.innerHTML = svgOf(Wd, H, "swarm time over single-drone time", g) + `<p class="small muted">Swarm ÷ single drone: ◇ each pilot's ratio of geometric means, ◆ pooled over the pilots.</p>`;
+  hoverMarks(el, i => i < s.per.length ? [`${s.per[i].pid}`, [["var(--ink-2)", times(s.per[i].ratio), `swarm ${secs(s.per[i].gm_s)} (${s.per[i].n_s} runs) against ${secs(s.per[i].gm_d)} (${s.per[i].n_d})`]]]
+    : ["Pooled", [["var(--ink)", times(s.ratio), `over ${s.n_pilots} pilots; p ${pv(s.p)} (the design's smallest ${pv(s.floor)})`]]]);
+}
+
+// Small-multiple horizontal bars (S11's): rows [{c, lab, ...}], panels [{title, get, f, unit?}]
+function barPanels(el, rows, panels) {
+  const Wd = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 15, gap = 6, m = {l: 112, r: 58, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x)), vmax = Math.max(1e-9, ...vals.filter(ok)) * 1.05;
+    const xx = v => m.l + (Wd - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = "";
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(x.lab)}</text>`;
+      if (ok(v)) {
+        g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${kCol(x.c)}"/>`;
+        g += `<text class="val" x="${(xx(v) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      } else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${Wd}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(Wd, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100]; return [x.lab, [[kCol(x.c), p.f(p.get(x)), p.title]]]; });
+}
+
+// ---------------------------------------------------------------- the masthead
+const MEASURES = {total: ["Total time", "the whole task, from the start line to the last answer"],
+                  search: ["Time at a goal", "from entering a goal's zone to leaving it for the next, summed over the three goals"],
+                  transit: ["Time between goals", "from leaving one goal's zone (the start line, for the first) to entering the next, summed"]};
+function verdict(s) {
+  if (!s) return ["na", "Not measured"];
+  if (s.ratio > 1 / 1.1 && s.ratio < 1.1) return ["part", "About level"];       // within 10% either way
+  if (s.ratio < 1 && s.n_lower === s.n_pilots) return ["yes", "Swarm sooner"];
+  if (s.ratio > 1 && s.n_lower === 0) return ["no", "Swarm slower"];
+  return ["part", "Mixed"];
+}
+function oneLine(key) {
+  const s = ST[key];
+  if (!s) return `${MEASURES[key][0]}: not measured.`;
+  const dir = s.ratio < 1 ? "less" : "more";
+  return `<b>${MEASURES[key][0]}: ${times(s.ratio)}.</b> The swarm took ${Math.round(100 * Math.abs(1 - s.ratio))}% ${dir} time than the single drone
+    (a typical run ${secs(s.typ_s)} against ${secs(s.typ_d)}), ${s.ratio < 1 ? "less" : "more"} for ${s.ratio < 1 ? s.n_lower : s.n_pilots - s.n_lower} of ${s.n_pilots} pilots;
+    p ${pv(s.p)}, where the smallest this design can give is ${pv(s.floor)}.`;
+}
+function firstPara(h) { const m = /<p>([\s\S]*?)<\/p>/.exec(h || ""); return m ? m[1] : ""; }
+function ANSWER_BOX() {
+  if (!D.timed) {
+    const rec = RUNS.length, trials = (D.restarts || []).length, re = (D.restarts || []).filter(x => x.n > 1);
+    return `<p class="eyebrow">The short answer</p><ol>
+      <li><b>No task times were recorded.</b> No identify was pressed or keyed, and the times taken by hand are not on this machine. What exists is when each recording started and stopped.</li>
+      <li><b>${rec} recordings of ${trials} trials:</b> ${re.length ? `${re.map(x => `${esc(x.pid)} ${esc(CONDS[condOf(x.condition)])} t${x.trial} ${x.n}×`).join(", ")} restarted` : "none restarted"}.</li>
+      <li><b>The goals' zones were reached</b> in ${counted.filter(r => r.goalsReached >= 3).length} of ${counted.length} counted recordings; their phase times are on the Results tab, with that caution.</li></ol>
+      ${N.reading ? `<p class="bottom"><b>My reading:</b> ${firstPara(N.reading)}</p>` : ""}`;
+  }
+  return `<p class="eyebrow">The short answer</p><ol><li>${oneLine("total")}</li><li>${oneLine("search")}</li><li>${oneLine("transit")}</li></ol>
+    ${N.reading ? `<p class="bottom"><b>My reading:</b> ${firstPara(N.reading)}</p>` : ""}`;
+}
+function MASTHEAD() {
+  if (PG.index) { const a = $("#back-index"); a.href = PG.index; a.hidden = false; }
+  const dates = (D.dates || []).map(d => `${d.slice(6, 8)}/${d.slice(4, 6)}/${d.slice(0, 4)}`).join(" & ");
+  $("#eyebrow").textContent = `User trial · ${D.test} · ${dates} · ${(D.city || []).join(", ")} · ${PILOTS.length} pilots · ${D.n_runs} runs`;
+  $("#h1").textContent = N.title.includes("·") ? N.title.split("·").slice(1).join("·").trim() : N.title;
+  $("#lead").innerHTML = (N.summary || "").replace(/<p>/g, '<p class="lead">');
+  $("#answer-box").innerHTML = ANSWER_BOX();
+  $("#keyline").innerHTML = `<span><span class="dot" style="background:var(--k-swarm)"></span><b>Swarm</b> (10 drones)</span>
+    <span><span class="dot" style="background:var(--k-single)"></span><b>Single drone</b></span>
+    <span><span class="dot hollow" style="border-color:var(--ink-2)"></span>a practice run: drawn, counted in no summary</span>
+    <span><b>At a goal</b>: in its zone, ${D.zone} m round its patch</span><span><b>Between goals</b>: from one zone to the next</span>`;
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["results", "Results"], ["changes", "What changed"], ["flights", "Flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+const TABKEY = `trialtab_${D.test}`;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem(TABKEY, id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (/^q\d$/.test(h) || /^card-/.test(h)) { show("results", h); return true; }
+  if (h.startsWith("watch:")) {
+    const stem = h.slice(6);
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.flights.some(f => f.id === stem)) : -1;
+    if (gi >= 0) PLAYER.selectGroup(gi, D.replay.groups[gi].flights.find(f => f.id === stem));
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (stem, text) => D.replay && D.replay.groups.some(g => g.flights.some(f => f.id === stem)) ? `<a class="watch" href="#watch:${stem}">${esc(text)}</a>` : "";
+const runOf = stem => RUNS.find(r => r.run === stem) || {};
+
+// ---------------------------------------------------------------- results
+function pilotLines(s, key) {
+  if (!s) return "";
+  return s.per.map(p => `<li><b>${esc(p.pid)}:</b> swarm ${secs(p.gm_s)} (${p.n_s} run${p.n_s > 1 ? "s" : ""}) against ${secs(p.gm_d)} (${p.n_d}), ${times(p.ratio)}.</li>`).join("");
+}
+function qCard(n, key, chartId, body) {
+  const s = ST[key], [cls, txt] = D.timed || key !== "total" ? verdict(s) : ["na", "Not recorded"];
+  return `<section class="q" id="q${n}">
+    <div class="qhead"><span class="qn">${n}</span><div><h2>${MEASURES[key][0]}</h2>
+      <p class="qa"><span class="vp ${cls}">${txt}</span>${D.timed || key !== "total" ? (s ? `Swarm ${times(s.ratio)} of the single drone's time, pooled over ${s.n_pilots} pilots.` : "") : "Only the recordings' lengths: see the note above."}</p></div></div>
+    <div class="qbody"><div><div class="chart" id="${chartId}"></div><div class="chart" id="${chartId}-r"></div></div>
+      <div class="qtext"><ul>${body}</ul></div></div></section>`;
+}
+const STD_CARDS = ["identify", "smoothness", "losses"];
+RENDER.results = el => {
+  const s = ST.total, se = ST.search, tr = ST.transit;
+  const firstLeg = D.goals.filter(g => !g.practice && g.leg === 1);
+  const banner = !D.timed ? `<div class="banner"><b>These are recording lengths, not task times.</b> The recorder of July wrote no answers and no presses, and the times taken by hand at the trials
+      are not on this machine (a file of them, manual_times.csv beside the runs, would replace these). Each recording ran from Play until it was stopped, restarts included. The
+      phases below come from when the swarm's centre entered and left each goal's zone; the goals stood off the tile grid in that version, so read them as indicative.</div>` : "";
+  const totalBody = D.timed ? `${pilotLines(s)}
+      <li><b>Pooled:</b> ${times(s && s.ratio)}: a typical run ${secs(s && s.typ_s)} against ${secs(s && s.typ_d)} (the geometric mean over the pilots of theirs; the plain means are ${secs(s && s.mean_s)} and ${secs(s && s.mean_d)}). An exact permutation of the conditions within each pilot gives p ${pv(s && s.p)} (${s ? s.n_perm : "–"} relabellings; the smallest p they allow is ${pv(s && s.floor)}).</li>
+      <li><b>Timed</b> from the first drone crossing the start line, 30 m ahead of the spawn ${startText()}, to ${endText()}.</li>
+      <li><b>The order matters as much as the condition:</b> each pilot flew one condition's runs together, so a later run carries more practice. ${orderText()} The chart is in the order flown.</li>`
+    : `<li>Every recording, restarts included, by when it was flown. ${(D.restarts || []).filter(x => x.n > 1).map(x => `${esc(x.pid)}'s ${esc(CONDS[condOf(x.condition)])} t${x.trial} was recorded ${x.n} times (${x.lengths.map(mmss).join(", ")}).`).join(" ")}</li>`;
+  el.innerHTML = `<div class="ans">${banner}
+    ${qCard(1, "total", "c-total", totalBody)}
+    ${qCard(2, "search", "c-search", `${pilotLines(se)}
+      <li><b>At a goal</b> is the time from the swarm's centre (or the single drone) entering a goal's zone, ${D.zone} m round its patch, to leaving it for the next goal: the search there, and any wandering off and back.</li>
+      <li><b>Pooled:</b> ${times(se && se.ratio)}, p ${pv(se && se.p)}.</li>`)}
+    ${qCard(3, "transit", "c-transit", `${pilotLines(tr)}
+      <li><b>Between goals</b> runs from leaving one goal's zone to entering the next; the first leg starts at the start line (median ${secs(median(firstLeg.map(g => g.transit)))}).</li>
+      <li><b>Pooled:</b> ${times(tr && tr.ratio)}, p ${pv(tr && tr.p)}. ${longLegText()}</li>`)}
+    <div class="intro"><h2>Other results</h2><p>The same three on every page, then what stood out in this series.</p></div>
+    <div class="cards" id="cards"></div>
+    ${N.reading ? `<div class="box reading"><p class="eyebrow">My reading</p>${N.reading}</div>` : ""}</div>`;
+  const draws = [
+    ["#c-total", () => { orderChart($("#c-total", el), r => D.timed ? r.time_s : r.durationSec, "s", D.timed ? "total time" : "recording length"); ratioStrip($("#c-total-r", el), s); }],
+    ["#c-search", () => { goalChart($("#c-search", el), "search", "at the goal"); ratioStrip($("#c-search-r", el), se); }],
+    ["#c-transit", () => { goalChart($("#c-transit", el), "transit", "on the way to it"); ratioStrip($("#c-transit-r", el), tr); }]];
+  for (const [sel, draw] of draws) observe($(sel, el), draw);
+  const cards = $("#cards", el);
+  const ids = STD_CARDS.concat(Object.keys(N.notable || {}).filter(k => !STD_CARDS.includes(k)));
+  cards.innerHTML = ids.map(id => `<div class="box" id="card-${id}">${(CARD[id] || CARD.other)(id)}</div>`).join("");
+  const sm = $("#sm-bars", el);
+  if (sm) observe(sm, () => smoothBars(sm));
+};
+// Per pilot: the condition flown later (by its runs' mean flight order) against the one flown earlier, in total time.
+function orderEffect() {
+  const mean = v => v.reduce((a, b) => a + b, 0) / v.length;
+  return PILOTS.map(p => {
+    const rs = counted.filter(r => r.pid === p && ok(r.time_s) && r.time_s > 0), of = c => rs.filter(r => condOf(r.condition) === c);
+    if (!of("swarm").length || !of("single").length) return null;
+    const later = mean(of("swarm").map(r => r.order)) > mean(of("single").map(r => r.order)) ? "swarm" : "single";
+    const earlier = later === "swarm" ? "single" : "swarm", gm = c => Math.exp(mean(of(c).map(r => Math.log(r.time_s))));
+    return {pid: p, later, ratio: gm(later) / gm(earlier)};
+  }).filter(Boolean);
+}
+function orderText() {
+  const E = orderEffect();
+  if (!E.length) return "";
+  const faster = E.filter(e => e.ratio < 0.95).length, level = E.filter(e => e.ratio >= 0.95 && e.ratio <= 1.05).length;
+  const n = E.length, who = k => k === n ? (n === 2 ? "both pilots were" : "every pilot was") : k === 1 ? "one pilot was" : `${k} pilots were`;
+  return `Here ${E.map(e => `${esc(e.pid)} flew the ${e.later === "swarm" ? "swarm" : "single drone"} later and took ${times(e.ratio)} of the earlier condition's time`).join("; ")}:
+    ${faster ? `${who(faster)} quicker in the condition flown later` : "no pilot was quicker in the condition flown later"}${level ? `, ${who(level).replace(" were", "").replace(" was", "")} level (within 5%)` : ""}.`;
+}
+const median = v => { v = v.filter(ok).sort((a, b) => a - b); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
+function startText() {
+  const c = D.start_sources || {}, parts = [];
+  if (c.line) parts.push(`as the recorder logged it in ${c.line} run${c.line > 1 ? "s" : ""}`);
+  if (c.derived) parts.push(`found in the drone logs for ${c.derived} run${c.derived > 1 ? "s" : ""} flown before the line existed (26 October 2026)`);
+  if (c.session) parts.push(`never crossed in ${c.session}, which are timed from Play`);
+  return parts.length ? `(${parts.join("; ")})` : "";
+}
+function endText() {
+  const c = D.time_sources || {};
+  if (c.identify && !c.duration) return "the last answer press";
+  if (c.duration && !c.identify) return "the end of the recording, which the experimenter stopped at the last answer (the answers were entered afterwards)";
+  return "the last answer press where there was one, else the end of the recording";
+}
+function longLegText() {
+  const L = (D.long_legs || []).filter(x => x.kind === "between goals").slice(0, 1)[0];
+  if (!L || !ST.transit) return "";
+  const r = runOf(L.run), tot = r.transit_s;
+  return `The longest leg, ${esc(L.pid)}'s ${esc(CONDS[condOf(L.condition)])} flight ${L.order} to the ${esc(L.hat || "goal")}, took ${secs(L.s)}${ok(tot) ? `, ${pc(L.s / tot)} of that run's time between goals` : ""}. ${watch(L.run, "Watch it")}`;
+}
+const cap = id => N.notable && N.notable[id] ? `<div class="cap">${N.notable[id].html}</div>` : "";
+const capTitle = (id, dflt) => N.notable && N.notable[id] && N.notable[id].title ? N.notable[id].title : dflt;
+const CARD = {
+  identify() {
+    const I = D.identify || [], modes = [...new Set(I.filter(x => !x.practice).map(x => x.mode))];
+    const rows = PILOTS.flatMap(p => ["single", "swarm"].map(c => {
+      const xs = I.filter(x => x.pid === p && condOf(x.condition) === c && !x.practice);
+      if (!xs.length) return "";
+      const sum = k => xs.reduce((a, x) => a + (x[k] || 0), 0), s2p = median(xs.map(x => x.sight_to_press));
+      const keyed = !xs.every(x => /not keyed|none recorded/.test(x.mode));
+      return `<tr><td class="l"><span class="dot" style="background:${kCol(c)}"></span>${esc(p)} · ${CONDS[c]}</td><td>${xs.length}</td><td>${keyed ? `${sum("correct")} / ${sum("goals")}` : "not keyed"}</td><td>${sum("presses")}</td><td>${sum("false_alarms")}</td><td>${sum("overrides")}</td><td>${secs(s2p)}</td></tr>`;
+    })).join("");
+    return `<h3>${esc(capTitle("identify", "Identification"))}</h3>
+      <p class="small">How answers were given: <b>${esc(modes.join("; ") || "–")}</b>.</p>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th>runs</th><th>correct</th><th>presses</th><th>false al.</th><th>overrides</th><th>seen → press</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="small muted">Counted runs only. "Seen → press" is the median time from the hat's first sight on a shown feed to the press. "Overrides" are presses the recorder's scoring refused and the experimenter judged correct (test.json); they count as correct.</p>${cap("identify")}`;
+  },
+  smoothness() {
+    const sm = ST.smooth || {};
+    const names = {stick_tv_per_min: ["stick movement per minute", "the stick vector's total travel per minute, full deflection = 1; less is smoother"],
+      adj_per_min: ["adjustments per minute", "discrete re-settings of the stick (held, moved, held again)"],
+      mean_hold_s: ["time between adjustments (s)", "how long one command was held; more is smoother"],
+      course_turn_per_min: ["course turned per minute (°)", "how much the commanded direction changed"],
+      cmd_straightness: ["command straightness", "1 = one heading held for the whole leg"],
+      act_path_ratio: ["flown path ÷ straight line", "the achieved path over the straight distance to the goal"]};
+    const rows = Object.keys(names).filter(k => sm[k]).map(k => `<tr><td class="l">${names[k][0]}</td><td>${fmt(sm[k].mean_s, 2)}</td><td>${fmt(sm[k].mean_d, 2)}</td><td>${times(sm[k].ratio)}</td><td>${pv(sm[k].p)}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("smoothness", "How the pilot flew"))}</h3>
+      <p class="small">From the sticks, between goals only (the legs in transit): how much the pilot re-steered.</p>
+      <div class="chart" id="sm-bars"></div>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th>swarm, mean</th><th>single, mean</th><th>swarm ÷ single</th><th>p</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="small muted">The ratio is pooled over the pilots as for the times, with the same permutation p. ${Object.keys(names).filter(k => sm[k]).map(k => `${names[k][0]}: ${names[k][1]}.`).join(" ")}</p>${cap("smoothness")}`;
+  },
+  losses() {
+    const L = D.losses || [], cL = L.filter(x => !x.practice), sw = counted.filter(r => r.condition === "Swarm");
+    const pairs = cL.filter(x => x.reason === "CollidingWithAnotherDrone").length;
+    const rows = L.map(x => `<tr${x.practice ? ' class="prac"' : ""}><td class="l">${esc(x.pid)}, flight ${x.order}</td><td>${mmss(x.t_task)}</td><td>${x.drone + 1}</td><td class="l">${esc(reasonText(x))}</td><td>${fmt(x.spread, 2)}</td><td>${fmt(x.speed, 1)}</td><td>${watch(x.run, "watch")}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("losses", "Drones lost"))}</h3>
+      <p class="small"><b>${cL.length}</b> drone${cL.length === 1 ? "" : "s"} lost in ${sw.length} counted swarm runs${pairs ? `, ${pairs} of them collision pairs` : ""}; ${counted.filter(r => r.condition !== "Swarm" && r.drones_lost > 0).length} single-drone runs lost theirs.</p>
+      ${L.length ? `<div class="tablewrap"><table class="dt"><thead><tr><th class="l">run</th><th>task clock</th><th>drone</th><th class="l">why</th><th>d_ref</th><th>m/s</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
+      <p class="small muted">The reason is the recorder's (since 3 November 2026) or the editor log's, where one was kept; blank where neither exists. Practice runs in grey.</p>${cap("losses")}`;
+  },
+  panorama() {
+    const P = (D.panorama || []).filter(x => !x.practice);
+    const rows = P.map(x => `<tr><td class="l">${esc(x.pid)}, flight ${x.order}</td><td>${fmt(x.lo, 0)}%</td><td>${fmt(x.hi, 0)}%</td><td class="l">${esc(x.source)}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("panorama", "The stitched panorama"))}</h3>
+      <p class="small">The share of each swarm run with the stitched panorama on screen in place of the three front feeds: at least, and at most where the record has gaps.</p>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l">run</th><th>at least</th><th>at most</th><th class="l">from</th></tr></thead><tbody>${rows || `<tr><td class="l notrun" colspan="4">no record</td></tr>`}</tbody></table></div>${cap("panorama")}`;
+  },
+  restarts() {
+    const R = D.restarts || [];
+    const rows = R.map(x => `<tr${x.practice ? ' class="prac"' : ""}><td class="l">${esc(x.pid)}</td><td class="l"><span class="dot" style="background:${kCol(condOf(x.condition))}"></span>${CONDS[condOf(x.condition)]} t${x.trial}</td><td>${x.n}</td><td class="l mono">${x.lengths.map(mmss).join(" · ")}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("restarts", "Recordings and restarts"))}</h3>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l">pilot</th><th class="l">trial</th><th>recordings</th><th class="l">their lengths (m:ss)</th></tr></thead><tbody>${rows}</tbody></table></div>${cap("restarts")}`;
+  },
+  setups() {
+    const S = D.setups;
+    if (!S) return `<h3>${esc(capTitle("setups", "Each pilot's setup"))}</h3><p class="notrun">The runs carry no settings.</p>${cap("setups")}`;
+    const rows = S.rows.map(x => `<tr${x.differs ? ' class="diff"' : ""}><td class="l">${esc(x.key)}</td>${x.vals.map(v => `<td class="l mono">${esc(v)}</td>`).join("")}</tr>`).join("");
+    return `<h3>${esc(capTitle("setups", "Each pilot's setup"))}</h3>
+      <p class="small">What each pilot's first run recorded about itself; the rows that differ are shaded.</p>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>${S.pilots.map(p => `<th class="l">${esc(p)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>${cap("setups")}`;
+  },
+  legs() {
+    const L = D.long_legs || [];
+    const rows = k => L.filter(x => x.kind === k).map(x => `<tr><td class="l">${esc(x.pid)}, flight ${x.order}</td><td class="l"><span class="dot" style="background:${kCol(condOf(x.condition))}"></span>${CONDS[condOf(x.condition)]}</td><td class="l">${esc(x.hat || "–")} (leg ${x.leg})</td><td>${secs(x.s)}</td><td>${watch(x.run, "watch")}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("legs", "The longest legs"))}</h3>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l">run</th><th class="l"></th><th class="l">goal</th><th>time</th><th></th></tr></thead>
+        <tbody><tr class="sep"><td class="l" colspan="5"><b>At a goal</b></td></tr>${rows("at a goal")}<tr class="sep"><td class="l" colspan="5"><b>Between goals</b></td></tr>${rows("between goals")}</tbody></table></div>${cap("legs")}`;
+  },
+  other(id) { return `<h3>${esc(capTitle(id, id))}</h3>${cap(id)}`; }
+};
+function reasonText(x) {
+  const t = {CollidingWithAnotherDrone: "collision", ExternallyKilled: "collision", TooFarFromSwarm: "too far from the others", Crashed: "crashed"}[x.reason] || x.reason || "–";
+  return x.partner !== null && x.partner !== undefined && x.partner >= 0 ? `${t} with ${x.partner + 1}` : t;
+}
+function smoothBars(el) {
+  const rows = PILOTS.flatMap(p => ["single", "swarm"].map(c => {
+    const xs = counted.filter(r => r.pid === p && condOf(r.condition) === c);
+    if (!xs.length) return null;
+    const mean = k => { const v = xs.map(r => r[k]).filter(ok); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    return {c, lab: `${p} · ${CONDS[c]}`, tv: mean("stick_tv_per_min"), adj: mean("adj_per_min"), turn: mean("course_turn_per_min"), path: mean("act_path_ratio")};
+  })).filter(Boolean);
+  barPanels(el, rows, [{title: "Stick movement per minute", get: x => x.tv, f: v => fmt(v, 0)},
+                       {title: "Adjustments per minute", get: x => x.adj, f: v => fmt(v, 1)},
+                       {title: "Course turned per minute (°)", get: x => x.turn, f: v => fmt(v, 0)},
+                       {title: "Flown path ÷ straight line", get: x => x.path, f: v => fmt(v, 2)}]);
+}
+
+// ---------------------------------------------------------------- what changed
+RENDER.changes = el => {
+  const link = t => t && PG[t] ? `<a class="watch" href="${PG[t]}" target="_blank" rel="noopener">${esc(t)}</a>` : t ? `<span class="code">${esc(t)}</span>` : "";
+  el.innerHTML = `<div class="intro"><h2>${esc(N.changes_title || "What changed")}</h2>
+      <p>The main changes a pilot would meet, from the commits between the two series (each change's commit beside it). Changes that touched nothing a pilot sees are left out.</p></div>
+    <div class="areas">${(N.changes || []).map(a => `<div class="box"><h3>${esc(a.area)}</h3><ul>${a.items.map(i => `<li>${i}</li>`).join("")}</ul></div>`).join("")}</div>
+    ${(N.within || []).length ? `<div class="box"><h3>Within the series</h3><ul class="small">${N.within.map(i => `<li>${i}</li>`).join("")}</ul></div>` : ""}
+    ${N.setup ? `<div class="box"><h3>The setup, side by side</h3><div class="tablewrap"><table class="dt"><thead><tr>${N.setup.head.map((h, i) => `<th class="l">${h}</th>`).join("")}</tr></thead>
+      <tbody>${N.setup.rows.map(r => `<tr>${r.map(c => `<td class="l">${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
+    <div class="navrow">${D.nav.prev ? `<span class="small">The series before: ${link(D.nav.prev)}</span>` : ""}${D.nav.next ? `<span class="small">The series after: ${link(D.nav.next)}</span>` : ""}</div>`;
+};
+
+// ---------------------------------------------------------------- flights
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+RENDER.flights = el => {
+  if (!D.replay || !D.replay.groups.length) { el.innerHTML = `<p class="notrun">No flights to replay.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Every run, replayed</h2><p>Each run as the recorder logged it: every drone's position and heading ten times a second (drawn every
+      ${0.2} s), its feed shown or not, the goals with their zones, the start line, each press where the formation's centre was, and each drone lost. Pick a pilot, then a run;
+      the clock is the recording's, from Play, and the panel beside the map gives the task clock from the start line. Under the map the green band marks the time at a goal.
+      Space plays or pauses, ← and → step 5 s.</p></div><div id="c-player"></div>`;
+  const labels = {swarm: "Swarm", single: "Single drone", sphere: "360 sphere"}, colors = {swarm: kCol("swarm"), single: kCol("single"), sphere: kCol("sphere")};
+  PLAYER = RV.Player($("#c-player", el), D.replay.groups, {labels, colors, path: RPATH, summaryRows: flightRows, summaryNote: flightNote});
+  PLAYER.start(0);
+};
+function flightRows(F, s) {
+  const r = [];
+  if (D.timed) r.push(["total time", `${secs(s.time_s)}${s.time_source === "duration" ? " (to the recording's end)" : ""}`]);
+  r.push(["recorded", mmss(s.duration)], ["start line crossed", ok(s.start) ? `${mmss(s.start)} after Play${s.start_source === "derived" ? " (derived)" : ""}` : "never"],
+         ["at the goals", secs(s.search_s)], ["between goals", secs(s.transit_s)], ["goal zones reached", `${s.reached} of ${s.goals}`]);
+  if (D.timed) r.push(["answered correctly", `${s.correct} of ${s.goals}`], ["false alarms", String(s.false_alarms)]);
+  r.push(["drones lost", `${s.lost} of ${s.drones}`]);
+  if (s.practice) r.push(["practice", "yes: counted in no summary"]);
+  return r;
+}
+function flightNote(F) {
+  return "A drone's dot is filled while its feed was on the pilot's screens. Presses are drawn where the formation's centre was, coloured by how the recorder scored them.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const tbl = (title, head, body, note = "") => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i < 2 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>${note}</div>`;
+  const runRows = RUNS.slice().sort((a, b) => a.pid.localeCompare(b.pid) || a.order - b.order).map(r => `<tr${r.practice ? ' class="prac"' : ""}>
+    <td class="l">${esc(r.pid)}, flight ${r.order}</td><td class="l"><span class="dot" style="background:${kCol(condOf(r.condition))}"></span>${CONDS[condOf(r.condition)]} t${r.trial}${r.practice ? " · practice" : ""}</td>
+    <td>${mmss(r.durationSec)}</td><td>${ok(r.startSec) ? mmss(r.startSec) : "–"} <span class="muted">${esc(r.startSource || "")}</span></td>
+    <td>${D.timed ? secs(r.time_s) : "–"}</td><td>${secs(r.search_s)}</td><td>${secs(r.transit_s)}</td><td>${r.goalsReached}/${r.nGoals}</td>
+    <td>${ok(r.nCorrect) ? r.nCorrect : "–"}</td><td>${ok(r.falseAlarms) ? r.falseAlarms : "–"}</td><td>${ok(r.drones_lost) ? r.drones_lost : "–"}</td><td>${watch(r.run, "watch")}</td></tr>`).join("");
+  const goalRows = D.goals.slice().sort((a, b) => a.pid.localeCompare(b.pid) || a.order - b.order || a.leg - b.leg).map(g => `<tr${g.practice ? ' class="prac"' : ""}>
+    <td class="l">${esc(g.pid)}, flight ${g.order}</td><td class="l">${CONDS[g.cond]}</td><td class="l">${esc(g.hat || "–")}</td><td>${g.leg}</td><td>${secs(g.transit)}</td><td>${secs(g.search)}</td>
+    <td class="l">${esc(g.outcome || "–")}</td><td>${ok(g.decision) ? mmss(g.decision) : "–"}</td></tr>`).join("");
+  const smRows = RUNS.slice().sort((a, b) => a.pid.localeCompare(b.pid) || a.order - b.order).map(r => `<tr${r.practice ? ' class="prac"' : ""}><td class="l">${esc(r.pid)}, flight ${r.order}</td><td class="l">${CONDS[condOf(r.condition)]}</td>
+    <td>${fmt(r.stick_tv_per_min, 1)}</td><td>${fmt(r.adj_per_min, 1)}</td><td>${fmt(r.mean_hold_s, 1)}</td><td>${fmt(r.course_turn_per_min, 0)}</td><td>${fmt(r.cmd_straightness, 2)}</td><td>${fmt(r.act_path_ratio, 2)}</td></tr>`).join("");
+  const notes = (N.data_notes || []).map(x => `<li>${x}</li>`).join("") + (D.warnings || []).slice(0, 40).map(w => `<li class="muted mono small">${esc(w)}</li>`).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every number on the page, run by run. The same tables are written beside the page (experiment_results/trials/${esc(D.test)}/tables).</p></div>
+    ${tbl("Runs", ["run", "", "recorded", "start line", "total time", "at goals", "between goals", "zones", "correct", "false alarms", "lost", ""], runRows,
+      `<p class="small muted">"Start line" is when it was crossed after Play: <i>line</i> as the recorder logged it, <i>derived</i> from the drone logs for runs before it existed, <i>session</i> never crossed (timed from Play).</p>`)}
+    ${tbl("Goals, in the order reached", ["run", "", "hat", "leg", "between goals", "at the goal", "outcome", "answered at"], goalRows,
+      `<p class="small muted">The leg's time between goals is the way to this goal; "answered at" is on the recording's clock.</p>`)}
+    ${tbl("How the pilot flew, run by run (between goals)", ["run", "", "stick / min", "adjustments / min", "hold (s)", "course turn °/min", "straightness", "path ratio"], smRows)}
+    <div class="box"><h3>Data notes</h3><ul class="small">${notes || "<li>none</li>"}</ul></div>`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The task", [
+    ["The task", "Find the three walkers wearing a hat (a cowboy hat, a cap, a bucket hat), each at one of three goal patches somewhere in the city, and identify each: the pilot presses the RC's C2 button (from internal_3 on), or calls it out."],
+    ["Swarm, single drone", "Ten drones flown as one formation, every edge drone's camera on a screen round the pilot; or one drone with its one camera in front. The same sticks fly both."],
+    ["Practice run", "A run test.json marks as practice (a pilot's first in each condition, where they were recorded): drawn on the charts, hollow, and left out of every summary and ratio."],
+    ["Flight order", "The runs of one pilot, numbered in the order flown. The trial number the run's name carries counts differently in different series."]]],
+  ["The times", [
+    ["Start line", "A line 30 m ahead of the spawn; the first drone to cross it starts the task. Recorded from 26 October 2026; before that, the same crossing is found in the drone logs (derived). Take-off and looking round before it are not timed."],
+    ["Total time", "From the start line to the last answer press; where answers were not pressed (internal_2), to the end of the recording, which the experimenter stopped at the last answer."],
+    ["Goal zone", "A goal's patch (a city tile, or a block-shaped city's ring of buildings) grown by 15 m: the whole street round it. Position is the formation's centre (alive drones), or the single drone."],
+    ["Time at a goal", "From entering a goal's zone to the last time it is left before the next goal's zone is entered (for the last goal, its last exit). Leaving and coming back still counts as at the goal."],
+    ["Time between goals", "From leaving one goal's zone to entering the next; the first leg runs from the start line. With the time at the goals it covers the run from the start line to the last goal's last exit, which can differ from the total time by the moments after the last answer."],
+    ["Ratio, pooled", "Swarm ÷ single drone: per pilot the ratio of the geometric means of their runs, pooled as the geometric mean over the pilots, so each pilot counts once."],
+    ["p (permutation)", "The share of all relabellings of which runs were the swarm's, within each pilot and keeping the numbers of runs, that give a pooled ratio at least as far from 1. With two pilots and two runs each there are 36, so p cannot go below 2/36 = 0.056: no difference can be significant at 0.05 in such a design."]]],
+  ["How the pilot flew", [
+    ["Stick movement per minute", "The total travel of the four-axis stick vector per minute (dead-banded): control activity, without thresholds. Between goals only."],
+    ["Adjustments per minute", "Discrete re-settings: the stick leaves its held position by more than 0.2 and settles 0.5 s at a new one. Push and hold is one; constant re-steering is many."],
+    ["Time between adjustments", "How long one command was held."],
+    ["Course turned per minute", "Total change of the commanded direction (while commanding at least 30% speed)."],
+    ["Command straightness", "The commanded displacement over the commanded path length: 1 is one heading held for a whole leg."],
+    ["Flown path ÷ straight line", "The path the formation's centre flew over the straight distance to the goal's zone; the swarm bends its own path round buildings."]]],
+  ["The replays", [
+    ["Shown feed", "A drone whose camera was on the pilot's screens: recorded from 12 October 2026, rebuilt from the convex-hull rule before."],
+    ["Press", "An identify press, drawn where the formation's centre was and coloured by the recorder's score: correct, a false alarm, or outside every goal's zone."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2></div><div class="terms">` + TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`).join("")
+    + `</div><p class="small muted">Built ${esc(D.built)} by Assets/Scripts/Experiment/trials_report.py from the runs in the experiment folder's ${esc(D.test)} (analyse.py, every run timed from the start line); the prose is docs/trials/${esc(D.test)}.md.</p>`;
+};
+
+MASTHEAD();
+let first = "results";
+try { const t = localStorage.getItem(TABKEY); if (t && TABS.some(x => x[0] === t)) first = t; } catch (e) { /* private window */ }
+if (!route(location.hash.slice(1))) show(first);
+</script>

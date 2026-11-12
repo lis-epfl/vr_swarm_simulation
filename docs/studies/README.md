@@ -28,6 +28,7 @@ Pages for people (private claude.ai artifacts; open them with the Artifact tool,
 | | page |
 |---|---|
 | Hub: all studies ("Swarm Study Index") | https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5 |
+| The user trials' own index ("User Trial Index", one page per series; registry [docs/trials/](../trials/README.md)) | https://claude.ai/artifact/H7UGMEWkhYUxao7MkCc4Kr |
 | S1 explorer | https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc |
 | S2 results dashboard (light rebuild, 2026-10-21) | https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59 |
 | S3 results page | https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J |

@@ -63,6 +63,9 @@ const RV = (() => {
     // ({label, tone: a colour token, spans: [[a, b], ...]}); a flight without them draws exactly as before
     d.series = (f.series || []).map(s => Object.assign({}, s, { v: Float32Array.from(bytes(s.q), q => s.lo + (s.hi - s.lo) * q / 255) }));
     d.bands = f.bands || [];
+    // a recorded trial's marks (trials_report): {goals: [{x, z, shape: "square" | "disc", half, zone, label, found}],
+    // presses: [{t, x, z, outcome, label}], start: {t, x, z, heading}}; a flight without them draws exactly as before
+    d.marks = f.marks || null;
     // the formation's centre per frame (live drones), for its path
     const n = f.n, C = new Float32Array(f.frames * 2);
     for (let k = 0; k < f.frames; k++) {
@@ -327,8 +330,8 @@ const RV = (() => {
     function selectGroup(i, keep) {
       G = library[i];
       groupsEl.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.g === i)));
-      const listed = G.kind === "manoeuvres" || G.kind === "block";   // flights picked by title, not by condition
-      spd.value = listed ? "2" : "10";       // a manoeuvre lasts under a minute, a walk ten
+      const listed = G.kind === "manoeuvres" || G.kind === "block" || G.kind === "runs";   // flights picked by title, not by condition
+      spd.value = listed && G.kind !== "runs" ? "2" : "10";       // a manoeuvre lasts under a minute, a walk or a trial run ten
       const picks = $(".rv-picks");
       if (listed) {
         picks.innerHTML = `<div class="seg">${G.flights.map((f, k) => `<button type="button" aria-pressed="false" data-f="${k}"><span class="ln" style="border-color:${col(f.cond)}"></span>${esc(f.title)}</button>`).join("")}</div>`;
@@ -351,13 +354,13 @@ const RV = (() => {
     async function selectFlight(e) {
       entry = e;
       const picks = $(".rv-picks");
-      if (G.kind === "manoeuvres" || G.kind === "block") picks.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(G.flights[+b.dataset.f] === e)));
+      if (G.kind === "manoeuvres" || G.kind === "block" || G.kind === "runs") picks.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(G.flights[+b.dataset.f] === e)));
       else {
         picks.querySelectorAll(".rv-conds button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === e.cond)));
         const both = G.flights.filter(x => x.cond === e.cond).map(x => x.source);
         picks.querySelectorAll(".rv-src button").forEach(b => { b.setAttribute("aria-pressed", String(b.dataset.s === e.source)); b.disabled = !both.includes(b.dataset.s); b.title = b.disabled ? "Not flown in Unity (the bench's lone drone cannot look round at zero stick)" : ""; });
       }
-      $(".rv-about").innerHTML = G.kind === "block" ? `<p>${esc(G.about)}</p><p>${esc(e.about || "")}</p>` : `<p>${esc(G.kind === "manoeuvres" ? e.about : G.about)}</p>`;
+      $(".rv-about").innerHTML = G.kind === "block" || G.kind === "runs" ? `<p>${esc(G.about)}</p><p>${esc(e.about || "")}</p>` : `<p>${esc(G.kind === "manoeuvres" ? e.about : G.about)}</p>`;
       $(".rv-loading").hidden = false;
       try {
         const other = G.flights.find(x => x.cond === e.cond && x.source !== e.source);
@@ -365,7 +368,7 @@ const RV = (() => {
         if (entry !== e) return;                          // a later click won
         const newCity = !C || C.id !== cj.id;
         // another condition of the same walk or search keeps the moment; anything else starts from the beginning
-        const same = G.kind !== "manoeuvres" && shownGroup === G.id;      // a "block" group is one block: keep the moment
+        const same = G.kind !== "manoeuvres" && G.kind !== "runs" && shownGroup === G.id;      // a "block" group is one block: keep the moment
         F = flight(fj); C = city(cj); OTHER = oj ? flight(oj) : null;
         shownGroup = G.id;
         t = same ? Math.min(t, F.tEnd) : 0;
@@ -381,7 +384,8 @@ const RV = (() => {
 
     // ---- layers and legend
     function drawLayers() {
-      const show = LAYER_TEXT.filter(([k]) => k !== "cylinders" || (C && (C.cyl || C.ell))).filter(([k]) => k !== "other" || OTHER);
+      const show = LAYER_TEXT.filter(([k]) => k !== "cylinders" || (C && (C.cyl || C.ell))).filter(([k]) => k !== "other" || OTHER)
+        .filter(([k]) => !F || !F.marks || (k !== "seen" || F.seenOrder) && (k !== "route" || (F.wps && F.wps.length)));   // a recorded trial has neither
       $(".rv-layers").innerHTML = show.map(([k, txt]) => `<label><input type="checkbox" data-l="${k}" ${layers[k] ? "checked" : ""}> ${txt}</label>`).join("");
       $(".rv-layers").querySelectorAll("input").forEach(i => i.addEventListener("change", () => {
         layers[i.dataset.l] = i.checked;
@@ -395,12 +399,15 @@ const RV = (() => {
         `<span><span class="sw" style="background:${cc};border-radius:50%;width:10px"></span>drone with its feed shown</span>`,
         F.n > 1 ? `<span><span class="sw" style="background:var(--panel);border:1.6px solid ${cc};border-radius:50%;width:10px"></span>inside the formation, not shown</span>` : "",
         F.apartMask ? `<span><span class="sw" style="background:transparent;border:2px solid var(--warn);border-radius:50%;width:12px;height:12px"></span>apart from the main group</span>` : "",
-        `<span><span class="sw" style="background:${cc};width:6px;height:6px;border-radius:1px"></span>street seen</span>`,
+        F.marks && !F.seenOrder ? "" : `<span><span class="sw" style="background:${cc};width:6px;height:6px;border-radius:1px"></span>street seen</span>`,
         F.decisions.length ? `<span><span class="ln" style="border-color:var(--ink-2);border-top-style:dashed"></span>block's street, not yet entered</span><span><span class="ln" style="border-color:${cc}"></span>entered (the old preview)</span>` : "",
         F.decisions.some(d => d.opts.some(op => op.end)) ? `<span><span class="sw" style="background:var(--panel);border:1.8px solid var(--ink-2);width:9px;height:9px"></span>building at a street's end, filled once looked down</span>` : "",
         `<span><b style="color:var(--bad);margin-right:5px">×</b>drone lost</span>`,
         F.contacts.length ? `<span><span class="sw" style="background:var(--warn);width:7px;height:7px;transform:rotate(45deg)"></span>building contact</span>` : "",
         F.target ? `<span>★ the target (dashed: ${findM(F)} m)</span>` : "",
+        F.marks && (F.marks.goals || []).length ? `<span>☆ a goal, its zone dashed (green once found)</span>` : "",
+        F.marks && (F.marks.presses || []).length ? `<span><b style="color:var(--good)">▲</b><b style="color:var(--bad)">▲</b><b style="color:var(--warn);margin-right:5px">▲</b>a press: correct, false alarm, outside every zone</span>` : "",
+        F.marks && F.marks.start ? `<span><span class="ln" style="border-color:var(--ink-2);border-top-style:dashed"></span>the start line</span>` : "",
         OTHER ? `<span><span class="sw" style="background:transparent;border:1.5px solid var(--ink-2);width:9px;height:9px"></span>${OTHER.source === "unity" ? "Unity's" : "the replica's"} flight of the same ${F.unit || (F.kind === "search" ? "route" : "walk")}</span>` : ""];
       $(".rv-legend").innerHTML = items.filter(Boolean).join("");
     }
@@ -410,6 +417,45 @@ const RV = (() => {
       const D = F.decisions; let k = -1;
       for (let i = 0; i < D.length; i++) { const s = D[i].t0 !== null ? D[i].t0 : D[i].t; if (s !== null && s <= tt + 1e-6) k = i; }
       return k;
+    }
+
+    // ---- a recorded trial's marks: the goals and their zones, the start line, the pilot's presses so far
+    const PRESS = { correct: "good", false_alarm: "bad", out_of_zone: "warn" };
+    const pressTone = o => T[PRESS[o]] || T["ink-2"];
+    const PRESS_TEXT = { correct: "correct", false_alarm: "a false alarm", out_of_zone: "outside every goal's zone", "": "not scored" };
+    const goalFound = g => g.found !== null && g.found !== undefined && t >= g.found;
+    function zonePath(c, v, g, grow) {
+      const x = v.sx(g.x), y = v.sy(g.z);
+      if (g.shape === "square") {                     // a tile: the square, grown by the zone with round corners
+        const h = g.half * v.k, r = grow * v.k;
+        c.moveTo(x - h, y - h - r); c.lineTo(x + h, y - h - r); c.arc(x + h, y - h, r, -Math.PI / 2, 0);
+        c.lineTo(x + h + r, y + h); c.arc(x + h, y + h, r, 0, Math.PI / 2); c.lineTo(x - h, y + h + r);
+        c.arc(x - h, y + h, r, Math.PI / 2, Math.PI); c.lineTo(x - h - r, y - h); c.arc(x - h, y - h, r, Math.PI, 1.5 * Math.PI);
+      } else { const r = (g.half + grow) * v.k; c.moveTo(x + r, y); c.arc(x, y, r, 0, 2 * Math.PI); }
+    }
+    function drawMarks(c, v, M) {
+      if (M.start) {
+        const h = M.start.heading * Math.PI / 180, L = 45, ux = Math.cos(h), uz = -Math.sin(h);   // across the heading
+        const crossed = t >= M.start.t;
+        c.strokeStyle = rgba(T["ink-2"], crossed ? 0.45 : 0.9); c.lineWidth = 1.6; c.setLineDash([6, 4]); c.beginPath();
+        c.moveTo(v.sx(M.start.x - ux * L), v.sy(M.start.z - uz * L)); c.lineTo(v.sx(M.start.x + ux * L), v.sy(M.start.z + uz * L));
+        c.stroke(); c.setLineDash([]);
+        label(c, v.sx(M.start.x + ux * L) + 4, v.sy(M.start.z + uz * L), crossed ? "start line (crossed)" : "start line", { color: T["ink-2"] });
+      }
+      for (const g of M.goals || []) {
+        const found = goalFound(g), col = found ? T.good : T.ink;
+        c.setLineDash([5, 4]); c.lineWidth = 1.3; c.strokeStyle = rgba(col, 0.7); c.beginPath(); zonePath(c, v, g, g.zone); c.stroke(); c.setLineDash([]);
+        c.lineWidth = 1; c.strokeStyle = rgba(col, 0.35); c.beginPath(); zonePath(c, v, g, 0); c.stroke();
+        const x = v.sx(g.x), y = v.sy(g.z);
+        star(c, x, y, 7); c.fillStyle = found ? T.good : T.panel; c.fill(); c.strokeStyle = col; c.lineWidth = 1.5; c.stroke();
+        label(c, x + 10, y - 10, found ? `${g.label}: found at ${fmtT(g.found)}` : g.label, { color: col });
+      }
+      for (const p of M.presses || []) if (p.t <= t) {
+        const x = v.sx(p.x), y = v.sy(p.z), col = pressTone(p.outcome), age = t - p.t;
+        c.beginPath(); c.moveTo(x, y - 7); c.lineTo(x + 6, y + 4); c.lineTo(x - 6, y + 4); c.closePath();
+        c.fillStyle = col; c.fill(); c.strokeStyle = T.panel; c.lineWidth = 1.2; c.stroke();
+        if (age < 2.5) { c.strokeStyle = rgba(col, 1 - age / 2.5); c.lineWidth = 2; c.beginPath(); c.arc(x, y, 8 + 12 * age, 0, 2 * Math.PI); c.stroke(); }
+      }
     }
 
     // ---- drawing
@@ -475,6 +521,7 @@ const RV = (() => {
         star(c, x, y, 9); c.fillStyle = found ? T.good : T.panel; c.fill(); c.strokeStyle = found ? T.good : T.ink; c.lineWidth = 1.6; c.stroke();
         label(c, x + 12, y - 10, found ? `found at ${fmtT(tf)}` : "target", { color: found ? T.good : T.ink });
       }
+      if (F.marks) drawMarks(c, v, F.marks);
       // the other source's flight of the same walk / route
       if (layers.other && OTHER) {
         const ods = drones(OTHER, t);
@@ -566,6 +613,12 @@ const RV = (() => {
         d && !d.plaza ? ["this block's streets entered", `${nPrev} of ${d.opts.length}`] : null,
         d && !d.plaza && nEnds ? ["... looked down to the building at the end", `${nDown} of ${nEnds}`] : null,
         near !== null ? ["nearest drone to the target", `${Math.round(near)} m`] : null].filter(Boolean);
+      if (F.marks) {
+        const G_ = F.marks.goals || [], P_ = (F.marks.presses || []).filter(p => p.t <= t);
+        if (F.marks.start) rows.push(["task clock", t >= F.marks.start.t ? fmtT(t - F.marks.start.t) : "not started"]);
+        if (G_.length) rows.push(["goals found", `${G_.filter(goalFound).length} of ${G_.length}`]);
+        if ((F.marks.presses || []).length) rows.push(["presses so far", `${P_.length} (${P_.filter(p => p.outcome === "correct").length} correct)`]);
+      }
       for (const s of F.series) rows.push([s.label, seriesAt(s, t).toFixed(s.digits === undefined ? 2 : s.digits)]);
       for (const b of F.bands) if (b.spans.some(([a, z]) => t >= a && t <= z)) rows.push([b.label, "now"]);
       $(".rv-now").innerHTML = `<p class="eyebrow">Now, ${fmtT(t)}</p><p class="rv-phase">${esc(phaseText())}</p>
@@ -573,7 +626,7 @@ const RV = (() => {
     }
     function summary() {
       const s = F.summary || {}, rows = (o.summaryRows ? o.summaryRows(F, s) : []).filter(Boolean);
-      $(".rv-sum").innerHTML = `<p class="eyebrow">The whole flight · ${F.source === "unity" ? "Unity" : "the replica"}</p>
+      $(".rv-sum").innerHTML = `<p class="eyebrow">The whole flight · ${esc(F.source_label || (F.source === "unity" ? "Unity" : "the replica"))}</p>
         <dl class="rv-kv">${rows.map(([a, b]) => `<dt>${a}</dt><dd class="mono">${esc(b)}</dd>`).join("")}</dl>
         ${o.summaryNote ? `<p class="small muted">${o.summaryNote(F)}</p>` : ""}`;
     }
@@ -615,6 +668,10 @@ const RV = (() => {
       for (const e of F.contacts) g += `<rect x="${(x(e.t) - 2.5).toFixed(1)}" y="${rowY[2]}" width="5" height="5" transform="rotate(45 ${x(e.t).toFixed(1)} ${rowY[2] + 2.5})" fill="${T.warn}"/>`;
       for (const e of F.losses) g += `<text x="${x(e.t).toFixed(1)}" y="${rowY[2] + 16}" text-anchor="middle" fill="${T.bad}" style="font:700 12px var(--font-body, sans-serif)">×</text>`;
       if (foundAt(F) !== null) g += `<text x="${x(foundAt(F)).toFixed(1)}" y="${rowY[2] + 16}" text-anchor="middle" fill="${T.good}" style="font:700 13px var(--font-body, sans-serif)">★</text>`;
+      if (F.marks) {
+        if (F.marks.start) g += `<line x1="${x(F.marks.start.t).toFixed(1)}" x2="${x(F.marks.start.t).toFixed(1)}" y1="${rowY[0] - 2}" y2="${rowY[2] + 10}" stroke="${T["ink-2"]}" stroke-width="1.2" stroke-dasharray="3 2"/>`;
+        for (const p of F.marks.presses || []) g += `<path d="M${x(p.t).toFixed(1)} ${rowY[2] - 2} l5 9 l-10 0 z" fill="${pressTone(p.outcome)}"/>`;
+      }
       const step = F.tEnd > 900 ? 120 : F.tEnd > 300 ? 60 : F.tEnd > 90 ? 15 : 5;
       for (let s = 0; s <= F.tEnd + 1e-6; s += step) g += `<line x1="${x(s)}" x2="${x(s)}" y1="${H - m.b}" y2="${H - m.b + 3}" stroke="${T.line}"/><text x="${x(s)}" y="${H - 4}" text-anchor="middle" fill="${T["ink-2"]}" style="font:500 10px var(--font-mono, monospace)">${fmtT(s)}</text>`;
       g += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="${T.line}"/>`;
@@ -633,6 +690,10 @@ const RV = (() => {
         if (d >= 0) lines.push(F.decisions[d].plaza ? `block ${d + 1}: a plaza, crossed by the streets` : `block ${d + 1}: decided${F.decisions[d].prev !== null && F.decisions[d].prev !== undefined ? `, ${Math.round(100 * F.decisions[d].prev)}% of its streets previewed` : ""}`);
         for (const e of F.losses) if (Math.abs(x(e.t) - px) < 5) lines.push(`drone ${e.i + 1} lost${e.why && e.why !== "lost" ? ` (${WHY[e.why] || e.why})` : ""}`);
         for (const e of F.contacts) if (Math.abs(x(e.t) - px) < 4) lines.push(`drone ${e.i + 1} touches a building`);
+        if (F.marks) {
+          if (F.marks.start && Math.abs(x(F.marks.start.t) - px) < 4) lines.push("the first drone crosses the start line: the task clock starts");
+          for (const p of F.marks.presses || []) if (Math.abs(x(p.t) - px) < 5) lines.push(`a press${p.label ? ` for the ${p.label}` : ""}: ${PRESS_TEXT[p.outcome] || p.outcome}`);
+        }
         if (F.apart) for (const [a, b] of F.apart.split || []) if (s >= a && s <= b) { lines.push("the formation is split in two groups"); break; }
         for (const b of F.bands) if (b.spans.some(([a, z]) => s >= a && s <= z)) lines.push(b.label);
         for (const sr of F.series) lines.push(`${sr.label}: ${seriesAt(sr, s).toFixed(sr.digits === undefined ? 2 : sr.digits)}`);
@@ -681,6 +742,13 @@ const RV = (() => {
           ap ? "apart from the formation's main group (more than 30 m of free path)" : "", `heading ${Math.round(((d.yaw % 360) + 360) % 360)}°`].filter(Boolean));
       }
       for (const e of F.losses) if (e.t <= t && Math.hypot(e.x - xw, e.z - zw) * view.k < 8) return tipShow(ev.clientX, ev.clientY, `Drone ${e.i + 1} lost at ${fmtT(e.t)}`, [WHY[e.why] || ""].filter(Boolean));
+      if (F.marks) {
+        for (const p of F.marks.presses || []) if (p.t <= t && Math.hypot(p.x - xw, p.z - zw) * view.k < 8)
+          return tipShow(ev.clientX, ev.clientY, `A press at ${fmtT(p.t)}`, [`${p.label ? `the ${p.label}: ` : ""}${PRESS_TEXT[p.outcome] || p.outcome}`, "drawn where the formation's centre was"]);
+        for (const g of F.marks.goals || []) if (Math.hypot(g.x - xw, g.z - zw) * view.k < 10)
+          return tipShow(ev.clientX, ev.clientY, `Goal: ${g.label}`, [goalFound(g) ? `found at ${fmtT(g.found)}` : g.found !== null && g.found !== undefined ? `found later, at ${fmtT(g.found)}` : "never answered in this run",
+            `dashed: its zone, ${g.zone} m round the ${g.shape === "square" ? "tile" : "patch"}`]);
+      }
       const k = decisionAt(t);
       if (k >= 0) for (const op of F.decisions[k].opts) if (op.end && Math.hypot(op.end[0] - xw, op.end[1] - zw) * view.k < 8) {
         return tipShow(ev.clientX, ev.clientY, "What stands at this street's far end", [op.te === null || op.te === undefined ? "never looked down in this flight"

@@ -1,0 +1,203 @@
+<title>User Trial Index</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (trials_report via swarmtune_report.s4_style), then the
+   index's own: the Swarm Study Index's cards. */
+/*__S4_STYLE__*/
+:root { --k-swarm: var(--c-street); --k-single: var(--c-single); }
+.backs { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.series { display: grid; gap: 16px; }
+.trial { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; display: grid;
+         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 26px; min-width: 0; }
+@media (max-width: 820px) { .trial { grid-template-columns: minmax(0, 1fr); } }
+.trial header { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.trial .id { font: 600 0.95rem var(--font-mono); background: var(--ink); color: var(--panel); border-radius: 5px; padding: 3px 8px; }
+.trial h3 { margin: 0; font-size: 1.3rem; }
+.trial .was { color: var(--ink-2); font-size: 0.88rem; }
+.trial h4 { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); margin: 6px 0 6px; }
+.trial p, .trial li { font-size: 0.93rem; color: var(--ink-2); }
+.trial ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 5px; }
+.trial li b, .trial p b { color: var(--ink); }
+.links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.links a { font: 600 0.88rem/1.2 var(--font-body); color: var(--ink); text-decoration: none; border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; background: var(--bg); }
+.links a:hover { border-color: var(--muted); }
+.links .mono { font-size: 0.8rem; color: var(--muted); }
+.nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 520px) { .nums { grid-template-columns: minmax(0, 1fr); } }
+.nums .tile .v { font-size: 1.3rem; }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.foot { margin-top: 24px; font-size: 0.84rem; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <div class="backs"><a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a></div>
+      <p class="eyebrow">User trials · the swarm against one drone, in the headset</p>
+      <h1>User Trial Index</h1>
+      <p class="lead">Every series of user trials so far: pilots in the VR headset finding three hatted walkers in a city, with the ten-drone swarm and with one drone.
+        Each series has a page in the same shape: the three times (in all, at the goals, between them), how the pilot flew, the drones lost, what changed since the series
+        before, and every run replayed.</p>
+      <p class="lead">The simulation studies that shaped each series are on the Swarm Study Index. The setup changed between series, the city with it, so a row below is one
+        series' own comparison, not a repeat of the same one.</p>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+  <p class="foot" id="foot"></p>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const secs = x => ok(x) ? `${Math.round(x)} s` : "–";
+const times = r => ok(r) ? `×${r.toFixed(2)}` : "–";
+const pv = p => !ok(p) ? "–" : p < 0.001 ? "< 0.001" : p.toFixed(p < 0.1 ? 3 : 2);
+const PG = D.pages || {}, S = D.series || [];
+const MEAS = [["total", "Total time"], ["search", "Time at a goal"], ["transit", "Time between goals"]];
+
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 1100) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (Wd, H, label, g) => `<svg viewBox="0 0 ${Wd} ${H}" style="max-width:${Wd}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+const name = s => s.notes.title.includes("·") ? s.notes.title.split("·").slice(1).join("·").trim() : s.notes.title;
+const dates = s => (s.dates || []).map(d => `${+d.slice(6, 8)} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][+d.slice(4, 6) - 1]} ${d.slice(0, 4)}`).join(" & ");
+
+// One row per series, one panel per measure: each pilot's swarm / single-drone ratio and the pooled one, on a log axis.
+function ratioChart(el) {
+  const rows = S.filter(s => s.timed);
+  const all = rows.flatMap(s => MEAS.flatMap(([k]) => s.stats[k] ? [s.stats[k].ratio, ...s.stats[k].per.map(p => p.ratio)] : []));
+  let lo = 0.25, hi = 4; while (Math.min(...all) < lo) lo /= 2; while (Math.max(...all) > hi) hi *= 2;
+  const n = MEAS.length, total = cw(el), pw = Math.max(240, Math.floor(total / Math.min(n, Math.max(1, Math.floor(total / 280)))) - 14);
+  const rh = 34, m = {l: 78, r: 14, t: 22, b: 26}, H = m.t + rows.length * rh + m.b;
+  const xx = r => m.l + (pw - m.l - m.r) * (Math.log(r) - Math.log(lo)) / (Math.log(hi) - Math.log(lo));
+  const marks = [];
+  const panel = ([k, title]) => {
+    let g = `<text x="${m.l}" y="12" style="font-size:10px">← swarm sooner</text><text x="${pw - m.r}" y="12" text-anchor="end" style="font-size:10px">swarm slower →</text>`;
+    for (let r = lo; r <= hi * 1.0001; r *= 2) {
+      const one = Math.abs(r - 1) < 1e-9;
+      g += `<line x1="${xx(r)}" x2="${xx(r)}" y1="${m.t - 4}" y2="${H - m.b}" stroke="${one ? "var(--ink)" : "var(--grid)"}" stroke-width="${one ? 1.4 : 1}"/><text x="${xx(r)}" y="${H - 8}" text-anchor="middle">×${r >= 1 ? r : r.toFixed(2)}</text>`;
+    }
+    rows.forEach((s, i) => {
+      const y = m.t + i * rh + rh / 2, st = s.stats[k];
+      g += `<text class="lbl" x="${m.l - 8}" y="${y + 4}" text-anchor="end">${esc(s.test)}</text>`;
+      if (!st) return;
+      st.per.forEach(p => { const j = marks.length; marks.push([s, k, p]); g += `<circle cx="${xx(p.ratio)}" cy="${y}" r="4.5" fill="var(--panel)" stroke="var(--ink-2)" stroke-width="1.6"/><circle class="hit" data-i="${j}" tabindex="0" cx="${xx(p.ratio)}" cy="${y}" r="9"/>`; });
+      const j = marks.length; marks.push([s, k, null]);
+      const x = xx(st.ratio);
+      g += `<path d="M${x} ${y - 7} L${x + 7} ${y} L${x} ${y + 7} L${x - 7} ${y} Z" fill="var(--ink)"/><circle class="hit" data-i="${j}" tabindex="0" cx="${x}" cy="${y}" r="9"/>`;
+    });
+    return `<div><h4>${esc(title)}</h4>${svgOf(pw, H, title, g)}</div>`;
+  };
+  el.innerHTML = `<div class="pair" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px">${MEAS.map(panel).join("")}</div>
+    <p class="small muted">Swarm ÷ single drone: ◇ each pilot's ratio of geometric means, ◆ pooled over the series' pilots. ${S.filter(s => !s.timed).map(s => `${esc(s.test)} has no task times and is left out.`).join(" ")}</p>`;
+  hoverMarks(el, i => {
+    const [s, k, p] = marks[i], st = s.stats[k];
+    return p ? [`${s.test} · ${p.pid}`, [["var(--ink-2)", times(p.ratio), `swarm ${secs(p.gm_s)} (${p.n_s}) against ${secs(p.gm_d)} (${p.n_d})`]]]
+      : [`${s.test} · pooled`, [["var(--ink)", times(st.ratio), `${st.n_pilots} pilots; p ${pv(st.p)}, at the design's smallest ${pv(st.floor)}`]]];
+  });
+}
+
+function ANSWER_BOX() {
+  const T = S.filter(s => s.timed), lower = k => T.filter(s => s.stats[k] && s.stats[k].ratio < 1).length;
+  return `<p class="eyebrow">So far</p><ol>
+    <li><b>${S.length} series, ${S.reduce((a, s) => a + s.pilots.length, 0)} pilots, ${S.reduce((a, s) => a + s.n_runs, 0)} recorded runs</b>${T.length < S.length ? `; ${S.length - T.length} series without task times` : ""}.</li>
+    <li><b>Total time:</b> the swarm was quicker in ${lower("total")} of ${T.length} timed series; <b>at the goals</b> in ${lower("search")}, <b>between goals</b> in ${lower("transit")}.</li>
+    <li><b>Two pilots a series</b>: in ${T.filter(s => s.stats.total && s.stats.total.floor >= 0.05).length} of ${T.length} timed series not even the most one-sided result could reach p 0.05 (each page gives its design's smallest p). ${(() => {
+      const hits = T.flatMap(s => MEAS.filter(([k]) => s.stats[k] && s.stats[k].p < 0.05).map(([k, t]) => `${s.test}'s ${t.toLowerCase()} (${times(s.stats[k].ratio)}, p ${pv(s.stats[k].p)})`));
+      return hits.length ? `Below it: ${hits.join(", ")}.` : "None of the times reached it."; })()}</li></ol>
+    <p class="bottom">Every page is built from the runs by <span class="code">trials_report.py</span>; open a series below.</p>`;
+}
+
+const TABS = [["series", "The series"], ["times", "Times across the series"], ["how", "How the pages are made"]];
+const RENDER = {};
+function show(id) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  const mm = $("#main"); mm.replaceChildren();
+  const sec = document.createElement("section"); sec.className = "tab"; sec.setAttribute("role", "tabpanel"); mm.appendChild(sec);
+  RENDER[id](sec);
+  try { localStorage.setItem("trialindextab", id); } catch (e) { /* private window */ }
+}
+$("#tabs").innerHTML = TABS.map(([id, l]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${l}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+
+RENDER.series = el => {
+  el.innerHTML = `<div class="series">${S.slice().reverse().map(s => {
+    const url = PG[s.test], tile = ([k, t]) => { const st = s.timed ? s.stats[k] : null;
+      return `<div class="tile"><div class="k">${t}</div><div class="v">${times(st && st.ratio)}<span>${st ? `a typical run ${secs(st.typ_s)} against ${secs(st.typ_d)}` : s.timed ? "not measured" : "no task times"}</span></div></div>`; };
+    const changes = (s.notes.changes || []).flatMap(a => a.leads.length ? a.leads : a.items.slice(0, 1)).slice(0, 7);
+    return `<article class="trial"><header><span class="id">${esc(s.test)}</span><h3>${esc(name(s))}</h3><span class="was">${esc(dates(s))} · ${esc((s.city || []).join(", "))} · ${s.pilots.map(esc).join(", ")} · ${s.n_runs} runs${s.n_practice ? `, ${s.n_practice} practice` : ""}</span></header>
+      <div><h4>The series</h4>${s.notes.summary}
+        <div class="links">${url ? `<a href="${url}" target="_blank" rel="noopener">Results page</a><a href="${url}#flights" target="_blank" rel="noopener">Every run replayed</a><a href="${url}#changes" target="_blank" rel="noopener">What changed</a>` : `<span class="small muted">page not published yet</span>`}<span class="mono">docs/trials/${esc(s.test)}.md</span></div></div>
+      <div><h4>Swarm ÷ single drone${s.timed ? "" : " (no task times)"}</h4><div class="nums">${MEAS.map(tile).join("")}</div>
+        <h4>${esc(s.notes.changes_title || "What changed")}</h4><ul>${changes.map(c => `<li>${c}</li>`).join("")}</ul></div></article>`;
+  }).join("")}</div>`;
+};
+RENDER.times = el => {
+  el.innerHTML = `<div class="intro"><h2>The three times, series by series</h2><p>Each series' swarm time over its single-drone time, per pilot and pooled. Below ×1 the swarm
+      was quicker. The cities, the swarm's law, the screens and the scoring all changed between series (each page's What changed tab), so read across a row, not down a column.</p></div>
+    <div class="box"><div class="chart" id="ratios"></div></div>
+    <div class="box"><h3>How the times are defined</h3><ul class="small">
+      <li><b>Total time</b>: from the first drone crossing the start line, 30 m ahead of the spawn (recorded from 26 October 2026, found in the drone logs before), to the last answer press, or where answers were not pressed, the end of the recording.</li>
+      <li><b>Time at a goal</b>: from the formation's centre entering a goal's zone (its patch and 15 m round it) to leaving it for the next goal, summed over the three goals.</li>
+      <li><b>Time between goals</b>: from leaving one zone (the start line, for the first) to entering the next, summed.</li>
+      <li><b>Ratio and p</b>: per pilot the ratio of the geometric means of their swarm and single-drone runs; pooled as the geometric mean over the pilots; p from an exact permutation of the conditions within each pilot. Practice runs are left out.</li></ul></div>`;
+  observe($("#ratios", el), () => ratioChart($("#ratios", el)));
+};
+RENDER.how = el => {
+  el.innerHTML = `<div class="intro"><h2>How the pages are made</h2></div>
+    <div class="box"><ul class="small">
+      <li><b>Every number comes from the runs</b>: <span class="code">python -B Assets/Scripts/Experiment/trials_report.py all</span> (the stitching env) runs analyse.py in memory on each series' runs in the experiment folder, every run timed from the start line, and writes each page with its tables and replays to <span class="code">experiment_results/trials/</span>.</li>
+      <li><b>The prose is by hand</b>: what changed since the series before, the setup side by side, the captions and the reading are <span class="code">docs/trials/&lt;series&gt;.md</span>; the page addresses are <span class="code">docs/trials/pages.json</span>. <span class="code">docs/trials/README.md</span> says how to add a series.</li>
+      <li><b>A series is the experimenter's grouping</b> (<span class="code">analyse.py group</span>): its runs, practice list and city are its folder's test.json.</li></ul></div>`;
+};
+
+$("#answer-box").innerHTML = ANSWER_BOX();
+$("#foot").textContent = `Built ${D.built} from ${S.map(s => `${s.test} (${s.built})`).join(", ")}.`;
+let first = "series";
+try { const t = localStorage.getItem("trialindextab"); if (t && TABS.some(x => x[0] === t)) first = t; } catch (e) { /* private window */ }
+const h = location.hash.slice(1);
+show(TABS.some(t => t[0] === h) ? h : first);
+</script>

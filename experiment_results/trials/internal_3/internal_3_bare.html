@@ -1,0 +1,1643 @@
+<title>internal_3 Trial Results</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (trials_report via swarmtune_report.s4_style),
+   then the trial pages' additions. */
+
+/* Layout: the study pages' family (S3's report) -- a masthead (the question, the findings) over a sticky tab bar, each
+   tab a short intro over its tables and figures. Data colour: the two building variants (R teal, B violet), the
+   surround modes on one blue ramp with aim-and-turn in orange, envelopment on one green ramp; pass / fail pills. */
+:root {
+  --bg: #f2f4f5; --panel: #fbfcfc; --ink: #111c25; --ink-2: #44525e; --muted: #7c8893; --line: #d6dde2;
+  --grid: #e4e8eb; --chip: #e6ebee;
+  --var-r: #1a8f84; --var-b: #8a4fb8;
+  --m-soft: #7aaeea; --m-firm: #1f5fb6; --m-aim: #eb6834; --m-perim: #1a8f84; --m-other: #a9b3bb;
+  --seq-0: #e3f1ea; --seq-1: #0b5e41;
+  --good: #0c8a0c; --good-bg: #e2f3e2; --warn: #b77a00; --warn-bg: #fbf0d6; --bad: #c43535; --bad-bg: #f8e1e1;
+  /* Phase 2's six conditions: the validated categorical order (dataviz palette slots 1-6), assigned in the order the
+     page lists them, so neighbours in a legend or a bar list are the validated adjacent pairs */
+  --c-street: #2a78d6; --c-hop: #eb6834; --c-pass: #1baf7a; --c-hold: #eda100; --c-single: #e87ba4; --c-look: #008300;
+  --c-hop2: #6250d6;
+  /* the maps (the Cities tab): asphalt streets, pale blocks, slate buildings, plazas as lawn, R's cylinders in R's teal */
+  --map-street: #d9dfe3; --map-block: #f8f9f6; --map-edge: #eceeeb; --map-plaza: #e0ead6; --map-bldg: #6b7883;
+  --map-cyl: #1a8f84;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+    --grid: #1d262d; --chip: #1f2830;
+    --var-r: #33b3a6; --var-b: #b07ddb;
+    --m-soft: #649ff0; --m-firm: #bcd9fb; --m-aim: #f08a5d; --m-perim: #33b3a6; --m-other: #5d6b75;
+    --seq-0: #18241f; --seq-1: #6fd3a7;
+    --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+    --c-street: #3987e5; --c-hop: #d95926; --c-pass: #199e70; --c-hold: #c98500; --c-single: #d55181; --c-look: #008300;
+    --c-hop2: #9085e9;
+    --map-street: #0e1418; --map-block: #25303a; --map-edge: #1b242b; --map-plaza: #1f3829; --map-bldg: #66737e;
+    --map-cyl: #33b3a6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+  --grid: #1d262d; --chip: #1f2830;
+  --var-r: #33b3a6; --var-b: #b07ddb;
+  --m-soft: #649ff0; --m-firm: #bcd9fb; --m-aim: #f08a5d; --m-perim: #33b3a6; --m-other: #5d6b75;
+  --seq-0: #18241f; --seq-1: #6fd3a7;
+  --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+  --c-street: #3987e5; --c-hop: #d95926; --c-pass: #199e70; --c-hold: #c98500; --c-single: #d55181; --c-look: #008300;
+  --c-hop2: #9085e9;
+  --map-street: #0e1418; --map-block: #25303a; --map-edge: #1b242b; --map-plaza: #1f3829; --map-bldg: #66737e;
+  --map-cyl: #33b3a6;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 56px; }
+h1, h2, h3, h4 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 3.6vw, 2.7rem); font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 600; line-height: 1.15; margin-bottom: 0.4rem; }
+h3 { font-size: 1.1rem; font-weight: 600; line-height: 1.25; margin-bottom: 0.35rem; }
+p { margin: 0 0 0.65rem; max-width: 74ch; }
+p:last-child { margin-bottom: 0; }
+.eyebrow { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 0.45rem; }
+.muted { color: var(--muted); }
+.small { font-size: 0.86rem; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.code { font-family: var(--font-mono); font-weight: 500; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; font-size: 0.88em; }
+
+.masthead { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr); gap: 28px; padding-block: 28px 22px; align-items: start; }
+.lead { font-size: 1.03rem; color: var(--ink-2); margin-top: 0.7rem; }
+.back { display: inline-block; margin: 0 0 12px; font: 500 0.88rem/1.2 var(--font-body); color: var(--ink-2); text-decoration: none; }
+.back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.back:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { display: inline-flex; align-items: baseline; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 0.84rem; color: var(--ink-2); }
+.chip b { font: 600 0.92rem var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.findings { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; }
+.findings ul { margin: 0.3rem 0 0; padding-left: 1.1rem; display: grid; gap: 7px; }
+.findings li { font-size: 0.93rem; color: var(--ink-2); }
+.findings li b { color: var(--ink); font-weight: 600; }
+@media (max-width: 900px) { .masthead { grid-template-columns: minmax(0, 1fr); } }
+
+.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab-btn { appearance: none; border: 0; background: none; color: var(--ink-2); font: 600 0.98rem/1 var(--font-display); padding: 13px 12px 11px; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; }
+.tab-btn:hover { color: var(--ink); }
+.tab-btn[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tab-btn:focus-visible { outline: 2px solid var(--m-firm); outline-offset: -3px; }
+.tab { padding-top: 24px; display: grid; gap: 22px; }
+.intro { display: grid; gap: 4px; max-width: 82ch; }
+
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; }
+.grid2 > * { min-width: 0; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--grid); text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.l { text-align: left; font-family: var(--font-body); }
+tr.sep td { border-top: 1px solid var(--line); }
+.pill { display: inline-block; font: 600 0.72rem/1 var(--font-body); letter-spacing: 0.04em; border-radius: 999px; padding: 3px 8px; }
+.pill.ok { color: var(--good); background: var(--good-bg); }
+.pill.no { color: var(--bad); background: var(--bad-bg); }
+.pill.na { color: var(--muted); background: var(--chip); }
+.v-r { color: var(--var-r); font-weight: 600; }
+.v-b { color: var(--var-b); font-weight: 600; }
+.bad { color: var(--bad); }
+.good { color: var(--good); }
+
+.heat td.c { font-size: 0.8rem; min-width: 46px; position: relative; }
+.heat td.c.star { outline: 2px solid var(--ink); outline-offset: -2px; font-weight: 600; }
+.heat td.c .pred { position: absolute; left: 3px; top: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--m-aim); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--ink-2); align-items: center; }
+.legend .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.legend .ln { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid; margin-right: 5px; vertical-align: 3px; }
+td .ln { display: inline-block; width: 14px; height: 0; border-top: 2.5px solid; margin-right: 7px; vertical-align: 3px; }
+
+.picker { display: grid; gap: 10px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { font: 500 0.88rem/1 var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; cursor: pointer; }
+.seg button:hover { border-color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--m-firm); outline-offset: 1px; }
+.dgrid { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 4px; align-items: center; max-width: 420px; }
+.dgrid .h { font: 600 0.7rem/1 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-align: center; }
+.dgrid button { font: 500 0.85rem/1 var(--font-mono); padding: 7px 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink); cursor: pointer; }
+.dgrid button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--ink-2); font: 500 11px var(--font-body); }
+.chart .axis line, .chart .axis path { stroke: var(--line); }
+.chart .gridl { stroke: var(--grid); }
+.notrun { color: var(--muted); font-style: italic; }
+.big { font: 600 1.9rem/1.05 var(--font-display); color: var(--ink); margin: 2px 0 6px; }
+.verdict { font-weight: 600; color: var(--ink); }
+.chart .val { fill: var(--ink); font: 500 11px var(--font-mono); }
+.chart .lbl { fill: var(--ink-2); font: 500 12px var(--font-body); }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:focus-visible { outline: none; stroke: var(--ink); stroke-width: 1; }
+.chart .xh { stroke: var(--muted); stroke-width: 1; }
+.tip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; font-size: 0.82rem; box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 14%, transparent); min-width: 170px; max-width: 320px; }
+.tip .t { color: var(--ink-2); font-weight: 600; margin-bottom: 4px; }
+.tip .tr { display: flex; align-items: center; gap: 8px; line-height: 1.5; }
+.tip .tr b { font: 600 0.86rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); min-width: 3.4em; text-align: right; }
+.tip .tr span:last-child { color: var(--ink-2); }
+.tip .k { display: inline-block; width: 14px; height: 0; border-top: 2px solid; flex: none; }
+@media (prefers-reduced-motion: no-preference) { .tab { animation: fade 160ms ease-out; } }
+@keyframes fade { from { opacity: 0.4; } to { opacity: 1; } }
+
+/* the key under the masthead: what the design codes and the two variants mean */
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; padding-block: 0 20px; }
+.key > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; }
+.key svg { width: 92px; height: auto; display: block; }
+.key p { font-size: 0.88rem; color: var(--ink-2); margin: 0; }
+.key p b { color: var(--ink); }
+.key .eyebrow { margin-bottom: 3px; color: var(--ink); }
+.dcode { font-variant-numeric: tabular-nums; white-space: nowrap; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: help; }
+a { color: inherit; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+
+/* the Look down tab: one small chart per design */
+.ldgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 16px 24px; margin-top: 12px; }
+.ldgrid > * { min-width: 0; }
+
+/* the Cities tab */
+.figframe { position: relative; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--panel); }
+.figframe canvas { display: block; width: 100%; touch-action: none; }
+.thumbs { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; max-width: 960px; }
+.thumbs .h { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); text-align: center; }
+.thumbs .h.row { text-align: right; writing-mode: horizontal-tb; }
+.thumb { appearance: none; padding: 0; border: 2px solid transparent; border-radius: 7px; background: none; cursor: pointer; display: grid; gap: 3px; text-align: left; color: var(--ink-2); font: 500 0.78rem/1.25 var(--font-body); min-width: 0; }
+.thumb[aria-pressed="true"] { border-color: var(--ink); }
+.thumb .figframe { border-radius: 5px; }
+.thumb span { padding: 0 3px 3px; }
+.cmap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 290px); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .cmap { grid-template-columns: minmax(0, 1fr); } }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; margin: 0; font-size: 0.86rem; }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.kv .sub { grid-column: 1 / -1; font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+.mapbar { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.mapbar button, .rv-mapbar button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink); font: 600 16px/1 var(--font-body); cursor: pointer; }
+.headrow { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.headrow h3 { margin: 0; }
+
+/* the flight player (citysim/replay_view.js) */
+.rv { display: grid; gap: 12px; }
+.rv-head { display: grid; gap: 6px; }
+.rv-picks .seg button .ln { margin-right: 6px; }
+.rv-about p { color: var(--ink-2); max-width: 90ch; }
+.rv-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 290px); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .rv-work { grid-template-columns: minmax(0, 1fr); } }
+.rv-fig { min-width: 0; display: grid; gap: 8px; }
+.rv-frame { position: relative; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--panel); }
+.rv-frame canvas { display: block; width: 100%; touch-action: none; cursor: grab; }
+.rv-frame canvas:focus-visible { outline: 2px solid var(--m-firm); outline-offset: -2px; }
+.rv-mapbar { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.rv-loading { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--ink-2); }
+.rv-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.rv-ctl input[type="range"] { flex: 1 1 220px; min-width: 140px; accent-color: var(--ink); }
+.rv-ctl label { font-size: 0.86rem; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+.rv-ctl select { font: 500 0.86rem var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+.rv-play { font: 600 0.9rem/1 var(--font-body); color: var(--panel); background: var(--ink); border: 1px solid var(--ink); border-radius: 5px; padding: 8px 14px; cursor: pointer; min-width: 76px; }
+.rv-clock { font-size: 0.86rem; color: var(--ink-2); min-width: 92px; }
+.rv-layers { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--ink-2); }
+.rv-layers label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.rv-side { display: grid; gap: 12px; min-width: 0; }
+.rv-phase { font-weight: 600; color: var(--ink); margin: 2px 0 6px; font-size: 0.92rem; }
+.rv-kv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; margin: 0; font-size: 0.85rem; }
+.rv-kv dt { color: var(--ink-2); }
+.rv-kv dd { margin: 0; text-align: right; max-width: 12em; }
+.rv-tip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; font-size: 0.82rem; color: var(--ink-2); box-shadow: 0 3px 10px color-mix(in srgb, var(--ink) 14%, transparent); max-width: 320px; }
+.rv-tip .t { color: var(--ink); font-weight: 600; margin-bottom: 3px; }
+
+/* the masthead's answer box */
+.answer-box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; }
+.answer-box .eyebrow { color: var(--ink); }
+.answer-box ol { margin: 0.3rem 0 0; padding-left: 1.2rem; display: grid; gap: 8px; }
+.answer-box li { font-size: 0.95rem; color: var(--ink-2); }
+.answer-box li b { color: var(--ink); font-weight: 600; }
+.answer-box .bottom { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.95rem; }
+
+/* the Answer tab: the idea, five questions, the reading */
+.ans { display: grid; gap: 22px; max-width: 1080px; }
+.q { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; display: grid; gap: 14px; min-width: 0; }
+.qhead { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: start; }
+.qn { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--panel); display: grid; place-items: center; font: 600 1rem/1 var(--font-display); margin-top: 1px; }
+.qhead h2 { margin-bottom: 4px; }
+.qa { margin: 0; font-size: 1.02rem; color: var(--ink); max-width: 80ch; }
+.vp { display: inline-block; font: 600 0.74rem/1 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; border-radius: 999px; padding: 4px 9px; margin-right: 6px; vertical-align: 1px; }
+.vp.yes { color: var(--good); background: var(--good-bg); }
+.vp.part { color: var(--warn); background: var(--warn-bg); }
+.vp.no { color: var(--bad); background: var(--bad-bg); }
+.qbody { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .qbody { grid-template-columns: minmax(0, 1fr); } }
+.qtext p, .qtext li { font-size: 0.93rem; color: var(--ink-2); }
+.qtext ul { margin: 0 0 0.6rem; padding-left: 1.1rem; display: grid; gap: 5px; }
+.qtext b { color: var(--ink); }
+.watch { display: inline-flex; align-items: center; gap: 6px; font: 600 0.88rem/1.2 var(--font-body); color: var(--ink); text-decoration: none; border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; background: var(--bg); }
+.watch:hover { border-color: var(--muted); }
+.watch::before { content: "▶"; font-size: 0.7rem; color: var(--ink-2); }
+.watches { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 760px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+.idea figure { margin: 0; display: grid; gap: 6px; min-width: 0; }
+.idea svg { width: 100%; height: auto; display: block; border-radius: 5px; }
+.idea figcaption { font-size: 0.88rem; color: var(--ink-2); }
+.idea figcaption b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; background: var(--bg); min-width: 0; }
+.tile .k { font-size: 0.84rem; color: var(--ink-2); }
+.tile .v { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 4px; font: 600 1.5rem/1.1 var(--font-display); color: var(--ink); font-variant-numeric: tabular-nums; }
+.tile .v span { font: 500 0.82rem var(--font-body); color: var(--ink-2); }
+.tile .v .arrow { color: var(--muted); font-size: 1.1rem; }
+.reading { border: 2px solid var(--ink); }
+.reading h3 { margin-top: 6px; }
+.reading ol, .reading ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; display: grid; gap: 7px; }
+.reading li { color: var(--ink-2); font-size: 0.95rem; max-width: 92ch; }
+.reading li b { color: var(--ink); }
+.sizes td, .sizes th { white-space: normal; }
+.sizes td.l b { font-weight: 600; }
+
+/* the All results tab: the detail tabs behind one sub-navigation, grouped by what each phase asked */
+.subnav { display: grid; gap: 10px; }
+.subnav .grp { display: grid; grid-template-columns: minmax(160px, 230px) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; }
+@media (max-width: 700px) { .subnav .grp { grid-template-columns: minmax(0, 1fr); } }
+.subnav .gl { font: 600 0.8rem/1.3 var(--font-body); color: var(--ink); }
+.subnav .gl span { display: block; font-weight: 400; color: var(--muted); }
+.subpane { display: grid; gap: 22px; }
+
+/* the Terms tab */
+.terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+.terms dl { margin: 0; display: grid; gap: 9px; }
+.terms dt { font-weight: 600; color: var(--ink); }
+.terms dd { margin: 1px 0 0; color: var(--ink-2); font-size: 0.9rem; }
+
+/* the conditions, on the family's validated slots: the swarm as S4's street-bound swarm, one drone as S4's single */
+:root { --k-swarm: var(--c-street); --k-single: var(--c-single); --k-sphere: var(--c-pass); }
+.backs { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 90px; font-family: var(--font-body); }
+table.dt tr.prac td { color: var(--muted); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; }
+.pair > div { min-width: 0; }
+.pair h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.cards > .box { display: grid; gap: 10px; align-content: start; }
+.cards .cap p, .cards .cap li { font-size: 0.92rem; color: var(--ink-2); }
+.cards .cap ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 4px; }
+.banner { border: 1px solid var(--warn); background: var(--warn-bg); border-radius: var(--r); padding: 12px 16px; font-size: 0.94rem; }
+.banner b { color: var(--ink); }
+.keyline { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline; font-size: 0.88rem; color: var(--ink-2); padding-block: 0 18px; }
+.keyline b { color: var(--ink); }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.dot.hollow { background: var(--panel) !important; border: 2px solid; }
+.areas { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
+.areas ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 7px; }
+.areas li { font-size: 0.93rem; color: var(--ink-2); }
+.areas li b { color: var(--ink); }
+.areas li .code { white-space: normal; }
+tr.diff td { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.navrow { display: flex; flex-wrap: wrap; gap: 10px; }
+.vp.na { color: var(--muted); background: var(--chip); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <div class="backs"><a class="back" id="back-index" href="#" target="_blank" rel="noopener" hidden>← User Trial Index</a>
+        <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">Swarm Study Index</a></div>
+      <p class="eyebrow" id="eyebrow"></p>
+      <h1 id="h1"></h1>
+      <div class="lead" id="lead"></div>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <div class="keyline" id="keyline"></div>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+
+<script>/* citysim/replay_view.js -- plays back the flights citysim/playback.py records, over the cities they flew in.
+   A study page's report builder inlines this file (split_report.py does); every study page has a Cities tab built
+   on it (docs/studies/lessons.md 30). The page supplies its colours as CSS custom properties (TOKENS) and its data
+   through RV.load(path): window.RV_INLINE[path] when the page carries the data itself (a page opened as a local
+   file, where fetch is refused), otherwise fetch(path) beside the page.
+
+   City: blocks and buildings (polygons), block flags (1 interior, 2 empty), the force law's avoidance cylinders,
+   the street centreline samples a flight's first-seen times index. Flight: frames every dt of every drone's position,
+   heading, shown-feed mask, the pilot's heading and waypoint; losses, contacts, decisions (a block's arrival, commit
+   and candidate streets with the time each was previewed), the drones apart from the formation's main group. */
+"use strict";
+const RV = (() => {
+  // ------------------------------------------------------------------ data
+  const cache = new Map();
+  function load(path) {
+    if (cache.has(path)) return cache.get(path);
+    const inl = window.RV_INLINE;
+    const p = inl && inl[path] ? Promise.resolve(inl[path])
+      : fetch(path).then(r => { if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`); return r.json(); });
+    cache.set(path, p);
+    p.catch(() => cache.delete(path));
+    return p;
+  }
+  function bytes(b64) { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+  const i16 = b => new Int16Array(bytes(b).buffer), u16 = b => new Uint16Array(bytes(b).buffer);
+  function polys(P) {
+    const n = u16(P.n), xz = i16(P.xz), out = [];
+    let k = 0;
+    for (let i = 0; i < n.length; i++) {
+      const a = new Float32Array(n[i] * 2);
+      for (let j = 0; j < a.length; j++) a[j] = xz[k + j] / 10;
+      k += a.length; out.push(a);
+    }
+    return out;
+  }
+  function bbox(a) { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (let j = 0; j < a.length; j += 2) { x0 = Math.min(x0, a[j]); x1 = Math.max(x1, a[j]); z0 = Math.min(z0, a[j + 1]); z1 = Math.max(z1, a[j + 1]); } return [x0, z0, x1, z1]; }
+  function centroid(a) { let x = 0, z = 0; const n = a.length / 2; for (let j = 0; j < a.length; j += 2) { x += a[j]; z += a[j + 1]; } return [x / n, z / n]; }
+  function area(a) { let s = 0; const n = a.length / 2; for (let i = 0; i < n; i++) { const j = (i + 1) % n; s += a[2 * i] * a[2 * j + 1] - a[2 * j] * a[2 * i + 1]; } return Math.abs(s) / 2; }
+  function inside(a, x, z) { let c = false; const n = a.length / 2; for (let i = 0, j = n - 1; i < n; j = i++) { const xi = a[2 * i], zi = a[2 * i + 1], xj = a[2 * j], zj = a[2 * j + 1]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; }
+  function city(c) {
+    if (c._d) return c._d;
+    const d = { id: c.id, arena: c.arena, v: c.variant, p: c.p, s: c.s, seed: c.seed, stats: c.stats || {}, anatomy: c.anatomy || null };
+    d.blocks = polys(c.blocks); d.bld = polys(c.buildings);
+    d.flags = c.block_flags ? bytes(c.block_flags) : new Uint8Array(d.blocks.length);
+    d.blockBld = c.block_building ? new Int16Array(bytes(c.block_building).buffer) : null;
+    d.cyl = c.cylinders ? Float32Array.from(i16(c.cylinders), v => v / 10) : null;
+    d.ell = c.ellipses ? Float32Array.from(i16(c.ellipses), v => v / 10) : null;   // S10: cx, cz, a, b, axis angle (deg)
+    d.samples = c.samples ? Float32Array.from(i16(c.samples), v => v / 10) : null;
+    d.blockBox = d.blocks.map(a => a.length ? bbox(a) : null);
+    d.bldBox = d.bld.map(bbox);
+    d.blockC = d.blocks.map(a => a.length ? centroid(a) : null);
+    c._d = d; return d;
+  }
+  function flight(f) {
+    if (f._d) return f._d;
+    const d = Object.assign({}, f);
+    d.xz = i16(f.xz); d.yaw = bytes(f.yaw); d.shown = u16(f.shown); d.body = bytes(f.body); d.wpi = u16(f.wp);
+    d.seen = f.seen ? u16(f.seen) : null;
+    d.apartMask = f.apart ? u16(f.apart.mask) : null;
+    d.tEnd = f.t0 + (f.frames - 1) * f.dt;
+    d.decisions = f.decisions || []; d.losses = f.losses || []; d.contacts = f.contacts || [];
+    // S11: optional per-frame series ({label, t0, dt, q: u8 base64, lo, hi, digits}) and timeline bands
+    // ({label, tone: a colour token, spans: [[a, b], ...]}); a flight without them draws exactly as before
+    d.series = (f.series || []).map(s => Object.assign({}, s, { v: Float32Array.from(bytes(s.q), q => s.lo + (s.hi - s.lo) * q / 255) }));
+    d.bands = f.bands || [];
+    // a recorded trial's marks (trials_report): {goals: [{x, z, shape: "square" | "disc", half, zone, label, found}],
+    // presses: [{t, x, z, outcome, label}], start: {t, x, z, heading}}; a flight without them draws exactly as before
+    d.marks = f.marks || null;
+    // the formation's centre per frame (live drones), for its path
+    const n = f.n, C = new Float32Array(f.frames * 2);
+    for (let k = 0; k < f.frames; k++) {
+      let x = 0, z = 0, m = 0;
+      for (let i = 0; i < n; i++) if (k < f.alive_to[i]) { x += d.xz[(k * n + i) * 2]; z += d.xz[(k * n + i) * 2 + 1]; m++; }
+      C[2 * k] = m ? x / m / 10 : NaN; C[2 * k + 1] = m ? z / m / 10 : NaN;
+    }
+    d.centre = C;
+    // a flight may carry its own seen points (its pilot's map, e.g. the footpath round buildings); otherwise its first
+    // sights index the city's street samples
+    d.seenXZ = f.seen_xz ? Float32Array.from(i16(f.seen_xz), v => v / 10) : null;
+    if (d.seen) {                                   // the samples in order of first sight, for drawing a prefix
+      const idx = []; for (let i = 0; i < d.seen.length; i++) if (d.seen[i] !== 65535) idx.push(i);
+      idx.sort((a, b) => d.seen[a] - d.seen[b]); d.seenOrder = Uint32Array.from(idx);
+    }
+    f._d = d; return d;
+  }
+  const lerp = (a, b, t) => a + (b - a) * t;
+  function frameAt(F, t) { const x = Math.max(0, Math.min(F.frames - 1, (t - F.t0) / F.dt)), i0 = Math.floor(x); return { i0, i1: Math.min(i0 + 1, F.frames - 1), a: x - i0 }; }
+  function droneAt(F, fr, i) {
+    if (fr.i0 >= F.alive_to[i]) return null;
+    const a = fr.i1 < F.alive_to[i] ? fr.a : 0, n = F.n, k0 = (fr.i0 * n + i) * 2, k1 = (fr.i1 * n + i) * 2;
+    const y0 = F.yaw[fr.i0 * n + i] * 360 / 256, y1 = F.yaw[fr.i1 * n + i] * 360 / 256;
+    let dy = ((y1 - y0 + 540) % 360) - 180;
+    return { i, x: lerp(F.xz[k0], F.xz[k1], a) / 10, z: lerp(F.xz[k0 + 1], F.xz[k1 + 1], a) / 10, yaw: y0 + dy * a,
+             shown: (F.shown[fr.i0] >> i) & 1 };
+  }
+  function drones(F, t) { const fr = frameAt(F, t), out = []; for (let i = 0; i < F.n; i++) { const d = droneAt(F, fr, i); if (d) out.push(d); } return out; }
+  function seriesAt(s, t) { const k = Math.max(0, Math.min(s.v.length - 1, Math.round((t - s.t0) / s.dt))); return s.v[k]; }
+  function apartAt(F, t) { if (!F.apartMask) return 0; const A = F.apart, k = Math.max(0, Math.min(F.apartMask.length - 1, Math.floor((t - A.t0) / A.dt + 1e-6))); return F.apartMask[k]; }
+  function aliveCount(F, t) { const fr = frameAt(F, t); let m = 0; for (let i = 0; i < F.n; i++) if (fr.i0 < F.alive_to[i]) m++; return m; }
+  const popcount = n => { let c = 0; while (n) { n &= n - 1; c++; } return c; };
+  // a flight's find range (a run's sight setting; flights recorded before it existed are 80 m) and its find time
+  const findM = F => F.find_m || 80;
+  const foundAt = F => { const v = F.found && F.found[`r${findM(F)}`]; return v === null || v === undefined ? null : v; };
+  const fmtT = s => { s = Math.max(0, s); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`; };
+
+  // ------------------------------------------------------------------ colours (CSS custom properties)
+  const TOKENS = ["bg", "panel", "ink", "ink-2", "muted", "line", "grid", "chip", "map-street", "map-block", "map-edge",
+    "map-plaza", "map-bldg", "map-cyl", "good", "warn", "bad"];
+  let T = {};
+  const themeFns = [];
+  function readTokens() { const cs = getComputedStyle(document.documentElement); T = {}; for (const k of TOKENS) T[k] = cs.getPropertyValue("--" + k).trim(); }
+  function colour(v) {          // a CSS colour or var(--x) to its value
+    const m = /^var\((--[\w-]+)\)$/.exec(String(v).trim());
+    return m ? getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() : v;
+  }
+  function rgba(c, a) {
+    c = colour(c);
+    let m = /^#([0-9a-f]{6})$/i.exec(c);
+    if (m) { const v = parseInt(m[1], 16); return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${a})`; }
+    m = /^#([0-9a-f]{3})$/i.exec(c);
+    if (m) { const h = m[1]; return `rgba(${parseInt(h[0] + h[0], 16)},${parseInt(h[1] + h[1], 16)},${parseInt(h[2] + h[2], 16)},${a})`; }
+    m = /^rgba?\(([^)]+)\)$/.exec(c);
+    if (m) { const p = m[1].split(",").map(x => x.trim()); return `rgba(${p[0]},${p[1]},${p[2]},${a})`; }
+    return c;
+  }
+  readTokens();
+  let themeTimer = 0;
+  const themeChanged = () => { clearTimeout(themeTimer); themeTimer = setTimeout(() => { readTokens(); themeFns.forEach(f => f()); }, 30); };
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeChanged); } catch (e) { /* old browser */ }
+  new MutationObserver(themeChanged).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
+  const onTheme = f => themeFns.push(f);
+
+  // ------------------------------------------------------------------ a canvas map with pan and zoom
+  class MapView {
+    constructor(canvas, o = {}) {
+      this.canvas = canvas; this.ctx = canvas.getContext("2d");
+      this.aspect = o.aspect || 0.7; this.minH = o.minH || 240; this.maxH = o.maxH || 720; this.minW = o.minW || 200;
+      this.onHover = o.onHover || null; this.onMove = o.onMove || null;
+      this.k = 1; this.cx = 0; this.cz = 0; this.W = 0; this.H = 0; this.dpr = 1;
+      this.bounds = null; this.pad = 12; this.userMoved = false; this.draw = null; this.raf = 0;
+      new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
+      if (o.interactive !== false) this.bind();
+      this.resize();
+    }
+    resize() {
+      const w = Math.max(this.minW, Math.floor(this.canvas.parentElement.clientWidth));
+      const h = Math.round(Math.min(this.maxH, Math.max(this.minH, w * this.aspect)));
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      if (w === this.W && h === this.H && dpr === this.dpr) return;
+      this.W = w; this.H = h; this.dpr = dpr;
+      this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
+      this.canvas.style.height = h + "px";
+      if (this.bounds && !this.userMoved) this.fit(this.bounds, this.pad);
+      this.request();
+    }
+    fit(b, pad = 12) {
+      this.bounds = b; this.pad = pad; this.userMoved = false;
+      this.k = Math.min((this.W - 2 * pad) / Math.max(1, b[1] - b[0]), (this.H - 2 * pad) / Math.max(1, b[3] - b[2]));
+      this.cx = (b[0] + b[1]) / 2; this.cz = (b[2] + b[3]) / 2; this.request();
+    }
+    look(x, z, k) { this.cx = x; this.cz = z; if (k) this.k = k; this.request(); }
+    sx(x) { return this.W / 2 + (x - this.cx) * this.k; }
+    sy(z) { return this.H / 2 - (z - this.cz) * this.k; }
+    wx(px) { return this.cx + (px - this.W / 2) / this.k; }
+    wz(py) { return this.cz - (py - this.H / 2) / this.k; }
+    visible(b, m = 0) { return b && !(this.sx(b[2] + m) < -2 || this.sx(b[0] - m) > this.W + 2 || this.sy(b[1] - m) < -2 || this.sy(b[3] + m) > this.H + 2); }
+    request() { if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.render(); }); }
+    render() { const c = this.ctx; c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); c.clearRect(0, 0, this.W, this.H); if (this.draw) this.draw(c, this); }
+    zoomBy(f, px = this.W / 2, py = this.H / 2) {
+      const x = this.wx(px), z = this.wz(py);
+      this.k = Math.max(0.05, Math.min(60, this.k * f));
+      this.cx = x - (px - this.W / 2) / this.k; this.cz = z + (py - this.H / 2) / this.k;
+      this.userMoved = true; this.request(); if (this.onMove) this.onMove();
+    }
+    bind() {
+      const c = this.canvas, pts = new Map();
+      let drag = null, pinch = null;
+      c.addEventListener("pointerdown", e => {
+        pts.set(e.pointerId, [e.clientX, e.clientY]); c.setPointerCapture(e.pointerId);
+        if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), k: this.k }; drag = null; }
+        else drag = { x: e.clientX, y: e.clientY, cx: this.cx, cz: this.cz, moved: false };
+      });
+      c.addEventListener("pointermove", e => {
+        const r = c.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+        if (pts.has(e.pointerId)) pts.set(e.pointerId, [e.clientX, e.clientY]);
+        if (pinch && pts.size === 2) {
+          const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          const mx = (a[0] + b[0]) / 2 - r.left, my = (a[1] + b[1]) / 2 - r.top;
+          this.zoomBy(pinch.k * d / Math.max(1, pinch.d) / this.k, mx, my); return;
+        }
+        if (drag) {
+          const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+          if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+          if (drag.moved) { this.cx = drag.cx - dx / this.k; this.cz = drag.cz + dy / this.k; this.userMoved = true; this.request(); tipHide(); if (this.onMove) this.onMove(); }
+          return;
+        }
+        if (this.onHover) this.onHover(this.wx(px), this.wz(py), e);
+      });
+      const end = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; drag = null; };
+      c.addEventListener("pointerup", end); c.addEventListener("pointercancel", end);
+      c.addEventListener("pointerleave", tipHide);
+      c.addEventListener("wheel", e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const r = c.getBoundingClientRect(); this.zoomBy(Math.exp(-e.deltaY * 0.0016), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+      c.addEventListener("dblclick", e => { const r = c.getBoundingClientRect(); this.zoomBy(2, e.clientX - r.left, e.clientY - r.top); });
+    }
+  }
+
+  // ------------------------------------------------------------------ the tooltip (built with textContent)
+  let TIP = null;
+  function tipShow(x, y, title, lines) {
+    if (!TIP) { TIP = document.createElement("div"); TIP.className = "rv-tip"; TIP.hidden = true; TIP.setAttribute("role", "status"); document.body.appendChild(TIP); }
+    TIP.replaceChildren();
+    const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+    for (const l of lines) { const d = document.createElement("div"); d.textContent = l; TIP.appendChild(d); }
+    TIP.hidden = false;
+    const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+    let px = x + pad, py = y + pad;
+    if (px + w > innerWidth - 8) px = x - w - pad;
+    if (py + h > innerHeight - 8) py = y - h - pad;
+    TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+  }
+  function tipHide() { if (TIP) TIP.hidden = true; }
+
+  // ------------------------------------------------------------------ drawing
+  function poly(c, v, a) { c.moveTo(v.sx(a[0]), v.sy(a[1])); for (let j = 2; j < a.length; j += 2) c.lineTo(v.sx(a[j]), v.sy(a[j + 1])); c.closePath(); }
+  function drawCity(c, v, C, o = {}) {
+    const a = C.arena;
+    c.fillStyle = T.panel; c.fillRect(0, 0, v.W, v.H);
+    c.fillStyle = T["map-street"]; c.fillRect(v.sx(a[0]), v.sy(a[3]), (a[1] - a[0]) * v.k, (a[3] - a[2]) * v.k);
+    for (const pass of ["map-edge", "map-block", "map-plaza"]) {
+      c.beginPath();
+      for (let b = 0; b < C.blocks.length; b++) {
+        const A = C.blocks[b]; if (!A.length || !v.visible(C.blockBox[b])) continue;
+        const f = C.flags[b], kind = (f & 2) ? "map-plaza" : (f & 1) ? "map-block" : "map-edge";
+        if (kind === pass) poly(c, v, A);
+      }
+      c.fillStyle = T[pass]; c.fill();
+    }
+    if (o.highlight !== undefined && o.highlight !== null && C.blocks[o.highlight] && C.blocks[o.highlight].length) {
+      c.beginPath(); poly(c, v, C.blocks[o.highlight]); c.fillStyle = rgba(T.ink, 0.07); c.fill();
+    }
+    c.beginPath();
+    for (let i = 0; i < C.bld.length; i++) if (v.visible(C.bldBox[i])) poly(c, v, C.bld[i]);
+    c.fillStyle = T["map-bldg"]; c.fill();
+    if (o.cylinders && C.cyl) {
+      c.setLineDash([4, 3]); c.lineWidth = 1; c.strokeStyle = T["map-cyl"]; c.beginPath();
+      for (let i = 0; i < C.cyl.length; i += 3) {
+        const x = C.cyl[i], z = C.cyl[i + 1], r = C.cyl[i + 2];
+        if (!v.visible([x - r, z - r, x + r, z + r])) continue;
+        c.moveTo(v.sx(x) + r * v.k, v.sy(z)); c.arc(v.sx(x), v.sy(z), r * v.k, 0, 2 * Math.PI);
+      }
+      c.stroke(); c.setLineDash([]);
+    }
+    if (o.cylinders && C.ell) {
+      // the map flips z, so an axis at angle th in the world (from +x towards +z) is at -th on the screen
+      c.setLineDash([4, 3]); c.lineWidth = 1; c.strokeStyle = T["map-cyl"]; c.beginPath();
+      for (let i = 0; i < C.ell.length; i += 5) {
+        const x = C.ell[i], z = C.ell[i + 1], a = C.ell[i + 2], b = C.ell[i + 3], th = C.ell[i + 4] * Math.PI / 180;
+        if (!v.visible([x - a, z - a, x + a, z + a])) continue;
+        const sx = v.sx(x), sy = v.sy(z);
+        c.moveTo(sx + a * v.k * Math.cos(-th), sy + a * v.k * Math.sin(-th));
+        c.ellipse(sx, sy, a * v.k, b * v.k, -th, 0, 2 * Math.PI);
+      }
+      c.stroke(); c.setLineDash([]);
+    }
+    c.strokeStyle = T.line; c.lineWidth = 1; c.setLineDash([4, 4]);
+    c.strokeRect(v.sx(a[0]), v.sy(a[3]), (a[1] - a[0]) * v.k, (a[3] - a[2]) * v.k); c.setLineDash([]);
+  }
+  function label(c, x, y, text, o = {}) {
+    c.font = o.font || "600 11px Barlow, system-ui, sans-serif"; c.textAlign = o.align || "left"; c.textBaseline = "middle";
+    if (o.halo !== false) { c.lineWidth = 3; c.strokeStyle = rgba(T.panel, 0.9); c.strokeText(text, x, y); }
+    c.fillStyle = o.color || T["ink-2"]; c.fillText(text, x, y);
+  }
+  function drawScale(c, v) {
+    const raw = Math.min(140, v.W * 0.22) / v.k, steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500];
+    let m = steps[0]; for (const s of steps) if (s <= raw) m = s;
+    const L = m * v.k, x = 14, y = v.H - 16;
+    c.strokeStyle = T.ink; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y - 4); c.lineTo(x, y); c.lineTo(x + L, y); c.lineTo(x + L, y - 4); c.stroke();
+    label(c, x + L + 6, y - 2, `${m} m`, { color: T.ink, font: "500 11px 'IBM Plex Mono', monospace" });
+    label(c, v.W - 12, v.H - 16, "N ↑", { color: T["ink-2"], align: "right" });
+  }
+  function arrowHead(c, x0, y0, x1, y1, s) {
+    const a = Math.atan2(y1 - y0, x1 - x0);
+    c.beginPath(); c.moveTo(x1, y1); c.lineTo(x1 - s * Math.cos(a - 0.45), y1 - s * Math.sin(a - 0.45)); c.lineTo(x1 - s * Math.cos(a + 0.45), y1 - s * Math.sin(a + 0.45)); c.closePath(); c.fill();
+  }
+  function star(c, x, y, r) {
+    c.beginPath();
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; c.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); }
+    c.closePath();
+  }
+  const HFOV = 74.4, WEDGE_M = 40;
+
+  // ------------------------------------------------------------------ the player
+  /* el: an empty element; library: index.json's groups; o: { labels: {cond: text}, colors: {cond: css}, path: {
+     city(id), flight(id) }, notes(flight) -> extra lines for the live panel } */
+  function Player(el, library, o) {
+    const label_ = c => (o.labels && o.labels[c]) || c, col = c => (o.colors && o.colors[c]) || "var(--ink)";
+    el.classList.add("rv");
+    el.innerHTML = `<div class="rv-groups seg" role="group" aria-label="Flight sets"></div>
+      <div class="rv-head"><div class="rv-picks"></div><div class="rv-about small"></div></div>
+      <div class="rv-work"><div class="rv-fig"><div class="rv-frame"><canvas aria-label="The flight from above"></canvas>
+        <div class="rv-mapbar"><button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button><button type="button" data-z="fit" aria-label="Show the whole city">⤢</button></div>
+        <div class="rv-loading" hidden>Loading…</div></div>
+        <div class="rv-ctl"><button type="button" class="rv-play">Play</button>
+          <input type="range" class="rv-t" min="0" max="100" step="0.1" value="0" aria-label="Time">
+          <span class="rv-clock mono">0:00</span>
+          <label>Speed <select class="rv-speed"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="25">25×</option><option value="50">50×</option></select></label></div>
+        <div class="rv-tl"></div>
+        <div class="rv-layers small"></div>
+        <div class="legend rv-legend"></div></div>
+        <div class="rv-side"><div class="box rv-now"></div><div class="box rv-sum"></div></div></div>`;
+    const $ = s => el.querySelector(s);
+    const canvas = $("canvas"), slider = $(".rv-t"), clock = $(".rv-clock"), btn = $(".rv-play"), spd = $(".rv-speed");
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const layers = { seen: true, route: true, trails: true, wedges: true, cylinders: false, other: true, follow: true };
+    const LAYER_TEXT = [["follow", "follow the formation"], ["seen", "streets seen so far"], ["route", "the pilot's route ahead"],
+      ["trails", "trails"], ["wedges", "feeds' view (zoomed in)"], ["cylinders", "avoidance cylinders"], ["other", "the other source's drones"]];
+    let G = null, entry = null, F = null, C = null, OTHER = null, t = 0, playing = false, last = 0, raf = 0, cam = null, visible = true;
+    let shownGroup = null;
+    const view = new MapView(canvas, { aspect: 0.66, minH: 300, maxH: 760, onHover: hover, onMove: () => { if (layers.follow) { layers.follow = false; drawLayers(); } } });
+    el.querySelectorAll(".rv-mapbar button").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.z === "in") view.zoomBy(1.5); else if (b.dataset.z === "out") view.zoomBy(1 / 1.5);
+      else { layers.follow = false; drawLayers(); if (C) view.fit(C.arena, 10); }
+    }));
+
+    // ---- the library
+    const groupsEl = $(".rv-groups");
+    groupsEl.innerHTML = library.map((g, i) => `<button type="button" aria-pressed="false" data-g="${i}">${esc(g.short || g.title)}</button>`).join("");
+    groupsEl.querySelectorAll("button").forEach(b => b.addEventListener("click", () => selectGroup(+b.dataset.g)));
+    function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch])); }
+    function selectGroup(i, keep) {
+      G = library[i];
+      groupsEl.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.g === i)));
+      const listed = G.kind === "manoeuvres" || G.kind === "block" || G.kind === "runs";   // flights picked by title, not by condition
+      spd.value = listed && G.kind !== "runs" ? "2" : "10";       // a manoeuvre lasts under a minute, a walk or a trial run ten
+      const picks = $(".rv-picks");
+      if (listed) {
+        picks.innerHTML = `<div class="seg">${G.flights.map((f, k) => `<button type="button" aria-pressed="false" data-f="${k}"><span class="ln" style="border-color:${col(f.cond)}"></span>${esc(f.title)}</button>`).join("")}</div>`;
+        picks.querySelectorAll("button").forEach(b => b.addEventListener("click", () => selectFlight(G.flights[+b.dataset.f])));
+        selectFlight(keep || G.flights[0]);
+      } else {
+        const conds = [...new Set(G.flights.map(f => f.cond))];
+        const hasUnity = G.flights.some(f => f.source === "unity");
+        picks.innerHTML = `<div class="seg rv-conds">${conds.map(c => `<button type="button" aria-pressed="false" data-c="${c}"><span class="ln" style="border-color:${col(c)}"></span>${esc(label_(c))}</button>`).join("")}</div>
+          ${hasUnity ? `<div class="seg rv-src" style="margin-top:6px"><button type="button" aria-pressed="true" data-s="replica">The replica</button><button type="button" aria-pressed="false" data-s="unity">Unity (headless bench)</button></div>` : ""}`;
+        picks.querySelectorAll(".rv-conds button").forEach(b => b.addEventListener("click", () => pickCond(b.dataset.c, entry ? entry.source : "replica")));
+        picks.querySelectorAll(".rv-src button").forEach(b => b.addEventListener("click", () => pickCond(entry ? entry.cond : conds[0], b.dataset.s)));
+        pickCond(keep ? keep.cond : (G.first && conds.includes(G.first) ? G.first : conds.includes("swarm_hop") ? "swarm_hop" : conds[0]), keep ? keep.source : "replica");
+      }
+    }
+    function pickCond(cond, source) {
+      let f = G.flights.find(x => x.cond === cond && x.source === source) || G.flights.find(x => x.cond === cond);
+      selectFlight(f);
+    }
+    async function selectFlight(e) {
+      entry = e;
+      const picks = $(".rv-picks");
+      if (G.kind === "manoeuvres" || G.kind === "block" || G.kind === "runs") picks.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(G.flights[+b.dataset.f] === e)));
+      else {
+        picks.querySelectorAll(".rv-conds button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === e.cond)));
+        const both = G.flights.filter(x => x.cond === e.cond).map(x => x.source);
+        picks.querySelectorAll(".rv-src button").forEach(b => { b.setAttribute("aria-pressed", String(b.dataset.s === e.source)); b.disabled = !both.includes(b.dataset.s); b.title = b.disabled ? "Not flown in Unity (the bench's lone drone cannot look round at zero stick)" : ""; });
+      }
+      $(".rv-about").innerHTML = G.kind === "block" || G.kind === "runs" ? `<p>${esc(G.about)}</p><p>${esc(e.about || "")}</p>` : `<p>${esc(G.kind === "manoeuvres" ? e.about : G.about)}</p>`;
+      $(".rv-loading").hidden = false;
+      try {
+        const other = G.flights.find(x => x.cond === e.cond && x.source !== e.source);
+        const [fj, cj, oj] = await Promise.all([load(o.path.flight(e.id)), load(o.path.city(e.city)), other ? load(o.path.flight(other.id)) : null]);
+        if (entry !== e) return;                          // a later click won
+        const newCity = !C || C.id !== cj.id;
+        // another condition of the same walk or search keeps the moment; anything else starts from the beginning
+        const same = G.kind !== "manoeuvres" && G.kind !== "runs" && shownGroup === G.id;      // a "block" group is one block: keep the moment
+        F = flight(fj); C = city(cj); OTHER = oj ? flight(oj) : null;
+        shownGroup = G.id;
+        t = same ? Math.min(t, F.tEnd) : 0;
+        slider.max = String(F.tEnd);
+        if (!same) cam = null;
+        if (newCity && !layers.follow) view.fit(C.arena, 10);
+        $(".rv-loading").hidden = true;
+        drawLayers(); legend(); summary(); timeline(); sync();
+      } catch (err) {
+        $(".rv-loading").textContent = `Could not load the flight: ${err.message}`;
+      }
+    }
+
+    // ---- layers and legend
+    function drawLayers() {
+      const show = LAYER_TEXT.filter(([k]) => k !== "cylinders" || (C && (C.cyl || C.ell))).filter(([k]) => k !== "other" || OTHER)
+        .filter(([k]) => !F || !F.marks || (k !== "seen" || F.seenOrder) && (k !== "route" || (F.wps && F.wps.length)));   // a recorded trial has neither
+      $(".rv-layers").innerHTML = show.map(([k, txt]) => `<label><input type="checkbox" data-l="${k}" ${layers[k] ? "checked" : ""}> ${txt}</label>`).join("");
+      $(".rv-layers").querySelectorAll("input").forEach(i => i.addEventListener("change", () => {
+        layers[i.dataset.l] = i.checked;
+        if (i.dataset.l === "follow") { cam = null; view.userMoved = false; if (!i.checked && C) view.fit(C.arena, 10); }
+        sync();
+      }));
+    }
+    function legend() {
+      const cc = colour(col(F.cond));
+      const items = [
+        `<span><span class="sw" style="background:${cc};border-radius:50%;width:10px"></span>drone with its feed shown</span>`,
+        F.n > 1 ? `<span><span class="sw" style="background:var(--panel);border:1.6px solid ${cc};border-radius:50%;width:10px"></span>inside the formation, not shown</span>` : "",
+        F.apartMask ? `<span><span class="sw" style="background:transparent;border:2px solid var(--warn);border-radius:50%;width:12px;height:12px"></span>apart from the main group</span>` : "",
+        F.marks && !F.seenOrder ? "" : `<span><span class="sw" style="background:${cc};width:6px;height:6px;border-radius:1px"></span>street seen</span>`,
+        F.decisions.length ? `<span><span class="ln" style="border-color:var(--ink-2);border-top-style:dashed"></span>block's street, not yet entered</span><span><span class="ln" style="border-color:${cc}"></span>entered (the old preview)</span>` : "",
+        F.decisions.some(d => d.opts.some(op => op.end)) ? `<span><span class="sw" style="background:var(--panel);border:1.8px solid var(--ink-2);width:9px;height:9px"></span>building at a street's end, filled once looked down</span>` : "",
+        `<span><b style="color:var(--bad);margin-right:5px">×</b>drone lost</span>`,
+        F.contacts.length ? `<span><span class="sw" style="background:var(--warn);width:7px;height:7px;transform:rotate(45deg)"></span>building contact</span>` : "",
+        F.target ? `<span>★ the target (dashed: ${findM(F)} m)</span>` : "",
+        F.marks && (F.marks.goals || []).length ? `<span>☆ a goal, its zone dashed (green once found)</span>` : "",
+        F.marks && (F.marks.presses || []).length ? `<span><b style="color:var(--good)">▲</b><b style="color:var(--bad)">▲</b><b style="color:var(--warn);margin-right:5px">▲</b>a press: correct, false alarm, outside every zone</span>` : "",
+        F.marks && F.marks.start ? `<span><span class="ln" style="border-color:var(--ink-2);border-top-style:dashed"></span>the start line</span>` : "",
+        OTHER ? `<span><span class="sw" style="background:transparent;border:1.5px solid var(--ink-2);width:9px;height:9px"></span>${OTHER.source === "unity" ? "Unity's" : "the replica's"} flight of the same ${F.unit || (F.kind === "search" ? "route" : "walk")}</span>` : ""];
+      $(".rv-legend").innerHTML = items.filter(Boolean).join("");
+    }
+
+    // ---- the decisions
+    function decisionAt(tt) {
+      const D = F.decisions; let k = -1;
+      for (let i = 0; i < D.length; i++) { const s = D[i].t0 !== null ? D[i].t0 : D[i].t; if (s !== null && s <= tt + 1e-6) k = i; }
+      return k;
+    }
+
+    // ---- a recorded trial's marks: the goals and their zones, the start line, the pilot's presses so far
+    const PRESS = { correct: "good", false_alarm: "bad", out_of_zone: "warn" };
+    const pressTone = o => T[PRESS[o]] || T["ink-2"];
+    const PRESS_TEXT = { correct: "correct", false_alarm: "a false alarm", out_of_zone: "outside every goal's zone", "": "not scored" };
+    const goalFound = g => g.found !== null && g.found !== undefined && t >= g.found;
+    function zonePath(c, v, g, grow) {
+      const x = v.sx(g.x), y = v.sy(g.z);
+      if (g.shape === "square") {                     // a tile: the square, grown by the zone with round corners
+        const h = g.half * v.k, r = grow * v.k;
+        c.moveTo(x - h, y - h - r); c.lineTo(x + h, y - h - r); c.arc(x + h, y - h, r, -Math.PI / 2, 0);
+        c.lineTo(x + h + r, y + h); c.arc(x + h, y + h, r, 0, Math.PI / 2); c.lineTo(x - h, y + h + r);
+        c.arc(x - h, y + h, r, Math.PI / 2, Math.PI); c.lineTo(x - h - r, y - h); c.arc(x - h, y - h, r, Math.PI, 1.5 * Math.PI);
+      } else { const r = (g.half + grow) * v.k; c.moveTo(x + r, y); c.arc(x, y, r, 0, 2 * Math.PI); }
+    }
+    function drawMarks(c, v, M) {
+      if (M.start) {
+        const h = M.start.heading * Math.PI / 180, L = 45, ux = Math.cos(h), uz = -Math.sin(h);   // across the heading
+        const crossed = t >= M.start.t;
+        c.strokeStyle = rgba(T["ink-2"], crossed ? 0.45 : 0.9); c.lineWidth = 1.6; c.setLineDash([6, 4]); c.beginPath();
+        c.moveTo(v.sx(M.start.x - ux * L), v.sy(M.start.z - uz * L)); c.lineTo(v.sx(M.start.x + ux * L), v.sy(M.start.z + uz * L));
+        c.stroke(); c.setLineDash([]);
+        label(c, v.sx(M.start.x + ux * L) + 4, v.sy(M.start.z + uz * L), crossed ? "start line (crossed)" : "start line", { color: T["ink-2"] });
+      }
+      for (const g of M.goals || []) {
+        const found = goalFound(g), col = found ? T.good : T.ink;
+        c.setLineDash([5, 4]); c.lineWidth = 1.3; c.strokeStyle = rgba(col, 0.7); c.beginPath(); zonePath(c, v, g, g.zone); c.stroke(); c.setLineDash([]);
+        c.lineWidth = 1; c.strokeStyle = rgba(col, 0.35); c.beginPath(); zonePath(c, v, g, 0); c.stroke();
+        const x = v.sx(g.x), y = v.sy(g.z);
+        star(c, x, y, 7); c.fillStyle = found ? T.good : T.panel; c.fill(); c.strokeStyle = col; c.lineWidth = 1.5; c.stroke();
+        label(c, x + 10, y - 10, found ? `${g.label}: found at ${fmtT(g.found)}` : g.label, { color: col });
+      }
+      for (const p of M.presses || []) if (p.t <= t) {
+        const x = v.sx(p.x), y = v.sy(p.z), col = pressTone(p.outcome), age = t - p.t;
+        c.beginPath(); c.moveTo(x, y - 7); c.lineTo(x + 6, y + 4); c.lineTo(x - 6, y + 4); c.closePath();
+        c.fillStyle = col; c.fill(); c.strokeStyle = T.panel; c.lineWidth = 1.2; c.stroke();
+        if (age < 2.5) { c.strokeStyle = rgba(col, 1 - age / 2.5); c.lineWidth = 2; c.beginPath(); c.arc(x, y, 8 + 12 * age, 0, 2 * Math.PI); c.stroke(); }
+      }
+    }
+
+    // ---- drawing
+    view.draw = (c, v) => {
+      if (!C) return;
+      const k = decisionAt(t), Dk = k >= 0 ? F.decisions[k] : null;
+      drawCity(c, v, C, { cylinders: layers.cylinders, highlight: Dk ? Dk.block : null });
+      const cc = colour(col(F.cond));
+      // streets (or the pilot's own map) seen so far
+      const SXZ = F.seenXZ || C.samples;
+      if (layers.seen && F.seenOrder && SXZ) {
+        const lim = t / 0.5, s = Math.max(1.6, Math.min(3.2, 1.2 * v.k)); c.fillStyle = rgba(cc, 0.72);
+        for (let j = 0; j < F.seenOrder.length; j++) {
+          const i = F.seenOrder[j]; if (F.seen[i] > lim) break;
+          const x = v.sx(SXZ[2 * i]), y = v.sy(SXZ[2 * i + 1]);
+          if (x < -4 || y < -4 || x > v.W + 4 || y > v.H + 4) continue;
+          c.fillRect(x - s / 2, y - s / 2, s, s);
+        }
+      }
+      // visited blocks: their order along the flight
+      F.decisions.forEach((d, i) => {
+        if ((d.t0 !== null ? d.t0 : d.t) > t || !C.blockC[d.block] || i === k) return;
+        const [x, z] = C.blockC[d.block];
+        label(c, v.sx(x), v.sy(z), String(i + 1), { color: T["ink-2"], align: "center", font: "600 10px Barlow, system-ui, sans-serif" });
+      });
+      // the block being taken: its streets, previewed or not
+      if (Dk) {
+        c.lineCap = "round";
+        for (const op of Dk.opts) {
+          const x0 = v.sx(op.xz[0]), y0 = v.sy(op.xz[1]), x1 = v.sx(op.xz[2]), y1 = v.sy(op.xz[3]);
+          const seen = op.t !== null && op.t <= t + 1e-6, chosen = op.chosen && Dk.t !== null && t >= Dk.t;
+          c.lineWidth = Math.max(3, Math.min(7, 0.45 * v.k * 6)); c.setLineDash(seen ? [] : [5, 5]);
+          c.strokeStyle = seen ? rgba(cc, 0.8) : rgba(T["ink-2"], 0.55);
+          c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.setLineDash([]);
+          if (chosen) { c.fillStyle = T.ink; c.strokeStyle = T.ink; c.lineWidth = 2; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); arrowHead(c, x0, y0, x1, y1, 9); }
+          if (op.end) {                                   // what stands at the street's far end: looked down yet?
+            const ex = v.sx(op.end[0]), ey = v.sy(op.end[1]), down = op.te !== null && op.te !== undefined && op.te <= t + 1e-6;
+            c.lineWidth = 1.2; c.strokeStyle = T.ink; c.setLineDash([2, 3]);
+            c.beginPath(); c.moveTo(x1, y1); c.lineTo(ex, ey); c.stroke(); c.setLineDash([]);
+            c.beginPath(); c.rect(ex - 5, ey - 5, 10, 10); c.fillStyle = down ? cc : T.panel; c.fill(); c.lineWidth = 1.8; c.strokeStyle = down ? T.ink : T["ink-2"]; c.stroke();
+          }
+        }
+        c.lineCap = "butt";
+        if (C.blocks[Dk.block] && C.blocks[Dk.block].length) { c.beginPath(); poly(c, v, C.blocks[Dk.block]); c.strokeStyle = T.ink; c.lineWidth = 1.6; c.stroke(); }
+      }
+      // the block it is heading for (on the way to the first, or once this one is decided)
+      const nx = k < 0 ? F.decisions[0] : (Dk && Dk.t !== null && t >= Dk.t ? F.decisions[k + 1] : null);
+      if (nx && C.blocks[nx.block] && C.blocks[nx.block].length) {
+        c.beginPath(); poly(c, v, C.blocks[nx.block]); c.setLineDash([4, 3]); c.strokeStyle = rgba(T.ink, 0.7); c.lineWidth = 1.4; c.stroke(); c.setLineDash([]);
+      }
+      // the route ahead
+      if (layers.route && F.wps && F.wps.length) {
+        const fr = frameAt(F, t), w0 = Math.min(F.wpi[fr.i0], F.wps.length - 1), ctr = [F.centre[2 * fr.i0], F.centre[2 * fr.i0 + 1]];
+        c.strokeStyle = rgba(T["ink-2"], 0.55); c.lineWidth = 1.3; c.setLineDash([3, 4]); c.beginPath();
+        if (Number.isFinite(ctr[0])) c.moveTo(v.sx(ctr[0]), v.sy(ctr[1]));
+        for (let j = w0; j < Math.min(F.wps.length, w0 + 8); j++) c.lineTo(v.sx(F.wps[j][0]), v.sy(F.wps[j][1]));
+        c.stroke(); c.setLineDash([]);
+      }
+      // the target
+      if (F.target) {
+        const x = v.sx(F.target[0]), y = v.sy(F.target[1]), tf = foundAt(F), found = tf !== null && t >= tf;
+        c.setLineDash([4, 4]); c.strokeStyle = rgba(T.ink, 0.45); c.lineWidth = 1; c.beginPath(); c.arc(x, y, findM(F) * v.k, 0, 2 * Math.PI); c.stroke(); c.setLineDash([]);
+        star(c, x, y, 9); c.fillStyle = found ? T.good : T.panel; c.fill(); c.strokeStyle = found ? T.good : T.ink; c.lineWidth = 1.6; c.stroke();
+        label(c, x + 12, y - 10, found ? `found at ${fmtT(tf)}` : "target", { color: found ? T.good : T.ink });
+      }
+      if (F.marks) drawMarks(c, v, F.marks);
+      // the other source's flight of the same walk / route
+      if (layers.other && OTHER) {
+        const ods = drones(OTHER, t);
+        c.strokeStyle = rgba(T["ink-2"], 0.9); c.lineWidth = 1.4;
+        for (const d of ods) { const x = v.sx(d.x), y = v.sy(d.z); c.strokeRect(x - 4, y - 4, 8, 8); }
+      }
+      // the formation's path and the drones' trails
+      const fr = frameAt(F, t);
+      c.strokeStyle = rgba(cc, 0.42); c.lineWidth = 1.6; c.beginPath();
+      let pen = false;
+      for (let j = 0; j <= fr.i0; j++) { const x = F.centre[2 * j], z = F.centre[2 * j + 1]; if (!Number.isFinite(x)) { pen = false; continue; } if (!pen) { c.moveTo(v.sx(x), v.sy(z)); pen = true; } else c.lineTo(v.sx(x), v.sy(z)); }
+      c.stroke();
+      if (layers.trails) {
+        const back = Math.round(8 / F.dt); c.strokeStyle = rgba(cc, 0.35); c.lineWidth = 1;
+        for (let i = 0; i < F.n; i++) {
+          c.beginPath(); let on = false;
+          for (let j = Math.max(0, fr.i0 - back); j <= fr.i0; j++) { if (j >= F.alive_to[i]) break; const x = v.sx(F.xz[(j * F.n + i) * 2] / 10), y = v.sy(F.xz[(j * F.n + i) * 2 + 1] / 10); if (!on) { c.moveTo(x, y); on = true; } else c.lineTo(x, y); }
+          c.stroke();
+        }
+      }
+      const ds = drones(F, t), apart = apartAt(F, t);
+      if (layers.wedges && v.k >= 1.1) {
+        for (const d of ds) if (d.shown || F.n === 1) {
+          const sx = v.sx(d.x), sy = v.sy(d.z), r = WEDGE_M * v.k, h = HFOV / 2 * Math.PI / 180, th = (d.yaw - 90) * Math.PI / 180;
+          c.beginPath(); c.moveTo(sx, sy); c.arc(sx, sy, r, th - h, th + h); c.closePath();
+          c.fillStyle = rgba(cc, 0.045); c.fill(); c.strokeStyle = rgba(cc, 0.2); c.lineWidth = 1; c.stroke();
+        }
+      }
+      // contacts and losses so far
+      for (const e of F.contacts) if (e.t <= t) {
+        const x = v.sx(e.x), y = v.sy(e.z), age = t - e.t;
+        c.fillStyle = T.warn; c.beginPath(); c.moveTo(x, y - 4); c.lineTo(x + 4, y); c.lineTo(x, y + 4); c.lineTo(x - 4, y); c.closePath(); c.fill();
+        if (age < 2) { c.strokeStyle = rgba(T.warn, 1 - age / 2); c.lineWidth = 2; c.beginPath(); c.arc(x, y, 6 + 10 * age, 0, 2 * Math.PI); c.stroke(); }
+      }
+      for (const e of F.losses) if (e.t <= t) {
+        const x = v.sx(e.x), y = v.sy(e.z), s = 5;
+        c.strokeStyle = T.bad; c.lineWidth = 2.4; c.beginPath(); c.moveTo(x - s, y - s); c.lineTo(x + s, y + s); c.moveTo(x - s, y + s); c.lineTo(x + s, y - s); c.stroke();
+      }
+      for (const d of ds) {
+        const x = v.sx(d.x), y = v.sy(d.z), on = d.shown || F.n === 1;
+        if ((apart >> d.i) & 1) { c.strokeStyle = T.warn; c.lineWidth = 2; c.beginPath(); c.arc(x, y, 8, 0, 2 * Math.PI); c.stroke(); }
+        if (on) {                                         // the feed's heading
+          const th = (d.yaw - 90) * Math.PI / 180;
+          c.strokeStyle = cc; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y); c.lineTo(x + 9 * Math.cos(th), y + 9 * Math.sin(th)); c.stroke();
+        }
+        c.beginPath(); c.arc(x, y, on ? 4.4 : 3.8, 0, 2 * Math.PI); c.fillStyle = on ? cc : T.panel; c.fill(); c.lineWidth = 1.6; c.strokeStyle = cc; c.stroke();
+      }
+      drawScale(c, v);
+    };
+    function placeCamera() {
+      if (!layers.follow || !F) return;
+      const fr = frameAt(F, t), x = F.centre[2 * fr.i0], z = F.centre[2 * fr.i0 + 1];
+      if (!Number.isFinite(x)) return;
+      const span = F.span || (F.kind === "M4" || F.kind === "M3" || F.kind === "M3b" ? 170 : 240), kWant = Math.min(view.W, view.H) / span;
+      if (!cam) cam = { x, z, k: kWant };
+      cam.x = lerp(cam.x, x, 0.15); cam.z = lerp(cam.z, z, 0.15); cam.k = lerp(cam.k, kWant, 0.08);
+      view.cx = cam.x; view.cz = cam.z; view.k = cam.k;
+    }
+
+    // ---- the readouts
+    function phaseText() {
+      const k = decisionAt(t), D = F.decisions;
+      if (t >= F.tEnd - 1e-6) return "the flight has ended";
+      if (k < 0) return D.length ? "on the way to the first block" : "";
+      const d = D[k], n = k + 1, what = d.plaza ? "a plaza, crossed by the streets" : TAKE[F.cond] || "taking the block";
+      if (d.t !== null && t < d.t) return `block ${n}: ${what}`;
+      if (d.plaza) return `block ${n}, a plaza crossed by the streets: on to the next`;
+      if (d.look !== null && d.look !== undefined)
+        return `block ${n} done: ${Math.round(100 * d.look)}% of its exits looked down at the decision${d.prev !== null && d.prev !== undefined ? ` (${Math.round(100 * d.prev)}% entered)` : ""}; on to the next`;
+      return `block ${n} done: ${d.prev !== null && d.prev !== undefined ? `${Math.round(100 * d.prev)}% of its streets previewed at the decision; ` : ""}on to the next`;
+    }
+    const TAKE = { single: "decides on arrival at the corner", single_look: "holds at the corner and looks down each street",
+      swarm_street: "decides on arrival at the corner", swarm_hold: "holds at the corner", swarm_pass: "passes round the block",
+      swarm_hop: "surrounds the block", swarm_hop_p2: "surrounds the block (Phase 2's setting)" };
+    function live() {
+      const n = aliveCount(F, t), fr = frameAt(F, t), sh = popcount(F.shown[fr.i0]);
+      const lost = F.losses.filter(e => e.t <= t).length, cont = F.contacts.filter(e => e.t <= t).length;
+      let seenKm = null;
+      if (F.seen) { let m = 0; const lim = t / 0.5; for (let i = 0; i < F.seen.length; i++) if (F.seen[i] <= lim) m++; seenKm = m * 2 / 1000; }
+      const k = decisionAt(t), d = k >= 0 ? F.decisions[k] : null;
+      const nDown = d ? d.opts.filter(op => op.end && op.te !== null && op.te !== undefined && op.te <= t + 1e-6).length : 0;
+      const nEnds = d ? d.opts.filter(op => op.end).length : 0;
+      const nPrev = d ? d.opts.filter(op => op.t !== null && op.t <= t + 1e-6).length : 0;
+      let near = null;
+      if (F.target) { for (const dd of drones(F, t)) { const r = Math.hypot(dd.x - F.target[0], dd.z - F.target[1]); near = near === null ? r : Math.min(near, r); } }
+      const rows = [["drones flying", `${n} / ${F.n}`], F.n > 1 ? ["feeds shown", String(sh)] : null,
+        ["drones lost so far", String(lost)], F.source === "replica" ? ["building contacts so far", String(cont)] : null,
+        seenKm !== null ? [F.seenXZ ? "footpath seen so far" : "street seen so far", `${seenKm.toFixed(2)} km`] : null,
+        d && !d.plaza ? ["this block's streets entered", `${nPrev} of ${d.opts.length}`] : null,
+        d && !d.plaza && nEnds ? ["... looked down to the building at the end", `${nDown} of ${nEnds}`] : null,
+        near !== null ? ["nearest drone to the target", `${Math.round(near)} m`] : null].filter(Boolean);
+      if (F.marks) {
+        const G_ = F.marks.goals || [], P_ = (F.marks.presses || []).filter(p => p.t <= t);
+        if (F.marks.start) rows.push(["task clock", t >= F.marks.start.t ? fmtT(t - F.marks.start.t) : "not started"]);
+        if (G_.length) rows.push(["goals found", `${G_.filter(goalFound).length} of ${G_.length}`]);
+        if ((F.marks.presses || []).length) rows.push(["presses so far", `${P_.length} (${P_.filter(p => p.outcome === "correct").length} correct)`]);
+      }
+      for (const s of F.series) rows.push([s.label, seriesAt(s, t).toFixed(s.digits === undefined ? 2 : s.digits)]);
+      for (const b of F.bands) if (b.spans.some(([a, z]) => t >= a && t <= z)) rows.push([b.label, "now"]);
+      $(".rv-now").innerHTML = `<p class="eyebrow">Now, ${fmtT(t)}</p><p class="rv-phase">${esc(phaseText())}</p>
+        <dl class="rv-kv">${rows.map(([a, b]) => `<dt>${a}</dt><dd class="mono">${esc(b)}</dd>`).join("")}</dl>`;
+    }
+    function summary() {
+      const s = F.summary || {}, rows = (o.summaryRows ? o.summaryRows(F, s) : []).filter(Boolean);
+      $(".rv-sum").innerHTML = `<p class="eyebrow">The whole flight · ${esc(F.source_label || (F.source === "unity" ? "Unity" : "the replica"))}</p>
+        <dl class="rv-kv">${rows.map(([a, b]) => `<dt>${a}</dt><dd class="mono">${esc(b)}</dd>`).join("")}</dl>
+        ${o.summaryNote ? `<p class="small muted">${o.summaryNote(F)}</p>` : ""}`;
+    }
+
+    // ---- the timeline
+    let tl = null;
+    function timeline() {
+      const host = $(".rv-tl"); host.innerHTML = "";
+      const extra = 14 * F.bands.length + 22 * F.series.length;      // S11's rows, below the usual three
+      const W = Math.max(300, host.clientWidth || 600), H = 84 + extra, m = { l: 18, r: extra ? 165 : 18, t: 6, b: 18 };
+      const x = s => m.l + (W - m.l - m.r) * s / Math.max(1e-6, F.tEnd), cc = colour(col(F.cond));
+      let g = "";
+      const rowY = [m.t, m.t + 18, m.t + 34];
+      let yx = m.t + 52;
+      for (const b of F.bands) {
+        const tone = T[b.tone] || cc;
+        for (const [a, z] of b.spans) g += `<rect x="${x(a).toFixed(1)}" y="${yx}" width="${Math.max(1.5, x(z) - x(a)).toFixed(1)}" height="9" fill="${rgba(tone, 0.55)}"/>`;
+        g += `<text x="${W - m.r + 8}" y="${yx + 8}" fill="${T["ink-2"]}" style="font:500 10px var(--font-body, sans-serif)">${esc(b.label)}</text>`;
+        yx += 14;
+      }
+      for (const s of F.series) {
+        const yv = v => yx + 18 - 18 * (v - s.lo) / Math.max(1e-9, s.hi - s.lo);
+        let pts = "";
+        for (let k = 0; k < s.v.length; k += Math.max(1, Math.floor(s.v.length / 600))) pts += `${x(s.t0 + k * s.dt).toFixed(1)},${yv(s.v[k]).toFixed(1)} `;
+        g += `<polyline points="${pts}" fill="none" stroke="${cc}" stroke-width="1.5"/>`;
+        g += `<text x="${W - m.r + 8}" y="${yx + 12}" fill="${T["ink-2"]}" style="font:500 10px var(--font-body, sans-serif)">${esc(s.label)}</text>`;
+        yx += 22;
+      }
+      for (const d of F.decisions) {
+        const a = d.t0 !== null ? d.t0 : d.t, b = d.t;
+        if (a === null || b === null) continue;
+        g += `<rect x="${x(a).toFixed(1)}" y="${rowY[0]}" width="${Math.max(1.5, x(b) - x(a)).toFixed(1)}" height="14" rx="2" fill="${d.plaza ? rgba(T.muted, 0.35) : rgba(cc, 0.45)}"/>`;
+        g += `<line x1="${x(b).toFixed(1)}" x2="${x(b).toFixed(1)}" y1="${rowY[0] - 2}" y2="${rowY[0] + 16}" stroke="${T.ink}" stroke-width="1.2"/>`;
+      }
+      if (F.apart) {
+        for (const [a, b] of F.apart.apart || []) g += `<rect x="${x(a).toFixed(1)}" y="${rowY[1]}" width="${Math.max(1.5, x(b) - x(a)).toFixed(1)}" height="10" fill="${rgba(T.warn, 0.4)}"/>`;
+        for (const [a, b] of F.apart.split || []) g += `<rect x="${x(a).toFixed(1)}" y="${rowY[1]}" width="${Math.max(1.5, x(b) - x(a)).toFixed(1)}" height="10" fill="${T.warn}"/>`;
+      }
+      for (const e of F.contacts) g += `<rect x="${(x(e.t) - 2.5).toFixed(1)}" y="${rowY[2]}" width="5" height="5" transform="rotate(45 ${x(e.t).toFixed(1)} ${rowY[2] + 2.5})" fill="${T.warn}"/>`;
+      for (const e of F.losses) g += `<text x="${x(e.t).toFixed(1)}" y="${rowY[2] + 16}" text-anchor="middle" fill="${T.bad}" style="font:700 12px var(--font-body, sans-serif)">×</text>`;
+      if (foundAt(F) !== null) g += `<text x="${x(foundAt(F)).toFixed(1)}" y="${rowY[2] + 16}" text-anchor="middle" fill="${T.good}" style="font:700 13px var(--font-body, sans-serif)">★</text>`;
+      if (F.marks) {
+        if (F.marks.start) g += `<line x1="${x(F.marks.start.t).toFixed(1)}" x2="${x(F.marks.start.t).toFixed(1)}" y1="${rowY[0] - 2}" y2="${rowY[2] + 10}" stroke="${T["ink-2"]}" stroke-width="1.2" stroke-dasharray="3 2"/>`;
+        for (const p of F.marks.presses || []) g += `<path d="M${x(p.t).toFixed(1)} ${rowY[2] - 2} l5 9 l-10 0 z" fill="${pressTone(p.outcome)}"/>`;
+      }
+      const step = F.tEnd > 900 ? 120 : F.tEnd > 300 ? 60 : F.tEnd > 90 ? 15 : 5;
+      for (let s = 0; s <= F.tEnd + 1e-6; s += step) g += `<line x1="${x(s)}" x2="${x(s)}" y1="${H - m.b}" y2="${H - m.b + 3}" stroke="${T.line}"/><text x="${x(s)}" y="${H - 4}" text-anchor="middle" fill="${T["ink-2"]}" style="font:500 10px var(--font-mono, monospace)">${fmtT(s)}</text>`;
+      g += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="${T.line}"/>`;
+      g += `<line class="rv-ph" x1="0" x2="0" y1="${m.t - 4}" y2="${H - m.b}" stroke="${T.ink}" stroke-width="1.5"/>`;
+      g += `<rect class="rv-hit" x="${m.l}" y="0" width="${W - m.l - m.r}" height="${H}" fill="transparent" tabindex="0" aria-label="Timeline: arrow keys move through the flight"/>`;
+      host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Timeline of the flight">${g}</svg>`;
+      const svg = host.querySelector("svg"), ph = host.querySelector(".rv-ph"), hit = host.querySelector(".rv-hit");
+      const seek = ev => { const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width; setT((px - m.l) / (W - m.l - m.r) * F.tEnd); };
+      let down = false;
+      hit.addEventListener("pointerdown", ev => { down = true; hit.setPointerCapture(ev.pointerId); seek(ev); });
+      hit.addEventListener("pointermove", ev => {
+        if (down) { seek(ev); return; }
+        const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width, s = (px - m.l) / (W - m.l - m.r) * F.tEnd;
+        const lines = [];
+        const d = F.decisions.findIndex(dd => dd.t !== null && Math.abs(x(dd.t) - px) < 4);
+        if (d >= 0) lines.push(F.decisions[d].plaza ? `block ${d + 1}: a plaza, crossed by the streets` : `block ${d + 1}: decided${F.decisions[d].prev !== null && F.decisions[d].prev !== undefined ? `, ${Math.round(100 * F.decisions[d].prev)}% of its streets previewed` : ""}`);
+        for (const e of F.losses) if (Math.abs(x(e.t) - px) < 5) lines.push(`drone ${e.i + 1} lost${e.why && e.why !== "lost" ? ` (${WHY[e.why] || e.why})` : ""}`);
+        for (const e of F.contacts) if (Math.abs(x(e.t) - px) < 4) lines.push(`drone ${e.i + 1} touches a building`);
+        if (F.marks) {
+          if (F.marks.start && Math.abs(x(F.marks.start.t) - px) < 4) lines.push("the first drone crosses the start line: the task clock starts");
+          for (const p of F.marks.presses || []) if (Math.abs(x(p.t) - px) < 5) lines.push(`a press${p.label ? ` for the ${p.label}` : ""}: ${PRESS_TEXT[p.outcome] || p.outcome}`);
+        }
+        if (F.apart) for (const [a, b] of F.apart.split || []) if (s >= a && s <= b) { lines.push("the formation is split in two groups"); break; }
+        for (const b of F.bands) if (b.spans.some(([a, z]) => s >= a && s <= z)) lines.push(b.label);
+        for (const sr of F.series) lines.push(`${sr.label}: ${seriesAt(sr, s).toFixed(sr.digits === undefined ? 2 : sr.digits)}`);
+        tipShow(ev.clientX, ev.clientY, fmtT(s), lines.length ? lines : ["click to go here"]);
+      });
+      hit.addEventListener("pointerup", () => { down = false; });
+      hit.addEventListener("pointerleave", () => { down = false; tipHide(); });
+      hit.addEventListener("keydown", keys);
+      tl = { ph, x };
+    }
+    const WHY = { drone: "collided with another drone", isolated: "too far from the others", building: "inside a building" };
+
+    // ---- the clock
+    function setT(s) { t = Math.max(0, Math.min(F.tEnd, s)); cam = null; sync(); }
+    function sync() {
+      if (!F) return;
+      slider.value = String(t); clock.textContent = `${fmtT(t)} / ${fmtT(F.tEnd)}`;
+      if (tl) { tl.ph.setAttribute("x1", tl.x(t)); tl.ph.setAttribute("x2", tl.x(t)); }
+      placeCamera(); live(); view.request();
+    }
+    function tick(ts) {
+      raf = 0; if (!playing || !visible) return;
+      const dt = last ? Math.min(0.1, (ts - last) / 1000) : 0; last = ts;
+      t = Math.min(F.tEnd, t + dt * +spd.value); if (t >= F.tEnd) play(false);
+      sync(); if (playing) raf = requestAnimationFrame(tick);
+    }
+    function play(on) {
+      if (!F) return;
+      if (on && t >= F.tEnd - 1e-6) t = 0;
+      playing = on; btn.textContent = on ? "Pause" : "Play"; last = 0;
+      if (on && !raf && visible) raf = requestAnimationFrame(tick);
+    }
+    function keys(ev) {
+      if (!F) return;
+      if (ev.key === " ") { ev.preventDefault(); play(!playing); }
+      else if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") { ev.preventDefault(); setT(t + (ev.key === "ArrowRight" ? 1 : -1) * (ev.shiftKey ? 30 : 5)); }
+    }
+    btn.addEventListener("click", () => play(!playing));
+    slider.addEventListener("input", () => setT(+slider.value));
+    canvas.tabIndex = 0; canvas.addEventListener("keydown", keys);
+    function hover(xw, zw, ev) {
+      if (!F) return;
+      for (const d of drones(F, t)) if (Math.hypot(d.x - xw, d.z - zw) * view.k < 8) {
+        const ap = (apartAt(F, t) >> d.i) & 1;
+        return tipShow(ev.clientX, ev.clientY, `Drone ${d.i + 1}`, [F.n > 1 ? (d.shown ? "on the formation's edge: its feed is on the pilot's ring" : "inside the formation: its feed is not shown") : "the single drone",
+          ap ? "apart from the formation's main group (more than 30 m of free path)" : "", `heading ${Math.round(((d.yaw % 360) + 360) % 360)}°`].filter(Boolean));
+      }
+      for (const e of F.losses) if (e.t <= t && Math.hypot(e.x - xw, e.z - zw) * view.k < 8) return tipShow(ev.clientX, ev.clientY, `Drone ${e.i + 1} lost at ${fmtT(e.t)}`, [WHY[e.why] || ""].filter(Boolean));
+      if (F.marks) {
+        for (const p of F.marks.presses || []) if (p.t <= t && Math.hypot(p.x - xw, p.z - zw) * view.k < 8)
+          return tipShow(ev.clientX, ev.clientY, `A press at ${fmtT(p.t)}`, [`${p.label ? `the ${p.label}: ` : ""}${PRESS_TEXT[p.outcome] || p.outcome}`, "drawn where the formation's centre was"]);
+        for (const g of F.marks.goals || []) if (Math.hypot(g.x - xw, g.z - zw) * view.k < 10)
+          return tipShow(ev.clientX, ev.clientY, `Goal: ${g.label}`, [goalFound(g) ? `found at ${fmtT(g.found)}` : g.found !== null && g.found !== undefined ? `found later, at ${fmtT(g.found)}` : "never answered in this run",
+            `dashed: its zone, ${g.zone} m round the ${g.shape === "square" ? "tile" : "patch"}`]);
+      }
+      const k = decisionAt(t);
+      if (k >= 0) for (const op of F.decisions[k].opts) if (op.end && Math.hypot(op.end[0] - xw, op.end[1] - zw) * view.k < 8) {
+        return tipShow(ev.clientX, ev.clientY, "What stands at this street's far end", [op.te === null || op.te === undefined ? "never looked down in this flight"
+          : `looked down at ${fmtT(op.te)}${F.decisions[k].t !== null && op.te > F.decisions[k].t ? ", after the decision" : ""}`,
+          // a flight that does not score the far end (a search's) carries no tf at all
+          op.tf === undefined ? "" : op.tf === null ? "the street's far end never seen" : `the street's far end seen at ${fmtT(op.tf)}`].filter(Boolean));
+      }
+      if (k >= 0) for (const op of F.decisions[k].opts) {
+        const ax = op.xz[0], az = op.xz[1], bx = op.xz[2], bz = op.xz[3], L2 = (bx - ax) ** 2 + (bz - az) ** 2;
+        const u = Math.max(0, Math.min(1, ((xw - ax) * (bx - ax) + (zw - az) * (bz - az)) / Math.max(L2, 1e-9)));
+        if (Math.hypot(ax + u * (bx - ax) - xw, az + u * (bz - az) - zw) * view.k < 6) {
+          return tipShow(ev.clientX, ev.clientY, `One of block ${k + 1}'s streets`, [op.t === null ? "never previewed in this flight" : `previewed at ${fmtT(op.t)}${F.decisions[k].t !== null && op.t > F.decisions[k].t ? ", after the decision" : ""}`,
+            op.chosen ? "the exit taken" : "", op.score !== undefined && op.score !== null ? `unseen street nearby: ${op.score.toFixed(2)} m per m of travel` : ""].filter(Boolean));
+        }
+      }
+      tipHide();
+    }
+    new ResizeObserver(() => { if (F) { timeline(); sync(); } }).observe($(".rv-tl"));
+    onTheme(() => { if (F) { legend(); timeline(); sync(); } });
+    return {
+      selectGroup, show() { visible = true; if (F) { timeline(); sync(); } if (playing && !raf) { last = 0; raf = requestAnimationFrame(tick); } },
+      hide() { visible = false; if (raf) cancelAnimationFrame(raf); raf = 0; },
+      start(i = 0) {
+        selectGroup(i);
+        if (reduced) return;
+        // play the first time the player comes into view, not while it is still below the fold
+        if (!("IntersectionObserver" in window)) { setTimeout(() => play(true), 400); return; }
+        const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { io.disconnect(); if (!playing) play(true); } }, { threshold: 0.3 });
+        io.observe(canvas);
+      },
+      play, get flight() { return F; }
+    };
+  }
+
+  return { load, city, flight, drones, frameAt, MapView, drawCity, drawScale, label, rgba, colour, onTheme, tokens: () => T,
+           Player, tipShow, tipHide, fmtT, area, inside, centroid, poly };
+})();
+</script>
+<script id="data" type="application/json">{"built":"2026-11-10 17:45","test":"internal_3","notes":{"title":"internal_3 \u00b7 DiamondCityWorld","meta":{"dates":"1 October 2026","pilots":"BBAA, BBCC","city":"DiamondCityWorld"},"summary":"<p>Two pilots on 1 October, two runs in each condition: BBAA flew the single drone first, BBCC the swarm. The city was DiamondCityWorld, the tile city laid out eight by eight with its rows staggered and four diamond-shaped parks, each a superblock of four tiles. Practice was flown separately and not recorded, so every run here counts. The pilot pressed the RC's button at each identify; the outcomes were not keyed.<\/p>","changes_title":"Changes since internal_2","changes":[{"area":"City","items":["<b>DiamondCityWorld replaces ScaledCityWorld:<\/b> an eight-by-eight grid of tiles with staggered rows and four diamond parks of four tiles each (<span class=\"code\">88aa94e7<\/span>, <span class=\"code\">fe38e13a<\/span>, <span class=\"code\">57559907<\/span>), the spawn road twice as long (<span class=\"code\">9490e308<\/span>).","<b>Verge trees on every goal patch<\/b> (<span class=\"code\">2d2ce82c<\/span>)."],"leads":["DiamondCityWorld replaces ScaledCityWorld","Verge trees on every goal patch"]},{"area":"Swarm","items":["<b>The fix for internal_2's collisions at the tightest spread:<\/b> the hollow core now matches velocity relative to the swarm instead of braking every ring drone, and a close-range damper opposes two drones closing on each other (<span class=\"code\">fe3a448b<\/span>)."],"leads":["The fix for internal_2's collisions at the tightest spread"]},{"area":"Display","items":["<b>72 fps held in the swarm condition, feeds 1280\u00d7720 and the panorama 2400\u00d7900,<\/b> with feeds out of the pilot's view refreshed at 5 Hz (<span class=\"code\">efe9209d<\/span>).","<b>A compass arrow below the pilot<\/b> showing the body heading (<span class=\"code\">360c2d63<\/span>)."],"leads":["72 fps held in the swarm condition, feeds 1280\u00d7720 and the panorama 2400\u00d7900","A compass arrow below the pilot"]},{"area":"Walkers","items":["<b>Smaller bucket and cowboy hats;<\/b> the cap unchanged (<span class=\"code\">e622f617<\/span>)."],"leads":["Smaller bucket and cowboy hats"]},{"area":"Task and scoring","items":["<b>The pilot presses the RC's C2 button to identify,<\/b> logged with its time; the outcome of each press was not keyed in this series (<span class=\"code\">e622f617<\/span>)."],"leads":["The pilot presses the RC's C2 button to identify"]}],"within":[],"setup":{"head":["","internal_2","internal_3"],"rows":[["City","ScaledCityWorld: a regular tile grid, buildings 50 m tall","DiamondCityWorld: staggered rows, four diamond parks"],["Swarm law","hollow core braking on absolute velocity, no damper","core relative to the swarm, close-range damper"],["Spread","the dial, d_ref 0.4 to 1.6","the same"],["Screens","feeds 1152\u00d7648, panorama 2160\u00d7810","feeds 1280\u00d7720, panorama 2400\u00d7900, 72 fps held"],["Hats","three hats","bucket and cowboy smaller, cap unchanged"],["Answers","said aloud, entered afterwards","an RC press, its outcome not keyed"],["Practice","the first run in each condition, recorded","flown separately, not recorded"],["Task clock","from Play (here, from the start line, derived)","from Play (here, from the start line, derived)"]]},"notable":{"losses":{"title":"Drones lost","html":"<p>Every loss was a pair. BBCC's were drones colliding at the tightest spread the dial allows (d_ref 0.4), the failure the damper was added for: it slowed the slow closings, not the fast ones that a building's shield or a hard stop forced. BBAA's one pair, at d_ref 1.0, began with a drone pinned on a street-light pole in a goal patch, a collider on the Default layer that the force law cannot see; another drone then ran into it.<\/p>"},"panorama":{"title":"The stitched panorama","html":"<p>The panorama replaced the three front feeds for only a small part of each swarm run: its quality gate hid it whenever the views did not overlap well enough.<\/p>"}},"reading":"<p>The two pilots disagree: the swarm was quicker in total for BBAA and slower for BBCC, and each was quicker in the condition flown second.<\/p><p>That makes this series a measure of practice as much as of the swarm. The one phase both pilots agree on is the way between goals, where the swarm was quicker for both; at the goals BBAA's swarm took about half the single drone's time and BBCC's about twice. BBCC flew the swarm at the tightest spread and lost eight drones in its two swarm runs, while BBAA kept the spread near 1.0. With two pilots and two runs each, no ratio here could reach p 0.05 however one-sided.<\/p>","data_notes":["Practice was flown separately and not recorded: every run here counts.","Answers were pressed on the RC, so the total time ends at the last press; the presses' outcomes were not keyed, so the identification card shows presses, not correct answers.","The editor log of that day is not in the series folder, so the losses carry no recorded reason here; the log read on 1 October named every one a drone-drone collision (one pair after a street-light pole).","The task is timed from the start line, found in the drone logs; the series itself was timed from Play."],"summary_text":"Two pilots on 1 October, two runs in each condition: BBAA flew the single drone first, BBCC the swarm. The city was DiamondCityWorld, the tile city laid out eight by eight with its rows staggered and four diamond-shaped parks, each a superblock of four tiles. Practice was flown separately and not recorded, so every run here counts. The pilot pressed the RC's button at each identify; the outcomes were not keyed."},"timed":true,"total_col":"time_s","pages":{"index":"https://claude.ai/artifact/H7UGMEWkhYUxao7MkCc4Kr","internal_1":"https://claude.ai/artifact/57xqwjy4e8HM8dtBqDknph","internal_2":"https://claude.ai/artifact/VAeV4ME137fe6NdwrYXf5e","internal_3":"https://claude.ai/artifact/6bakNxhgxPK6Uwp5vef53k","internal_4":"https://claude.ai/artifact/H4ay6BrtGggAo7QB4W13UB"},"hub":"https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5","nav":{"prev":"internal_2","next":"internal_4"},"zone":15.0,"range":40.0,"pilots":["BBAA","BBCC"],"n_runs":8,"n_practice":0,"dates":["20261001"],"city":["DiamondCityWorld"],"start_sources":{"derived":8},"time_sources":{"identify":8},"runs":[{"run":"BBAA_t1_SingleDrone_20261001_153231","pid":"BBAA","order":1,"trial":1,"condition":"SingleDrone","practice":false,"date":"20261001","durationSec":480.0421,"startSec":25.1876,"startSource":"derived","time_s":444.6527,"time_source":"identify","transit_s":205.7101,"search_s":249.2264,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":0,"crashes":0,"stick_tv_per_min":49.592,"adj_per_min":20.4171,"mean_hold_s":2.9387,"course_turn_per_min":535.7782,"cmd_straightness":0.5534,"act_path_ratio":1.9072,"stitch_visibleMinPct":null,"stitch_visibleMaxPct":null,"cond":"single"},{"run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"trial":2,"condition":"SingleDrone","practice":false,"date":"20261001","durationSec":585.9654,"startSec":24.7055,"startSource":"derived","time_s":556.7393,"time_source":"identify","transit_s":297.2021,"search_s":264.075,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":0,"crashes":0,"stick_tv_per_min":47.3045,"adj_per_min":21.1977,"mean_hold_s":2.8305,"course_turn_per_min":412.8113,"cmd_straightness":0.6184,"act_path_ratio":1.7556,"stitch_visibleMinPct":null,"stitch_visibleMaxPct":null,"cond":"single"},{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"trial":3,"condition":"Swarm","practice":false,"date":"20261001","durationSec":293.9171,"startSec":39.4969,"startSource":"derived","time_s":248.9726,"time_source":"identify","transit_s":133.6945,"search_s":120.7921,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":2,"crashes":1,"stick_tv_per_min":53.6142,"adj_per_min":20.6441,"mean_hold_s":2.9064,"course_turn_per_min":619.2443,"cmd_straightness":0.9377,"act_path_ratio":1.0898,"stitch_visibleMinPct":11.9,"stitch_visibleMaxPct":11.9,"cond":"swarm"},{"run":"BBAA_t4_Swarm_20261001_161344","pid":"BBAA","order":4,"trial":4,"condition":"Swarm","practice":false,"date":"20261001","durationSec":322.6556,"startSec":19.9433,"startSource":"derived","time_s":299.2826,"time_source":"identify","transit_s":181.6777,"search_s":120.9106,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":0,"crashes":0,"stick_tv_per_min":62.2927,"adj_per_min":23.4481,"mean_hold_s":2.5588,"course_turn_per_min":553.7551,"cmd_straightness":0.9264,"act_path_ratio":1.1234,"stitch_visibleMinPct":12.1,"stitch_visibleMaxPct":12.1,"cond":"swarm"},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"trial":1,"condition":"Swarm","practice":false,"date":"20261001","durationSec":404.5816,"startSec":36.2958,"startSource":"derived","time_s":362.3759,"time_source":"identify","transit_s":47.866,"search_s":320.4233,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":4,"crashes":2,"stick_tv_per_min":30.7082,"adj_per_min":18.8025,"mean_hold_s":3.1911,"course_turn_per_min":276.5189,"cmd_straightness":0.8252,"act_path_ratio":1.5231,"stitch_visibleMinPct":8.7,"stitch_visibleMaxPct":8.7,"cond":"swarm"},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"trial":2,"condition":"Swarm","practice":false,"date":"20261001","durationSec":408.8254,"startSec":23.0649,"startSource":"derived","time_s":381.2624,"time_source":"identify","transit_s":146.6106,"search_s":239.2068,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":4,"crashes":2,"stick_tv_per_min":25.0849,"adj_per_min":16.7791,"mean_hold_s":3.5759,"course_turn_per_min":286.1453,"cmd_straightness":0.9569,"act_path_ratio":1.0557,"stitch_visibleMinPct":5.4,"stitch_visibleMaxPct":5.4,"cond":"swarm"},{"run":"BBCC_t3_SingleDrone_20261001_172059","pid":"BBCC","order":3,"trial":3,"condition":"SingleDrone","practice":false,"date":"20261001","durationSec":376.8215,"startSec":16.2085,"startSource":"derived","time_s":356.4303,"time_source":"identify","transit_s":210.7903,"search_s":149.8072,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":0,"crashes":0,"stick_tv_per_min":36.637,"adj_per_min":18.5018,"mean_hold_s":3.2429,"course_turn_per_min":390.4814,"cmd_straightness":0.7252,"act_path_ratio":1.4039,"stitch_visibleMinPct":null,"stitch_visibleMaxPct":null,"cond":"single"},{"run":"BBCC_t4_SingleDrone_20261001_173145","pid":"BBCC","order":4,"trial":4,"condition":"SingleDrone","practice":false,"date":"20261001","durationSec":198.6567,"startSec":15.5066,"startSource":"derived","time_s":178.4133,"time_source":"identify","transit_s":56.4985,"search_s":126.7007,"goalsReached":3,"nGoals":3,"nCorrect":0,"drones_lost":0,"crashes":0,"stick_tv_per_min":14.6255,"adj_per_min":12.7437,"mean_hold_s":4.7082,"course_turn_per_min":67.5284,"cmd_straightness":0.9909,"act_path_ratio":1.0374,"stitch_visibleMinPct":null,"stitch_visibleMaxPct":null,"cond":"single"}],"goals":[{"run":"BBAA_t1_SingleDrone_20261001_153231","pid":"BBAA","order":1,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cap","leg":2,"search":72.4,"transit":169.0,"outcome":"","decision":377.7477,"sight_to_press":4.5},{"run":"BBAA_t1_SingleDrone_20261001_153231","pid":"BBAA","order":1,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Bucket","leg":1,"search":128.2,"transit":6.7,"outcome":"","decision":136.7471,"sight_to_press":104.8},{"run":"BBAA_t1_SingleDrone_20261001_153231","pid":"BBAA","order":1,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cowboy","leg":3,"search":48.5,"transit":30.0,"outcome":"","decision":469.8403,"sight_to_press":1.8},{"run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Bucket","leg":3,"search":65.8,"transit":3.4,"outcome":"","decision":581.4449,"sight_to_press":58.4},{"run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cap","leg":1,"search":73.8,"transit":174.3,"outcome":"","decision":256.5929,"sight_to_press":24.1},{"run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cowboy","leg":2,"search":124.4,"transit":119.5,"outcome":"","decision":433.6926,"sight_to_press":12.4},{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cowboy","leg":3,"search":44.1,"transit":59.7,"outcome":"","decision":288.4695,"sight_to_press":28.8},{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Bucket","leg":1,"search":33.2,"transit":53.5,"outcome":"","decision":110.3116,"sight_to_press":9.6},{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cap","leg":2,"search":43.4,"transit":20.5,"outcome":"","decision":164.3719,"sight_to_press":15.8},{"run":"BBAA_t4_Swarm_20261001_161344","pid":"BBAA","order":4,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Bucket","leg":3,"search":53.5,"transit":90.4,"outcome":"","decision":319.2259,"sight_to_press":51.3},{"run":"BBAA_t4_Swarm_20261001_161344","pid":"BBAA","order":4,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cap","leg":2,"search":27.9,"transit":36.0,"outcome":"","decision":161.1716,"sight_to_press":6.2},{"run":"BBAA_t4_Swarm_20261001_161344","pid":"BBAA","order":4,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cowboy","leg":1,"search":39.5,"transit":55.4,"outcome":"","decision":99.8863,"sight_to_press":17.8},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Bucket","leg":1,"search":73.3,"transit":30.7,"outcome":"","decision":125.0785,"sight_to_press":58.5},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cap","leg":2,"search":218.5,"transit":15.1,"outcome":"","decision":344.8185,"sight_to_press":177.5},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cowboy","leg":3,"search":28.6,"transit":2.1,"outcome":"","decision":398.6718,"sight_to_press":0.4},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cowboy","leg":2,"search":61.3,"transit":8.5,"outcome":"","decision":248.6802,"sight_to_press":36.0},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Bucket","leg":3,"search":70.4,"transit":65.2,"outcome":"","decision":404.3273,"sight_to_press":65.0},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","cond":"swarm","practice":false,"hat":"Cap","leg":1,"search":107.4,"transit":72.9,"outcome":"","decision":183.6788,"sight_to_press":69.8},{"run":"BBCC_t3_SingleDrone_20261001_172059","pid":"BBCC","order":3,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cowboy","leg":3,"search":13.6,"transit":127.3,"outcome":"","decision":372.6388,"sight_to_press":0.4},{"run":"BBCC_t3_SingleDrone_20261001_172059","pid":"BBCC","order":3,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Bucket","leg":1,"search":83.2,"transit":26.7,"outcome":"","decision":104.2399,"sight_to_press":61.8},{"run":"BBCC_t3_SingleDrone_20261001_172059","pid":"BBCC","order":3,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cap","leg":2,"search":53.0,"transit":56.8,"outcome":"","decision":213.4011,"sight_to_press":10.0},{"run":"BBCC_t4_SingleDrone_20261001_173145","pid":"BBCC","order":4,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cowboy","leg":2,"search":65.7,"transit":27.3,"outcome":"","decision":115.3167,"sight_to_press":9.7},{"run":"BBCC_t4_SingleDrone_20261001_173145","pid":"BBCC","order":4,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Cap","leg":1,"search":24.7,"transit":6.7,"outcome":"","decision":29.2666,"sight_to_press":7.0},{"run":"BBCC_t4_SingleDrone_20261001_173145","pid":"BBCC","order":4,"condition":"SingleDrone","cond":"single","practice":false,"hat":"Bucket","leg":3,"search":36.3,"transit":22.5,"outcome":"","decision":193.9199,"sight_to_press":2.5}],"stats":{"total":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":272.971,"gm_d":497.5497,"mean_s":274.1276,"mean_d":500.696,"ratio":0.5486},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":371.6992,"gm_d":252.1744,"mean_s":371.8192,"mean_d":267.4218,"ratio":1.474}],"ratio":0.8993,"p":0.8333,"floor":0.0556,"n_perm":36,"typ_s":318.5328,"typ_d":354.2164,"n_lower":1,"n_pilots":2,"mean_s":322.9734,"mean_d":384.0589},"search":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":120.8513,"gm_d":256.5433,"mean_s":120.8513,"mean_d":256.6507,"ratio":0.4711},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":276.8527,"gm_d":137.7704,"mean_s":279.8151,"mean_d":138.2539,"ratio":2.0095}],"ratio":0.973,"p":0.8889,"floor":0.0556,"n_perm":36,"typ_s":182.9153,"typ_d":188.0002,"n_lower":1,"n_pilots":2,"mean_s":200.3332,"mean_d":197.4523},"transit":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":155.8503,"gm_d":247.2599,"mean_s":157.6861,"mean_d":251.4561,"ratio":0.6303},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":83.7715,"gm_d":109.1299,"mean_s":97.2383,"mean_d":133.6444,"ratio":0.7676}],"ratio":0.6956,"p":0.3889,"floor":0.0556,"n_perm":36,"typ_s":114.262,"typ_d":164.2664,"n_lower":2,"n_pilots":2,"mean_s":127.4622,"mean_d":192.5502},"smooth":{"stick_tv_per_min":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":57.7908,"gm_d":48.4348,"mean_s":57.9535,"mean_d":48.4483,"ratio":1.1932},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":27.7545,"gm_d":23.1481,"mean_s":27.8966,"mean_d":25.6313,"ratio":1.199}],"ratio":1.1961,"p":0.5556,"floor":0.0556,"n_perm":36,"typ_s":40.0494,"typ_d":33.4839,"n_lower":0,"n_pilots":2,"mean_s":42.925,"mean_d":37.0398},"adj_per_min":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":22.0015,"gm_d":20.8037,"mean_s":22.0461,"mean_d":20.8074,"ratio":1.0576},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":17.762,"gm_d":15.3552,"mean_s":17.7908,"mean_d":15.6228,"ratio":1.1567}],"ratio":1.106,"p":0.3333,"floor":0.0556,"n_perm":36,"typ_s":19.7684,"typ_d":17.873,"n_lower":0,"n_pilots":2,"mean_s":19.9185,"mean_d":18.2151},"mean_hold_s":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":2.7271,"gm_d":2.8841,"mean_s":2.7326,"mean_d":2.8846,"ratio":0.9456},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":3.378,"gm_d":3.9075,"mean_s":3.3835,"mean_d":3.9756,"ratio":0.8645}],"ratio":0.9041,"p":0.3333,"floor":0.0556,"n_perm":36,"typ_s":3.0351,"typ_d":3.357,"n_lower":2,"n_pilots":2,"mean_s":3.058,"mean_d":3.4301},"course_turn_per_min":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":585.5849,"gm_d":470.2928,"mean_s":586.4997,"mean_d":474.2948,"ratio":1.2451},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":281.2909,"gm_d":162.3841,"mean_s":281.3321,"mean_d":229.0049,"ratio":1.7323}],"ratio":1.4686,"p":0.5,"floor":0.0556,"n_perm":36,"typ_s":405.8568,"typ_d":276.3477,"n_lower":0,"n_pilots":2,"mean_s":433.9159,"mean_d":351.6498},"cmd_straightness":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":0.932,"gm_d":0.585,"mean_s":0.932,"mean_d":0.5859,"ratio":1.5932},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":0.8886,"gm_d":0.8477,"mean_s":0.8911,"mean_d":0.858,"ratio":1.0483}],"ratio":1.2924,"p":0.1667,"floor":0.0556,"n_perm":36,"typ_s":0.9101,"typ_d":0.7042,"n_lower":0,"n_pilots":2,"mean_s":0.9116,"mean_d":0.722},"act_path_ratio":{"per":[{"pid":"BBAA","n_s":2,"n_d":2,"gm_s":1.1065,"gm_d":1.8298,"mean_s":1.1066,"mean_d":1.8314,"ratio":0.6047},{"pid":"BBCC","n_s":2,"n_d":2,"gm_s":1.268,"gm_d":1.2068,"mean_s":1.2894,"mean_d":1.2207,"ratio":1.0507}],"ratio":0.7971,"p":0.2778,"floor":0.0556,"n_perm":36,"typ_s":1.1845,"typ_d":1.486,"n_lower":1,"n_pilots":2,"mean_s":1.198,"mean_d":1.526}}},"identify":[{"run":"BBAA_t1_SingleDrone_20261001_153231","pid":"BBAA","order":1,"condition":"SingleDrone","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":4.5},{"run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":24.1},{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"condition":"Swarm","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":15.8},{"run":"BBAA_t4_Swarm_20261001_161344","pid":"BBAA","order":4,"condition":"Swarm","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":17.8},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":58.5},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":65.0},{"run":"BBCC_t3_SingleDrone_20261001_172059","pid":"BBCC","order":3,"condition":"SingleDrone","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":10.0},{"run":"BBCC_t4_SingleDrone_20261001_173145","pid":"BBCC","order":4,"condition":"SingleDrone","practice":false,"mode":"presses, outcomes not keyed","presses":3,"correct":0,"goals":3,"false_alarms":0,"overrides":0,"out_of_zone":0,"sight_to_press":7.0}],"losses":[{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"condition":"Swarm","practice":false,"drone":4,"t":255.8089,"t_task":216.312,"x":285.2306,"z":151.4015,"reason":"","partner":null,"speed":null,"spread":1.0},{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"condition":"Swarm","practice":false,"drone":6,"t":255.8089,"t_task":216.312,"x":285.3329,"z":152.0309,"reason":"","partner":null,"speed":null,"spread":1.0},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","practice":false,"drone":0,"t":166.6072,"t_task":130.3114,"x":-106.119,"z":174.1774,"reason":"","partner":null,"speed":null,"spread":0.4},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","practice":false,"drone":1,"t":380.4182,"t_task":344.1224,"x":6.416,"z":147.2864,"reason":"","partner":null,"speed":null,"spread":0.4},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","practice":false,"drone":2,"t":380.4182,"t_task":344.1224,"x":5.9352,"z":147.5921,"reason":"","partner":null,"speed":null,"spread":0.4},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","practice":false,"drone":3,"t":166.6072,"t_task":130.3114,"x":-105.4377,"z":174.2841,"reason":"","partner":null,"speed":null,"spread":0.4},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","practice":false,"drone":1,"t":215.9076,"t_task":192.8427,"x":189.4718,"z":328.708,"reason":"","partner":null,"speed":null,"spread":0.4},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","practice":false,"drone":6,"t":194.6082,"t_task":171.5433,"x":58.3688,"z":314.3086,"reason":"","partner":null,"speed":null,"spread":0.4},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","practice":false,"drone":7,"t":194.6082,"t_task":171.5433,"x":58.708,"z":314.8338,"reason":"","partner":null,"speed":null,"spread":0.4},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","practice":false,"drone":8,"t":215.9076,"t_task":192.8427,"x":188.8615,"z":328.5684,"reason":"","partner":null,"speed":null,"spread":0.4}],"restarts":[{"pid":"BBAA","trial":1,"condition":"SingleDrone","n":1,"order":[1],"lengths":[480.0421],"practice":false},{"pid":"BBAA","trial":2,"condition":"SingleDrone","n":1,"order":[2],"lengths":[585.9654],"practice":false},{"pid":"BBAA","trial":3,"condition":"Swarm","n":1,"order":[3],"lengths":[293.9171],"practice":false},{"pid":"BBAA","trial":4,"condition":"Swarm","n":1,"order":[4],"lengths":[322.6556],"practice":false},{"pid":"BBCC","trial":1,"condition":"Swarm","n":1,"order":[1],"lengths":[404.5816],"practice":false},{"pid":"BBCC","trial":2,"condition":"Swarm","n":1,"order":[2],"lengths":[408.8254],"practice":false},{"pid":"BBCC","trial":3,"condition":"SingleDrone","n":1,"order":[3],"lengths":[376.8215],"practice":false},{"pid":"BBCC","trial":4,"condition":"SingleDrone","n":1,"order":[4],"lengths":[198.6567],"practice":false}],"setups":null,"long_legs":[{"kind":"at a goal","run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"condition":"Swarm","hat":"Cap","leg":2,"s":218.5},{"kind":"at a goal","run":"BBAA_t1_SingleDrone_20261001_153231","pid":"BBAA","order":1,"condition":"SingleDrone","hat":"Bucket","leg":1,"s":128.2},{"kind":"at a goal","run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","hat":"Cowboy","leg":2,"s":124.4},{"kind":"at a goal","run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","hat":"Cap","leg":1,"s":107.4},{"kind":"at a goal","run":"BBCC_t3_SingleDrone_20261001_172059","pid":"BBCC","order":3,"condition":"SingleDrone","hat":"Bucket","leg":1,"s":83.2},{"kind":"at a goal","run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","hat":"Cap","leg":1,"s":73.8},{"kind":"between goals","run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","hat":"Cap","leg":1,"s":174.3},{"kind":"between goals","run":"BBAA_t1_SingleDrone_20261001_153231","pid":"BBAA","order":1,"condition":"SingleDrone","hat":"Cap","leg":2,"s":169.0},{"kind":"between goals","run":"BBCC_t3_SingleDrone_20261001_172059","pid":"BBCC","order":3,"condition":"SingleDrone","hat":"Cowboy","leg":3,"s":127.3},{"kind":"between goals","run":"BBAA_t2_SingleDrone_20261001_154919","pid":"BBAA","order":2,"condition":"SingleDrone","hat":"Cowboy","leg":2,"s":119.5},{"kind":"between goals","run":"BBAA_t4_Swarm_20261001_161344","pid":"BBAA","order":4,"condition":"Swarm","hat":"Bucket","leg":3,"s":90.4},{"kind":"between goals","run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"condition":"Swarm","hat":"Cap","leg":1,"s":72.9}],"panorama":[{"run":"BBAA_t3_Swarm_20261001_160353","pid":"BBAA","order":3,"practice":false,"lo":11.9,"hi":11.9,"source":"recorder"},{"run":"BBAA_t4_Swarm_20261001_161344","pid":"BBAA","order":4,"practice":false,"lo":12.1,"hi":12.1,"source":"recorder"},{"run":"BBCC_t1_Swarm_20261001_170217","pid":"BBCC","order":1,"practice":false,"lo":8.7,"hi":8.7,"source":"recorder"},{"run":"BBCC_t2_Swarm_20261001_171144","pid":"BBCC","order":2,"practice":false,"lo":5.4,"hi":5.4,"source":"recorder"}],"replay":{"groups":[{"id":"BBAA","title":"BBAA","short":"BBAA","kind":"runs","flights":[{"id":"BBAA_t1_SingleDrone_20261001_153231","title":"1. Single drone t1","cond":"single","city":"DiamondCityWorld__a3a00661","source":"trial","about":"BBAA_t1_SingleDrone_20261001_153231: 1 drone(s), recorded 8:00."},{"id":"BBAA_t2_SingleDrone_20261001_154919","title":"2. Single drone t2","cond":"single","city":"DiamondCityWorld__590149ae","source":"trial","about":"BBAA_t2_SingleDrone_20261001_154919: 1 drone(s), recorded 9:45."},{"id":"BBAA_t3_Swarm_20261001_160353","title":"3. Swarm t3","cond":"swarm","city":"DiamondCityWorld__9ad906d4","source":"trial","about":"BBAA_t3_Swarm_20261001_160353: 10 drone(s), recorded 4:53."},{"id":"BBAA_t4_Swarm_20261001_161344","title":"4. Swarm t4","cond":"swarm","city":"DiamondCityWorld__28f6fab8","source":"trial","about":"BBAA_t4_Swarm_20261001_161344: 10 drone(s), recorded 5:22."}],"about":"BBAA's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."},{"id":"BBCC","title":"BBCC","short":"BBCC","kind":"runs","flights":[{"id":"BBCC_t1_Swarm_20261001_170217","title":"1. Swarm t1","cond":"swarm","city":"DiamondCityWorld__b3314bba","source":"trial","about":"BBCC_t1_Swarm_20261001_170217: 10 drone(s), recorded 6:44."},{"id":"BBCC_t2_Swarm_20261001_171144","title":"2. Swarm t2","cond":"swarm","city":"DiamondCityWorld__b9137c82","source":"trial","about":"BBCC_t2_Swarm_20261001_171144: 10 drone(s), recorded 6:48."},{"id":"BBCC_t3_SingleDrone_20261001_172059","title":"3. Single drone t3","cond":"single","city":"DiamondCityWorld__bf6bb77f","source":"trial","about":"BBCC_t3_SingleDrone_20261001_172059: 1 drone(s), recorded 6:16."},{"id":"BBCC_t4_SingleDrone_20261001_173145","title":"4. Single drone t4","cond":"single","city":"DiamondCityWorld__48936cfd","source":"trial","about":"BBCC_t4_SingleDrone_20261001_173145: 1 drone(s), recorded 3:18."}],"about":"BBCC's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."}]},"manual":false,"warnings":[]}</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const secs = x => ok(x) ? `${Math.round(x)} s` : "–";
+const mmss = x => ok(x) ? `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}` : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const times = r => ok(r) ? `×${r.toFixed(2)}` : "–";
+const pv = p => !ok(p) ? "–" : p < 0.001 ? "< 0.001" : p.toFixed(p < 0.1 ? 3 : 2);
+const N = D.notes, ST = D.stats, RUNS = D.runs, PILOTS = D.pilots;
+const CONDS = {swarm: "Swarm", single: "Single drone", sphere: "360 sphere"};
+const kCol = c => `var(--k-${c || "single"})`;
+const condOf = c => ({Swarm: "swarm", SingleDrone: "single", SingleSphere: "sphere"}[c] || "single");
+const TITLE = r => `${r.pid}, flight ${r.order}: ${CONDS[condOf(r.condition)]} t${r.trial}${r.practice ? " (practice)" : ""}`;
+const counted = RUNS.filter(r => !r.practice);
+const PG = D.pages || {};
+
+// ---------------------------------------------------------------- tooltip and chart helpers (S5's, as on S11's page)
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 260, hi = 1080) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 640)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (Wd, H, label, g) => `<svg viewBox="0 0 ${Wd} ${H}" style="max-width:${Wd}px" role="img" aria-label="${esc(label)}">${g}</svg>`;
+function niceMax(v) { const s = [10, 20, 25, 50, 100, 120, 150, 200, 250, 300, 400, 500, 600, 750, 900, 1000, 1200]; const step = s.find(x => v / x <= 5) || 300; return {step, top: Math.ceil(v / step) * step}; }
+
+// Every run of each pilot by flight order, its value as a dot in its condition's colour (hollow: practice).
+function orderChart(el, get, unit, label) {
+  const per = PILOTS.map(p => RUNS.filter(r => r.pid === p).sort((a, b) => a.order - b.order));
+  const vals = RUNS.map(get).filter(ok), {step, top} = niceMax(Math.max(1, ...vals) * 1.05);
+  const n = per.length, total = cw(el), pw = Math.max(200, Math.floor(total / Math.min(n, Math.max(1, Math.floor(total / 230)))) - 14);
+  const H = 230, m = {l: 46, r: 10, t: 12, b: 34};
+  const yy = v => m.t + (H - m.t - m.b) * (1 - v / top);
+  const all = [];
+  const panel = (runs, pi) => {
+    const k = runs.length, xx = j => m.l + (pw - m.l - m.r) * (j + 0.5) / Math.max(1, k);
+    let g = "";
+    for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gridl" x1="${m.l}" x2="${pw - m.r}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${m.l - 6}" y="${yy(v) + 4}" text-anchor="end">${v}</text>`;
+    g += `<text x="${m.l - 34}" y="${m.t + 2}" text-anchor="start" style="font-size:10px">${esc(unit)}</text>`;
+    runs.forEach((r, j) => {
+      const v = get(r), c = kCol(condOf(r.condition));
+      g += `<text x="${xx(j)}" y="${H - m.b + 16}" text-anchor="middle">${r.order}</text>`;
+      if (!ok(v)) { g += `<text x="${xx(j)}" y="${yy(0) - 4}" text-anchor="middle" class="val">–</text>`; return; }
+      const i = all.length; all.push(r);
+      g += r.practice ? `<circle cx="${xx(j)}" cy="${yy(v)}" r="5.5" fill="var(--panel)" stroke="${c}" stroke-width="2"/>`
+                      : `<circle cx="${xx(j)}" cy="${yy(v)}" r="6" fill="${c}"/>`;
+      g += `<circle class="hit" data-i="${i}" tabindex="0" cx="${xx(j)}" cy="${yy(v)}" r="11"/>`;
+    });
+    g += `<text x="${(m.l + pw - m.r) / 2}" y="${H - 4}" text-anchor="middle" style="font-size:10px">flight, in the order flown</text>`;
+    return `<div><h4>${esc(PILOTS[pi])}</h4>${svgOf(pw, H, `${label}: ${PILOTS[pi]}`, g)}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${per.map(panel).join("")}</div>`;
+  hoverMarks(el, i => { const r = all[i]; return [TITLE(r), [[kCol(condOf(r.condition)), unit === "s" ? secs(get(r)) : fmt(get(r), 1), label]]]; });
+}
+
+// Each goal (or leg) of every counted run, by pilot and condition: dots placed by leg, the median a bar.
+function goalChart(el, key, label) {
+  const G = D.goals.filter(g => !g.practice);
+  const vals = G.map(g => g[key]).filter(ok), {step, top} = niceMax(Math.max(1, ...vals) * 1.05);
+  const n = PILOTS.length, total = cw(el), pw = Math.max(200, Math.floor(total / Math.min(n, Math.max(1, Math.floor(total / 230)))) - 14);
+  const H = 230, m = {l: 46, r: 10, t: 12, b: 30};
+  const yy = v => m.t + (H - m.t - m.b) * (1 - v / top);
+  const all = [], cols = ["single", "swarm"];
+  const panel = pid => {
+    const xx = ci => m.l + (pw - m.l - m.r) * (ci + 0.5) / cols.length, span = (pw - m.l - m.r) / cols.length * 0.6;
+    let g = "";
+    for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gridl" x1="${m.l}" x2="${pw - m.r}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${m.l - 6}" y="${yy(v) + 4}" text-anchor="end">${v}</text>`;
+    g += `<text x="${m.l - 34}" y="${m.t + 2}" text-anchor="start" style="font-size:10px">s</text>`;
+    cols.forEach((c, ci) => {
+      const gs = G.filter(x => x.pid === pid && x.cond === c).sort((a, b) => a.order - b.order || a.leg - b.leg);
+      const orders = [...new Set(gs.map(x => x.order))];
+      g += `<text x="${xx(ci)}" y="${H - m.b + 16}" text-anchor="middle">${CONDS[c]}</text>`;
+      const v = gs.map(x => x[key]).filter(ok).sort((a, b) => a - b);
+      if (v.length) { const med = v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+        g += `<line x1="${xx(ci) - span / 2 - 6}" x2="${xx(ci) + span / 2 + 6}" y1="${yy(med)}" y2="${yy(med)}" stroke="var(--ink)" stroke-width="2"/>`; }
+      gs.forEach(x => {
+        if (!ok(x[key])) return;
+        const oi = orders.indexOf(x.order), off = ((oi + 0.5) / Math.max(1, orders.length) - 0.5) * span + (x.leg - 2) * 3;
+        const i = all.length; all.push(x);
+        g += `<circle cx="${(xx(ci) + off).toFixed(1)}" cy="${yy(x[key]).toFixed(1)}" r="4.6" fill="${kCol(c)}" fill-opacity="0.85"/>`;
+        g += `<circle class="hit" data-i="${i}" tabindex="0" cx="${(xx(ci) + off).toFixed(1)}" cy="${yy(x[key]).toFixed(1)}" r="8"/>`;
+      });
+    });
+    return `<div><h4>${esc(pid)}</h4>${svgOf(pw, H, `${label}: ${pid}`, g)}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${PILOTS.map(panel).join("")}</div><p class="small muted">One dot per goal of each counted run, spread by run (in the order flown); the bar is the median.</p>`;
+  hoverMarks(el, i => { const x = all[i]; return [`${x.pid}, flight ${x.order}: the ${x.hat || "goal"} (leg ${x.leg})`, [[kCol(x.cond), secs(x[key]), label]]]; });
+}
+
+// The swarm / single-drone ratio, each pilot's and the pooled, on a log axis.
+function ratioStrip(el, s) {
+  if (!s) { el.innerHTML = ""; return; }
+  const rs = s.per.map(p => p.ratio).concat([s.ratio]);
+  let lo = 0.25, hi = 4; while (Math.min(...rs) < lo) lo /= 2; while (Math.max(...rs) > hi) hi *= 2;
+  const Wd = Math.min(640, cw(el)), H = 62, m = {l: 14, r: 14, t: 18, b: 20};
+  const xx = r => m.l + (Wd - m.l - m.r) * (Math.log(r) - Math.log(lo)) / (Math.log(hi) - Math.log(lo));
+  let g = `<line x1="${m.l}" x2="${Wd - m.r}" y1="${m.t + 12}" y2="${m.t + 12}" stroke="var(--line)"/>`;
+  for (let r = lo; r <= hi * 1.0001; r *= 2) g += `<line x1="${xx(r)}" x2="${xx(r)}" y1="${m.t + 6}" y2="${m.t + 18}" stroke="${Math.abs(r - 1) < 1e-9 ? "var(--ink)" : "var(--line)"}" stroke-width="${Math.abs(r - 1) < 1e-9 ? 1.6 : 1}"/><text x="${xx(r)}" y="${H - 4}" text-anchor="middle">×${r >= 1 ? r : r.toFixed(r < 0.25 ? 3 : 2)}</text>`;
+  g += `<text x="${m.l}" y="10" style="font-size:10px">← swarm sooner</text><text x="${Wd - m.r}" y="10" text-anchor="end" style="font-size:10px">swarm slower →</text>`;
+  s.per.forEach((p, i) => { g += `<circle cx="${xx(p.ratio)}" cy="${m.t + 12}" r="4.5" fill="var(--panel)" stroke="var(--ink-2)" stroke-width="1.6"/><circle class="hit" data-i="${i}" tabindex="0" cx="${xx(p.ratio)}" cy="${m.t + 12}" r="9"/>`; });
+  const x = xx(s.ratio), y = m.t + 12;
+  g += `<path d="M${x} ${y - 7} L${x + 7} ${y} L${x} ${y + 7} L${x - 7} ${y} Z" fill="var(--ink)"/><circle class="hit" data-i="${s.per.length}" tabindex="0" cx="${x}" cy="${y}" r="9"/>`;
+  el.innerHTML = svgOf(Wd, H, "swarm time over single-drone time", g) + `<p class="small muted">Swarm ÷ single drone: ◇ each pilot's ratio of geometric means, ◆ pooled over the pilots.</p>`;
+  hoverMarks(el, i => i < s.per.length ? [`${s.per[i].pid}`, [["var(--ink-2)", times(s.per[i].ratio), `swarm ${secs(s.per[i].gm_s)} (${s.per[i].n_s} runs) against ${secs(s.per[i].gm_d)} (${s.per[i].n_d})`]]]
+    : ["Pooled", [["var(--ink)", times(s.ratio), `over ${s.n_pilots} pilots; p ${pv(s.p)} (the design's smallest ${pv(s.floor)})`]]]);
+}
+
+// Small-multiple horizontal bars (S11's): rows [{c, lab, ...}], panels [{title, get, f, unit?}]
+function barPanels(el, rows, panels) {
+  const Wd = Math.max(220, Math.min(380, Math.floor(cw(el) / Math.min(panels.length, Math.max(1, Math.floor(cw(el) / 230)))) - 12));
+  const bh = 15, gap = 6, m = {l: 112, r: 58, t: 4, b: 6}, H = m.t + rows.length * (bh + gap) - gap + m.b;
+  const panel = (p, pi) => {
+    const vals = rows.map(x => p.get(x)), vmax = Math.max(1e-9, ...vals.filter(ok)) * 1.05;
+    const xx = v => m.l + (Wd - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = "";
+    rows.forEach((x, i) => {
+      const v = vals[i], yy = m.t + i * (bh + gap);
+      g += `<text class="lbl" x="${m.l - 8}" y="${yy + bh / 2 + 4}" text-anchor="end">${esc(x.lab)}</text>`;
+      if (ok(v)) {
+        g += `<rect x="${m.l}" y="${yy}" width="${Math.max(1.5, xx(v) - m.l).toFixed(1)}" height="${bh}" rx="2" fill="${kCol(x.c)}"/>`;
+        g += `<text class="val" x="${(xx(v) + 5).toFixed(1)}" y="${yy + bh - 3}">${p.f(v)}</text>`;
+      } else g += `<text class="val" x="${m.l + 4}" y="${yy + bh - 3}">–</text>`;
+      g += `<rect class="hit" data-i="${pi * 100 + i}" tabindex="0" x="0" y="${yy}" width="${Wd}" height="${bh}"/>`;
+    });
+    return `<div><h4>${esc(p.title)}</h4>${svgOf(Wd, H, p.title, g)}${p.unit ? `<p class="small muted">${esc(p.unit)}</p>` : ""}</div>`;
+  };
+  el.innerHTML = `<div class="pair">${panels.map(panel).join("")}</div>`;
+  hoverMarks(el, k => { const p = panels[Math.floor(k / 100)], x = rows[k % 100]; return [x.lab, [[kCol(x.c), p.f(p.get(x)), p.title]]]; });
+}
+
+// ---------------------------------------------------------------- the masthead
+const MEASURES = {total: ["Total time", "the whole task, from the start line to the last answer"],
+                  search: ["Time at a goal", "from entering a goal's zone to leaving it for the next, summed over the three goals"],
+                  transit: ["Time between goals", "from leaving one goal's zone (the start line, for the first) to entering the next, summed"]};
+function verdict(s) {
+  if (!s) return ["na", "Not measured"];
+  if (s.ratio > 1 / 1.1 && s.ratio < 1.1) return ["part", "About level"];       // within 10% either way
+  if (s.ratio < 1 && s.n_lower === s.n_pilots) return ["yes", "Swarm sooner"];
+  if (s.ratio > 1 && s.n_lower === 0) return ["no", "Swarm slower"];
+  return ["part", "Mixed"];
+}
+function oneLine(key) {
+  const s = ST[key];
+  if (!s) return `${MEASURES[key][0]}: not measured.`;
+  const dir = s.ratio < 1 ? "less" : "more";
+  return `<b>${MEASURES[key][0]}: ${times(s.ratio)}.</b> The swarm took ${Math.round(100 * Math.abs(1 - s.ratio))}% ${dir} time than the single drone
+    (a typical run ${secs(s.typ_s)} against ${secs(s.typ_d)}), ${s.ratio < 1 ? "less" : "more"} for ${s.ratio < 1 ? s.n_lower : s.n_pilots - s.n_lower} of ${s.n_pilots} pilots;
+    p ${pv(s.p)}, where the smallest this design can give is ${pv(s.floor)}.`;
+}
+function firstPara(h) { const m = /<p>([\s\S]*?)<\/p>/.exec(h || ""); return m ? m[1] : ""; }
+function ANSWER_BOX() {
+  if (!D.timed) {
+    const rec = RUNS.length, trials = (D.restarts || []).length, re = (D.restarts || []).filter(x => x.n > 1);
+    return `<p class="eyebrow">The short answer</p><ol>
+      <li><b>No task times were recorded.</b> No identify was pressed or keyed, and the times taken by hand are not on this machine. What exists is when each recording started and stopped.</li>
+      <li><b>${rec} recordings of ${trials} trials:</b> ${re.length ? `${re.map(x => `${esc(x.pid)} ${esc(CONDS[condOf(x.condition)])} t${x.trial} ${x.n}×`).join(", ")} restarted` : "none restarted"}.</li>
+      <li><b>The goals' zones were reached</b> in ${counted.filter(r => r.goalsReached >= 3).length} of ${counted.length} counted recordings; their phase times are on the Results tab, with that caution.</li></ol>
+      ${N.reading ? `<p class="bottom"><b>My reading:</b> ${firstPara(N.reading)}</p>` : ""}`;
+  }
+  return `<p class="eyebrow">The short answer</p><ol><li>${oneLine("total")}</li><li>${oneLine("search")}</li><li>${oneLine("transit")}</li></ol>
+    ${N.reading ? `<p class="bottom"><b>My reading:</b> ${firstPara(N.reading)}</p>` : ""}`;
+}
+function MASTHEAD() {
+  if (PG.index) { const a = $("#back-index"); a.href = PG.index; a.hidden = false; }
+  const dates = (D.dates || []).map(d => `${d.slice(6, 8)}/${d.slice(4, 6)}/${d.slice(0, 4)}`).join(" & ");
+  $("#eyebrow").textContent = `User trial · ${D.test} · ${dates} · ${(D.city || []).join(", ")} · ${PILOTS.length} pilots · ${D.n_runs} runs`;
+  $("#h1").textContent = N.title.includes("·") ? N.title.split("·").slice(1).join("·").trim() : N.title;
+  $("#lead").innerHTML = (N.summary || "").replace(/<p>/g, '<p class="lead">');
+  $("#answer-box").innerHTML = ANSWER_BOX();
+  $("#keyline").innerHTML = `<span><span class="dot" style="background:var(--k-swarm)"></span><b>Swarm</b> (10 drones)</span>
+    <span><span class="dot" style="background:var(--k-single)"></span><b>Single drone</b></span>
+    <span><span class="dot hollow" style="border-color:var(--ink-2)"></span>a practice run: drawn, counted in no summary</span>
+    <span><b>At a goal</b>: in its zone, ${D.zone} m round its patch</span><span><b>Between goals</b>: from one zone to the next</span>`;
+}
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["results", "Results"], ["changes", "What changed"], ["flights", "Flights"], ["details", "All results"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+const TABKEY = `trialtab_${D.test}`;
+function show(id, anchor) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights") PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem(TABKEY, id); } catch (e) { /* private window */ }
+  const target = anchor && document.getElementById(anchor);
+  if (target) requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+function route(h) {
+  if (/^q\d$/.test(h) || /^card-/.test(h)) { show("results", h); return true; }
+  if (h.startsWith("watch:")) {
+    const stem = h.slice(6);
+    show("flights");
+    const gi = PLAYER && D.replay ? D.replay.groups.findIndex(g => g.flights.some(f => f.id === stem)) : -1;
+    if (gi >= 0) PLAYER.selectGroup(gi, D.replay.groups[gi].flights.find(f => f.id === stem));
+    return true;
+  }
+  if (TABS.some(t => t[0] === h)) { show(h); return true; }
+  return false;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (route(h)) { e.preventDefault(); if (TABS.some(t => t[0] === h)) $("#tabs").scrollIntoView({block: "start"}); }
+});
+const watch = (stem, text) => D.replay && D.replay.groups.some(g => g.flights.some(f => f.id === stem)) ? `<a class="watch" href="#watch:${stem}">${esc(text)}</a>` : "";
+const runOf = stem => RUNS.find(r => r.run === stem) || {};
+
+// ---------------------------------------------------------------- results
+function pilotLines(s, key) {
+  if (!s) return "";
+  return s.per.map(p => `<li><b>${esc(p.pid)}:</b> swarm ${secs(p.gm_s)} (${p.n_s} run${p.n_s > 1 ? "s" : ""}) against ${secs(p.gm_d)} (${p.n_d}), ${times(p.ratio)}.</li>`).join("");
+}
+function qCard(n, key, chartId, body) {
+  const s = ST[key], [cls, txt] = D.timed || key !== "total" ? verdict(s) : ["na", "Not recorded"];
+  return `<section class="q" id="q${n}">
+    <div class="qhead"><span class="qn">${n}</span><div><h2>${MEASURES[key][0]}</h2>
+      <p class="qa"><span class="vp ${cls}">${txt}</span>${D.timed || key !== "total" ? (s ? `Swarm ${times(s.ratio)} of the single drone's time, pooled over ${s.n_pilots} pilots.` : "") : "Only the recordings' lengths: see the note above."}</p></div></div>
+    <div class="qbody"><div><div class="chart" id="${chartId}"></div><div class="chart" id="${chartId}-r"></div></div>
+      <div class="qtext"><ul>${body}</ul></div></div></section>`;
+}
+const STD_CARDS = ["identify", "smoothness", "losses"];
+RENDER.results = el => {
+  const s = ST.total, se = ST.search, tr = ST.transit;
+  const firstLeg = D.goals.filter(g => !g.practice && g.leg === 1);
+  const banner = !D.timed ? `<div class="banner"><b>These are recording lengths, not task times.</b> The recorder of July wrote no answers and no presses, and the times taken by hand at the trials
+      are not on this machine (a file of them, manual_times.csv beside the runs, would replace these). Each recording ran from Play until it was stopped, restarts included. The
+      phases below come from when the swarm's centre entered and left each goal's zone; the goals stood off the tile grid in that version, so read them as indicative.</div>` : "";
+  const totalBody = D.timed ? `${pilotLines(s)}
+      <li><b>Pooled:</b> ${times(s && s.ratio)}: a typical run ${secs(s && s.typ_s)} against ${secs(s && s.typ_d)} (the geometric mean over the pilots of theirs; the plain means are ${secs(s && s.mean_s)} and ${secs(s && s.mean_d)}). An exact permutation of the conditions within each pilot gives p ${pv(s && s.p)} (${s ? s.n_perm : "–"} relabellings; the smallest p they allow is ${pv(s && s.floor)}).</li>
+      <li><b>Timed</b> from the first drone crossing the start line, 30 m ahead of the spawn ${startText()}, to ${endText()}.</li>
+      <li><b>The order matters as much as the condition:</b> each pilot flew one condition's runs together, so a later run carries more practice. ${orderText()} The chart is in the order flown.</li>`
+    : `<li>Every recording, restarts included, by when it was flown. ${(D.restarts || []).filter(x => x.n > 1).map(x => `${esc(x.pid)}'s ${esc(CONDS[condOf(x.condition)])} t${x.trial} was recorded ${x.n} times (${x.lengths.map(mmss).join(", ")}).`).join(" ")}</li>`;
+  el.innerHTML = `<div class="ans">${banner}
+    ${qCard(1, "total", "c-total", totalBody)}
+    ${qCard(2, "search", "c-search", `${pilotLines(se)}
+      <li><b>At a goal</b> is the time from the swarm's centre (or the single drone) entering a goal's zone, ${D.zone} m round its patch, to leaving it for the next goal: the search there, and any wandering off and back.</li>
+      <li><b>Pooled:</b> ${times(se && se.ratio)}, p ${pv(se && se.p)}.</li>`)}
+    ${qCard(3, "transit", "c-transit", `${pilotLines(tr)}
+      <li><b>Between goals</b> runs from leaving one goal's zone to entering the next; the first leg starts at the start line (median ${secs(median(firstLeg.map(g => g.transit)))}).</li>
+      <li><b>Pooled:</b> ${times(tr && tr.ratio)}, p ${pv(tr && tr.p)}. ${longLegText()}</li>`)}
+    <div class="intro"><h2>Other results</h2><p>The same three on every page, then what stood out in this series.</p></div>
+    <div class="cards" id="cards"></div>
+    ${N.reading ? `<div class="box reading"><p class="eyebrow">My reading</p>${N.reading}</div>` : ""}</div>`;
+  const draws = [
+    ["#c-total", () => { orderChart($("#c-total", el), r => D.timed ? r.time_s : r.durationSec, "s", D.timed ? "total time" : "recording length"); ratioStrip($("#c-total-r", el), s); }],
+    ["#c-search", () => { goalChart($("#c-search", el), "search", "at the goal"); ratioStrip($("#c-search-r", el), se); }],
+    ["#c-transit", () => { goalChart($("#c-transit", el), "transit", "on the way to it"); ratioStrip($("#c-transit-r", el), tr); }]];
+  for (const [sel, draw] of draws) observe($(sel, el), draw);
+  const cards = $("#cards", el);
+  const ids = STD_CARDS.concat(Object.keys(N.notable || {}).filter(k => !STD_CARDS.includes(k)));
+  cards.innerHTML = ids.map(id => `<div class="box" id="card-${id}">${(CARD[id] || CARD.other)(id)}</div>`).join("");
+  const sm = $("#sm-bars", el);
+  if (sm) observe(sm, () => smoothBars(sm));
+};
+// Per pilot: the condition flown later (by its runs' mean flight order) against the one flown earlier, in total time.
+function orderEffect() {
+  const mean = v => v.reduce((a, b) => a + b, 0) / v.length;
+  return PILOTS.map(p => {
+    const rs = counted.filter(r => r.pid === p && ok(r.time_s) && r.time_s > 0), of = c => rs.filter(r => condOf(r.condition) === c);
+    if (!of("swarm").length || !of("single").length) return null;
+    const later = mean(of("swarm").map(r => r.order)) > mean(of("single").map(r => r.order)) ? "swarm" : "single";
+    const earlier = later === "swarm" ? "single" : "swarm", gm = c => Math.exp(mean(of(c).map(r => Math.log(r.time_s))));
+    return {pid: p, later, ratio: gm(later) / gm(earlier)};
+  }).filter(Boolean);
+}
+function orderText() {
+  const E = orderEffect();
+  if (!E.length) return "";
+  const faster = E.filter(e => e.ratio < 0.95).length, level = E.filter(e => e.ratio >= 0.95 && e.ratio <= 1.05).length;
+  const n = E.length, who = k => k === n ? (n === 2 ? "both pilots were" : "every pilot was") : k === 1 ? "one pilot was" : `${k} pilots were`;
+  return `Here ${E.map(e => `${esc(e.pid)} flew the ${e.later === "swarm" ? "swarm" : "single drone"} later and took ${times(e.ratio)} of the earlier condition's time`).join("; ")}:
+    ${faster ? `${who(faster)} quicker in the condition flown later` : "no pilot was quicker in the condition flown later"}${level ? `, ${who(level).replace(" were", "").replace(" was", "")} level (within 5%)` : ""}.`;
+}
+const median = v => { v = v.filter(ok).sort((a, b) => a - b); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
+function startText() {
+  const c = D.start_sources || {}, parts = [];
+  if (c.line) parts.push(`as the recorder logged it in ${c.line} run${c.line > 1 ? "s" : ""}`);
+  if (c.derived) parts.push(`found in the drone logs for ${c.derived} run${c.derived > 1 ? "s" : ""} flown before the line existed (26 October 2026)`);
+  if (c.session) parts.push(`never crossed in ${c.session}, which are timed from Play`);
+  return parts.length ? `(${parts.join("; ")})` : "";
+}
+function endText() {
+  const c = D.time_sources || {};
+  if (c.identify && !c.duration) return "the last answer press";
+  if (c.duration && !c.identify) return "the end of the recording, which the experimenter stopped at the last answer (the answers were entered afterwards)";
+  return "the last answer press where there was one, else the end of the recording";
+}
+function longLegText() {
+  const L = (D.long_legs || []).filter(x => x.kind === "between goals").slice(0, 1)[0];
+  if (!L || !ST.transit) return "";
+  const r = runOf(L.run), tot = r.transit_s;
+  return `The longest leg, ${esc(L.pid)}'s ${esc(CONDS[condOf(L.condition)])} flight ${L.order} to the ${esc(L.hat || "goal")}, took ${secs(L.s)}${ok(tot) ? `, ${pc(L.s / tot)} of that run's time between goals` : ""}. ${watch(L.run, "Watch it")}`;
+}
+const cap = id => N.notable && N.notable[id] ? `<div class="cap">${N.notable[id].html}</div>` : "";
+const capTitle = (id, dflt) => N.notable && N.notable[id] && N.notable[id].title ? N.notable[id].title : dflt;
+const CARD = {
+  identify() {
+    const I = D.identify || [], modes = [...new Set(I.filter(x => !x.practice).map(x => x.mode))];
+    const rows = PILOTS.flatMap(p => ["single", "swarm"].map(c => {
+      const xs = I.filter(x => x.pid === p && condOf(x.condition) === c && !x.practice);
+      if (!xs.length) return "";
+      const sum = k => xs.reduce((a, x) => a + (x[k] || 0), 0), s2p = median(xs.map(x => x.sight_to_press));
+      const keyed = !xs.every(x => /not keyed|none recorded/.test(x.mode));
+      return `<tr><td class="l"><span class="dot" style="background:${kCol(c)}"></span>${esc(p)} · ${CONDS[c]}</td><td>${xs.length}</td><td>${keyed ? `${sum("correct")} / ${sum("goals")}` : "not keyed"}</td><td>${sum("presses")}</td><td>${sum("false_alarms")}</td><td>${sum("overrides")}</td><td>${secs(s2p)}</td></tr>`;
+    })).join("");
+    return `<h3>${esc(capTitle("identify", "Identification"))}</h3>
+      <p class="small">How answers were given: <b>${esc(modes.join("; ") || "–")}</b>.</p>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th>runs</th><th>correct</th><th>presses</th><th>false al.</th><th>overrides</th><th>seen → press</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="small muted">Counted runs only. "Seen → press" is the median time from the hat's first sight on a shown feed to the press. "Overrides" are presses the recorder's scoring refused and the experimenter judged correct (test.json); they count as correct.</p>${cap("identify")}`;
+  },
+  smoothness() {
+    const sm = ST.smooth || {};
+    const names = {stick_tv_per_min: ["stick movement per minute", "the stick vector's total travel per minute, full deflection = 1; less is smoother"],
+      adj_per_min: ["adjustments per minute", "discrete re-settings of the stick (held, moved, held again)"],
+      mean_hold_s: ["time between adjustments (s)", "how long one command was held; more is smoother"],
+      course_turn_per_min: ["course turned per minute (°)", "how much the commanded direction changed"],
+      cmd_straightness: ["command straightness", "1 = one heading held for the whole leg"],
+      act_path_ratio: ["flown path ÷ straight line", "the achieved path over the straight distance to the goal"]};
+    const rows = Object.keys(names).filter(k => sm[k]).map(k => `<tr><td class="l">${names[k][0]}</td><td>${fmt(sm[k].mean_s, 2)}</td><td>${fmt(sm[k].mean_d, 2)}</td><td>${times(sm[k].ratio)}</td><td>${pv(sm[k].p)}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("smoothness", "How the pilot flew"))}</h3>
+      <p class="small">From the sticks, between goals only (the legs in transit): how much the pilot re-steered.</p>
+      <div class="chart" id="sm-bars"></div>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th><th>swarm, mean</th><th>single, mean</th><th>swarm ÷ single</th><th>p</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="small muted">The ratio is pooled over the pilots as for the times, with the same permutation p. ${Object.keys(names).filter(k => sm[k]).map(k => `${names[k][0]}: ${names[k][1]}.`).join(" ")}</p>${cap("smoothness")}`;
+  },
+  losses() {
+    const L = D.losses || [], cL = L.filter(x => !x.practice), sw = counted.filter(r => r.condition === "Swarm");
+    const pairs = cL.filter(x => x.reason === "CollidingWithAnotherDrone").length;
+    const rows = L.map(x => `<tr${x.practice ? ' class="prac"' : ""}><td class="l">${esc(x.pid)}, flight ${x.order}</td><td>${mmss(x.t_task)}</td><td>${x.drone + 1}</td><td class="l">${esc(reasonText(x))}</td><td>${fmt(x.spread, 2)}</td><td>${fmt(x.speed, 1)}</td><td>${watch(x.run, "watch")}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("losses", "Drones lost"))}</h3>
+      <p class="small"><b>${cL.length}</b> drone${cL.length === 1 ? "" : "s"} lost in ${sw.length} counted swarm runs${pairs ? `, ${pairs} of them collision pairs` : ""}; ${counted.filter(r => r.condition !== "Swarm" && r.drones_lost > 0).length} single-drone runs lost theirs.</p>
+      ${L.length ? `<div class="tablewrap"><table class="dt"><thead><tr><th class="l">run</th><th>task clock</th><th>drone</th><th class="l">why</th><th>d_ref</th><th>m/s</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
+      <p class="small muted">The reason is the recorder's (since 3 November 2026) or the editor log's, where one was kept; blank where neither exists. Practice runs in grey.</p>${cap("losses")}`;
+  },
+  panorama() {
+    const P = (D.panorama || []).filter(x => !x.practice);
+    const rows = P.map(x => `<tr><td class="l">${esc(x.pid)}, flight ${x.order}</td><td>${fmt(x.lo, 0)}%</td><td>${fmt(x.hi, 0)}%</td><td class="l">${esc(x.source)}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("panorama", "The stitched panorama"))}</h3>
+      <p class="small">The share of each swarm run with the stitched panorama on screen in place of the three front feeds: at least, and at most where the record has gaps.</p>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l">run</th><th>at least</th><th>at most</th><th class="l">from</th></tr></thead><tbody>${rows || `<tr><td class="l notrun" colspan="4">no record</td></tr>`}</tbody></table></div>${cap("panorama")}`;
+  },
+  restarts() {
+    const R = D.restarts || [];
+    const rows = R.map(x => `<tr${x.practice ? ' class="prac"' : ""}><td class="l">${esc(x.pid)}</td><td class="l"><span class="dot" style="background:${kCol(condOf(x.condition))}"></span>${CONDS[condOf(x.condition)]} t${x.trial}</td><td>${x.n}</td><td class="l mono">${x.lengths.map(mmss).join(" · ")}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("restarts", "Recordings and restarts"))}</h3>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l">pilot</th><th class="l">trial</th><th>recordings</th><th class="l">their lengths (m:ss)</th></tr></thead><tbody>${rows}</tbody></table></div>${cap("restarts")}`;
+  },
+  setups() {
+    const S = D.setups;
+    if (!S) return `<h3>${esc(capTitle("setups", "Each pilot's setup"))}</h3><p class="notrun">The runs carry no settings.</p>${cap("setups")}`;
+    const rows = S.rows.map(x => `<tr${x.differs ? ' class="diff"' : ""}><td class="l">${esc(x.key)}</td>${x.vals.map(v => `<td class="l mono">${esc(v)}</td>`).join("")}</tr>`).join("");
+    return `<h3>${esc(capTitle("setups", "Each pilot's setup"))}</h3>
+      <p class="small">What each pilot's first run recorded about itself; the rows that differ are shaded.</p>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l"></th>${S.pilots.map(p => `<th class="l">${esc(p)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>${cap("setups")}`;
+  },
+  legs() {
+    const L = D.long_legs || [];
+    const rows = k => L.filter(x => x.kind === k).map(x => `<tr><td class="l">${esc(x.pid)}, flight ${x.order}</td><td class="l"><span class="dot" style="background:${kCol(condOf(x.condition))}"></span>${CONDS[condOf(x.condition)]}</td><td class="l">${esc(x.hat || "–")} (leg ${x.leg})</td><td>${secs(x.s)}</td><td>${watch(x.run, "watch")}</td></tr>`).join("");
+    return `<h3>${esc(capTitle("legs", "The longest legs"))}</h3>
+      <div class="tablewrap"><table class="dt"><thead><tr><th class="l">run</th><th class="l"></th><th class="l">goal</th><th>time</th><th></th></tr></thead>
+        <tbody><tr class="sep"><td class="l" colspan="5"><b>At a goal</b></td></tr>${rows("at a goal")}<tr class="sep"><td class="l" colspan="5"><b>Between goals</b></td></tr>${rows("between goals")}</tbody></table></div>${cap("legs")}`;
+  },
+  other(id) { return `<h3>${esc(capTitle(id, id))}</h3>${cap(id)}`; }
+};
+function reasonText(x) {
+  const t = {CollidingWithAnotherDrone: "collision", ExternallyKilled: "collision", TooFarFromSwarm: "too far from the others", Crashed: "crashed"}[x.reason] || x.reason || "–";
+  return x.partner !== null && x.partner !== undefined && x.partner >= 0 ? `${t} with ${x.partner + 1}` : t;
+}
+function smoothBars(el) {
+  const rows = PILOTS.flatMap(p => ["single", "swarm"].map(c => {
+    const xs = counted.filter(r => r.pid === p && condOf(r.condition) === c);
+    if (!xs.length) return null;
+    const mean = k => { const v = xs.map(r => r[k]).filter(ok); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    return {c, lab: `${p} · ${CONDS[c]}`, tv: mean("stick_tv_per_min"), adj: mean("adj_per_min"), turn: mean("course_turn_per_min"), path: mean("act_path_ratio")};
+  })).filter(Boolean);
+  barPanels(el, rows, [{title: "Stick movement per minute", get: x => x.tv, f: v => fmt(v, 0)},
+                       {title: "Adjustments per minute", get: x => x.adj, f: v => fmt(v, 1)},
+                       {title: "Course turned per minute (°)", get: x => x.turn, f: v => fmt(v, 0)},
+                       {title: "Flown path ÷ straight line", get: x => x.path, f: v => fmt(v, 2)}]);
+}
+
+// ---------------------------------------------------------------- what changed
+RENDER.changes = el => {
+  const link = t => t && PG[t] ? `<a class="watch" href="${PG[t]}" target="_blank" rel="noopener">${esc(t)}</a>` : t ? `<span class="code">${esc(t)}</span>` : "";
+  el.innerHTML = `<div class="intro"><h2>${esc(N.changes_title || "What changed")}</h2>
+      <p>The main changes a pilot would meet, from the commits between the two series (each change's commit beside it). Changes that touched nothing a pilot sees are left out.</p></div>
+    <div class="areas">${(N.changes || []).map(a => `<div class="box"><h3>${esc(a.area)}</h3><ul>${a.items.map(i => `<li>${i}</li>`).join("")}</ul></div>`).join("")}</div>
+    ${(N.within || []).length ? `<div class="box"><h3>Within the series</h3><ul class="small">${N.within.map(i => `<li>${i}</li>`).join("")}</ul></div>` : ""}
+    ${N.setup ? `<div class="box"><h3>The setup, side by side</h3><div class="tablewrap"><table class="dt"><thead><tr>${N.setup.head.map((h, i) => `<th class="l">${h}</th>`).join("")}</tr></thead>
+      <tbody>${N.setup.rows.map(r => `<tr>${r.map(c => `<td class="l">${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
+    <div class="navrow">${D.nav.prev ? `<span class="small">The series before: ${link(D.nav.prev)}</span>` : ""}${D.nav.next ? `<span class="small">The series after: ${link(D.nav.next)}</span>` : ""}</div>`;
+};
+
+// ---------------------------------------------------------------- flights
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+RENDER.flights = el => {
+  if (!D.replay || !D.replay.groups.length) { el.innerHTML = `<p class="notrun">No flights to replay.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Every run, replayed</h2><p>Each run as the recorder logged it: every drone's position and heading ten times a second (drawn every
+      ${0.2} s), its feed shown or not, the goals with their zones, the start line, each press where the formation's centre was, and each drone lost. Pick a pilot, then a run;
+      the clock is the recording's, from Play, and the panel beside the map gives the task clock from the start line. Under the map the green band marks the time at a goal.
+      Space plays or pauses, ← and → step 5 s.</p></div><div id="c-player"></div>`;
+  const labels = {swarm: "Swarm", single: "Single drone", sphere: "360 sphere"}, colors = {swarm: kCol("swarm"), single: kCol("single"), sphere: kCol("sphere")};
+  PLAYER = RV.Player($("#c-player", el), D.replay.groups, {labels, colors, path: RPATH, summaryRows: flightRows, summaryNote: flightNote});
+  PLAYER.start(0);
+};
+function flightRows(F, s) {
+  const r = [];
+  if (D.timed) r.push(["total time", `${secs(s.time_s)}${s.time_source === "duration" ? " (to the recording's end)" : ""}`]);
+  r.push(["recorded", mmss(s.duration)], ["start line crossed", ok(s.start) ? `${mmss(s.start)} after Play${s.start_source === "derived" ? " (derived)" : ""}` : "never"],
+         ["at the goals", secs(s.search_s)], ["between goals", secs(s.transit_s)], ["goal zones reached", `${s.reached} of ${s.goals}`]);
+  if (D.timed) r.push(["answered correctly", `${s.correct} of ${s.goals}`], ["false alarms", String(s.false_alarms)]);
+  r.push(["drones lost", `${s.lost} of ${s.drones}`]);
+  if (s.practice) r.push(["practice", "yes: counted in no summary"]);
+  return r;
+}
+function flightNote(F) {
+  return "A drone's dot is filled while its feed was on the pilot's screens. Presses are drawn where the formation's centre was, coloured by how the recorder scored them.";
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const tbl = (title, head, body, note = "") => `<div class="box"><h3>${esc(title)}</h3><div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th${i < 2 ? ' class="l"' : ""}>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>${note}</div>`;
+  const runRows = RUNS.slice().sort((a, b) => a.pid.localeCompare(b.pid) || a.order - b.order).map(r => `<tr${r.practice ? ' class="prac"' : ""}>
+    <td class="l">${esc(r.pid)}, flight ${r.order}</td><td class="l"><span class="dot" style="background:${kCol(condOf(r.condition))}"></span>${CONDS[condOf(r.condition)]} t${r.trial}${r.practice ? " · practice" : ""}</td>
+    <td>${mmss(r.durationSec)}</td><td>${ok(r.startSec) ? mmss(r.startSec) : "–"} <span class="muted">${esc(r.startSource || "")}</span></td>
+    <td>${D.timed ? secs(r.time_s) : "–"}</td><td>${secs(r.search_s)}</td><td>${secs(r.transit_s)}</td><td>${r.goalsReached}/${r.nGoals}</td>
+    <td>${ok(r.nCorrect) ? r.nCorrect : "–"}</td><td>${ok(r.falseAlarms) ? r.falseAlarms : "–"}</td><td>${ok(r.drones_lost) ? r.drones_lost : "–"}</td><td>${watch(r.run, "watch")}</td></tr>`).join("");
+  const goalRows = D.goals.slice().sort((a, b) => a.pid.localeCompare(b.pid) || a.order - b.order || a.leg - b.leg).map(g => `<tr${g.practice ? ' class="prac"' : ""}>
+    <td class="l">${esc(g.pid)}, flight ${g.order}</td><td class="l">${CONDS[g.cond]}</td><td class="l">${esc(g.hat || "–")}</td><td>${g.leg}</td><td>${secs(g.transit)}</td><td>${secs(g.search)}</td>
+    <td class="l">${esc(g.outcome || "–")}</td><td>${ok(g.decision) ? mmss(g.decision) : "–"}</td></tr>`).join("");
+  const smRows = RUNS.slice().sort((a, b) => a.pid.localeCompare(b.pid) || a.order - b.order).map(r => `<tr${r.practice ? ' class="prac"' : ""}><td class="l">${esc(r.pid)}, flight ${r.order}</td><td class="l">${CONDS[condOf(r.condition)]}</td>
+    <td>${fmt(r.stick_tv_per_min, 1)}</td><td>${fmt(r.adj_per_min, 1)}</td><td>${fmt(r.mean_hold_s, 1)}</td><td>${fmt(r.course_turn_per_min, 0)}</td><td>${fmt(r.cmd_straightness, 2)}</td><td>${fmt(r.act_path_ratio, 2)}</td></tr>`).join("");
+  const notes = (N.data_notes || []).map(x => `<li>${x}</li>`).join("") + (D.warnings || []).slice(0, 40).map(w => `<li class="muted mono small">${esc(w)}</li>`).join("");
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>Every number on the page, run by run. The same tables are written beside the page (experiment_results/trials/${esc(D.test)}/tables).</p></div>
+    ${tbl("Runs", ["run", "", "recorded", "start line", "total time", "at goals", "between goals", "zones", "correct", "false alarms", "lost", ""], runRows,
+      `<p class="small muted">"Start line" is when it was crossed after Play: <i>line</i> as the recorder logged it, <i>derived</i> from the drone logs for runs before it existed, <i>session</i> never crossed (timed from Play).</p>`)}
+    ${tbl("Goals, in the order reached", ["run", "", "hat", "leg", "between goals", "at the goal", "outcome", "answered at"], goalRows,
+      `<p class="small muted">The leg's time between goals is the way to this goal; "answered at" is on the recording's clock.</p>`)}
+    ${tbl("How the pilot flew, run by run (between goals)", ["run", "", "stick / min", "adjustments / min", "hold (s)", "course turn °/min", "straightness", "path ratio"], smRows)}
+    <div class="box"><h3>Data notes</h3><ul class="small">${notes || "<li>none</li>"}</ul></div>`;
+};
+
+// ---------------------------------------------------------------- terms
+const TERMS = [
+  ["The task", [
+    ["The task", "Find the three walkers wearing a hat (a cowboy hat, a cap, a bucket hat), each at one of three goal patches somewhere in the city, and identify each: the pilot presses the RC's C2 button (from internal_3 on), or calls it out."],
+    ["Swarm, single drone", "Ten drones flown as one formation, every edge drone's camera on a screen round the pilot; or one drone with its one camera in front. The same sticks fly both."],
+    ["Practice run", "A run test.json marks as practice (a pilot's first in each condition, where they were recorded): drawn on the charts, hollow, and left out of every summary and ratio."],
+    ["Flight order", "The runs of one pilot, numbered in the order flown. The trial number the run's name carries counts differently in different series."]]],
+  ["The times", [
+    ["Start line", "A line 30 m ahead of the spawn; the first drone to cross it starts the task. Recorded from 26 October 2026; before that, the same crossing is found in the drone logs (derived). Take-off and looking round before it are not timed."],
+    ["Total time", "From the start line to the last answer press; where answers were not pressed (internal_2), to the end of the recording, which the experimenter stopped at the last answer."],
+    ["Goal zone", "A goal's patch (a city tile, or a block-shaped city's ring of buildings) grown by 15 m: the whole street round it. Position is the formation's centre (alive drones), or the single drone."],
+    ["Time at a goal", "From entering a goal's zone to the last time it is left before the next goal's zone is entered (for the last goal, its last exit). Leaving and coming back still counts as at the goal."],
+    ["Time between goals", "From leaving one goal's zone to entering the next; the first leg runs from the start line. With the time at the goals it covers the run from the start line to the last goal's last exit, which can differ from the total time by the moments after the last answer."],
+    ["Ratio, pooled", "Swarm ÷ single drone: per pilot the ratio of the geometric means of their runs, pooled as the geometric mean over the pilots, so each pilot counts once."],
+    ["p (permutation)", "The share of all relabellings of which runs were the swarm's, within each pilot and keeping the numbers of runs, that give a pooled ratio at least as far from 1. With two pilots and two runs each there are 36, so p cannot go below 2/36 = 0.056: no difference can be significant at 0.05 in such a design."]]],
+  ["How the pilot flew", [
+    ["Stick movement per minute", "The total travel of the four-axis stick vector per minute (dead-banded): control activity, without thresholds. Between goals only."],
+    ["Adjustments per minute", "Discrete re-settings: the stick leaves its held position by more than 0.2 and settles 0.5 s at a new one. Push and hold is one; constant re-steering is many."],
+    ["Time between adjustments", "How long one command was held."],
+    ["Course turned per minute", "Total change of the commanded direction (while commanding at least 30% speed)."],
+    ["Command straightness", "The commanded displacement over the commanded path length: 1 is one heading held for a whole leg."],
+    ["Flown path ÷ straight line", "The path the formation's centre flew over the straight distance to the goal's zone; the swarm bends its own path round buildings."]]],
+  ["The replays", [
+    ["Shown feed", "A drone whose camera was on the pilot's screens: recorded from 12 October 2026, rebuilt from the convex-hull rule before."],
+    ["Press", "An identify press, drawn where the formation's centre was and coloured by the recorder's score: correct, a false alarm, or outside every goal's zone."]]]];
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2></div><div class="terms">` + TERMS.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl>${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`).join("")
+    + `</div><p class="small muted">Built ${esc(D.built)} by Assets/Scripts/Experiment/trials_report.py from the runs in the experiment folder's ${esc(D.test)} (analyse.py, every run timed from the start line); the prose is docs/trials/${esc(D.test)}.md.</p>`;
+};
+
+MASTHEAD();
+let first = "results";
+try { const t = localStorage.getItem(TABKEY); if (t && TABS.some(x => x[0] === t)) first = t; } catch (e) { /* private window */ }
+if (!route(location.hash.slice(1))) show(first);
+</script>
