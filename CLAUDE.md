@@ -2851,7 +2851,7 @@ told which runs belong in it.
 `launch_sim_scripts.ps1` runs) C2 no longer resets the knobs: it counts into a cumulative `marks` field that
 `UDPReceiverManager.MarkPresses` turns into presses. A press is `correct` for an open goal whose hat is inside
 the central `identifyCentralFraction` (80%) of a shown feed's image, within `identifyMaxRangeM` (80 m) of its
-camera, with no building in the way, at the press or on any frame of the `identifyLookbackSec` (3 s) before it,
+camera, with no building in the way, at the press or on any frame of the `identifyMaxLookbackSec` (5 s) before it,
 wherever the centroid is (the goal at the centroid first, else the most recent pass). With no such hat it is a
 `false_alarm` at the goal whose zone (`identifyZoneM`, analyse.py's 15 m) holds the **live** drones' centroid,
 logged, with the goal left open, or `out_of_zone` when no zone holds it. Each press logs the scoring camera's
@@ -2859,9 +2859,11 @@ distance, how long before the press the hat passed (`passAgo`), its feed and the
 the look-back and the zone-free attribution date from 2026-11-06**, before which it was 40 m, the press's frame
 and the centroid's zone: ERKS's five refused presses were all the right hat -- four slid out of the central 80% as
 the drone closed on the walker in the second before the press (one from 15 m past the zone's edge), one was named at
-43 m. One of the four had last passed 2.25 s before its press, which is why the look-back is 3 s, not 2. The range
-field was renamed from `identifyRangeM` so every scene takes 80 (their YAML still holds 40 under the old key, which
-is ignored); the session JSON keeps the key `identifyRangeM`. The experimenter's 1/2/3 keys override the latest
+43 m. One of the four had last passed 2.25 s before its press, which is why the look-back was 3 s, not 2. **It has
+been 5 s since 2026-11-10** (the user's call, "for now"): ALEX's bucket hat (internal_4, swarm t2) left the central
+80% 3.5 s before the press, which the user judged correct. The range field was renamed from `identifyRangeM`, and the
+look-back from `identifyLookbackSec`, so every scene takes the new values (their YAML still holds 40 / 3 under the old
+keys, which are ignored); the session JSON keeps the keys `identifyRangeM` and `identifyLookbackSec`. The experimenter's 1/2/3 keys override the latest
 press's score (`outcome_override`) and never create an identify, and the session ends once every goal is
 resolved, or on the end key. **`Legacy`** is the flow before that, kept for comparing older runs: a press
 answers the nearest unanswered goal with the outcome pending (`identify` event, `source=rc`), the next key

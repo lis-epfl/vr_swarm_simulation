@@ -20,13 +20,14 @@ using UnityEngine.XR;
 /// believe the hat is on screen, and the press is scored on the spot. It is <c>correct</c> for an open goal whose
 /// hat is inside the central <see cref="identifyCentralFraction"/> of some shown feed's image, within
 /// <see cref="identifyMaxRangeM"/> of its camera, with no building in the way — at the press, or on any frame in the
-/// <see cref="identifyLookbackSec"/> before it, wherever the centroid is (the goal at the centroid first, else the
+/// <see cref="identifyMaxLookbackSec"/> before it, wherever the centroid is (the goal at the centroid first, else the
 /// most recent). With no such hat it is a <c>false_alarm</c> at the goal whose zone — the patch grown by
 /// <see cref="identifyZoneM"/>, analyse.py's 15 m zone — contains the ALIVE drones' centroid (logged, the goal stays
 /// open), or <c>out_of_zone</c> with no zone round the centroid. Every press is logged with the scoring camera's
 /// distance, how long before the press the hat passed (<c>passAgo</c>), its feed and the feed the pilot's gaze was
 /// on. The range, the look-back and the zone-free attribution date from 2026-11-06 (40 m, the press's frame only, and
-/// the centroid's zone before): all five of ERKS's presses the old rule refused were the right hat. The experimenter's keys override the latest press's score (an
+/// the centroid's zone before): all five of ERKS's presses the old rule refused were the right hat. The look-back went
+/// from 3 s to 5 s on 2026-11-10, for ALEX's hat, which had left the frame's centre 3.5 s before the press. The experimenter's keys override the latest press's score (an
 /// <c>outcome_override</c> event) and never create an identify of their own. The session finishes once every goal
 /// is resolved — identified correctly, or overridden — or on the end key. The verbal hat report is a secondary
 /// check only: with three hats it is right by chance a third of the time.</para>
@@ -108,9 +109,12 @@ public class ExperimentRecorder : MonoBehaviour
     [Tooltip("...and inside this central share of that feed's image, horizontally and vertically.")]
     [Range(0.1f, 1f)]
     public float identifyCentralFraction = 0.8f;
+    // 5 s since 2026-11-10 (3 before: ALEX's hat left the central 80% 3.5 s before the press). Renamed from
+    // identifyLookbackSec then, so every scene takes the new value rather than the 3 its YAML still holds under the
+    // old name; the session JSON keeps the key.
     [Tooltip("A press also counts a hat that passed the test this many seconds before it: a drone closing on the " +
              "walker carries the hat down its frame in the second the pilot takes to press. 0 = the press's frame only.")]
-    public float identifyLookbackSec = 3f;
+    public float identifyMaxLookbackSec = 5f;
 
     // ---- runtime references (resolved lazily on the first Update, once all spawns have run) ----
     private swarmSpawn spawner;
@@ -912,11 +916,11 @@ public class ExperimentRecorder : MonoBehaviour
 
     /// <summary>
     /// AutoScore: note, every frame, when each open goal's hat passes <see cref="HatOnShownFeed"/>, so that a press
-    /// can count a hat that passed up to <see cref="identifyLookbackSec"/> before it (<see cref="SeenGoal"/>).
+    /// can count a hat that passed up to <see cref="identifyMaxLookbackSec"/> before it (<see cref="SeenGoal"/>).
     /// </summary>
     private void TrackHatPasses()
     {
-        if (identifyMode != IdentifyMode.AutoScore || !rcIdentify || identifyLookbackSec <= 0f) return;
+        if (identifyMode != IdentifyMode.AutoScore || !rcIdentify || identifyMaxLookbackSec <= 0f) return;
         float t = Time.time - sessionStartTime;
         foreach (GoalInfo g in goals)
         {
@@ -930,7 +934,7 @@ public class ExperimentRecorder : MonoBehaviour
 
     /// <summary>
     /// The open goal whose hat is on a shown feed at the press or passed the test within
-    /// <see cref="identifyLookbackSec"/> before it, or -1: the goal at the centroid if it qualifies, else the most
+    /// <see cref="identifyMaxLookbackSec"/> before it, or -1: the goal at the centroid if it qualifies, else the most
     /// recent pass. Its camera and how long before the press it passed (0 = at the press) come with it.
     /// </summary>
     private int SeenGoal(int zoneGoal, float t, out int feed, out float camDist, out float passAgo)
@@ -945,7 +949,7 @@ public class ExperimentRecorder : MonoBehaviour
             if (g.answered && g.outcome == "correct") continue;
             float ago;
             if (HatOnShownFeed(g, out int f, out float d)) ago = 0f;
-            else if (t - g.lastPassTime <= identifyLookbackSec)
+            else if (t - g.lastPassTime <= identifyMaxLookbackSec)
             {
                 ago = t - g.lastPassTime;
                 f = g.lastPassFeed;
@@ -1446,7 +1450,7 @@ public class ExperimentRecorder : MonoBehaviour
             identifyZoneM = identifyZoneM,
             identifyRangeM = identifyMaxRangeM,
             identifyCentralFraction = identifyCentralFraction,
-            identifyLookbackSec = identifyLookbackSec,
+            identifyLookbackSec = identifyMaxLookbackSec,
             rcIdentifyDebounceSec = rcIdentifyDebounceSec,
             stitchingEnabled = stitching != null && stitching.StitchingEnabled,
             screenStyle = screenSpawn != null ? screenSpawn.screenStyle.ToString() : "",
