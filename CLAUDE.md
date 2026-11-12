@@ -1816,8 +1816,20 @@ changed, the render pipeline is still the built-in one, and no other scene is to
   coast_sand_01, aerial_rocks_02, snow_field_aerial (the grasses graded greener, the snow brighter). 36 MB under
   `Assets/Scenic`, 15 MB of it the sixteen terrain tiles and the distant ground; the scene file is 24 MB. They were prepared by scripts kept outside the repo (`D:\claude_scenic_bench\probe`: `fetch_assets.py`,
   `prep_assets.py`, and the probes that made every number here).
-- Not done: a scenic practice scene (PracticeBlockWorld still has the plain prisms); the SPHERE condition's lighting;
-  the pedestrians (unchanged, at the user's word).
+- **`ScenicPracticeBlockWorld` is its practice scene** (2026-11-12, the user's request; `Tools/Swarm/Build scenic
+  practice block world`, `PracticeBlockWorldBuilder.RunScenic`): PracticeBlockWorld's build (the same copy of
+  BlockShapedPatchCityWorld, the same 20-building practice city, goal, start line and hat stations, the recorder
+  stripped) with the scenic look put on by `ScenicPatchCityWorldBuilder`'s own two halves, `Dress` before the bake and
+  `Finish` after, so the two scenic scenes differ only in their city. Points worth keeping:
+  - **Its city tiles are its own** (`Scenic/Terrain/PracticeTile_*`, ~2 MB each): the clearing and the worn strips
+    follow the city they are painted round. `ScenicGroundBuilder.Surroundings` has to start from the source scene's
+    tiles, which is why it copies BlockShapedPatchCityWorld rather than the scenic scene.
+  - **It shares the scenic scene's landmark ring and distant ground**: `Landmarks(scene, reuse: true)` takes the
+    existing `Ring_*` copies as they stand, and builds them only if they are missing. So **rebuild it after rebuilding
+    ScenicPatchCityWorld**, as PracticeBlockWorld after BlockShapedPatchCityWorld.
+  - Measured on the same replay (whose sticks were flown in the trial city, so only the frame rate means anything):
+    71.94 fps, 99.7% of rows at 72, main thread 3.0 ms a frame, 0.62 ms per FPV render. Not yet flown in the headset.
+- Not done: the SPHERE condition's lighting; the pedestrians (unchanged, at the user's word).
 
 ## Testing swarm changes offline (headless bench + replica)
 

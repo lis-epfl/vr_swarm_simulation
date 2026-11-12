@@ -207,8 +207,11 @@ public static class ScenicGroundBuilder
     // ------------------------------------------------------------------ the land round the city
 
     /// <summary>Gives every city Terrain tile in <paramref name="scene"/> its scenic copy, repainted and replanted. The
-    /// city is baked by now: its streets' bounds are where the city ends. A summary.</summary>
-    public static string Surroundings(ProceduralCityBuilder builder, Scene scene)
+    /// city is baked by now: its streets' bounds are where the city ends. The copies are
+    /// <c>Assets/Scenic/Terrain/&lt;tilePrefix&gt;_&lt;x&gt;_&lt;z&gt;.asset</c>: each scene with a city of its own needs its
+    /// own, since the worn strips and the clearing follow its city. The tiles must still be the source scene's (the paint
+    /// and the trees are worked out from theirs). A summary.</summary>
+    public static string Surroundings(ProceduralCityBuilder builder, Scene scene, string tilePrefix = "CityTile")
     {
         EnsureFolder(TerrainFolder);
         TerrainLayer grass = Layer("ScenicGrass", "forrest_ground_01", 5.5f);
@@ -236,7 +239,7 @@ public static class ScenicGroundBuilder
                 if (t.terrainData == null || t.GetComponentInParent<LandmarkSet>() != null) continue;
                 string source = AssetDatabase.GetAssetPath(t.terrainData);
                 Vector3 o = t.transform.position;
-                string path = $"{TerrainFolder}/CityTile_{Signed(o.x)}_{Signed(o.z)}.asset";
+                string path = $"{TerrainFolder}/{tilePrefix}_{Signed(o.x)}_{Signed(o.z)}.asset";
                 if (source != path)
                 {
                     // Over a tile from an earlier build the file is replaced under its .meta, so its GUID (and with
@@ -419,8 +422,9 @@ public static class ScenicGroundBuilder
     // ------------------------------------------------------------------ the landmarks' ground
 
     /// <summary>The ring of landmark tiles in this scene's own copies, repainted and planted; the Landmarks prefab
-    /// instance unpacked first. A summary.</summary>
-    public static string Landmarks(Scene scene)
+    /// instance unpacked first. With <paramref name="reuse"/>, a tile whose copy already exists is given that copy as it
+    /// stands (the ring does not depend on the city, so the scenic practice scene shares the scenic scene's). A summary.</summary>
+    public static string Landmarks(Scene scene, bool reuse = false)
     {
         LandmarkSet set = null;
         foreach (GameObject root in scene.GetRootGameObjects())
@@ -449,12 +453,28 @@ public static class ScenicGroundBuilder
         }
         var treePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(TreePrefab);
 
-        int tiles = 0, planted = 0;
+        int tiles = 0, planted = 0, shared = 0;
         foreach (Terrain t in set.ground.GetComponentsInChildren<Terrain>(true))
         {
             if (t.terrainData == null) continue;
             string source = AssetDatabase.GetAssetPath(t.terrainData);
             string path = $"{TerrainFolder}/Ring_{t.terrainData.name}.asset";
+            var existing = reuse ? AssetDatabase.LoadAssetAtPath<TerrainData>(path) : null;
+            if (existing != null)
+            {
+                Undo.RecordObject(t, "Scenic terrain");
+                t.terrainData = existing;
+                var c = t.GetComponent<TerrainCollider>();
+                if (c != null)
+                {
+                    Undo.RecordObject(c, "Scenic terrain");
+                    c.terrainData = existing;
+                }
+                UseLook(t, look);
+                tiles++;
+                shared++;
+                continue;
+            }
             if (source != path)
             {
                 if (File.Exists(path))
@@ -486,6 +506,7 @@ public static class ScenicGroundBuilder
             tiles++;
         }
         TerrainHeightSampler.Invalidate();
+        if (shared > 0) return $"landmarks unpacked, {tiles} ring tiles ({shared} the existing scenic copies, as they stand)";
         return $"landmarks unpacked, {tiles} ring tiles repainted, {planted} trees in copses where the forest paint was";
     }
 

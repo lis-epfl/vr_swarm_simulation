@@ -29,10 +29,20 @@ using UnityEngine.SceneManagement;
 /// <para>The <see cref="ExperimentRecorder"/> goes, as from PracticeWorld, so practice sessions write no runs; the start
 /// line and the hat stations are PracticeWorld's (<see cref="PracticeWorldBuilder.AddStartLineAndStations"/>): the
 /// walkers 45 m down ParkRoad, the line behind them at 65 m. Batch: <c>-executeMethod PracticeBlockWorldBuilder.Run</c>.</para>
+///
+/// <para><b><c>ScenicPracticeBlockWorld</c></b> (<c>Tools/Swarm/Build scenic practice block world</c>, batch
+/// <see cref="RunScenic"/>) is the same practice scene in ScenicPatchCityWorld's look, for training before that scene:
+/// built from the same copy of BlockShapedPatchCityWorld with the same city, goal, start line and stations, and given the
+/// look by <see cref="ScenicPatchCityWorldBuilder"/>'s own two halves (<c>Dress</c> before the bake, <c>Finish</c> after),
+/// so the two scenic scenes cannot drift apart in anything but their city. Its city tiles are its own
+/// (<c>Assets/Scenic/Terrain/PracticeTile_*</c>: the clearing and the worn strips follow the practice city); the
+/// landmarks' ring and the distant ground are the scenic scene's. <b>Rebuild it after rebuilding ScenicPatchCityWorld</b>,
+/// whose ring tiles it takes as they stand (it builds them only if they are missing).</para>
 /// </summary>
 public static class PracticeBlockWorldBuilder
 {
     public const string PracticeScenePath = "Assets/Scenes/PracticeBlockWorld.unity";
+    public const string ScenicPracticeScenePath = "Assets/Scenes/ScenicPracticeBlockWorld.unity";
     private const string SourceScenePath = BlockShapedPatchCityWorldBuilder.ScenePath;
 
     /// <summary>python -B -m citysim.practicecity (Assets/Scripts/Experiment): goal block 28 of
@@ -43,23 +53,30 @@ public static class PracticeBlockWorldBuilder
     private const int GoalsAtPlay = 1;
 
     [MenuItem("Tools/Swarm/Build practice block world")]
-    private static void BuildFromMenu()
+    private static void BuildFromMenu() => BuildFromMenu(false);
+
+    [MenuItem("Tools/Swarm/Build scenic practice block world")]
+    private static void BuildScenicFromMenu() => BuildFromMenu(true);
+
+    private static void BuildFromMenu(bool scenic)
     {
         if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
         {
             return;
         }
-        if (File.Exists(PracticeScenePath) &&
-            !EditorUtility.DisplayDialog("Build practice block world",
-                $"Rebuild {PracticeScenePath} from {SourceScenePath}? This replaces the practice scene, " +
+        string path = scenic ? ScenicPracticeScenePath : PracticeScenePath;
+        if (File.Exists(path) &&
+            !EditorUtility.DisplayDialog(scenic ? "Build scenic practice block world" : "Build practice block world",
+                $"Rebuild {path} from {SourceScenePath}? This replaces the practice scene, " +
                 "including anything changed in it by hand.", "Rebuild", "Cancel"))
         {
             return;
         }
-        Build();
+        Build(scenic);
     }
 
     [MenuItem("Tools/Swarm/Build practice block world", true)]
+    [MenuItem("Tools/Swarm/Build scenic practice block world", true)]
     private static bool CanBuild()
     {
         return !EditorApplication.isPlayingOrWillChangePlaymode;
@@ -71,12 +88,20 @@ public static class PracticeBlockWorldBuilder
         EditorApplication.Exit(Build() ? 0 : 1);
     }
 
-    /// <summary>
-    /// Rebuilds the practice scene from BlockShapedPatchCityWorld, saves it and leaves it open. On failure it logs why,
-    /// puts back whatever practice scene was there before, and returns false. The trial scene itself is never opened.
-    /// </summary>
-    public static bool Build()
+    /// <summary>Batchmode: builds the scenic practice scene and exits 0 / 1.</summary>
+    public static void RunScenic()
     {
+        EditorApplication.Exit(Build(true) ? 0 : 1);
+    }
+
+    /// <summary>
+    /// Rebuilds the practice scene (with <paramref name="scenic"/>, the scenic one) from BlockShapedPatchCityWorld,
+    /// saves it and leaves it open. On failure it logs why, puts back whatever practice scene was there before, and
+    /// returns false. The trial scene itself is never opened.
+    /// </summary>
+    public static bool Build(bool scenic = false)
+    {
+        string path = scenic ? ScenicPracticeScenePath : PracticeScenePath;
         PracticeWorldBuilder.Parts parts = PracticeWorldBuilder.LoadParts(out string error);
         if (parts == null)
         {
@@ -91,18 +116,18 @@ public static class PracticeBlockWorldBuilder
         }
 
         SceneSetup[] previousSetup = EditorSceneManager.GetSceneManagerSetup();
-        byte[] previousScene = File.Exists(PracticeScenePath) ? File.ReadAllBytes(PracticeScenePath) : null;
+        byte[] previousScene = File.Exists(path) ? File.ReadAllBytes(path) : null;
 
         // Nothing may hold the practice scene open while its file is replaced underneath it.
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-        File.Copy(SourceScenePath, PracticeScenePath, true);
-        AssetDatabase.ImportAsset(PracticeScenePath, ImportAssetOptions.ForceUpdate);
-        Scene scene = EditorSceneManager.OpenScene(PracticeScenePath, OpenSceneMode.Single);
+        File.Copy(SourceScenePath, path, true);
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+        Scene scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
 
         string summary;
         try
         {
-            summary = Populate(scene, parts, out error);
+            summary = Populate(scene, parts, scenic, out error);
             // The copy carries the trial city's occlusion data, which the practice city would fly without (its signature
             // does not match), so it gets its own.
             if (summary != null)
@@ -114,7 +139,7 @@ public static class PracticeBlockWorldBuilder
             if (summary != null && !EditorSceneManager.SaveScene(scene))
             {
                 summary = null;
-                error = $"could not save {PracticeScenePath}.";
+                error = $"could not save {path}.";
             }
         }
         catch (System.Exception e)
@@ -129,12 +154,12 @@ public static class PracticeBlockWorldBuilder
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             if (previousScene != null)
             {
-                File.WriteAllBytes(PracticeScenePath, previousScene);
-                AssetDatabase.ImportAsset(PracticeScenePath, ImportAssetOptions.ForceUpdate);
+                File.WriteAllBytes(path, previousScene);
+                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
             }
             else
             {
-                AssetDatabase.DeleteAsset(PracticeScenePath);
+                AssetDatabase.DeleteAsset(path);
             }
             // An untitled scene has no path to reopen it from.
             if (previousSetup.Length > 0 &&
@@ -145,7 +170,8 @@ public static class PracticeBlockWorldBuilder
             return false;
         }
 
-        Debug.Log($"PracticeBlockWorldBuilder: built {PracticeScenePath} from {SourceScenePath}: {summary}");
+        AssetDatabase.SaveAssets();   // the scenic scene's terrain copies
+        Debug.Log($"PracticeBlockWorldBuilder: built {path} from {SourceScenePath}: {summary}");
         return true;
     }
 
@@ -153,7 +179,7 @@ public static class PracticeBlockWorldBuilder
     /// Turns a fresh copy of BlockShapedPatchCityWorld into the practice world. Returns a one-line account of what it
     /// did, or null with <paramref name="error"/> set.
     /// </summary>
-    private static string Populate(Scene scene, PracticeWorldBuilder.Parts parts, out string error)
+    private static string Populate(Scene scene, PracticeWorldBuilder.Parts parts, bool scenic, out string error)
     {
         swarmSpawn spawner = Object.FindFirstObjectByType<swarmSpawn>(FindObjectsInactive.Include);
         ProceduralCityBuilder builder = Object.FindFirstObjectByType<ProceduralCityBuilder>(FindObjectsInactive.Include);
@@ -169,6 +195,7 @@ public static class PracticeBlockWorldBuilder
         builder.useFixedGoalSeed = false;
         BlockShapedCityWorldBuilder.EnsureDressing(builder);
         BlockShapedCityWorldBuilder.EnsureStyle(builder);
+        string look = scenic ? ScenicPatchCityWorldBuilder.Dress(builder, scene) : null;
         if (!builder.Bake(out error))
         {
             return null;
@@ -197,10 +224,20 @@ public static class PracticeBlockWorldBuilder
         }
 
         string stations = PracticeWorldBuilder.AddStartLineAndStations(spawn, parts);
+        if (scenic)
+        {
+            Light sun = RenderSettings.sun;
+            if (sun == null)
+            {
+                error = $"{SourceScenePath} has no sun (RenderSettings.sun).";
+                return null;
+            }
+            look += "; " + ScenicPatchCityWorldBuilder.Finish(builder, scene, sun, "PracticeTile", true);
+        }
 
         EditorSceneManager.MarkSceneDirty(scene);
         return $"baked {builder.Layout.layout.id} ({builder.Layout.boxes.Length} buildings; at Play the goal is {goal}), " +
-               $"removed {stripped} recorder, {stations}.";
+               $"removed {stripped} recorder, {stations}" + (scenic ? $"; scenic: {look}." : ".");
     }
 
     /// <summary>

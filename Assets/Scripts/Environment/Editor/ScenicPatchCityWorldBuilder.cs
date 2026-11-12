@@ -179,6 +179,18 @@ public static class ScenicPatchCityWorldBuilder
             return null;
         }
         // The buildings first: the city is baked again from the same layout with the scenic facades on it.
+        string dressed = Dress(builder, scene);
+        if (!builder.Bake(out error)) return null;
+        string rest = Finish(builder, scene, sun, "CityTile", false);
+        error = null;
+        return $"baked {builder.Layout.layout.id} ({builder.Layout.boxes.Length} buildings); {dressed}; {rest}";
+    }
+
+    /// <summary>The scenic look's first half, before the city is baked: <see cref="ScenicCity"/> and its facades on the
+    /// builder, the dressing and style as BlockShapedPatchCityWorld has them, the ground's and the props' materials.
+    /// Shared with <see cref="PracticeBlockWorldBuilder"/>'s scenic practice scene. A summary.</summary>
+    internal static string Dress(ProceduralCityBuilder builder, Scene scene)
+    {
         ScenicCity scenic = builder.GetComponent<ScenicCity>();
         if (scenic == null) scenic = Undo.AddComponent<ScenicCity>(builder.gameObject);
         scenic.facades = Facades();
@@ -187,16 +199,21 @@ public static class ScenicPatchCityWorldBuilder
         BlockShapedCityWorldBuilder.EnsureStyle(builder);
         string ground = ScenicGroundBuilder.Surfaces(builder, scene);
         string props = ScenicPropsBuilder.Props(builder, scene);
-        if (!builder.Bake(out error)) return null;
-        string land = ScenicGroundBuilder.Surroundings(builder, scene);
-        string landmarks = ScenicGroundBuilder.Landmarks(scene);
+        return $"{scenic.facades.walls.Length} wall materials; {ground}; {props}";
+    }
+
+    /// <summary>The scenic look's second half, once the city is baked: the land round it in this scene's own terrain
+    /// copies (<paramref name="tilePrefix"/>), the landmarks' ring (the existing scenic copies when
+    /// <paramref name="reuseRing"/>), the distant ground, the light and the screens. A summary.</summary>
+    internal static string Finish(ProceduralCityBuilder builder, Scene scene, Light sun, string tilePrefix, bool reuseRing)
+    {
+        string land = ScenicGroundBuilder.Surroundings(builder, scene, tilePrefix);
+        string landmarks = ScenicGroundBuilder.Landmarks(scene, reuseRing);
         string skirt = ScenicGroundBuilder.Skirt(scene);
         string light = Light(builder, sun);
         string screens = Screens();
         EditorSceneManager.MarkSceneDirty(scene);
-        error = null;
-        return $"{screens}; baked {builder.Layout.layout.id} ({builder.Layout.boxes.Length} buildings) in {scenic.facades.walls.Length} wall materials; " +
-               $"{ground}; {props}; {land}; {landmarks}; {skirt}; {light}";
+        return $"{screens}; {land}; {landmarks}; {skirt}; {light}";
     }
 
     /// <summary>For the tools that bake or redress a city in place (the Block-shaped city window): on a scenic city,

@@ -71,10 +71,10 @@ public static class BlockShapedPatchCityWorldBuilder
     }
 
     /// <summary>Whether <paramref name="scene"/> is dressed with <see cref="MoreProps"/>: this scene, and
-    /// PracticeBlockWorld and ScenicPatchCityWorld, which are built from copies of it.</summary>
+    /// PracticeBlockWorld, ScenicPatchCityWorld and ScenicPracticeBlockWorld, which are built from copies of it.</summary>
     internal static bool HasMoreProps(Scene scene) =>
         scene.path == ScenePath || scene.path == PracticeBlockWorldBuilder.PracticeScenePath ||
-        scene.path == ScenicPatchCityWorldBuilder.ScenePath;
+        scene.path == ScenicPatchCityWorldBuilder.ScenePath || scene.path == PracticeBlockWorldBuilder.ScenicPracticeScenePath;
 
     /// <summary>The user asked (2026-11-04) for more trees, bus stops, benches, trash cans, fire hydrants and phones in
     /// this scene and its practice copy, and no more traffic signals or signs. Over BlockShapedCityWorld's short-street
