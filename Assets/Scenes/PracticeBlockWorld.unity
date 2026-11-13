@@ -4785,6 +4785,7 @@ MonoBehaviour:
   kerbProps:
   - {fileID: 2973868364495830293, guid: a26bbd22a42504bb3a393943a1c8ae82, type: 3}
   - {fileID: 291870892312276006, guid: ac77d364336ad41578056d6d579f95da, type: 3}
+  phoneBooth: {fileID: 0}
   lawnTrees:
   - parts:
     - {fileID: 7355427689709916552, guid: 484a2d8041aa4c24b563fc7532bdf651, type: 3}
@@ -4876,6 +4877,8 @@ MonoBehaviour:
     bollards: 3
     bollardSpacing: 1.2
     kerbShare: 0.15
+    binShare: 0
+    phoneShare: 0
   dressedFor: bbB_p40_s18_patch150_j0.15_sight487_seed2_cut_b28 #b670ad43
   rulesVersion: 4
 --- !u!114 &277018501
@@ -4953,7 +4956,8 @@ MonoBehaviour:
   useFixedGoalSeed: 0
   goalSeed: 0
   prismWalkers: 16
-  walkerShadowMaterial: {fileID: 2100000, guid: b77e47becd6b49c68a7e0adc966810ee, type: 2}
+  walkerShadowMaterial: {fileID: 2100000, guid: b77e47becd6b49c68a7e0adc966810ee,
+    type: 2}
   walkerSleepDistance: 350
   occlusionCitySignature: 20:-5234.4:-181.7:931.5
   prismWalkOffset: {x: 1.1, y: 1.5}
@@ -8297,16 +8301,6 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
-      propertyPath: bridge.enableImageWriting
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
-      propertyPath: bridge.enablePanoramaReading
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
-        type: 3}
       propertyPath: bridge.blockImageWidth
       value: 1152
       objectReference: {fileID: 0}
@@ -8319,6 +8313,11 @@ PrefabInstance:
         type: 3}
       propertyPath: hideStitchedDroneScreens
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.enableImageWriting
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -8339,6 +8338,11 @@ PrefabInstance:
         type: 3}
       propertyPath: stabStitch.qualityThreshold
       value: 17.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2809280313436123246, guid: 922e66f4b2da9f942af2299627e1bcdd,
+        type: 3}
+      propertyPath: bridge.enablePanoramaReading
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6847994249360662215, guid: 922e66f4b2da9f942af2299627e1bcdd,
         type: 3}
@@ -32874,7 +32878,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f969c9ad1f2b33449605154bc14c68c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  displayMode: 0
+  displayMode: 3
+  sphere360:
+    cubeSize: 2048
+    refreshHz: 36
+    splitFaces: 1
+    heading: 0
+    bandHalfDeg: 0
   screenStyle: 1
   autoStyle: 1
   formationMapAtNadir: 0
@@ -33013,7 +33023,7 @@ MonoBehaviour:
   dronesAlongX: 3
   dronesAlongZ: 3
   droneSpacing: 5
-  circleDroneCount: 10
+  circleDroneCount: 1
   circleRadius: 5
   start_x: -456
   start_y: 0
