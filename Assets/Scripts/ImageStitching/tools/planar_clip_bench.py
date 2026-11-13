@@ -70,6 +70,29 @@ DEFAULT_RECORDINGS = os.path.normpath(os.path.join(
 WIRE_W, WIRE_H = 800, 450
 
 
+def use_clip_wire_size(session):
+    """
+    Take the wire size from the clip when it states one.
+
+    Real clips do not: they are recorded at 1920x1080 and reach the stitcher at 800x450.
+    A simulated clip (``PlanarCaptureProbe``) is recorded at the size the simulator's
+    blocks really are and says so in ``meta.wire_size``.
+    """
+    global WIRE_W, WIRE_H
+    meta = session.get("meta", session)
+    size = meta.get("wire_size")
+    WIRE_W, WIRE_H = (int(size[0]), int(size[1])) if size else (800, 450)
+
+
+def frame_image_path(clip_dir, drone, frame_index):
+    """A simulated clip's frame file (``frame`` is 1-based in the CSV, files 0-based)."""
+    return os.path.join(clip_dir, "drone%d_%04d.png" % (drone, max(0, frame_index - 1)))
+
+
+def is_image_sequence(clip_dir, drone):
+    return not os.path.isfile(os.path.join(clip_dir, "drone%d.mp4" % drone))
+
+
 def find_clip(recordings, label):
     """Resolve a clip label (or a bare folder name) to its directory."""
     index = os.path.join(recordings, "clips.csv")
@@ -112,8 +135,8 @@ def load_poses(clip_dir, drone):
                 "quat": (float(row["quat_x"]), float(row["quat_y"]),
                          float(row["quat_z"]), float(row["quat_w"])),
                 "status": int(row["pose_status"]),
-                "heading": float(row["heading"]),
-                "gimbal_yaw": float(row["gimbal_yaw"]),
+                "heading": float(row.get("heading") or 0.0),
+                "gimbal_yaw": float(row.get("gimbal_yaw") or 0.0),
             })
     return out
 
@@ -167,6 +190,13 @@ def read_frame(clip_dir, drone, frame_index):
     """One decoded, wire-sized BGR frame.  ``frame`` in the CSV is 1-based."""
     if cv2 is None:
         raise RuntimeError("opencv is required to decode clip video")
+    if is_image_sequence(clip_dir, drone):
+        img = cv2.imread(frame_image_path(clip_dir, drone, frame_index))
+        if img is None:
+            return None
+        if img.shape[1] != WIRE_W or img.shape[0] != WIRE_H:
+            img = cv2.resize(img, (WIRE_W, WIRE_H), interpolation=cv2.INTER_AREA)
+        return img
     cap = cv2.VideoCapture(os.path.join(clip_dir, "drone%d.mp4" % drone))
     cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_index - 1))
     ok, img = cap.read()
@@ -347,6 +377,7 @@ def main():
 
     with open(os.path.join(clip_dir, "session.json")) as fh:
         session = json.load(fh)
+    use_clip_wire_size(session)
     meta = session.get("meta", session)
     scene = meta.get("scene_plane") or {}
 

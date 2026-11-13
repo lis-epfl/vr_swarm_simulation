@@ -178,6 +178,8 @@ def make_bare_stitcher(ps_mod, torch):
     """
     s = ps_mod.PlanarStitcher.__new__(ps_mod.PlanarStitcher)
     s.render_device = torch.device("cpu")   # deterministic; the fp16 CUDA path differs
+    # The learned aligner's attributes (_aligner, _align_stats, _clock, ...) are class-level
+    # defaults on PlanarStitcher for exactly this helper, so they need no line here.
     s._correction = {"dpose": None, "plane": None}
     s._grid_key = None
     s._grid = None
@@ -917,7 +919,7 @@ def test_estimators():
     periodic one, which is the failure mode that matters on a real facade of identical
     windows.
     """
-    print("\n10. Warp-thread estimators (plane sweep + pose refiner)")
+    print("\n10. Warp-thread estimators, photometric (plane sweep + pose refiner)")
     if cv2 is None:
         check("cv2 available", False, "opencv not installed; skipped")
         return
@@ -927,6 +929,20 @@ def test_estimators():
     except ImportError as e:
         check("torch + PlanarStitcher importable", False, f"{e}")
         return
+
+    # These are the photometric estimators' own tests: what each can and cannot recover,
+    # the gates, the reset paths. The two switches drive planar_align by default now
+    # (section 13), so this section selects the older pair the way the environment
+    # variable does, and puts the module back however it leaves.
+    was_legacy = ps_mod.LEGACY_ESTIMATORS
+    ps_mod.LEGACY_ESTIMATORS = True
+    try:
+        _test_photometric_estimators(ps_mod, torch)
+    finally:
+        ps_mod.LEGACY_ESTIMATORS = was_legacy
+
+
+def _test_photometric_estimators(ps_mod, torch):
 
     texture = make_unique_texture()
     views, K, s_tex, plane = _nadir_scene(texture)
@@ -945,7 +961,8 @@ def test_estimators():
     s = make_bare_stitcher(ps_mod, torch)
     _run_estimator(s, views, intr, plane, base_config, passes=2)
     check("both flags off leaves the correction identity",
-          s._correction == {"dpose": None, "plane": None},
+          s._correction.get("dpose") is None and s._correction.get("plane") is None
+          and s._correction.get("plane_fix") is None,
           f"correction={s._correction}")
 
     # --- switching an estimator OFF must actually turn it off --------------------------
@@ -1634,8 +1651,15 @@ def test_canvas_modes():
     shifts = {}
     for z in (1.0, 4.0):
         s = make_bare_stitcher(ps_mod, torch)
-        _run_estimator(s, noisy, intr, plane,
-                       dict(base, pose_refine=True, zoom=z), passes=3)
+        # The photometric refiner specifically: it is the estimator that measures on a
+        # canvas, so it is the one a zoom could reach. planar_align never sees the canvas.
+        was_legacy = ps_mod.LEGACY_ESTIMATORS
+        ps_mod.LEGACY_ESTIMATORS = True
+        try:
+            _run_estimator(s, noisy, intr, plane,
+                           dict(base, pose_refine=True, zoom=z), passes=3)
+        finally:
+            ps_mod.LEGACY_ESTIMATORS = was_legacy
         shifts[z] = dict(s._pose_shift)
     common = set(shifts[1.0]) & set(shifts[4.0])
     worst = max((float(np.linalg.norm(shifts[1.0][d] - shifts[4.0][d])) for d in common),
@@ -1688,6 +1712,443 @@ def test_canvas_modes():
           len(steps) <= 6, f"{len(steps)} changes across 40 frames of steady growth")
 
 
+# --------------------------------------------------------------------------------------
+# 13. Learned alignment (planar_align)
+# --------------------------------------------------------------------------------------
+
+def make_panel_texture(h=1400, w=2000, panel=(81, 61), seed=3):
+    """
+    A facade of near-identical louvre panels with a few irregular windows.
+
+    The stand-in for the MED building: every panel carries the same slat pattern, so any
+    alignment a whole number of panels out matches almost everything, and only the
+    windows (about one panel in nine, placed at random) say which of them is right.
+    """
+    rng = np.random.default_rng(seed)
+    pw, ph = panel
+    yy, xx = np.mgrid[0:h, 0:w]
+    slat = ((yy % ph) // 4 % 2).astype(np.float32)                 # horizontal slats
+    frame = ((xx % pw) < 4) | ((yy % ph) < 3)                      # panel frames
+    img = 150.0 + 45.0 * slat
+    img[frame] = 70.0
+    for r in range(h // ph):
+        for c in range(w // pw):
+            if rng.random() < 0.11:
+                img[r * ph + 6:(r + 1) * ph - 3, c * pw + 8:(c + 1) * pw - 4] = 35.0
+    img += rng.normal(0.0, 3.0, img.shape)
+    grey = np.clip(img, 0, 255).astype(np.uint8)
+    return np.stack([grey] * 3, axis=-1)
+
+
+def _true_seam_error(stitcher, published, truth, K, plane, config, span=14.0):
+    """
+    How far apart the stitcher's geometry puts the *same* ground point as seen by two
+    views, in metres on the plane, over a grid of points -- ``(median, worst)``.
+
+    The correspondences come from the true poses, so this needs no matching and has no
+    gauge: a mosaic that is rigidly shifted or scaled as a whole still scores zero, which
+    is right, because nothing in the images can tell and nothing on screen shows it.
+    """
+    frame, cams = stitcher._build_geometry(published, K, plane, config)
+    if frame is None:
+        return float("nan"), float("nan")
+    G = {c["view"]["drone_id"]: c["G"] for c in cams}
+    xs = np.linspace(-span, span, 15)
+    X = np.array([pg.unity_point_to_rh((x, 0.0, z)) for x in xs for z in xs])
+    h, w = truth[0]["image"].shape[:2]
+    placed = {}
+    for v in truth:
+        if v["drone_id"] not in G:
+            continue
+        R, C = pg.unity_pose_to_cv(v["pos"], v["quat"])
+        uv, depth = pg.project_points(K, R, C, X)
+        inside = (depth > 0) & (uv[:, 0] > 8) & (uv[:, 0] < w - 9) \
+            & (uv[:, 1] > 8) & (uv[:, 1] < h - 9)
+        q = np.linalg.solve(G[v["drone_id"]], np.column_stack([uv, np.ones(len(uv))]).T)
+        placed[v["drone_id"]] = ((q[:2] / q[2]).T, inside)
+    errs = []
+    ids = sorted(placed)
+    for a in range(len(ids)):
+        for b in range(a + 1, len(ids)):
+            pa, ia = placed[ids[a]]
+            pb_, ib = placed[ids[b]]
+            both = ia & ib
+            if both.any():
+                errs.append(np.linalg.norm(pa[both] - pb_[both], axis=1))
+    if not errs:
+        return float("nan"), float("nan")
+    errs = np.concatenate(errs)
+    return float(np.median(errs)), float(errs.max())
+
+
+def test_learned_alignment():
+    """
+    ``planar_align``: the solver and the shift graph on synthetic data with a known
+    answer, the render path's use of the result, and -- when the networks can be loaded
+    -- the whole estimator on rendered views, including a facade of repeating panels.
+    """
+    print("\n13. Learned alignment (planar_align)")
+    try:
+        import torch
+        import planar_align as pa
+        import PlanarStitcher as ps_mod
+    except ImportError as e:
+        check("torch + planar_align importable", False, f"{e}")
+        return
+
+    rng = np.random.default_rng(11)
+
+    # ---- the bundle adjustment, on matches with a known answer ------------------------
+    # A wall of five cameras 30 m from the plane z = 0, looking along -z.
+    K = np.array([[525.0, 0.0, 400.0], [0.0, 525.0, 225.0], [0.0, 0.0, 1.0]])
+    look = np.diag([1.0, -1.0, -1.0])                    # world -> camera, facing -z
+    C_true = [np.array([x, y, 30.0]) for x, y in
+              ((-9.0, 0.0), (0.0, 0.5), (9.0, 0.0), (-4.0, 7.0), (5.0, 7.5))]
+    R_true = [pa.rotvec_to_matrix(rng.normal(0.0, 0.004, 3)) @ look for _ in C_true]
+    n_true, d_true = np.array([0.0, 0.0, 1.0]), 0.0
+
+    def project(R, C, X):
+        pc = (X - C) @ R.T
+        pr = pc @ K.T
+        return pr[:, :2] / pr[:, 2:3]
+
+    def inside(uv):
+        return (uv[:, 0] > 0) & (uv[:, 0] < 799) & (uv[:, 1] > 0) & (uv[:, 1] < 449)
+
+    pairs, clean = [], []
+    N = len(C_true)
+    for i in range(N):
+        for j in range(i + 1, N):
+            X = np.column_stack([rng.uniform(-30, 30, 400), rng.uniform(-14, 22, 400),
+                                 np.zeros(400)])
+            ui, uj = project(R_true[i], C_true[i], X), project(R_true[j], C_true[j], X)
+            keep = inside(ui) & inside(uj)
+            ui, uj = ui[keep], uj[keep]
+            if len(ui) < 20:
+                continue
+            clean.append((i, j, ui.copy(), uj.copy()))
+            noisy_i = ui + rng.normal(0.0, 0.5, ui.shape)
+            noisy_j = uj + rng.normal(0.0, 0.5, uj.shape)
+            # A quarter of the matches are wrong: half of those are content 12 m behind
+            # the plane (self-consistent, the dangerous kind), half are plain mismatches.
+            k = len(ui) // 4
+            Xb = np.column_stack([rng.uniform(-25, 25, k), rng.uniform(-10, 18, k),
+                                  np.full(k, -12.0)])
+            bi, bj = project(R_true[i], C_true[i], Xb), project(R_true[j], C_true[j], Xb)
+            noisy_i[:len(bi) // 2] = bi[:len(bi) // 2]
+            noisy_j[:len(bi) // 2] = bj[:len(bi) // 2]
+            noisy_j[len(bi) // 2:k] += rng.uniform(-60, 60, (k - len(bi) // 2, 2))
+            pairs.append((i, j, noisy_i, noisy_j))
+
+    # What is published: every pose metres and degrees out, and a plane that is tilted
+    # and at the wrong distance -- the real-drone situation.
+    w_err = [np.deg2rad(rng.normal(0.0, [1.0, 3.0, 1.0])) for _ in range(N)]
+    t_err = [rng.normal(0.0, [1.2, 1.0, 1.2]) for _ in range(N)]
+    R_pub = [pa.rotvec_to_matrix(w) @ R for w, R in zip(w_err, R_true)]
+    C_pub = [C + t for C, t in zip(C_true, t_err)]
+    tilt = pa.rotvec_to_matrix(np.deg2rad([0.0, 8.0, 0.0]))
+    n_pub = tilt @ n_true
+    d_pub = d_true + 3.0
+
+    def transfer_error(ba, x, matches):
+        probe = pa.PlanarBA(K, R_pub, C_pub, n_pub, d_pub, np.zeros(3), matches)
+        r, _ = probe.residual(torch.as_tensor(np.asarray(x), dtype=pa.DT))
+        return float(np.median(np.linalg.norm(r.numpy(), axis=1)))
+
+    ba = pa.PlanarBA(K, R_pub, C_pub, n_pub, d_pub, np.zeros(3), pairs)
+    x_any = torch.as_tensor(rng.normal(0.0, 0.03, ba.P), dtype=pa.DT)
+    worst = max(float((a - b).abs().max()) / max(1.0, float(b.abs().max()))
+                for a, b in zip(ba.jacobian_blocks(x_any), ba.jacobian_autograd(x_any)))
+    check("analytic Jacobian matches forward-mode autograd", worst < 1e-9,
+          f"worst relative difference {worst:.1e}")
+
+    prior = ba.prior_precision(5.0, 2.0, 2.5, 2.0, 12.0, 6.0)
+    before = transfer_error(ba, np.zeros(ba.P), clean)
+    x, err, ok = ba.solve([(prior, np.zeros(ba.P))])
+    after = transfer_error(ba, x.numpy(), clean)
+    check("bundle adjustment aligns the views through 25% wrong matches",
+          before > 15.0 and after < 0.5,
+          f"true-correspondence transfer error {before:.1f} px -> {after:.2f} px")
+
+    _om, _tt, n_est, d_est = ba.unpack(x)
+    # The plane is only defined up to the similarity the priors pin, so compare its
+    # orientation to the *corrected cameras'* mean forward rather than to world axes.
+    tilt_left = float(np.rad2deg(np.arccos(np.clip(abs(n_est @ n_pub), -1, 1))))
+    check("the plane's orientation is solved, not just its distance",
+          tilt_left > 4.0, f"moved {tilt_left:.1f} deg from the published normal "
+                           f"(it was published 8 deg out)")
+
+    ba_pose = pa.PlanarBA(K, R_pub, C_pub, n_pub, d_pub, np.zeros(3), pairs,
+                          solve_plane=False)
+    xp, _, _ = ba_pose.solve([(prior, np.zeros(ba.P))])
+    ba_plane = pa.PlanarBA(K, R_pub, C_pub, n_pub, d_pub, np.zeros(3), pairs,
+                           solve_pose=False)
+    xq, _, _ = ba_plane.solve([(prior, np.zeros(ba.P))])
+    check("each switch leaves the other's parameters untouched",
+          float(xp[6 * N:].abs().max()) == 0.0 and float(xq[:6 * N].abs().max()) == 0.0,
+          f"plane moved {float(xp[6 * N:].abs().max()):.2e} with the plane off, "
+          f"poses moved {float(xq[:6 * N].abs().max()):.2e} with the poses off")
+
+    empty = pa.PlanarBA(K, R_pub, C_pub, n_pub, d_pub, np.zeros(3), [])
+    xe, _, _ = empty.solve([(prior, np.zeros(empty.P))])
+    check("with no matches the priors hold everything at the published geometry",
+          float(xe.abs().max()) < 1e-9, f"largest correction {float(xe.abs().max()):.1e}")
+
+    # ---- the shift graph: loops resolve what no pair can ------------------------------
+    # Four views of a periodic facade. Every pair's surface has peaks one period (8
+    # cells) apart; on two of the six edges the WRONG peak is the highest, as it is on
+    # the real building when the overlap happens to hold more panels than windows.
+    Rn = 12
+    true_shift = np.array([[0, 0], [-4, 1], [5, -1], [-3, -2]])       # (dx, dy) cells
+
+    def surface(d_true, wrong_first):
+        R = 2 * Rn
+        S = np.zeros((2 * R + 1, 2 * R + 1))
+        for k, height in ((0, 0.30), (-8, 0.24), (8, 0.22)):
+            if wrong_first and k == 8:
+                height = 0.34
+            y, x = R + d_true[1], R + d_true[0] + k
+            if 0 <= x <= 2 * R:
+                S[y, x] = height
+        return cv2.GaussianBlur(S, (0, 0), 1.0) * 6.0 if cv2 is not None else S
+
+    edges = []
+    wrong = {(0, 2), (1, 3)}
+    for i in range(4):
+        for j in range(i + 1, 4):
+            edges.append((i, j, surface(true_shift[i] - true_shift[j], (i, j) in wrong)))
+    naive_wrong = 0
+    for i, j, S in edges:
+        R = (S.shape[0] - 1) // 2
+        y, x = np.unravel_index(int(np.argmax(S)), S.shape)
+        naive_wrong += int((x - R, y - R) != tuple(true_shift[i] - true_shift[j]))
+    sh, _score = pa.solve_shift_graph(4, edges, Rn, 1e-4)
+    rel = sh - sh[0]
+    check("the view graph picks the consistent alignment where single pairs are a "
+          "period out",
+          naive_wrong == 2 and np.array_equal(rel, true_shift - true_shift[0]),
+          f"{naive_wrong} of {len(edges)} pairs peak on the wrong panel; graph shifts "
+          f"{rel.tolist()} vs truth {(true_shift - true_shift[0]).tolist()}")
+
+    # ---- the render path's use of a correction ----------------------------------------
+    s = make_bare_stitcher(ps_mod, torch)
+    clock = {"t": 0.0}
+    s._clock = lambda: clock["t"]
+    old = {"dpose": {0: (np.eye(3), np.zeros(3))}, "rotvec": {0: np.zeros(3)},
+           "plane_fix": ("world", np.array([0.0, 0.0, 1.0]), 0.0)}
+    new_w = np.array([0.0, 0.04, 0.0])
+    s._correction = {"dpose": {0: (pa.rotvec_to_matrix(new_w), np.array([1.0, 0.0, 0.0]))},
+                     "rotvec": {0: new_w}, "plane": None,
+                     "plane_fix": ("world", np.array([0.0, 0.0, 1.0]), 2.0),
+                     "blend": (0.0, 0.4, old)}
+    at = {}
+    for t in (0.0, 0.2, 0.4):
+        clock["t"] = t
+        c = s._live_correction()
+        at[t] = (float(c["dpose"][0][1][0]), float(c["plane_fix"][2]))
+    check("a new alignment is eased in, not switched to",
+          at[0.0] == (0.0, 0.0) and abs(at[0.2][0] - 0.5) < 1e-9
+          and abs(at[0.2][1] - 1.0) < 1e-9 and at[0.4] == (1.0, 2.0),
+          f"shift, plane offset at t = 0 / half / end: {at[0.0]} {at[0.2]} {at[0.4]}")
+
+    if cv2 is None:
+        check("cv2 available for the rendered checks", False, "opencv not installed")
+        return
+
+    # Exposure: the same ground from two aircraft, one of them exposing 25% darker.
+    texture = make_unique_texture()
+    views, K_n, s_tex, plane = _nadir_scene(texture, offsets=((-6.0, 0.0), (6.0, 0.0)))
+    intr = (K_n[0, 0], K_n[1, 1], K_n[0, 2], K_n[1, 2])
+    dark = [dict(views[0]),
+            dict(views[1], image=(views[1]["image"].astype(np.float32) * 0.75)
+                 .astype(np.uint8))]
+    cfg = {"canvas": (1000, 700), "metres_per_pixel": s_tex, "max_range": 200.0,
+           "feather_px": 40, "aniso_max": 12.0, "min_coverage": 0.05, "pose_source": 0,
+           "psnr_gate": False, "blend_mode": ps_mod.BLEND_NEAREST,
+           "debug_view": ps_mod.DEBUG_OFF, "plane_sweep": False, "pose_refine": False}
+
+    def seam_step(pano):
+        # The partition's seam is the line midway between the two cameras. The canvas is
+        # centred under the reference view (the first, at x = -6), so that line is 6 m
+        # to the right of the canvas centre. Means over a band either side: the texture
+        # is noise, and a narrow strip would measure the texture.
+        g = pano.astype(np.float32).mean(axis=2)
+        mid = pano.shape[1] // 2 + int(round(6.0 / s_tex))
+        rows = slice(pano.shape[0] // 2 - 150, pano.shape[0] // 2 + 150)
+        return abs(float(g[rows, mid - 40:mid - 3].mean() - g[rows, mid + 3:mid + 40].mean()))
+
+    s_n = make_bare_stitcher(ps_mod, torch)
+    hard = _mosaic(s_n, dark, intr, plane, cfg)[0]
+    s_m = make_bare_stitcher(ps_mod, torch)
+    soft = None
+    for _ in range(40):                                  # let the gain low-pass settle
+        soft = _mosaic(s_m, dark, intr, plane,
+                       dict(cfg, blend_mode=ps_mod.BLEND_MULTIBAND))[0]
+    step_hard, step_soft = seam_step(hard), seam_step(soft)
+    check("multiband removes the exposure step a hard seam draws",
+          step_hard > 15.0 and step_soft < 0.25 * step_hard,
+          f"brightness step across the seam {step_hard:.1f} -> {step_soft:.1f} grey levels")
+
+    # Where the geometry is exact and the exposure equal, the two-band composite must
+    # give back what winner-take-all gives: it is a re-weighting of low frequencies, and
+    # with nothing to reconcile there is nothing for it to change.
+    s_a, s_b = make_bare_stitcher(ps_mod, torch), make_bare_stitcher(ps_mod, torch)
+    ref = _mosaic(s_a, views, intr, plane, cfg)[0]
+    for _ in range(3):
+        mb = _mosaic(s_b, views, intr, plane,
+                     dict(cfg, blend_mode=ps_mod.BLEND_MULTIBAND))[0]
+    covered = ref.max(axis=2) > 0
+    diff = np.abs(ref.astype(np.float32) - mb.astype(np.float32))[covered]
+    check("multiband changes nothing where the views already agree",
+          float(diff.mean()) < 1.0, f"mean |difference| {float(diff.mean()):.2f} grey levels")
+
+    # ---- the whole estimator, on rendered views ----------------------------------------
+    aligner = pa.PlanarAligner()
+    if not aligner.available():
+        print(f"  [SKIP] end-to-end alignment: {aligner.models.error}")
+        return
+    if aligner.models.lg is None:
+        print(f"  [note] {aligner.models.error}")
+
+    was_legacy = ps_mod.LEGACY_ESTIMATORS
+    ps_mod.LEGACY_ESTIMATORS = False
+    try:
+        offsets = ((0.0, 0.0), (-9.0, 0.0), (9.0, 0.0), (-4.5, 7.0), (4.5, 7.0), (0.0, -7.0))
+        errors = [((1.4, 0.0, -0.9), 2.5), ((-1.1, 0.0, 1.3), -3.0), ((0.6, 0.0, 1.6), 1.5),
+                  ((-1.5, 0.0, -0.7), 0.0), ((0.9, 0.0, 0.8), -2.0), ((0.2, 0.0, -1.2), 3.5)]
+
+        def publish(truth):
+            out = []
+            for v, (dp, yaw) in zip(truth, errors):
+                pos = tuple(float(a + b) for a, b in zip(v["pos"], dp))
+                out.append(dict(v, pos=pos,
+                                quat=tuple(float(c) for c in euler_to_quat(90.0, yaw, 0.0))))
+            return out
+
+        est_cfg = dict(cfg, min_coverage=0.2, plane_sweep=True, pose_refine=True,
+                       sweep_range=4.0, sweep_steps=9, refine_rate=1.0,
+                       refine_max_shift=3.0, standoff=29.0)
+
+        # (a) unique texture, formation-relative plane with the standoff typed 3 m out.
+        truth, K_n, s_tex, plane = _nadir_scene(make_unique_texture(), offsets=offsets)
+        intr = (K_n[0, 0], K_n[1, 1], K_n[0, 2], K_n[1, 2])
+        formation = dict(plane, plane_mode=ps_mod.PLANE_MODE_FORMATION_RELATIVE)
+        pub = publish(truth)
+        s1 = make_bare_stitcher(ps_mod, torch)
+        s1.ALIGN_MIN_PERIOD_S = 0.0
+        s1.ALIGN_BLEND_S = 0.0
+        med0, worst0 = _true_seam_error(s1, pub, truth, K_n, formation, est_cfg)
+        _run_estimator(s1, pub, intr, formation, est_cfg, passes=3)
+        med1, worst1 = _true_seam_error(s1, pub, truth, K_n, formation, est_cfg)
+        check("learned alignment closes metre-scale pose error and a wrong standoff",
+              med0 > 1.0 and med1 < 0.10 and worst1 < 0.35,
+              f"true seam {med0:.2f} m (worst {worst0:.2f}) -> {med1:.3f} m "
+              f"(worst {worst1:.3f}); {s1._align_stats.get('inliers')} inliers")
+        check("after its first lock the aligner tracks rather than re-acquires",
+              s1._align_stats.get("mode") == "track",
+              f"mode {s1._align_stats.get('mode')}: {s1._align_stats.get('held', '')}")
+
+        _run_estimator(s1, pub, intr, formation,
+                       dict(est_cfg, plane_sweep=False, pose_refine=False), passes=1)
+        check("switching both estimators off releases the learned correction",
+              s1._correction.get("dpose") is None
+              and s1._correction.get("plane_fix") is None and not s1._aligner.pose,
+              f"correction {sorted(k for k, v in s1._correction.items() if v is not None)}")
+
+        # (b) exact poses must be left alone: a refiner that "improves" a perfect mosaic
+        #     is one that will also invent corrections in the simulator.
+        s2 = make_bare_stitcher(ps_mod, torch)
+        s2.ALIGN_MIN_PERIOD_S = 0.0
+        s2.ALIGN_BLEND_S = 0.0
+        _run_estimator(s2, truth, intr, plane, est_cfg, passes=2)
+        med2, worst2 = _true_seam_error(s2, truth, truth, K_n, plane, est_cfg)
+        check("exact poses stay exact under the aligner",
+              worst2 < 0.08, f"true seam {med2:.3f} m (worst {worst2:.3f})")
+
+        # (c) the repeating facade: per-drone errors larger than half a panel, so the
+        #     nearest consistent-looking alignment for some pairs is a panel out.
+        if aligner.models.lg is None:
+            print("  [SKIP] repeating facade: needs LightGlue")
+            return
+        truth, K_n, s_tex, plane = _nadir_scene(make_panel_texture(), offsets=offsets)
+        formation = dict(plane, plane_mode=ps_mod.PLANE_MODE_FORMATION_RELATIVE)
+        big = [((2.3, 0.0, -0.9), 1.0), ((-2.1, 0.0, 1.0), -1.5), ((1.9, 0.0, 1.2), 1.0),
+               ((-2.4, 0.0, -0.6), 0.0), ((2.2, 0.0, 0.7), -1.0), ((-1.8, 0.0, -1.1), 1.5)]
+        errors = big
+        pub = publish(truth)
+        s3 = make_bare_stitcher(ps_mod, torch)
+        s3.ALIGN_MIN_PERIOD_S = 0.0
+        s3.ALIGN_BLEND_S = 0.0
+        med0, worst0 = _true_seam_error(s3, pub, truth, K_n, formation, est_cfg)
+        _run_estimator(s3, pub, intr, formation, est_cfg, passes=3)
+        med3, worst3 = _true_seam_error(s3, pub, truth, K_n, formation, est_cfg)
+        check("a facade of repeating panels is aligned, not locked a panel out",
+              med0 > 2.0 and med3 < 0.15 and worst3 < 0.6,
+              f"true seam {med0:.2f} m (worst {worst0:.2f}) -> {med3:.3f} m "
+              f"(worst {worst3:.3f}), panel period {81 * s_tex:.1f} m; "
+              f"{s3._align_stats.get('note', s3._align_stats.get('held', ''))}")
+
+        # (d) a picture that lags its telemetry. One drone's video arrives half a second
+        #     late, as a weak link's does, so while the formation moves its published
+        #     pose is a metre ahead of what its frame shows -- and not at all while it
+        #     hovers. A bias cannot follow that; the images' own motion can.
+        _test_lagging_video(ps_mod, torch, est_cfg)
+    finally:
+        ps_mod.LEGACY_ESTIMATORS = was_legacy
+
+
+def _test_lagging_video(ps_mod, torch, est_cfg):
+    texture = make_unique_texture()
+    base = ((0.0, 0.0), (-9.0, 0.0), (9.0, 0.0))
+    dt, lag_frames, speed = 0.05, 10, 2.0
+
+    def travelled(k):
+        # At rest for five frames, then a constant 2 m/s.
+        return speed * dt * max(0, k - 5)
+
+    def frame(k):
+        """(published views, the same with the pose each picture was really taken at)."""
+        now = tuple((x + travelled(k), z) for x, z in base)
+        then = tuple((x + travelled(k - lag_frames), z) for x, z in base)
+        v_now, K_n, s_tex, plane = _nadir_scene(texture, offsets=now)
+        v_then, _, _, _ = _nadir_scene(texture, offsets=then)
+        published, truth = [], []
+        for i in range(3):
+            late = i == 2
+            image = (v_then if late else v_now)[i]["image"]
+            published.append(dict(v_now[i], image=image, capture_time=1.0 + k * dt))
+            truth.append(dict((v_then if late else v_now)[i], image=image))
+        return published, truth, K_n, plane
+
+    worst = {}
+    for visual in (False, True):
+        s = make_bare_stitcher(ps_mod, torch)
+        s.ALIGN_MIN_PERIOD_S = 0.0
+        s.ALIGN_BLEND_S = 0.0
+        s.VISUAL_TRACK = visual
+        s.POSE_FILTER = False
+        cfg = dict(est_cfg, refine_rate=0.25)
+        s.set_live_config(cfg)
+        errs = []
+        for k in range(0, 30):
+            published, truth, K_n, plane = frame(k)
+            intr = (K_n[0, 0], K_n[1, 1], K_n[0, 2], K_n[1, 2])
+            s._plane_invalid_since = None
+            s.planar_pano(published, intr, plane, cfg)
+            if k % 3 == 0:
+                s.compute_warps()
+                s._plane_invalid_since = None
+                s.planar_pano(published, intr, plane, cfg)
+            if k >= 12:                                   # moving, and the lag has opened
+                errs.append(_true_seam_error(s, published, truth, K_n, plane, cfg)[1])
+        worst[visual] = max(errs) if errs else float("nan")
+    check("a drone whose picture lags its telemetry stays aligned while the formation moves",
+          worst[True] < 0.2 and worst[False] > 3.0 * worst[True],
+          f"worst true seam while moving: {worst[False]:.2f} m placing frames by pose, "
+          f"{worst[True]:.3f} m carrying the alignment with the images "
+          f"(the lag is worth {speed * dt * lag_frames:.1f} m)")
+
+
 def main():
     print("=" * 74)
     print("planar_geometry self-test")
@@ -1702,6 +2163,7 @@ def main():
     test_estimators()
     test_formation_plane()
     test_canvas_modes()
+    test_learned_alignment()
 
     print("\n" + "=" * 74)
     if _failures:

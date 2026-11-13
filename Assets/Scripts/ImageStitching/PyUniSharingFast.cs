@@ -48,7 +48,10 @@ public class PyUniSharingFast : MonoBehaviour
              "most face-on view, so nothing is averaged and pose error shows as a seam " +
              "rather than ghosting; Feather cross-fades the overlap, which is only clean " +
              "while the geometry is exact. In a facade wall the views overlap almost " +
-             "everywhere, so Feather ghosts across the whole mosaic. PLANAR only.")]
+             "everywhere, so Feather ghosts across the whole mosaic. Multiband keeps " +
+             "Nearest's partition for the detail and cross-fades only the low " +
+             "frequencies, after matching the views' exposure: the choice for real " +
+             "drones, whose cameras each expose for themselves. PLANAR only.")]
     [SerializeField]
     private PlanarBlendMode planarBlendMode = PlanarBlendMode.Nearest;
 
@@ -451,20 +454,24 @@ public class PyUniSharingFast : MonoBehaviour
         public bool planarPsnrGateEnabled = false;
 
         [Header("Warp-thread estimators")]
-        [Tooltip("Plane sweep: correct the published plane DISTANCE by scanning candidate " +
-                 "offsets and keeping the one where the views agree best. Fixes the one error " +
-                 "no per-view translation can absorb — a wrong plane distance appears in each " +
-                 "view as a scale about its own footprint. Being a single global number it " +
-                 "cannot fix per-drone error; that is what the pose refiner is for. " +
-                 "Independent of it: either, both or neither may be on.")]
+        [Tooltip("Plane estimate: solve the scene plane from the images — its ORIENTATION as " +
+                 "well as its distance — from learned matches between the views " +
+                 "(planar_align.py). A plane fitted through a handful of GNSS positions is " +
+                 "good to about ten degrees, and that tilt is the largest single error on " +
+                 "real drones. Solved jointly with the pose refiner when both are on; " +
+                 "either, both or neither may be. Set PLANAR_LEGACY_ESTIMATORS=1 for the " +
+                 "older photometric sweep, which scans the distance alone.")]
         public bool planarPlaneSweep = false;
 
-        [Tooltip("Pose refiner: correct each drone's camera position by phase-correlating its " +
-                 "view against the consensus of the others. Absorbs differential GNSS error " +
-                 "and compass bias, which both show up at a facade as a lateral shift of that " +
-                 "view's footprint. Cannot represent scale (use the plane sweep) or the " +
-                 "keystone from a gimbal-pitch bias. Views whose correlation peak is not " +
-                 "clearly dominant are left uncorrected rather than guessed at.")]
+        [Tooltip("Pose refiner: solve a rotation and a position correction per drone from " +
+                 "learned matches between the views (SuperPoint + LightGlue, then a bundle " +
+                 "adjustment through the plane; planar_align.py). Absorbs differential " +
+                 "GNSS error, compass bias and gimbal bias. On a facade of repeating panels " +
+                 "it first picks one consistent alignment across the whole formation, so " +
+                 "no pair can lock on a panel out. A drone it cannot anchor keeps its " +
+                 "published pose and yields to the others where they overlap. Turn both " +
+                 "estimators on for real drones; leave them off with exact simulated " +
+                 "poses, where there is nothing to correct.")]
         public bool planarPoseRefine = false;
 
         [Range(0.5f, 50f)]
@@ -483,15 +490,18 @@ public class PyUniSharingFast : MonoBehaviour
         public int planarSweepSteps = 9;
 
         [Range(0.01f, 1f)]
-        [Tooltip("Low-pass rate applied to both estimators, per warp update. The corrections " +
+        [Tooltip("Low-pass rate applied to both estimators, per warp update (the learned " +
+                 "aligner updates about 3-5 times a second and snaps on its first lock). The corrections " +
                  "are slowly-varying by premise (GNSS bias, plane distance), so heavy smoothing " +
                  "costs nothing and keeps a single bad measurement from reaching the mosaic. " +
                  "1.0 snaps to the raw estimate — useful for seeing what it actually measured.")]
         public float planarRefineRate = 0.25f;
 
-        [Tooltip("Largest per-view correction the refiner may apply, metres. A correlation " +
-                 "peak further out than the pose could plausibly be wrong is a mismatch, not a " +
-                 "measurement. 0 disables the clamp.")]
+        [Tooltip("Largest per-view correction the refiner may apply, metres. Under the " +
+                 "learned aligner this is a plausibility bound, not a clamp: a solution that " +
+                 "moves any drone further than this (and further than 10 m) is discarded " +
+                 "whole and the previous alignment held. Under PLANAR_LEGACY_ESTIMATORS it " +
+                 "clamps each view's shift; 0 disables that clamp.")]
         public float planarRefineMaxShift = 3f;
     }
 
@@ -1179,6 +1189,12 @@ public class PyUniSharingFast : MonoBehaviour
         // Nothing is averaged, so residual pose error shows as a seam rather than a
         // doubled image.
         Nearest,
+        // Nearest's partition for the detail, cross-faded for the low frequencies, after
+        // matching each view's exposure and white balance to its neighbours'. Fine
+        // structure still comes from exactly one view, so nothing can ghost; what fades
+        // is the brightness step every aircraft's own auto-exposure leaves along a hard
+        // seam. The choice for real drones. planarFeatherPixels sets the fade width.
+        Multiband,
     }
 
     /// <summary>

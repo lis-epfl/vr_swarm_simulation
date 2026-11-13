@@ -29,8 +29,17 @@ That split is deliberate: poses change every frame, so the geometric solve must 
 inline at frame rate, but the *corrections* drift slowly and belong at the warp thread's
 cadence.
 
-The two estimators are complementary rather than alternative, because they move
-different parameters:
+By default the two switches drive :mod:`planar_align` (``_align``): learned matches
+between the views, one consistent alignment chosen across the whole formation, and a
+bundle adjustment through the plane that solves a rotation and a position per drone and
+the plane itself.  Its answer is pinned to the frames it was solved on (``_make_anchors``)
+and carried to later frames by each view's own image motion (:mod:`planar_track`), so
+what is drawn between solves does not depend on when a drone's telemetry arrived.
+``PLANAR_LEGACY_ESTIMATORS=1`` selects the two photometric estimators instead, which are
+what the rest of this docstring describes.
+
+The two photometric estimators are complementary rather than alternative, because they
+move different parameters:
 
 ``_correction["plane"]`` -- **plane sweep**, one global scalar: an additive offset on the
 published plane distance, chosen by scanning candidate offsets and keeping the one that
@@ -91,6 +100,7 @@ What protects against that is the clamp plus the fact that the correction is a r
 on top of a pose that is already roughly right.
 """
 
+import os
 import time
 
 import numpy as np
@@ -99,7 +109,23 @@ import torch.nn.functional as F
 
 from BaseStitcher import BaseStitcher
 import planar_geometry as pg
+import planar_pose_filter
+import planar_track
 from run_clock import stamp
+
+try:
+    import planar_align
+except Exception as _align_exc:                      # pragma: no cover
+    planar_align = None
+    print(f"[PLANAR] learned alignment unavailable ({_align_exc}); "
+          f"using the photometric estimators")
+
+# PLANAR_LEGACY_ESTIMATORS=1 restores the photometric plane sweep and the phase-correlation
+# refiner behind the same two inspector switches, for comparison. By default those
+# switches drive planar_align: "pose refine" solves a rotation and a position correction
+# per drone from learned matches, and "plane sweep" solves the plane (orientation as well
+# as distance) in the same bundle adjustment.
+LEGACY_ESTIMATORS = os.environ.get("PLANAR_LEGACY_ESTIMATORS", "0") not in ("", "0")
 
 # Failing-gate bits. Pre-shift values, matching StitcherThreading's REASON_* -- see
 # write_panorama_memory for how they are packed.
@@ -119,8 +145,16 @@ REASON_PLANE_INVALID = 32
 # NEAREST gives each pixel to exactly one view -- the one seeing that point closest to
 # the plane normal, i.e. the most face-on -- so nothing is ever averaged and residual
 # error can only appear as a discontinuity along the seam, not as a doubled image.
+#
+# MULTIBAND keeps NEAREST's partition and its guarantee -- fine detail always comes from
+# exactly one view, so nothing can ghost -- but cross-fades the *low* frequencies across
+# the seam, after matching each view's exposure to its neighbours'. What is left of a
+# seam under NEAREST once the geometry is right is mostly photometric: every aircraft
+# runs its own auto-exposure and white balance, and a hard partition draws that
+# difference as an edge. See _multiband.
 BLEND_FEATHER = 0
 BLEND_NEAREST = 1
+BLEND_MULTIBAND = 2
 
 # How the canvas gets its scale and centre. Mirrors PlanarCanvasMode in
 # PyUniSharingFast.cs.
@@ -214,6 +248,43 @@ class PlanarStitcher(BaseStitcher):
     # but a sustained miss means we are mosaicking onto a plane that isn't there.
     PLANE_INVALID_GRACE_S = 2.0
 
+    # Resampling of held telemetry (planar_pose_filter), created on the first frame.
+    # PLANAR_POSE_FILTER=0 switches it off; it is a no-op on poses that change every
+    # frame, which is every simulated one.
+    _pose_filter = None
+    POSE_FILTER = os.environ.get("PLANAR_POSE_FILTER", "1") not in ("", "0")
+
+    # Image-based propagation of an alignment between solves (planar_track), created with
+    # the aligner. PLANAR_VISUAL_TRACK=0 goes back to placing every frame by its published
+    # pose plus the correction.
+    _tracker = None
+    VISUAL_TRACK = os.environ.get("PLANAR_VISUAL_TRACK", "1") not in ("", "0")
+    # An anchor older than this is no longer carried forward: the aligner has stopped
+    # answering, and a product of fifty inter-frame motions is not an alignment.
+    MAX_ANCHOR_AGE_S = 2.5
+    # A new anchor further than this (source pixels) from the one on screen replaces it
+    # outright instead of being low-passed into it.
+    ANCHOR_SNAP_PX = 10.0
+
+    # Learned alignment (planar_align). Class-level defaults so an instance built without
+    # __init__ -- the self-test's bare stitcher -- still has them.
+    _aligner = None
+    _align_stats = {}
+    _align_warned = False
+    # Floor on the aligner's period. One pass is 0.1-0.5 s of GPU shared with the render
+    # loop, and the corrections it estimates drift over tens of seconds.
+    ALIGN_MIN_PERIOD_S = 0.2
+    # Winner-take-all score multiplier for a view the aligner found no support for.
+    WEAK_VIEW_PRIORITY = 0.2
+    # A new alignment is eased in over this long rather than switched to. Each update
+    # moves the views against each other by a pixel or so (a different set of matches,
+    # a facade that is not quite a plane), and applied as a step that reads as the seams
+    # ticking at the update rate.
+    ALIGN_BLEND_S = 0.3
+    # The clock the blend runs on. An instance attribute in the stream bench, which plays
+    # clips on simulated time.
+    _clock = staticmethod(time.monotonic)
+
     def __init__(self, device="cpu"):
         # device="cpu" mirrors StabStitcher: it keeps BaseStitcher's SuperPoint off the
         # GPU. Subclassing BaseStitcher is required rather than stylistic --
@@ -232,7 +303,11 @@ class PlanarStitcher(BaseStitcher):
         # Rebound as a whole new dict by compute_warps, never mutated in place: the
         # render thread reads it without a lock, so it must see one consistent
         # generation rather than a half-updated one.
-        self._correction = {"dpose": None, "plane": None}
+        #   "plane_fix" : the aligner's plane, replacing or riding on the published one --
+        #             ("world", n, d) or ("delta", rotvec, offset); see _apply_plane_fix
+        #   "rotvec" / "blend" : the aligner's rotations as vectors, and the generation
+        #             this one is eased in from; see _live_correction
+        self._correction = {"dpose": None, "plane": None, "plane_fix": None}
 
         # Cached canvas pixel grid, keyed on canvas size: the only thing that changes
         # between frames is the homography, so this is built once.
@@ -352,6 +427,20 @@ class PlanarStitcher(BaseStitcher):
         else:
             self._plane_invalid_since = None
 
+        # Before anything reads a pose: real telemetry is held between 5 Hz samples, and
+        # the warp, the snapshot the aligner works from and the canvas frame must all see
+        # the same resampled stream.
+        if self.POSE_FILTER:
+            if self._pose_filter is None:
+                self._pose_filter = planar_pose_filter.PoseFilter()
+            views = self._pose_filter.apply(views)
+
+        # Each view's own image motion since its last frame, while the aligner is in use:
+        # that is what carries an alignment from one solve to the next (planar_track).
+        if self._tracker is not None and config.get("pose_refine", False):
+            self._tracker.step(views, self._predicted_plane_motion(views, intrinsics,
+                                                                   plane, config))
+
         K = pg.intrinsics_matrix(*intrinsics)
         frame, cams = self._build_geometry(views, K, plane, config, record=True)
         if frame is None:
@@ -454,9 +543,8 @@ class PlanarStitcher(BaseStitcher):
             # is the honest end of "inspect closer" -- and it moves with the standoff, so
             # it has to be measured rather than assumed.
             "best_gsd": float(min(c["range"] for c in kept) / K[1, 1]),
-            "blend": ("nearest"
-                      if config.get("blend_mode", BLEND_NEAREST) == BLEND_NEAREST
-                      else "feather"),
+            "blend": {BLEND_NEAREST: "nearest", BLEND_MULTIBAND: "multiband"}.get(
+                int(config.get("blend_mode", BLEND_NEAREST)), "feather"),
             "debug_view": int(config.get("debug_view", DEBUG_OFF)),
             "drone_ids": [c["view"]["drone_id"] for c in kept],
         }
@@ -520,15 +608,30 @@ class PlanarStitcher(BaseStitcher):
             # Let a correction estimated before the flag was cleared decay out rather
             # than stay frozen in the geometry: switching an estimator off in the
             # inspector should visibly return to the raw published pose.
-            if self._plane_offset != 0.0 or self._pose_shift:
+            if (self._plane_offset != 0.0 or self._pose_shift
+                    or self._correction.get("dpose") is not None
+                    or self._correction.get("plane_fix") is not None):
                 self._plane_offset = 0.0
                 self._pose_shift = {}
                 self._sweep_stats = {}
                 self._refine_stats = {}
+                self._align_stats = {}
                 self._sweep_mode = "acquire"
                 self._sweep_lost = 0
-                self._correction = {"dpose": None, "plane": None}
+                if self._aligner is not None:
+                    self._aligner.reset()
+                self._correction = {"dpose": None, "plane": None, "plane_fix": None}
             time.sleep(0.1)
+            return
+
+        if self._learned_alignment():
+            started = time.monotonic()
+            try:
+                self._align(views, K, plane, config, do_sweep, do_refine)
+            except Exception as exc:                 # never let the warp thread die
+                self._align_stats = {"held": f"aligner error: {exc}"}
+            self._maybe_log_estimators()
+            time.sleep(max(0.02, self.ALIGN_MIN_PERIOD_S - (time.monotonic() - started)))
             return
 
         try:
@@ -555,6 +658,7 @@ class PlanarStitcher(BaseStitcher):
             self._correction = {
                 "plane": self._plane_offset if do_sweep else None,
                 "dpose": self._pose_to_dpose() if do_refine else None,
+                "plane_fix": None,
             }
 
         # Logged from HERE, not from _maybe_log: that line is printed at the end of
@@ -566,6 +670,384 @@ class PlanarStitcher(BaseStitcher):
         # floor this thread would spin on the same snapshot at hundreds of Hz and steal
         # the GPU from the render loop it shares a device and a GIL with.
         time.sleep(0.05)
+
+    # ------------------------------------------------------------------ learned alignment
+
+    def _learned_alignment(self):
+        """Whether the two estimator switches drive ``planar_align`` (the default)."""
+        if LEGACY_ESTIMATORS or planar_align is None:
+            return False
+        if self._aligner is None:
+            self._aligner = planar_align.PlanarAligner(self.render_device
+                                                       if self.render_device.type == "cuda"
+                                                       else None)
+        if self._aligner.available():
+            if self._aligner.models.error and not self._align_warned:
+                self._align_warned = True
+                print(f"[PLANAR] {self._aligner.models.error}")
+            if self._tracker is None and self.VISUAL_TRACK and planar_track.available():
+                self._tracker = planar_track.ViewTracker()
+            self._aligner.warm_up()                      # once; a no-op afterwards
+            return True
+        if not self._align_warned:
+            self._align_warned = True
+            print(f"[PLANAR] learned alignment off ({self._aligner.models.error}); "
+                  f"using the photometric estimators")
+        return False
+
+    def _align(self, views, K, plane, config, do_sweep, do_refine):
+        """
+        One ``planar_align`` pass, and the correction it leaves for the render path.
+
+        The aligner is given the *published* poses and plane and keeps its own state, so
+        nothing here depends on what ``_correction`` currently holds -- which is what
+        lets the render thread go on reading it while this runs.
+        """
+        aligner = self._aligner
+        posed = [v for v in views if pose_is_usable(v)]
+        posed, _ = self._drop_stale(posed)
+        n_pub, d_pub = self._published_plane(posed, plane, config)
+        if n_pub is None or len(posed) < 2:
+            self._align_stats = {"skipped": "no usable plane or fewer than 2 posed views"}
+            return
+
+        frame_views = []
+        for v in posed:
+            R, C = pg.unity_pose_to_cv(v["pos"], v["quat"])
+            frame_views.append({"drone_id": v["drone_id"], "image": v["image"],
+                                "R": R, "C": C})
+
+        # Switching one of the two off must release what it estimated, the same as the
+        # photometric pair: they stay independently switchable.
+        if not do_refine:
+            aligner.pose = {}
+        if not do_sweep:
+            aligner.plane = None
+            aligner.plane_delta = None
+
+        formation = int(plane.get("plane_mode", -1)) == PLANE_MODE_FORMATION_RELATIVE
+        sweep_range = float(config.get("sweep_range", 0.0) or 0.0)
+        rate = float(config.get("refine_rate", 0.25) or 0.25)
+        # With image-based propagation the aligner's own state is left unsmoothed: each
+        # solve is an accurate answer for its own frames, and what has to be smooth is
+        # the mapping on screen, which is low-passed where the anchors are made, below.
+        # Smoothing the *bias* instead makes it lag whenever the offset between a
+        # drone's picture and its telemetry changes, which is whenever it accelerates.
+        visual = self._tracker is not None and do_refine
+        if visual and aligner.mode == "track":
+            self._seed_from_screen(aligner, posed, frame_views, K)
+        solved = aligner.update(frame_views, K, n_pub, d_pub,
+                                solve_pose=do_refine, solve_plane=do_sweep,
+                                plane_is_prior_only=formation,
+                                max_shift_m=float(config.get("refine_max_shift", 0.0) or 0.0),
+                                rate=1.0 if visual else rate,
+                                plane_sigma_m=sweep_range if formation else None)
+
+        plane_fix = None
+        if do_sweep and aligner.plane is not None:
+            # A formation-relative plane is a guess the aligner replaces outright, and a
+            # facade does not move, so the estimate is held in WORLD coordinates: it stays
+            # put while the formation advances on it, where a correction to the typed
+            # standoff would lag by however fast the drones are closing. A raycast plane
+            # is a live measurement, so there the estimate rides on it as a delta.
+            if formation:
+                plane_fix = ("world", aligner.plane[0], aligner.plane[1])
+            elif aligner.plane_delta is not None:
+                plane_fix = ("delta", aligner.plane_delta[0], aligner.plane_delta[1])
+        # One rebind, as everywhere else: the render thread sees a whole generation. It
+        # carries where the blend starts from -- whatever is on screen at this instant,
+        # which may itself be part-way through the previous blend.
+        shown = self._live_correction()
+        current = self._correction
+        anchors, anchor_frame = current.get("anchors"), current.get("anchor_frame")
+        if visual and solved:
+            anchors, anchor_frame = self._make_anchors(
+                posed, frame_views, K, aligner, n_pub, d_pub, plane_fix,
+                current, rate=rate)
+        elif not visual:
+            anchors = anchor_frame = None
+        self._correction = {
+            "dpose": aligner.dpose() if do_refine else None,
+            "rotvec": aligner.rotvecs() if do_refine else None,
+            "plane": None, "plane_fix": plane_fix,
+            "weak": frozenset(aligner.stats.get("unsupported") or ()) if do_refine else None,
+            "anchors": anchors, "anchor_frame": anchor_frame,
+            "blend": (self._clock(), self.ALIGN_BLEND_S,
+                      {k: shown.get(k) for k in ("dpose", "rotvec", "plane_fix",
+                                                 "anchors", "anchor_frame")}),
+        }
+        self._align_stats = dict(aligner.stats)
+        self._sweep_stats = {}
+        self._refine_stats = {}
+
+    # What the poses say the plane did in each view since its last frame, for the tracker.
+    _pose_maps = None                # drone_id -> (capture time, G, plane key)
+
+    def _predicted_plane_motion(self, views, intrinsics, plane, config):
+        """
+        ``{drone_id: 3x3}`` taking a plane point's pixel in a view's previous frame to
+        its pixel in this one, according to the (corrected) poses.
+
+        Only its direction and rough size are relied on -- ``planar_track`` uses it to
+        tell the plane's motion from that of everything nearer or further -- so the
+        timing faults that make poses unfit to *place* a frame do not matter here.
+        """
+        posed = [v for v in views if pose_is_usable(v)]
+        if not posed:
+            return None
+        n, d = self._published_plane(posed, plane, config)
+        if n is None:
+            return None
+        corr = self._live_correction()
+        fix = corr.get("plane_fix")
+        if fix is not None:
+            n, d = self._apply_plane_fix(fix, n, d, posed)
+        e1, e2 = planar_align.plane_basis(n)
+        frame = pg.PlaneFrame(n=n, d=float(d), O=float(d) * n, e1=e1, e2=e2)
+        K = pg.intrinsics_matrix(*intrinsics)
+        key = (tuple(np.round(n, 6)), round(float(d), 4))
+        previous = self._pose_maps or {}
+        now, out = {}, {}
+        for v in posed:
+            did, t = v["drone_id"], float(v.get("capture_time", 0.0) or 0.0)
+            R, C = pg.unity_pose_to_cv(v["pos"], v["quat"])
+            R, C = self._apply_correction(v, R, C, corr)
+            G = pg.build_G(K, R, C, frame)
+            before = previous.get(did)
+            if before is not None and before[0] == t:
+                now[did] = before                          # the same frame again
+                continue
+            now[did] = (t, G, key)
+            if before is not None and before[2] == key and 0.0 < t - before[0] < 0.5:
+                try:
+                    out[did] = G @ np.linalg.inv(before[1])
+                except np.linalg.LinAlgError:
+                    pass
+        self._pose_maps = now
+        return out
+
+    # ---- anchors: an alignment pinned to the frames it was solved on ---------------------
+
+    @staticmethod
+    def _plane_change(src, dst):
+        """3x3 taking plane coordinates in frame ``src`` to those in frame ``dst``."""
+        rel = src.O - dst.O
+        return np.array([[src.e1 @ dst.e1, src.e2 @ dst.e1, rel @ dst.e1],
+                         [src.e1 @ dst.e2, src.e2 @ dst.e2, rel @ dst.e2],
+                         [0.0, 0.0, 1.0]])
+
+    def _make_anchors(self, posed, frame_views, K, aligner, n_pub, d_pub, plane_fix,
+                      current, rate):
+        """
+        ``({drone_id: (capture time, G)}, PlaneFrame)`` for the frames just solved on.
+
+        ``G`` maps the anchor frame's plane coordinates to pixels of *that* frame of
+        that drone, with the solve's corrections in it -- the one place the answer is
+        exact.  ``planar_track`` carries it to later frames.
+
+        Each new anchor is low-passed against the one on screen, brought forward to the
+        same frame: the solutions differ from pass to pass by a pixel or so (which
+        matches were found, a surface that is not quite a plane) and the mosaic should
+        not tick with them.  That is the smoothing ``refine_rate`` asks for, applied to
+        the mapping rather than to a pose bias.  A view whose new mapping is far from
+        its old one is not noise and is taken as it comes (see ``ANCHOR_SNAP_PX``).
+        """
+        dpose = aligner.dpose() or {}
+        if aligner.plane is not None:
+            n_a, d_a = np.asarray(aligner.plane[0], dtype=np.float64), float(aligner.plane[1])
+        else:
+            n_a, d_a = np.asarray(n_pub, dtype=np.float64), float(d_pub)
+
+        corrected = []
+        for fv in frame_views:
+            R, C = fv["R"], fv["C"]
+            delta = dpose.get(fv["drone_id"])
+            if delta is not None:
+                R, C = delta[0] @ R, C + delta[1]
+            corrected.append((R, C))
+        centroid = np.mean([C for _R, C in corrected], axis=0)
+        origin = centroid - (float(n_a @ centroid) - d_a) * n_a
+        e1, e2 = planar_align.plane_basis(n_a)
+        frame = pg.PlaneFrame(n=n_a, d=d_a, O=origin, e1=e1, e2=e2)
+
+        prev, prev_frame = current.get("anchors"), current.get("anchor_frame")
+        mix = float(np.clip(2.0 * rate, 0.3, 1.0))
+        to_prev = (self._plane_change(frame, prev_frame)
+                   if prev and prev_frame is not None else None)
+        h_img, w_img = posed[0]["image"].shape[:2]
+        probe = np.array([[0.5 * w_img, 0.2 * w_img, 0.8 * w_img, 0.2 * w_img, 0.8 * w_img],
+                          [0.5 * h_img, 0.2 * h_img, 0.2 * h_img, 0.8 * h_img, 0.8 * h_img],
+                          [1.0, 1.0, 1.0, 1.0, 1.0]])
+        unsupported = set(aligner.stats.get("unsupported") or ())
+        carry = (self._plane_change(frame, prev_frame)
+                 if prev and prev_frame is not None else None)
+        anchors = {}
+        for v, (R, C) in zip(posed, corrected):
+            did, t_a = v["drone_id"], float(v.get("capture_time", 0.0) or 0.0)
+            if did in unsupported and carry is not None and did in prev:
+                # Nothing was measured for this view in this pass. The mapping it already
+                # has is still the images' own; a fresh one would be its published pose
+                # with a correction nobody checked, which is how a view jumps a metre the
+                # moment it loses its matches. Kept as it is, on the new frame's axes,
+                # until it is measured again or grows too old to trust.
+                t_p, G_p = prev[did]
+                if t_a - t_p <= self.MAX_ANCHOR_AGE_S \
+                        and self._tracker.between(did, t_p, t_a) is not None:
+                    anchors[did] = (t_p, G_p @ carry)
+                    continue
+            G = pg.build_G(K, R, C, frame)
+            if to_prev is not None and did in prev:
+                t_p, G_p = prev[did]
+                A = self._tracker.between(did, t_p, t_a)
+                if A is not None:
+                    G_old = A @ G_p @ to_prev
+                    # How far apart the two mappings put this view, in its own pixels.
+                    # A small difference is the pass-to-pass noise the low-pass exists
+                    # for. A large one is a view being put right -- its first lock, or
+                    # a re-lock after it lost its matches -- and easing that in would
+                    # leave it visibly wrong for a second; only that view snaps.
+                    try:
+                        q = G @ np.linalg.solve(G_old, probe)
+                        moved = float(np.max(np.linalg.norm(q[:2] / q[2] - probe[:2], axis=0)))
+                    except np.linalg.LinAlgError:
+                        moved = np.inf
+                    if moved <= self.ANCHOR_SNAP_PX:
+                        G = (1.0 - mix) * G_old + mix * G
+            anchors[did] = (t_a, G)
+        return anchors, frame
+
+    def _seed_from_screen(self, aligner, posed, frame_views, K):
+        """
+        Start the next solve from the alignment on screen, not from the last pose bias.
+
+        The aligner rectifies each view with its published pose plus the correction it
+        holds, and only accepts matches within a gate of that.  The correction is a bias
+        on the telemetry, and the telemetry's offset from the picture is not constant: a
+        drone whose video lags moves a metre and more against its own pose when the
+        formation starts or stops.  Its matches then fall outside the gate, it loses its
+        support, and nothing brings it back.  What *is* continuous is the mapping the
+        images have carried forward, so each view's correction is replaced by the one
+        that reproduces that mapping on the snapshot's pose -- the gate is then centred
+        on what the pilot is looking at.
+        """
+        visual, frame = self._visual_mappings(posed, self._correction)
+        if not visual:
+            return
+        K_inv = np.linalg.inv(K)
+        for fv in frame_views:
+            G = visual.get(fv["drone_id"])
+            if G is None:
+                continue
+            R_vis, C_vis = self._pose_from_G(G, K_inv, frame)
+            aligner.pose[fv["drone_id"]] = (
+                planar_align.matrix_to_rotvec(R_vis @ np.asarray(fv["R"]).T),
+                C_vis - np.asarray(fv["C"]))
+
+    def _visual_mappings(self, posed, corr):
+        """
+        ``({drone_id: G}, PlaneFrame)``: each view's mapping for the frame in hand,
+        carried from its anchor by its own image motion.  Views whose chain cannot be
+        vouched for are simply absent and fall back to their pose.
+        """
+        anchors, frame = corr.get("anchors"), corr.get("anchor_frame")
+        if not anchors or frame is None or self._tracker is None:
+            return None, None
+        prev, prev_frame = corr.get("anchors_prev"), corr.get("anchor_frame_prev")
+        b = float(corr.get("anchor_blend", 1.0))
+        to_prev = (self._plane_change(frame, prev_frame)
+                   if prev and prev_frame is not None and b < 1.0 else None)
+        out = {}
+        for v in posed:
+            did, t = v["drone_id"], float(v.get("capture_time", 0.0) or 0.0)
+            G = self._propagate(did, anchors.get(did), t)
+            if G is None:
+                continue
+            if to_prev is not None:
+                G_old = self._propagate(did, prev.get(did), t)
+                if G_old is not None:
+                    G = (1.0 - b) * (G_old @ to_prev) + b * G
+            out[did] = G
+        return (out, frame) if out else (None, None)
+
+    def _propagate(self, drone_id, anchor, t_now):
+        if anchor is None:
+            return None
+        t_a, G_a = anchor
+        if t_now - t_a > self.MAX_ANCHOR_AGE_S or t_now < t_a:
+            return None
+        A = self._tracker.between(drone_id, t_a, t_now)
+        return None if A is None else A @ G_a
+
+    @staticmethod
+    def _pose_from_G(G, K_inv, frame):
+        """
+        The camera ``(R, C)`` a plane-to-image mapping implies.
+
+        ``K^-1 G = R [e1 | e2 | O - C]`` for a true pose; a propagated mapping is only
+        close to that form, so the first two columns are replaced by the nearest
+        orthonormal pair.  For the consumers that need rays to go with a view's pixels.
+        """
+        M = K_inv @ G
+        U, sv, Vt = np.linalg.svd(M[:, :2], full_matrices=False)
+        Q = U @ Vt
+        r3 = np.cross(Q[:, 0], Q[:, 1])
+        R = np.column_stack([Q[:, 0], Q[:, 1], r3]) @ np.stack([frame.e1, frame.e2, frame.n])
+        scale = float(sv.mean()) if sv.mean() > 1e-9 else 1.0
+        return R, frame.O - R.T @ (M[:, 2] / scale)
+
+    def _live_correction(self):
+        """
+        The correction to apply *now*: ``_correction``, eased in from the one before it.
+
+        Read-only on shared state, so either thread may call it.  The warp thread
+        publishes a generation together with the values it replaces; until
+        ``ALIGN_BLEND_S`` has passed, what is applied is a smoothstep between the two.
+        """
+        corr = self._correction
+        blend = corr.get("blend")
+        if blend is None:
+            return corr
+        t0, duration, prev = blend
+        b = (self._clock() - t0) / duration if duration > 0.0 else 1.0
+        if b >= 1.0:
+            return corr
+        b = max(0.0, b)
+        b = b * b * (3.0 - 2.0 * b)
+
+        out = {"plane": corr.get("plane"), "dpose": corr.get("dpose"),
+               "rotvec": corr.get("rotvec"), "plane_fix": corr.get("plane_fix"),
+               "weak": corr.get("weak"),
+               # Anchors are blended where they are used, once each has been carried to
+               # the frame in hand (_visual_mappings); here they only travel together.
+               "anchors": corr.get("anchors"), "anchor_frame": corr.get("anchor_frame"),
+               "anchors_prev": prev.get("anchors"),
+               "anchor_frame_prev": prev.get("anchor_frame"), "anchor_blend": b}
+        new_dp, old_dp = corr.get("dpose"), prev.get("dpose")
+        new_rv, old_rv = corr.get("rotvec") or {}, prev.get("rotvec") or {}
+        if new_dp and old_dp:
+            dp, rv = {}, {}
+            for did, (dR, dC) in new_dp.items():
+                if did in old_dp and did in new_rv and did in old_rv:
+                    om = old_rv[did] + b * (new_rv[did] - old_rv[did])
+                    c0 = old_dp[did][1]
+                    dp[did] = (planar_align.rotvec_to_matrix(om), c0 + b * (dC - c0))
+                    rv[did] = om
+                else:
+                    # A drone the previous generation did not hold has nothing to ease
+                    # from; it takes the new value at once.
+                    dp[did] = (dR, dC)
+                    if did in new_rv:
+                        rv[did] = new_rv[did]
+            out["dpose"], out["rotvec"] = dp, rv
+
+        new_fix, old_fix = corr.get("plane_fix"), prev.get("plane_fix")
+        if new_fix is not None and old_fix is not None and new_fix[0] == old_fix[0]:
+            first = old_fix[1] + b * (new_fix[1] - old_fix[1])
+            if new_fix[0] == "world":
+                first = first / np.linalg.norm(first)
+            out["plane_fix"] = (new_fix[0], first,
+                                old_fix[2] + b * (new_fix[2] - old_fix[2]))
+        return out
 
     def _pose_to_dpose(self):
         """Per-view world corrections -> the ``{drone_id: (dR, dC)}`` shape."""
@@ -1473,24 +1955,34 @@ class PlanarStitcher(BaseStitcher):
         if not posed:
             return None, []
 
-        if int(plane.get("plane_mode", -1)) == PLANE_MODE_FORMATION_RELATIVE:
-            n, d = self._plane_from_formation(
-                posed, float(config.get("standoff", 0.0)))
-            if n is None:
-                return None, []
-        else:
-            n = pg.unity_dir_to_rh(plane["plane_normal"])
-            if np.linalg.norm(n) < 1e-6:
-                return None, []
-            n = n / np.linalg.norm(n)
-            d = float(plane["plane_d"])
+        n, d = self._published_plane(posed, plane, config)
+        if n is None:
+            return None, []
+
+        # One read of the correction for the whole build, so the plane and every view
+        # come from the same generation and the same instant of any blend in progress.
+        corr = self._live_correction()
+
+        # The aligner's plane, when it has one. Not applied to an explicit candidate
+        # (plane_offset given): that is the photometric sweep evaluating its own scan,
+        # which the aligner never runs alongside.
+        fix = corr.get("plane_fix") if plane_offset is None else None
+        if fix is not None:
+            n, d = self._apply_plane_fix(fix, n, d, posed)
 
         # Additive, not absolute: Unity's raycast keeps tracking the facade as the swarm
         # flies, and the sweep estimates only the slowly-varying residual on top of it.
         # An absolute override would freeze the plane at whatever the sweep last saw.
         if plane_offset is None:
-            plane_offset = self._correction.get("plane") or 0.0
+            plane_offset = corr.get("plane") or 0.0
         d += float(plane_offset)
+
+        # Mappings carried forward from the last solve by the images themselves. They
+        # live on the plane of that solve, so that is the plane this frame is built on.
+        visual, anchor_frame = (self._visual_mappings(posed, corr)
+                                if apply_dpose and corr.get("anchors") else (None, None))
+        if visual:
+            n, d = anchor_frame.n, anchor_frame.d
 
         # Reference view = the drone Unity nominated as the centre of the swarming plane
         # (SelectPlanarCentreCamera).  The canvas origin and axes are built from it, so a
@@ -1513,7 +2005,7 @@ class PlanarStitcher(BaseStitcher):
         # canvas that does not follow it -- a whole-image drift on top of the per-view
         # alignment the refiner was asked for.
         if apply_dpose:
-            R_ref, C_ref = self._apply_correction(ref, R_ref, C_ref)
+            R_ref, C_ref = self._apply_correction(ref, R_ref, C_ref, corr)
 
         # Canvas origin: where the reference camera's principal ray meets the plane.
         # Its forward axis is the third row of the world->camera rotation.
@@ -1528,19 +2020,51 @@ class PlanarStitcher(BaseStitcher):
         # e1 from the reference camera's right axis (row 0), so "right in the panorama"
         # is "right in the view the pilot is nominally looking through". e2 = n x e1 is
         # right-handed by construction.
-        frame = pg.build_plane_frame(n, d, origin, R_ref[0], -R_ref[1])
+        right_ref, up_ref = R_ref[0], -R_ref[1]
+        if visual and ref["drone_id"] in visual:
+            # The same two definitions -- where the reference view's principal point
+            # lands, and which way its image x axis runs there -- read off its carried
+            # mapping instead of its pose, so the canvas follows what that view shows and
+            # not when its telemetry happened to arrive.
+            src_h, src_w = ref["image"].shape[:2]
+            try:
+                q = np.linalg.solve(visual[ref["drone_id"]],
+                                    np.array([[K[0, 2], K[0, 2] + 0.1 * src_w],
+                                              [K[1, 2], K[1, 2]], [1.0, 1.0]]))
+            except np.linalg.LinAlgError:
+                q = None
+            if q is not None and q[2, 0] > 1e-9 and q[2, 1] > 1e-9:
+                ab = q[:2] / q[2]
+                centre = (anchor_frame.O + ab[0, 0] * anchor_frame.e1
+                          + ab[1, 0] * anchor_frame.e2)
+                along = (anchor_frame.O + ab[0, 1] * anchor_frame.e1
+                         + ab[1, 1] * anchor_frame.e2) - centre
+                if np.linalg.norm(along) > 1e-6:
+                    origin, right_ref, up_ref = centre, along, None
+        frame = pg.build_plane_frame(n, d, origin, right_ref, up_ref)
+        to_anchor = self._plane_change(frame, anchor_frame) if visual else None
+        K_inv = np.linalg.inv(K) if visual else None
 
         max_range = config.get("max_range", np.inf)
+        weak = (corr.get("weak") or ()) if apply_dpose else ()
         cams = []
         for v in posed:
             R, C = pg.unity_pose_to_cv(v["pos"], v["quat"])
             if apply_dpose:
-                R, C = self._apply_correction(v, R, C)
+                R, C = self._apply_correction(v, R, C, corr)
 
             # Reject views that cannot see the plane at all before doing any work.
             _, rng = pg.ray_plane_intersect(C, R[2], n, d, max_range=max_range)
             if not np.isfinite(rng):
                 continue
+
+            if visual and v["drone_id"] in visual:
+                # Drawn through its carried mapping; the pose that goes with it (for the
+                # partition, and for anything that casts rays) is the one it implies.
+                G = visual[v["drone_id"]] @ to_anchor
+                R, C = self._pose_from_G(G, K_inv, frame)
+            else:
+                G = pg.build_G(K, R, C, frame)
 
             # Camera centre in the plane frame: (a, b) is its footprint on the plane and
             # h its perpendicular standoff. BLEND_NEAREST needs only these three scalars
@@ -1548,7 +2072,7 @@ class PlanarStitcher(BaseStitcher):
             rel = C - frame.O
             cams.append({
                 "view": v,
-                "G": pg.build_G(K, R, C, frame),
+                "G": G,
                 "range": rng,
                 "plane_ab": (float(rel @ frame.e1), float(rel @ frame.e2)),
                 "plane_h": abs(float(rel @ frame.n)),
@@ -1559,9 +2083,47 @@ class PlanarStitcher(BaseStitcher):
                 # _apply_correction had already applied.
                 "R": R,
                 "C": C,
+                # A view the aligner could not anchor to the others is drawn from its
+                # published pose, metres out. It still fills what nothing else sees, but
+                # it should not win a pixel from a view that is known to be in place.
+                "weak": v["drone_id"] in weak,
             })
 
         return frame, cams
+
+    def _published_plane(self, posed, plane, config):
+        """
+        The plane as published, before any estimate: ``(n, d)`` in right-handed world, or
+        ``(None, 0.0)``.  Formation-relative derives it from the poses; every other mode
+        reads Unity's normal and offset.
+        """
+        if int(plane.get("plane_mode", -1)) == PLANE_MODE_FORMATION_RELATIVE:
+            return self._plane_from_formation(posed, float(config.get("standoff", 0.0)))
+        n = pg.unity_dir_to_rh(plane["plane_normal"])
+        if np.linalg.norm(n) < 1e-6:
+            return None, 0.0
+        return n / np.linalg.norm(n), float(plane["plane_d"])
+
+    def _apply_plane_fix(self, fix, n, d, posed):
+        """
+        Replace or adjust the published plane with the aligner's estimate.
+
+        ``("world", n, d)`` is the estimate itself and simply wins.  ``("delta", w, off)``
+        turns the published normal by the rotation vector ``w`` and moves the plane ``off`` metres along its
+        old normal, about the foot of the formation's centroid -- the same pivot the
+        delta was measured about, recomputed from this frame's poses so the adjustment
+        travels with the published plane instead of pinning it.
+        """
+        if fix[0] == "world":
+            self._plane_source = "aligned"
+            return np.asarray(fix[1], dtype=np.float64), float(fix[2])
+        centres = np.asarray([pg.unity_point_to_rh(v["pos"]) for v in posed],
+                             dtype=np.float64)
+        centroid = centres.mean(axis=0)
+        foot = centroid - (float(n @ centroid) - d) * n
+        n_new = planar_align.rotvec_to_matrix(fix[1]) @ n
+        n_new = n_new / np.linalg.norm(n_new)
+        return n_new, float(n_new @ (foot + float(fix[2]) * n))
 
     # Below this ratio of smallest to middle singular value, the camera positions are
     # treated as spanning a plane. A wall of drones with half a metre of GNSS scatter
@@ -1639,7 +2201,7 @@ class PlanarStitcher(BaseStitcher):
         self._plane_source = source
         return n, d
 
-    def _apply_correction(self, view, R, C):
+    def _apply_correction(self, view, R, C, corr=None):
         """
         Apply the refiner's delta-pose.  Identity until compute_warps estimates one.
 
@@ -1648,7 +2210,7 @@ class PlanarStitcher(BaseStitcher):
         per view per frame.  The slot is kept so a rotation-capable refiner can fill it
         without changing this call site.
         """
-        dpose = self._correction.get("dpose")
+        dpose = (self._correction if corr is None else corr).get("dpose")
         if dpose is None:
             return R, C
         delta = dpose.get(view["drone_id"])
@@ -1731,7 +2293,7 @@ class PlanarStitcher(BaseStitcher):
         feather = (torch.minimum(du, dv) / feather_px).clamp(0.0, 1.0)
         weight = torch.where(valid, feather, torch.zeros_like(feather))    # [N,HW]
 
-        if blend_mode == BLEND_NEAREST:
+        if blend_mode in (BLEND_NEAREST, BLEND_MULTIBAND):
             weight = self._nearest_weights(cams, weight, grid, M)
 
         # Upload uint8 and convert on the GPU: at N=8 and 800x450 that is 8.6 MB over
@@ -1776,15 +2338,132 @@ class PlanarStitcher(BaseStitcher):
         wgt = weight.view(len(cams), 1, canvas_h, canvas_w)
         wsum = wgt.sum(dim=0)                                              # [1,Hc,Wc]
         covered = wsum > 1e-6
-        # Normalising by the per-pixel weight sum is what generalises this to any N;
-        # a reference-based or pairwise scheme does not.
-        pano = (warped * wgt).sum(dim=0) / wsum.clamp_min(1e-6)
+        if blend_mode == BLEND_MULTIBAND:
+            if debug_view == DEBUG_OFF:
+                # Not under the overlay: it replaces or tints the imagery, and gains
+                # fitted to a colour wash would be fitted to the palette.
+                warped = warped * self._exposure_gains(cams, warped, cover)
+            pano = self._multiband(warped, cover, wgt, feather_px)
+        else:
+            # Normalising by the per-pixel weight sum is what generalises this to any N;
+            # a reference-based or pairwise scheme does not.
+            pano = (warped * wgt).sum(dim=0) / wsum.clamp_min(1e-6)
         pano = torch.where(covered, pano, torch.zeros_like(pano))
 
         coverage = float(covered.float().mean().item())
         out = pano.clamp(0, 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
 
         return out, coverage, overlap_psnr
+
+    # ---- exposure -------------------------------------------------------------------
+
+    # Brown & Lowe's gain compensation, per colour channel. sigma_n is how far two
+    # views' mean intensities over a shared patch may differ for reasons other than
+    # exposure (0-255); sigma_g how far a gain is expected to sit from 1.
+    GAIN_SIGMA_N = 10.0
+    GAIN_SIGMA_G = 0.1
+    GAIN_LIMITS = (0.6, 1.6)
+    # Per-frame low-pass on the gains. Auto-exposure moves over seconds; the estimate
+    # moves with every frame's noise.
+    GAIN_RATE = 0.15
+    _gain_state = None                 # (drone id tuple, gains [N,3,1,1]) on the device
+
+    def _exposure_gains(self, cams, warped, cover):
+        """
+        One gain per view and channel, ``[N,3,1,1]``, that makes the views agree where
+        they overlap.
+
+        Minimises, per channel,
+        ``sum_ij N_ij ((g_i m_ij - g_j m_ji)^2 / sigma_n^2 + (1 - g_i)^2 / sigma_g^2)``
+        with ``m_ij`` view *i*'s mean over its overlap with *j* and ``N_ij`` the size of
+        that overlap.  The second term is what stops the trivial answer (all gains zero)
+        and keeps the whole mosaic from drifting dark.  Solved on the device from a
+        heavily pooled copy of the stack, so it costs one small einsum and no host sync.
+        """
+        n = warped.shape[0]
+        pool = 8
+        img = F.avg_pool2d(warped * cover, pool)                       # [N,3,h,w]
+        msk = F.avg_pool2d(cover, pool)                                # [N,1,h,w]
+        img = img.flatten(2)                                           # [N,3,P]
+        msk = msk.flatten(2)[:, 0]                                     # [N,P]
+        full = (msk > 0.999).float()                                   # cells wholly inside
+        npix = full @ full.T                                           # [N,N]
+        sums = torch.einsum("icp,jp->ijc", img * full[:, None, :], full)
+        mean = sums / npix.clamp_min(1.0)[:, :, None]                  # m_ij per channel
+        off = 1.0 - torch.eye(n, device=warped.device)
+        npix = npix * off * (npix >= 16.0).float()
+
+        sn, sg = self.GAIN_SIGMA_N ** -2, self.GAIN_SIGMA_G ** -2
+        m_ij = mean.permute(2, 0, 1)                                   # [3,N,N]
+        m_ji = m_ij.transpose(1, 2)
+        w = npix[None]
+        A = torch.diag_embed((w * (m_ij * m_ij * sn + sg)).sum(dim=2)) - w * m_ij * m_ji * sn
+        b = (w * sg).sum(dim=2)
+        # A view with no overlap at all has an all-zero row; pin its gain to 1.
+        lonely = (npix.sum(dim=1) <= 0.0)
+        A = A + torch.diag_embed(lonely.float()[None].expand(3, n))
+        b = b + lonely.float()[None]
+        gains = torch.linalg.solve(A, b[..., None])[..., 0]            # [3,N]
+        gains = gains.T.clamp(*self.GAIN_LIMITS).reshape(n, 3, 1, 1)
+
+        ids = tuple(c["view"]["drone_id"] for c in cams)
+        state = self._gain_state
+        if state is not None and state[0] == ids and state[1].device == gains.device:
+            gains = state[1] + self.GAIN_RATE * (gains - state[1])
+        self._gain_state = (ids, gains)
+        return gains
+
+    # ---- two-band blend --------------------------------------------------------------
+
+    def _multiband(self, warped, cover, hard, blend_px):
+        """
+        Two-band composite over the winner-take-all partition.
+
+        ``warped`` ``[N,3,H,W]``, ``cover`` ``[N,1,H,W]`` (0/1 where a view has pixels),
+        ``hard`` ``[N,1,H,W]`` (the one-hot partition).  Each view is split into a low
+        band -- a blur about ``blend_px`` wide -- and the residual.  The low bands are
+        cross-faded with the *blurred* partition; the residuals are taken from the
+        winning view alone:
+
+            pano = sum_i W~_i low_i / sum_i W~_i  +  sum_i W_i (I_i - low_i)
+
+        Exposure and vignetting differences live in the low band and fade across the
+        seam; edges and texture live in the residual and are never averaged, so a
+        residual misalignment still cannot double anything.  Where one view is alone
+        within the blur radius the two terms sum back to that view exactly.
+
+        The low band is a *normalised* blur (blur(I * cover) / blur(cover)): a plain one
+        would pull every footprint's rim toward the black outside it.
+        """
+        n, _, H, W = warped.shape
+        step = int(max(2, round(float(blend_px) / 3.0)))
+
+        def low(x):
+            y = F.avg_pool2d(x, step, stride=step, ceil_mode=True, count_include_pad=False)
+            return self._binomial_blur(self._binomial_blur(y))
+
+        def up(x):
+            return F.interpolate(x, size=(H, W), mode="bilinear", align_corners=False)
+
+        den = low(cover)
+        low_img = low(warped * cover) / den.clamp_min(1e-3)            # [N,3,h,w]
+        # A view's low band is an extrapolation once most of the blur's support is
+        # outside its footprint; fade its say out there rather than trust it.
+        w_soft = low(hard) * (den * 2.0).clamp(0.0, 1.0)
+        low_mix = (low_img * w_soft).sum(dim=0, keepdim=True) / w_soft.sum(
+            dim=0, keepdim=True).clamp_min(1e-4)
+        detail = ((warped - up(low_img)) * hard).sum(dim=0)
+        return up(low_mix)[0] + detail
+
+    @staticmethod
+    def _binomial_blur(x):
+        """Separable 5-tap binomial, replicate-padded.  ``[B,C,h,w]``."""
+        k = torch.tensor([1.0, 4.0, 6.0, 4.0, 1.0], dtype=x.dtype, device=x.device) / 16.0
+        c = x.shape[1]
+        x = F.conv2d(F.pad(x, (2, 2, 0, 0), mode="replicate"),
+                     k.view(1, 1, 1, 5).expand(c, 1, 1, 5), groups=c)
+        return F.conv2d(F.pad(x, (0, 0, 2, 2), mode="replicate"),
+                        k.view(1, 1, 5, 1).expand(c, 1, 5, 1), groups=c)
 
     @staticmethod
     def _apply_debug_colours(cams, warped, debug_view):
@@ -1845,6 +2524,10 @@ class PlanarStitcher(BaseStitcher):
         db = ab[1].unsqueeze(0) - cam_b
         d2 = da.mul_(da).add_(db.mul_(db)).add_(cam_h * cam_h)
         score = d2.sqrt_().clamp_min_(1e-6).reciprocal_().mul_(cam_h).mul_(border)
+        if any(c.get("weak") for c in cams):
+            score.mul_(torch.tensor([self.WEAK_VIEW_PRIORITY if c.get("weak") else 1.0
+                                     for c in cams], dtype=score.dtype,
+                                    device=score.device).unsqueeze(1))
 
         best_score, best = score.max(dim=0)
         weight = torch.zeros_like(score)
@@ -1892,8 +2575,28 @@ class PlanarStitcher(BaseStitcher):
         self._last_est_log = now
 
         sweep, refine = self._sweep_stats, self._refine_stats
-        if sweep or refine:
+        align = self._align_stats
+        if sweep or refine or align:
             print(stamp())
+        if align:
+            if "skipped" in align:
+                print(f"[PLANAR] align idle: {align['skipped']}")
+            elif "held" in align:
+                print(f"[PLANAR] align holding [{align.get('mode', '?')}]: {align['held']}")
+            else:
+                ms = align.get("ms", {})
+                unsup = align.get("unsupported") or []
+                print(f"[PLANAR] align [{align['mode']}, {align.get('matcher', '?')}]: "
+                      f"{align['inliers']}/{align['matches']} inliers over "
+                      f"{align['pairs']} pairs, median {align['median_px']:.2f} px | "
+                      f"worst correction {align['worst_shift']:.2f} m / "
+                      f"{align['worst_rot_deg']:.2f} deg | plane tilt "
+                      f"{align['plane_tilt_deg']:.1f} deg, offset "
+                      f"{align['plane_offset']:+.2f} m | {ms.get('total', 0.0):.0f} ms"
+                      + (f" | {align['far']} far-field matches set aside"
+                         if align.get("far") else "")
+                      + (f" | no support: drones {unsup}" if unsup else "")
+                      + (f" | {align['note']}" if align.get("note") else ""))
         if sweep:
             if "skipped" in sweep:
                 print(f"[PLANAR] plane sweep idle: {sweep['skipped']}")

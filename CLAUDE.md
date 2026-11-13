@@ -1163,6 +1163,14 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   planar) then superimposes two offset copies, and in a wall formation the views overlap over most of the
   canvas, so the ghosting is everywhere rather than confined to a seam. Winner-take-all cannot ghost —
   no pixel ever has two contributors — at the cost of a visible seam where the winner changes.
+- **`Multiband` (`planarBlendMode` 2, 2026-11-13) is `Nearest`'s partition with the low frequencies
+  cross-faded**, after a per-view, per-channel exposure gain (Brown and Lowe's gain compensation,
+  solved on the device from an 8x-pooled stack, low-passed per frame). Detail still comes from
+  exactly one view, so nothing can ghost; what fades is the brightness step each aircraft's own
+  auto-exposure leaves along a hard seam (27 -> 1.6 grey levels in the self-test). The low band is a
+  *normalised* blur (`blur(I*cover)/blur(cover)`), or every footprint's rim is pulled toward the
+  black outside it. `planarFeatherPixels` is the fade width. It is DJIScene's setting; the sim
+  scenes keep `Nearest`, where the exposures are equal and `Fixed + zoom 1` stays byte-identical.
 - **Blending weights are an analytic distance-to-border feather** in *source* pixels, normalised per
   pixel across all contributing views. A homography's alpha mask has a closed form, so unlike
   `StabStitcher` this needs no blur or erosion, and it generalises to any N for free. Under `Nearest`
@@ -1186,8 +1194,11 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   GNSS-magnitude error (Ornstein–Uhlenbeck, with a **common-mode fraction** — nearby receivers share most
   of their error, and common-mode error translates the mosaic rigidly and costs nothing) for sizing how
   much refinement real drones would need.
-- **`compute_warps` runs the two photometric estimators**, not the geometric solve — that costs
+- **`compute_warps` runs the warp-thread estimators**, not the geometric solve — that costs
   microseconds and stays inline in `planar_pano` every frame, because the poses change every frame.
+  **Since 2026-11-13 the two switches drive `planar_align` by default** (the next section);
+  `PLANAR_LEGACY_ESTIMATORS=1` selects the two photometric estimators this bullet and its
+  sub-bullets describe, which the self-test still pins (section 10).
   What belongs on the warp thread is the *slowly-varying corrections*, which are what `_correction`
   holds. Each is independently switchable from the inspector (`planarPlaneSweep` / `planarPoseRefine`),
   and they move different parameters, so they are complementary rather than alternative.
@@ -1280,17 +1291,143 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   - Estimator passes run on a quarter-resolution canvas with their **own** grid cache; sharing the
     render path's cache would miss on every call (different canvas size) and race across two threads.
 
+### PLANAR learned alignment (`planar_align`, `planar_track`, `planar_pose_filter`)
+
+A short summary for readers outside the code, with the assessment of end-to-end learning, is
+[docs/planar_learned_alignment.md](docs/planar_learned_alignment.md).
+
+What `planarPoseRefine` / `planarPlaneSweep` run by default since 2026-11-13: learned matches between
+the views, one alignment chosen consistently across the formation, and a bundle adjustment through
+the plane, with the result carried between solves by the images themselves. Measured by
+`tools/planar_stream_bench.py`, which plays a clip at frame rate with the estimators' answers arriving
+as late as they took to compute: plane-supported seam in source pixels (ORB, a detector the aligner
+never uses), median / 90th percentile, then the frame-to-frame jitter between views.
+
+| clip | pose only | photometric pair | `planar_align` |
+|---|---|---|---|
+| MED facade, 3 drones (1) | 13.4 / 13.9, 0.52 | 19.6 / 27.4, 1.17 | **2.1 / 2.5, 0.05** |
+| MED facade, 3 drones (2) | 9.8 / 11.4, 0.42 | 39.4 / 45.3, 1.12 | **2.1 / 2.1, 0.03** |
+| MED facade, 5 drones | 41.7 / 93.7, 1.86 | 14.9 / 119, 2.37 | **4.3 / 11, 4.4** (first 16 s: 3.7 / 4.4, 0.9) |
+| grass nadir, flown | 37.0 / 41.4, 1.15 | 5.6 / 9.4, 1.19 | **1.8 / 2.1, 0.35** |
+| grass nadir, contracting | 40.7 / 46.0, 0.62 | 9.0 / 10.4, 0.63 | **1.8 / 3.4, 0.33** |
+| nadir, 6 drones, 30 m | 42.8 / 44.3, 1.82 | 6.4 / 8.8, 1.92 | **1.8 / 2.1, 0.27** |
+| nadir, 6 drones, 40 m | 35.3 / 45.8, 1.25 | 6.1 / 7.9, 1.29 | **1.5 / 1.8, 0.22** |
+
+The ~2 px floor on the MED facade is the building, not the method: a free homography per pair leaves
+2.3-2.4 px there, because the louvre panels stand 0.5-1 m proud of each other. The 5-drone clip's
+tail is its last 4 s, where the formation climbs past the roofline and the facade leaves the frame.
+One update is 0.2 s for 3 drones and 0.4-0.5 s for 6; the render path goes from 5 to 11 ms a frame
+for 3 views and 11 to 17 ms for 6 (tracker ~4-6 ms, multiband 1-2 ms; 1200x800 canvas, RTX 4090), so
+ten views are near the 33 ms a 30 Hz send allows. Points worth keeping:
+
+- **It solves 6 DoF per drone and the whole plane**: a camera-frame rotation and a world position
+  correction each, and the plane's *orientation* as well as its distance, by transfer error through
+  the plane with Gaussian priors on the published geometry (`PlanarBA`). The tilt is the largest
+  single error on real drones and neither photometric estimator can see it: a plane fitted through
+  3-6 GNSS positions is good to ~10 deg, and the MED clips were 5-6 deg out. The priors also pin the
+  similarity gauge, so a typed standoff 10% out yields a mosaic 10% larger in metres with no seam.
+- **`refine` is the poses, `sweep` is the plane, and either may be off**: the same independence the
+  photometric pair had. `planarSweepRange` is now the plane distance's sigma (formation-relative
+  plane; a raycast plane gets 1 m), `planarRefineRate` the low-pass on what is drawn, and
+  `planarRefineMaxShift` only widens a plausibility bound (a solution past max(it, 10 m) is discarded
+  whole, never clamped: a clamped correction is a view left visibly out of place).
+- **Views are rectified onto the prior plane before anything is matched.** That removes viewpoint,
+  scale and rotation, which is what lets nadir views with arbitrary headings be matched by a detector
+  that is not rotation invariant, and it leaves a displacement of metres to find instead of a
+  homography. Matches are converted back to source pixels through the same `G` the patch was warped
+  with, so they are exact measurements however wrong that `G` was.
+- **A wall of identical panels is the hard case, and four mechanisms handle it, in this order:**
+  - *The published geometry is tried first*, through the tight gate. It is accepted outright if it
+    explains half of everything the matcher returned and leaves no view out; otherwise a wide search
+    runs, and must explain 1.3x as much to overrule it (`WIDE_MUST_BEAT`). On storeys of identical
+    windows two alignments each explain a third of the matches and the images cannot say which is
+    right; the published one can, being the one that needed no panel moved. Without this rule the
+    aligner moved an exact simulated mosaic 135 px.
+  - *The shift graph* (`solve_shift_graph`): each overlapping pair gets a correlation surface of the
+    *dense* SuperPoint descriptors over plane shifts, and one shift per drone is chosen so the pairs
+    agree with each other and with GNSS (nodes: drones, unary: GNSS, edges: image evidence). Loops
+    resolve what no pair can: on the MED 5-drone clip single pairs peak a panel (4-8 m) out.
+  - *The pair score* weights each descriptor cell by how rare it is in its own view (inverse document
+    frequency: repeated slats vote for every period, a window for one), saturates its credit for
+    overlap at half the pair's best (a *sum* of similarity prefers the storey that shares more wall;
+    a *mean* lets a sliver outvote half a facade), and scores everything within 15% of the best
+    alignment's contrast as equal, so look-alikes are left to the other pairs and the prior.
+  - *A dilation of the shifts is a different surface, not pose error*: `s_i = kappa * c_i` is what
+    aligning on the building behind looks like, and GNSS error never takes that shape. `kappa` is
+    confined to what the plane-distance sigma allows. Separately, any match displaced by more than
+    60% of its pair's *published* baseline along it is far background and is set aside
+    (`FAR_PARALLAX_FRACTION`): a pair that shares mostly sky can otherwise "align" it by faking
+    metres of pose error, and every match will agree.
+- **The robust kernel is split along and across each match's epipolar direction** (the plane-offset
+  column of its own Jacobian): Cauchy across, where a match tests the cameras whatever it lies on;
+  Geman-McClure along, where it only tests whether the point is *on the plane*. Annealed from 30 px
+  (acquiring) or 16 px (tracking) to 2.5 px.
+- **LightGlue is created with `flash=False`, and that is load-bearing**: kornia's half-precision
+  attention path costs ~1.1 s for every keypoint count it has not seen, and every pair of every update
+  has a new one. Off, a pair is a steady 11-20 ms. The bundle adjustment's Jacobian is analytic
+  (asserted against autograd in the self-test: 25 -> 4 ms) and its normal equations go through numpy
+  (torch fans the 39-column product over 24 cores: 7 ms against 1).
+- **Acquire, then track.** After a lock the graph is skipped and the gate is 1.5 m. A view that goes
+  3 solves without support costs one wide search, then is left alone until it has held support for 8
+  (a view looking over the roof would otherwise buy a search a second). A view with no support keeps
+  its pose and is `weak`: it fills what nothing else sees and loses every tie (`WEAK_VIEW_PRIORITY`).
+- **`planar_pose_filter`: telemetry is 5 Hz and held.** In the clips the position changes on a
+  quarter of the frames, a sawtooth of up to 0.4 m at 2 m/s. Each drone's distinct samples are
+  interpolated at `t - 0.15 s` (`PLANAR_POSE_DELAY_S`; video is older than the telemetry it arrives
+  with, so the right pose usually lies between two samples already received). A stream that changes
+  every frame is passed through untouched, which is every simulated one.
+- **`planar_track`: an alignment is carried between solves by the images, not by the telemetry.**
+  This is what makes it work in flight, and the reason is specific: video latency differs per
+  aircraft and wanders with the link. One drone's picture ran ~1 s behind whenever its link was weak,
+  so at 1.5 m/s its view sat 1.5 m from where its pose said and came back when the formation stopped
+  (seam 2 -> 10 px for as long as the drones moved, whatever the update rate). A static scene does
+  not care when a picture was taken, so each view is drawn at `A(anchor -> now) . G(anchor)`: the
+  aligner's mapping for the very frame it solved on (`_make_anchors`), times that view's own
+  frame-to-frame image motion since (LK + robust affine). It is MViS's structure, inter-view
+  transforms tying the views together and temporal ones tying each to its past, with the temporal
+  half measured instead of fitted. Sub-points:
+  - *The solve starts from what is on screen* (`_seed_from_screen`), not from the last pose bias,
+    or a lagging drone's matches leave the gate the moment the formation stops and never return.
+  - *The low-pass is on the mapping, not on a bias* (`2 x planarRefineRate`, floor 0.3), with a view
+    more than 10 px from its old mapping snapped alone (`ANCHOR_SNAP_PX`). An unmeasured view keeps
+    the anchor it has; a fresh one would be its pose plus a correction nobody checked.
+  - *The tracker follows the plane, not the picture*: each tracked point is a multiple `lambda` of
+    its pose-predicted plane motion, and only the sharpest peak of `lambda` is fitted. Over a street
+    the building sides outnumber the road and move faster.
+  - Anchors older than 2.5 s are dropped (`MAX_ANCHOR_AGE_S`) and the view falls back to its pose.
+  - The canvas origin and axes are read off the reference view's carried mapping, so the whole
+    mosaic follows what that view shows rather than when its telemetry arrived.
+- **With exact poses it can only add its own noise: leave both switches off in the sim.** On
+  simulated clips with exact poses it costs 1.4-3.7 px, the floor of keypoint matching on a scene
+  that is not quite a plane. With 1 m / 1.5 deg of injected pose error the same clips go 26-31 px
+  (pose only) and 7-12 px (photometric) to 2.1-5.2 px.
+- **What it cannot do.** A wall of identical windows with pose error beyond half a period is not
+  identifiable from the images at all; it then keeps the published geometry. Content off the plane
+  is still drawn with parallax at the seams (a homography per view is the model). The scenic city's
+  windows show a rendered room behind each one, so their dense appearance really does match better a
+  storey out: the simulated facade is harder than the real one.
+- `tools/planar_stream_bench.py` (`--all`, `--clip`, `--configs off legacy learned`, `--trace`,
+  `--video`, `--pose-noise M,DEG` for simulated clips) is the measure; `planar_clip_bench.py` remains
+  the single-instant one. **Simulated clips come from `PlanarCaptureProbe`** (headless, on a bench
+  copy: `PlanarCaptureLauncher.Run` with `PLANAR_CAPTURE_OUT`): a camera copied from an FPV camera is
+  placed at planned poses, so a formation is exact and repeatable; three are recorded in
+  ScenicPatchCityWorld (a wall of six, six nadir over a junction, six nadir over open ground), kept
+  outside the repo at `D:\claude_planar_sim2`. Self-test section 13 covers the solver, the graph, the
+  blend and, when the networks load, the whole estimator, a repeating facade and a lagging video.
+
 ### PLANAR on real drones — there is no raycast out there
 
 Everything above assumes the sim. In the DJI scene the two things `PLANAR` depends on most — a
 per-frame camera pose and a scene plane — come from Unity internals that do not exist in the field, so
-both are supplied differently there. **Three settings and one flag** are what make it run:
+both are supplied differently there. **Three settings and one flag** are what make it run, and the
+last row is what makes it line up:
 
 | Where | Setting |
 |---|---|
 | `PyUniSharingFast` | `useManualIntrinsics = true`, `manualVerticalFovDeg = 46.4` (Mini 3 Pro at 16:9) |
 | `PyUniSharingFast` | `scenePlaneMode = FormationRelative`; `planarStandoffMetres` is now only the **fallback** — see below |
 | DJI_Swarm | `-ImageStreamPose` / `ImageStreamPose = $true` / `--image-stream-pose` |
+| `PyUniSharingFast` | `planarPlaneSweep` and `planarPoseRefine` on (the learned aligner; DJIScene has both), `planarBlendMode = Multiband` |
 
 **`planarStandoffMetres` is supplied by the PC and the inspector field is the fallback.**
 It used to be hand-typed, and a wrong value there is the single largest error in the mosaic — the
@@ -1396,8 +1533,9 @@ frame into the fixed-capacity section.
   everything else combined. Hold station and yaw slowly while capturing. `MAX_CAPTURE_SKEW_S` drops a
   view that has fallen behind the freshest one, which bounds this but cannot remove a skew common to
   every aircraft.
-- **Keep `planarBlendMode = Nearest`.** At 20–60 px of residual, `Feather` superimposes two offset
-  copies over most of the canvas; winner-take-all confines the error to a seam.
+- **`planarBlendMode = Multiband` (DJIScene's setting), never `Feather`.** `Feather` superimposes two
+  offset copies wherever the views disagree, which off the plane is always; `Multiband` keeps
+  winner-take-all for the detail and only fades the exposure step between aircraft.
 - **The sweep's capture range is narrower than `planarSweepRange` suggests, and the field is where that
   bites.** Its basin of attraction is roughly `L·Z/B`, where `L` is the scene texture's correlation
   length — on brick at 30 m behind a 15 m wall that is ±0.2–0.6 m, not ±4 m. The ACQUIRE/TRACK split and
@@ -1411,12 +1549,12 @@ frame into the fixed-capacity section.
   the raycast, which is a good prior; in the field zero is whatever standoff the operator typed, so that
   test measures the guess rather than the lock. The deployment-invariant read-out is the cost curve's
   shape, which is what `_maybe_log_estimators` prints.
-- **Cross-drone triangulation remains the stronger prior** and needs no new dependency: `BaseStitcher`
-  already loads SuperPoint plus BF/FLANN, and the formation's 8–25 m baselines put triangulated depth at
-  ~0.2 m at 30 m — inside the fine scan's basin directly, with no acquisition pass at all. **Not
-  implemented**; it is the next thing to build if ACQUIRE proves too slow or too easily fooled.
+- **The plane is now solved from matches between the drones** (`planar_align`, above), which is the
+  cross-drone triangulation this section used to list as the thing to build next: the photometric
+  sweep's narrow basin only matters under `PLANAR_LEGACY_ESTIMATORS=1`.
 
-Two checkers, both runnable without Unity:
+Three tools, all runnable without Unity:
+`python tools/planar_stream_bench.py --all` (the recorded clips, streamed; above),
 `python tools/planar_selftest.py` (geometry + end-to-end render) and
 `python tools/check_wire_layout.py` (asserts the C# and Python layout constants agree — a mismatch there
 is silent, since neither side fails to compile, it just reads a float from the middle of another field).
