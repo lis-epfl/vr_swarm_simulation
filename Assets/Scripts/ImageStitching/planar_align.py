@@ -105,6 +105,7 @@ FAR_PARALLAX_MIN_M = 4.0
 # Matches further than this from the (shifted) prior are not measurements of pose error.
 GATE_ACQUIRE_M = 3.0
 GATE_TRACK_M = 1.5
+GATED_NN_MIN_SIMILARITY = 0.7   # descriptor cosine a gated nearest neighbour must reach
 MAX_MATCHES_PER_PAIR = 220
 
 # Bundle adjustment. Kernel scale in source pixels, annealed from the first to the last.
@@ -130,6 +131,18 @@ RELOCK_REARM = 8
 PRIOR_FIRST_SHARE = 0.5
 # ...and how many times more the wide search must explain to overrule it otherwise.
 WIDE_MUST_BEAT = 1.3
+
+# Period verification (see PlanarAligner._hops). Cosine units of the dense descriptors'
+# mean similarity over a pair's overlap: alignments within VERIFY_TIE of the pair's best
+# count as equally good, and the credit falls to nothing over a further VERIFY_RAMP.
+VERIFY_TIE = 0.08
+VERIFY_RAMP = 0.08
+VERIFY_PRIOR_PER_M2 = 0.02      # what moving one view costs, in pair-scores per metre^2
+VERIFY_MIN_HOP_M = 1.0          # a smaller move is refinement, which the solver does better
+VERIFY_EVERY = 10               # tracking updates between checks of a held lock
+VERIFY_KEEP_INLIERS = 0.7       # a hop's re-solve must keep this share of the inliers
+VERIFY_TIES_TO_GNSS = True      # at acquisition: equal image evidence -> nearest to GNSS
+VERIFY_DECISIVE = 0.5           # held lock: pair-scores a move must gain per view moved
 
 DEFAULT_PRIORS = {
     # Published-pose uncertainty. Compass yaw is the weak rotation axis; the gimbal's own
@@ -561,7 +574,8 @@ class PlanarBA:
 # ----------------------------------------------------------------------------- shift graph
 
 def solve_shift_graph(n_nodes, edges, node_radius, prior_weight_per_cell2,
-                      positions=None, dilation_limits=None, dilation_weight=0.0):
+                      positions=None, dilation_limits=None, dilation_weight=0.0,
+                      prior_centres=None):
     """
     One integer plane shift per node, maximising the pairs' agreement.
 
@@ -591,7 +605,14 @@ def solve_shift_graph(n_nodes, edges, node_radius, prior_weight_per_cell2,
     Rn = int(node_radius)
     side = 2 * Rn + 1
     ys, xs = np.mgrid[-Rn:Rn + 1, -Rn:Rn + 1]
-    prior = -prior_weight_per_cell2 * (xs * xs + ys * ys)
+    # ``prior_centres`` ([n, 2] cells) moves each node's quadratic prior off zero: the
+    # shift it charges for is then measured from there (where GNSS put the view) and not
+    # from wherever this pass happened to start.
+    if prior_centres is None:
+        priors = [-prior_weight_per_cell2 * (xs * xs + ys * ys)] * n_nodes
+    else:
+        priors = [-prior_weight_per_cell2 * ((xs - c[0]) ** 2 + (ys - c[1]) ** 2)
+                  for c in np.asarray(prior_centres, dtype=np.float64)]
     nbrs = {k: [] for k in range(n_nodes)}
     for e, (i, j, S) in enumerate(edges):
         nbrs[i].append((e, j, +1))
@@ -632,7 +653,7 @@ def solve_shift_graph(n_nodes, edges, node_radius, prior_weight_per_cell2,
         kappa = dilation(sh)
         if kappa < k_lo or kappa > k_hi:
             return -np.inf
-        t = float(sum(prior[sh[k][1] + Rn, sh[k][0] + Rn] for k in range(n_nodes)))
+        t = float(sum(priors[k][sh[k][1] + Rn, sh[k][0] + Rn] for k in range(n_nodes)))
         t -= dilation_weight * kappa * kappa
         for i, j, S in edges:
             R = (S.shape[0] - 1) // 2
@@ -647,7 +668,7 @@ def solve_shift_graph(n_nodes, edges, node_radius, prior_weight_per_cell2,
             for k in range(n_nodes):
                 if k in frozen or not nbrs[k]:
                     continue
-                acc = prior + dilation_term(sh, k)
+                acc = priors[k] + dilation_term(sh, k)
                 for e, other, sign in nbrs[k]:
                     acc = acc + window(e, sh[other], sign)
                 if not np.isfinite(acc.max()):
@@ -674,6 +695,16 @@ def solve_shift_graph(n_nodes, edges, node_radius, prior_weight_per_cell2,
     zero = np.zeros((n_nodes, 2), dtype=int)
     best = icm(zero)
     best_score = total(best)
+    if prior_centres is not None:
+        # "Everything back where GNSS put it" is a start of its own: it is the answer
+        # whenever the images have nothing to say, and ICM cannot reach it from zero when
+        # that takes several views moving together.
+        start = np.clip(np.round(np.asarray(prior_centres, dtype=np.float64)),
+                        -Rn, Rn).astype(int)
+        cand = icm(start)
+        sc = total(cand)
+        if sc > best_score + 1e-9:
+            best, best_score = cand, sc
     for i, j, S in edges:
         R = (S.shape[0] - 1) // 2
         for py, px in peaks(S):
@@ -695,6 +726,16 @@ def solve_shift_graph(n_nodes, edges, node_radius, prior_weight_per_cell2,
 
 
 # ----------------------------------------------------------------------------- front end
+
+def _baseline(views, ki, kj, e1, e2):
+    """Published in-plane baseline i -> j: ``(unit vector, far threshold)``."""
+    B = np.asarray(views[kj]["C"], float) - np.asarray(views[ki]["C"], float)
+    b = np.array([B @ e1, B @ e2])
+    length = float(np.linalg.norm(b))
+    if length < 1e-6:
+        return np.zeros(2), np.inf
+    return b / length, max(FAR_PARALLAX_FRACTION * length, FAR_PARALLAX_MIN_M)
+
 
 class _Models:
     """SuperPoint + LightGlue, loaded on first use and never at import."""
@@ -890,29 +931,56 @@ class PlanarAligner:
 
     # -- matching ------------------------------------------------------------------
 
+    @staticmethod
+    def _spectrum(v, what):
+        """One view's map of ``what``, transformed once and kept: ``[C, H, W/2+1]``."""
+        cache = v.setdefault("fft", {})
+        if what not in cache:
+            if what == "dense":
+                m = v["dense"]
+            elif what == "plain":                  # the descriptors without their weights
+                m = v["dense"] / v["weight"].clamp_min(1e-6) * v["cells"]
+            else:
+                m = v[what][None]
+            cache[what] = torch.fft.rfft2(m, s=v["fft_size"])
+        return cache[what]
+
+    def _xcorr(self, vi, vj, what, R):
+        """
+        Correlation of two views' maps over relative lattice shifts, ``[2R+1, 2R+1]``.
+
+        ``out[R + dy, R + dx]`` is the sum over view i's cells of ``i[c] * j[c + (dy, dx)]``
+        with both maps on the plane's own lattice -- what sliding view j's map by
+        ``(-dx, -dy)`` cells over view i's would total. One transform per view and a
+        product per pair: the same numbers a convolution with a view-sized kernel gives,
+        in milliseconds where that took a tenth of a second a pair.
+        """
+        Hs, Ws = vi["fft_size"]
+        full = torch.fft.irfft2((self._spectrum(vi, what).conj()
+                                 * self._spectrum(vj, what)).sum(0), s=(Hs, Ws))
+        # The maps sit at different places on the lattice; a relative shift of (dy, dx)
+        # on the lattice is one of (dy - off_r, dx - off_c) between the two arrays.
+        off_c, off_r = vj["col0"] - vi["col0"], vj["row0"] - vi["row0"]
+        dev = full.device
+        dy = torch.arange(-R, R + 1, device=dev) - off_r
+        dx = torch.arange(-R, R + 1, device=dev) - off_c
+        Hi, Wi = vi["cells"].shape
+        Hj, Wj = vj["cells"].shape
+        oky = (dy > -Hi) & (dy < Hj)
+        okx = (dx > -Wi) & (dx < Wj)
+        out = full[dy % Hs][:, dx % Ws]
+        return out * (oky[:, None] & okx[None, :])
+
     @torch.no_grad()
     def _surface(self, vi, vj, R):
         """Dense-descriptor correlation over relative lattice shifts, ``[2R+1, 2R+1]``."""
-        Di, mi, Dj, mj = vi["dense"], vi["cells"], vj["dense"], vj["cells"]
-        off_c, off_r = vj["col0"] - vi["col0"], vj["row0"] - vi["row0"]
-        Hh, Ww = Di.shape[1], Di.shape[2]
-        canvas = torch.zeros(Dj.shape[0], Hh + 2 * R, Ww + 2 * R, device=Di.device)
         # Two planes of bookkeeping beside the descriptors: plain coverage, which says
         # whether a shift leaves enough overlap to be scored at all, and the
-        # distinctiveness weights, which are what the score is normalised by.
-        cm = torch.zeros(2, Hh + 2 * R, Ww + 2 * R, device=Di.device)
-        r0, c0 = off_r + R, off_c + R
-        rs, cs = max(r0, 0), max(c0, 0)
-        re, ce = min(r0 + Dj.shape[1], Hh + 2 * R), min(c0 + Dj.shape[2], Ww + 2 * R)
-        if re <= rs or ce <= cs:
-            return None
-        canvas[:, rs:re, cs:ce] = Dj[:, rs - r0:re - r0, cs - c0:ce - c0]
-        cm[0, rs:re, cs:ce] = mj[rs - r0:re - r0, cs - c0:ce - c0]
-        cm[1, rs:re, cs:ce] = vj["weight"][rs - r0:re - r0, cs - c0:ce - c0]
-        # The descriptors already carry their weights, so this is sum(w_i w_j <d_i, d_j>).
-        num = F.conv2d(canvas[None], Di[None])[0, 0]
-        cnt = F.conv2d(cm[None, :1], mi[None, None])[0, 0]
-        wsum = F.conv2d(cm[None, 1:], vi["weight"][None, None])[0, 0]
+        # distinctiveness weights, which are what the score is normalised by. The
+        # descriptors already carry their weights, so num is sum(w_i w_j <d_i, d_j>).
+        num = self._xcorr(vi, vj, "dense", R)
+        cnt = self._xcorr(vi, vj, "cells", R).round()
+        wsum = self._xcorr(vi, vj, "weight", R).clamp_min(0.0)
         if float(cnt.max()) < MIN_OVERLAP_CELLS:
             return None
         S = num / wsum.clamp_min(1e-3)
@@ -946,8 +1014,96 @@ class PlanarAligner:
         return S.cpu().numpy()
 
     @torch.no_grad()
-    def _match(self, vi, vj, shift_i, shift_j, gsd, margin):
-        """Matches between two views on their common window. Indices into each view."""
+    def _surface_plain(self, vi, vj, R):
+        """
+        Mean descriptor similarity over the overlap, for every relative lattice shift.
+
+        Returns ``(S, cells)`` as ``[2R+1, 2R+1]`` arrays indexed like ``_surface``'s, or
+        ``None`` when the views do not overlap enough as they stand. No distinctiveness
+        weights and no credit for overlap: this is for views that are already registered
+        to a pixel or two, where the question is only whether a *different* registration,
+        a whole period away, is plainly better.
+        """
+        num = self._xcorr(vi, vj, "plain", R)
+        cnt = self._xcorr(vi, vj, "cells", R).round()
+        if float(cnt[R, R]) < MIN_OVERLAP_CELLS:
+            return None
+        return (num / cnt.clamp_min(1.0)).cpu().numpy(), cnt.cpu().numpy()
+
+    def _hops(self, prep, to_gnss=True):
+        """
+        Whole-period corrections to an alignment that is already pixel-tight.
+
+        A repeating wall has a lattice of alignments that all agree to a pixel, and the
+        solve lands on whichever its matches were gated around. They are not equally
+        good: with the views registered, the wall's *non*-repeating content -- the end of
+        the building, a doorway, one window unlike the rest -- lines up at exactly one of
+        them, and the mean descriptor similarity over a pair's overlap shows it plainly
+        (0.67 against 0.50-0.55 between two drones of one row on the simulated wall). So
+        each pair scores every relative shift, and one shift per view is chosen for the
+        whole formation.
+
+        Where the images cannot tell -- two rows of a formation looking at identical
+        storeys score the same to within a few hundredths at 0, 1 and 2 storeys out --
+        shifts within ``VERIFY_TIE`` of a pair's best count alike, and what decides is
+        how far each view would stand from where GNSS put it.
+
+        ``to_gnss`` is that last rule, and it is for an acquisition, where the solve has
+        just chosen among look-alikes and GNSS is the only other witness. A lock that has
+        been held is checked without it: there a view moves only when the images gain
+        ``VERIFY_DECISIVE`` pair-scores for each view moved, because GNSS that is itself
+        a panel out (the MED facade, on a bad day) would otherwise pull a good lock apart.
+
+        Returns ``{view index: shift (a, b) metres}`` for the views that should move, or
+        ``None`` when the alignment stands.
+        """
+        usable, feats, cell = prep["usable"], prep["feats"], prep["cell"]
+        Rn = max(2, int(round(NODE_SHIFT_M / cell)))
+        edges = []
+        for a in range(len(usable)):
+            for b in range(a + 1, len(usable)):
+                out = self._surface_plain(feats[usable[a]], feats[usable[b]], 2 * Rn)
+                if out is None:
+                    continue
+                S, cnt = out
+                R = (S.shape[0] - 1) // 2
+                ok = cnt >= 0.5 * cnt[R, R]
+                best = float(S[ok].max())
+                score = np.clip(1.0 - (best - S - VERIFY_TIE) / VERIFY_RAMP, 0.0, 1.0)
+                weight = min(1.0, float(cnt[R, R]) / EVIDENCE_UNIT) ** 0.5
+                edges.append((a, b, np.where(ok, score * weight, 0.0)))
+        if not edges:
+            return None
+        centres = np.array([[-feats[k]["moved"][0] / cell, feats[k]["moved"][1] / cell]
+                            for k in usable])
+        sh, _score = solve_shift_graph(len(usable), edges, Rn, VERIFY_PRIOR_PER_M2 * cell * cell,
+                                       prior_centres=centres if to_gnss else None)
+        # Only relative moves mean anything: take out the shift most views share.
+        sh = sh - np.round(np.median(sh, axis=0)).astype(int)
+        if not to_gnss:
+            def images(shifts):
+                total = 0.0
+                for i, j, S in edges:
+                    R = (S.shape[0] - 1) // 2
+                    d = shifts[i] - shifts[j]
+                    total += float(S[R + d[1], R + d[0]])
+                return total
+            n_moved = int(sum(np.linalg.norm(v) * cell >= VERIFY_MIN_HOP_M for v in sh))
+            if images(sh) - images(np.zeros_like(sh)) < VERIFY_DECISIVE * max(n_moved, 1):
+                return None
+        hops = {k: np.array([sh[a][0] * cell, -sh[a][1] * cell]) for a, k in enumerate(usable)}
+        if max(float(np.linalg.norm(v)) for v in hops.values()) < VERIFY_MIN_HOP_M:
+            return None
+        return hops
+
+    @torch.no_grad()
+    def _match(self, vi, vj, shift_i, shift_j, gsd, margin, gate=None, use_lg=True):
+        """
+        Matches between two views on their common window. Indices into each view.
+
+        With ``gate`` (metres) the result is LightGlue's matches plus the mutual nearest
+        neighbours within that distance of the hypothesised alignment.
+        """
         ab_i = vi["ab"] + shift_i
         ab_j = vj["ab"] + shift_j
         lo = np.maximum(vi["lo"] + shift_i, vj["lo"] + shift_j) - margin
@@ -969,24 +1125,224 @@ class PlanarAligner:
         di = vi["desc"][torch.as_tensor(in_i, device=dev)]
         dj = vj["desc"][torch.as_tensor(in_j, device=dev)]
 
-        if self.models.lg is not None:
-            size = torch.tensor([[(hi[0] - lo[0]) / gsd, (hi[1] - lo[1]) / gsd]],
-                                device=dev, dtype=torch.float32)
-            out = self.models.lg({
-                "image0": {"keypoints": xi[None], "descriptors": di[None], "image_size": size},
-                "image1": {"keypoints": xj[None], "descriptors": dj[None], "image_size": size}})
-            m = out["matches"][0].cpu().numpy()
-            return in_i[m[:, 0]], in_j[m[:, 1]]
-
-        # Fallback: mutual nearest neighbour among partners within the gate.
+        # Mutual nearest neighbours among partners within the gate. This is the matcher
+        # that answers the question actually being asked -- "given this alignment, which
+        # points correspond?" -- and on a repeating wall it is the only one that does:
+        # with the gate under half a period each point has one candidate, the right one.
         sim = di @ dj.T
-        far = torch.cdist(xi, xj) > (margin / gsd)
+        far = torch.cdist(xi, xj) > ((gate if gate else margin) / gsd)
         sim = sim.masked_fill(far, -1.0)
         bi = sim.argmax(1)
         bj = sim.argmax(0)
         idx = torch.arange(len(xi), device=dev)
-        keep = (bj[bi] == idx) & (sim[idx, bi] > 0.7)
-        return in_i[idx[keep].cpu().numpy()], in_j[bi[keep].cpu().numpy()]
+        keep = (bj[bi] == idx) & (sim[idx, bi] > GATED_NN_MIN_SIMILARITY)
+        nn_i, nn_j = idx[keep].cpu().numpy(), bi[keep].cpu().numpy()
+        if self.models.lg is None or not use_lg:
+            return in_i[nn_i], in_j[nn_j]
+
+        # LightGlue has no notion of the hypothesis: it returns the one assignment it
+        # likes best over the whole window, and on storeys of identical windows that is
+        # whichever shares the most wall -- two storeys out between two rows of a
+        # simulated formation with EXACT poses, every match of every such pair. Its
+        # matches are kept for what they are good at (context on unique texture, where
+        # they outnumber nearest neighbours several to one) and the gated ones are added,
+        # so a pair whose LightGlue answer is an alias still has its true matches.
+        size = torch.tensor([[(hi[0] - lo[0]) / gsd, (hi[1] - lo[1]) / gsd]],
+                            device=dev, dtype=torch.float32)
+        out = self.models.lg({
+            "image0": {"keypoints": xi[None], "descriptors": di[None], "image_size": size},
+            "image1": {"keypoints": xj[None], "descriptors": dj[None], "image_size": size}})
+        m = out["matches"][0].cpu().numpy()
+        if not gate:
+            return in_i[m[:, 0]], in_j[m[:, 1]]
+        both = np.unique(np.concatenate([m, np.column_stack([nn_i, nn_j])]), axis=0)
+        return in_i[both[:, 0]], in_j[both[:, 1]]
+
+    def _prepare(self, views, K, x_pose, n_b, d_b, n_pub, d_pub):
+        """
+        Rectify every view onto the plane ``(n_b, d_b)`` from the published poses moved by
+        ``x_pose`` (``[6N]`` or longer: rotations then translations), and extract features.
+
+        Returns a dict, or a string saying why there is nothing to work with.
+        """
+        N = len(views)
+        R_cur = [rotvec_to_matrix(x_pose[3 * k:3 * k + 3]) @ np.asarray(v["R"], float)
+                 for k, v in enumerate(views)]
+        C_cur = [np.asarray(v["C"], float) + x_pose[3 * N + 3 * k:3 * N + 3 * k + 3]
+                 for k, v in enumerate(views)]
+
+        # Plane frame for rectification: origin under the formation, e1 along the first
+        # camera's right axis so the patches come out the way that camera sees them.
+        centroid = np.mean(C_cur, axis=0)
+        origin = centroid - (n_b @ centroid - d_b) * n_b
+        e1, e2 = plane_basis(n_b, hint=R_cur[0][0])
+        standoff = float(np.median([abs(n_b @ C - d_b) for C in C_cur]))
+        if not np.isfinite(standoff) or standoff < 0.5:
+            return "cameras on the plane"
+
+        Kinv = np.linalg.inv(K)
+        h_src, w_src = views[0]["image"].shape[:2]
+        Gs, boxes = [], []
+        for k in range(N):
+            B = np.column_stack([e1, e2, origin - C_cur[k]])
+            G = K @ R_cur[k] @ B
+            Gs.append(G)
+            boxes.append(self._footprint(G, w_src, h_src, MAX_RANGE_FACTOR * standoff))
+
+        usable = [k for k in range(N) if boxes[k] is not None]
+        if len(usable) < 2:
+            return "fewer than 2 views see the plane"
+        extent = max(float(np.max(boxes[k][1] - boxes[k][0])) for k in usable)
+        gsd = max(standoff / float(K[1, 1]), extent / MAX_RECT_SIDE)
+        cell = 8.0 * gsd
+
+        o_ab = np.array([origin @ e1, origin @ e2])
+        feats = {}
+        for k in usable:
+            lo = np.floor(boxes[k][0] / cell) * cell
+            hi = np.ceil(boxes[k][1] / cell) * cell
+            rect, valid = self._rectify(views[k]["image"], Gs[k], lo, hi, gsd)
+            kps, desc, dense, cells, weight = self._extract(rect, valid)
+            xy = kps.cpu().numpy().astype(np.float64)
+            ab = np.column_stack([lo[0] + xy[:, 0] * gsd, hi[1] - xy[:, 1] * gsd])
+            # Source pixels of the keypoints, through the same G the patch was warped
+            # with -- so they are exact measurements however wrong that G was.
+            q = np.column_stack([ab, np.ones(len(ab))]) @ Gs[k].T
+            uv = q[:, :2] / q[:, 2:3]
+            # ...and where the PUBLISHED pose and plane would have put them, in the same
+            # in-plane axes: the far-background test is made against GNSS, not against
+            # whatever the corrections have since done (see FAR_PARALLAX_FRACTION).
+            ray = np.column_stack([uv, np.ones(len(uv))]) @ Kinv.T @ np.asarray(
+                views[k]["R"], float)
+            C_pub = np.asarray(views[k]["C"], float)
+            lam = (float(d_pub) - n_pub @ C_pub) / np.where(
+                np.abs(ray @ n_pub) > 1e-9, ray @ n_pub, 1e-9)
+            X_pub = C_pub + lam[:, None] * ray
+            ab_pub = np.column_stack([X_pub @ e1, X_pub @ e2])
+            # How far this pass's geometry has moved the view from where it was published,
+            # in the plane: what a prior on "do not move a panel" is measured from.
+            moved = (np.median(ab + o_ab - ab_pub, axis=0) if len(ab) else np.zeros(2))
+            feats[k] = {"ab": ab, "uv": uv, "desc": desc, "ab_pub": ab_pub, "moved": moved,
+                        "dense": dense, "cells": cells, "weight": weight,
+                        "lo": lo, "hi": hi,
+                        "col0": int(round(lo[0] / cell)), "row0": int(round(-hi[1] / cell))}
+        # One transform size for every view of this pass: twice the largest map, so no
+        # relative shift two maps can overlap at wraps round onto another.
+        # Rounded up to a multiple of 32, which keeps the sizes few: the device plans each
+        # new transform size once, and that costs more than the transform.
+        size = (-(-2 * max(f["cells"].shape[0] for f in feats.values()) // 32) * 32,
+                -(-2 * max(f["cells"].shape[1] for f in feats.values()) // 32) * 32)
+        for f in feats.values():
+            f["fft_size"] = size
+        return {"C_cur": C_cur, "centroid": centroid, "origin": origin, "e1": e1, "e2": e2,
+                "standoff": standoff, "gsd": gsd, "cell": cell, "feats": feats,
+                "usable": usable}
+
+    def _gated_pairs(self, views, prep, shifts, gate, use_lg=True):
+        """
+        Matches of every pair of views about the alignment ``shifts`` describes.
+
+        Returns ``(pairs, n_raw, n_far, n_in_gate, raw_per_view)``; ``pairs`` is what
+        ``PlanarBA`` takes.
+        """
+        N = len(views)
+        usable, feats, gsd = prep["usable"], prep["feats"], prep["gsd"]
+        e1, e2 = prep["e1"], prep["e2"]
+        pairs, n_raw, n_far, n_in_gate = [], 0, 0, 0
+        raw_per_view = np.zeros(N, dtype=int)
+        rng = np.random.default_rng(self.updates)
+        for a in range(len(usable)):
+            for b in range(a + 1, len(usable)):
+                ki, kj = usable[a], usable[b]
+                m = self._match(feats[ki], feats[kj], shifts[ki], shifts[kj], gsd, gate,
+                                gate=gate, use_lg=use_lg)
+                if m is None or len(m[0]) < 6:
+                    continue
+                mi, mj = m
+                n_raw += len(mi)
+                raw_per_view[ki] += len(mi)
+                raw_per_view[kj] += len(mi)
+                disp = ((feats[kj]["ab"][mj] + shifts[kj])
+                        - (feats[ki]["ab"][mi] + shifts[ki]))
+                keep = np.linalg.norm(disp, axis=1) < gate
+                b_hat, far = _baseline(views, ki, kj, e1, e2)
+                if np.isfinite(far):
+                    pub = feats[kj]["ab_pub"][mj] - feats[ki]["ab_pub"][mi]
+                    behind = (pub @ b_hat) > far
+                    n_far += int((keep & behind).sum())
+                    keep &= ~behind
+                mi, mj = mi[keep], mj[keep]
+                n_in_gate += len(mi)
+                if len(mi) < 6:
+                    continue
+                if len(mi) > MAX_MATCHES_PER_PAIR:
+                    sel = rng.choice(len(mi), MAX_MATCHES_PER_PAIR, replace=False)
+                    mi, mj = mi[sel], mj[sel]
+                pairs.append((ki, kj, feats[ki]["uv"][mi], feats[kj]["uv"][mj]))
+        return pairs, n_raw, n_far, n_in_gate, raw_per_view
+
+    def _resolve_hops(self, views, K, prep, hops, x_pose, n_b, d_b, n_pub, d_pub,
+                      sigmas, solve_plane, bound_t, before):
+        """
+        Solve again from an alignment ``_hops`` moved by whole periods.
+
+        ``x_pose`` / ``(n_b, d_b)`` are the solution ``prep`` was rectified with. Returns
+        a result in the shape ``update`` chooses between, or ``None`` when the moved
+        alignment does not hold up: it has to keep most of the inliers the solution it
+        replaces had, since a true period is as good a fit as the one it started from.
+        """
+        N = len(views)
+        usable = prep["usable"]
+        shifts = {k: hops.get(k, np.zeros(2)) for k in usable}
+        # The views are registered to a pixel or two and the hypothesis is the whole
+        # point, so this is the gated neighbours' job alone.
+        pairs, n_raw, n_far, n_in_gate, raw_per_view = self._gated_pairs(
+            views, prep, shifts, GATE_TRACK_M, use_lg=False)
+        n_gated = sum(len(p[2]) for p in pairs)
+        if n_gated < MIN_INLIERS:
+            return None
+        ba = PlanarBA(K, [np.asarray(v["R"], float) for v in views],
+                      [np.asarray(v["C"], float) for v in views],
+                      n_b, d_b, prep["origin"], pairs, solve_pose=True, solve_plane=solve_plane)
+        pr = self.priors
+        absolute = ba.prior_precision(pr["yaw_deg"], pr["tilt_deg"], pr["horizontal_m"],
+                                      pr["vertical_m"], sigmas[0], sigmas[1])
+        pose_only = absolute.copy()
+        pose_only[6 * N:, 6 * N:] = 0.0
+        anchor = np.zeros(ba.P)
+        anchor[6 * N:] = ba.plane_params_of(n_pub, float(d_pub))
+        x0 = np.zeros(ba.P)
+        x0[:6 * N] = x_pose[:6 * N]
+        for k in usable:
+            x0[3 * N + 3 * k:3 * N + 3 * k + 3] += (shifts[k][0] * prep["e1"]
+                                                    + shifts[k][1] * prep["e2"])
+        x, err, ok = ba.solve([(pose_only, np.zeros(ba.P)), (absolute - pose_only, anchor)],
+                              x0=x0, kernel0=KERNEL_TRACK_PX)
+        inl = ok & (err < INLIER_PX)
+        n_inl = int(inl.sum()) // 2
+        ratio = float(inl.mean()) if len(inl) else 0.0
+        om, tt, n_new, d_new = ba.unpack(x)
+        per_view = np.zeros(N, dtype=int)
+        if len(inl):
+            np.add.at(per_view, ba.ii.numpy()[inl], 1)
+        worst_t = float(np.max(np.linalg.norm(tt, axis=1)))
+        worst_r = float(np.rad2deg(np.max(np.linalg.norm(om, axis=1))))
+        tilt = float(np.rad2deg(np.arccos(np.clip(n_new @ n_pub, -1.0, 1.0))))
+        if n_inl < max(MIN_INLIERS, VERIFY_KEEP_INLIERS * before["n_inl"]) \
+                or ratio < MIN_INLIER_RATIO:
+            return None
+        if worst_t > bound_t or worst_r > 4.0 * pr["yaw_deg"] or tilt > 45.0:
+            return None
+        if any(per_view[k] < MIN_VIEW_INLIERS <= before["per_view"][k] for k in range(N)):
+            return None                                   # it cost a view its support
+        moved = ", ".join("drone %s by %.1f m" % (views[k]["drone_id"], np.linalg.norm(v))
+                          for k, v in sorted(hops.items()) if np.linalg.norm(v) >= VERIFY_MIN_HOP_M)
+        now = time.perf_counter()
+        return dict(ba=ba, x=x, err=err, inl=inl, n_inl=n_inl, ratio=ratio, om=om, tt=tt,
+                    n_new=n_new, d_new=d_new, per_view=per_view, pairs=pairs, n_gated=n_gated,
+                    n_far=n_far, note="a whole period out: moved %s" % moved,
+                    explained=n_in_gate * ratio, n_raw=n_raw, left_out=[], worst_t=worst_t,
+                    worst_r=worst_r, tilt=tilt, attempt="period", times=(now, now, now))
 
     # -- the update ----------------------------------------------------------------
 
@@ -1029,74 +1385,17 @@ class PlanarAligner:
                 x_base[3 * N + 3 * k:3 * N + 3 * k + 3] = self.pose[did][1]
         n_base, d_base = self._effective_plane(n_pub, float(d_pub), views)
 
-        R_cur = [rotvec_to_matrix(x_base[3 * k:3 * k + 3]) @ np.asarray(v["R"], float)
-                 for k, v in enumerate(views)]
-        C_cur = [np.asarray(v["C"], float) + x_base[3 * N + 3 * k:3 * N + 3 * k + 3]
-                 for k, v in enumerate(views)]
-
-        # Plane frame for rectification: origin under the formation, e1 along the first
-        # camera's right axis so the patches come out the way that camera sees them.
-        centroid = np.mean(C_cur, axis=0)
-        origin = centroid - (n_base @ centroid - d_base) * n_base
-        e1, e2 = plane_basis(n_base, hint=R_cur[0][0])
-        standoff = float(np.median([abs(n_base @ C - d_base) for C in C_cur]))
-        if not np.isfinite(standoff) or standoff < 0.5:
-            self.stats = {"skipped": "cameras on the plane"}
+        prep = self._prepare(views, K, x_base, n_base, d_base, n_pub, float(d_pub))
+        if isinstance(prep, str):
+            self.stats = {"skipped": prep}
             return False
-
-        Kinv = np.linalg.inv(K)
-        h_src, w_src = views[0]["image"].shape[:2]
-        Gs, boxes = [], []
-        for k in range(N):
-            B = np.column_stack([e1, e2, origin - C_cur[k]])
-            G = K @ R_cur[k] @ B
-            Gs.append(G)
-            boxes.append(self._footprint(G, w_src, h_src, MAX_RANGE_FACTOR * standoff))
-
-        usable = [k for k in range(N) if boxes[k] is not None]
-        if len(usable) < 2:
-            self.stats = {"skipped": "fewer than 2 views see the plane"}
-            return False
-        extent = max(float(np.max(boxes[k][1] - boxes[k][0])) for k in usable)
-        gsd = max(standoff / float(K[1, 1]), extent / MAX_RECT_SIDE)
-        cell = 8.0 * gsd
-
-        feats = {}
-        for k in usable:
-            lo = np.floor(boxes[k][0] / cell) * cell
-            hi = np.ceil(boxes[k][1] / cell) * cell
-            rect, valid = self._rectify(views[k]["image"], Gs[k], lo, hi, gsd)
-            kps, desc, dense, cells, weight = self._extract(rect, valid)
-            xy = kps.cpu().numpy().astype(np.float64)
-            ab = np.column_stack([lo[0] + xy[:, 0] * gsd, hi[1] - xy[:, 1] * gsd])
-            # Source pixels of the keypoints, through the same G the patch was warped
-            # with -- so they are exact measurements however wrong that G was.
-            q = np.column_stack([ab, np.ones(len(ab))]) @ Gs[k].T
-            uv = q[:, :2] / q[:, 2:3]
-            # ...and where the PUBLISHED pose and plane would have put them, in the same
-            # in-plane axes: the far-background test is made against GNSS, not against
-            # whatever the corrections have since done (see FAR_PARALLAX_FRACTION).
-            ray = np.column_stack([uv, np.ones(len(uv))]) @ Kinv.T @ np.asarray(
-                views[k]["R"], float)
-            C_pub = np.asarray(views[k]["C"], float)
-            lam = (float(d_pub) - n_pub @ C_pub) / np.where(
-                np.abs(ray @ n_pub) > 1e-9, ray @ n_pub, 1e-9)
-            X_pub = C_pub + lam[:, None] * ray
-            feats[k] = {"ab": ab, "uv": uv, "desc": desc,
-                        "ab_pub": np.column_stack([X_pub @ e1, X_pub @ e2]),
-                        "dense": dense, "cells": cells, "weight": weight,
-                        "lo": lo, "hi": hi,
-                        "col0": int(round(lo[0] / cell)), "row0": int(round(-hi[1] / cell))}
+        C_cur, centroid, origin = prep["C_cur"], prep["centroid"], prep["origin"]
+        e1, e2, standoff = prep["e1"], prep["e2"], prep["standoff"]
+        gsd, cell, feats, usable = prep["gsd"], prep["cell"], prep["feats"], prep["usable"]
         t_feat = time.perf_counter()
 
         def baseline(ki, kj):
-            """Published in-plane baseline i -> j: ``(unit vector, far threshold)``."""
-            B = np.asarray(views[kj]["C"], float) - np.asarray(views[ki]["C"], float)
-            b = np.array([B @ e1, B @ e2])
-            length = float(np.linalg.norm(b))
-            if length < 1e-6:
-                return np.zeros(2), np.inf
-            return b / length, max(FAR_PARALLAX_FRACTION * length, FAR_PARALLAX_MIN_M)
+            return _baseline(views, ki, kj, e1, e2)
 
         # What the standing corrections already move each view by, in the plane: a shift
         # the graph proposes is on top of this, and the test is on the total.
@@ -1114,6 +1413,32 @@ class PlanarAligner:
         failure = "no attempt made"
         why_wide = ""
         chosen = fallback = None
+        if plane_is_prior_only:
+            plane_sigmas = [pr0["plane_tilt_deg"], pr0["plane_offset_m"]]
+        else:
+            # A raycast plane is a measurement; let the images move it, but not far.
+            plane_sigmas = [2.0, 1.0]
+        if plane_sigma_m is not None and plane_sigma_m > 0.0:
+            plane_sigmas[1] = float(plane_sigma_m)
+        bound_shift = max(4.0 * pr0["horizontal_m"], float(max_shift_m or 0.0))
+
+        # A held lock is checked now and then for a whole-period error (see _hops): the
+        # views are rectified with the standing corrections, which is exactly the
+        # registered state that check wants. If it finds one, this update is the re-solve
+        # and snaps like an acquisition; a lock that could only defend itself -- its own
+        # matches are, by construction, within the gate -- would otherwise be for good.
+        if tracking and solve_pose and self.updates % VERIFY_EVERY == 0:
+            hops = self._hops(prep, to_gnss=False)
+            if hops is not None:
+                per_now = np.array([MIN_VIEW_INLIERS if self.unsupported_streak.get(d, 0) == 0
+                                    else 0 for d in ids])
+                chosen = self._resolve_hops(
+                    views, K, prep, hops, x_base, n_base, d_base, n_pub, d_pub, plane_sigmas,
+                    solve_plane, bound_shift,
+                    {"n_inl": self.stats.get("inliers", MIN_INLIERS), "per_view": per_now})
+                if chosen is not None:
+                    attempts = []
+                    tracking = False
         for attempt in attempts:
             # ---- stage 3: shift graph (acquisition only) ------------------------------
             shifts = {k: np.zeros(2) for k in usable}
@@ -1168,36 +1493,8 @@ class PlanarAligner:
 
             # ---- stage 4: matches on common windows -----------------------------------
             gate = GATE_ACQUIRE_M if attempt == "graph" else GATE_TRACK_M
-            pairs, n_raw, n_far, n_in_gate = [], 0, 0, 0
-            raw_per_view = np.zeros(N, dtype=int)
-            rng = np.random.default_rng(self.updates)
-            for a in range(len(usable)):
-                for b in range(a + 1, len(usable)):
-                    ki, kj = usable[a], usable[b]
-                    m = self._match(feats[ki], feats[kj], shifts[ki], shifts[kj], gsd, gate)
-                    if m is None or len(m[0]) < 6:
-                        continue
-                    mi, mj = m
-                    n_raw += len(mi)
-                    raw_per_view[ki] += len(mi)
-                    raw_per_view[kj] += len(mi)
-                    disp = ((feats[kj]["ab"][mj] + shifts[kj])
-                            - (feats[ki]["ab"][mi] + shifts[ki]))
-                    keep = np.linalg.norm(disp, axis=1) < gate
-                    b_hat, far = baseline(ki, kj)
-                    if np.isfinite(far):
-                        pub = feats[kj]["ab_pub"][mj] - feats[ki]["ab_pub"][mi]
-                        behind = (pub @ b_hat) > far
-                        n_far += int((keep & behind).sum())
-                        keep &= ~behind
-                    mi, mj = mi[keep], mj[keep]
-                    n_in_gate += len(mi)
-                    if len(mi) < 6:
-                        continue
-                    if len(mi) > MAX_MATCHES_PER_PAIR:
-                        sel = rng.choice(len(mi), MAX_MATCHES_PER_PAIR, replace=False)
-                        mi, mj = mi[sel], mj[sel]
-                    pairs.append((ki, kj, feats[ki]["uv"][mi], feats[kj]["uv"][mj]))
+            pairs, n_raw, n_far, n_in_gate, raw_per_view = self._gated_pairs(
+                views, prep, shifts, gate)
             t_match = time.perf_counter()
 
             n_gated = sum(len(p[2]) for p in pairs)
@@ -1213,13 +1510,7 @@ class PlanarAligner:
                           n_base, d_base, origin, pairs,
                           solve_pose=solve_pose, solve_plane=solve_plane)
             pr = self.priors
-            if plane_is_prior_only:
-                sig_tilt, sig_off = pr["plane_tilt_deg"], pr["plane_offset_m"]
-            else:
-                # A raycast plane is a measurement; let the images move it, but not far.
-                sig_tilt, sig_off = 2.0, 1.0
-            if plane_sigma_m is not None and plane_sigma_m > 0.0:
-                sig_off = float(plane_sigma_m)
+            sig_tilt, sig_off = plane_sigmas
             absolute = ba.prior_precision(pr["yaw_deg"], pr["tilt_deg"], pr["horizontal_m"],
                                           pr["vertical_m"], sig_tilt, sig_off)
             x0 = x_base.copy()
@@ -1322,7 +1613,9 @@ class PlanarAligner:
             break
         if chosen is None and fallback is None:
             return self._fail(failure)
-        if chosen is not None and chosen["attempt"] == "graph" and fallback is not None \
+        if chosen is not None and chosen["attempt"] == "period":
+            pass
+        elif chosen is not None and chosen["attempt"] == "graph" and fallback is not None \
                 and chosen["explained"] < WIDE_MUST_BEAT * fallback["explained"]:
             # Two alignments, each explaining a comparable share of the matches: that is
             # what a wall of identical windows looks like, and the images cannot say
@@ -1337,6 +1630,25 @@ class PlanarAligner:
             chosen = fallback
         elif chosen["attempt"] == "graph" and why_wide:
             chosen["note"] = chosen["note"] + " (searched wide: %s)" % why_wide
+
+        # ---- verify: is any view a whole period out? ---------------------------------
+        if attempts and not tracking and solve_pose:
+            for _round in range(2):
+                x_sol = np.concatenate([chosen["om"].ravel(), chosen["tt"].ravel()])
+                n_sol, d_sol = chosen["n_new"], float(chosen["d_new"])
+                prep2 = self._prepare(views, K, x_sol, n_sol, d_sol, n_pub, float(d_pub))
+                if isinstance(prep2, str):
+                    break
+                hops = self._hops(prep2, to_gnss=VERIFY_TIES_TO_GNSS)
+                if hops is None:
+                    break
+                again = self._resolve_hops(views, K, prep2, hops, x_sol, n_sol, d_sol, n_pub,
+                                           d_pub, plane_sigmas, solve_plane, bound_shift, chosen)
+                if again is None:
+                    break
+                again["note"] = "%s; after: %s" % (again["note"], chosen["note"] or chosen["attempt"])
+                again["times"] = chosen["times"]
+                chosen = again
 
         ba, x, err, inl = chosen["ba"], chosen["x"], chosen["err"], chosen["inl"]
         n_inl, ratio, om, tt = chosen["n_inl"], chosen["ratio"], chosen["om"], chosen["tt"]

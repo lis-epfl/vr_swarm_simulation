@@ -1316,7 +1316,7 @@ never uses), median / 90th percentile, then the frame-to-frame jitter between vi
 The ~2 px floor on the MED facade is the building, not the method: a free homography per pair leaves
 2.3-2.4 px there, because the louvre panels stand 0.5-1 m proud of each other. The 5-drone clip's
 tail is its last 4 s, where the formation climbs past the roofline and the facade leaves the frame.
-One update is 0.2 s for 3 drones and 0.4-0.5 s for 6; the render path goes from 5 to 11 ms a frame
+One update is 0.2 s for 3 drones and 0.5-0.6 s for 6; the render path goes from 5 to 11 ms a frame
 for 3 views and 11 to 17 ms for 6 (tracker ~4-6 ms, multiband 1-2 ms; 1200x800 canvas, RTX 4090), so
 ten views are near the 33 ms a 30 Hz send allows. Points worth keeping:
 
@@ -1336,7 +1336,24 @@ ten views are near the 33 ms a 30 Hz send allows. Points worth keeping:
   that is not rotation invariant, and it leaves a displacement of metres to find instead of a
   homography. Matches are converted back to source pixels through the same `G` the patch was warped
   with, so they are exact measurements however wrong that `G` was.
-- **A wall of identical panels is the hard case, and four mechanisms handle it, in this order:**
+- **A wall of identical panels is the hard case, and six mechanisms handle it, in this order:**
+  - *Every pair is matched twice: LightGlue, plus mutual nearest neighbours within the gate*
+    (`_match`, 2026-11-15). LightGlue returns the one assignment it likes best over the whole window
+    and knows nothing of the hypothesis being tested. Between the two rows of the simulated wall it
+    put every match of every pair two storeys out **from exact poses** (the alignment that shares
+    most wall), so the published geometry never had a match to its name, while gated neighbours on
+    the same descriptors were 97-100% right. LightGlue's matches are kept: on unique texture they
+    outnumber the neighbours several to one.
+  - *The solution is then checked for whole periods* (`_hops`, `_resolve_hops`). With the views
+    registered to a pixel, each pair's mean dense-descriptor similarity is scored over relative
+    shifts (unweighted, by FFT: `_xcorr`), and one shift per view is chosen. Where a wall has
+    anything that does not repeat, one alignment stands out (0.67 against 0.50-0.55 between two
+    drones of one row); where it has nothing (two rows looking at identical storeys score within a
+    few hundredths at 0, 1 and 2 storeys out) alignments within `VERIFY_TIE` count alike and each
+    view goes to the one nearest where GNSS put it (`prior_centres`). A view that moves is solved
+    again from there. It runs after every acquisition and on every tenth tracking update
+    (`VERIFY_EVERY`), which is what stops a wrong lock defending itself: its own matches are within
+    the gate by construction.
   - *The published geometry is tried first*, through the tight gate. It is accepted outright if it
     explains half of everything the matcher returned and leaves no view out; otherwise a wide search
     runs, and must explain 1.3x as much to overrule it (`WIDE_MUST_BEAT`). On storeys of identical
@@ -1399,13 +1416,20 @@ ten views are near the 33 ms a 30 Hz send allows. Points worth keeping:
     mosaic follows what that view shows rather than when its telemetry arrived.
 - **With exact poses it can only add its own noise: leave both switches off in the sim.** On
   simulated clips with exact poses it costs 1.4-3.7 px, the floor of keypoint matching on a scene
-  that is not quite a plane. With 1 m / 1.5 deg of injected pose error the same clips go 26-31 px
-  (pose only) and 7-12 px (photometric) to 2.1-5.2 px.
-- **What it cannot do.** A wall of identical windows with pose error beyond half a period is not
-  identifiable from the images at all; it then keeps the published geometry. Content off the plane
-  is still drawn with parallax at the seams (a homography per view is the model). The scenic city's
-  windows show a rendered room behind each one, so their dense appearance really does match better a
-  storey out: the simulated facade is harder than the real one.
+  that is not quite a plane. With 1 m / 1.5 deg of injected pose error (two draws per clip), the
+  views sit 23-52 px from their true places with pose only, 8-44 px with the photometric pair and
+  2.9-8.1 px with this; on the wall of windows 35-52, 33-44 and 2.9-3.9 px (twelve draws, direct:
+  median 2.9, worst 11).
+- **What it cannot do.** Where a wall repeats with nothing to tell its periods apart, the period is
+  GNSS's choice, right only while the GNSS error between those views is under half a period: two
+  rows of a formation looking at identical storeys are the case, since between them the wall looks
+  the same 0, 1 and 2 storeys out. Content off the plane is still drawn with parallax at the seams
+  (a homography per view is the model).
+- **The ORB seam cannot see a whole-period error, so simulated clips are also scored against their
+  true poses** (`planar_stream_bench.true_misplacement`, printed as "against the true poses"). A
+  view one window out matches its neighbours perfectly: the first version of this aligner scored
+  5.2 px on the simulated wall with views 3-6 m from their place, and that number went into the
+  first write-up as a success. Judge a repeating scene by this measure or by eye, never by the seam.
 - `tools/planar_stream_bench.py` (`--all`, `--clip`, `--configs off legacy learned`, `--trace`,
   `--video`, `--pose-noise M,DEG` for simulated clips) is the measure; `planar_clip_bench.py` remains
   the single-instant one. **Simulated clips come from `PlanarCaptureProbe`** (headless, on a bench

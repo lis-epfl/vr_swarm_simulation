@@ -1930,6 +1930,29 @@ def test_learned_alignment():
           f"{naive_wrong} of {len(edges)} pairs peak on the wrong panel; graph shifts "
           f"{rel.tolist()} vs truth {(true_shift - true_shift[0]).tolist()}")
 
+    # ---- period verification: equal evidence goes to where GNSS put the view ----------
+    # Two rows of two views looking at identical storeys (8 cells). Within a row a pair
+    # scores one alignment only; between the rows every storey scores the same. The
+    # solve has left the top row a storey from where it was published (`centres`), so
+    # the answer is to move that row back, together -- not to leave it, and not to move
+    # one view of it.
+    def flat(d_true, periods):
+        R = 2 * Rn
+        S = np.zeros((2 * R + 1, 2 * R + 1))
+        for k in periods:
+            S[R + d_true[1] + k, R + d_true[0]] = 1.0
+        return S
+
+    rows = [0, 0, 1, 1]
+    edges = [(i, j, flat((0, 0), (0,) if rows[i] == rows[j] else (-16, -8, 0, 8, 16)))
+             for i in range(4) for j in range(i + 1, 4)]
+    centres = np.array([[0, 0], [0, 0], [0, 8], [0, 8]], dtype=float)
+    sh, _score = pa.solve_shift_graph(4, edges, Rn, 1e-3, prior_centres=centres)
+    check("where the images cannot tell storeys apart, the row goes back to where GNSS "
+          "put it",
+          np.array_equal(sh - sh[0], [[0, 0], [0, 0], [0, 8], [0, 8]]),
+          f"shifts {sh.tolist()}")
+
     # ---- the render path's use of a correction ----------------------------------------
     s = make_bare_stitcher(ps_mod, torch)
     clock = {"t": 0.0}

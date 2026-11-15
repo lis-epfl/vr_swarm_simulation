@@ -255,6 +255,15 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
         plane.update(plane_normal=tuple(scene["plane_n_unity"]),
                      plane_d=float(scene["plane_d_unity"]), plane_mode=1)
 
+    # A simulated clip's recorded poses and plane are exact, which gives a second measure
+    # that needs no feature detector and cannot be fooled by a repeating wall.
+    truth = n_true = d_true = None
+    if meta.get("sim") and scene.get("plane_n_unity"):
+        truth = stream if pose_noise is None else ClipStream(clip_dir, drones)
+        n_true = np.asarray(pg.unity_dir_to_rh(scene["plane_n_unity"]), dtype=np.float64)
+        d_true = float(scene["plane_d_unity"])
+    true_px = []
+
     writer = None
     jitter = JitterMeter()
     seams, supports, psnrs, update_ms, trace = [], [], [], [], []
@@ -316,6 +325,10 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
                 trace.append((round(rel, 2), round(seams[-1], 2), a.get("mode", "-"),
                               a.get("inliers", 0), a.get("held", "")))
             psnrs.append(float(s._last_stats.get("overlap_psnr", float("nan"))))
+            if truth is not None:
+                tp = true_misplacement(cams, frame, truth.views_at(t), K, n_true, d_true, px_per_m)
+                if tp is not None:
+                    true_px.append(tp)
 
         if video is not None:
             if writer is None:
@@ -325,6 +338,8 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
         t += 1.0 / fps
 
     stream.close()
+    if truth is not None and truth is not stream:
+        truth.close()
     if writer is not None:
         writer.release()
 
@@ -338,11 +353,48 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
         "support": float(np.median(supports)) if supports else 0.0,
         "psnr": float(np.nanmedian(psnrs)) if psnrs and np.isfinite(psnrs).any() else float("nan"),
         "jitter_px": jitter.rms(),
+        "true_px": float(np.median(true_px)) if true_px else None,
+        "true_px_p90": float(np.percentile(true_px, 90)) if true_px else None,
+        "true_px_worst": float(np.max(true_px)) if true_px else None,
         "update_ms": float(np.median(update_ms)) if update_ms else 0.0,
         "align": dict(getattr(s, "_align_stats", {}) or {}),
         "trace": trace,
         "px_per_m": px_per_m,
     }
+
+
+def true_misplacement(cams, frame, truth_views, K, n_true, d_true, px_per_m):
+    """
+    How far the views sit from each other's truth, for a simulated clip: source pixels.
+
+    Each view's footprint is placed twice -- by the mapping that was drawn, and by its
+    exact pose through the exact plane -- and the difference is its placement error on the
+    plane. A common error moves the whole mosaic and costs nothing, so what is returned is
+    the mean, over pairs of views, of how much their two errors differ: the seam a pixel
+    on the plane would show between them. Unlike the ORB seam it cannot be fooled by a
+    wall that repeats -- a view one whole window out matches its neighbours perfectly and
+    is three metres wrong.
+    """
+    h, w = cams[0]["view"]["image"].shape[:2]
+    px = np.array([[w * x, h * y, 1.0] for x in (0.25, 0.5, 0.75) for y in (0.25, 0.5, 0.75)]).T
+    rays_cam = (np.linalg.inv(K) @ px).T
+    errs = []
+    for c in cams:
+        tv = next((v for v in truth_views if v["drone_id"] == c["view"]["drone_id"]), None)
+        if tv is None:
+            continue
+        R, C = pg.unity_pose_to_cv(tv["pos"], tv["quat"])
+        rays = rays_cam @ R
+        lam = (d_true - C @ n_true) / (rays @ n_true)
+        ab_true = frame.to_plane_coords(C + lam[:, None] * rays)
+        q = np.linalg.solve(c["G"], px)
+        errs.append(((q[:2] / q[2]).T - ab_true).mean(axis=0))
+    if len(errs) < 2:
+        return None
+    errs = np.asarray(errs)
+    diff = errs[:, None, :] - errs[None, :, :]
+    iu = np.triu_indices(len(errs), 1)
+    return float(np.linalg.norm(diff, axis=2)[iu].mean()) * px_per_m
 
 
 def print_result(r):
@@ -351,6 +403,9 @@ def print_result(r):
           % (r["config"], r["seam_px"], r["seam_px_p90"], r["seam_px_worst"], r["evals"],
              r["support"], r["psnr"], r["jitter_px"], r["update_ms"],
              "" if not r["failed"] else " | %d frames without a panorama" % r["failed"]))
+    if r.get("true_px") is not None:
+        print("           against the true poses: views misplaced by %6.2f px (p90 %6.2f, "
+              "worst %6.2f)" % (r["true_px"], r["true_px_p90"], r["true_px_worst"]))
 
 
 def main():
