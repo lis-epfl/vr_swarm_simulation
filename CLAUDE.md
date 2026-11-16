@@ -1583,6 +1583,17 @@ Three tools, all runnable without Unity:
 `python tools/check_wire_layout.py` (asserts the C# and Python layout constants agree — a mismatch there
 is silent, since neither side fails to compile, it just reads a float from the middle of another field).
 
+**To watch it live on the recorded flights, use `python tools/planar_clip_player.py`** (2026-11-16): a small
+Tk window outside Unity that plays each usable clip into `DroneFeedSharedMemory` through DJI_Swarm's
+`clip_replay.py --loop` while Unity's DJIScene is in Play, shows which clip is playing and the stitcher's
+latest `[PLANAR]` lines, and advances every `--seconds` (25) or on Next / Previous / double-click.
+**Every clip change restarts `StitcherThreading.py`, and that is required**: the learned aligner carries
+its lock between solves, and a stitcher that saw the previous clip goes on rejecting the new one's
+solutions as implausible, holding the old alignment, with its estimator snapshot going stale. It also
+needs *Restart stitcher* after leaving and re-entering Play, since the stitcher exits 5 s after the
+heartbeat stops. It stops stray replays and stitchers when it starts, since a second replay is a second
+producer on a single-producer map. DJI_Swarm is looked for beside this repo (`--dji-swarm` otherwise).
+
 ## City scenes and the ScaledCity assets
 
 Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
