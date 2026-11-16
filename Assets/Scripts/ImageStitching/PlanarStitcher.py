@@ -112,6 +112,7 @@ import planar_geometry as pg
 import planar_pose_filter
 import planar_track
 from run_clock import stamp
+from wire_panorama import WireReadyPanorama
 
 try:
     import planar_align
@@ -174,6 +175,16 @@ BLEND_MULTIBAND = 2
 # top of whichever rest framing the mode produced -- see planar_pano.
 CANVAS_MODE_FIXED = 0
 CANVAS_MODE_AUTOFIT = 1
+
+# How a view's pixels are read at the place an output pixel falls in it. Bicubic by
+# default, because it is what makes a full-resolution mosaic worth drawing: resampled back
+# into a drone's own frame, a mosaic drawn at twice the feeds' pixel density reproduces
+# the feed to 59 dB with 99% of its contrast in every frequency band, where bilinear
+# leaves 45 dB and 80% at the finest detail the feed holds (measured on the recorded
+# clips; 32-35 dB and 30-40% for the canvas-then-resize path this replaced). With one
+# sample per output pixel the kernel's sixteen taps cost about a millisecond a frame.
+# PLANAR_SAMPLING=bilinear restores the old kernel, and a config may carry "sampling".
+SAMPLING = os.environ.get("PLANAR_SAMPLING", "bicubic").lower()
 
 # Diagnostic overlay: which view a patch came from. Mirrors PlanarDebugView in
 # PyUniSharingFast.cs. TINT keeps the imagery legible under a colour wash (so you can
@@ -309,15 +320,11 @@ class PlanarStitcher(BaseStitcher):
         #             this one is eased in from; see _live_correction
         self._correction = {"dpose": None, "plane": None, "plane_fix": None}
 
-        # Cached canvas pixel grid, keyed on canvas size: the only thing that changes
-        # between frames is the homography, so this is built once.
-        #
-        # The estimators get their OWN cache rather than sharing this one. Their canvas
-        # is a different size, so a single cache would miss on every call and rebuild the
-        # grid twice per frame -- and it would be doing that from two threads onto one
-        # pair of attributes, which is a race as well as a waste.
-        self._grid_key = None
-        self._grid = None
+        # Cached pixel grid of the estimators' canvas, keyed on its size: the only thing
+        # that changes between passes is the homography, so this is built once. It is
+        # the warp thread's alone -- the render path keeps its own lattice of the output
+        # raster (_lattice), a different size written from a different thread, and one
+        # cache for both would miss on every call and race while doing it.
         self._est_grid_key = None
         self._est_grid = None
         self._hann_key = None
@@ -402,7 +409,7 @@ class PlanarStitcher(BaseStitcher):
 
     # ------------------------------------------------------------------ public API
 
-    def planar_pano(self, views, intrinsics, plane, config):
+    def planar_pano(self, views, intrinsics, plane, config, out_size=None):
         """
         Build the mosaic from pose alone.
 
@@ -410,13 +417,26 @@ class PlanarStitcher(BaseStitcher):
         ``intrinsics`` (fx, fy, cx, cy) for the block resolution
         ``plane``      dict from read_dynamic_state (Unity-world normal + offset)
         ``config``     planar_* metadata fields
+        ``out_size``   ``(height, width)`` to draw the mosaic at, or ``None``
 
-        Returns ``(panorama BGR uint8 | None, quality_ok, quality_reason)`` -- the same
+        ``config["canvas"]`` frames the mosaic; ``out_size`` is how many pixels it is
+        drawn with (see the note above ``_render``).  With ``out_size`` the panorama is a
+        :class:`WireReadyPanorama` -- RGB, bottom-up rows, in a buffer that is reused a
+        few frames later -- which ``first_thread`` writes to Unity as it is.  Without it
+        the panorama is a BGR, top-down array of the canvas size, which is what every
+        tool and test asks for.
+
+        Returns ``(panorama uint8 | None, quality_ok, quality_reason)`` -- the same
         contract as ``StabStitcher.stab_pano``.
         """
+        frame_started = time.perf_counter()
         canvas_w, canvas_h = config["canvas"]
         if canvas_w <= 0 or canvas_h <= 0:
             return None, False, REASON_CANVAS
+        if out_size is not None and (int(out_size[0]) <= 0 or int(out_size[1]) <= 0):
+            out_size = None
+        out_w, out_h = (int(out_size[1]), int(out_size[0])) if out_size is not None \
+            else (canvas_w, canvas_h)
 
         # Sustained plane invalidity is a real failure; a transient miss is not.
         if not plane.get("plane_valid", False):
@@ -486,22 +506,24 @@ class PlanarStitcher(BaseStitcher):
         # Projective sanity: a homography cannot fold the way a TPS mesh can, so mesh
         # distortion is meaningless. Anisotropic stretch is the pathology that occurs.
         aniso_max = config.get("aniso_max", 0.0) or float("inf")
+        H_all = np.stack([np.asarray(cam["G"], dtype=np.float64) for cam in cams]) \
+            @ np.asarray(M, dtype=np.float64)
         kept = []
-        for cam in cams:
-            H = pg.homography_canvas_to_image(cam["G"], M)
-            aniso = pg.homography_anisotropy(H, canvas_w, canvas_h)
+        for cam, H, aniso in zip(cams, H_all,
+                                 pg.homography_anisotropy_batch(H_all, canvas_w, canvas_h)):
             if not np.isfinite(aniso) or aniso > aniso_max:
                 # Not a hard failure: drop this view and mosaic the rest. A single
                 # grazing drone should not cost the whole panorama.
                 continue
             cam["H"] = H
-            cam["aniso"] = aniso
+            cam["aniso"] = float(aniso)
             kept.append(cam)
 
         if len(kept) < 2:
             return None, False, REASON_DISTORTION
 
-        pano, coverage, overlap_psnr = self._render(kept, canvas_w, canvas_h, config, M)
+        pano, coverage, overlap_psnr = self._render(kept, canvas_w, canvas_h, config, M,
+                                                    out_size)
         if pano is None:
             return None, False, REASON_CANVAS
 
@@ -522,7 +544,11 @@ class PlanarStitcher(BaseStitcher):
         # not equivalent: the canvas centre never appears there, so a caller would have
         # to re-derive the framing and could silently measure a different canvas than the
         # one on screen. Read by tools/planar_clip_bench.py and by the plane-support pass.
+        # In CANVAS pixels, as M and every cam["H"] are, whatever size it was drawn at.
         self._last_geometry = (frame, kept, M, canvas_w, canvas_h, float(mpp_view))
+
+        ms = 1e3 * (time.perf_counter() - frame_started)
+        self._frame_ms = ms if self._frame_ms is None else 0.9 * self._frame_ms + 0.1 * ms
 
         self._last_stats = {
             "views": len(kept),
@@ -537,11 +563,15 @@ class PlanarStitcher(BaseStitcher):
             "mpp_fit": float(mpp),
             "mpp_view": float(mpp_view),
             "canvas_extent": (canvas_w * float(mpp_view), canvas_h * float(mpp_view)),
+            # What the mosaic was drawn at, and the plane distance one of ITS pixels
+            # spans -- the coarser axis, should the output not share the canvas' aspect.
+            "out_size": (out_w, out_h),
+            "mpp_out": float(mpp_view) * max(canvas_w / float(out_w), canvas_h / float(out_h)),
             "zoom": float(config.get("zoom", 1.0) or 1.0),
-            # The scale at which the sharpest view's source pixels land on the plane. Zoom
-            # past it and the canvas is resolving detail the cameras never captured, so it
-            # is the honest end of "inspect closer" -- and it moves with the standoff, so
-            # it has to be measured rather than assumed.
+            # The scale at which the sharpest view's source pixels land on the plane. An
+            # output coarser than this is throwing the feeds' detail away; one much finer
+            # is interpolating detail the cameras never captured. It moves with the
+            # standoff, so it has to be measured rather than assumed.
             "best_gsd": float(min(c["range"] for c in kept) / K[1, 1]),
             "blend": {BLEND_NEAREST: "nearest", BLEND_MULTIBAND: "multiband"}.get(
                 int(config.get("blend_mode", BLEND_NEAREST)), "feather"),
@@ -1555,12 +1585,32 @@ class PlanarStitcher(BaseStitcher):
         """
         max_range = float(config.get("max_range", 0.0)) or np.inf
         spans = []
-        for cam in cams:
-            fp = self._view_footprint(cam, max_range)
-            if fp is None or len(fp) < 3:
-                continue
-            lo, hi = fp.min(axis=0), fp.max(axis=0)
-            spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1]))))
+        try:
+            # Every view's four corners in one solve; the per-view form below is the same
+            # arithmetic and stays as the fallback for a singular G in the batch.
+            h, w = cams[0]["view"]["image"].shape[:2]
+            corners = np.array([[0.0, w - 1.0, w - 1.0, 0.0],
+                                [0.0, 0.0, h - 1.0, h - 1.0],
+                                [1.0, 1.0, 1.0, 1.0]])
+            p = np.linalg.solve(np.stack([np.asarray(c["G"], dtype=np.float64) for c in cams]),
+                                np.broadcast_to(corners, (len(cams), 3, 4)))
+            min_recip = 1.0 / max_range if np.isfinite(max_range) and max_range > 0.0 else 0.0
+            ok = np.isfinite(p).all(axis=1) & (p[:, 2] > max(min_recip, 1e-9))       # [N, 4]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ab = p[:, :2] / p[:, 2:3]                                             # [N, 2, 4]
+            lo_all = np.where(ok[:, None, :], ab, np.inf).min(axis=2)
+            hi_all = np.where(ok[:, None, :], ab, -np.inf).max(axis=2)
+            for k in np.nonzero(ok.sum(axis=1) >= 3)[0]:
+                lo, hi = lo_all[k], hi_all[k]
+                spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1]))))
+        except np.linalg.LinAlgError:
+            spans = []
+            for cam in cams:
+                fp = self._view_footprint(cam, max_range)
+                if fp is None or len(fp) < 3:
+                    continue
+                lo, hi = fp.min(axis=0), fp.max(axis=0)
+                spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1]))))
 
         if len(spans) < 2:
             return None
@@ -1737,6 +1787,26 @@ class PlanarStitcher(BaseStitcher):
                      else self._centre_in_frame(frame))
         M_s = self._canvas_matrix(mpp_s, cw, ch, centre_ab)
         return frame, cams, M_s, cw, ch, mpp_s
+
+    def _estimator_grid(self, canvas_w, canvas_h):
+        """
+        Homogeneous pixel grid ``[3, H*W]`` of the estimator canvas, cached per size.
+
+        The warp thread's own cache: the render path keeps a lattice of the output
+        raster (``_lattice``), which is another size and another thread's to write.
+        """
+        key = (canvas_w, canvas_h, str(self.render_device))
+        if self._est_grid_key == key:
+            return self._est_grid
+        ys, xs = torch.meshgrid(
+            torch.arange(canvas_h, dtype=torch.float32, device=self.render_device),
+            torch.arange(canvas_w, dtype=torch.float32, device=self.render_device),
+            indexing="ij")
+        grid = torch.stack([xs.reshape(-1), ys.reshape(-1),
+                            torch.ones(canvas_h * canvas_w, dtype=torch.float32,
+                                       device=self.render_device)], dim=0)
+        self._est_grid_key, self._est_grid = key, grid
+        return grid
 
     def _warp_grey(self, cams, M, canvas_w, canvas_h):
         """
@@ -2222,140 +2292,523 @@ class PlanarStitcher(BaseStitcher):
         return R, C if dC is None else C + dC
 
     # ------------------------------------------------------------------ render
+    #
+    # Two rasters, deliberately not the same thing:
+    #
+    # - the CANVAS (``config["canvas"]``, Unity's planarCanvasWidth/Height) is the framing.
+    #   With metres-per-pixel it says which patch of plane is shown, and everything that
+    #   is expressed in canvas pixels stays in those units whatever the output size: the
+    #   auto-fit, the pan, the anisotropy gate, the blend width, the overlap PSNR and the
+    #   estimators' reduced canvas.
+    # - the OUTPUT raster is how many pixels that patch is drawn with.  It is the caller's
+    #   (``out_size``, Unity's planarRenderScale x the canvas) and only the last step of
+    #   the render sees it.
+    #
+    # They were one raster once, and the mosaic then went canvas -> cv2.resize -> wire: two
+    # resamplings of the feeds, the second to a buffer of another aspect, on a canvas that
+    # could not be enlarged without every per-view tensor growing with it.  Splitting them
+    # is what lets the output be drawn at the feeds' own resolution while the estimators
+    # go on measuring on the canvas they were tuned on.
+    #
+    # The render is organised so that its full-resolution work does not grow with the
+    # number of views:
+    #
+    # - each view's fields (where the raster's pixels fall in its image, and how good a
+    #   look it has of them) are evaluated over its own footprint's bounding box only, one
+    #   view at a time.  The arithmetic is the same per-pixel arithmetic as ever; what
+    #   changed is the working set, which now stays inside the GPU's cache instead of
+    #   being N canvas-sized tensors (0.02 ms an op against 0.3);
+    # - under the two winner-take-all blends every output pixel shows exactly one view, so
+    #   exactly one bilinear sample is taken per pixel, out of all the frames stacked into
+    #   one texture.  Warping every view across the whole raster and discarding all but
+    #   one was most of the old cost;
+    # - what MULTIBAND adds is low-frequency by construction, so it is computed on a grid
+    #   a blend-width coarse and only looked up at full resolution;
+    # - the overlap PSNR is a diagnostic, measured on the canvas and not on every frame.
+    #
+    # What is left is mostly the interpreter: a small tensor op costs ~10 us to dispatch
+    # however little it computes, and the render thread shares its GIL with the two
+    # others.  Hence the stacked ``(u w, v w, w)`` tensors and the batched row and column
+    # terms below -- they are there to halve the number of ops, not the arithmetic.
 
-    def _make_grid(self, canvas_w, canvas_h):
-        ys, xs = torch.meshgrid(
-            torch.arange(canvas_h, dtype=torch.float32, device=self.render_device),
-            torch.arange(canvas_w, dtype=torch.float32, device=self.render_device),
-            indexing="ij")
-        return torch.stack([xs.reshape(-1), ys.reshape(-1),
-                            torch.ones(canvas_h * canvas_w, dtype=torch.float32,
-                                       device=self.render_device)], dim=0)
+    # Source u8 frames on the device and their pinned staging buffer (see _upload_sources),
+    # the pinned output ring (see _out_buffer), the PSNR throttle and the render timers.
+    # Class-level so a stitcher built without __init__ -- the self-test's -- has them.
+    _src_cache = None
+    _out_ring = None
+    _out_idx = 0
+    _lattice_cache = None
+    _limit_cache = None
+    _psnr_cache = None
+    _render_ms = None
+    _frame_ms = None
 
-    def _canvas_grid(self, canvas_w, canvas_h):
-        """Homogeneous canvas pixel grid ``[3, H*W]``, cached per canvas size."""
-        key = (canvas_w, canvas_h, str(self.render_device))
-        if self._grid_key == key:
-            return self._grid
-        grid = self._make_grid(canvas_w, canvas_h)
-        self._grid_key, self._grid = key, grid
-        return grid
+    # Sampling coordinate of a pixel no view covers: far outside any image, so the
+    # sampler's zero padding returns black without a mask.
+    _NOWHERE = -1.0e4
+    # Label of such a pixel. The block section holds 24 views, so 255 is never a view.
+    _NO_VIEW = 255
 
-    def _estimator_grid(self, canvas_w, canvas_h):
-        """As :meth:`_canvas_grid`, on the warp thread's own cache. See ``__init__``."""
-        key = (canvas_w, canvas_h, str(self.render_device))
-        if self._est_grid_key == key:
-            return self._est_grid
-        grid = self._make_grid(canvas_w, canvas_h)
-        self._est_grid_key, self._est_grid = key, grid
-        return grid
-
-    def _render(self, cams, canvas_w, canvas_h, config, M):
+    @staticmethod
+    def _raster_matrix(canvas_w, canvas_h, out_w, out_h, bottom_up):
         """
-        Warp every view into the canvas and combine.
+        3x3 taking an output pixel ``(X, Y, 1)`` to the canvas pixel it shows.
 
-        ``M`` is the canvas-pixel -> plane-coordinate matrix, needed by BLEND_NEAREST to
-        put each canvas pixel in the same frame as the camera footprints.
+        Pixel areas are what line up, as in ``cv2.resize`` -- output pixel ``X`` covers
+        canvas ``[X, X + 1) * canvas_w / out_w`` -- so the mosaic is framed exactly as
+        the canvas resized to the output would be, at any output size and aspect.  With
+        the output equal to the canvas this is the identity.
 
-        Returns ``(pano BGR uint8, coverage, worst pairwise overlap PSNR)``.
+        ``bottom_up`` reverses the rows, which is the wire's order (Unity's textures start
+        at the bottom-left): the flip costs nothing here, where it is a sign in a matrix.
         """
+        sx, sy = canvas_w / float(out_w), canvas_h / float(out_h)
+        if bottom_up:
+            return np.array([[sx, 0.0, 0.5 * sx - 0.5],
+                             [0.0, -sy, (out_h - 0.5) * sy - 0.5],
+                             [0.0, 0.0, 1.0]], dtype=np.float64)
+        return np.array([[sx, 0.0, 0.5 * sx - 0.5],
+                         [0.0, sy, 0.5 * sy - 0.5],
+                         [0.0, 0.0, 1.0]], dtype=np.float64)
+
+    def _lattice(self, out_w, out_h):
+        """
+        The output raster's pixel coordinates as a row ``[1, W]`` and a column ``[H, 1]``,
+        measured from the raster's centre.
+
+        Kept as two vectors rather than a grid: every field of every view is a sum of a
+        function of the column and a function of the row, so the full-size tensor only
+        appears when the two are added.  Centred because float32 then spends its bits on
+        the half-width rather than the width; the matrices are shifted to match, in
+        float64, before they are handed to the device.
+        """
+        key = (out_w, out_h, str(self.render_device))
+        cached = self._lattice_cache
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2]
         dev = self.render_device
-        grid = self._canvas_grid(canvas_w, canvas_h)          # [3, HW]
+        x = (torch.arange(out_w, dtype=torch.float32, device=dev) - 0.5 * out_w).view(1, out_w)
+        y = (torch.arange(out_h, dtype=torch.float32, device=dev) - 0.5 * out_h).view(out_h, 1)
+        self._lattice_cache = (key, x, y)
+        return x, y
+
+    def _frame_limit(self, src_w, src_h, dev):
+        """``(src_w - 1, src_h - 1)`` as a ``[2, 1, 1]`` tensor, cached."""
+        key = (src_w, src_h, str(dev))
+        cached = self._limit_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        limit = torch.tensor([src_w - 1.0, src_h - 1.0], dtype=torch.float32,
+                             device=dev).view(2, 1, 1)
+        self._limit_cache = (key, limit)
+        return limit
+
+    @staticmethod
+    def _view_rois(H_out, src_w, src_h, out_w, out_h, pad=2):
+        """
+        ``(y0, y1, x0, x1)`` per view: the output pixels it can possibly cover.
+
+        The image is a rectangle and a homography takes it to a convex quadrilateral, so
+        the bounding box of its four projected corners contains every pixel the view
+        reaches -- provided all four corners actually land on the plane in front of the
+        camera.  ``H_out^-1 (u, v, 1)`` is ``(X, Y, 1) / depth``, so that is one sign
+        test on its third component; a view that fails it (the horizon is in frame)
+        simply gets the whole raster, which is what every view used to get.
+        """
+        n = len(H_out)
+        whole = (0, out_h, 0, out_w)
+        corners = np.array([[0.0, src_w - 1.0, src_w - 1.0, 0.0],
+                            [0.0, 0.0, src_h - 1.0, src_h - 1.0],
+                            [1.0, 1.0, 1.0, 1.0]])
+        try:
+            p = np.linalg.solve(H_out, np.broadcast_to(corners, (n, 3, 4)))
+        except np.linalg.LinAlgError:
+            return [whole] * n
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xy = p[:, :2] / p[:, 2:3]
+        good = (np.isfinite(p).all(axis=(1, 2)) & (p[:, 2] > 1e-12).all(axis=1)
+                & np.isfinite(xy).all(axis=(1, 2)))
+        xy = np.where(good[:, None, None], xy, 0.0)
+        lo = np.floor(xy.min(axis=2)) - pad
+        hi = np.ceil(xy.max(axis=2)) + pad + 1
+        x0, x1 = np.clip(lo[:, 0], 0, out_w).astype(int), np.clip(hi[:, 0], 0, out_w).astype(int)
+        y0, y1 = np.clip(lo[:, 1], 0, out_h).astype(int), np.clip(hi[:, 1], 0, out_h).astype(int)
+        return [(int(y0[i]), int(y1[i]), int(x0[i]), int(x1[i])) if good[i] else whole
+                for i in range(n)]
+
+    @staticmethod
+    def _lattice_terms(H, x, y):
+        """
+        ``(rows [N,3,1,W], cols [N,3,H,1])`` whose sum is, for every view, the homogeneous
+        source pixel ``(u w, v w, w)`` of every point of the lattice ``x`` (a row of
+        abscissae) by ``y`` (a column of ordinates).  ``H`` is ``[N,3,3]``, lattice ->
+        source.  The two terms are a few thousand numbers; a view's full-size field is
+        one add of a slice of each.
+        """
+        return (H[:, :, 0, None, None] * x + H[:, :, 2, None, None],
+                H[:, :, 1, None, None] * y)
+
+    @staticmethod
+    def _view_fields(uvd, limit, max_range):
+        """
+        Where a lattice's points fall in a view.  Returns ``(uv, f, ok)``.
+
+        ``uvd`` ``[..., 3, H, W]`` is the sum of :meth:`_lattice_terms` and is consumed.
+        ``uv`` ``[..., 2, H, W]`` are source pixel coordinates, ``f`` the distance in
+        source pixels to the nearest image border (negative outside the frame) and ``ok``
+        whether the point is in front of the camera and within ``max_range`` -- the
+        third component of the homography is camera depth in metres, so both tests are
+        on that one number.  Where ``ok`` is false ``uv`` is finite but meaningless.
+        """
+        depth = uvd[..., 2, :, :]
+        ok = depth > 1e-6
+        if np.isfinite(max_range):
+            ok &= depth < max_range
+        uv = uvd[..., :2, :, :].mul_(torch.where(ok, depth, 1.0).reciprocal_().unsqueeze(-3))
+        f = torch.minimum(uv, limit - uv).amin(dim=-3)
+        return uv, f, ok
+
+    def _plane_geometry(self, cams, dev):
+        """
+        ``[N, 4]``: each camera's footprint ``(a, b)`` on the plane, its standoff ``h``,
+        and ``h`` times its priority -- the four scalars a view's score is made of.
+        """
+        return torch.tensor(
+            [[c["plane_ab"][0], c["plane_ab"][1], c["plane_h"],
+              c["plane_h"] * (self.WEAK_VIEW_PRIORITY if c.get("weak") else 1.0)]
+             for c in cams], dtype=torch.float32, device=dev)
+
+    @staticmethod
+    def _plane_terms(M, x, y, geo):
+        """
+        ``(rows [N,1,W], cols [N,H,1])`` whose sum is the squared distance from each
+        view's camera to each lattice point, the latter being on the plane.  ``M`` takes
+        the lattice to plane coordinates and is axis-aligned (``canvas_to_plane_matrix``),
+        which is what splits the distance into a row and a column.
+        """
+        if abs(M[0, 1]) > 1e-12 or abs(M[1, 0]) > 1e-12:
+            raise ValueError("the canvas matrix is expected to be axis-aligned")
+        rows = (x * float(M[0, 0]) + float(M[0, 2]) - geo[:, 0, None, None]).square()
+        cols = (y * float(M[1, 1]) + float(M[1, 2]) - geo[:, 1, None, None]).square()
+        return rows, cols + geo[:, 2, None, None].square()
+
+    @staticmethod
+    def _score(f, ok, feather_px, cos):
+        """
+        Winner-take-all score: how face-on a view sees a point, faded toward its border.
+
+        Each covered pixel goes to the view seeing that plane point closest to the plane
+        normal -- the least foreshortened look at it.  Because every pixel lies *on* the
+        plane, that obliquity has a closed form in three per-view scalars: with the
+        camera at in-plane footprint ``(a_v, b_v)`` and perpendicular standoff ``h_v``,
+        the incidence cosine at plane point ``(a, b)`` is
+
+            cos = h_v / sqrt((a - a_v)^2 + (b - b_v)^2 + h_v^2)
+
+        (the numerator is constant per view precisely because ``n . X == d`` everywhere
+        on the canvas).  Maximising it is a Voronoi partition of the plane by camera
+        footprint, so each drone renders the patch of facade it is parked in front of.
+        ``cos`` arrives already multiplied by the view's priority.
+
+        The border falloff multiplies the score rather than gating it, which keeps seams
+        off the source-image edges: a view running out of frame fades below a
+        neighbour's score before it runs out of pixels, so the winner changes over solid
+        image on both sides instead of at a hard image boundary.
+        """
+        s = (f * (1.0 / feather_px)).clamp_(max=1.0).mul_(cos)
+        return torch.where(ok & (f > 0), s, 0.0)
+
+    def _upload_sources(self, cams):
+        """
+        The views' frames as one ``[N, H, W, 3]`` uint8 tensor on the render device.
+
+        uint8 across PCIe and converted on the GPU: a quarter of the bytes of a float
+        upload.  Each frame goes through a pinned staging buffer (a DMA instead of a
+        pageable copy), and only when it has changed -- ``read_block_memory`` re-serves
+        the array it already handed out for a block the producer has not rewritten, and
+        on the real fleet the feeds arrive slower than the render is woken.  A frame is
+        recognised by being the same array; the few sampled pixels summed beside it
+        catch one rewritten in place.
+        """
+        images = [c["view"]["image"] for c in cams]
+        n = len(images)
+        h, w = images[0].shape[:2]
+        dev = self.render_device
+        if dev.type != "cuda":
+            return torch.from_numpy(np.stack(images)).to(dev)
+
+        cache = self._src_cache
+        if cache is None or cache["shape"] != (n, h, w) or cache["dev"].device != dev:
+            host = torch.empty((n, h, w, 3), dtype=torch.uint8).pin_memory()
+            cache = {"shape": (n, h, w), "host": host, "np": host.numpy(),
+                     "dev": torch.empty((n, h, w, 3), dtype=torch.uint8, device=dev),
+                     "keys": [None] * n}
+            self._src_cache = cache
+
+        synced = False
+        for k, image in enumerate(images):
+            mark = int(image[::61, ::67].sum())
+            key = cache["keys"][k]
+            if key is not None and key[0] is image and key[1] == mark:
+                continue
+            if not synced:
+                # A copy out of the staging buffer may still be in flight if the last
+                # render ended early; it must land before the buffer is written again.
+                torch.cuda.current_stream().synchronize()
+                synced = True
+            np.copyto(cache["np"][k], image)
+            cache["dev"][k].copy_(cache["host"][k], non_blocking=True)
+            cache["keys"][k] = (image, mark)
+        return cache["dev"]
+
+    def _out_buffer(self, shape):
+        """
+        Next output buffer of the given shape from a small ring, pinned on CUDA.
+
+        A ring because the buffer is handed to ``first_thread`` by reference and written
+        to shared memory a few milliseconds later, while this thread may already be
+        rendering the next frame; three is two more than that needs.
+        """
+        ring = self._out_ring
+        if not ring or tuple(ring[0].shape) != tuple(shape):
+            ring = []
+            for _ in range(3):
+                t = torch.empty(shape, dtype=torch.uint8)
+                if self.render_device.type == "cuda":
+                    t = t.pin_memory()
+                ring.append(t)
+            self._out_ring, self._out_idx = ring, 0
+        buf = ring[self._out_idx]
+        self._out_idx = (self._out_idx + 1) % len(ring)
+        return buf
+
+    def _render(self, cams, canvas_w, canvas_h, config, M, out_size=None):
+        """
+        Draw the mosaic.
+
+        ``M`` is the canvas-pixel -> plane-coordinate matrix and each ``cam["H"]`` the
+        canvas-pixel -> source-pixel homography, both in *canvas* pixels.  ``out_size``
+        is ``(height, width)`` of the output raster; with it the result is a
+        :class:`WireReadyPanorama` (RGB, bottom-up rows), without it a BGR top-down
+        array of the canvas size.
+
+        Returns ``(panorama uint8 [H, W, 3], coverage, worst pairwise overlap PSNR)``.
+        """
+        started = time.perf_counter()
+        dev = self.render_device
+        wire = out_size is not None
+        out_h, out_w = (int(out_size[0]), int(out_size[1])) if wire else (canvas_h, canvas_w)
         src_h, src_w = cams[0]["view"]["image"].shape[:2]
         max_range = float(config.get("max_range", 0.0)) or float("inf")
         feather_px = max(1.0, float(config.get("feather_px", 1)))
         blend_mode = int(config.get("blend_mode", BLEND_NEAREST))
         debug_view = int(config.get("debug_view", DEBUG_OFF))
+        sampling = config.get("sampling", SAMPLING)
+        if sampling not in ("bilinear", "bicubic"):
+            sampling = "bicubic"
 
-        H_stack = torch.from_numpy(
-            np.stack([c["H"] for c in cams]).astype(np.float32)).to(dev)   # [N,3,3]
+        # Output pixel -> canvas pixel, and through it to each view and to the plane.
+        # Composed in float64; only the finished coefficients go to the device.
+        H_canvas = np.stack([np.asarray(c["H"], dtype=np.float64) for c in cams])
+        S = self._raster_matrix(canvas_w, canvas_h, out_w, out_h, bottom_up=wire)
+        centre = np.array([[1.0, 0.0, 0.5 * out_w], [0.0, 1.0, 0.5 * out_h], [0.0, 0.0, 1.0]])
+        H_out = H_canvas @ S
+        rois = self._view_rois(H_out, src_w, src_h, out_w, out_h)
+        S_c = S @ centre
+        M_c = np.asarray(M, dtype=np.float64) @ S_c
+        x, y = self._lattice(out_w, out_h)
+        limit = self._frame_limit(src_w, src_h, dev)
+        # The frame's few small tensors go to the device BEFORE its images do. A copy from
+        # pageable memory waits for whatever is queued ahead of it, and behind six frames
+        # of pixels each of these is 0.4 ms of the render thread standing still.
+        H_c = torch.as_tensor(H_out @ centre, dtype=torch.float32, device=dev)
+        H_t = torch.as_tensor(H_canvas, dtype=torch.float32, device=dev)
+        geo = self._plane_geometry(cams, dev)
 
-        # One batched matmul yields the sampling coordinate *and* every rejection test,
-        # because the third component is camera depth in metres (K's last row is [0,0,1]).
-        uvw = torch.matmul(H_stack, grid)                                  # [N,3,HW]
-        w = uvw[:, 2]
-        valid_depth = (w > 1e-6) & (w < max_range)
-        w_safe = torch.where(valid_depth, w, torch.ones_like(w))
-        u = uvw[:, 0] / w_safe
-        v = uvw[:, 1] / w_safe
+        src = self._upload_sources(cams).permute(0, 3, 1, 2).float()       # [N,3,Hs,Ws] BGR
 
-        in_bounds = (u >= 0) & (u <= src_w - 1) & (v >= 0) & (v <= src_h - 1)
-        valid = valid_depth & in_bounds                                    # [N,HW]
+        # Always measured: this is the number that quantifies pose error. Taken from the
+        # frames as they arrived -- before the debug overlay, which would otherwise be
+        # measured instead of the imagery, and before the exposure gains.
+        overlap_psnr = self._measure_overlap(cams, src, H_t, canvas_w, canvas_h,
+                                             config, max_range)
 
-        # Distance-to-border falloff. A homography's alpha mask has a closed form, so
-        # this needs no convolution at all -- unlike a TPS mesh's, which is why
-        # StabStitcher blurs and erodes instead. Measured in SOURCE pixels, so the seam
-        # width in canvas pixels scales with each view's local magnification.
-        # Under BLEND_FEATHER this *is* the blend weight; under BLEND_NEAREST it only
-        # biases the winner away from image edges.
-        du = torch.minimum(u, (src_w - 1) - u)
-        dv = torch.minimum(v, (src_h - 1) - v)
-        feather = (torch.minimum(du, dv) / feather_px).clamp(0.0, 1.0)
-        weight = torch.where(valid, feather, torch.zeros_like(feather))    # [N,HW]
-
-        if blend_mode in (BLEND_NEAREST, BLEND_MULTIBAND):
-            weight = self._nearest_weights(cams, weight, grid, M)
-
-        # Upload uint8 and convert on the GPU: at N=8 and 800x450 that is 8.6 MB over
-        # PCIe instead of 34 MB, and moves the cast off the CPU.
-        imgs = torch.from_numpy(
-            np.stack([c["view"]["image"] for c in cams])).to(dev)          # [N,H,W,3] u8
-        imgs = imgs.permute(0, 3, 1, 2).float()                            # [N,3,H,W]
-
-        # grid_sample wants normalised coords with the same align_corners convention
-        # StabStitcher's TPS flow uses -- match it exactly or everything shifts half a pixel.
-        flow = torch.stack([2.0 * u / (src_w - 1) - 1.0,
-                            2.0 * v / (src_h - 1) - 1.0], dim=-1)
-        flow = flow.view(len(cams), canvas_h, canvas_w, 2)
-
-        # fp16 halves the sampling cost on the GPU, but grid_sampler_2d has no CPU half
-        # kernel — so the dtype follows the device rather than being assumed.
-        sample_dtype = torch.float16 if dev.type == "cuda" else torch.float32
-        warped = F.grid_sample(imgs.to(sample_dtype), flow.to(sample_dtype),
-                               mode="bilinear", padding_mode="zeros",
-                               align_corners=True).float()
-
-        # Always measured: this is the number that quantifies pose error, and it costs
-        # only a few ops given the already-warped stack. Whether it gates is the
-        # caller's decision.
-        #
-        # Measured over geometric *coverage*, not over the blend weights: BLEND_NEAREST
-        # makes the weights one-hot, so a weight-based overlap test would find no
-        # overlapping pixels at all and silently retire the one diagnostic that
-        # quantifies pose error. Two views still see the same ground there whether or
-        # not both are drawn.
-        #
-        # Taken before the debug overlay, which would otherwise be measured instead of
-        # the imagery -- and it stays measured while the overlay is on, so the number in
-        # the log still refers to the mosaic you would get with the overlay off.
-        cover = valid.view(len(cams), 1, canvas_h, canvas_w).float()
-        overlap_psnr = self._overlap_psnr(warped, cover)
-
-        # In place, so the overlay costs no extra [N,3,Hc,Wc] allocation.
+        if wire:
+            src = src.flip(1)                                             # RGB on the wire
         if debug_view != DEBUG_OFF:
-            self._apply_debug_colours(cams, warped, debug_view)
+            # A colour is the same colour wherever it is resampled to, so the overlay is
+            # applied to the frames and every blend mode shows it its own way: NEAREST
+            # flat and hard-edged (that *is* the partition), FEATHER as blends of two
+            # colours over the overlaps -- a direct picture of how much is being averaged.
+            colours = self._debug_colours(cams, src, rgb=wire)
+            src = colours.expand_as(src).contiguous() if debug_view == DEBUG_FLAT \
+                else torch.lerp(src, colours.expand_as(src), DEBUG_TINT_STRENGTH)
 
-        wgt = weight.view(len(cams), 1, canvas_h, canvas_w)
-        wsum = wgt.sum(dim=0)                                              # [1,Hc,Wc]
-        covered = wsum > 1e-6
-        if blend_mode == BLEND_MULTIBAND:
-            if debug_view == DEBUG_OFF:
+        if blend_mode == BLEND_FEATHER:
+            pano, covered = self._compose_feather(H_c, x, y, rois, src, limit, max_range,
+                                                  feather_px, sampling)
+        else:
+            low = None
+            if blend_mode == BLEND_MULTIBAND:
+                step = int(max(2, round(feather_px / 3.0)))
                 # Not under the overlay: it replaces or tints the imagery, and gains
                 # fitted to a colour wash would be fitted to the palette.
-                warped = warped * self._exposure_gains(cams, warped, cover)
-            pano = self._multiband(warped, cover, wgt, feather_px)
+                corr, gains = self._low_bands(cams, src, H_canvas, H_t, geo, M, canvas_w,
+                                              canvas_h, step, limit, max_range, feather_px,
+                                              exposure=debug_view == DEBUG_OFF)
+                if gains is not None:
+                    src = src * gains
+                low = (corr, step, S_c)
+            pano, covered = self._compose_partition(cams, H_c, geo, M_c, x, y, rois, src,
+                                                    limit, max_range, feather_px, sampling,
+                                                    low)
+
+        # No mask needed: a pixel nothing covers was sampled from nowhere and is already
+        # black. Rounded, not truncated -- a flat patch interpolates to 199.99998 as
+        # often as to 200.00002, and truncation turns that into a grey level of noise and
+        # half a level of darkening. Bilinear NEAREST and FEATHER are convex combinations
+        # of pixels and cannot leave [0, 255]; a bicubic kernel overshoots at an edge, and
+        # MULTIBAND adds gains and a correction of either sign.
+        coverage_t = covered.float().mean()
+        pano = pano.add_(0.5)
+        if blend_mode == BLEND_MULTIBAND or sampling == "bicubic":
+            pano = pano.clamp_(0.0, 255.0)
+        out_u8 = pano.to(torch.uint8).permute(1, 2, 0).contiguous()
+
+        if wire:
+            buf = self._out_buffer(out_u8.shape)
+            buf.copy_(out_u8, non_blocking=True)
+            coverage = float(coverage_t.item())
+            if dev.type == "cuda":
+                torch.cuda.current_stream().synchronize()
+            out = buf.numpy().view(WireReadyPanorama)
         else:
-            # Normalising by the per-pixel weight sum is what generalises this to any N;
-            # a reference-based or pairwise scheme does not.
-            pano = (warped * wgt).sum(dim=0) / wsum.clamp_min(1e-6)
-        pano = torch.where(covered, pano, torch.zeros_like(pano))
+            out = out_u8.cpu().numpy()
+            coverage = float(coverage_t.item())
 
-        coverage = float(covered.float().mean().item())
-        out = pano.clamp(0, 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
-
+        ms = 1e3 * (time.perf_counter() - started)
+        self._render_ms = ms if self._render_ms is None else 0.9 * self._render_ms + 0.1 * ms
         return out, coverage, overlap_psnr
 
-    # ---- exposure -------------------------------------------------------------------
+    def _compose_partition(self, cams, H_c, geo, M_c, x, y, rois, src, limit, max_range,
+                           feather_px, sampling, low=None):
+        """
+        NEAREST and MULTIBAND: one view per pixel.  Returns ``(pano [3,H,W], covered)``.
+
+        The winner and where it samples are kept as running bests while the views are
+        visited one at a time over their own bounding boxes; the image is then read in a
+        single ``grid_sample`` out of all the frames stacked into one tall texture.
+        ``low`` is ``(correction, step, S_c)`` from :meth:`_low_bands`, or ``None``.
+        """
+        dev = src.device
+        n, _, src_h, src_w = src.shape
+        out_h, out_w = y.shape[0], x.shape[1]
+        rows, cols = self._lattice_terms(H_c, x, y)
+        prow, pcol = self._plane_terms(M_c, x, y, geo)
+        gain = [c["plane_h"] * (self.WEAK_VIEW_PRIORITY if c.get("weak") else 1.0)
+                for c in cams]
+
+        best = torch.zeros((out_h, out_w), dtype=torch.float32, device=dev)
+        best_uv = torch.zeros((2, out_h, out_w), dtype=torch.float32, device=dev)
+        best_uv[0].fill_(self._NOWHERE)
+        label = torch.full((out_h, out_w), self._NO_VIEW, dtype=torch.uint8, device=dev)
+        for i in range(n):
+            y0, y1, x0, x1 = rois[i]
+            if y1 <= y0 or x1 <= x0 or cams[i]["plane_h"] <= 1e-9:
+                continue
+            uv, f, ok = self._view_fields(rows[i, :, :, x0:x1] + cols[i, :, y0:y1],
+                                          limit, max_range)
+            score = self._score(f, ok, feather_px,
+                                torch.rsqrt(prow[i, :, x0:x1] + pcol[i, y0:y1]).mul_(gain[i]))
+            held = best[y0:y1, x0:x1]
+            better = score > held
+            torch.maximum(held, score, out=held)
+            label[y0:y1, x0:x1].masked_fill_(better, i)
+            held_uv = best_uv[:, y0:y1, x0:x1]
+            torch.where(better, uv, held_uv, out=held_uv)
+        covered = best > 0
+
+        # Every frame in one texture, one above the other, each with its border repeated
+        # as far out as the sampling kernel reaches: a sample on a frame's edge then
+        # interpolates with copies of that edge, never with the next frame nor with the
+        # black beyond the texture.
+        pad = 2 if sampling == "bicubic" else 1
+        pitch, wide = src_h + 2 * pad, src_w + 2 * pad
+        atlas = F.pad(src, (pad, pad, pad, pad), mode="replicate").permute(1, 0, 2, 3) \
+            .reshape(1, 3, n * pitch, wide)
+        tile = label.to(torch.float32)
+        # float32 throughout. Half precision resolves a normalised coordinate to 1/2048
+        # of the image -- a fifth of a source pixel at 800 wide, a third at 1280 -- which
+        # is invisible on a canvas that shrinks the feeds and is exactly the detail a
+        # full-resolution one is there to keep. With one sample a pixel it buys no time.
+        k = 2.0 / (n * pitch - 1)
+        best_uv[0].add_(float(pad)).mul_(2.0 / (wide - 1)).sub_(1.0)
+        best_uv[1].mul_(k).add_(tile, alpha=pitch * k).add_(pad * k - 1.0)
+        pano = F.grid_sample(atlas, best_uv.permute(1, 2, 0).unsqueeze(0), mode=sampling,
+                             padding_mode="zeros", align_corners=True)[0]
+
+        if low is not None:
+            # pano = winner's pixels + (blended low band - winner's own low band). The
+            # bracket is what _low_bands returns per view, on its coarse grid; it is
+            # looked up here the way the frames were, by label.
+            corr, step, S_c = low
+            _, _, low_h, low_w = corr.shape
+            low_pitch = low_h + 2
+            low_atlas = F.pad(corr, (0, 0, 1, 1), mode="replicate").permute(1, 0, 2, 3) \
+                .reshape(1, 3, n * low_pitch, low_w)
+            # Canvas pixel of each output column and row, then its place on the coarse
+            # grid, whose cell j is centred on canvas pixel (j + 0.5) * step - 0.5.
+            col = ((x * float(S_c[0, 0]) + (float(S_c[0, 2]) + 0.5)) / step - 0.5) \
+                .clamp_(0.0, low_w - 1.0)
+            row = ((y * float(S_c[1, 1]) + (float(S_c[1, 2]) + 0.5)) / step - 0.5) \
+                .clamp_(0.0, low_h - 1.0)
+            k = 2.0 / (n * low_pitch - 1)
+            grid = torch.stack(((col * (2.0 / (low_w - 1)) - 1.0).expand(out_h, out_w),
+                                tile.mul_(low_pitch * k).add_(row * k + (k - 1.0))), dim=-1)
+            # Zero padding, so a pixel no view covers (its label is past the last tile)
+            # stays black here too.
+            pano = pano.add_(F.grid_sample(low_atlas, grid.unsqueeze(0), mode="bilinear",
+                                           padding_mode="zeros", align_corners=True)[0])
+        return pano, covered
+
+    def _compose_feather(self, H_c, x, y, rois, src, limit, max_range, feather_px, sampling):
+        """
+        FEATHER: every view that covers a pixel, weighted by its distance to its own
+        image border.  Returns ``(pano [3,H,W], covered)``.
+
+        A homography's alpha mask has a closed form, so the weight needs no convolution
+        at all -- unlike a TPS mesh's, which is why StabStitcher blurs and erodes instead.
+        It is measured in SOURCE pixels, so the cross-fade's width in output pixels
+        scales with each view's local magnification.  Normalising by the per-pixel weight
+        sum is what generalises this to any N; a reference-based or pairwise scheme does
+        not.  Accumulated a view at a time over its own bounding box: this is the one
+        blend whose cost has to grow with the number of views, since it reads them all.
+        """
+        dev = src.device
+        out_h, out_w = y.shape[0], x.shape[1]
+        rows, cols = self._lattice_terms(H_c, x, y)
+        to_grid = 2.0 / limit
+        acc = torch.zeros((3, out_h, out_w), dtype=torch.float32, device=dev)
+        wsum = torch.zeros((out_h, out_w), dtype=torch.float32, device=dev)
+        for i in range(src.shape[0]):
+            y0, y1, x0, x1 = rois[i]
+            if y1 <= y0 or x1 <= x0:
+                continue
+            uv, f, ok = self._view_fields(rows[i, :, :, x0:x1] + cols[i, :, y0:y1],
+                                          limit, max_range)
+            weight = torch.where(ok, (f * (1.0 / feather_px)).clamp_(0.0, 1.0), 0.0)
+            # Border padding: a bicubic sample just inside the frame reaches a pixel or
+            # two outside it, and should find the edge there rather than black. A sample
+            # that is itself outside has no weight either way.
+            warped = F.grid_sample(src[i:i + 1],
+                                   uv.mul_(to_grid).sub_(1.0).permute(1, 2, 0).unsqueeze(0),
+                                   mode=sampling, padding_mode="border",
+                                   align_corners=True)[0]
+            acc[:, y0:y1, x0:x1].addcmul_(warped, weight)
+            wsum[y0:y1, x0:x1].add_(weight)
+        return acc.div_(wsum.clamp_min(1e-6)), wsum > 1e-6
+
+    # ---- two-band blend and exposure -------------------------------------------------
 
     # Brown & Lowe's gain compensation, per colour channel. sigma_n is how far two
     # views' mean intensities over a shared patch may differ for reasons other than
@@ -2366,99 +2819,161 @@ class PlanarStitcher(BaseStitcher):
     # Per-frame low-pass on the gains. Auto-exposure moves over seconds; the estimate
     # moves with every frame's noise.
     GAIN_RATE = 0.15
-    _gain_state = None                 # (drone id tuple, gains [N,3,1,1]) on the device
+    _gain_state = None                 # (drone id tuple, gains [N,3] float64)
 
-    def _exposure_gains(self, cams, warped, cover):
+    def _low_bands(self, cams, src, H_canvas, H_t, geo, M, canvas_w, canvas_h, step, limit,
+                   max_range, feather_px, exposure):
         """
-        One gain per view and channel, ``[N,3,1,1]``, that makes the views agree where
-        they overlap.
+        What MULTIBAND adds to the winner-take-all partition.  Returns
+        ``(correction [N,3,h,w], gains [N,3,1,1] | None)``.
 
-        Minimises, per channel,
+        Each view is split into a low band -- a blur about ``3 * step`` canvas pixels
+        wide -- and the residual.  The low bands are cross-faded with the *blurred*
+        partition; the residuals are taken from the winning view alone:
+
+            pano = sum_i W~_i low_i / sum_i W~_i  +  sum_i W_i (I_i - low_i)
+                 = I_w + (mix - low_w)                       with w the winner
+
+        Exposure and vignetting differences live in the low band and fade across the
+        seam; edges and texture live in the residual and are never averaged, so a
+        residual misalignment still cannot double anything.  ``correction`` is the
+        bracket for every view; where one view is alone within the blur radius it is
+        zero and the mosaic is that view exactly.
+
+        All of it lives on a grid ``step`` canvas pixels coarse, whatever the output
+        size, because none of it has finer structure than that.  The views are sampled
+        there directly, out of a box-reduced copy of the frames so that one sample
+        stands for about the area between it and the next, at four samples a cell: the
+        cell's value is their mean and its coverage the fraction that landed in frame.
+        The old route to the same grid was to warp every view at full resolution and
+        average that down.
+
+        The low band is a *normalised* blur (blur(I * cover) / blur(cover)): a plain one
+        would pull every footprint's rim toward the black outside it.
+
+        ``gains`` are the exposure gains (see :meth:`_solve_gains`), already applied to
+        the low bands here; the caller applies them to the frames.
+        """
+        dev = src.device
+        n, _, src_h, src_w = src.shape
+        low_w = max(2, -(-int(canvas_w) // step))
+        low_h = max(2, -(-int(canvas_h) // step))
+        half = 0.5 * step
+        xs = ((torch.arange(2 * low_w, dtype=torch.float32, device=dev) + 0.5) * half - 0.5) \
+            .view(1, -1)
+        ys = ((torch.arange(2 * low_h, dtype=torch.float32, device=dev) + 0.5) * half - 0.5) \
+            .view(-1, 1)
+
+        rows, cols = self._lattice_terms(H_t, xs, ys)
+        uv, f, ok = self._view_fields(rows + cols, limit, max_range)        # [N,2,2h,2w]
+        inside = ok & (f >= 0)
+        prow, pcol = self._plane_terms(M, xs, ys, geo)
+        top, winner = self._score(f, ok, feather_px,
+                                  torch.rsqrt(prow + pcol).mul_(geo[:, 3, None, None])).max(dim=0)
+        hard = F.one_hot(winner, n).permute(2, 0, 1) * (top > 0)            # [N,2h,2w]
+
+        # How many source pixels lie between two neighbouring samples, and so how far the
+        # frames are box-reduced before they are read. A power of two, from the median
+        # view, so it only changes with the zoom or the standoff.
+        p = H_canvas @ np.array([0.5 * canvas_w, 0.5 * canvas_h, 1.0])      # [N,3]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            J = (H_canvas[:, :2, :2] - (p[:, :2] / p[:, 2:3])[:, :, None]
+                 * H_canvas[:, 2:3, :2]) / p[:, 2, None, None]
+            scale = np.sqrt(np.abs(np.linalg.det(J)))
+        scale = scale[(p[:, 2] > 0.0) & np.isfinite(scale)]
+        spacing = (float(np.median(scale)) if len(scale) else 1.0) * half
+        pool = int(2 ** int(np.clip(np.round(np.log2(max(spacing, 1.0))), 0, 4)))
+        pool = max(1, min(pool, src_h // 8, src_w // 8))
+        small = F.avg_pool2d(src, pool) if pool > 1 else src
+        small_h, small_w = small.shape[2:]
+        # Reduced pixel p is the mean of source pixels [p * pool, (p + 1) * pool), so
+        # source pixel u sits at (u + 0.5) / pool - 0.5 in the reduced frame.
+        uv[:, 0].mul_(2.0 / (pool * (small_w - 1))) \
+            .add_((0.5 / pool - 0.5) * 2.0 / (small_w - 1) - 1.0)
+        uv[:, 1].mul_(2.0 / (pool * (small_h - 1))) \
+            .add_((0.5 / pool - 0.5) * 2.0 / (small_h - 1) - 1.0)
+        samples = F.grid_sample(small, uv.permute(0, 2, 3, 1), mode="bilinear",
+                                padding_mode="border", align_corners=True)  # [N,3,2h,2w]
+
+        gains = None
+        if exposure:
+            # Compared only where a sample holds no pixel from outside its frame. The
+            # pair sums come back in one small copy and the 3 x N x N solve is numpy's:
+            # a couple of dozen device ops and a GPU LU for six unknowns cost more.
+            whole = (inside & (f >= float(pool))).flatten(1).to(samples.dtype)   # [N,P]
+            stats = torch.cat(((whole @ whole.T).unsqueeze(-1),
+                               torch.einsum("icp,jp->ijc",
+                                            samples.flatten(2) * whole.unsqueeze(1), whole)),
+                              dim=-1).cpu().numpy()
+            gains = torch.as_tensor(self._solve_gains(cams, stats), dtype=torch.float32,
+                                    device=dev).view(n, 3, 1, 1)
+            samples = samples * gains
+
+        # One blur for the coverage, the views and the partition: [N, 1 + 3 + 1, ...].
+        cover = inside.unsqueeze(1).to(samples.dtype)
+        bands = self._binomial_blur(self._binomial_blur(F.avg_pool2d(
+            torch.cat((cover, samples * cover, hard.unsqueeze(1).to(samples.dtype)), dim=1), 2)))
+        den = bands[:, :1]
+        low_img = bands[:, 1:4] / den.clamp_min(1e-3)                      # [N,3,h,w]
+        # A view's low band is an extrapolation once most of the blur's support is
+        # outside its footprint; fade its say out there rather than trust it.
+        soft = bands[:, 4:5] * (den * 2.0).clamp_(0.0, 1.0)
+        mix = (low_img * soft).sum(dim=0, keepdim=True) / soft.sum(dim=0, keepdim=True) \
+            .clamp_min(1e-4)
+        # ... and where next to none of it is inside, the view's own low band is not
+        # known well enough to subtract: leave such a pixel as its view drew it.
+        return (mix - low_img) * (den * 50.0).clamp_(0.0, 1.0), gains
+
+    def _solve_gains(self, cams, stats):
+        """
+        One gain per view and channel, ``[N, 3]``, that makes the views agree where they
+        overlap.
+
+        ``stats[i, j]`` is ``(N_ij, sum over that overlap of view i's B, G, R)``, with
+        ``N_ij`` the number of coarse samples views *i* and *j* both hold.  Minimises,
+        per channel,
         ``sum_ij N_ij ((g_i m_ij - g_j m_ji)^2 / sigma_n^2 + (1 - g_i)^2 / sigma_g^2)``
-        with ``m_ij`` view *i*'s mean over its overlap with *j* and ``N_ij`` the size of
-        that overlap.  The second term is what stops the trivial answer (all gains zero)
-        and keeps the whole mosaic from drifting dark.  Solved on the device from a
-        heavily pooled copy of the stack, so it costs one small einsum and no host sync.
+        with ``m_ij`` view *i*'s mean over its overlap with *j*.  The second term is what
+        stops the trivial answer (all gains zero) and keeps the whole mosaic from
+        drifting dark.
         """
-        n = warped.shape[0]
-        pool = 8
-        img = F.avg_pool2d(warped * cover, pool)                       # [N,3,h,w]
-        msk = F.avg_pool2d(cover, pool)                                # [N,1,h,w]
-        img = img.flatten(2)                                           # [N,3,P]
-        msk = msk.flatten(2)[:, 0]                                     # [N,P]
-        full = (msk > 0.999).float()                                   # cells wholly inside
-        npix = full @ full.T                                           # [N,N]
-        sums = torch.einsum("icp,jp->ijc", img * full[:, None, :], full)
-        mean = sums / npix.clamp_min(1.0)[:, :, None]                  # m_ij per channel
-        off = 1.0 - torch.eye(n, device=warped.device)
-        npix = npix * off * (npix >= 16.0).float()
+        stats = np.asarray(stats, dtype=np.float64)
+        n = stats.shape[0]
+        npix = stats[..., 0]
+        mean = stats[..., 1:] / np.maximum(npix, 1.0)[:, :, None]     # m_ij per channel
+        npix = npix * (1.0 - np.eye(n)) * (npix >= 16.0)
 
         sn, sg = self.GAIN_SIGMA_N ** -2, self.GAIN_SIGMA_G ** -2
-        m_ij = mean.permute(2, 0, 1)                                   # [3,N,N]
-        m_ji = m_ij.transpose(1, 2)
+        m_ij = mean.transpose(2, 0, 1)                                 # [3,N,N]
+        m_ji = m_ij.transpose(0, 2, 1)
         w = npix[None]
-        A = torch.diag_embed((w * (m_ij * m_ij * sn + sg)).sum(dim=2)) - w * m_ij * m_ji * sn
-        b = (w * sg).sum(dim=2)
+        A = -(w * m_ij * m_ji * sn)
+        idx = np.arange(n)
+        A[:, idx, idx] += (w * (m_ij * m_ij * sn + sg)).sum(axis=2)
+        b = np.broadcast_to((w * sg).sum(axis=2), (3, n)).copy()
         # A view with no overlap at all has an all-zero row; pin its gain to 1.
-        lonely = (npix.sum(dim=1) <= 0.0)
-        A = A + torch.diag_embed(lonely.float()[None].expand(3, n))
-        b = b + lonely.float()[None]
-        gains = torch.linalg.solve(A, b[..., None])[..., 0]            # [3,N]
-        gains = gains.T.clamp(*self.GAIN_LIMITS).reshape(n, 3, 1, 1)
+        lonely = npix.sum(axis=1) <= 0.0
+        A[:, idx[lonely], idx[lonely]] += 1.0
+        b[:, lonely] += 1.0
+        gains = np.clip(np.linalg.solve(A, b[..., None])[..., 0].T, *self.GAIN_LIMITS)
 
         ids = tuple(c["view"]["drone_id"] for c in cams)
         state = self._gain_state
-        if state is not None and state[0] == ids and state[1].device == gains.device:
+        if state is not None and state[0] == ids:
             gains = state[1] + self.GAIN_RATE * (gains - state[1])
         self._gain_state = (ids, gains)
         return gains
 
-    # ---- two-band blend --------------------------------------------------------------
+    _blur_kernels = {}                 # (device, dtype) -> the 5-tap binomial
 
-    def _multiband(self, warped, cover, hard, blend_px):
-        """
-        Two-band composite over the winner-take-all partition.
-
-        ``warped`` ``[N,3,H,W]``, ``cover`` ``[N,1,H,W]`` (0/1 where a view has pixels),
-        ``hard`` ``[N,1,H,W]`` (the one-hot partition).  Each view is split into a low
-        band -- a blur about ``blend_px`` wide -- and the residual.  The low bands are
-        cross-faded with the *blurred* partition; the residuals are taken from the
-        winning view alone:
-
-            pano = sum_i W~_i low_i / sum_i W~_i  +  sum_i W_i (I_i - low_i)
-
-        Exposure and vignetting differences live in the low band and fade across the
-        seam; edges and texture live in the residual and are never averaged, so a
-        residual misalignment still cannot double anything.  Where one view is alone
-        within the blur radius the two terms sum back to that view exactly.
-
-        The low band is a *normalised* blur (blur(I * cover) / blur(cover)): a plain one
-        would pull every footprint's rim toward the black outside it.
-        """
-        n, _, H, W = warped.shape
-        step = int(max(2, round(float(blend_px) / 3.0)))
-
-        def low(x):
-            y = F.avg_pool2d(x, step, stride=step, ceil_mode=True, count_include_pad=False)
-            return self._binomial_blur(self._binomial_blur(y))
-
-        def up(x):
-            return F.interpolate(x, size=(H, W), mode="bilinear", align_corners=False)
-
-        den = low(cover)
-        low_img = low(warped * cover) / den.clamp_min(1e-3)            # [N,3,h,w]
-        # A view's low band is an extrapolation once most of the blur's support is
-        # outside its footprint; fade its say out there rather than trust it.
-        w_soft = low(hard) * (den * 2.0).clamp(0.0, 1.0)
-        low_mix = (low_img * w_soft).sum(dim=0, keepdim=True) / w_soft.sum(
-            dim=0, keepdim=True).clamp_min(1e-4)
-        detail = ((warped - up(low_img)) * hard).sum(dim=0)
-        return up(low_mix)[0] + detail
-
-    @staticmethod
-    def _binomial_blur(x):
+    @classmethod
+    def _binomial_blur(cls, x):
         """Separable 5-tap binomial, replicate-padded.  ``[B,C,h,w]``."""
-        k = torch.tensor([1.0, 4.0, 6.0, 4.0, 1.0], dtype=x.dtype, device=x.device) / 16.0
+        key = (str(x.device), x.dtype)
+        k = cls._blur_kernels.get(key)
+        if k is None:
+            k = torch.tensor([1.0, 4.0, 6.0, 4.0, 1.0], dtype=x.dtype, device=x.device) / 16.0
+            cls._blur_kernels[key] = k
         c = x.shape[1]
         x = F.conv2d(F.pad(x, (2, 2, 0, 0), mode="replicate"),
                      k.view(1, 1, 1, 5).expand(c, 1, 1, 5), groups=c)
@@ -2466,90 +2981,80 @@ class PlanarStitcher(BaseStitcher):
                         k.view(1, 1, 5, 1).expand(c, 1, 5, 1), groups=c)
 
     @staticmethod
-    def _apply_debug_colours(cams, warped, debug_view):
+    def _debug_colours(cams, src, rgb):
+        """``[N,3,1,1]`` palette colour of each view, in ``src``'s channel order."""
+        table = [debug_colour(c["view"]["drone_id"])[1] for c in cams]       # BGR
+        if rgb:
+            table = [colour[::-1] for colour in table]
+        return torch.tensor(table, dtype=src.dtype, device=src.device).view(len(cams), 3, 1, 1)
+
+    # ---- overlap PSNR ----------------------------------------------------------------
+
+    def _measure_overlap(self, cams, src, H_t, canvas_w, canvas_h, config, max_range):
         """
-        Colour each view's contribution in place, so a patch's origin is readable off
-        the panorama itself.
+        The overlap PSNR, measured at most every ``config["psnr_period_s"]`` seconds.
 
-        Applied to the warped stack rather than to the mosaic, which means it works the
-        same in both blend modes and tells you something different in each: under
-        NEAREST the regions come out flat and hard-edged (that *is* the partition),
-        while under FEATHER the overlaps come out as blends of two colours, which is a
-        direct picture of how much of the canvas is being averaged.
+        It is a diagnostic: it reads every view over the whole canvas, which is exactly
+        the work the render no longer does, and nothing consumes it faster than the log
+        line is printed.  The live stitcher therefore asks for it twice a second.  A
+        config without the key -- every tool and test -- measures it on every call, and
+        so does one that gates the panorama on it.
         """
-        colours = torch.tensor(
-            [debug_colour(c["view"]["drone_id"])[1] for c in cams],
-            dtype=warped.dtype, device=warped.device).view(len(cams), 3, 1, 1)
+        period = float(config.get("psnr_period_s", 0.0) or 0.0)
+        ids = tuple(c["view"]["drone_id"] for c in cams)
+        now = time.monotonic()
+        cached = self._psnr_cache
+        if (period > 0.0 and not config.get("psnr_gate", False) and cached is not None
+                and cached[0] == ids and now - cached[1] < period):
+            return cached[2]
+        value = self._overlap_psnr(src, H_t, canvas_w, canvas_h, max_range)
+        self._psnr_cache = (ids, now, value)
+        return value
 
-        if debug_view == DEBUG_FLAT:
-            warped.copy_(colours.expand_as(warped))
-        else:
-            warped.lerp_(colours.expand_as(warped), DEBUG_TINT_STRENGTH)
-
-    def _nearest_weights(self, cams, border, grid, M):
+    def _overlap_psnr(self, src, H_t, canvas_w, canvas_h, max_range):
         """
-        Winner-take-all weights: each covered canvas pixel goes to a single view.
+        Worst pairwise PSNR over the region two views both cover, on the canvas.
 
-        The winner is the view seeing that plane point closest to the plane normal --
-        the most face-on, least foreshortened look at it. Because every canvas pixel
-        lies *on* the plane, that obliquity has a closed form in three per-view scalars:
-        with the camera at in-plane footprint ``(a_v, b_v)`` and perpendicular standoff
-        ``h_v``, the incidence cosine at plane point ``(a, b)`` is
-
-            cos = h_v / sqrt((a - a_v)^2 + (b - b_v)^2 + h_v^2)
-
-        (the numerator is constant per view precisely because ``n . X == d`` everywhere
-        on the canvas). Maximising it is a Voronoi partition of the plane by camera
-        footprint, so each drone renders the patch of facade it is parked in front of.
-
-        The border falloff multiplies the score rather than gating it, which keeps seams
-        off the source-image edges: a view running out of frame fades below a
-        neighbour's score before it runs out of pixels, so the winner changes over solid
-        image on both sides instead of at a hard image boundary.
+        Measured over geometric *coverage*, not over the blend weights: winner-take-all
+        makes the weights one-hot, so a weight-based overlap test would find no
+        overlapping pixels at all and silently retire the one diagnostic that quantifies
+        pose error.  Two views still see the same ground there whether or not both are
+        drawn.  On the canvas rather than the output raster, so the number does not
+        move when the output resolution does.
         """
-        M_t = torch.as_tensor(np.asarray(M, dtype=np.float32), device=grid.device)
-        ab = torch.matmul(M_t, grid)                       # [3,HW]; M's last row is [0,0,1]
+        dev = src.device
+        n, _, src_h, src_w = src.shape
+        limit = self._frame_limit(src_w, src_h, dev)
+        rows, cols = self._lattice_terms(
+            H_t,
+            torch.arange(canvas_w, dtype=torch.float32, device=dev).view(1, -1),
+            torch.arange(canvas_h, dtype=torch.float32, device=dev).view(-1, 1))
+        uv, f, ok = self._view_fields(rows + cols, limit, max_range)
+        valid = ok & (f >= 0)
+        warped = F.grid_sample(src, uv.mul_(2.0 / limit).sub_(1.0).permute(0, 2, 3, 1),
+                               mode="bilinear", padding_mode="zeros",
+                               align_corners=True)                         # [N,3,Hc,Wc]
 
-        cam_a = torch.tensor([c["plane_ab"][0] for c in cams],
-                             dtype=torch.float32, device=grid.device).unsqueeze(1)
-        cam_b = torch.tensor([c["plane_ab"][1] for c in cams],
-                             dtype=torch.float32, device=grid.device).unsqueeze(1)
-        cam_h = torch.tensor([c["plane_h"] for c in cams],
-                             dtype=torch.float32, device=grid.device).unsqueeze(1)
-
-        # In-place after the first subtraction: these are [N, H*W] float32 temporaries,
-        # 30 MB apiece at a 1200x800 canvas and 8 views, and the render loop shares its
-        # GPU with the warp thread.
-        da = ab[0].unsqueeze(0) - cam_a
-        db = ab[1].unsqueeze(0) - cam_b
-        d2 = da.mul_(da).add_(db.mul_(db)).add_(cam_h * cam_h)
-        score = d2.sqrt_().clamp_min_(1e-6).reciprocal_().mul_(cam_h).mul_(border)
-        if any(c.get("weak") for c in cams):
-            score.mul_(torch.tensor([self.WEAK_VIEW_PRIORITY if c.get("weak") else 1.0
-                                     for c in cams], dtype=score.dtype,
-                                    device=score.device).unsqueeze(1))
-
-        best_score, best = score.max(dim=0)
-        weight = torch.zeros_like(score)
-        weight.scatter_(0, best.unsqueeze(0),
-                        (best_score > 0).to(score.dtype).unsqueeze(0))
-        return weight
-
-    @staticmethod
-    def _overlap_psnr(warped, wgt):
-        """Worst pairwise PSNR over the region two views both cover."""
-        n = warped.shape[0]
-        worst = float("inf")
+        # Every pair's sums stay on the device and come back in one copy: a count and a
+        # squared error fetched pair by pair was ninety host syncs a frame at ten views.
+        counts, errors = [], []
         for i in range(n):
             for j in range(i + 1, n):
-                both = (wgt[i] > 1e-3) & (wgt[j] > 1e-3)
-                count = int(both.sum().item())
-                if count < 1024:
-                    continue
+                both = valid[i] & valid[j]
                 diff = (warped[i] - warped[j]) * both
-                mse = float((diff ** 2).sum().item()) / (count * warped.shape[1])
-                if mse > 1e-9:
-                    worst = min(worst, 10.0 * np.log10(255.0 ** 2 / mse))
+                counts.append(both.sum())
+                errors.append((diff * diff).sum())
+        if not counts:
+            return float("inf")
+        sums = torch.stack([torch.stack(counts).double(), torch.stack(errors).double()]).cpu()
+
+        worst = float("inf")
+        for count, error in zip(sums[0].tolist(), sums[1].tolist()):
+            if count < 1024:
+                continue
+            mse = error / (count * 3)
+            if mse > 1e-9:
+                worst = min(worst, 10.0 * np.log10(255.0 ** 2 / mse))
         return worst
 
     def _maybe_log_estimators(self, period=5.0):
@@ -2648,24 +3153,36 @@ class PlanarStitcher(BaseStitcher):
               # to a row and the normal now follows the gimbal.
               + (f" | plane from {self._plane_source}" if self._plane_source else ""))
 
-        # Framing, and where zoom stops buying detail. Printed as the canvas extent in
-        # metres rather than as metres-per-pixel because the extent is the thing an
-        # operator can check against the scene in front of them. "empty" flags a canvas
-        # sampled finer than the sharpest view's ground sample distance: past that point
-        # the mosaic is interpolating source pixels, not resolving new detail, which no
-        # other number on this line would reveal.
-        mpp_view = s.get("mpp_view", 0.0)
-        if mpp_view > 0.0:
+        # Framing, and whether the output resolves the feeds. Printed as the canvas extent
+        # in metres rather than as metres-per-pixel because the extent is the thing an
+        # operator can check against the scene in front of them. The detail figure is
+        # output pixels per source pixel of the sharpest view: below 1 the mosaic is
+        # coarser than the feeds it is made of, which is said in so many words because no
+        # other number on this line would reveal it; "empty" is the other end, a zoom
+        # past the point where it is interpolating source pixels, not resolving new ones.
+        mpp_out = s.get("mpp_out", 0.0)
+        if mpp_out > 0.0:
             gsd = s.get("best_gsd", 0.0)
             zoom = s.get("zoom", 1.0)
             ext_a, ext_b = s.get("canvas_extent", (0.0, 0.0))
+            out_w, out_h = s.get("out_size", (0, 0))
+            detail = gsd / mpp_out if gsd > 0.0 else 0.0
+            verdict = ""
+            if 0.0 < detail < 0.95:
+                verdict = (f" (BELOW feed resolution: raise planarRenderScale "
+                           f"by {1.0 / detail:.1f}x, or zoom in)")
+            elif zoom > 1.0 + 1e-3 and detail > 2.0:
+                verdict = " (EMPTY magnification)"
+            times = ""
+            if self._frame_ms is not None and self._render_ms is not None:
+                times = f" | {self._frame_ms:.1f} ms a frame (render {self._render_ms:.1f})"
             print(f"[PLANAR] canvas [{s.get('canvas_mode', '?')}] "
-                  f"{ext_a:.1f} x {ext_b:.1f} m "
-                  f"@ {mpp_view * 100.0:.1f} cm/px"
+                  f"{ext_a:.1f} x {ext_b:.1f} m drawn at {out_w}x{out_h}, "
+                  f"{mpp_out * 100.0:.1f} cm/px"
                   + (f" | zoom {zoom:.2f}x" if abs(zoom - 1.0) > 1e-3 else "")
-                  + (f" | source GSD {gsd * 100.0:.1f} cm/px"
-                     f"{' (EMPTY magnification)' if mpp_view < gsd else ''}"
-                     if gsd > 0.0 else ""))
+                  + (f" | source GSD {gsd * 100.0:.1f} cm/px, {detail:.1f} px per "
+                     f"source px{verdict}" if gsd > 0.0 else "")
+                  + times)
 
         # A colour map is useless without the key, and the selection changes as drones
         # join, die or fall out of range -- so reprint it alongside the stats rather

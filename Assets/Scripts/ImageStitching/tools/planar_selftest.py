@@ -181,8 +181,8 @@ def make_bare_stitcher(ps_mod, torch):
     # The learned aligner's attributes (_aligner, _align_stats, _clock, ...) are class-level
     # defaults on PlanarStitcher for exactly this helper, so they need no line here.
     s._correction = {"dpose": None, "plane": None}
-    s._grid_key = None
-    s._grid = None
+    # The render path's caches (_lattice_cache, _src_cache, _out_ring, ...) are class-level
+    # defaults as well.
     s._est_grid_key = None
     s._est_grid = None
     s._frame_snapshot = None
@@ -2172,6 +2172,384 @@ def _test_lagging_video(ps_mod, torch, est_cfg):
           f"(the lag is worth {speed * dt * lag_frames:.1f} m)")
 
 
+# --------------------------------------------------------------------------------------
+# 14. Output raster and the one-view-per-pixel render
+# --------------------------------------------------------------------------------------
+
+def _oblique_scene(texture, W=800, H=450, vfov=46.4):
+    """
+    Six views of a ground plane from mixed heights, headings and pitches.
+
+    Their footprints are trapezoids of different sizes at different angles, which is what
+    the per-view bounding boxes and the winner-take-all scoring have to get right -- and
+    what five identical nadir views never ask of them.  Returns ``(views, K, s_tex, plane)``.
+    """
+    K = intrinsics_from_unity(vfov, W, H)
+    th, tw = texture.shape[:2]
+    s_tex = 26.0 / float(K[1, 1])
+    n_unity = (0.0, 1.0, 0.0)
+    frame = pg.build_plane_frame(
+        pg.unity_dir_to_rh(n_unity), 0.0, pg.unity_point_to_rh((0.0, 0.0, 0.0)),
+        Camera((0.0, 26.0, 0.0), euler_to_quat(90, 0, 0), vfov, W, H).right_rh)
+    M_tex = pg.canvas_to_plane_matrix(s_tex, tw / 2.0, th / 2.0)
+
+    poses = [((0.0, 26.0, 0.0), 90.0, 0.0), ((-7.0, 24.0, 1.0), 82.0, 20.0),
+             ((6.0, 28.0, -2.0), 97.0, -15.0), ((1.0, 30.0, 6.0), 90.0, 35.0),
+             ((-2.0, 22.0, -6.0), 78.0, -30.0), ((8.0, 25.0, 5.0), 85.0, 60.0)]
+    views = []
+    for i, (pos, pitch, yaw) in enumerate(poses):
+        quat = euler_to_quat(pitch, yaw, 0.0)
+        cam = Camera(pos, quat, vfov, W, H)
+        H_tex = pg.homography_canvas_to_image(
+            pg.build_G(cam.K, cam.R_cv, cam.C, frame), M_tex)
+        views.append({
+            'slot': i, 'drone_id': i, 'heading': 0.0,
+            'image': cv2.warpPerspective(texture, H_tex, (W, H), flags=cv2.INTER_LINEAR),
+            'pos': pos, 'quat': tuple(float(c) for c in quat),
+            'capture_time': 0.0, 'pose_status': 3, 'cached': False,
+        })
+    plane = {"plane_normal": n_unity, "plane_d": 0.0, "plane_valid": True,
+             "plane_mode": 1, "gimbal_pitch": -90.0, "centre_drone_id": 0}
+    return views, K, s_tex, plane
+
+
+def _raster_to_canvas(canvas_w, canvas_h, out_w, out_h, bottom_up):
+    """
+    Output pixel -> canvas pixel, written out independently of the stitcher: pixel
+    *areas* line up, so output pixel X is centred on canvas ``(X + 0.5) * cw / W - 0.5``,
+    and a bottom-up raster's row r is the picture's row ``H - 1 - r``.
+    """
+    sx, sy = canvas_w / out_w, canvas_h / out_h
+    S = np.array([[sx, 0.0, 0.5 * sx - 0.5], [0.0, sy, 0.5 * sy - 0.5], [0.0, 0.0, 1.0]])
+    if bottom_up:
+        S = S @ np.array([[1.0, 0.0, 0.0], [0.0, -1.0, out_h - 1.0], [0.0, 0.0, 1.0]])
+    return S
+
+
+def _reference_mosaic(cams, M, S, out_w, out_h, feather_px, max_range, blend):
+    """
+    The mosaic computed the slow, obvious way, in float64 numpy: every view over every
+    pixel, no bounding boxes, no stacked texture, nothing shared with the stitcher's
+    render but the formulas in its docstrings.
+
+    Returns ``(float BGR [H, W, 3], margin [H, W])``; ``margin`` is how far the winning
+    score is ahead of the runner-up, relative to it, so the caller can set aside the
+    pixels where float32 may legitimately pick the other side of a seam.
+    """
+    X, Y = np.meshgrid(np.arange(out_w, dtype=np.float64), np.arange(out_h, dtype=np.float64))
+    canvas = np.tensordot(S, np.stack([X, Y, np.ones_like(X)]), axes=1)
+    plane = np.tensordot(np.asarray(M, dtype=np.float64), canvas, axes=1)
+    weights, scores, colours = [], [], []
+    for cam in cams:
+        img = cam["view"]["image"].astype(np.float64)
+        h, w = img.shape[:2]
+        uvw = np.tensordot(np.asarray(cam["H"], dtype=np.float64), canvas, axes=1)
+        ok = (uvw[2] > 1e-6) & (uvw[2] < max_range)
+        depth = np.where(ok, uvw[2], 1.0)
+        u, v = uvw[0] / depth, uvw[1] / depth
+        border = np.minimum(np.minimum(u, w - 1 - u), np.minimum(v, h - 1 - v))
+        inside = ok & (border > 0)
+        fade = np.clip(border / feather_px, 0.0, 1.0)
+        u0 = np.clip(np.floor(u), 0, w - 2).astype(int)
+        v0 = np.clip(np.floor(v), 0, h - 2).astype(int)
+        fu = np.clip(u - u0, 0.0, 1.0)[..., None]
+        fv = np.clip(v - v0, 0.0, 1.0)[..., None]
+        sample = ((img[v0, u0] * (1 - fu) + img[v0, u0 + 1] * fu) * (1 - fv)
+                  + (img[v0 + 1, u0] * (1 - fu) + img[v0 + 1, u0 + 1] * fu) * fv)
+        da, db = plane[0] - cam["plane_ab"][0], plane[1] - cam["plane_ab"][1]
+        cos = cam["plane_h"] / np.sqrt(da * da + db * db + cam["plane_h"] ** 2)
+        weights.append(np.where(inside, fade, 0.0))
+        scores.append(np.where(inside, cos * fade, 0.0))
+        colours.append(sample)
+    weights, scores, colours = np.stack(weights), np.stack(scores), np.stack(colours)
+
+    # A pixel nothing covers has no winner to be unsure of.
+    ranked = np.sort(scores, axis=0)
+    margin = np.where(ranked[-1] > 0.0,
+                      (ranked[-1] - ranked[-2]) / np.maximum(ranked[-1], 1e-12), 1.0)
+    if blend == "nearest":
+        out = np.take_along_axis(colours, scores.argmax(axis=0)[None, ..., None], axis=0)[0]
+        out[ranked[-1] <= 0] = 0.0
+        return out, margin
+    total = weights.sum(axis=0)
+    out = (colours * weights[..., None]).sum(axis=0) / np.maximum(total, 1e-6)[..., None]
+    out[total <= 1e-6] = 0.0
+    return out, np.ones_like(total)
+
+
+def test_output_raster():
+    """
+    The render draws one view per pixel, over per-view bounding boxes, at an output size
+    that is not the canvas, straight into the wire's layout.  Each of those is a way to be
+    subtly wrong that a mosaic which merely *looks* right would not show, so each is
+    pinned against something that does not share its code.
+    """
+    print("\n14. Output raster and the one-view-per-pixel render")
+    if cv2 is None:
+        check("cv2 available", False, "opencv not installed; skipped")
+        return
+    try:
+        import torch
+        import PlanarStitcher as ps_mod
+        from wire_panorama import WireReadyPanorama
+    except ImportError as e:
+        check("torch + PlanarStitcher importable", False, f"{e}")
+        return
+
+    texture = make_unique_texture()
+    views, K, s_tex, plane = _oblique_scene(texture)
+    intr = (K[0, 0], K[1, 1], K[0, 2], K[1, 2])
+    cw, ch = 1000, 700
+    base = {"canvas": (cw, ch), "metres_per_pixel": s_tex, "max_range": 200.0,
+            "feather_px": 40, "aniso_max": 12.0, "min_coverage": 0.05, "pose_source": 0,
+            "psnr_gate": False, "blend_mode": ps_mod.BLEND_NEAREST,
+            "debug_view": ps_mod.DEBUG_OFF, "plane_sweep": False, "pose_refine": False,
+            # Bilinear here, because that is what the reference below implements; the
+            # default kernel has its own check at the end.
+            "sampling": "bilinear"}
+
+    def render(stitcher, out=None, **cfg):
+        stitcher._plane_invalid_since = None
+        pano, ok, reason = stitcher.planar_pano(
+            views, intr, plane, dict(base, **cfg),
+            out_size=None if out is None else (out[1], out[0]))
+        return (np.array(pano) if ok else None), pano
+
+    def to_picture(wire):
+        """A wire-ready panorama (RGB, bottom-up) as the BGR top-down picture it shows."""
+        return cv2.cvtColor(cv2.flip(wire, 0), cv2.COLOR_RGB2BGR)
+
+    def agreement(a, b, keep=None):
+        diff = np.abs(a.astype(np.float64) - b.astype(np.float64)).max(axis=2)
+        if keep is not None:
+            diff = diff[keep]
+        return float((diff <= 1.0).mean()), float(diff.mean())
+
+    s = make_bare_stitcher(ps_mod, torch)
+    pano, _ = render(s)
+    if not check("oblique scene rendered", pano is not None):
+        return
+    _frame, cams, M, _cw, _ch, _mpp = s._last_geometry
+    check("all six oblique views were kept", len(cams) == 6, f"{len(cams)} kept")
+
+    # --- against the slow, obvious implementation ---------------------------------------
+    # Winner-take-all first. Pixels where the two best scores are within 1e-4 of each
+    # other are set aside: there float32 may pick the other view, the two views differ by
+    # their own resampling, and the comparison would be measuring that.
+    ref, margin = _reference_mosaic(cams, M, np.eye(3), cw, ch, 40.0, 200.0, "nearest")
+    clear = margin > 1e-4
+    same, mean = agreement(pano, np.floor(ref + 0.5), clear)
+    check("one-view-per-pixel render matches a float64 all-views reference",
+          same > 0.9999 and mean < 0.05 and clear.mean() > 0.995,
+          f"{same:.5%} of pixels within one grey level, mean difference {mean:.4f} "
+          f"({1 - clear.mean():.3%} set aside as seam ties)")
+
+    feather, _ = render(s, blend_mode=ps_mod.BLEND_FEATHER)
+    ref_f, _ = _reference_mosaic(cams, M, np.eye(3), cw, ch, 40.0, 200.0, "feather")
+    same, mean = agreement(feather, np.floor(ref_f + 0.5))
+    check("feathered render matches the reference too",
+          same > 0.9999 and mean < 0.05,
+          f"{same:.5%} of pixels within one grey level, mean difference {mean:.4f}")
+
+    # --- the wire layout -----------------------------------------------------------------
+    wire, raw = render(s, out=(cw, ch))
+    check("an output size returns a wire-ready panorama",
+          isinstance(raw, WireReadyPanorama) and wire.shape == (ch, cw, 3),
+          f"{type(raw).__name__} {None if wire is None else wire.shape}")
+    same, mean = agreement(to_picture(wire), pano)
+    check("at the canvas size the wire panorama is the canvas, flipped and in RGB",
+          same > 0.9999 and mean < 0.01,
+          f"{same:.5%} within one grey level, mean difference {mean:.4f}")
+
+    # --- another size, another aspect ----------------------------------------------------
+    # The reference is evaluated through a raster matrix written out in this file, so the
+    # pixel-area convention, the row reversal and the channel order are all under test.
+    for name, (ow, oh) in (("twice the canvas", (2 * cw, 2 * ch)),
+                           ("another aspect (the old 8:3 panorama)", (1600, 600))):
+        wire, _ = render(s, out=(ow, oh))
+        ref, margin = _reference_mosaic(cams, M, _raster_to_canvas(cw, ch, ow, oh, True),
+                                        ow, oh, 40.0, 200.0, "nearest")
+        clear = margin > 1e-4
+        same, mean = agreement(wire[..., ::-1], np.floor(ref + 0.5), clear)
+        check(f"{name}: drawn where the canvas resized to it would be",
+              wire.shape == (oh, ow, 3) and same > 0.9999 and mean < 0.05,
+              f"{ow}x{oh}: {same:.5%} within one grey level, mean difference {mean:.4f}")
+
+    # ... and that convention is cv2.resize's: the 2x mosaic averaged back down must sit
+    # on the canvas mosaic, not half a pixel off it. A convention that anchored pixel
+    # *centres* instead would pass every check above against its own matrix and fail here.
+    wire2, _ = render(s, out=(2 * cw, 2 * ch))
+    big = to_picture(wire2).astype(np.float64)
+    inner = cv2.erode((pano.max(axis=2) > 0).astype(np.uint8), np.ones((25, 25), np.uint8)) > 0
+
+    def back_down(shift):
+        moved = np.roll(big, shift, axis=1)
+        small = cv2.resize(moved, (cw, ch), interpolation=cv2.INTER_AREA)
+        return float(np.sqrt(((small - pano.astype(np.float64)) ** 2).mean(axis=2)[inner].mean()))
+
+    here, left, right = back_down(0), back_down(-1), back_down(1)
+    check("the 2x mosaic averages back onto the canvas mosaic, not half a pixel off",
+          here < 0.7 * min(left, right),
+          f"RMSE {here:.2f} in place against {left:.2f} / {right:.2f} half a canvas pixel "
+          f"either way")
+
+    # --- the bounding boxes hide nothing --------------------------------------------------
+    H_out = np.stack([c["H"] for c in cams]) @ _raster_to_canvas(cw, ch, 2 * cw, 2 * ch, True)
+    rois = s._view_rois(H_out, 800, 450, 2 * cw, 2 * ch)
+    area = np.mean([(y1 - y0) * (x1 - x0) for y0, y1, x0, x1 in rois]) / (4.0 * cw * ch)
+    whole = make_bare_stitcher(ps_mod, torch)
+    whole._view_rois = lambda H, sw, sh, ow, oh, pad=2: [(0, oh, 0, ow)] * len(H)
+    identical = []
+    for mode in (ps_mod.BLEND_NEAREST, ps_mod.BLEND_MULTIBAND, ps_mod.BLEND_FEATHER):
+        boxed, _ = render(make_bare_stitcher(ps_mod, torch), out=(2 * cw, 2 * ch), blend_mode=mode)
+        full, _ = render(whole, out=(2 * cw, 2 * ch), blend_mode=mode)
+        whole._gain_state = None
+        identical.append(bool(np.array_equal(boxed, full)))
+    check("per-view bounding boxes change nothing but the work",
+          all(identical) and area < 0.8,
+          f"byte-identical in nearest / multiband / feather: {identical}; a view's box "
+          f"is {area:.0%} of the raster on average")
+
+    # --- the point of it: detail ----------------------------------------------------------
+    # A canvas half as fine as the feeds, which is the case this exists for. Drawn at 2x
+    # the mosaic must be closer to the ground truth than the canvas-sized one enlarged.
+    nadir, K_n, s_n, plane_n = _nadir_scene(texture)
+    intr_n = (K_n[0, 0], K_n[1, 1], K_n[0, 2], K_n[1, 2])
+    coarse = dict(base, metres_per_pixel=2.0 * s_n)
+    s_d = make_bare_stitcher(ps_mod, torch)
+    low = s_d.planar_pano(nadir, intr_n, plane_n, coarse)[0]
+    s_d._plane_invalid_since = None
+    high = to_picture(np.array(s_d.planar_pano(nadir, intr_n, plane_n, coarse,
+                                               out_size=(2 * ch, 2 * cw))[0]))
+    th, tw = texture.shape[:2]
+    M_tex = pg.canvas_to_plane_matrix(s_n, tw / 2.0, th / 2.0)
+    M_fine = pg.canvas_to_plane_matrix(2.0 * s_n, cw * 0.5, ch * 0.5) \
+        @ _raster_to_canvas(cw, ch, 2 * cw, 2 * ch, False)
+    truth = cv2.warpPerspective(texture, np.linalg.inv(M_tex) @ M_fine, (2 * cw, 2 * ch),
+                                flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP).astype(np.float64)
+    seen = cv2.erode((high.max(axis=2) > 0).astype(np.uint8), np.ones((31, 31), np.uint8)) > 0
+    enlarged = cv2.resize(low, (2 * cw, 2 * ch), interpolation=cv2.INTER_LINEAR)
+
+    def rmse(img):
+        return float(np.sqrt(((img.astype(np.float64) - truth) ** 2).mean(axis=2)[seen].mean()))
+
+    check("drawn at 2x, a coarse canvas keeps the detail it used to discard",
+          rmse(high) < 0.6 * rmse(enlarged),
+          f"RMSE against the texture {rmse(enlarged):.2f} (canvas, enlarged) -> "
+          f"{rmse(high):.2f} (drawn at 2x)")
+    stats = s_d._last_stats
+    check("the stats report the output size and its scale",
+          stats.get("out_size") == (2 * cw, 2 * ch)
+          and abs(stats.get("mpp_out", 0.0) - s_n) < 1e-9,
+          f"out {stats.get('out_size')}, {stats.get('mpp_out', 0) * 100:.2f} cm/px "
+          f"(canvas {stats.get('mpp_view', 0) * 100:.2f})")
+
+    # --- multiband at an output size -------------------------------------------------------
+    pair, K_p, s_p, plane_p = _nadir_scene(texture, offsets=((-6.0, 0.0), (6.0, 0.0)))
+    intr_p = (K_p[0, 0], K_p[1, 1], K_p[0, 2], K_p[1, 2])
+    dark = [dict(pair[0]), dict(pair[1], image=(pair[1]["image"].astype(np.float32) * 0.75)
+                                .astype(np.uint8))]
+    cfg_p = dict(base, metres_per_pixel=s_p)
+
+    def seam_step(picture, scale):
+        g = picture.astype(np.float32).mean(axis=2)
+        mid = picture.shape[1] // 2 + int(round(scale * 6.0 / s_p))
+        rows = slice(picture.shape[0] // 2 - 150 * scale, picture.shape[0] // 2 + 150 * scale)
+        return abs(float(g[rows, mid - 40 * scale:mid - 3 * scale].mean()
+                         - g[rows, mid + 3 * scale:mid + 40 * scale].mean()))
+
+    def mosaic(stitcher, vs, mode, frames=1):
+        out = None
+        for _ in range(frames):
+            stitcher._plane_invalid_since = None
+            out = np.array(stitcher.planar_pano(vs, intr_p, plane_p, dict(cfg_p, blend_mode=mode),
+                                                out_size=(2 * ch, 2 * cw))[0])
+        return to_picture(out)
+
+    hard = mosaic(make_bare_stitcher(ps_mod, torch), dark, ps_mod.BLEND_NEAREST)
+    soft = mosaic(make_bare_stitcher(ps_mod, torch), dark, ps_mod.BLEND_MULTIBAND, frames=40)
+    check("multiband still removes the exposure step at 2x",
+          seam_step(hard, 2) > 15.0 and seam_step(soft, 2) < 0.25 * seam_step(hard, 2),
+          f"brightness step across the seam {seam_step(hard, 2):.1f} -> "
+          f"{seam_step(soft, 2):.1f} grey levels")
+    plain = mosaic(make_bare_stitcher(ps_mod, torch), pair, ps_mod.BLEND_NEAREST)
+    banded = mosaic(make_bare_stitcher(ps_mod, torch), pair, ps_mod.BLEND_MULTIBAND, frames=3)
+    diff = np.abs(plain.astype(np.float32) - banded.astype(np.float32))[plain.max(axis=2) > 0]
+    check("multiband at 2x changes nothing where the views already agree",
+          float(diff.mean()) < 1.0, f"mean |difference| {float(diff.mean()):.2f} grey levels")
+
+    # --- and the kernel: the feed has to survive the trip ---------------------------------
+    # The 2x mosaic is resampled back into one drone's own frame and compared with the
+    # frame that drone sent, over a patch it owns outright. This is the number the output
+    # size and the bicubic kernel exist for: how much of a feed is still there.
+    def feed_psnr(sampling):
+        st_k = make_bare_stitcher(ps_mod, torch)
+        wire = np.array(st_k.planar_pano(pair, intr_p, plane_p, dict(cfg_p, sampling=sampling),
+                                         out_size=(2 * ch, 2 * cw))[0])
+        cam = next(c for c in st_k._last_geometry[1] if c["view"]["drone_id"] == 0)
+        src = cam["view"]["image"]
+        h, w = src.shape[:2]
+        U, V = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
+        q = np.tensordot(np.linalg.inv(cam["H"]), np.stack([U, V, np.ones_like(U)]), axes=1)
+        back = cv2.remap(to_picture(wire),
+                         ((q[0] / q[2] + 0.5) * 2.0 - 0.5).astype(np.float32),
+                         ((q[1] / q[2] + 0.5) * 2.0 - 0.5).astype(np.float32),
+                         cv2.INTER_LANCZOS4)
+        mid = (slice(h // 2 - 60, h // 2 + 60), slice(w // 2 - 100, w // 2 + 100))
+        err = (back[mid].astype(np.float64) - src[mid].astype(np.float64)) ** 2
+        return 10.0 * np.log10(255.0 ** 2 / max(float(err.mean()), 1e-9))
+
+    linear, cubic = feed_psnr("bilinear"), feed_psnr("bicubic")
+    check("the default (bicubic) kernel returns the feed nearly intact at 2x",
+          ps_mod.SAMPLING == "bicubic" and cubic > 48.0 and cubic > linear + 5.0,
+          f"mosaic resampled back into the drone's frame: {linear:.1f} dB bilinear, "
+          f"{cubic:.1f} dB bicubic (default kernel: {ps_mod.SAMPLING})")
+
+    # --- the overlap PSNR is throttled only when asked ------------------------------------
+    s_t = make_bare_stitcher(ps_mod, torch)
+    calls = []
+    measure = s_t._overlap_psnr
+    s_t._overlap_psnr = lambda *a, **k: calls.append(1) or measure(*a, **k)
+    for _ in range(3):
+        render(s_t)
+    every = len(calls)
+    for _ in range(3):
+        render(s_t, psnr_period_s=60.0)
+    throttled = len(calls) - every
+    for _ in range(2):
+        render(s_t, psnr_period_s=60.0, psnr_gate=True)
+    gated = len(calls) - every - throttled
+    check("overlap PSNR: every call by default, on a period when asked, always when gating",
+          every == 3 and throttled == 0 and gated == 2
+          and np.isfinite(s_t._last_stats.get("overlap_psnr", float("nan"))),
+          f"{every} / {throttled} / {gated} measurements over 3 / 3 / 2 renders; "
+          f"reported {s_t._last_stats.get('overlap_psnr'):.1f} dB")
+
+    # --- the same on the device the live stitcher uses ------------------------------------
+    if not torch.cuda.is_available():
+        print("  [SKIP] CUDA render: no device")
+        return
+    g = make_bare_stitcher(ps_mod, torch)
+    g.render_device = torch.device("cuda")
+    cpu_wire, _ = render(make_bare_stitcher(ps_mod, torch), out=(2 * cw, 2 * ch))
+    gpu_wire, _ = render(g, out=(2 * cw, 2 * ch))
+    same, mean = agreement(gpu_wire, cpu_wire)
+    check("the CUDA render (pinned uploads, one stacked texture) matches the CPU one",
+          same > 0.999 and mean < 0.05,
+          f"{same:.4%} within one grey level, mean difference {mean:.4f}")
+
+    # A frame rewritten in place is the same array, and must still be uploaded again.
+    before = views[2]["image"].copy()
+    views[2]["image"][:] = 255 - views[2]["image"]
+    changed, _ = render(g, out=(2 * cw, 2 * ch))
+    views[2]["image"][:] = before
+    restored, _ = render(g, out=(2 * cw, 2 * ch))
+    check("a frame rewritten in place is uploaded again",
+          not np.array_equal(changed, gpu_wire) and np.array_equal(restored, gpu_wire),
+          f"{float((changed != gpu_wire).any(axis=2).mean()):.0%} of the mosaic changed "
+          f"with the frame, and came back with it")
+
+
 def main():
     print("=" * 74)
     print("planar_geometry self-test")
@@ -2187,6 +2565,7 @@ def main():
     test_formation_plane()
     test_canvas_modes()
     test_learned_alignment()
+    test_output_raster()
 
     print("\n" + "=" * 74)
     if _failures:

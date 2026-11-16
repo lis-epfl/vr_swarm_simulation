@@ -103,17 +103,10 @@ def _env_flag(name, default="0"):
     return os.environ.get(name, default).lower() not in ("0", "", "false", "no")
 
 
-class WireReadyPanorama(np.ndarray):
-    """
-    A panorama already in the PanoramaSharedMemory layout: RGB, bottom-up rows, at the
-    panorama size Unity asked for. ``stab_pano`` returns one of these when it rendered
-    straight to the wire; ``first_thread`` then writes it without the resize / flip /
-    BGR->RGB pass it applies to a plain BGR canvas.
-
-    An ndarray subclass rather than a wrapper so every existing ``.shape`` / ``imwrite``
-    use keeps working; the backing memory is a pinned buffer owned by the stitcher and is
-    reused a few renders later, so consumers must not hold on to it.
-    """
+# ``stab_pano`` returns one of these when it rendered straight to the wire. Defined in its
+# own module since the planar stitcher returns them too; re-exported here because this is
+# where callers have always imported it from.
+from wire_panorama import WireReadyPanorama  # noqa: E402,F401
 
 
 # ---------------------------------------------------------------------------

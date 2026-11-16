@@ -17,6 +17,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CS = os.path.join(ROOT, "PyUniSharingFast.cs")
 PY = os.path.join(ROOT, "StitcherThreading.py")
+# The panorama's wire type and its size tag live beside each other in a module of their
+# own (the planar stitcher needs both without importing StitcherThreading); the constants
+# are read from where they are defined.
+WIRE_PY = os.path.join(ROOT, "wire_panorama.py")
 # The real-drone producer, in the DJI scene. Sits outside ImageStitching/.
 SHARING_CS = os.path.join(os.path.dirname(ROOT), "dji", "ImageSharing.cs")
 # The other end of the feed map, in a sibling repo. Checked when present, skipped when not
@@ -80,6 +84,11 @@ PAIRS = [
     # never updates (or one that uploads every read, which is merely the old cost).
     ("panoramaSeqShift",               "PANORAMA_SEQ_SHIFT"),
     ("panoramaSeqMask",                "PANORAMA_SEQ_MASK"),
+    # The tag of the panorama size the image bytes were written at, in the quality word's
+    # bits 9-15. Unity refuses a panorama whose tag is not its own size's, so a
+    # disagreement about where the tag sits reads as a panorama that never appears.
+    ("panoramaSizeTagShift",           "PANORAMA_SIZE_TAG_SHIFT"),
+    ("panoramaSizeTagMask",            "PANORAMA_SIZE_TAG_MASK"),
     # Not an offset: Python switches on the plane-mode byte by number, so the enum value
     # itself is part of the contract. C# mirrors it as a const because this parser reads
     # `const int` and cannot evaluate an enum member.
@@ -129,8 +138,50 @@ def parse_py(path):
     return out
 
 
+def check_size_tag(cs_src, failures):
+    """
+    The size tag is a formula, not a constant, so it is checked by evaluation: the C#
+    expression is lifted out of ``PanoramaSizeTag`` and run beside the Python function
+    over sizes that are actually used.  A tag that differs is a panorama Unity never
+    uploads -- the curved screen simply stays on whatever it last showed.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("wire_panorama", WIRE_PY)
+    wire = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wire)
+
+    print()
+    print("Panorama size tag (C# PanoramaSizeTag vs wire_panorama.panorama_size_tag)")
+    print("-" * 100)
+    m = re.search(r"static\s+int\s+PanoramaSizeTag\s*\(\s*int\s+width\s*,\s*int\s+height\s*\)"
+                  r"\s*(?:=>\s*([^;]+);|\{\s*return\s+([^;]+);)", cs_src)
+    if not m:
+        print("  PanoramaSizeTag(int width, int height) not found in PyUniSharingFast.cs")
+        failures.append("PanoramaSizeTag not found in PyUniSharingFast.cs")
+        return
+    expr = (m.group(1) or m.group(2)).strip()
+    consts = parse_cs(CS)
+    sizes = [(1600, 600), (2160, 810), (1920, 720), (1200, 800), (2400, 1600), (3600, 2400),
+             (4000, 4000), (600, 400), (1800, 1200), (3000, 2000)]
+    tags = {}
+    for w, h in sizes:
+        a = int(eval(expr, {"__builtins__": {}}, dict(consts, width=w, height=h)))
+        b = wire.panorama_size_tag(w, h)
+        tags[(w, h)] = b
+        ok = a == b and 1 <= b <= wire.PANORAMA_SIZE_TAG_MASK
+        print(f"  {w:>5} x {h:<5}  C# {a:>4}  Py {b:>4}  {'OK' if ok else 'MISMATCH'}")
+        if not ok:
+            failures.append(f"PanoramaSizeTag({w}, {h}) = {a} in C#, {b} in Python")
+    # The tag only does its job if the sizes a session switches between differ in it.
+    clashes = [(p, q) for i, p in enumerate(sizes) for q in sizes[i + 1:] if tags[p] == tags[q]]
+    print(f"  distinct across these sizes: {'OK' if not clashes else 'CLASH ' + str(clashes)}")
+    if clashes:
+        failures.append(f"panorama size tag clashes: {clashes}")
+
+
 def main():
     cs, py = parse_cs(CS), parse_py(PY)
+    py.update(parse_py(WIRE_PY))
     failures = []
 
     # The section-size constants run to eight digits, so the value columns are wide
@@ -253,6 +304,8 @@ def main():
 
     dyn_end = cs.get("metaCentreDroneIdOffset", 0) + 4
     print(f"  dynamic block spans {cs.get('metaDynSeqOffset')}..{dyn_end}")
+
+    check_size_tag(open(CS, encoding="utf-8-sig").read(), failures)
 
     # DroneFeedSharedMemory: the PC produces it, ImageSharing.cs consumes it. Unlike the
     # stitch section this one is grown by a trailer, so its geometry is now load-bearing

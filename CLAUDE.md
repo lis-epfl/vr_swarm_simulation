@@ -172,6 +172,21 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   a main-thread `LoadRawTextureData` + `Apply` whose RGB24→RGBA32 conversion (D3D11 has no 24-bit
   format) grows with the panorama size. `0` is a producer without the counter and gets the old
   upload-every-read behaviour, so either side can be updated first.
+  **The live panorama size depends on the stitcher, and bits 9–15 of the quality word tag it**
+  (2026-11-16). Every stitcher but `PLANAR` draws `panoramaImageWidth × Height`; `PLANAR`'s panorama
+  is its own canvas at `planarRenderScale` (`PyUniSharingFast.ResolvePanoramaWireSize`, 2400×1600 by
+  default: see the PLANAR section). That size is what the metadata's panorama fields carry and what
+  `panoTexture` is (`EnsurePanoramaTexture`: re-made black on a change), so **every
+  STABSTITCH ⇄ PLANAR switch moves the payload length**, mid-flight on the `V` key. The section does
+  not move (it is the constant), but a panorama Python rendered for the old size and wrote after
+  Unity adopted the new one would be uploaded at the wrong stride, a frame of sheared noise. So
+  Python writes `panorama_size_tag(w, h)` (7 bits, never 0, `wire_panorama.py`) and Unity uploads
+  only a panorama whose tag is its own size's; `0` is an untagged producer and is uploaded as before.
+  The tag is a formula on both sides, so `check_wire_layout.py` evaluates the C# expression beside the
+  Python one and asserts the sizes in use get distinct tags. That is not a formality: the first
+  multipliers (31, 17) sent **every 3:2 size to the same tag** (31·3 + 17·2 = 127), which the check
+  caught. `PanoramaQualityWord` is published with the tag stripped, because `ExperimentRecorder`
+  logs that word's low bits as the failing-gate reason.
   **Measured, not adopted (2026-09-29):** uploading the same bytes as an R8 texture three times as
   wide (a format D3D11 takes as-is) and swizzling them into an sRGB RGBA target with a one-pass blit
   is byte-exact and saves only ~0.65 ms of main-thread time per 2400×900 upload (1.30 → 0.66 ms;
@@ -890,7 +905,9 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   (`blockImageWidth/Height` + `panoramaImageWidth/Height` in `PyUniSharingFast`'s inspector); set those to
   scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, and the TPS field is
   evaluated on a bounded lattice (below), so the warp update is ~21 ms whether blocks are 768 or
-  1280 px wide; only the uploads and copies grow with resolution.
+  1280 px wide; only the uploads and copies grow with resolution. **`PLANAR` is the exception on the
+  output side:** its panorama is `planarCanvasWidth/Height × planarRenderScale`, not
+  `panoramaImageWidth/Height` (the PLANAR section says why).
 - **Size the resolution to the headset, and move the feeds and the panorama together.**
   `blockImageWidth/Height` is also every feed screen's render-texture size (ScreenSpawn adopts it), so
   the stitch input can never exceed what the feed screens show. The Quest Pro resolves ~22 px/deg: an
@@ -1144,6 +1161,97 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   reference camera. `Fixed` + `zoom 1` + `pan 0` is asserted byte-identical to the pre-mode mosaic in
   `planar_selftest.py`; that is what makes putting the dropdown back a guarantee rather than a hope.
 - **Zoom and pan are a viewing transform and must never reach the estimators.** `planarZoom` /
+- **The canvas is the framing; the mosaic is drawn on an output raster of its own** (2026-11-16, the
+  user's request: the mosaic was less sharp than the feeds it is made of). `planarCanvasWidth/Height`
+  with `planarMetresPerPixel` say which patch of plane is shown, and everything in canvas pixels
+  stays in those units: the auto-fit, the pan, the anisotropy gate, `Multiband`'s blend width, the
+  overlap PSNR, the photometric estimators' quarter-size canvas. `planarRenderScale` (default 2:
+  2400x1600) is how many pixels that patch is drawn with, and in `PLANAR` that size *is* the
+  panorama Unity publishes and uploads (`ResolvePanoramaWireSize`, above). `planar_pano(...,
+  out_size=)` draws straight into it, in the wire's layout (`WireReadyPanorama`: RGB, bottom-up,
+  pinned). It used to go 1200x800 canvas -> `cv2.resize` -> a panorama of another aspect
+  (1600x600 in DJIScene, 2160x810 in the sim scenes): two resamplings, the second *down* in height.
+  Points worth keeping:
+  - **Measured by resampling the panorama back into one drone's own frame** (Lanczos, over the
+    region that drone owns) and comparing with the frame it sent. PSNR, then the contrast kept at
+    the finest detail a feed holds (0.4-0.5 cycles/px):
+
+    | clip | old path | drawn at 2x |
+    |---|---|---|
+    | nadir, 6 drones, 800x450 | 35.0 dB, 0.30 | **59.3 dB, 0.99** |
+    | MED facade, 3 drones | 32.0 dB, 0.37 | **59.2 dB, 0.99** |
+    | simulated wall, 6 x 1152x648 | 30.8 dB, 0.41 | **54.7 dB, 0.99** |
+
+    At scale 1 the same render gives 46-47 dB / 0.85-0.92 on the 800-wide feeds and 32.8 dB / 0.44
+    on the simulator's (its canvas is coarser than its feeds); at scale 3, 60-62 dB.
+  - **Sampling is bicubic, and that is half of the result** (`PlanarStitcher.SAMPLING`,
+    `PLANAR_SAMPLING=bilinear` or a config's `"sampling"` for the old kernel). Bilinear at 2x leaves
+    42-45 dB and 0.79-0.83 at the finest band. Bicubic costs ~1 ms a frame because the render takes
+    one sample per output pixel. Sampling is float32 throughout: the old fp16 `grid_sample`
+    resolved a coordinate to 1/2048 of the image, a fifth of a source pixel at 800 wide.
+  - **The raster matrix lines up pixel *areas*, as `cv2.resize` does** (`_raster_matrix`), so the
+    mosaic is framed exactly as the canvas resized to the output would be at any size or aspect,
+    and a Unity that predates `planarRenderScale` (publishing 2160x810) still gets the old framing,
+    drawn once. The self-test averages a 2x mosaic back down and requires it to sit on the canvas
+    one, not half a pixel off: a centre-aligned convention passes every check against its own matrix.
+  - **Python's `[PLANAR]` line says whether the output resolves the feeds**: output pixels per
+    source pixel of the sharpest view, `BELOW feed resolution: raise planarRenderScale by ...` when
+    under 1, `EMPTY magnification` for a zoom past 2. It moves with the standoff (the sim's wall at
+    20 m is 2.6 cm/px against 2.5 cm/px drawn), so read it rather than assume.
+  - **`debug_panorama.jpg` is thinned to 1600 px** before it is encoded: at 2400x1600 the encode
+    was ~30 ms inside the loop that reads the blocks and writes the panoramas.
+- **The render reads one view per pixel, and its full-size work no longer grows with the view
+  count.** The arithmetic is the per-pixel arithmetic it always was; `planar_selftest.py` section 14
+  holds it to a float64 all-views numpy reference (100% of pixels within one grey level, at the
+  canvas size, at 2x, and at the old 8:3 aspect) and to itself with the bounding boxes off
+  (byte-identical). What changed:
+  - **Each view's fields are evaluated over its own footprint's bounding box, one view at a time**
+    (`_view_rois`: the corners through the inverse homography; a view with the horizon in frame
+    gets the whole raster). The point is the working set, not the pixels skipped: an RTX 4090 has
+    72 MB of L2, a 2400x1600 float plane is 15 MB, and an op on one costs 0.02 ms against 0.3 ms
+    for the same op on a six-view stack that has fallen out of it. That, not `grid_sample`, was
+    where the old render's 53 ms at 2400x1600 went.
+  - **One sample per output pixel, out of all the frames stacked into one texture**
+    (`_compose_partition`): the winner and where it samples are running bests, and the image is
+    one `grid_sample` over a tall atlas, each frame padded with copies of its own border as far as
+    the kernel reaches so a sample never touches the next frame. Warping every view across the
+    whole raster to keep one was the rest of the old cost.
+  - **`Multiband`'s low bands live on a grid a blend-width coarse** (`_low_bands`: canvas / 13),
+    whatever the output size: views sampled there out of a box-reduced copy of the frames, four
+    samples a cell, and the per-view correction `mix - low_i` looked up at full size by label. The
+    exposure gains are solved in numpy from one small copy (a GPU LU for six unknowns cost more).
+  - **What is left is the interpreter**: ~10 us per tensor op however little it computes, on a
+    thread that shares its GIL. Hence the stacked `(u w, v w, w)` tensors and batched row / column
+    terms (`_lattice_terms`), the batched anisotropy gate and footprint box, and the frame's small
+    tensors going to the device *before* its images (a pageable copy waits for whatever is queued
+    ahead of it: 0.4 ms each behind six frames).
+  - **The overlap PSNR is measured on the canvas, at most every 0.5 s** in the live stitcher
+    (`PLANAR_PSNR_PERIOD_S`; every frame while Unity gates on it, and for any config without
+    `psnr_period_s`, i.e. every tool and test). It reads every view over the whole canvas, which is
+    the work the render stopped doing: 3.8 ms a frame at six views. On the canvas, so the number
+    does not move with `planarRenderScale`.
+  - **Measured end to end** with `tools/planar_bridge_bench.py` (the real `StitcherThreading.py`
+    against a stand-in for Unity; one pass of the render thread, median; the previous commit run
+    through the same harness with `--stitcher-dir`):
+
+    | load | before, at its own size | before, at 2400x1600 | now, 2400x1600 | now, 3600x2400 |
+    |---|---|---|---|---|
+    | 6 x 800x450, multiband | 20 ms | 36 ms (27 Hz) | **8.4 ms** | 10.9 ms |
+    | the same, aligner on | 28 ms | 55 ms (18 Hz) | **13-17 ms** | |
+    | 10 x 1152x648 at 30 Hz, nearest | 31 ms | 59 ms (17 Hz) | **9.6 ms** (multiband 13) | 13 ms |
+
+    The aligner's cost to the render thread is its own Python, not the GPU queue: a render CUDA
+    stream of its own changed nothing, and a shorter `sys.setswitchinterval` made it worse
+    (18 -> 31-39 ms at 0.3 ms). Both were tried and removed.
+  - **Unity's upload is the cost that does grow** (headless ScaledCityWorld, ten drones, the real
+    bridge and stitcher, 2026-11-16): `LoadRawTextureData` + `Apply` is 1.2-1.5 ms of main thread
+    per panorama at 2160x810, **2.7-3.4 ms at 2400x1600** and 6 ms at 3600x2400, thirty times a
+    second. That run also showed the texture following the stitcher both ways (2160x810 <->
+    2400x1600), the mosaic on screen 100% of both nadir phases and every one of the ten slots at
+    30.2 Hz. With Unity uncapped beside it the render there took 14-17 ms a frame at scale 2 and
+    26-28 ms at scale 3, so **3 is at the edge of 30 Hz in the sim and 2 is the default**. The R8
+    upload measured on 2026-09-29 is 1.7 ms against 2.7 at 2400x1600; still not in the project.
+    Not yet seen in the headset.
   `planarPan` ride the seqlock (368–379) and are applied only in `planar_pano`;
   `_estimator_geometry` follows the *fit* scale but never the zoom. The sweep tracks a minimum whose
   basin is a few source-disparity pixels wide, so resizing or sliding its measurement window mid-
@@ -1153,8 +1261,9 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   safe for the reason the split is necessary: corrections are stored in metres and scanned in disparity
   pixels, so both are canvas-scale-invariant and a step in the fit resets nothing. `_fit_*` is written
   only by the render thread and read by the warp thread — one writer, as with `_correction` the other way.
-  Past ~1:1 with the sharpest view's ground sample distance, zoom is **empty magnification**; the
-  `[PLANAR]` line prints the GSD and says so, because that limit moves with the standoff.
+  Once the output already holds a couple of pixels per source pixel, zoom is **empty
+  magnification**; the `[PLANAR]` line prints that ratio and says so, because it moves with the
+  standoff.
 - **The default blend is winner-take-all, not a cross-fade** (`planarBlendMode`, default `Nearest`).
   Each canvas pixel goes to the single view seeing that plane point closest to the plane normal —
   `cos = h_v / √((a−a_v)² + (b−b_v)² + h_v²)` from the camera's in-plane footprint `(a_v, b_v)` and
@@ -1165,7 +1274,7 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   no pixel ever has two contributors — at the cost of a visible seam where the winner changes.
 - **`Multiband` (`planarBlendMode` 2, 2026-11-13) is `Nearest`'s partition with the low frequencies
   cross-faded**, after a per-view, per-channel exposure gain (Brown and Lowe's gain compensation,
-  solved on the device from an 8x-pooled stack, low-passed per frame). Detail still comes from
+  solved from the views sampled on the coarse low-band grid, low-passed per frame). Detail still comes from
   exactly one view, so nothing can ghost; what fades is the brightness step each aircraft's own
   auto-exposure leaves along a hard seam (27 -> 1.6 grey levels in the self-test). The low band is a
   *normalised* blur (`blur(I*cover)/blur(cover)`), or every footprint's rim is pulled toward the
@@ -1180,11 +1289,12 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   `Flat` replaces it) — the quickest read on where the seams fall. The palette is keyed on **drone id**,
   not on position in the selection, so a colour means the same thing frame to frame; the key is printed
   on Python's periodic `[PLANAR]` line, because the selection changes as drones join or drop out. The
-  overlay is applied to the warped stack, so it works in both blend modes, and it is applied *after*
-  the PSNR measurement so the logged number still describes the real mosaic.
+  overlay is applied to the frames before they are sampled (a colour is the same colour wherever it is
+  resampled to), so it works in every blend mode, and *after* the PSNR measurement so the logged
+  number still describes the real mosaic.
 - **Overlap PSNR is measured over geometric coverage, not blend weight.** Under `Nearest` the weights
   are one-hot, so a weight-based overlap test finds no overlap anywhere and silently retires the one
-  diagnostic that quantifies pose error.
+  diagnostic that quantifies pose error. It is measured on the canvas and throttled (above).
 - **The projective-sanity gate is local Jacobian anisotropy** (`homography_anisotropy`), not the SVD
   condition number of the raw 3×3 — the latter is dominated by the metres-per-pixel unit scaling and
   reads ~35 000 for a perfectly benign nadir view, where the Jacobian reads 1.000. Mesh-distortion
@@ -1316,9 +1426,10 @@ never uses), median / 90th percentile, then the frame-to-frame jitter between vi
 The ~2 px floor on the MED facade is the building, not the method: a free homography per pair leaves
 2.3-2.4 px there, because the louvre panels stand 0.5-1 m proud of each other. The 5-drone clip's
 tail is its last 4 s, where the formation climbs past the roofline and the facade leaves the frame.
-One update is 0.2 s for 3 drones and 0.5-0.6 s for 6; the render path goes from 5 to 11 ms a frame
-for 3 views and 11 to 17 ms for 6 (tracker ~4-6 ms, multiband 1-2 ms; 1200x800 canvas, RTX 4090), so
-ten views are near the 33 ms a 30 Hz send allows. Points worth keeping:
+One update is 0.2 s for 3 drones and 0.5-0.6 s for 6 (0.6-0.9 s for 6 inside the live stitcher, where
+it shares a GIL with the render). Since 2026-11-16 the render thread's whole pass with the aligner
+on is 12 ms for 3 views and 13-17 ms for 6 at 2400x1600 (tracker ~3 ms; RTX 4090): see "The render
+reads one view per pixel" above. Points worth keeping:
 
 - **It solves 6 DoF per drone and the whole plane**: a camera-frame rotation and a world position
   correction each, and the plane's *orientation* as well as its distance, by transfer error through
@@ -1454,6 +1565,13 @@ last row is what makes it line up:
 | `PyUniSharingFast` | `planarPlaneSweep` and `planarPoseRefine` on (the learned aligner; DJIScene has both), `planarBlendMode = Multiband` |
 
 **`planarStandoffMetres` is supplied by the PC and the inspector field is the fallback.**
+`planarRenderScale` needs no entry: its default of 2 draws the mosaic at 2400×1600, which holds the
+800×450 feeds at 2.3 pixels per feed pixel at a 30 m standoff. **The mosaic is no longer what limits
+the detail out there; the feed map is.** The aircraft stream 1920×1080 and DJI_Swarm publishes
+800×450 of it (`FEED_IMAGE_WIDTH/HEIGHT`, `ImageSharing.ImageWidth/Height`), so the next step up in
+sharpness is a wider feed block (up to the 1280×720 block envelope), which is a change to
+`DroneFeedSharedMemory`'s geometry on both repos and not to the stitcher.
+
 It used to be hand-typed, and a wrong value there is the single largest error in the mosaic — the
 2026-08-11 MED clips were replayed against a typed 30 m when the truth was 34.3 m, which at this
 geometry's 4.9 px per metre is ~21 px of seam, more than every other term combined. The PC now
@@ -1577,7 +1695,9 @@ frame into the fixed-capacity section.
   cross-drone triangulation this section used to list as the thing to build next: the photometric
   sweep's narrow basin only matters under `PLANAR_LEGACY_ESTIMATORS=1`.
 
-Three tools, all runnable without Unity:
+Four tools, all runnable without Unity (the fourth is `python tools/planar_bridge_bench.py --clip
+nadir_6drone_30m --scale 2 [--align]`: the real stitcher against a stand-in for Unity, for what the
+live system delivers and how fast):
 `python tools/planar_stream_bench.py --all` (the recorded clips, streamed; above),
 `python tools/planar_selftest.py` (geometry + end-to-end render) and
 `python tools/check_wire_layout.py` (asserts the C# and Python layout constants agree — a mismatch there

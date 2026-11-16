@@ -168,8 +168,9 @@ It is measured with ORB, a detector the new method does not use.
 - **Examples:** three-way stills (pose only / previous estimators / new, same instant) for every clip are in
   `D:\claude_planar_sim2\results\fix_cmp3_*.jpg`, outside the repo.
 - **Cost:** one update takes 0.2 s for 3 drones and 0.5–0.6 s for 6, on the warp thread; the first lock on 6
-  views takes about 2 s. The render path grows
-  from 5 to 11 ms a frame for 3 views and from 11 to 17 ms for 6 (RTX 4090).
+  views takes about 2 s. With the aligner on, one pass of the render thread is 12 ms for 3 views and
+  13–17 ms for 6 (RTX 4090), drawing the mosaic at 2400×1600. That is the render as rebuilt on
+  2026-11-16 for full-resolution output; it was 28 ms for 6 views at 1200×800 before.
 - **Not yet tested:** none of this has run live in Unity or on aircraft.
 
 ## Contributions

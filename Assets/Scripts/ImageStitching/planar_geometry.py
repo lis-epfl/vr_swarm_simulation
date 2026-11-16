@@ -330,6 +330,34 @@ def homography_jacobian(H, x, y):
     return (H[:2, :2] - np.outer(uv, H[2, :2])) / w, w
 
 
+def homography_anisotropy_batch(H, width, height):
+    """
+    :func:`homography_anisotropy` for a stack of homographies ``[N, 3, 3]`` at once, over
+    its default sample points.  Returns ``[N]``.
+
+    The same Jacobian and the same rejections, as one batched SVD: the gate runs for
+    every view of every frame, and a Python loop of five 2x2 SVDs per view was a
+    tenth of a millisecond a view on the render thread.
+    """
+    H = np.asarray(H, dtype=np.float64)
+    w, h = float(width) - 1.0, float(height) - 1.0
+    points = np.array([[0.0, w, 0.0, w, w * 0.5],
+                       [0.0, 0.0, h, h, h * 0.5],
+                       [1.0, 1.0, 1.0, 1.0, 1.0]])
+    p = H @ points                                             # [N, 3, 5]
+    depth = p[:, 2]                                            # [N, 5]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        uv = p[:, :2] / depth[:, None, :]                      # [N, 2, 5]
+        J = (H[:, :2, :2, None] - uv[:, :, None, :] * H[:, 2, None, :2, None]) \
+            / depth[:, None, None, :]                          # [N, 2, 2, 5]
+    J = np.moveaxis(J, 3, 1)                                   # [N, 5, 2, 2]
+    bad = (depth <= 0.0) | ~np.isfinite(J).all(axis=(2, 3))
+    sv = np.linalg.svd(np.where(bad[..., None, None], np.eye(2), J), compute_uv=False)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(sv[..., 1] < 1e-12, np.inf, sv[..., 0] / sv[..., 1])
+    return np.where(bad, np.inf, ratio).max(axis=1)
+
+
 def homography_anisotropy(H, width, height, samples=None):
     """
     Worst local stretch ratio (``sigma_max / sigma_min`` of the Jacobian) over the canvas.
