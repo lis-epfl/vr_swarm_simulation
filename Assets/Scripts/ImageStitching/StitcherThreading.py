@@ -195,10 +195,20 @@ BLOCK_MAX_HEIGHT = 720
 BLOCK_SLOT_STRIDE = BLOCK_HEADER_SIZE_V2 + BLOCK_MAX_WIDTH * BLOCK_MAX_HEIGHT * 3
 BLOCK_SECTION_BYTES = BLOCK_SLOT_CAPACITY * BLOCK_SLOT_STRIDE
 
-# Panorama section: int32 flag | int32 quality word | RGB24 panorama. Unity has always
-# created this at the constant maximum; this side used to ask for the *live* panorama size,
-# so whichever process created it first denied the other. Now both request the constant.
-PANORAMA_HEADER_BYTES = 8
+# Panorama section: int32 flag | int32 quality word | int32 width | int32 height | RGB24
+# panorama. Unity has always created this at the constant maximum; this side used to ask
+# for the *live* panorama size, so whichever process created it first denied the other. Now
+# both request the constant.
+#
+# The width and height are the size of the panorama that follows them. They are in the
+# header, rather than read from metadata as they used to be, because the size is no longer
+# one number per session: PLANAR draws its canvas with as many pixels as its feeds need, up
+# to the size metadata publishes as a ceiling. A panorama is read at the size written
+# beside it, which is also what keeps one rendered for a size Unity has since left (every
+# STABSTITCH <-> PLANAR switch changes it) from being uploaded at the wrong stride.
+PANORAMA_WIDTH_OFFSET = 8
+PANORAMA_HEIGHT_OFFSET = 12
+PANORAMA_HEADER_BYTES = 16
 PANORAMA_MAX_WIDTH = 4000
 PANORAMA_MAX_HEIGHT = 4000
 PANORAMA_SECTION_BYTES = PANORAMA_HEADER_BYTES + PANORAMA_MAX_WIDTH * PANORAMA_MAX_HEIGHT * 3
@@ -213,19 +223,18 @@ PANORAMA_SECTION_BYTES = PANORAMA_HEADER_BYTES + PANORAMA_MAX_WIDTH * PANORAMA_M
 PANORAMA_SEQ_SHIFT = 16
 PANORAMA_SEQ_MASK = 0xFFFF
 
-# Bits 9-15 carry a tag of the panorama size the image bytes were written at, so a Unity
-# that has just changed size (every STABSTITCH <-> PLANAR switch does, now that PLANAR's
-# panorama is its own canvas) does not upload a frame laid out for the old one. Defined in
-# wire_panorama.py beside the panorama type; re-exported here because this module is the
-# one tools/check_wire_layout.py and the benches read the wire constants from.
-from wire_panorama import (WireReadyPanorama, panorama_size_tag,          # noqa: E402
-                           PANORAMA_SIZE_TAG_SHIFT, PANORAMA_SIZE_TAG_MASK)
+from wire_panorama import WireReadyPanorama                               # noqa: E402
 
 # How often PLANAR measures its overlap PSNR, seconds. It is a diagnostic that reads every
 # view over the whole canvas -- the work the render itself no longer does -- and nothing
 # consumes it faster than the [PLANAR] line is printed. Ignored (measured every frame)
 # while Unity gates the panorama on it.
 PLANAR_PSNR_PERIOD_S = float(os.environ.get("PLANAR_PSNR_PERIOD_S", "0.5"))
+
+# PLANAR chooses its own output size, under the panorama size Unity publishes: as many
+# pixels as the feeds in the mosaic need and no more (PlanarStitcher._output_size).
+# PLANAR_AUTO_OUTPUT=0 draws at the published size always, for comparisons.
+PLANAR_AUTO_OUTPUT = os.environ.get("PLANAR_AUTO_OUTPUT", "1") not in ("", "0")
 
 # Longest side of the once-a-second debug_panorama.jpg. A full-resolution PLANAR panorama
 # is 2400x1600 and more, and encoding that is ~30 ms inside the loop that reads the blocks
@@ -394,8 +403,10 @@ class StitcherManager:
             # than read here -- a metadata read and a dynamic read are separate events and
             # a stale zoom would fight a live one.
             "canvas_mode": output.get("planar_canvas_mode", 0),
-            # Not Unity's: how often the overlap PSNR diagnostic is re-measured.
+            # Not Unity's: how often the overlap PSNR diagnostic is re-measured, and that
+            # the panorama size Unity publishes is a ceiling the stitcher sizes itself under.
             "psnr_period_s": PLANAR_PSNR_PERIOD_S,
+            "auto_output": PLANAR_AUTO_OUTPUT,
         }
         # Carry the last known view transform across this rebuild. Without it every
         # metadata read (which is every loop iteration) would blank the zoom back to 1x
@@ -619,8 +630,9 @@ class StitcherManager:
 
             # Lock-free like the STABSTITCH arm: the planar solve touches no networks.
             # out_size is the panorama size Unity publishes, which in PLANAR is its canvas
-            # times planarRenderScale: the mosaic is drawn at that size, in the wire's
-            # layout, and first_thread writes it as it comes.
+            # times planarMaxRenderScale: a ceiling. The mosaic is drawn at the size its
+            # feeds need under it, in the wire's layout, and first_thread writes it as it
+            # comes, with that size in the header.
             pano, quality_ok, quality_reason = self.active_stitcher.planar_pano(
                 views, self.intrinsics, self.scene_plane, self.planar_config,
                 out_size=out_size)
@@ -968,11 +980,6 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
         if not manager.panoram_queue.empty():
             panorama, quality_ok, quality_reason = manager.panoram_queue.get()
             quality_int = 1 if quality_ok else 0
-            image_size = manager.processedImageWidth * manager.processedImageHeight * 3
-            # Which size these bytes are laid out for, so Unity can refuse a panorama
-            # written across a size change (see wire_panorama.py).
-            size_tag = panorama_size_tag(manager.processedImageWidth,
-                                         manager.processedImageHeight)
 
             # The section is a fixed PANORAMA_SECTION_BYTES and was mapped at startup; the
             # live panorama is written as a prefix of it. Sizing the mapping from
@@ -983,7 +990,7 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
                 # Fallback: panorama is bad — only update the quality flag so
                 # Unity switches to the individual feeds. Leave image bytes stale.
                 try:
-                    write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, None)
+                    write_panorama_memory(panoramaMMF, quality_int, quality_reason)
                 except Exception as e:
                     if enable_debug_logging:
                         print(f"[first_thread] Error writing quality flag: {e}")
@@ -991,9 +998,18 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
             else:
                 H, W, _ = panorama.shape
                 wire_ready = isinstance(panorama, WireReadyPanorama)
-                if H != manager.processedImageHeight or W != manager.processedImageWidth:
+                # A wire-ready panorama is written at the size it was drawn at, which
+                # travels in the header: PLANAR sizes itself under the published size, and
+                # its framing does not depend on how many pixels it used. Only one larger
+                # than Unity will take (the ceiling came down while it was being drawn),
+                # or a plain canvas from another stitcher, is resized to the published size.
+                fits = (wire_ready and manager.active_stitcher_type == "PLANAR"
+                        and H <= manager.processedImageHeight and W <= manager.processedImageWidth)
+                if not fits and (H != manager.processedImageHeight
+                                 or W != manager.processedImageWidth):
                     try:
                         panorama = cv2.resize(panorama, (manager.processedImageWidth, manager.processedImageHeight))
+                        H, W, _ = panorama.shape
                     except:
                         continue
 
@@ -1020,8 +1036,7 @@ def first_thread(manager: StitcherManager, debug=False, enable_debug_logging=Fal
                     # stitcher hands over a BGR canvas that is converted here.
                     if not wire_ready:
                         panorama = cv2.cvtColor(cv2.flip(panorama, 0), cv2.COLOR_BGR2RGB)
-                    write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size,
-                                          panorama, size_tag=size_tag)
+                    write_panorama_memory(panoramaMMF, quality_int, quality_reason, panorama)
                     del panorama
                 except Exception as e:
                     if enable_debug_logging:
@@ -1396,15 +1411,12 @@ def write_memory(processedMMF, processedFlagPosition, processedDataPosition, pro
             processedMMF.write(struct.pack('i', 0))
             break
 
-# Last panorama sequence number written (see PANORAMA_SEQ_SHIFT), and the size tag of the
-# image bytes now in the section (see PANORAMA_SIZE_TAG_SHIFT). One-element lists so the
-# writer can update them without a global statement; first_thread is its only caller.
+# Last panorama sequence number written (see PANORAMA_SEQ_SHIFT). A one-element list so the
+# writer can bump it without a global statement; first_thread is its only caller.
 _PANORAMA_SEQ = [0]
-_PANORAMA_TAG = [0]
 
 
-def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, image_data=None,
-                          size_tag=0):
+def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_data=None):
     """
     Write the panorama (and its quality word) to shared memory with Unity.
 
@@ -1418,11 +1430,11 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
                    bit 4 : no overlap (camera yaw gap exceeds FOV)
                    bit 5 : too few feeds
                (bits 1+ = the failing-gate reason; only set when bit 0 == 0)
-                   bits 9-15  : tag of the panorama size the image bytes are laid out
-                                for (``size_tag``, from ``panorama_size_tag``); 0 = untagged
                    bits 16-31 : panorama sequence number (PANORAMA_SEQ_SHIFT/MASK),
                                 bumped on every image write, never 0
-        [8:  ] RGB24 image data
+        [8:12] width  (int)  } of the image that follows; written with it, left alone
+        [12:16] height (int) } by a quality-only write
+        [16: ] RGB24 image data, ``[height, width, 3]``, rows bottom-up
 
     ``quality_reason`` is the failing-gate mask (canvas=1, distortion=2,
     photometric=4, no-overlap=8, too-few-images=16) and is shifted up one bit to
@@ -1433,30 +1445,34 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
     the stale image bytes are left in place because Unity ignores them while
     showing the feeds.
 
-    ``image_size`` is the live panorama's byte count, which is a *prefix* of the section:
-    the mapping itself is a constant PANORAMA_SECTION_BYTES, so a resolution change moves
-    this length without touching the section. Unity reads the same live length out of its
-    own metadata, so the two agree without either side resizing anything.
+    The image is a *prefix* of the section: the mapping itself is a constant
+    PANORAMA_SECTION_BYTES, so a panorama of another size moves this length without
+    touching the section, and Unity reads the length from the width and height beside it.
     """
     flag_position = 0
     quality_position = 4
-    data_position = 8
+    data_position = PANORAMA_HEADER_BYTES
 
-    if image_data is not None and data_position + image_size > PANORAMA_SECTION_BYTES:
-        raise ValueError(f"panorama {image_size} B exceeds the section envelope "
-                         f"({PANORAMA_SECTION_BYTES - data_position} B); raise "
-                         f"PANORAMA_MAX_WIDTH/HEIGHT here and maxPanoramaWidth/Height "
-                         f"in PyUniSharingFast.cs together")
+    image_bytes = None
+    if image_data is not None:
+        height, width = image_data.shape[:2]
+        # A view of the array's bytes, not a copy: at 1600x600 the old tobytes() was a
+        # 2.9 MB memcpy per panorama on this thread.
+        image_bytes = memoryview(np.ascontiguousarray(image_data)).cast('B')
+        if len(image_bytes) != width * height * 3:
+            raise ValueError(f"panorama is {image_data.shape}, expected [H, W, 3] uint8")
+        if data_position + len(image_bytes) > PANORAMA_SECTION_BYTES:
+            raise ValueError(f"panorama {width}x{height} exceeds the section envelope "
+                             f"({PANORAMA_MAX_WIDTH}x{PANORAMA_MAX_HEIGHT}); raise "
+                             f"PANORAMA_MAX_WIDTH/HEIGHT here and maxPanoramaWidth/Height "
+                             f"in PyUniSharingFast.cs together")
 
-    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1+), the size tag
-    # (bits 9-15) and the sequence number (bits 16-31). A quality-only write repeats the
-    # current number and tag: no new image was written, so there is nothing for Unity to
-    # upload and the bytes in the section are still the size they were.
+    # Pack the good/bad flag (bit 0) with the failing-gate reason (bits 1+) and the
+    # sequence number (bits 16-31). A quality-only write repeats the current number: no new
+    # image was written, so there is nothing for Unity to upload.
     if image_data is not None:
         _PANORAMA_SEQ[0] = _PANORAMA_SEQ[0] % PANORAMA_SEQ_MASK + 1
-        _PANORAMA_TAG[0] = int(size_tag) & PANORAMA_SIZE_TAG_MASK
     quality_word = ((quality_int & 1) | ((quality_reason & 0xFF) << 1)
-                    | (_PANORAMA_TAG[0] << PANORAMA_SIZE_TAG_SHIFT)
                     | ((_PANORAMA_SEQ[0] & PANORAMA_SEQ_MASK) << PANORAMA_SEQ_SHIFT))
 
     while True:
@@ -1474,16 +1490,9 @@ def write_panorama_memory(panoramaMMF, quality_int, quality_reason, image_size, 
             panoramaMMF.seek(quality_position)
             panoramaMMF.write(struct.pack('<I', quality_word & 0xFFFFFFFF))
 
-            if image_data is not None:
-                # A view of the array's bytes, not a copy: at 1600x600 the old
-                # tobytes() was a 2.9 MB memcpy per panorama on this thread.
-                image_bytes = memoryview(np.ascontiguousarray(image_data)).cast('B')
-                if len(image_bytes) != image_size:
-                    # Reset flag before raising so Unity isn't left blocked
-                    panoramaMMF.seek(flag_position)
-                    panoramaMMF.write(struct.pack('i', 0))
-                    raise ValueError(f"Image size mismatch: expected {image_size}, got {len(image_bytes)}")
-
+            if image_bytes is not None:
+                panoramaMMF.seek(PANORAMA_WIDTH_OFFSET)
+                panoramaMMF.write(struct.pack('<ii', width, height))
                 panoramaMMF.seek(data_position)
                 panoramaMMF.write(image_bytes)
 

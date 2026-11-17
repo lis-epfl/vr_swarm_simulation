@@ -156,10 +156,10 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   Unity **never writes** the trailer (`Start`'s block-init loop stops at `MaxFeedBlocks`), and
   `PyUniSharingFast` must never map this section — `ImageSharing` is its sole consumer and hands the
   value over on `ImageSharing.FeedStandoff*` statics, the same shape as `PlanarSelected`/`BodyYawDegrees`.
-- `PanoramaSharedMemory` — `int flag | int quality_ok | RGB24 panorama`. `quality_ok == 0` ⇒ Unity shows
-  individual feeds instead of the panorama. Panorama is **vertically flipped and converted BGR→RGB** by
-  Python (Unity textures start bottom-left; Unity uploads the bytes straight into an RGB24 texture).
-  Fixed-size for the same reason as the block section: `panoramaSectionBytes` (8 + 4000×4000×3) on
+- `PanoramaSharedMemory` — `int flag | int quality_ok | int width | int height | RGB24 panorama`.
+  `quality_ok == 0` ⇒ Unity shows individual feeds instead of the panorama. Panorama is **vertically
+  flipped and converted BGR→RGB** by Python (Unity textures start bottom-left). Fixed-size for the same
+  reason as the block section: `panoramaSectionBytes` (16 + 4000×4000×3) on
   both sides, with the live panorama written as a *prefix*. Unity always used the constant; Python
   used to ask for `w*h*3 + 8`, so whichever process created the section first denied the other — and
   unlike the block map that path had no retry, so the symptom was a curved screen that simply never
@@ -172,25 +172,32 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   a main-thread `LoadRawTextureData` + `Apply` whose RGB24→RGBA32 conversion (D3D11 has no 24-bit
   format) grows with the panorama size. `0` is a producer without the counter and gets the old
   upload-every-read behaviour, so either side can be updated first.
-  **The live panorama size depends on the stitcher, and bits 9–15 of the quality word tag it**
-  (2026-11-16). Every stitcher but `PLANAR` draws `panoramaImageWidth × Height`; `PLANAR`'s panorama
-  is its own canvas at `planarRenderScale` (`PyUniSharingFast.ResolvePanoramaWireSize`, 2400×1600 by
-  default: see the PLANAR section). That size is what the metadata's panorama fields carry and what
-  `panoTexture` is (`EnsurePanoramaTexture`: re-made black on a change), so **every
-  STABSTITCH ⇄ PLANAR switch moves the payload length**, mid-flight on the `V` key. The section does
-  not move (it is the constant), but a panorama Python rendered for the old size and wrote after
-  Unity adopted the new one would be uploaded at the wrong stride, a frame of sheared noise. So
-  Python writes `panorama_size_tag(w, h)` (7 bits, never 0, `wire_panorama.py`) and Unity uploads
-  only a panorama whose tag is its own size's; `0` is an untagged producer and is uploaded as before.
-  The tag is a formula on both sides, so `check_wire_layout.py` evaluates the C# expression beside the
-  Python one and asserts the sizes in use get distinct tags. That is not a formality: the first
-  multipliers (31, 17) sent **every 3:2 size to the same tag** (31·3 + 17·2 = 127), which the check
-  caught. `PanoramaQualityWord` is published with the tag stripped, because `ExperimentRecorder`
-  logs that word's low bits as the failing-gate reason.
-  **Measured, not adopted (2026-09-29):** uploading the same bytes as an R8 texture three times as
-  wide (a format D3D11 takes as-is) and swizzling them into an sRGB RGBA target with a one-pass blit
-  is byte-exact and saves only ~0.65 ms of main-thread time per 2400×900 upload (1.30 → 0.66 ms;
-  frame time 2.50 → 1.78 ms), too little beside the FPV renders to justify a second texture path.
+  **Each panorama carries its own size** (`PANORAMA_WIDTH_OFFSET` / `panoramaWidthPosition`, 8 and
+  12, asserted by `check_wire_layout.py`; 2026-11-17). The size is no longer one number a session:
+  every stitcher but `PLANAR` draws exactly the `panoramaImageWidth × Height` metadata publishes, and
+  `PLANAR` sizes its own panorama under a ceiling Unity publishes in those same fields
+  (`ResolvePanoramaWireSize`: the planar canvas × `planarMaxRenderScale`; see the PLANAR section). Unity
+  reads every panorama at the size written beside it and re-makes its texture when that changes, which
+  is also what keeps a panorama rendered for a size Unity has since left -- every STABSTITCH ⇄ PLANAR
+  switch, mid-flight on the `V` key -- off the screen: `PanoramaSizeAcceptable` takes exactly the
+  published size from every stitcher but `PLANAR`, and from `PLANAR` the canvas' aspect under the
+  ceiling. A size *tag* in the quality word did this job for one day (2026-11-16) and is gone; it could
+  only say "this size or not", and its first formula sent every 3:2 size to one tag. Python only
+  resizes a panorama that is not wire-ready or that a lowered ceiling has outgrown.
+  **The upload is packed and the screen is mipmapped** (`bridge.packedPanoramaUpload`, default on,
+  2026-11-17): the RGB24 bytes go up untouched as an R8 texture three times as wide (a format D3D11
+  takes as it is; an RGB24 texture is converted to RGBA32 on the main thread at every upload) and a
+  blit (`Hidden/Swarm/PanoramaUnpack`, `Assets/Shaders/PanoramaUnpack.shader`) unpacks them into an sRGB
+  render texture with a mip chain, trilinear and 4× anisotropic, which is what the curved screen shows.
+  It was measured on 2026-09-29 and not adopted -- 0.65 ms saved at 2400×900 was too little for a
+  second texture path. It is adopted now for the mip chain: a PLANAR panorama has more pixels than the
+  headset resolves across the screen, and minified with no mips that aliases instead of looking sharper.
+  Measured headless (ScaledCityWorld, ten drones, the real bridge and stitcher): **byte-exact** (the
+  screen's texture read back against the uploaded bytes: 0 of 26 M channels differ, 12 mip levels), and
+  main thread per upload 1.30-1.35 → 0.79-0.84 ms at 2160×810 and 7.1-7.4 → 4.9-5.0 ms at 3600×2400
+  (worst 14.4 → 10.5). Off is the old RGB24 path; the plain path is also the fallback if the shader is
+  missing. Only `Shader.Find` reaches the shader, which is fine in the editor (where every experiment
+  runs) and needs "Always Included" in a player build.
   (The unpack is three `Load`s per pixel with the exact piecewise sRGB decode, so the target's
   sRGB encode on write returns the uploaded byte.)
 
@@ -906,8 +913,9 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   scale resolution. The StabStitch nets always run at a fixed `NET_W×NET_H`, and the TPS field is
   evaluated on a bounded lattice (below), so the warp update is ~21 ms whether blocks are 768 or
   1280 px wide; only the uploads and copies grow with resolution. **`PLANAR` is the exception on the
-  output side:** its panorama is `planarCanvasWidth/Height × planarRenderScale`, not
-  `panoramaImageWidth/Height` (the PLANAR section says why).
+  output side:** its panorama is its canvas, drawn at a size it chooses under
+  `planarCanvasWidth/Height × planarMaxRenderScale`, not at `panoramaImageWidth/Height` (the PLANAR
+  section says why).
 - **Size the resolution to the headset, and move the feeds and the panorama together.**
   `blockImageWidth/Height` is also every feed screen's render-texture size (ScreenSpawn adopts it), so
   the stitch input can never exceed what the feed screens show. The Quest Pro resolves ~22 px/deg: an
@@ -1149,29 +1157,56 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
   a centre paired with another frame's plane tears exactly like a torn normal. `_build_geometry` must
   never re-derive it — the median of the id-sorted selection is the median *drone id*, not the geometric
   centre, and it jumps whenever the selection gains or loses a drone.
-- **The canvas extent is a mode, not a constant** (`planarCanvasMode`, default `Fixed`). `Fixed` is the
-  original framing — `planarMetresPerPixel` centred on that centre drone's principal-ray hit, so the
-  canvas covers the same patch of plane every frame and measurements stay comparable across runs, at the
-  cost of being correctly framed at exactly one standoff. `AutoFit` derives scale and centre from where
-  the views actually land (`PlanarStitcher._footprint_bbox` inverts each view's `G` rather than
-  re-casting rays, so it inherits whatever corrections `_build_geometry` already applied). Two things
-  keep `AutoFit` from breathing: the scale is **quantised to 1/3-octave steps** about
-  `planarMetresPerPixel` with hysteresis and a dwell time, and the centre is low-passed **in world
-  coordinates, not in plane `(a, b)`** — same reason `_pose_shift` is, since `e1` rotates with the
-  reference camera. `Fixed` + `zoom 1` + `pan 0` is asserted byte-identical to the pre-mode mosaic in
+- **The canvas extent is a mode, not a constant** (`planarCanvasMode`, **default `AutoFit` since
+  2026-11-17**). `Fixed` is the original framing — `planarMetresPerPixel` centred on that centre drone's
+  principal-ray hit, so the canvas covers the same patch of plane every frame and measurements stay
+  comparable across runs, at the cost of being correctly framed at exactly one standoff. At the defaults
+  (1200×800 at 5 cm/px, 60×40 m) **every frame of every recorded clip drew the mosaic past the canvas**,
+  by 11-38% of its width (`planar_stream_bench.py --canvas-mode fixed --mpp 0.05`, the `framing` line);
+  that was the "panorama extends past the canvas" the user saw. `AutoFit` derives scale and centre from
+  where the views actually land (`PlanarStitcher._footprint_bbox` inverts each view's `G` rather than
+  re-casting rays, so it inherits whatever corrections `_build_geometry` already applied). Its contract,
+  in the order it is enforced (`_fit_canvas`):
+  - **The mosaic is never drawn past the canvas.** The scale is raised on the spot to hold every fitted
+    view (`AUTOFIT_EDGE`). The first version quantised the scale to 1/3-octave steps and could round
+    it down past its own margin; it overflowed on 1% of one clip's frames.
+  - **It does not breathe.** Out as soon as the mosaic has eaten its 5% headroom, eased over 0.25 s;
+    back in only once the mosaic could be drawn a fifth larger *and* has stayed that small for 1.5 s,
+    eased over 0.6 s. So pose noise raises the scale to its own ceiling once and then holds (0.06%
+    over three seconds of 3 cm jitter in the self-test), and a feed that drops out does not move the
+    canvas at all: a view that stops arriving is still fitted where it was last seen for the dwell
+    (`_fit_seen`, kept in world coordinates).
+  - **The centre tracks**, low-passed only enough to take out pose jitter, in **world coordinates, not
+    in plane `(a, b)`** — same reason `_pose_shift` is, since `e1` rotates with the reference camera. A
+    dead band on the centre would turn a steady translation into a canvas that lurches.
+  - **The canvas takes the heading the formation shares** (`_formation_right`: the median of the views'
+    image x axes, when their headings agree to a resultant of 0.8), not the reference drone's alone. One
+    aircraft's compass is good to several degrees, and a mosaic drawn turned by one drone's error needs
+    a canvas a fifth larger to hold it: on the six-drone survey clip the fitted canvas went 82×55 m →
+    77×51 m. `Fixed` keeps the reference drone's axis.
+
+  Measured on the seven recorded clips with the aligner on (`--canvas-mode autofit --mpp 0.05`): never
+  past the canvas on any frame; the mosaic spans 89-95% of it (median; at least 74-93%); the scale moves
+  on 1-32% of frames by at most 7.6% a step over a range of ×1.03-1.14; alignment as before (seams
+  1.2-2.1 px). `Fixed` + `zoom 1` + `pan 0` is asserted byte-identical to the pre-mode mosaic in
   `planar_selftest.py`; that is what makes putting the dropdown back a guarantee rather than a hope.
-- **Zoom and pan are a viewing transform and must never reach the estimators.** `planarZoom` /
 - **The canvas is the framing; the mosaic is drawn on an output raster of its own** (2026-11-16, the
   user's request: the mosaic was less sharp than the feeds it is made of). `planarCanvasWidth/Height`
   with `planarMetresPerPixel` say which patch of plane is shown, and everything in canvas pixels
   stays in those units: the auto-fit, the pan, the anisotropy gate, `Multiband`'s blend width, the
-  overlap PSNR, the photometric estimators' quarter-size canvas. `planarRenderScale` (default 2:
-  2400x1600) is how many pixels that patch is drawn with, and in `PLANAR` that size *is* the
-  panorama Unity publishes and uploads (`ResolvePanoramaWireSize`, above). `planar_pano(...,
+  overlap PSNR, the photometric estimators' quarter-size canvas. How many pixels that patch is drawn
+  with is chosen per frame (`_output_size`, under `out_size` when the config says `auto_output`, as the
+  live stitcher's does): **1.6 output pixels per source pixel of the sharpest view**, on a ladder of
+  0.25 × the canvas (up at once, down after 2 s), never below **1.75 × the canvas** (2100 px: the
+  ~2000 px the headset resolves across the 90-degree screen, so a zoomed-in mosaic is drawn bicubic
+  rather than enlarged by the GPU) and never above Unity's ceiling, `planarMaxRenderScale` × the
+  canvas (**2.5: 3000×2000**, 1.5× what the headset can show, which the mipmaps turn into clean
+  supersampling; beyond it pixels cost upload time and cannot be seen). Three feeds come out ~2100
+  wide, six real feeds ~2100-2400, ten of the simulator's at the ceiling. `planar_pano(...,
   out_size=)` draws straight into it, in the wire's layout (`WireReadyPanorama`: RGB, bottom-up,
-  pinned). It used to go 1200x800 canvas -> `cv2.resize` -> a panorama of another aspect
-  (1600x600 in DJIScene, 2160x810 in the sim scenes): two resamplings, the second *down* in height.
-  Points worth keeping:
+  pinned), and the size travels in the panorama's header. It used to go 1200x800 canvas ->
+  `cv2.resize` -> a panorama of another aspect (1600x600 in DJIScene, 2160x810 in the sim scenes):
+  two resamplings, the second *down* in height. Points worth keeping:
   - **Measured by resampling the panorama back into one drone's own frame** (Lanczos, over the
     region that drone owns) and comparing with the frame it sent. PSNR, then the contrast kept at
     the finest detail a feed holds (0.4-0.5 cycles/px):
@@ -1191,11 +1226,11 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
     resolved a coordinate to 1/2048 of the image, a fifth of a source pixel at 800 wide.
   - **The raster matrix lines up pixel *areas*, as `cv2.resize` does** (`_raster_matrix`), so the
     mosaic is framed exactly as the canvas resized to the output would be at any size or aspect,
-    and a Unity that predates `planarRenderScale` (publishing 2160x810) still gets the old framing,
+    and a Unity that predates the ceiling (publishing 2160x810) still gets the old framing,
     drawn once. The self-test averages a 2x mosaic back down and requires it to sit on the canvas
     one, not half a pixel off: a centre-aligned convention passes every check against its own matrix.
   - **Python's `[PLANAR]` line says whether the output resolves the feeds**: output pixels per
-    source pixel of the sharpest view, `BELOW feed resolution: raise planarRenderScale by ...` when
+    source pixel of the sharpest view, `BELOW feed resolution: raise planarMaxRenderScale by ...` when
     under 1, `EMPTY magnification` for a zoom past 2. It moves with the standoff (the sim's wall at
     20 m is 2.6 cm/px against 2.5 cm/px drawn), so read it rather than assume.
   - **`debug_panorama.jpg` is thinned to 1600 px** before it is encoded: at 2400x1600 the encode
@@ -1229,7 +1264,7 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
     (`PLANAR_PSNR_PERIOD_S`; every frame while Unity gates on it, and for any config without
     `psnr_period_s`, i.e. every tool and test). It reads every view over the whole canvas, which is
     the work the render stopped doing: 3.8 ms a frame at six views. On the canvas, so the number
-    does not move with `planarRenderScale`.
+    does not move with the output size.
   - **Measured end to end** with `tools/planar_bridge_bench.py` (the real `StitcherThreading.py`
     against a stand-in for Unity; one pass of the render thread, median; the previous commit run
     through the same harness with `--stitcher-dir`):
@@ -1244,14 +1279,38 @@ an upgrade: StabStitch++'s parallax-tolerant TPS warps are what make the radiall
     stream of its own changed nothing, and a shorter `sys.setswitchinterval` made it worse
     (18 -> 31-39 ms at 0.3 ms). Both were tried and removed.
   - **Unity's upload is the cost that does grow** (headless ScaledCityWorld, ten drones, the real
-    bridge and stitcher, 2026-11-16): `LoadRawTextureData` + `Apply` is 1.2-1.5 ms of main thread
-    per panorama at 2160x810, **2.7-3.4 ms at 2400x1600** and 6 ms at 3600x2400, thirty times a
-    second. That run also showed the texture following the stitcher both ways (2160x810 <->
-    2400x1600), the mosaic on screen 100% of both nadir phases and every one of the ten slots at
-    30.2 Hz. With Unity uncapped beside it the render there took 14-17 ms a frame at scale 2 and
-    26-28 ms at scale 3, so **3 is at the edge of 30 Hz in the sim and 2 is the default**. The R8
-    upload measured on 2026-09-29 is 1.7 ms against 2.7 at 2400x1600; still not in the project.
-    Not yet seen in the headset.
+    bridge and stitcher): packed (above), 0.8 ms of main thread per panorama at 2160x810 and 4.9 ms
+    at 3600x2400, thirty times a second; the RGB24 path it replaced, 1.3 and 7.2. Those runs also
+    showed the texture following the stitcher both ways, the mosaic on screen 100% of every nadir
+    phase and every one of the ten slots at 30.2 Hz. The ceiling is what bounds this cost. Not yet
+    seen in the headset.
+- **Seams go round what the views disagree about** (2026-11-17, `_solve_seams`, `PLANAR_SEAMS=0` to
+  turn them off; FEATHER has no partition). The winner-take-all partition is a Voronoi diagram of the
+  camera footprints: right on the plane, and wherever something stands off it, a straight line that
+  breaks it in two. On the MED clip the line ran up through the block behind the facade (its roofline
+  stepped and a chimney was cut in half) and diagonally through the canopy that stands metres proud of
+  it. Now a graph cut (OpenCV's `GraphCutSeamFinder`, plain colour difference) is solved on the warp
+  thread on a grid 0.4 × the canvas, every 0.25 s, only inside a band either side of the Voronoi line
+  (5% of the grid), and its answer multiplies each view's score in the render and in `Multiband`'s low
+  bands, kept on the plane so it stays on the same ground between solves. Points worth keeping:
+  - **Cropped, or it is unusable**: OpenCV builds each pair's graph over the whole rectangle the two
+    images share, so full-canvas inputs took 4.5 s for six views; each view cropped to the ground it
+    may be given takes 40-75 ms.
+  - **Plain colour cost, not `COST_COLOR_GRAD`** (OpenCV's stitcher default): the gradient-normalised
+    cost makes a seam along any strong edge look cheap, and drew the block's dark face down over the
+    parapet.
+  - **Junctions keep the plain partition** (cells three bands reach): OpenCV cuts a pair at a time and
+    the cuts need not agree there. On MED the low drone (6.9 m) sees the parapet ~5 canvas px from where
+    the two high ones (15.5 m) do, and the pairwise cuts handed its view of the block a strip over the
+    parapet. Stranded islands of a view's ground are dropped too.
+  - **Continuity**: each solve may move a seam only `SEAM_STEP` (4) cells from the last one, and is
+    eased in over 0.25 s. Measured on the stationary MED clip, the mosaic's frame-to-frame change is the
+    same with seams as without (2.13% vs 2.12% of pixels changing by more than 20 levels, all of it
+    video noise): a seam only moves where the views agree, so its motion cannot be seen.
+  - `planar_selftest.py` section 15 stands a square on the line between two views, 10 px apart in
+    them: the plain partition draws 30 of its 40 px, the seam draws it whole, and the rest of the
+    mosaic is unchanged. Cost: ~1 ms a frame on the render thread; 40-75 ms per solve on the warp thread.
+- **Zoom and pan are a viewing transform and must never reach the estimators.** `planarZoom` /
   `planarPan` ride the seqlock (368–379) and are applied only in `planar_pano`;
   `_estimator_geometry` follows the *fit* scale but never the zoom. The sweep tracks a minimum whose
   basin is a few source-disparity pixels wide, so resizing or sliding its measurement window mid-
@@ -1564,15 +1623,15 @@ last row is what makes it line up:
 | DJI_Swarm | `-ImageStreamPose` / `ImageStreamPose = $true` / `--image-stream-pose` |
 | `PyUniSharingFast` | `planarPlaneSweep` and `planarPoseRefine` on (the learned aligner; DJIScene has both), `planarBlendMode = Multiband` |
 
-**`planarStandoffMetres` is supplied by the PC and the inspector field is the fallback.**
-`planarRenderScale` needs no entry: its default of 2 draws the mosaic at 2400×1600, which holds the
-800×450 feeds at 2.3 pixels per feed pixel at a 30 m standoff. **The mosaic is no longer what limits
-the detail out there; the feed map is.** The aircraft stream 1920×1080 and DJI_Swarm publishes
+The output size needs no entry: Python sizes the mosaic to 1.6 pixels per feed pixel (2100-2400 px
+for the recorded clips) and the canvas fits the formation (`AutoFit`, the default). **The mosaic is
+no longer what limits the detail out there; the feed map is.** The aircraft stream 1920×1080 and DJI_Swarm publishes
 800×450 of it (`FEED_IMAGE_WIDTH/HEIGHT`, `ImageSharing.ImageWidth/Height`), so the next step up in
 sharpness is a wider feed block (up to the 1280×720 block envelope), which is a change to
 `DroneFeedSharedMemory`'s geometry on both repos and not to the stitcher.
 
 It used to be hand-typed, and a wrong value there is the single largest error in the mosaic — the
+**`planarStandoffMetres` is supplied by the PC and the inspector field is the fallback.**
 2026-08-11 MED clips were replayed against a typed 30 m when the truth was 34.3 m, which at this
 geometry's 4.9 px per metre is ~21 px of seam, more than every other term combined. The PC now
 computes it (`clip_scene_plane.pick_facade` + `standoff_of`) and writes it into the feed map's

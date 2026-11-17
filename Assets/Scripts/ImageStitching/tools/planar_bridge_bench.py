@@ -4,7 +4,7 @@ Stand in for Unity so the whole PLANAR bridge can be timed without the editor.
     cd Assets/Scripts/ImageStitching
     python tools/planar_bridge_bench.py --clip nadir_6drone_30m --scale 2
     python tools/planar_bridge_bench.py --clip MED_facade_stationary_1 --align --save out.png
-    python tools/planar_bridge_bench.py --scale 1 --switch-scale 2      # a size change mid-run
+    python tools/planar_bridge_bench.py --scale 2 --switch-scale 3      # the ceiling moves mid-run
 
 What it does
 ------------
@@ -17,8 +17,11 @@ simulated clock; this measures how fast the live system produces it and what rea
 Unity: the Python side under its real threading (block read, tracker, render, aligner,
 panorama write, one GIL), at the output size Unity would publish.
 
-The panorama it asks for is the planar canvas times ``--scale``, which is what
-``PyUniSharingFast.ResolvePanoramaWireSize`` publishes for ``planarRenderScale``.
+The panorama size it publishes is the planar canvas times ``--scale``, which is what
+``PyUniSharingFast.ResolvePanoramaWireSize`` publishes for ``planarMaxRenderScale``: a
+ceiling.  The stitcher draws each panorama with as many pixels as its feeds need under it
+and writes the size in the header, and the bench reads each one at that size, as Unity
+does.  ``PLANAR_AUTO_OUTPUT=0`` in the environment makes the stitcher draw at the ceiling.
 
 It uses shared-memory sections of its own (``STITCH_SHM_SUFFIX``, default ``_pbench``), so
 it can run beside a live editor -- the two then share the GPU, which is itself a useful
@@ -29,9 +32,10 @@ What it reports
 * the stitcher's stitch rate and its own ``[PLANAR]`` lines (milliseconds a frame, the
   output size, output pixels per source pixel);
 * the panoramas delivered per second on the Unity side under its real upload policy --
-  a new sequence number, and a size tag that matches the size being read at;
-* with ``--switch-scale``, how many panoramas arrived laid out for the size Unity had
-  just left.  Those are the frames the size tag exists to keep off the screen.
+  a new sequence number, at a size the stitcher can have drawn -- and the sizes they
+  arrived at;
+* with ``--switch-scale``, how many panoramas arrived at a size the new ceiling does not
+  allow.  Those are the frames the size check exists to keep off the screen.
 
 ``--send-hz`` switches from the real fleet's pacing (a block when a feed has a new frame,
 ~20 per second per aircraft) to the simulator's (every view rewritten at that rate).
@@ -116,7 +120,9 @@ def write_metadata(mm, args, frame, wire, n_views, intr, mpp, standoff):
     struct.pack_into("<i", b, st.META_PLANAR_SWEEP_STEPS_OFFSET, 9)
     struct.pack_into("<ff", b, st.META_PLANAR_REFINE_RATE_OFFSET, 0.25, 3.0)
     struct.pack_into("<f", b, st.META_PLANAR_STANDOFF_OFFSET, standoff)
-    struct.pack_into("<B", b, st.META_PLANAR_CANVAS_MODE_OFFSET, ps.CANVAS_MODE_FIXED)
+    struct.pack_into("<B", b, st.META_PLANAR_CANVAS_MODE_OFFSET,
+                     ps.CANVAS_MODE_AUTOFIT if args.canvas_mode == "autofit"
+                     else ps.CANVAS_MODE_FIXED)
     struct.pack_into("<ii", b, st.META_BLOCK_SLOT_CAPACITY_OFFSET, st.BLOCK_SLOT_CAPACITY,
                      st.BLOCK_SLOT_STRIDE)
     struct.pack_into("<ii", b, st.META_BLOCK_SECTION_BYTES_OFFSET, st.BLOCK_SECTION_BYTES,
@@ -214,24 +220,31 @@ def load_clip(args):
 
 
 class PanoramaSide:
-    """PyUniSharingFast's panorama read: a new sequence number, laid out for our size."""
+    """PyUniSharingFast's panorama read: a new sequence number, at an acceptable size."""
 
-    def __init__(self, mm, read_interval, wire):
+    def __init__(self, mm, read_interval, canvas, ceiling):
         self.mm = mm
         self.read_interval = read_interval
+        self.canvas = canvas
         self.next_receive = time.perf_counter()
         self.last_seq = 0
         self.seqs = []
+        self.sizes = {}
         self.refused = 0
         self.last_refused_seq = 0
         self.image = None
-        self.set_size(wire)
+        self.shape = None
+        self.set_ceiling(ceiling)
 
-    def set_size(self, wire):
-        self.wire = wire
-        self.size = wire[0] * wire[1] * 3
-        self.tag = st.panorama_size_tag(*wire)
+    def set_ceiling(self, ceiling):
+        self.ceiling = ceiling
         self.last_seq = 0
+
+    def acceptable(self, w, h):
+        """PanoramaSizeAcceptable for PLANAR: the canvas' aspect, under the ceiling."""
+        if w < 2 or h < 2 or w > self.ceiling[0] or h > self.ceiling[1]:
+            return False
+        return abs(w * self.canvas[1] - h * self.canvas[0]) <= max(self.canvas)
 
     def frame(self, now):
         mm = self.mm
@@ -243,20 +256,22 @@ class PanoramaSide:
         mm.seek(0)
         mm.write(struct.pack("<i", 1))
         mm.seek(4)
-        word = struct.unpack("<I", mm.read(4))[0]
+        word, w, h = struct.unpack("<Iii", mm.read(12))
         good = bool(word & 1)
         seq = (word >> st.PANORAMA_SEQ_SHIFT) & st.PANORAMA_SEQ_MASK
-        tag = (word >> st.PANORAMA_SIZE_TAG_SHIFT) & st.PANORAMA_SIZE_TAG_MASK
-        fits = tag == 0 or tag == self.tag
+        fits = self.acceptable(w, h)
         if good and not fits and seq != self.last_refused_seq:
             self.refused += 1
             self.last_refused_seq = seq
         upload = good and fits and (seq == 0 or seq != self.last_seq)
         if upload:
             # LoadRawTextureData's copy, so the flag is held about as long as Unity holds it.
-            self.image = np.frombuffer(mm, dtype=np.uint8, count=self.size, offset=8).copy()
+            self.image = np.frombuffer(mm, dtype=np.uint8, count=w * h * 3,
+                                       offset=st.PANORAMA_HEADER_BYTES).copy()
+            self.shape = (h, w)
             self.last_seq = seq
             self.seqs.append((now, seq))
+            self.sizes[(w, h)] = self.sizes.get((w, h), 0) + 1
         mm.seek(0)
         mm.write(struct.pack("<i", 0))
         if upload or not good:
@@ -267,7 +282,7 @@ class PanoramaSide:
         """The last uploaded panorama as a BGR, top-down image."""
         if self.image is None:
             return None
-        rgb = self.image.reshape(self.wire[1], self.wire[0], 3)
+        rgb = self.image.reshape(self.shape[0], self.shape[1], 3)
         return cv2.cvtColor(cv2.flip(rgb, 0), cv2.COLOR_RGB2BGR)
 
 
@@ -286,7 +301,12 @@ def main():
                     help="resize the feeds to WxH (the simulator's blocks are 1152x648)")
     ap.add_argument("--canvas", type=parse_size, default=(1200, 800),
                     help="planarCanvasWidth x Height")
-    ap.add_argument("--scale", type=float, default=2.0, help="planarRenderScale")
+    ap.add_argument("--scale", type=float, default=2.5,
+                    help="planarMaxRenderScale: the ceiling on the output size")
+    ap.add_argument("--mpp", type=float, default=None,
+                    help="planarMetresPerPixel (Unity's default is 0.05); default: sized to the clip")
+    ap.add_argument("--canvas-mode", choices=["fixed", "autofit"], default="autofit",
+                    help="planarCanvasMode (Unity's default is autofit)")
     ap.add_argument("--wire", type=parse_size, default=None,
                     help="publish this panorama size instead of canvas x scale, as a Unity "
                          "that predates planarRenderScale does (DJIScene's was 1600x600)")
@@ -319,7 +339,8 @@ def main():
     standoff = float(scene.get("standoff_m", 30.0))
     intr = bench.wire_intrinsics(session)
     frame = (bench.WIRE_W, bench.WIRE_H)
-    mpp = bench.make_config(session, standoff, args.canvas, False, False)["metres_per_pixel"]
+    mpp = args.mpp or bench.make_config(session, standoff, args.canvas, False, False)[
+        "metres_per_pixel"]
     wire = args.wire or wire_size(args.canvas, args.scale)
     plane = {"plane_normal": (0.0, 0.0, -1.0), "plane_d": 0.0,
              "plane_mode": ps.PLANE_MODE_FORMATION_RELATIVE,
@@ -331,7 +352,8 @@ def main():
 
     print(f"bench: {args.clip}, {len(drones)} views of {frame[0]}x{frame[1]}, canvas "
           f"{args.canvas[0]}x{args.canvas[1]} at {mpp * 100:.1f} cm/px, panorama "
-          f"{wire[0]}x{wire[1]}" + ("" if args.wire else f" (scale {args.scale:g})")
+          f"up to {wire[0]}x{wire[1]}" + ("" if args.wire else f" (scale {args.scale:g})")
+          + f", canvas {args.canvas_mode}"
           + f", blend {args.blend}, "
           f"estimators {'on' if args.align else 'off'}, "
           + (f"every view at {args.send_hz:g} Hz" if args.send_hz > 0 else "blocks on new frames")
@@ -342,7 +364,7 @@ def main():
     pano = mmap.mmap(-1, st.PANORAMA_SECTION_BYTES, "PanoramaSharedMemory" + args.suffix)
     # Sections of a previous run can outlive it for as long as anything holds them.
     pano.seek(0)
-    pano.write(struct.pack("<iI", 0, 0))
+    pano.write(struct.pack("<iIii", 0, 0, 0, 0))
     write_metadata(meta, args, frame, wire, len(drones), intr, mpp, standoff)
     dyn_seq = write_dynamic(meta, 0, plane)
     invalidate_slots(blocks, 0, st.BLOCK_SLOT_CAPACITY)
@@ -381,7 +403,7 @@ def main():
         threading.Thread(target=gpu_load_thread, args=(stop, args.gpu_load_ms, args.unity_hz),
                          daemon=True).start()
 
-    side = PanoramaSide(pano, args.read_interval, wire)
+    side = PanoramaSide(pano, args.read_interval, args.canvas, wire)
     frame_period = 1.0 / args.unity_hz
     t_start = time.perf_counter()
     next_frame = t_start
@@ -455,8 +477,8 @@ def main():
                 switched_at = now
                 wire = wire_size(args.canvas, args.switch_scale)
                 write_metadata(meta, args, frame, wire, len(drones), intr, mpp, standoff)
-                side.set_size(wire)
-                print(f"  panorama size switched to {wire[0]}x{wire[1]}")
+                side.set_ceiling(wire)
+                print(f"  panorama ceiling switched to {wire[0]}x{wire[1]}")
 
             if measure_from is not None and now - last_print >= 1.0:
                 last_print = now
@@ -508,9 +530,11 @@ def main():
           f"{max(0, produced - delivered) / span:.1f}/s overwritten before a read")
     print(f"  upload spacing: median {np.median(gaps):.1f} ms, 95th percentile "
           f"{np.percentile(gaps, 95):.1f} ms, longest {gaps.max():.1f} ms")
+    print("  sizes         : " + ", ".join(f"{w}x{h} ({n})" for (w, h), n in
+                                           sorted(side.sizes.items())))
     if args.switch_scale is not None:
-        print(f"  size change   : {side.refused - base[3]} panorama(s) arrived laid out for the "
-              f"old size and were refused by their tag")
+        print(f"  ceiling change: {side.refused - base[3]} panorama(s) arrived at a size the new "
+              f"ceiling does not allow and were refused")
     if args.save:
         picture = side.picture()
         if picture is not None:

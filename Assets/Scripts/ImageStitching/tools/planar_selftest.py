@@ -198,9 +198,7 @@ def make_bare_stitcher(ps_mod, torch):
     s._last_acquire = 0.0
     s._plane_source = None
     s._fit_mpp = None
-    s._fit_step = 0
     s._fit_centre_world = None
-    s._fit_changed_at = 0.0
     s._fit_extent = None
     s._plane_invalid_since = None
     s._unposed = 0
@@ -1684,32 +1682,123 @@ def test_canvas_modes():
           f"coverage {cov_fixed:.0%} -> {cov_auto:.0%} "
           f"({coarse['metres_per_pixel']*100:.1f} -> {s_af._fit_mpp*100:.1f} cm/px)")
 
-    # --- auto-fit does not breathe ------------------------------------------------------
-    # A steadily growing formation must produce a monotone staircase, never a dither. The
-    # dwell is disabled so this exercises the quantiser and hysteresis rather than just
-    # measuring how long the test took to run.
-    s_seq = make_bare_stitcher(ps_mod, torch)
-    s_seq.AUTOFIT_DWELL_S = 0.0
-    cfg_af = dict(base, canvas_mode=ps_mod.CANVAS_MODE_AUTOFIT)
-    scales = []
-    for i in range(40):
-        grow = 1.0 + 0.06 * i
-        spread = [dict(v, pos=(v["pos"][0] * grow, v["pos"][1], v["pos"][2] * grow))
-                  for v in views]
-        s_seq._plane_invalid_since = None
-        s_seq.planar_pano(spread, intr, plane, cfg_af)
-        scales.append(s_seq._fit_mpp)
-    steps = [b for a, b in zip(scales, scales[1:]) if b != a]
-    deltas = np.diff([scales[0]] + steps)
-    check("auto-fit steps monotonically under a growing formation, never dithering",
-          len(steps) >= 1 and bool((deltas > 0).all()),
-          f"{len(steps)} step(s) over 40 frames: "
-          + " -> ".join(f"{v*100:.2f}" for v in [scales[0]] + steps) + " cm/px")
+    # --- auto-fit: the mosaic never leaves the canvas, and the canvas does not breathe ----
+    # Four things a formation does, each played at 20 frames a second on a clock of the
+    # test's own, with the mosaic's place on the canvas read back after every frame.
+    def framed(stitcher, cfg):
+        """(how far past the canvas, share of its limiting side spanned, metres per pixel)"""
+        _frame, cams, M, w, h, mpp = stitcher._last_geometry
+        lo, hi = stitcher._footprint_bbox(cams, cfg)
+        a0, a1 = M[0, 2], M[0, 0] * (w - 1) + M[0, 2]
+        b1, b0 = M[1, 2], M[1, 1] * (h - 1) + M[1, 2]
+        over = max(0.0, (a0 - lo[0]) / (a1 - a0), (hi[0] - a1) / (a1 - a0),
+                   (b0 - lo[1]) / (b1 - b0), (hi[1] - b1) / (b1 - b0))
+        return over, max((hi[0] - lo[0]) / (a1 - a0), (hi[1] - lo[1]) / (b1 - b0)), mpp
 
-    # A quantiser that never holds is not a quantiser: the formation grows by 2.3x here,
-    # so a continuous fit would produce ~40 distinct scales rather than a handful.
-    check("auto-fit holds a scale rather than tracking continuously",
-          len(steps) <= 6, f"{len(steps)} changes across 40 frames of steady growth")
+    cfg_af = dict(base, canvas_mode=ps_mod.CANVAS_MODE_AUTOFIT)
+
+    def play(positions, frames, stitcher=None, clock=None):
+        """Render ``frames`` frames with ``positions(k)`` -> views; returns the trace."""
+        stitcher = stitcher or make_bare_stitcher(ps_mod, torch)
+        clock = clock if clock is not None else [0.0]
+        stitcher._clock = lambda: clock[0]
+        trace = []
+        for k in range(frames):
+            clock[0] += 0.05
+            stitcher._plane_invalid_since = None
+            stitcher.planar_pano(positions(k), intr, plane, cfg_af)
+            trace.append(framed(stitcher, cfg_af))
+        return np.array(trace), stitcher, clock
+
+    def spread(scale):
+        return [dict(v, pos=(v["pos"][0] * scale, v["pos"][1], v["pos"][2] * scale))
+                for v in views]
+
+    # A formation growing steadily to 2.3x: the canvas has to keep ahead of it.
+    grow, _, _ = play(lambda k: spread(1.0 + 0.06 * k), 40)
+    check("auto-fit: a growing formation never reaches past the canvas",
+          float(grow[:, 0].max()) == 0.0 and bool((np.diff(grow[:, 2]) >= -1e-12).all())
+          and float(grow[:, 1].min()) > 0.85,
+          f"furthest past the canvas {grow[:, 0].max():.1%}; scale "
+          f"{grow[0, 2] * 100:.2f} -> {grow[-1, 2] * 100:.2f} cm/px, never backwards; the "
+          f"mosaic spans {grow[:, 1].min():.0%}-{grow[:, 1].max():.0%} of the canvas")
+
+    # Standing still with pose noise: the ratchet may rise to the noise's ceiling once,
+    # and must then hold.
+    rng = np.random.default_rng(5)
+
+    def shaken(_k):
+        return [dict(v, pos=tuple(np.asarray(v["pos"]) + rng.normal(0.0, 0.03, 3) * (1, 0, 1)))
+                for v in views]
+
+    still, _, _ = play(shaken, 100)
+    late = still[40:, 2]
+    check("auto-fit: pose noise does not make the canvas breathe",
+          float(still[:, 0].max()) == 0.0 and float(late.max() / late.min() - 1.0) < 0.002
+          and bool((np.diff(still[:, 2]) >= -1e-12).all()),
+          f"3 cm of jitter on every drone: the scale moves {late.max() / late.min() - 1.0:.3%} "
+          f"over the last 60 frames and never backwards")
+
+    # One feed drops out for a second and comes back: nothing should have moved.
+    def with_gap(k):
+        return [v for v in views if not (20 <= k < 40 and v["drone_id"] == 4)]
+
+    gap, _, _ = play(with_gap, 60)
+    check("auto-fit: a feed that drops out for a second does not move the canvas",
+          float(gap[:, 0].max()) == 0.0 and float(np.ptp(gap[:, 2])) < 1e-12,
+          f"scale {gap[0, 2] * 100:.3f} cm/px throughout; lost and regained a view whose "
+          f"footprint was {1.0 - gap[25, 1] / gap[0, 1]:.0%} of the mosaic's span")
+
+    # A formation that contracts for good: held for the dwell, then eased back in.
+    wide = lambda k: spread(4.0 if k < 20 else 1.0)
+    shrink, s_sh, _ = play(wide, 120)
+    held = shrink[20:20 + int(s_sh.AUTOFIT_DWELL_S / 0.05) - 1, 2]
+    after = shrink[20 + int(s_sh.AUTOFIT_DWELL_S / 0.05) + 1:, 2]
+    check("auto-fit: a formation that contracts is zoomed back in on, after a pause",
+          float(shrink[:, 0].max()) == 0.0 and float(np.ptp(held)) < 1e-12
+          and bool((np.diff(after) <= 1e-12).all()) and float(shrink[-1, 1]) > 0.9,
+          f"scale held at {held[0] * 100:.2f} cm/px for {s_sh.AUTOFIT_DWELL_S:g} s, then eased "
+          f"to {shrink[-1, 2] * 100:.2f}; the mosaic spans {shrink[25, 1]:.0%} -> "
+          f"{shrink[-1, 1]:.0%} of the canvas, never past it")
+
+    # A formation in steady flight: the canvas has to travel with it.
+    def flying(k):
+        return [dict(v, pos=(v["pos"][0] + 0.1 * k, v["pos"][1], v["pos"][2])) for v in views]
+
+    fly, _, _ = play(flying, 80)
+
+    # The centre drone's compass 12 degrees off the others'. A fixed canvas is locked to
+    # that drone and draws the other four turned; a fitted one takes the heading they
+    # share, so the mosaic sits square on it and needs less canvas.
+    turned = [dict(v, quat=tuple(float(c) for c in euler_to_quat(90.0, 12.0, 0.0)))
+              if v["drone_id"] == 0 else v for v in views]
+
+    def headings(mode):
+        st_h = make_bare_stitcher(ps_mod, torch)
+        st_h.planar_pano(turned, intr, plane, dict(base, canvas_mode=mode))
+        out = {}
+        for cam in st_h._last_geometry[1]:
+            q = np.linalg.solve(cam["G"], np.array([[K[0, 2], K[0, 2] + 50.0],
+                                                    [K[1, 2], K[1, 2]], [1.0, 1.0]]))
+            ab = q[:2] / q[2]
+            out[cam["view"]["drone_id"]] = float(np.degrees(np.arctan2(ab[1, 1] - ab[1, 0],
+                                                                       ab[0, 1] - ab[0, 0])))
+        return out, st_h._last_stats["mpp_view"]
+
+    h_fixed, _ = headings(ps_mod.CANVAS_MODE_FIXED)
+    h_fit, mpp_fit = headings(ps_mod.CANVAS_MODE_AUTOFIT)
+    others_fit = max(abs(a) for d, a in h_fit.items() if d != 0)
+    others_fixed = min(abs(a) for d, a in h_fixed.items() if d != 0)
+    check("auto-fit: the canvas takes the heading the formation shares, not one drone's",
+          abs(h_fixed[0]) < 0.01 and others_fixed > 11.0
+          and others_fit < 0.01 and abs(abs(h_fit[0]) - 12.0) < 0.1,
+          f"centre drone 12 deg off: fixed draws it square and the other four at "
+          f"{others_fixed:.1f} deg; fitted draws the four square ({others_fit:.2f} deg) and it "
+          f"at {abs(h_fit[0]):.1f}")
+    check("auto-fit: the canvas travels with a formation in flight",
+          float(fly[:, 0].max()) == 0.0 and float(fly[40:, 2].max() / fly[40:, 2].min() - 1.0) < 0.002,
+          f"2 m/s for 4 s: never past the canvas, scale steady to "
+          f"{fly[40:, 2].max() / fly[40:, 2].min() - 1.0:.3%}")
 
 
 # --------------------------------------------------------------------------------------
@@ -2525,6 +2614,90 @@ def test_output_raster():
           f"{every} / {throttled} / {gated} measurements over 3 / 3 / 2 renders; "
           f"reported {s_t._last_stats.get('overlap_psnr'):.1f} dB")
 
+    # --- the output sizes itself to the feeds ---------------------------------------------
+    # Under a ceiling, the mosaic is drawn with OUTPUT_DETAIL pixels per pixel of its
+    # sharpest feed: more at once when it needs them, fewer only after it has not needed
+    # them for a while, never past the ceiling and never below the canvas.
+    cls = ps_mod.PlanarStitcher
+    s_o = make_bare_stitcher(ps_mod, torch)
+    o_clock = [0.0]
+    s_o._clock = lambda: o_clock[0]
+    ceiling, gsd = (3 * ch, 3 * cw), 0.057
+
+    def sized(mpp_view, seconds=0.0):
+        o_clock[0] += seconds
+        h, w = s_o._output_size(cw, ch, mpp_view, gsd, ceiling)
+        return w, h
+
+    def detail_of(size, mpp_view):
+        return (size[0] / cw) * gsd / mpp_view
+
+    first = sized(0.060)
+    grown = sized(0.090)
+    held = sized(0.060, 0.5)
+    settled = sized(0.060, cls.OUTPUT_DWELL_S + 0.1)
+    capped = sized(0.400)
+    zoomed = (sized(0.060 / 6.0, 0.1), sized(0.060 / 6.0, cls.OUTPUT_DWELL_S + 0.1))[1]
+    squares = all(abs(w * ch - h * cw) <= max(cw, ch)
+                  for w, h in (first, grown, held, settled, capped, zoomed))
+    check("output size: enough pixels for the sharpest feed, and not a rung more",
+          cls.OUTPUT_DETAIL <= detail_of(first, 0.060) < cls.OUTPUT_DETAIL + cls.OUTPUT_STEP * gsd / 0.060
+          and squares,
+          f"{first[0]}x{first[1]} at {detail_of(first, 0.060):.2f} px per source px "
+          f"(target {cls.OUTPUT_DETAIL:g}); every size keeps the canvas' aspect: {squares}")
+    check("output size: up at once, down only after the dwell",
+          grown[0] > first[0] and detail_of(grown, 0.090) >= cls.OUTPUT_DETAIL
+          and held == grown and first[0] <= settled[0] <= first[0] + cls.OUTPUT_STEP * cw
+          and settled[0] < grown[0],
+          f"{first[0]} -> {grown[0]} wide on the frame that needs it; still {held[0]} half a "
+          f"second after it no longer does; {settled[0]} after {cls.OUTPUT_DWELL_S:g} s (a step "
+          f"down wants {cls.OUTPUT_DOWN_MARGIN - 1:.0%} to spare, so it may stop a rung short)")
+    floor = (int(round(cw * cls.OUTPUT_MIN_SCALE)), int(round(ch * cls.OUTPUT_MIN_SCALE)))
+    check("output size: never past the ceiling, never below the headset's resolution",
+          capped == (3 * cw, 3 * ch) and zoomed == floor,
+          f"a mosaic that wants more gets {capped[0]}x{capped[1]}; zoomed in 6x it is "
+          f"{zoomed[0]}x{zoomed[1]}")
+
+    s_a = make_bare_stitcher(ps_mod, torch)
+    s_a._plane_invalid_since = None
+    auto = s_a.planar_pano(views, intr, plane, dict(base, auto_output=True),
+                           out_size=(3 * ch, 3 * cw))[0]
+    st_a = s_a._last_stats
+    px = st_a["best_gsd"] / st_a["mpp_out"]
+    check("a panorama drawn under a ceiling comes back at the size it chose",
+          isinstance(auto, WireReadyPanorama) and auto.shape[1] < 3 * cw
+          and (auto.shape[1], auto.shape[0]) == tuple(st_a["out_size"])
+          and cls.OUTPUT_DETAIL <= px < cls.OUTPUT_DETAIL + 0.5,
+          f"{auto.shape[1]}x{auto.shape[0]} under a {3 * cw}x{3 * ch} ceiling: "
+          f"{px:.2f} px per source px")
+
+    # ... and travels with that size in its header, which a quality-only write leaves alone.
+    try:
+        import mmap
+        import struct
+        import StitcherThreading as st_mod
+    except Exception as e:                                           # pragma: no cover
+        print(f"  [SKIP] panorama header: StitcherThreading not importable ({e})")
+    else:
+        section = mmap.mmap(-1, st_mod.PANORAMA_HEADER_BYTES + auto.size + 64)
+        st_mod.write_panorama_memory(section, 1, 0, auto)
+        section.seek(4)
+        word, w_hdr, h_hdr = struct.unpack("<Iii", section.read(12))
+        body = np.frombuffer(section, dtype=np.uint8, count=auto.size,
+                             offset=st_mod.PANORAMA_HEADER_BYTES)
+        same = bool(np.array_equal(body.reshape(auto.shape), np.asarray(auto)))
+        seq = (word >> st_mod.PANORAMA_SEQ_SHIFT) & st_mod.PANORAMA_SEQ_MASK
+        st_mod.write_panorama_memory(section, 0, st_mod.REASON_TOO_FEW_IMAGES)
+        section.seek(4)
+        word2, w2, h2 = struct.unpack("<Iii", section.read(12))
+        seq2 = (word2 >> st_mod.PANORAMA_SEQ_SHIFT) & st_mod.PANORAMA_SEQ_MASK
+        del body
+        check("the panorama's size travels in its header",
+              (w_hdr, h_hdr) == (auto.shape[1], auto.shape[0]) and same and (word & 1) == 1
+              and seq != 0 and (w2, h2) == (w_hdr, h_hdr) and seq2 == seq and (word2 & 1) == 0,
+              f"header {w_hdr}x{h_hdr}, pixels intact: {same}; a quality-only write keeps "
+              f"the size and the sequence number ({seq} -> {seq2})")
+
     # --- the same on the device the live stitcher uses ------------------------------------
     if not torch.cuda.is_available():
         print("  [SKIP] CUDA render: no device")
@@ -2550,6 +2723,111 @@ def test_output_raster():
           f"with the frame, and came back with it")
 
 
+# --------------------------------------------------------------------------------------
+# 15. Seams round what the views disagree about
+# --------------------------------------------------------------------------------------
+
+def test_seams():
+    """
+    Something off the plane is drawn from two viewpoints, so two views put it in two
+    places; a seam that runs through it breaks it in two. Here a square stands on the line
+    the plain partition draws between two views, shifted 10 px apart in them, on ground
+    they agree about everywhere else. The seam has to go round it.
+    """
+    print("\n15. Seams round what the views disagree about")
+    if cv2 is None:
+        check("cv2 available", False, "opencv not installed; skipped")
+        return
+    try:
+        import torch
+        import PlanarStitcher as ps_mod
+    except ImportError as e:
+        check("torch + PlanarStitcher importable", False, f"{e}")
+        return
+    if not hasattr(cv2, "detail"):
+        print("  [SKIP] seams: this OpenCV has no stitching module")
+        return
+
+    W, H, vfov, altitude = 800, 450, 46.4, 26.0
+    texture = make_unique_texture()
+    th, tw = texture.shape[:2]
+    K = intrinsics_from_unity(vfov, W, H)
+    s_tex = altitude / float(K[1, 1])
+    n_unity = (0.0, 1.0, 0.0)
+    frame = pg.build_plane_frame(
+        pg.unity_dir_to_rh(n_unity), 0.0, pg.unity_point_to_rh((0.0, 0.0, 0.0)),
+        Camera((0.0, altitude, 0.0), euler_to_quat(90, 0, 0), vfov, W, H).right_rh)
+    M_tex = pg.canvas_to_plane_matrix(s_tex, tw / 2.0, th / 2.0)
+    side, shift = 40, 5                              # texture px; the square's two places
+    magenta = np.array([255, 0, 255], dtype=np.uint8)
+
+    views = []
+    for i, dx in enumerate((-6.0, 6.0)):
+        tex = texture.copy()
+        cx = tw // 2 + (shift if i == 0 else -shift)
+        tex[th // 2 - side // 2:th // 2 + side // 2, cx - side // 2:cx + side // 2] = magenta
+        cam = Camera((dx, altitude, 0.0), euler_to_quat(90.0, 0.0, 0.0), vfov, W, H)
+        H_tex = pg.homography_canvas_to_image(pg.build_G(cam.K, cam.R_cv, cam.C, frame), M_tex)
+        views.append({'slot': i, 'drone_id': i, 'heading': 0.0,
+                      'image': cv2.warpPerspective(tex, H_tex, (W, H), flags=cv2.INTER_NEAREST),
+                      'pos': (dx, altitude, 0.0),
+                      'quat': tuple(float(c) for c in euler_to_quat(90.0, 0.0, 0.0)),
+                      'capture_time': 0.0, 'pose_status': 3, 'cached': False})
+    plane = {"plane_normal": n_unity, "plane_d": 0.0, "plane_valid": True, "plane_mode": 1,
+             "gimbal_pitch": -90.0, "centre_drone_id": 0}
+    intr = (K[0, 0], K[1, 1], K[0, 2], K[1, 2])
+    cw, ch = 1000, 700
+    cfg = {"canvas": (cw, ch), "metres_per_pixel": s_tex, "max_range": 200.0,
+           "feather_px": 40, "aniso_max": 12.0, "min_coverage": 0.05, "pose_source": 0,
+           "psnr_gate": False, "blend_mode": ps_mod.BLEND_NEAREST,
+           "debug_view": ps_mod.DEBUG_OFF, "plane_sweep": False, "pose_refine": False,
+           "sampling": "bilinear"}
+
+    def square(pano):
+        """The square's pixels in the mosaic, and the widest row of them."""
+        hit = (np.abs(pano.astype(int) - magenta.astype(int)).max(axis=2) < 40)
+        return int(hit.sum()), int(hit.sum(axis=1).max())
+
+    was = ps_mod.PlanarStitcher.SEAMS
+    try:
+        ps_mod.PlanarStitcher.SEAMS = False
+        plain_s = make_bare_stitcher(ps_mod, torch)
+        plain = plain_s.planar_pano(views, intr, plane, cfg)[0]
+
+        ps_mod.PlanarStitcher.SEAMS = True
+        s = make_bare_stitcher(ps_mod, torch)
+        s.set_live_config(cfg)
+        s.planar_pano(views, intr, plane, cfg)
+        s.compute_warps()
+        solved = s._seam is not None
+        s._plane_invalid_since = None
+        seamed = s.planar_pano(views, intr, plane, cfg)[0]
+    finally:
+        ps_mod.PlanarStitcher.SEAMS = was
+
+    if not check("a seam was solved on the warp thread", solved, f"{s._seam_stats}"):
+        return
+    area_p, width_p = square(plain)
+    area_s, width_s = square(seamed)
+    check("the plain partition cuts the square in two",
+          width_p <= side - 2 * shift + 3,
+          f"widest row {width_p} px of a {side} px square ({area_p} px drawn)")
+    check("the seam goes round it, and it is drawn whole from one view",
+          side - 2 <= width_s <= side + 2 and abs(area_s - side * side) <= 3 * side,
+          f"widest row {width_s} px, {area_s} px drawn of {side * side}; the solve moved "
+          f"{s._seam_stats.get('moved', 0):.1%} of the mosaic in {s._seam_stats.get('ms', 0):.0f} ms")
+
+    # Away from the square the two views agree, so wherever the seam went the mosaic is
+    # the same ground: the two mosaics differ only round the square.
+    covered = (plain.max(axis=2) > 0) & (seamed.max(axis=2) > 0)
+    far = covered.copy()
+    far[ch // 2 - 3 * side:ch // 2 + 3 * side, cw // 2 - 3 * side:cw // 2 + 3 * side] = False
+    diff = np.abs(plain.astype(int) - seamed.astype(int)).max(axis=2)[far]
+    check("everywhere else the mosaic is the same ground",
+          float(diff.mean()) < 1.0,
+          f"mean |difference| away from the square {float(diff.mean()):.2f} grey levels")
+
+
 def main():
     print("=" * 74)
     print("planar_geometry self-test")
@@ -2566,6 +2844,7 @@ def main():
     test_canvas_modes()
     test_learned_alignment()
     test_output_raster()
+    test_seams()
 
     print("\n" + "=" * 74)
     if _failures:

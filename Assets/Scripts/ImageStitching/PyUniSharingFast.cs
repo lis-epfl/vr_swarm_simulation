@@ -150,7 +150,7 @@ public class PyUniSharingFast : MonoBehaviour
                  "canvas holds ~1.8x blockImageWidth of detail and the curved screen shows angleRange " +
                  "(90 deg) at ~22 px/deg on a Quest Pro, so 1920 pairs with 1024-wide blocks; larger " +
                  "only adds upload time (PyUniSharingFast.PanoramaApply in the Profiler). " +
-                 "Not used by PLANAR, whose panorama is its own canvas at planarRenderScale.")]
+                 "Not used by PLANAR, whose panorama is its own canvas at planarMaxRenderScale.")]
         public int panoramaImageWidth = 600;
 
         [Tooltip("Panorama height Python renders and Unity uploads to the curved screen. Keep " +
@@ -186,6 +186,16 @@ public class PyUniSharingFast : MonoBehaviour
                  "converting into a scratch buffer and copying it in twice. Same bytes; two fewer " +
                  "full-image passes on the main thread per block.")]
         public bool inPlaceReadback = true;
+
+        [Tooltip("Upload the panorama's RGB24 bytes as an R8 texture three times as wide and " +
+                 "unpack them on the GPU (Hidden/Swarm/PanoramaUnpack) into a mipmapped sRGB " +
+                 "render texture, which is what the curved screen shows. Same pixels, byte for " +
+                 "byte. Two reasons: D3D11 has no 24-bit format, so an RGB24 texture is " +
+                 "converted to RGBA32 on the main thread at every upload (the cost grows with " +
+                 "the panorama, which PLANAR now draws at up to 3600x2400); and without mipmaps " +
+                 "a panorama with more pixels than the screen shows aliases instead of looking " +
+                 "sharper. Off is the old path: an RGB24 texture with no mipmaps.")]
+        public bool packedPanoramaUpload = true;
     }
 
     /// <summary>
@@ -382,45 +392,50 @@ public class PyUniSharingFast : MonoBehaviour
         public float manualVerticalFovDeg = 46.4f;
 
         [Header("Canvas & gates")]
-        [Tooltip("The canvas: with planarMetresPerPixel, which patch of plane the mosaic shows " +
-                 "(1200 x 0.05 = 60 m across), and the units of everything framed against it -- " +
-                 "the auto-fit, the pan, the estimators' working canvas. Its aspect is the " +
-                 "curved screen's in PLANAR. It is NOT the mosaic's resolution: that is this " +
-                 "times planarRenderScale.")]
+        [Tooltip("The canvas: the frame the mosaic is composed in, and the units of everything " +
+                 "framed against it (the fit, the pan, the estimators' working canvas). Its " +
+                 "aspect is the curved screen's in PLANAR. It is NOT the mosaic's resolution: " +
+                 "Python draws the canvas with as many pixels as the feeds in it need, up to " +
+                 "this times planarMaxRenderScale.")]
         public int planarCanvasWidth = 1200;
         [Tooltip("See planarCanvasWidth.")]
         public int planarCanvasHeight = 800;
 
-        [Range(0.5f, 3.3f)]
-        [Tooltip("How many pixels the mosaic is drawn with, as a multiple of the canvas: 2 draws " +
-                 "the 1200x800 canvas at 2400x1600. Framing, zoom and every other setting are " +
-                 "unaffected; only the detail changes.\n\n" +
-                 "In PLANAR this size is also the panorama texture's, replacing " +
-                 "panoramaImageWidth/Height: Python draws the feeds straight into it, once, with " +
-                 "no canvas-to-panorama resize in between. Size it so the mosaic holds at least " +
-                 "one pixel per feed pixel -- Python's [PLANAR] line prints the ratio and says " +
-                 "BELOW feed resolution when it does not. 2 covers an 800-wide feed at a 30 m " +
-                 "standoff twice over, which is what keeps a bilinear resample from softening " +
-                 "it, and is about what the curved screen can show (90 degrees of a ~22 px/deg " +
-                 "headset is ~2000 px).\n\n" +
-                 "Cost: Python's render grows slowly with it (about 7 / 9 / 13 ms a frame at " +
-                 "1 / 2 / 3 for six views on an RTX 4090); the texture upload on Unity's main " +
-                 "thread grows with the pixel count. Clamped so neither side exceeds the " +
-                 "4000 px panorama section.")]
-        public float planarRenderScale = 2f;
+        [Range(1f, 3.3f)]
+        [Tooltip("The most pixels the mosaic may be drawn with, as a multiple of the canvas: 2.5 " +
+                 "allows the 1200x800 canvas up to 3000x2000. A ceiling, not a setting -- " +
+                 "Python sizes each panorama to hold 1.6 pixels per pixel of the sharpest feed " +
+                 "in it (measured: that keeps 98-99% of a feed's contrast at every scale of " +
+                 "detail; 1.0 keeps two thirds of the finest), and never below the ~2000 px the " +
+                 "headset resolves across the curved screen. Three feeds side by side come out " +
+                 "about 2100 wide, ten of the simulator's at the ceiling. Each panorama carries " +
+                 "its size, and the texture here follows it.\n\n" +
+                 "Why 2.5: it is 1.5x what the headset can show of the screen, which the mipmaps " +
+                 "turn into clean supersampling; past it the pixels cost upload time and cannot " +
+                 "be seen. Zoom (planarZoom) is how to see more of a feed's detail, and keeps " +
+                 "it whole. Unity's upload is main-thread time that grows with the pixel count " +
+                 "(packed: about 0.8 ms a panorama at 2160x810, 5 ms at 3600x2400, thirty " +
+                 "times a second). Python's [PLANAR] line prints the size in use and says BELOW " +
+                 "feed resolution when this ceiling is what holds it under one pixel per feed " +
+                 "pixel. Clamped so neither side exceeds the 4000 px panorama section.")]
+        public float planarMaxRenderScale = 2.5f;
 
-        [Tooltip("How the canvas gets its scale and centre. Fixed uses planarMetresPerPixel " +
-                 "centred on the centre drone — the same patch of plane every frame, so " +
-                 "measurements stay comparable across runs, but correctly framed at only one " +
-                 "standoff. AutoFit fits both to where the views actually land, in quantised " +
-                 "steps so the canvas does not breathe. Zoom and pan apply on top of either.")]
-        public PlanarCanvasMode planarCanvasMode = PlanarCanvasMode.Fixed;
+        [Tooltip("How the canvas gets its scale and centre. AutoFit (the default) frames it " +
+                 "on where the views actually land, so the mosaic is never drawn past the " +
+                 "canvas and fills it: it zooms out as soon as the formation needs the room and " +
+                 "back in only once the mosaic has stayed clearly smaller for a second and a " +
+                 "half, so pose noise or a feed dropping out does not make it breathe. Fixed " +
+                 "uses planarMetresPerPixel centred on the centre drone — the same patch of " +
+                 "plane every frame, so measurements stay comparable across runs, but right " +
+                 "at only one standoff and formation: at the defaults (60 x 40 m) every " +
+                 "recorded flight overflowed it. Zoom and pan apply on top of either.")]
+        public PlanarCanvasMode planarCanvasMode = PlanarCanvasMode.AutoFit;
 
         [Tooltip("Canvas scale: how much of the plane fits in the canvas. The output resolution " +
                  "never changes per solve (that would flicker), so this is the lever. Under " +
-                 "Fixed it IS the scale; under AutoFit it is the rest scale the fit is " +
-                 "quantised about and clamped to (+/- 3 octaves). In metres per CANVAS pixel: " +
-                 "the mosaic is drawn planarRenderScale times finer than this.")]
+                 "Fixed it IS the scale; under AutoFit it is only the scale the fit is " +
+                 "bounded by (+/- 3 octaves) and falls back to. In metres per CANVAS pixel: " +
+                 "the mosaic is drawn finer than this, see planarMaxRenderScale.")]
         public float planarMetresPerPixel = 0.05f;
 
         [Header("Canvas zoom & pan (operator view)")]
@@ -561,7 +576,7 @@ public class PyUniSharingFast : MonoBehaviour
                  "(radius x angleRange against a 3 m height) while the canvas is ~3:2, and the " +
                  "panorama fills the screen either way — so the mosaic is otherwise stretched " +
                  "horizontally, which reads as 'not tall enough'. The panorama texture is the " +
-                 "canvas in PLANAR (at planarRenderScale), so this is also what makes a " +
+                 "canvas in PLANAR (at planarMaxRenderScale), so this is also what makes a " +
                  "texel square. Off falls back to planarHeight.")]
         public bool planarMatchCanvasAspect = true;
 
@@ -657,6 +672,7 @@ public class PyUniSharingFast : MonoBehaviour
     private float readInterval { get => bridge.readInterval; set => bridge.readInterval = value; }
     private int maxCapturesPerFrame => bridge.maxCapturesPerFrame;
     private bool inPlaceReadback => bridge.inPlaceReadback;
+    private bool packedPanoramaUpload => bridge.packedPanoramaUpload;
 
     private bool cylindrical { get => classic.cylindrical; set => classic.cylindrical = value; }
     private matcherType typeOfMatcher { get => classic.typeOfMatcher; set => classic.typeOfMatcher = value; }
@@ -687,7 +703,7 @@ public class PyUniSharingFast : MonoBehaviour
     private float manualVerticalFovDeg { get => planar.manualVerticalFovDeg; set => planar.manualVerticalFovDeg = value; }
     private int planarCanvasWidth { get => planar.planarCanvasWidth; set => planar.planarCanvasWidth = value; }
     private int planarCanvasHeight { get => planar.planarCanvasHeight; set => planar.planarCanvasHeight = value; }
-    private float planarRenderScale { get => planar.planarRenderScale; set => planar.planarRenderScale = value; }
+    private float planarMaxRenderScale { get => planar.planarMaxRenderScale; set => planar.planarMaxRenderScale = value; }
     private PlanarCanvasMode planarCanvasMode { get => planar.planarCanvasMode; set => planar.planarCanvasMode = value; }
     private float planarMetresPerPixel { get => planar.planarMetresPerPixel; set => planar.planarMetresPerPixel = value; }
     private float planarZoom { get => planar.planarZoom; set => planar.planarZoom = value; }
@@ -757,9 +773,10 @@ public class PyUniSharingFast : MonoBehaviour
 
     private string panoramaMapName = "PanoramaSharedMemory" + shmNameSuffix;
     private int panoramaImageSize = 0;
-    // The panorama as it travels: what Python is asked to draw and what panoTexture is. The
-    // bridge's panoramaImageWidth/Height for every stitcher but PLANAR, whose panorama is its
-    // own canvas at planarRenderScale -- see ResolvePanoramaWireSize.
+    // The panorama size published to Python: what every stitcher but PLANAR draws (the
+    // bridge's panoramaImageWidth/Height), and the ceiling PLANAR sizes its own canvas under
+    // (canvas x planarMaxRenderScale) -- see ResolvePanoramaWireSize. The panorama textures are
+    // whatever size the last panorama arrived at (panoWidth x panoHeight).
     private int panoramaWireWidth = 0;
     private int panoramaWireHeight = 0;
     private bool planarScaleClampWarned;
@@ -960,7 +977,16 @@ public class PyUniSharingFast : MonoBehaviour
     private const int ERROR_ACCESS_DENIED = 5;
     private const int FlagPosition = 0;             // panorama flag (int32) at region start
     private const int panoramaQualityPosition = 4;  // packed quality word (int32) — see masks below
-    private const int panoramaDataPosition = 8;      // RGB24 panorama data
+    // The size of the panorama that follows, written with it by Python. It is in the header,
+    // not taken from metadata as it used to be, because it is no longer one number a session:
+    // PLANAR draws its canvas with as many pixels as its feeds need, under the size metadata
+    // publishes as a ceiling (ResolvePanoramaWireSize). Each panorama is read at the size
+    // written beside it -- which is also what keeps one rendered for a size this side has
+    // since left (every STABSTITCH <-> PLANAR switch changes it) off the screen: see
+    // PanoramaSizeAcceptable. Mirrors StitcherThreading.py (tools/check_wire_layout.py).
+    private const int panoramaWidthPosition = 8;     // int32
+    private const int panoramaHeightPosition = 12;   // int32
+    private const int panoramaDataPosition = 16;     // RGB24 panorama data
 
     // Packed quality word (PanoramaSharedMemory [4:8]), written by Python's
     // write_panorama_memory. bit 0 = panorama good; bits 1-3 = failing-gate
@@ -981,19 +1007,6 @@ public class PyUniSharingFast : MonoBehaviour
     // StitcherThreading.py's PANORAMA_SEQ_SHIFT / PANORAMA_SEQ_MASK (tools/check_wire_layout.py).
     private const int panoramaSeqShift = 16;
     private const int panoramaSeqMask = 0xFFFF;
-    // Bits 9-15: a tag of the panorama size the image bytes were written at. The section has
-    // no size field -- the live panorama is a prefix whose length both sides take from the
-    // metadata block -- and that sufficed while the size only moved from the inspector. It now
-    // moves with the stitcher: PLANAR's panorama is its own canvas (ResolvePanoramaWireSize), so
-    // every STABSTITCH <-> PLANAR switch, mid-flight on the V key, changes it. A panorama Python
-    // rendered for the old size and wrote after this side adopted the new one would be uploaded
-    // at the wrong stride: a frame of sheared noise. Only a panorama whose tag is this side's
-    // own size's is uploaded. 0 is a producer without the tag and is uploaded as before, so
-    // either side can be updated first. Mirrors wire_panorama.py (tools/check_wire_layout.py
-    // asserts the two constants and evaluates the formula below against Python's).
-    private const int panoramaSizeTagShift = 9;
-    private const int panoramaSizeTagMask = 0x7F;
-    private static int PanoramaSizeTag(int width, int height) => (width * 131 + height * 71) % panoramaSizeTagMask + 1;
     // Per-drone block layout. Two versions exist; Python picks between them from the
     // blockHeaderSize field in metadata:
     //
@@ -1435,7 +1448,16 @@ public class PyUniSharingFast : MonoBehaviour
     // Curved-screen runtime objects; the geometry itself lives in VrDisplaySettings.
     private Material curvedScreenMaterial;
     private MeshRenderer panoramaRenderer;
+    // The texture each panorama is uploaded into: RGB24 on the plain path, the same bytes as
+    // R8 three times as wide on the packed one (packedPanoramaUpload).
     private Texture2D panoTexture;
+    // What the curved screen shows on the packed path: panoTexture unpacked into sRGB RGBA
+    // with a mip chain. Null on the plain path, which shows panoTexture itself.
+    private RenderTexture panoTarget;
+    private Material panoUnpackMaterial;
+    private bool panoUnpackMissingWarned;
+    // Width and height of the panorama panoTexture holds, whichever layout it is in.
+    private int panoWidth, panoHeight;
 
     // Height the current mesh was built with, so Update can notice when the stitcher (or the
     // inspector) asks for a different one. NaN until the first build, which never compares equal.
@@ -1684,7 +1706,7 @@ public class PyUniSharingFast : MonoBehaviour
             curvedScreenMaterial.SetColor("_EmissionColor", Color.white);
             curvedScreenMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
             curvedScreenMaterial.EnableKeyword("_EMISSION");
-            EnsurePanoramaTexture();
+            EnsurePanoramaTexture(panoramaWireWidth, panoramaWireHeight, true);
 
             // ScreenSpawn drives the per-drone feed fallback when the panorama is bad.
             if (screenSpawn == null)
@@ -1912,18 +1934,14 @@ public class PyUniSharingFast : MonoBehaviour
                 // Only a panorama that is not already on screen is worth uploading (see
                 // panoramaSeqShift). Sequence 0 is a producer without the counter: upload.
                 int panoramaSeq = (qualityWord >> panoramaSeqShift) & panoramaSeqMask;
-                // ... and only one laid out for the size this texture is (see
-                // panoramaSizeTagShift). A mismatch is a panorama from before a size change;
-                // it is left where it is, exactly as one already on screen is, and the next
-                // frame looks again.
-                int panoramaSizeTag = (qualityWord >> panoramaSizeTagShift) & panoramaSizeTagMask;
-                bool sizeMatches = panoramaSizeTag == 0
-                                   || panoramaSizeTag == PanoramaSizeTag(panoramaWireWidth, panoramaWireHeight);
-                bool upload = panoramaGood && sizeMatches && panoTexture != null
+                // ... and only at a size this stitcher can have drawn (PanoramaSizeAcceptable).
+                // Anything else is a panorama from before a size change; it is left where it
+                // is, exactly as one already on screen is, and the next frame looks again.
+                int frameWidth = Marshal.ReadInt32(panoramaPtr, panoramaWidthPosition);
+                int frameHeight = Marshal.ReadInt32(panoramaPtr, panoramaHeightPosition);
+                bool upload = panoramaGood && PanoramaSizeAcceptable(frameWidth, frameHeight)
                               && (panoramaSeq == 0 || panoramaSeq != lastPanoramaSeq);
-                // Published without the size tag: it describes the bytes, not the stitch, and
-                // ExperimentRecorder logs this word's low bits as the failing-gate reason.
-                PanoramaQualityWord = qualityWord & ~(panoramaSizeTagMask << panoramaSizeTagShift);
+                PanoramaQualityWord = qualityWord;
                 if (panoramaSeq != 0 && panoramaSeq != lastSeenPanoramaSeq)
                 {
                     lastSeenPanoramaSeq = panoramaSeq;
@@ -1937,7 +1955,14 @@ public class PyUniSharingFast : MonoBehaviour
                     // copy, no per-pixel conversion.
                     using (panoramaLoadMarker.Auto())
                     {
-                        panoTexture.LoadRawTextureData(IntPtr.Add(panoramaPtr, panoramaDataPosition), panoramaImageSize);
+                        // The texture is whatever size this panorama is. It changes a few
+                        // times a flight under PLANAR (Python sizes the mosaic to its feeds on
+                        // a ladder, with a dwell), and at every stitcher switch.
+                        EnsurePanoramaTexture(frameWidth, frameHeight, false);
+                        // The bytes as they are, either way: an RGB24 texture's layout, or an
+                        // R8 texture's three times as wide.
+                        panoTexture.LoadRawTextureData(IntPtr.Add(panoramaPtr, panoramaDataPosition),
+                                                       frameWidth * frameHeight * 3);
                     }
                     lastPanoramaSeq = panoramaSeq;
                 }
@@ -1949,6 +1974,9 @@ public class PyUniSharingFast : MonoBehaviour
                     using (panoramaApplyMarker.Auto())
                     {
                         panoTexture.Apply(false);
+                        // Packed: unpack into the screen's texture, whose mips are generated
+                        // after the blit (autoGenerateMips).
+                        if (panoTarget != null) Graphics.Blit(panoTexture, panoTarget, panoUnpackMaterial);
                     }
                 }
 
@@ -4013,14 +4041,15 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     /// <summary>
-    /// The panorama size published to Python and uploaded here.
+    /// The panorama size published to Python: the size every stitcher but PLANAR draws at, and
+    /// the ceiling PLANAR draws under.
     ///
-    /// Every stitcher but PLANAR draws into <c>panoramaImageWidth x Height</c>. PLANAR used to
-    /// as well: its 1200x800 canvas was resized into that buffer -- 2160x810 in the sim scenes,
+    /// Every stitcher but PLANAR draws <c>panoramaImageWidth x Height</c>. PLANAR used to as
+    /// well: its 1200x800 canvas was resized into that buffer -- 2160x810 in the sim scenes,
     /// another aspect altogether -- and the screen then took the canvas' aspect back, so the
     /// feeds were resampled twice and shown with fewer rows than they arrived with. Its
-    /// panorama is now the canvas itself, at <c>planarRenderScale</c> times the pixel count,
-    /// and Python draws the feeds straight into it.
+    /// panorama is now the canvas itself, drawn by Python with as many pixels as the feeds in
+    /// it need, and this is the most it may use: <c>planarMaxRenderScale</c> times the canvas.
     ///
     /// One scale for both axes, so a canvas pixel stays square on a screen that takes the
     /// canvas' aspect; brought down together if either side would leave the section.
@@ -4034,14 +4063,14 @@ public class PyUniSharingFast : MonoBehaviour
             return;
         }
 
-        float wanted = Mathf.Max(planarRenderScale, 0.25f);
+        float wanted = Mathf.Max(planarMaxRenderScale, 1f);
         float scale = Mathf.Min(wanted,
                                 (float)maxPanoramaWidth / planarCanvasWidth,
                                 (float)maxPanoramaHeight / planarCanvasHeight);
         if (scale < wanted && !planarScaleClampWarned)
         {
             planarScaleClampWarned = true;
-            Debug.LogWarning($"PyUniSharingFast: planarRenderScale {wanted:0.##} would draw the " +
+            Debug.LogWarning($"PyUniSharingFast: planarMaxRenderScale {wanted:0.##} would draw the " +
                              $"{planarCanvasWidth}x{planarCanvasHeight} canvas past the " +
                              $"{maxPanoramaWidth}x{maxPanoramaHeight} panorama section; using {scale:0.##}.");
         }
@@ -4050,36 +4079,136 @@ public class PyUniSharingFast : MonoBehaviour
     }
 
     /// <summary>
-    /// Makes <c>panoTexture</c> the size the panorama now travels at, and binds it.
+    /// Whether a panorama of this size is one the running stitcher can have drawn.
     ///
-    /// A no-op while the size stands. When it has moved -- the stitcher was switched, or the
-    /// canvas or scale edited -- the old texture is released and the new one starts black: its
-    /// first panorama is a few frames away, and until then the alternative is whatever the
-    /// previous stitcher last drew, stretched onto a screen that has just changed shape.
+    /// Every stitcher but PLANAR draws exactly the published size. PLANAR draws its canvas at
+    /// a scale of its own choosing, so its panoramas have the canvas' aspect (to the pixel that
+    /// rounding costs) and fit under the published ceiling. A panorama that fails this was
+    /// written for another stitcher or another inspector setting, moments before this side
+    /// changed; uploading it would stretch one mode's picture over the other's screen.
     /// </summary>
-    private void EnsurePanoramaTexture()
+    private bool PanoramaSizeAcceptable(int width, int height)
     {
-        if (!enablePanoramaReading || panoramaWireWidth <= 0 || panoramaWireHeight <= 0) return;
-
-        if (panoTexture == null || panoTexture.width != panoramaWireWidth || panoTexture.height != panoramaWireHeight)
+        if (width < 2 || height < 2 || width > panoramaWireWidth || height > panoramaWireHeight)
         {
-            if (panoTexture != null) Destroy(panoTexture);
-            panoTexture = new Texture2D(panoramaWireWidth, panoramaWireHeight, TextureFormat.RGB24, false);
-            var blank = new NativeArray<byte>(panoramaImageSize, Allocator.Temp, NativeArrayOptions.ClearMemory);
-            panoTexture.LoadRawTextureData(blank);
-            panoTexture.Apply(false);
-            blank.Dispose();
+            return false;
+        }
+        if (typeOfStitcher != stitcherType.PLANAR)
+        {
+            return width == panoramaWireWidth && height == panoramaWireHeight;
+        }
+        long skew = (long)width * planarCanvasHeight - (long)height * planarCanvasWidth;
+        return Math.Abs(skew) <= Math.Max(planarCanvasWidth, planarCanvasHeight);
+    }
+
+    /// <summary>
+    /// Makes the panorama textures the given size, and binds the one the screen shows.
+    ///
+    /// A no-op while the size stands. When it has moved the old textures are released. With
+    /// <paramref name="blank"/> the screen's texture starts black, and so does one that is
+    /// kept: that is for a stitcher switch, where the next panorama is a few frames away and
+    /// the alternative is whatever the previous stitcher last drew, on a screen that has just
+    /// changed shape. A texture made for a panorama that is about to be loaded into it needs
+    /// no clearing.
+    ///
+    /// The packed path (<c>packedPanoramaUpload</c>) needs the unpack shader; without it the
+    /// plain path is used, with a warning, rather than showing nothing.
+    /// </summary>
+    private void EnsurePanoramaTexture(int width, int height, bool blank)
+    {
+        if (!enablePanoramaReading || width <= 0 || height <= 0) return;
+
+        bool packed = packedPanoramaUpload;
+        if (packed && panoUnpackMaterial == null)
+        {
+            Shader unpack = Shader.Find("Hidden/Swarm/PanoramaUnpack");
+            if (unpack != null && unpack.isSupported)
+            {
+                panoUnpackMaterial = new Material(unpack) { hideFlags = HideFlags.DontSave };
+            }
+            else
+            {
+                if (!panoUnpackMissingWarned)
+                {
+                    panoUnpackMissingWarned = true;
+                    Debug.LogWarning("PyUniSharingFast: Hidden/Swarm/PanoramaUnpack is missing or " +
+                                     "unsupported; uploading the panorama as RGB24 with no mipmaps.");
+                }
+                packed = false;
+            }
+        }
+
+        bool remake = panoTexture == null || panoWidth != width || panoHeight != height
+                      || packed != (panoTarget != null);
+        if (remake)
+        {
+            ReleasePanoramaTextures();
+            if (packed)
+            {
+                // linear: the bytes are raw channel values, decoded to sRGB by the shader.
+                panoTexture = new Texture2D(3 * width, height, TextureFormat.R8, false, true)
+                {
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp,
+                };
+                panoTarget = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32,
+                                               RenderTextureReadWrite.sRGB)
+                {
+                    useMipMap = true,
+                    autoGenerateMips = true,
+                    filterMode = FilterMode.Trilinear,
+                    // The screen curves away from the pilot, so its edges are seen obliquely.
+                    anisoLevel = 4,
+                    wrapMode = TextureWrapMode.Clamp,
+                };
+                panoTarget.Create();
+            }
+            else
+            {
+                panoTexture = new Texture2D(width, height, TextureFormat.RGB24, false);
+            }
+            panoWidth = width;
+            panoHeight = height;
             // Whatever is in the section next is new to this texture, whatever its number.
             lastPanoramaSeq = 0;
         }
-
-        // The texture object is stable between size changes (only its bytes change on each
-        // read), so binding it here is binding it once.
-        if (curvedScreenMaterial != null && curvedScreenMaterial.mainTexture != panoTexture)
+        if (blank)
         {
-            curvedScreenMaterial.mainTexture = panoTexture;
-            curvedScreenMaterial.SetTexture("_EmissionMap", panoTexture);
+            if (panoTarget != null)
+            {
+                Graphics.Blit(Texture2D.blackTexture, panoTarget);
+            }
+            else
+            {
+                var black = new NativeArray<byte>(width * height * 3, Allocator.Temp,
+                                                  NativeArrayOptions.ClearMemory);
+                panoTexture.LoadRawTextureData(black);
+                panoTexture.Apply(false);
+                black.Dispose();
+            }
+            lastPanoramaSeq = 0;
         }
+
+        // The texture objects are stable between size changes (only their contents change on
+        // each read), so binding here is binding once.
+        Texture shown = panoTarget != null ? (Texture)panoTarget : panoTexture;
+        if (curvedScreenMaterial != null && curvedScreenMaterial.mainTexture != shown)
+        {
+            curvedScreenMaterial.mainTexture = shown;
+            curvedScreenMaterial.SetTexture("_EmissionMap", shown);
+        }
+    }
+
+    private void ReleasePanoramaTextures()
+    {
+        if (panoTexture != null) Destroy(panoTexture);
+        panoTexture = null;
+        if (panoTarget != null)
+        {
+            panoTarget.Release();
+            Destroy(panoTarget);
+        }
+        panoTarget = null;
     }
 
     private void CreateMemoryMaps()
@@ -4269,10 +4398,9 @@ public class PyUniSharingFast : MonoBehaviour
                 EnsureConvertedBlockBuffer();
             }
 
-            // The panorama texture follows the size just republished. (This used to make a
-            // new texture on every inspector change, whether or not the size had moved, and
-            // never released the old one.)
-            EnsurePanoramaTexture();
+            // Nothing to do for the panorama texture: it follows the size each panorama
+            // arrives with. (This used to make a new texture on every inspector change,
+            // whether or not the size had moved, and never released the old one.)
         }
     }
 
@@ -4356,12 +4484,12 @@ public class PyUniSharingFast : MonoBehaviour
         }
         // PLANAR's panorama is its own canvas, so the switch moves the panorama size. That is
         // a payload length inside PanoramaSharedMemory, not the section, which stays as it
-        // was created; the size tag in the quality word keeps a panorama Python had already
-        // rendered for the old size off the new texture.
-        EnsurePanoramaTexture();
+        // was created; the texture follows the first panorama of the new stitcher, and is
+        // blanked until then.
+        if (panoTexture != null) EnsurePanoramaTexture(panoWidth, panoHeight, true);
 
         Debug.Log($"PyUniSharingFast: stitcher switched to {typeOfStitcher} " +
-                  $"(panorama {panoramaWireWidth}x{panoramaWireHeight}).");
+                  $"(panorama up to {panoramaWireWidth}x{panoramaWireHeight}).");
     }
 
     private void WriteMetadata()
@@ -4382,8 +4510,8 @@ public class PyUniSharingFast : MonoBehaviour
         // stride, so this no longer sizes anything on either side.
         Marshal.WriteInt32(metadataPtr, offset, blockImageCount);
         offset += 4;
-        // The size the panorama travels at, which under PLANAR is its canvas times
-        // planarRenderScale rather than the bridge's panoramaImageWidth/Height.
+        // The size the panorama travels at -- under PLANAR the most it may: its canvas times
+        // planarMaxRenderScale, rather than the bridge's panoramaImageWidth/Height.
         Marshal.WriteInt32(metadataPtr, offset, panoramaWireWidth);
         offset += 4;
         Marshal.WriteInt32(metadataPtr, offset, panoramaWireHeight);
@@ -4579,6 +4707,8 @@ public class PyUniSharingFast : MonoBehaviour
         AsyncGPUReadback.WaitAllRequests();
         DestroyMemoryMaps();
         if (convertedBlock.IsCreated) convertedBlock.Dispose();
+        ReleasePanoramaTextures();
+        if (panoUnpackMaterial != null) Destroy(panoUnpackMaterial);
     }
 
     void OnApplicationQuit()

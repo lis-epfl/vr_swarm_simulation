@@ -227,7 +227,8 @@ class PanoramaSide:
         self.looks += 1
         if upload:
             # LoadRawTextureData's copy, so the bench's own flag hold is realistic.
-            np.frombuffer(mm, dtype=np.uint8, count=self.size, offset=8).copy()
+            np.frombuffer(mm, dtype=np.uint8, count=self.size,
+                          offset=st.PANORAMA_HEADER_BYTES).copy()
             self.last_seq = seq
             self.uploads += 1
             self.seen.add(seq)

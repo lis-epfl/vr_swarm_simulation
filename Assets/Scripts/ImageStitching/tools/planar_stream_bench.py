@@ -19,6 +19,12 @@ WHAT IT REPORTS
              between warped view pairs, restricted to the dominant surface), sampled
              through the clip.  ORB on purpose: the learned aligner uses SuperPoint and
              LightGlue, so the score comes from a detector it never saw.
+``framing``  whether the mosaic is inside the canvas and how much of it it uses: the
+             share of frames on which any view's footprint reaches past the canvas (and
+             the furthest, as a share of the canvas), how much of the canvas' limiting
+             side the mosaic spans, and how often and how abruptly the scale moves.
+             ``--canvas-mode`` / ``--mpp`` set the framing under test; without them the
+             canvas is the bench's own, sized to the clip.
 ``jitter``   how much the views move *against each other* from one frame to the next.
              Points are tracked in each drone's own video (pyramidal LK) and carried
              through that frame's warp; on a rigid scene every view should then report
@@ -195,10 +201,42 @@ class JitterMeter:
         return float(np.sqrt(np.mean(np.square(self.samples)))) if self.samples else float("nan")
 
 
+class FramingMeter:
+    """Where the mosaic sits on the canvas, frame by frame (see module doc)."""
+
+    def __init__(self):
+        self.over, self.span, self.mpp = [], [], []
+
+    def step(self, stitcher, cams, M, cw, ch, cfg, mpp_view):
+        bbox = stitcher._footprint_bbox(cams, cfg)
+        if bbox is None:
+            return
+        lo, hi = bbox
+        a0, a1 = M[0, 2], M[0, 0] * (cw - 1) + M[0, 2]
+        b1, b0 = M[1, 2], M[1, 1] * (ch - 1) + M[1, 2]          # rows run down, b runs up
+        wide, tall = a1 - a0, b1 - b0
+        self.over.append(max(0.0, (a0 - lo[0]) / wide, (hi[0] - a1) / wide,
+                             (b0 - lo[1]) / tall, (hi[1] - b1) / tall))
+        self.span.append(max((hi[0] - lo[0]) / wide, (hi[1] - lo[1]) / tall))
+        self.mpp.append(float(mpp_view))
+
+    def result(self):
+        if not self.over:
+            return None
+        over, mpp = np.asarray(self.over), np.asarray(self.mpp)
+        steps = np.abs(np.diff(np.log(mpp))) if len(mpp) > 1 else np.zeros(1)
+        return {"past": float((over > 1e-3).mean()), "past_worst": float(over.max()),
+                "span": float(np.median(self.span)), "span_min": float(np.min(self.span)),
+                "moves": int((steps > 1e-4).sum()), "frames": int(len(mpp)),
+                "step_worst": float(np.expm1(steps.max())),
+                "range": float(mpp.max() / mpp.min())}
+
+
 def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
                 warmup_s=2.0, eval_period_s=0.5, align_period_s=0.25, max_seconds=None,
                 canvas=(1200, 800), video=None, standoff=None, device=None,
-                pose_delay=None, blend=None, pose_noise=None, rate=None, pose_filter=True):
+                pose_delay=None, blend=None, pose_noise=None, rate=None, pose_filter=True,
+                canvas_mode=None, canvas_mpp=None):
     """One clip, one estimator configuration.  Returns a result dict."""
     from planar_selftest import make_bare_stitcher
 
@@ -216,8 +254,11 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
 
     on = config_name != "off"
     ps_mod.LEGACY_ESTIMATORS = config_name == "legacy"
-    mpp = bench.make_config(session, truth, canvas, False, False)["metres_per_pixel"]
+    mpp = canvas_mpp or bench.make_config(session, truth, canvas, False, False)["metres_per_pixel"]
     cfg = bench.make_config(session, so, canvas, on, on, mpp=mpp)
+    if canvas_mode is not None:
+        cfg["canvas_mode"] = {"fixed": ps_mod.CANVAS_MODE_FIXED,
+                              "autofit": ps_mod.CANVAS_MODE_AUTOFIT}[canvas_mode]
     if rate is not None:
         cfg["refine_rate"] = float(rate)
 
@@ -265,6 +306,7 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
     true_px = []
 
     writer = None
+    framing = FramingMeter()
     jitter = JitterMeter()
     seams, supports, psnrs, update_ms, trace = [], [], [], [], []
     pending, pending_at, next_update, next_eval = None, 0.0, 0.0, warmup_s
@@ -308,6 +350,7 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
             continue
 
         frame, cams, M, cw, ch, mpp_view = s._last_geometry
+        framing.step(s, cams, M, cw, ch, cfg, mpp_view)
         # Counted after the warm-up only: the first lock is a deliberate jump of many
         # pixels, and on a six-second clip it would be most of the RMS.
         jitter.step(cams, mpp_view * px_per_m, record=rel >= warmup_s)
@@ -353,6 +396,7 @@ def stream_clip(ps_mod, torch, label, drones, recordings, config_name, fps=20.0,
         "support": float(np.median(supports)) if supports else 0.0,
         "psnr": float(np.nanmedian(psnrs)) if psnrs and np.isfinite(psnrs).any() else float("nan"),
         "jitter_px": jitter.rms(),
+        "framing": framing.result(),
         "true_px": float(np.median(true_px)) if true_px else None,
         "true_px_p90": float(np.percentile(true_px, 90)) if true_px else None,
         "true_px_worst": float(np.max(true_px)) if true_px else None,
@@ -403,6 +447,13 @@ def print_result(r):
           % (r["config"], r["seam_px"], r["seam_px_p90"], r["seam_px_worst"], r["evals"],
              r["support"], r["psnr"], r["jitter_px"], r["update_ms"],
              "" if not r["failed"] else " | %d frames without a panorama" % r["failed"]))
+    f = r.get("framing")
+    if f:
+        print("           framing: past the canvas on %3.0f%% of frames (furthest %4.1f%% of it) | "
+              "spans %3.0f%% of the canvas (least %3.0f%%) | scale moved on %d of %d frames, "
+              "largest step %4.1f%%, range x%.2f"
+              % (100 * f["past"], 100 * f["past_worst"], 100 * f["span"], 100 * f["span_min"],
+                 f["moves"], f["frames"], 100 * f["step_worst"], f["range"]))
     if r.get("true_px") is not None:
         print("           against the true poses: views misplaced by %6.2f px (p90 %6.2f, "
               "worst %6.2f)" % (r["true_px"], r["true_px_p90"], r["true_px_worst"]))
@@ -426,6 +477,10 @@ def main():
     ap.add_argument("--no-pose-filter", action="store_true",
                     help="use the poses exactly as recorded, held between telemetry samples")
     ap.add_argument("--blend", choices=["feather", "nearest", "multiband"], default=None)
+    ap.add_argument("--canvas-mode", choices=["fixed", "autofit"], default=None,
+                    help="planarCanvasMode under test (default: the bench's fixed framing)")
+    ap.add_argument("--mpp", type=float, default=None,
+                    help="planarMetresPerPixel (Unity's default is 0.05); default: sized to the clip")
     ap.add_argument("--pose-noise", metavar="M,DEG[,SEED]", default=None,
                     help="inject a constant pose bias per drone: position sigma in metres "
                          "and yaw sigma in degrees -- for simulated clips, whose poses "
@@ -480,6 +535,7 @@ def main():
                             pose_delay=args.pose_delay, blend=args.blend,
                             pose_noise=noise, rate=args.rate,
                             pose_filter=not args.no_pose_filter,
+                            canvas_mode=args.canvas_mode, canvas_mpp=args.mpp,
                             device="cuda" if torch.cuda.is_available() else None)
             results.append(r)
             print_result(r)

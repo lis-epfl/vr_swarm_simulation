@@ -112,6 +112,11 @@ import planar_geometry as pg
 import planar_pose_filter
 import planar_track
 from run_clock import stamp
+
+try:
+    import cv2
+except ImportError:                                  # pragma: no cover
+    cv2 = None
 from wire_panorama import WireReadyPanorama
 
 try:
@@ -167,9 +172,10 @@ BLEND_MULTIBAND = 2
 # formation fills a fraction of the canvas, a wide one overflows it.
 #
 # AUTOFIT derives both from where the views actually land on the plane (_fit_canvas), so
-# the mosaic frames itself. The scale is quantised and damped rather than continuous:
-# a canvas that rescaled every frame would breathe, and the estimators would be measuring
-# on a target that never sits still.
+# the mosaic frames itself and is never drawn past the canvas. It is what Unity selects by
+# default. The scale is a ratchet with a dead band rather than a quantiser: out as soon as
+# the mosaic needs the room, back in only after it has clearly not needed it for a while,
+# so a canvas does not breathe with every frame's footprint.
 #
 # Both are modified by the operator's zoom and pan, which are a pure viewing transform on
 # top of whichever rest framing the mode produced -- see planar_pano.
@@ -383,10 +389,8 @@ class PlanarStitcher(BaseStitcher):
         # exactly the reason _pose_shift is: the plane frame's e1 comes from the reference
         # camera's right axis, so it rotates when that drone yaws or is re-elected, and a
         # low-pass over (a, b) would then be averaging two different bases together.
-        self._fit_mpp = None            # settled metres-per-pixel, or None until first fit
-        self._fit_step = 0              # incumbent quantiser step, relative to the anchor
+        self._fit_mpp = None            # fitted metres-per-pixel, or None until first fit
         self._fit_centre_world = None   # low-passed canvas centre, world metres
-        self._fit_changed_at = 0.0
         self._fit_extent = None         # (width, height) of the fitted footprint, metres
 
         self._plane_invalid_since = None
@@ -486,10 +490,11 @@ class PlanarStitcher(BaseStitcher):
         mode = int(config.get("canvas_mode", CANVAS_MODE_FIXED))
         # Computed in both modes: it is what bounds the pan, and panning is as useful on a
         # fixed canvas as on a fitted one. Cheap -- one 3x3 solve and four corners a view.
-        bbox = self._footprint_bbox(cams, config)
+        boxes = {}
+        bbox = self._footprint_bbox(cams, config, boxes)
         centre_ab = (0.0, 0.0)
         if mode == CANVAS_MODE_AUTOFIT:
-            fitted = self._fit_canvas(frame, cams, config, bbox)
+            fitted = self._fit_canvas(frame, cams, config, bbox, boxes)
             if fitted is not None:
                 mpp, centre_ab = fitted
             elif self._fit_mpp:
@@ -522,8 +527,17 @@ class PlanarStitcher(BaseStitcher):
         if len(kept) < 2:
             return None, False, REASON_DISTORTION
 
+        # How many pixels to draw it with. The caller's size is a ceiling when it says so
+        # (the live stitcher does): the mosaic is drawn with what its feeds need under it.
+        best_gsd = float(min(c["range"] for c in kept) / K[1, 1])
+        if out_size is not None and config.get("auto_output", False):
+            out_size = self._output_size(canvas_w, canvas_h, float(mpp_view), best_gsd,
+                                         out_size)
+            out_w, out_h = int(out_size[1]), int(out_size[0])
+
+        seam = self._seam_for_render(kept, frame, M, config)
         pano, coverage, overlap_psnr = self._render(kept, canvas_w, canvas_h, config, M,
-                                                    out_size)
+                                                    out_size, seam)
         if pano is None:
             return None, False, REASON_CANVAS
 
@@ -572,7 +586,7 @@ class PlanarStitcher(BaseStitcher):
             # output coarser than this is throwing the feeds' detail away; one much finer
             # is interpolating detail the cameras never captured. It moves with the
             # standoff, so it has to be measured rather than assumed.
-            "best_gsd": float(min(c["range"] for c in kept) / K[1, 1]),
+            "best_gsd": best_gsd,
             "blend": {BLEND_NEAREST: "nearest", BLEND_MULTIBAND: "multiband"}.get(
                 int(config.get("blend_mode", BLEND_NEAREST)), "feather"),
             "debug_view": int(config.get("debug_view", DEBUG_OFF)),
@@ -632,6 +646,12 @@ class PlanarStitcher(BaseStitcher):
             return
 
         views, K, plane = snapshot
+        # Seams first: they need no estimator and run whether or not one is on.
+        try:
+            self._solve_seams(views, K, plane, config)
+        except Exception as exc:                     # never let the warp thread die
+            self._seam = None
+            self._seam_stats = {"error": str(exc)}
         do_sweep = bool(config.get("plane_sweep", False))
         do_refine = bool(config.get("pose_refine", False))
         if not (do_sweep or do_refine):
@@ -1515,10 +1535,42 @@ class PlanarStitcher(BaseStitcher):
 
     # ------------------------------------------------------------------ canvas framing
 
-    # Fraction of spare canvas left around the fitted footprint, so the mosaic does not
-    # sit hard against the canvas edge and a drone drifting outward does not immediately
-    # force a rescale.
-    AUTOFIT_MARGIN = 1.12
+    # ---- auto-fit: the canvas follows the mosaic ---------------------------------------
+    #
+    # The contract, in the order it is enforced:
+    #
+    # 1. The mosaic is never drawn past the canvas.  Whatever else the fit is doing, the
+    #    scale is raised on the spot to hold every fitted view (AUTOFIT_EDGE).  A fixed
+    #    canvas cannot promise that -- Unity's 60 x 40 m default was overflowed on every
+    #    frame of every recorded clip, by 11-38% of its width -- and neither could the
+    #    first version of this fit, which rounded the scale to a third of an octave and
+    #    could round it down past its own margin.
+    # 2. It does not breathe.  The canvas zooms OUT as soon as the mosaic has eaten its
+    #    headroom, and back IN only once the mosaic could be drawn a fifth larger and has
+    #    been that small for a second and a half.  Zooming out is therefore a ratchet:
+    #    pose noise raises the scale to the noise's own ceiling once and then never
+    #    again, and a feed that drops out for a moment (its footprint leaves the box) is
+    #    back long before the canvas has moved.
+    # 3. It moves smoothly.  Both directions are eased, not stepped; the only jump is the
+    #    one rule 1 forces, when a new view appears outside the canvas.
+    #
+    # The centre is a different matter from the scale: a formation in flight carries its
+    # mosaic across the plane continuously, so the centre has to *track* (a dead band
+    # there would turn a steady translation into a canvas that lurches every few
+    # seconds).  It is low-passed just enough to take pose jitter out, and rule 1 covers
+    # whatever lag that leaves.
+
+    # How much larger than the mosaic the canvas is held, and the least it may ever be.
+    AUTOFIT_HEADROOM = 1.05
+    AUTOFIT_EDGE = 1.01
+    # Zoom back in only once the canvas is this much larger than AUTOFIT_HEADROOM asks...
+    AUTOFIT_LOOSE = 1.2
+    # ... and has been for this long, seconds.
+    AUTOFIT_DWELL_S = 1.5
+    # Time constants of the two eases and of the centre's low-pass, seconds.
+    AUTOFIT_OUT_TAU_S = 0.25
+    AUTOFIT_IN_TAU_S = 0.6
+    AUTOFIT_CENTRE_TAU_S = 0.25
 
     # A view whose footprint area exceeds this multiple of the median is left out of the
     # fit. The pathology is a near-grazing view, whose footprint runs away toward the
@@ -1527,23 +1579,16 @@ class PlanarStitcher(BaseStitcher):
     # this function is computing -- so the fit cannot lean on it.
     AUTOFIT_AREA_OUTLIER = 6.0
 
-    # Scale quantisation, in steps per octave. The fitted scale is snapped to one of these
-    # steps about the operator's planarMetresPerPixel, because a continuously-fitted
-    # canvas visibly breathes: every frame's footprint differs slightly, and rescaling on
-    # each is both distracting to look at and a moving target for the estimators.
-    AUTOFIT_STEPS_PER_OCTAVE = 3.0
-    # Extra dead-band either side of the incumbent step, in steps. Without it the scale
-    # dithers between two steps whenever the formation sits near a boundary.
-    AUTOFIT_HYSTERESIS_STEPS = 0.25
-    # Floor on how often the scale may step, seconds. Hysteresis stops dithering about a
-    # boundary; this stops a genuinely growing formation from ratcheting every frame.
-    AUTOFIT_DWELL_S = 1.5
-    # Hard bound on how far the fit may depart from the operator's value, in octaves.
+    # Hard bound on how far the fit may depart from the operator's value, in octaves. A
+    # sanity bound, and the one thing that outranks rule 1: a mosaic that needs more than
+    # eight times planarMetresPerPixel is a plane or a pose gone wrong, not a formation.
     AUTOFIT_MAX_OCTAVES = 3.0
-    # Low-pass rate for the canvas centre. Snapped rather than damped on the first fit --
-    # the same argument as the sweep's ACQUIRE snap, since there is no incumbent to damp
-    # toward and starting at the origin would make every run open with a slow slide.
-    AUTOFIT_CENTRE_RATE = 0.15
+
+    # Fit state beyond _fit_mpp / _fit_centre_world, class-level for the bare stitcher.
+    _fit_at = 0.0                 # clock of the last fit
+    _fit_loose_since = None       # when the canvas first had room to spare
+    _fit_closing = False          # easing back in
+    _fit_seen = None              # drone id -> (clock, footprint box corners in world)
 
     def _view_footprint(self, cam, max_range):
         """
@@ -1575,13 +1620,14 @@ class PlanarStitcher(BaseStitcher):
             return None
         return (p[:2, ok] / p[2, ok]).T
 
-    def _footprint_bbox(self, cams, config):
+    def _footprint_bbox(self, cams, config, boxes=None):
         """
         Axis-aligned bounds of the views' footprints on the plane, ``(lo, hi)`` in plane
         coordinates, or ``None`` when too little of the formation is looking at it.
 
         Views with a wildly outsized footprint are dropped first -- see
-        ``AUTOFIT_AREA_OUTLIER``.
+        ``AUTOFIT_AREA_OUTLIER``.  ``boxes``, when given, is filled with each remaining
+        view's own ``(lo, hi)`` by drone id.
         """
         max_range = float(config.get("max_range", 0.0)) or np.inf
         spans = []
@@ -1602,7 +1648,8 @@ class PlanarStitcher(BaseStitcher):
             hi_all = np.where(ok[:, None, :], ab, -np.inf).max(axis=2)
             for k in np.nonzero(ok.sum(axis=1) >= 3)[0]:
                 lo, hi = lo_all[k], hi_all[k]
-                spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1]))))
+                spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1])),
+                              cams[k]["view"]["drone_id"]))
         except np.linalg.LinAlgError:
             spans = []
             for cam in cams:
@@ -1610,7 +1657,8 @@ class PlanarStitcher(BaseStitcher):
                 if fp is None or len(fp) < 3:
                     continue
                 lo, hi = fp.min(axis=0), fp.max(axis=0)
-                spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1]))))
+                spans.append((lo, hi, float((hi[0] - lo[0]) * (hi[1] - lo[1])),
+                              cam["view"]["drone_id"]))
 
         if len(spans) < 2:
             return None
@@ -1625,59 +1673,106 @@ class PlanarStitcher(BaseStitcher):
             if len(keep) >= 2:
                 spans = keep
 
+        if boxes is not None:
+            boxes.update({s[3]: (s[0], s[1]) for s in spans})
         lo = np.min(np.stack([s[0] for s in spans]), axis=0)
         hi = np.max(np.stack([s[1] for s in spans]), axis=0)
         return lo, hi
 
-    def _fit_canvas(self, frame, cams, config, bbox):
+    def _fit_canvas(self, frame, cams, config, bbox, boxes=None):
         """
         Settle the auto-fit scale and centre from a footprint bounding box.
 
         Render thread only -- it mutates the ``_fit_*`` incumbents.  Returns
         ``(mpp, centre_ab)``, or ``None`` when there is nothing to fit and the caller
-        should hold whatever it had.
+        should hold whatever it had.  The rules are set out above ``AUTOFIT_HEADROOM``.
         """
         if bbox is None:
             return None
         canvas_w, canvas_h = config["canvas"]
         anchor = float(config.get("metres_per_pixel", 0.0))
-        if anchor <= 0.0 or canvas_w <= 0 or canvas_h <= 0:
+        # Half the canvas in pixels, less the one the pixel-centre convention costs.
+        half = np.array([0.5 * canvas_w - 1.0, 0.5 * canvas_h - 1.0])
+        if anchor <= 0.0 or (half <= 1.0).any():
+            return None
+        lo, hi = (np.asarray(v, dtype=np.float64) for v in bbox)
+        if not (np.isfinite(lo).all() and np.isfinite(hi).all()):
             return None
 
-        lo, hi = bbox
-        extent = np.maximum(hi - lo, 1e-6)
-        raw = max(extent[0] / canvas_w, extent[1] / canvas_h) * self.AUTOFIT_MARGIN
-        if not np.isfinite(raw) or raw <= 0.0:
-            return None
+        now = float(self._clock())
+        # A view that has stopped arriving is still fitted for the dwell, where it was
+        # last seen. Feeds drop frames: without this the box loses a side, the centre
+        # slides toward what is left, and the view comes back to a canvas that has moved
+        # off it. Kept in world coordinates, as the centre is, since the plane frame
+        # turns with the reference camera.
+        seen = self._fit_seen
+        if seen is None:
+            seen = self._fit_seen = {}
+        present = boxes or {}
+        for did, (when, corners) in list(seen.items()):
+            if did in present:
+                continue
+            if now - when > self.AUTOFIT_DWELL_S or now < when:
+                del seen[did]
+                continue
+            rel = corners - frame.O
+            ab = np.stack([rel @ frame.e1, rel @ frame.e2], axis=1)
+            lo, hi = np.minimum(lo, ab.min(axis=0)), np.maximum(hi, ab.max(axis=0))
+        for did, (b_lo, b_hi) in present.items():
+            seen[did] = (now, np.stack([frame.O + a * frame.e1 + b * frame.e2
+                                        for a, b in ((b_lo[0], b_lo[1]), (b_hi[0], b_lo[1]),
+                                                     (b_hi[0], b_hi[1]), (b_lo[0], b_hi[1]))]))
 
-        # Quantise in log space: one step is a fixed *ratio*, which is what "a scale step"
-        # means perceptually, and it makes the hysteresis band symmetric about the step.
-        limit = self.AUTOFIT_MAX_OCTAVES * self.AUTOFIT_STEPS_PER_OCTAVE
-        q = float(np.clip(np.log2(raw / anchor) * self.AUTOFIT_STEPS_PER_OCTAVE,
-                          -limit, limit))
-        now = time.monotonic()
-        if self._fit_mpp is None:
-            self._fit_step = int(round(q))
-            self._fit_changed_at = now
-        elif (abs(q - self._fit_step) > 0.5 + self.AUTOFIT_HYSTERESIS_STEPS
-                and now - self._fit_changed_at >= self.AUTOFIT_DWELL_S):
-            self._fit_step = int(round(q))
-            self._fit_changed_at = now
-        mpp = anchor * (2.0 ** (self._fit_step / self.AUTOFIT_STEPS_PER_OCTAVE))
+        first = self._fit_mpp is None or self._fit_centre_world is None
+        dt = 0.0 if first else float(np.clip(now - self._fit_at, 0.0, 0.5))
+        self._fit_at = now
 
         # Centre, low-passed in world coordinates (see __init__ for why not in (a, b)).
-        centre_ab = 0.5 * (lo + hi)
-        measured = frame.O + centre_ab[0] * frame.e1 + centre_ab[1] * frame.e2
-        if self._fit_centre_world is None:
+        middle = 0.5 * (lo + hi)
+        measured = frame.O + middle[0] * frame.e1 + middle[1] * frame.e2
+        if first:
             self._fit_centre_world = measured
         else:
             self._fit_centre_world = (self._fit_centre_world
-                                      + self.AUTOFIT_CENTRE_RATE
+                                      + (1.0 - np.exp(-dt / self.AUTOFIT_CENTRE_TAU_S))
                                       * (measured - self._fit_centre_world))
+        centre = np.array(self._centre_in_frame(frame))
+
+        # The scale at which the canvas, centred where it now is, just holds the mosaic.
+        need = float(np.max(np.maximum(hi - centre, centre - lo) / half))
+        if not np.isfinite(need) or need <= 0.0:
+            return None
+        wanted = need * self.AUTOFIT_HEADROOM
+
+        if first:
+            mpp = wanted
+            self._fit_loose_since, self._fit_closing = None, False
+        else:
+            mpp = float(self._fit_mpp)
+            if mpp < wanted:
+                # The mosaic has eaten the headroom: out, promptly.
+                mpp += (1.0 - np.exp(-dt / self.AUTOFIT_OUT_TAU_S)) * (wanted - mpp)
+                self._fit_loose_since, self._fit_closing = None, False
+            elif mpp > wanted * self.AUTOFIT_LOOSE:
+                if self._fit_loose_since is None:
+                    self._fit_loose_since = now
+                if now - self._fit_loose_since >= self.AUTOFIT_DWELL_S:
+                    self._fit_closing = True
+            else:
+                self._fit_loose_since = None
+            if self._fit_closing:
+                mpp += (1.0 - np.exp(-dt / self.AUTOFIT_IN_TAU_S)) * (wanted - mpp)
+                if mpp <= wanted * 1.01:
+                    self._fit_closing = False
+
+        # Rule 1, then the sanity bound.
+        mpp = max(mpp, need * self.AUTOFIT_EDGE)
+        limit = 2.0 ** self.AUTOFIT_MAX_OCTAVES
+        mpp = float(np.clip(mpp, anchor / limit, anchor * limit))
 
         self._fit_mpp = mpp
-        self._fit_extent = (float(extent[0]), float(extent[1]))
-        return mpp, self._centre_in_frame(frame)
+        self._fit_extent = (float(hi[0] - lo[0]), float(hi[1] - lo[1]))
+        return mpp, (float(centre[0]), float(centre[1]))
 
     def _centre_in_frame(self, frame):
         """The low-passed canvas centre expressed in ``frame``'s plane coordinates."""
@@ -2111,6 +2206,13 @@ class PlanarStitcher(BaseStitcher):
                          + ab[1, 1] * anchor_frame.e2) - centre
                 if np.linalg.norm(along) > 1e-6:
                     origin, right_ref, up_ref = centre, along, None
+        if int(config.get("canvas_mode", CANVAS_MODE_FIXED)) == CANVAS_MODE_AUTOFIT:
+            # A fitted canvas takes the heading the formation shares, not the reference
+            # view's own: see _formation_right.
+            shared = self._formation_right(posed, K, n, right_ref, visual, anchor_frame,
+                                           corr, apply_dpose)
+            if shared is not None:
+                right_ref, up_ref = shared, None
         frame = pg.build_plane_frame(n, d, origin, right_ref, up_ref)
         to_anchor = self._plane_change(frame, anchor_frame) if visual else None
         K_inv = np.linalg.inv(K) if visual else None
@@ -2160,6 +2262,68 @@ class PlanarStitcher(BaseStitcher):
             })
 
         return frame, cams
+
+    # How tightly the views' headings have to agree for the formation to have one: the
+    # length of their mean direction. A wall or a nadir survey reads ~1; a ring looking
+    # outward, or drones scattered at random headings, reads near 0.
+    FORMATION_HEADING_MIN = 0.8
+
+    def _formation_right(self, posed, K, n, right_ref, visual, anchor_frame, corr,
+                         apply_dpose):
+        """
+        The image x axis the formation shares, on the plane -- or ``None`` when it shares
+        none and the reference view's should stand.
+
+        The canvas' x axis used to be the reference camera's alone.  That is the right
+        rule for a fixed canvas, which is locked to that one view, and a poor one for a
+        fitted canvas: one aircraft's compass is good to several degrees, so the mosaic
+        of five drones that agree was drawn turned by the sixth's disagreement, and a
+        turned mosaic needs a canvas a fifth larger to hold it (the six-drone survey
+        clip: 82 x 55 m of canvas for a mosaic that fits in 72 x 48).  The median of the
+        views' own x axes, measured against the reference's, is where most of them point
+        and ignores the one that does not.
+
+        Each axis is read off the view's carried mapping where it has one, exactly as the
+        reference's is, and off its corrected pose otherwise.
+        """
+        ref = np.asarray(right_ref, dtype=np.float64)
+        ref = ref - (ref @ n) * n
+        if np.linalg.norm(ref) < 1e-6:
+            return None
+        ref = ref / np.linalg.norm(ref)
+        side = np.cross(n, ref)
+
+        angles = []
+        for v in posed:
+            did = v["drone_id"]
+            direction = None
+            if visual and did in visual:
+                src_w = v["image"].shape[1]
+                try:
+                    q = np.linalg.solve(visual[did],
+                                        np.array([[K[0, 2], K[0, 2] + 0.1 * src_w],
+                                                  [K[1, 2], K[1, 2]], [1.0, 1.0]]))
+                except np.linalg.LinAlgError:
+                    q = None
+                if q is not None and q[2, 0] > 1e-9 and q[2, 1] > 1e-9:
+                    ab = q[:2] / q[2]
+                    direction = ((ab[0, 1] - ab[0, 0]) * anchor_frame.e1
+                                 + (ab[1, 1] - ab[1, 0]) * anchor_frame.e2)
+            if direction is None:
+                R, C = pg.unity_pose_to_cv(v["pos"], v["quat"])
+                if apply_dpose:
+                    R, C = self._apply_correction(v, R, C, corr)
+                direction = R[0]
+            x, y = float(direction @ ref), float(direction @ side)
+            if x * x + y * y > 1e-12:
+                angles.append(np.arctan2(y, x))
+        if len(angles) < 3:
+            return None
+        angles = np.asarray(angles)
+        if np.hypot(np.cos(angles).mean(), np.sin(angles).mean()) < self.FORMATION_HEADING_MIN:
+            return None
+        theta = float(np.median(angles))
+        return np.cos(theta) * ref + np.sin(theta) * side
 
     def _published_plane(self, posed, plane, config):
         """
@@ -2301,7 +2465,7 @@ class PlanarStitcher(BaseStitcher):
     #   auto-fit, the pan, the anisotropy gate, the blend width, the overlap PSNR and the
     #   estimators' reduced canvas.
     # - the OUTPUT raster is how many pixels that patch is drawn with.  It is the caller's
-    #   (``out_size``, Unity's planarRenderScale x the canvas) and only the last step of
+    #   (``out_size``, Unity's planarMaxRenderScale x the canvas) and only the last step of
     #   the render sees it.
     #
     # They were one raster once, and the mosaic then went canvas -> cv2.resize -> wire: two
@@ -2342,6 +2506,74 @@ class PlanarStitcher(BaseStitcher):
     _psnr_cache = None
     _render_ms = None
     _frame_ms = None
+
+    # ---- output size ------------------------------------------------------------------
+    #
+    # The mosaic is drawn with OUTPUT_DETAIL output pixels per source pixel of its sharpest
+    # view, and no more than the ceiling the caller gives. That number is a measurement,
+    # not a taste: resampled back into a drone's own frame, a bicubic mosaic keeps 98-99%
+    # of the feed's contrast in every frequency band at 1.6 (54-55 dB against the feed),
+    # 87% of the finest band at 1.2, 66-84% at 1.0, and gains nothing visible past 1.8.
+    # What it works out to in pixels depends on what is being looked at -- three feeds
+    # side by side need ~1800 across, ten of the simulator's ~3600 -- and it falls as the
+    # operator zooms in, since a zoomed canvas shows fewer source pixels. A size fixed in
+    # the inspector is right for one formation at one zoom.
+    #
+    # The size is a multiple of the canvas (the framing does not depend on it, see
+    # _raster_matrix) on a ladder of OUTPUT_STEP, so Unity re-makes its texture a few
+    # times a flight rather than every frame: up at once, since too few pixels is the
+    # defect, and down only after the smaller size has been enough for OUTPUT_DWELL_S.
+    #
+    # The floor is the headset, not the feeds: the curved screen is 90 degrees wide and
+    # the Quest Pro resolves ~22 px/deg, ~2000 px across it, and 1.75 x the default 1200
+    # canvas is 2100. Below that the screen would enlarge the texture with the GPU's
+    # bilinear filter -- which is what happens when the operator zooms in and the feeds
+    # need fewer pixels than the screen shows -- where drawing it here is bicubic from the
+    # source. (The ceiling is Unity's, planarMaxRenderScale: 2.5 by default, 1.5 x that.)
+    OUTPUT_DETAIL = float(os.environ.get("PLANAR_OUTPUT_DETAIL", "1.6"))
+    OUTPUT_STEP = 0.25
+    OUTPUT_MIN_SCALE = 1.75
+    OUTPUT_DWELL_S = 2.0
+    # A step down needs this much to spare, so a scale hovering at a rung does not flap.
+    OUTPUT_DOWN_MARGIN = 1.08
+    _out_scale = None
+    _out_smaller_since = None
+
+    def _output_size(self, canvas_w, canvas_h, mpp_view, gsd, ceiling):
+        """
+        ``(height, width)`` to draw the mosaic at, no larger than ``ceiling``.
+
+        ``mpp_view`` is the plane distance a *canvas* pixel spans (zoom included) and
+        ``gsd`` the distance a source pixel of the sharpest view does.  Render thread.
+        """
+        top = min(float(ceiling[1]) / canvas_w, float(ceiling[0]) / canvas_h)
+        floor = min(self.OUTPUT_MIN_SCALE, top)
+        if not (gsd > 0.0 and mpp_view > 0.0 and np.isfinite(gsd) and np.isfinite(mpp_view)):
+            return ceiling
+
+        def rung(need):
+            return float(np.clip(np.ceil(need / self.OUTPUT_STEP - 1e-9) * self.OUTPUT_STEP,
+                                 floor, top))
+
+        need = self.OUTPUT_DETAIL * mpp_view / gsd          # output pixels per canvas pixel
+        want = rung(need)
+        now = float(self._clock())
+        scale = self._out_scale
+        if scale is None or want > scale or scale > top:
+            scale, self._out_smaller_since = want, None
+        else:
+            lower = rung(need * self.OUTPUT_DOWN_MARGIN)
+            if lower < scale:
+                if self._out_smaller_since is None:
+                    self._out_smaller_since = now
+                if now - self._out_smaller_since >= self.OUTPUT_DWELL_S:
+                    scale, self._out_smaller_since = lower, None
+            else:
+                self._out_smaller_since = None
+        self._out_scale = scale
+        if scale >= top:
+            return int(ceiling[0]), int(ceiling[1])
+        return max(2, int(round(canvas_h * scale))), max(2, int(round(canvas_w * scale)))
 
     # Sampling coordinate of a pixel no view covers: far outside any image, so the
     # sampler's zero padding returns black without a mask.
@@ -2582,7 +2814,7 @@ class PlanarStitcher(BaseStitcher):
         self._out_idx = (self._out_idx + 1) % len(ring)
         return buf
 
-    def _render(self, cams, canvas_w, canvas_h, config, M, out_size=None):
+    def _render(self, cams, canvas_w, canvas_h, config, M, out_size=None, seam=None):
         """
         Draw the mosaic.
 
@@ -2591,6 +2823,8 @@ class PlanarStitcher(BaseStitcher):
         is ``(height, width)`` of the output raster; with it the result is a
         :class:`WireReadyPanorama` (RGB, bottom-up rows), without it a BGR top-down
         array of the canvas size.
+
+        ``seam`` is ``(soft [N,1,h,w], G)`` from :meth:`_seam_for_render`, or ``None``.
 
         Returns ``(panorama uint8 [H, W, 3], coverage, worst pairwise overlap PSNR)``.
         """
@@ -2655,13 +2889,13 @@ class PlanarStitcher(BaseStitcher):
                 # fitted to a colour wash would be fitted to the palette.
                 corr, gains = self._low_bands(cams, src, H_canvas, H_t, geo, M, canvas_w,
                                               canvas_h, step, limit, max_range, feather_px,
-                                              exposure=debug_view == DEBUG_OFF)
+                                              exposure=debug_view == DEBUG_OFF, seam=seam)
                 if gains is not None:
                     src = src * gains
                 low = (corr, step, S_c)
             pano, covered = self._compose_partition(cams, H_c, geo, M_c, x, y, rois, src,
                                                     limit, max_range, feather_px, sampling,
-                                                    low)
+                                                    low, seam, S_c)
 
         # No mask needed: a pixel nothing covers was sampled from nowhere and is already
         # black. Rounded, not truncated -- a flat patch interpolates to 199.99998 as
@@ -2691,14 +2925,15 @@ class PlanarStitcher(BaseStitcher):
         return out, coverage, overlap_psnr
 
     def _compose_partition(self, cams, H_c, geo, M_c, x, y, rois, src, limit, max_range,
-                           feather_px, sampling, low=None):
+                           feather_px, sampling, low=None, seam=None, S_c=None):
         """
         NEAREST and MULTIBAND: one view per pixel.  Returns ``(pano [3,H,W], covered)``.
 
         The winner and where it samples are kept as running bests while the views are
         visited one at a time over their own bounding boxes; the image is then read in a
         single ``grid_sample`` out of all the frames stacked into one tall texture.
-        ``low`` is ``(correction, step, S_c)`` from :meth:`_low_bands`, or ``None``.
+        ``low`` is ``(correction, step, S_c)`` from :meth:`_low_bands`, or ``None``;
+        ``seam`` as in :meth:`_render`, with ``S_c`` the output lattice -> canvas map.
         """
         dev = src.device
         n, _, src_h, src_w = src.shape
@@ -2712,6 +2947,9 @@ class PlanarStitcher(BaseStitcher):
         best_uv = torch.zeros((2, out_h, out_w), dtype=torch.float32, device=dev)
         best_uv[0].fill_(self._NOWHERE)
         label = torch.full((out_h, out_w), self._NO_VIEW, dtype=torch.uint8, device=dev)
+        if seam is not None:
+            soft, G = seam
+            G = G @ S_c                                  # output lattice -> seam grid
         for i in range(n):
             y0, y1, x0, x1 = rois[i]
             if y1 <= y0 or x1 <= x0 or cams[i]["plane_h"] <= 1e-9:
@@ -2720,6 +2958,8 @@ class PlanarStitcher(BaseStitcher):
                                           limit, max_range)
             score = self._score(f, ok, feather_px,
                                 torch.rsqrt(prow[i, :, x0:x1] + pcol[i, y0:y1]).mul_(gain[i]))
+            if seam is not None:
+                score.mul_(self._seam_bias(soft[i:i + 1], G, x[:, x0:x1], y[y0:y1])[0])
             held = best[y0:y1, x0:x1]
             better = score > held
             torch.maximum(held, score, out=held)
@@ -2808,6 +3048,244 @@ class PlanarStitcher(BaseStitcher):
             wsum[y0:y1, x0:x1].add_(weight)
         return acc.div_(wsum.clamp_min(1e-6)), wsum > 1e-6
 
+    # ---- seams --------------------------------------------------------------------------
+    #
+    # The winner-take-all partition is drawn where two views see the plane equally face-on:
+    # a Voronoi diagram of the camera footprints. On the plane that is the best place for a
+    # seam, and off it it can be the worst: whatever stands in front of or behind the plane
+    # is drawn from two viewpoints either side of the line, and a straight line through a
+    # building, a canopy or a car breaks it in two (the MED clip's bisector runs up through
+    # the block behind the facade and splits its roofline and chimneys by a storey's
+    # parallax). Every stitcher worth the name moves the seam to where the two views agree.
+    #
+    # Here that is a graph cut (OpenCV's, on colour and gradient difference), solved on the
+    # warp thread on a canvas half the size, and only inside a band either side of the
+    # Voronoi line: a seam may detour round what the views disagree about, not wander off
+    # across a view's whole footprint, and nothing moves where they agree. Its answer
+    # reaches the render as a per-view preference that multiplies the score, kept on the
+    # plane (_seam["frame"]) so it stays on the same ground as the formation moves between
+    # solves; the full-resolution boundary follows it smoothly.
+    #
+    # PLANAR_SEAMS=0 restores the plain partition. FEATHER has no partition and ignores it.
+    SEAMS = os.environ.get("PLANAR_SEAMS", "1") not in ("", "0")
+    SEAM_SCALE = 0.4            # seam grid, relative to the canvas
+    SEAM_BAND = 0.05            # how far a seam may move, as a share of the grid's longer side
+    SEAM_PERIOD_S = 0.25
+    SEAM_MAX_AGE_S = 2.0
+    SEAM_FLOOR = 0.1            # preference left to a view outside its seam region
+    SEAM_RAMP = 2               # half-width of the preference's ramp, seam-grid cells
+    # Each solve is eased in from what is on screen over this long, so the cells it moves
+    # change views a little on every frame rather than all on one.
+    SEAM_BLEND_S = 0.25
+    # How far one solve may move a seam from where the last one left it, seam-grid cells.
+    # A cut is free to jump to another path every solve; held to a step, a seam follows the
+    # content continuously and stays on a path while it remains a good one.
+    SEAM_STEP = 4
+    _seam = None
+    _seam_at = 0.0
+    _seam_stats = {}
+    _seam_finder = None
+
+    def _solve_seams(self, views, K, plane, config):
+        """
+        Solve the seams for the frame in the snapshot.  Warp thread.
+
+        Leaves ``_seam`` = ``{"ids", "soft" [N,1,h,w], "frame", "to_grid", "size", "time"}``
+        (``soft`` is each drone's preference on the grid, ``to_grid`` takes plane
+        coordinates in ``frame`` to grid pixels) or ``None``.
+        """
+        if (not self.SEAMS or cv2 is None or not hasattr(cv2, "detail")
+                or int(config.get("blend_mode", BLEND_NEAREST)) == BLEND_FEATHER):
+            self._seam = None
+            return
+        now = time.monotonic()
+        if now - self._seam_at < self.SEAM_PERIOD_S:
+            return
+        self._seam_at = now
+        started = time.perf_counter()
+
+        canvas_w, canvas_h = config["canvas"]
+        mpp = float(config.get("metres_per_pixel", 0.0))
+        if canvas_w <= 0 or canvas_h <= 0 or mpp <= 0.0:
+            return
+        autofit = int(config.get("canvas_mode", CANVAS_MODE_FIXED)) == CANVAS_MODE_AUTOFIT
+        if autofit and self._fit_mpp:
+            mpp = float(self._fit_mpp)
+        frame, cams = self._build_geometry(views, K, plane, config)
+        if frame is None or len(cams) < 2:
+            self._seam = None
+            return
+        cw = max(16, int(round(canvas_w * self.SEAM_SCALE)))
+        ch = max(16, int(round(canvas_h * self.SEAM_SCALE)))
+        M_s = self._canvas_matrix(mpp * canvas_w / float(cw), cw, ch,
+                                  self._centre_in_frame(frame) if autofit else (0.0, 0.0))
+
+        dev = self.render_device
+        n = len(cams)
+        src_h, src_w = cams[0]["view"]["image"].shape[:2]
+        max_range = float(config.get("max_range", 0.0)) or float("inf")
+        feather_px = max(1.0, float(config.get("feather_px", 1)))
+        H = torch.as_tensor(np.stack([np.asarray(c["G"], dtype=np.float64) for c in cams]) @ M_s,
+                            dtype=torch.float32, device=dev)
+        xs = torch.arange(cw, dtype=torch.float32, device=dev).view(1, -1)
+        ys = torch.arange(ch, dtype=torch.float32, device=dev).view(-1, 1)
+        limit = torch.tensor([src_w - 1.0, src_h - 1.0], dtype=torch.float32,
+                             device=dev).view(2, 1, 1)
+        rows, cols = self._lattice_terms(H, xs, ys)
+        uv, f, ok = self._view_fields(rows + cols, limit, max_range)
+        geo = self._plane_geometry(cams, dev)
+        prow, pcol = self._plane_terms(M_s, xs, ys, geo)
+        top, label = self._score(f, ok, feather_px,
+                                 torch.rsqrt(prow + pcol).mul_(geo[:, 3, None, None])).max(dim=0)
+        covered = top > 0
+        # Where a view may be given ground: inside its frame by half a feather, so a seam
+        # cannot be drawn on top of an image edge.
+        usable = ok & (f >= 0.5 * feather_px)
+        frames = torch.from_numpy(np.stack([c["view"]["image"] for c in cams])).to(dev)
+        frames = frames.permute(0, 3, 1, 2).float()
+        warped = F.grid_sample(frames, uv.mul_(2.0 / limit).sub_(1.0).permute(0, 2, 3, 1),
+                               mode="bilinear", padding_mode="border", align_corners=True)
+        warped = warped.permute(0, 2, 3, 1).contiguous().cpu().numpy()          # [N,h,w,3]
+        label = label.cpu().numpy()
+        covered = covered.cpu().numpy()
+        usable = usable.cpu().numpy()
+
+        ids = tuple(c["view"]["drone_id"] for c in cams)
+        carried = None
+        previous = self._seam
+        if previous is not None and previous["ids"] == ids \
+                and now - previous["time"] <= self.SEAM_MAX_AGE_S:
+            # The last answer, carried onto this grid through the plane: it stays on the
+            # ground it was solved on however the canvas has moved since.
+            pw, ph = previous["size"]
+            unit = np.array([[2.0 / (pw - 1), 0.0, -1.0], [0.0, 2.0 / (ph - 1), -1.0],
+                             [0.0, 0.0, 1.0]])
+            G = unit @ previous["to_grid"] @ self._plane_change(frame, previous["frame"]) @ M_s
+            carried = (self._seam_bias(self._seam_shown(previous), G, xs, ys)
+                       - self.SEAM_FLOOR)
+        held = None
+        if carried is not None:
+            best_prev, held = carried.max(dim=0)
+            held = torch.where(best_prev > 0.5, held, torch.full_like(held, -1)).cpu().numpy()
+
+        band = max(2, int(round(self.SEAM_BAND * max(cw, ch))))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * band + 1, 2 * band + 1))
+        step = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                         (2 * self.SEAM_STEP + 1, 2 * self.SEAM_STEP + 1))
+        masks = []
+        for i in range(n):
+            own = ((label == i) & covered).astype(np.uint8)
+            near = cv2.dilate(own, kernel).astype(bool)
+            allowed = (near & usable[i]) | own.astype(bool)
+            if held is not None:
+                was = (held == i).astype(np.uint8)
+                if was.any():
+                    allowed &= cv2.dilate(was, step).astype(bool) | (held < 0)
+            masks.append(allowed.astype(np.uint8) * 255)
+        if self._seam_finder is None:
+            # Plain colour difference. The gradient-normalised cost OpenCV's stitcher
+            # defaults to makes a seam along any strong edge look cheap, and on the MED
+            # facade it drew the background block's dark face down over the parapet.
+            self._seam_finder = cv2.detail_GraphCutSeamFinder("COST_COLOR")
+        # Each view cropped to where it may be given ground. OpenCV builds a pair's graph
+        # over the whole rectangle the two images share, so full-canvas images cost a
+        # full-canvas graph per pair: 4.5 s for six views at this size, 0.4 s cropped.
+        boxes = []
+        for i in range(n):
+            ys_i, xs_i = np.nonzero(masks[i])
+            if len(xs_i) == 0:
+                boxes.append((0, 1, 0, 1))
+                continue
+            boxes.append((int(ys_i.min()), int(ys_i.max()) + 1,
+                          int(xs_i.min()), int(xs_i.max()) + 1))
+        found = self._seam_finder.find(
+            [np.ascontiguousarray(warped[i, y0:y1, x0:x1]) for i, (y0, y1, x0, x1) in enumerate(boxes)],
+            [(x0, y0) for (y0, y1, x0, x1) in boxes],
+            [np.ascontiguousarray(masks[i][y0:y1, x0:x1]) for i, (y0, y1, x0, x1) in enumerate(boxes)])
+        claim = np.zeros((n, ch, cw), dtype=bool)
+        for i, (m, (y0, y1, x0, x1)) in enumerate(zip(found, boxes)):
+            claim[i, y0:y1, x0:x1] = (m.get() if hasattr(m, "get") else np.asarray(m)) > 0
+        # Only where exactly two views compete. OpenCV cuts the overlaps a pair at a time,
+        # and where three bands meet those cuts need not agree: on the MED facade they
+        # handed the low drone's view of the block behind a strip above the parapet the two
+        # high drones see 5 px lower. Junctions keep the plain partition.
+        contested = np.stack(masks).astype(bool).sum(axis=0)
+        cut = np.where((claim.sum(axis=0) == 1) & (contested == 2), claim.argmax(axis=0), label)
+        cut = np.where(covered, cut, label)
+        # A view's ground has to stay in one piece with what it had: a pairwise cut can
+        # leave a few cells of it stranded inside a neighbour's, which draws as a little
+        # closed seam round nothing.
+        for i in range(n):
+            mine = (cut == i).astype(np.uint8)
+            count_i, parts = cv2.connectedComponents(mine, connectivity=4)
+            if count_i <= 2:
+                continue
+            anchored = np.unique(parts[(label == i) & (mine > 0)])
+            stray = (mine > 0) & ~np.isin(parts, anchored)
+            cut[stray] = label[stray]
+
+        ramp = 2 * self.SEAM_RAMP + 1
+        soft = np.stack([cv2.blur(((cut == i) & covered).astype(np.float32), (ramp, ramp))
+                         for i in range(n)])
+        moved = float(((cut != label) & covered).mean() / max(covered.mean(), 1e-9))
+        self._seam = {
+            "ids": ids, "soft": torch.from_numpy(soft[:, None]).to(dev),
+            "from": None if carried is None else carried.unsqueeze(1).contiguous(),
+            "eased_at": float(self._clock()),
+            "frame": frame, "to_grid": np.linalg.inv(M_s), "size": (cw, ch), "time": now,
+        }
+        self._seam_stats = {"ms": 1e3 * (time.perf_counter() - started), "moved": moved,
+                            "grid": (cw, ch), "views": n}
+
+    def _seam_shown(self, seam):
+        """The preference on screen now: the latest solve, part-way eased in from the last."""
+        if seam.get("from") is None or self.SEAM_BLEND_S <= 0.0:
+            return seam["soft"]
+        b = (float(self._clock()) - seam["eased_at"]) / self.SEAM_BLEND_S
+        if b >= 1.0:
+            return seam["soft"]
+        b = max(0.0, b)
+        b = b * b * (3.0 - 2.0 * b)
+        return torch.lerp(seam["from"], seam["soft"], b)
+
+    def _seam_for_render(self, cams, frame, M, config):
+        """
+        ``(soft [N,1,h,w], G)`` for this frame's views in their order, ``G`` taking canvas
+        pixels to the seam grid's normalised coordinates -- or ``None`` when there is no
+        seam to apply (off, stale, or solved for another set of views).  Render thread.
+        """
+        seam = self._seam
+        if (seam is None or frame is None
+                or int(config.get("blend_mode", BLEND_NEAREST)) == BLEND_FEATHER
+                or time.monotonic() - seam["time"] > self.SEAM_MAX_AGE_S):
+            return None
+        ids = seam["ids"]
+        try:
+            index = [ids.index(c["view"]["drone_id"]) for c in cams]
+        except ValueError:
+            return None
+        cw, ch = seam["size"]
+        unit = np.array([[2.0 / (cw - 1), 0.0, -1.0], [0.0, 2.0 / (ch - 1), -1.0],
+                         [0.0, 0.0, 1.0]])
+        G = unit @ seam["to_grid"] @ self._plane_change(frame, seam["frame"]) \
+            @ np.asarray(M, dtype=np.float64)
+        soft = self._seam_shown(seam)
+        if index != list(range(len(ids))):
+            soft = soft[torch.as_tensor(index, device=soft.device)]
+        return soft, G
+
+    def _seam_bias(self, soft, G, x, y):
+        """
+        The multiplier the seams put on each view's score, ``[n, H, W]``, at the points
+        ``(x, y)`` (a row and a column) of the space ``G`` maps to the seam grid.
+        """
+        gx = x * float(G[0, 0]) + (y * float(G[0, 1]) + float(G[0, 2]))
+        gy = x * float(G[1, 0]) + (y * float(G[1, 1]) + float(G[1, 2]))
+        grid = torch.stack((gx, gy), dim=-1).unsqueeze(0).expand(soft.shape[0], -1, -1, -1)
+        pref = F.grid_sample(soft, grid, mode="bilinear", padding_mode="zeros",
+                             align_corners=True)[:, 0]
+        return pref.add_(self.SEAM_FLOOR)
+
     # ---- two-band blend and exposure -------------------------------------------------
 
     # Brown & Lowe's gain compensation, per colour channel. sigma_n is how far two
@@ -2822,7 +3300,7 @@ class PlanarStitcher(BaseStitcher):
     _gain_state = None                 # (drone id tuple, gains [N,3] float64)
 
     def _low_bands(self, cams, src, H_canvas, H_t, geo, M, canvas_w, canvas_h, step, limit,
-                   max_range, feather_px, exposure):
+                   max_range, feather_px, exposure, seam=None):
         """
         What MULTIBAND adds to the winner-take-all partition.  Returns
         ``(correction [N,3,h,w], gains [N,3,1,1] | None)``.
@@ -2868,8 +3346,13 @@ class PlanarStitcher(BaseStitcher):
         uv, f, ok = self._view_fields(rows + cols, limit, max_range)        # [N,2,2h,2w]
         inside = ok & (f >= 0)
         prow, pcol = self._plane_terms(M, xs, ys, geo)
-        top, winner = self._score(f, ok, feather_px,
-                                  torch.rsqrt(prow + pcol).mul_(geo[:, 3, None, None])).max(dim=0)
+        score = self._score(f, ok, feather_px,
+                            torch.rsqrt(prow + pcol).mul_(geo[:, 3, None, None]))
+        if seam is not None:
+            # The same partition the render draws, or the low bands fade across a seam
+            # that is not there.
+            score = score * self._seam_bias(seam[0], seam[1], xs, ys)
+        top, winner = score.max(dim=0)
         hard = F.one_hot(winner, n).permute(2, 0, 1) * (top > 0)            # [N,2h,2w]
 
         # How many source pixels lie between two neighbouring samples, and so how far the
@@ -3169,7 +3652,7 @@ class PlanarStitcher(BaseStitcher):
             detail = gsd / mpp_out if gsd > 0.0 else 0.0
             verdict = ""
             if 0.0 < detail < 0.95:
-                verdict = (f" (BELOW feed resolution: raise planarRenderScale "
+                verdict = (f" (BELOW feed resolution: raise planarMaxRenderScale "
                            f"by {1.0 / detail:.1f}x, or zoom in)")
             elif zoom > 1.0 + 1e-3 and detail > 2.0:
                 verdict = " (EMPTY magnification)"
