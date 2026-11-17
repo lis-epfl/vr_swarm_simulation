@@ -1630,8 +1630,8 @@ no longer what limits the detail out there; the feed map is.** The aircraft stre
 sharpness is a wider feed block (up to the 1280×720 block envelope), which is a change to
 `DroneFeedSharedMemory`'s geometry on both repos and not to the stitcher.
 
-It used to be hand-typed, and a wrong value there is the single largest error in the mosaic — the
 **`planarStandoffMetres` is supplied by the PC and the inspector field is the fallback.**
+It used to be hand-typed, and a wrong value there is the single largest error in the mosaic — the
 2026-08-11 MED clips were replayed against a typed 30 m when the truth was 34.3 m, which at this
 geometry's 4.9 px per metre is ~21 px of seam, more than every other term combined. The PC now
 computes it (`clip_scene_plane.pick_facade` + `standoff_of`) and writes it into the feed map's
