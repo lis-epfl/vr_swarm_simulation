@@ -1,11 +1,11 @@
 # PLANAR learned alignment: what changed, and the case for end-to-end learning
 
-2026-11-13, updated 2026-11-15. The PLANAR stitcher mosaics the drones' views of one plane, a facade or the
+2026-11-13, updated 2026-11-15 and 2026-11-17 (the render: full resolution, framing, seams). The PLANAR stitcher mosaics the drones' views of one plane, a facade or the
 ground, with one homography per view built from each drone's pose. That pose comes from GNSS, the compass and a
 gimbal, and it is metres and degrees out. The stitcher therefore left 10–40 px seams on the recorded real-drone
 clips. This note explains how the new method works, summarises what was built and how it was measured, and then
 assesses end-to-end learning as the next step. The engineering detail is in [CLAUDE.md](../CLAUDE.md) under
-"PLANAR learned alignment".
+"PLANAR learned alignment", and for the render (resolution, canvas, seams) under "PLANAR stitcher".
 
 ## How it works
 
@@ -120,14 +120,30 @@ picture on screen, whereas the picture's own motion is always the right one.
 anchor yet, or one older than 2.5 s, is drawn from its corrected pose instead. A new solve is eased in over
 0.3 s rather than snapped to.
 
-**d. Partition.** Each canvas pixel is taken from exactly one view, the one that sees that point of the wall most
-squarely. With one source per pixel nothing can ghost.
+**d. Partition and seams.** Each pixel is taken from exactly one view, the one that sees that point of the
+wall most squarely, so nothing can ghost. The dividing lines are then moved off anything the views disagree
+about: a graph cut, solved on the warp thread four times a second on a reduced grid, lets each line detour within
+a band around its original position, through sky or plain wall instead of through a building behind the facade
+or a canopy standing out from it. Each solve may move a line only a few cells and is eased in, so a line never
+jumps.
 
 **e. Multiband blend.** Each drone's auto-exposure differs, so a hard partition shows brightness steps. A gain
 per drone is solved to match the overlaps, and then only the low frequencies (overall brightness) are
 cross-faded across the seams; the detail stays from one view.
 
-**f. Panorama.** Written to the shared-memory map that Unity reads and shows on the curved VR screen.
+**f. Panorama.** Three things decide what is drawn and how:
+- *Framing.* The canvas (1200×800) decides which patch of the plane is shown. By default it fits the formation:
+  the mosaic is never drawn past its edge; it zooms out as soon as the formation needs room and back in only
+  after the mosaic has stayed clearly smaller for 1.5 s; a feed that drops out for a moment does not move it; and
+  it lines up with the heading most drones share rather than with one drone's compass. The operator's zoom and
+  pan apply on top and never reach the warp thread.
+- *Resolution.* The mosaic is drawn straight at its final size, one bicubic sample per output pixel from the
+  view that owns it. The size is chosen per frame: 1.6 pixels for every pixel of the sharpest feed, never less
+  than the ~2000 pixels the headset resolves across the screen, never more than Unity's ceiling (3000×2000 by
+  default). It used to be drawn at 1200×800 and then resized, which threw away most of the feeds' finest detail.
+- *Upload.* It is written, with its size, to the shared-memory map that Unity reads. Unity uploads it in a
+  format the GPU takes as it is and generates mipmaps, so a panorama with more pixels than the screen shows looks
+  clean rather than shimmering, and shows it on the curved VR screen.
 
 ## Results
 
@@ -168,10 +184,44 @@ It is measured with ORB, a detector the new method does not use.
 - **Examples:** three-way stills (pose only / previous estimators / new, same instant) for every clip are in
   `D:\claude_planar_sim2\results\fix_cmp3_*.jpg`, outside the repo.
 - **Cost:** one update takes 0.2 s for 3 drones and 0.5–0.6 s for 6, on the warp thread; the first lock on 6
-  views takes about 2 s. With the aligner on, one pass of the render thread is 12 ms for 3 views and
-  13–17 ms for 6 (RTX 4090), drawing the mosaic at 2400×1600. That is the render as rebuilt on
-  2026-11-16 for full-resolution output; it was 28 ms for 6 views at 1200×800 before.
-- **Not yet tested:** none of this has run live in Unity or on aircraft.
+  views takes about 2 s. Render costs are in the next section.
+- **Not yet tested:** none of this has run live in the headset or on aircraft.
+
+### The render (2026-11-16/17)
+
+**Detail kept.** Each panorama was resampled back into one drone's own frame and compared with the frame that
+drone sent: how much of the feed's contrast survives at its finest scale of detail (0.4–0.5 cycles per pixel),
+and the PSNR against the feed.
+
+| Clip | Before (1200×800, then resized) | Now (drawn at 2× the canvas) |
+|---|---|---|
+| Nadir, 6 drones, 800×450 | 30%, 35.0 dB | **99%, 59.3 dB** |
+| MED facade, 3 drones | 37%, 32.0 dB | **99%, 59.2 dB** |
+| Simulated wall, 6 × 1152×648 | 41%, 30.8 dB | **99%, 54.7 dB** |
+
+**Framing.** With the old fixed canvas (60×40 m) every frame of every recorded clip drew the mosaic past the
+canvas edge, by 11–38% of its width. The fitted canvas never does, on any clip, and the mosaic fills 89–95% of
+it.
+
+**Seams.** On the MED facade the old dividing line cut the block behind the facade (its roofline stepped and a
+chimney was split) and ran diagonally through the entrance canopy, doubling its panels; the new lines go round
+both. On an object placed on the line between two views, 10 px apart in them, the old partition drew 30 of its
+40 px and the new one draws it whole. Moving lines add no visible flicker: on the stationary MED clip the
+mosaic's frame-to-frame change is the same with seams as without (2.13% against 2.12% of pixels changing by more
+than 20 grey levels, all of it video noise).
+
+**Time per frame** on the render thread (ms; RTX 4090, end to end against a stand-in for Unity; a 30 Hz feed
+allows 33 ms):
+
+| Load | Before, at its old size | Before, if drawn at 2400×1600 | Now |
+|---|---|---|---|
+| 6 real feeds, multiband | 20 (1600×600) | 36 | 11.5–13 (2100×1400) |
+| Same, learned aligner on | 28 | 55 | 21–23.5 (2400×1600) |
+| 10 simulated views at 30 Hz | 31 (2160×810) | 59 | 17–20 (3000×2000) |
+
+The seams cost about 1 ms of that, and their solve 40–75 ms on the warp thread four times a second. On Unity's
+side the upload costs 0.8 ms of main thread per panorama at 2160×810 (1.3 before) and 4.9 ms at 3600×2400
+(7.2 before), which is what the 3000×2000 ceiling bounds.
 
 ## Contributions
 
@@ -207,17 +257,30 @@ It is measured with ORB, a detector the new method does not use.
    interpolated to each frame's time.
 5. **`Multiband` blend.** Each drone's exposure is matched to its neighbours', and the low frequencies are
    cross-faded. Detail still comes from one view, so nothing ghosts. This is DJIScene's setting.
-6. **Measurement tools.**
-   - `tools/planar_stream_bench.py` plays real or simulated clips in real time, with `--pose-noise` and `--video`.
+6. **A render at feed resolution** (2026-11-16). Each view's work is confined to its own footprint, one
+   bicubic sample is taken per output pixel, and the mosaic is drawn straight into the layout Unity uploads. It
+   is faster at 3000×2000 than the old render was at 1200×800.
+7. **A canvas that fits the formation, and a panorama sized to the feeds** (2026-11-17). See step f.
+   Unity uploads the panorama packed and mipmapped (byte for byte the same pixels).
+8. **Seams round off-plane content** (2026-11-17). See step d. Where three views meet, the plain partition is
+   kept: the pairwise cuts need not agree there, and on MED they produced a dark sliver over the parapet.
+9. **Measurement tools.**
+   - `tools/planar_stream_bench.py` plays real or simulated clips in real time, with `--pose-noise` and `--video`,
+     and reports how the mosaic sits on the canvas (`--canvas-mode`, `--mpp`).
+   - `tools/planar_bridge_bench.py` runs the real stitcher against a stand-in for Unity and times it.
    - `PlanarCaptureProbe.cs` records simulated clips with exact poses, headless.
-   - Self-test section 13 covers the solver, the graph, the blend, a synthetic repeating facade and a lagging video.
+   - Self-test section 13 covers the solver, the graph, the blend, a synthetic repeating facade and a lagging
+     video; section 14 the render against an independent reference at several sizes; section 15 the seams.
 
-**Switching it on:** the existing inspector switches `planarPoseRefine` and `planarPlaneSweep` now drive all of this.
-`PLANAR_LEGACY_ESTIMATORS=1` restores the photometric estimators.
+**Switching it on:** the existing inspector switches `planarPoseRefine` and `planarPlaneSweep` now drive the
+alignment. `PLANAR_LEGACY_ESTIMATORS=1` restores the photometric estimators. The render changes are on by
+default: `planarCanvasMode` (AutoFit), `planarMaxRenderScale` (2.5) and `packedPanoramaUpload` in the inspector,
+`PLANAR_SEAMS=0` to turn the seams off.
 
 **Known limits:**
 - With exact simulated poses the aligner can only add noise (1.4–3.7 px), so leave the switches off in the sim.
-- Content off the plane still breaks at seams.
+- Content off the plane still breaks where a seam has to cross it: where three views meet, or where the band
+  a seam may move in has no way round.
 - Where a wall repeats with nothing to tell its periods apart (two rows of drones looking at identical storeys),
   the choice of period falls to GPS. It is then right only while the GPS error between the rows is under half a
   storey.
@@ -264,7 +327,7 @@ The geometry stays exact and inspectable, and only the judgement calls are learn
 - It fails silently on an unfamiliar site, and when it is wrong there is nothing to inspect.
 - Sim-to-real gap: the simulated facades (rendered rooms behind each window) are harder than the real one in some
   ways and easier in others.
-- It competes with the VR renders for the same GPU. The current per-frame budget is already 11–17 ms.
+- It competes with the VR renders for the same GPU. The current per-frame budget is already 12–23 ms.
 
 **Distilling StabStitch++ or MViS instead**
 - *MViS:* it is per-video test-time optimisation (Adam over a small network, 0.5–0.8 s per frame per view). The new
@@ -279,5 +342,6 @@ The geometry stays exact and inspectable, and only the judgement calls are learn
    pseudo-labels for free from the current solver, and `PlanarCaptureProbe` gives unlimited exact labels in
    simulation.
 2. **Replace the hand-set selection rules with small learned models**, trained on the current solver's outputs.
-3. **Add a height field or mesh head** for off-plane content.
+3. **Add a height field or mesh head** for off-plane content. The seams now hide most of it; a height field
+   would fix it where they cannot.
 4. **Attempt full end-to-end only once a multi-site dataset exists.**
