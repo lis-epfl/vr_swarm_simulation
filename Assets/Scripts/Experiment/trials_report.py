@@ -52,6 +52,7 @@ INDEX_TEMPLATE = HERE / "trials_index.html"
 HUB_URL = "https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5"
 FAMILIES = {"cmd", "dial", "prox", "hat", "street", "disc", "stitch", "crash"}
 COND = {"Swarm": "swarm", "SingleDrone": "single", "SingleSphere": "sphere"}
+SINGLE, SPHERE = ("Swarm", "SingleDrone"), ("Swarm", "SingleSphere")   # the two comparisons: swarm ÷ the other
 DT = 0.2                        # s between replay frames
 SMOOTH = ["stick_tv_per_min", "adj_per_min", "mean_hold_s", "course_turn_per_min", "cmd_straightness", "act_path_ratio"]
 RUN_COLS = ["run", "pid", "order", "trial", "condition", "practice", "date", "durationSec", "startSec", "startSource",
@@ -214,11 +215,11 @@ def timed(T):
                 any(g.get("answered") for r in T["runs"] for g in r.goals))
 
 
-def compare(df, col, conds=("Swarm", "SingleDrone")):
-    """Swarm against the single drone on one per-run measure: per pilot the geometric means and their ratio, the ratio
-    pooled over the pilots (the geometric mean of theirs), and the exact two-sided permutation p of that pooled log
-    ratio, relabelling the conditions within each pilot (the runs per condition kept). `floor` is the smallest p the
-    design can give."""
+def compare(df, col, conds=SINGLE):
+    """Swarm against the single drone (or, with conds=SPHERE, against one drone's 360 camera) on one per-run measure:
+    per pilot the geometric means and their ratio, the ratio pooled over the pilots who flew both (the geometric mean
+    of theirs), and the exact two-sided permutation p of that pooled log ratio, relabelling the conditions within each
+    pilot (the runs per condition kept). `floor` is the smallest p the design can give. None when no pilot flew both."""
     d = df[df[col].notna() & (df[col] > 0) & df.condition.isin(conds)]
     per, groups = [], []
     for pid, g in d.groupby("pid"):
@@ -317,19 +318,35 @@ def restarts(T):
 
 
 def setups(T):
-    """What each pilot's runs flew, from the files a run writes (the session and, since 2026-11-03, _swarm.json); only the
-    fields some runs carry, and the ones that differ marked."""
-    fields = [("identifyMode", "scoring"), ("identifyRangeM", "identify range (m)"), ("identifyLookbackSec", "look-back (s)"),
-              ("identifyZoneM", "zone (m)"), ("screenStyle", "screen layout"), ("screenScale", "screen scale"),
-              ("screenRadius", "screen radius (m)"), ("feed", "feed size"), ("stitchingEnabled", "stitching"),
-              ("cockpitRoomStyle", "backdrop"), ("displayRefreshHz", "headset refresh (Hz)"), ("gitCommit", "commit")]
+    """What each pilot's runs flew, from the files a run writes (the session and, since 2026-11-03, _swarm.json): a column
+    per pilot from their first run, and another from their first run on the 360 sphere where they flew one (its display
+    has its own settings); only the fields some runs carry, and the ones that differ marked."""
+    fields = [("scene", "scene"), ("display", "display"), ("identifyMode", "scoring"), ("identifyRangeM", "identify range (m)"),
+              ("identifyLookbackSec", "look-back (s)"), ("identifyZoneM", "zone (m)"), ("screenStyle", "screen layout"),
+              ("screenScale", "screen scale"), ("screenRadius", "screen radius (m)"), ("feed", "feed size"),
+              ("sphere", "360 sphere"), ("stitchingEnabled", "stitching"), ("cockpitRoomStyle", "backdrop"),
+              ("displayRefreshHz", "headset refresh (Hz)"), ("gitCommit", "commit")]
     swarm = [("spreadWrapRule", "wrap rule"), ("obstacleShape", "avoidance shape"), ("adaptiveSpread", "adaptive spread"),
              ("d_ref", "d_ref")]
     per = {}
     for r in sorted(T["runs"], key=lambda r: r.timestamp):
         s = r.session
         row = {k: s.get(k) for k, _ in fields if k in s}
-        if "feedWidth" in s:
+        lay = s.get("layout") if isinstance(s.get("layout"), dict) else {}
+        if lay.get("scene"):
+            row["scene"] = lay["scene"]
+        sphere = s.get("displayMode") == "SPHERE"
+        row["display"] = "360 sphere" if sphere else "feed screens"     # every run before the field (2026-11-06) had screens
+        if sphere:
+            sp = s.get("sphere360") or {}
+            stream = (f"shown as a {sp['streamWidth']}×{sp['streamHeight']} live stream, "
+                      if sp.get("streamWidth") else "shown as rendered, ")      # absent before 2026-11-18: the cube
+            row["sphere"] = (f"cube {sp.get('cubeSize')} px, {stream}{sp.get('refreshHz', 0):g} Hz"
+                             f"{', faces split' if sp.get('splitFaces') else ''}, {sp.get('heading', '')}"
+                             f"{', band ±%g°' % sp['bandHalfDeg'] if sp.get('bandHalfDeg') else ''}")
+            for k in ("screenStyle", "screenScale", "screenRadius", "feed"):    # no feed screens on the sphere
+                row.pop(k, None)
+        if "feedWidth" in s and not sphere:
             row["feed"] = f"{s['feedWidth']}×{s['feedHeight']}"
         if "gitCommit" in s:
             row["gitCommit"] = s["gitCommit"][:8] + (" (dirty)" if s.get("gitDirty") else "")
@@ -340,16 +357,23 @@ def setups(T):
             row.update({k: sm.get(k) for k, _ in swarm if k in sm})
         disp = next((note for _, k, note in r.events if k == "display"), "")
         m = re.search(r"offset=(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)", disp)
-        if m:
+        if m and not sphere:
             row["screenHeight"] = float(m.group(2))
-        per.setdefault(r.pid, row)
+        row["_sphere"] = sphere
+        per.setdefault(f"{r.pid} · sphere" if sphere else r.pid, row)
     names = dict(fields + swarm + [("screenHeight", "screens below eye level (m)")])
     keys = [k for k in names if any(k in v for v in per.values())]
+    if not any(v["_sphere"] for v in per.values()):
+        keys = [k for k in keys if k != "display"]          # a series that only had feed screens has nothing to say here
     if len(keys) < 3:
         return None
     enums = dict(spreadWrapRule=["Off", "Hold", "HoldUntilLeaving"], obstacleShape=["Cylinder", "EnclosingCircle", "Footprint", "Ellipse"])
+    # what one display has and the other has not: shown as such, and left out of the test for a difference
+    screen_only, sphere_only, NA = {"screenStyle", "screenScale", "screenRadius", "feed", "screenHeight"}, {"sphere"}, "n/a"
 
-    def show(k, v):
+    def show(k, v, on_sphere=False):
+        if (on_sphere and k in screen_only) or (not on_sphere and k in sphere_only):
+            return NA
         if v is None:
             return "Off (before the field)" if k == "spreadWrapRule" else "none" if k == "identifyLookbackSec" else "–"
         if k in enums and isinstance(v, (int, float)) and 0 <= int(v) < len(enums[k]):
@@ -362,8 +386,8 @@ def setups(T):
         return str(v)
     rows = []
     for k in keys:
-        val = [show(k, per[p].get(k)) for p in per]
-        rows.append(dict(key=names[k], vals=val, differs=len(set(val)) > 1))
+        val = [show(k, per[p].get(k), per[p]["_sphere"]) for p in per]
+        rows.append(dict(key=names[k], vals=val, differs=len(set(v for v in val if v != NA)) > 1))
     return dict(pilots=list(per), rows=rows)
 
 
@@ -631,6 +655,11 @@ def build_page(test):
     complete = counted[counted.goalsReached >= counted.nGoals]
     stats = dict(total=compare(counted, total_col) if is_timed else None, search=compare(complete, "search_s"),
                  transit=compare(complete, "transit_s"), smooth={m: compare(counted, m) for m in SMOOTH if m in counted})
+    # the swarm against one drone's 360 camera (SingleSphere, from internal_4's SIMI), over the pilots who flew both
+    if (counted.condition == "SingleSphere").any():
+        stats["sphere"] = dict(total=compare(counted, total_col, SPHERE) if is_timed else None,
+                               search=compare(complete, "search_s", SPHERE), transit=compare(complete, "transit_s", SPHERE),
+                               smooth={m: compare(counted, m, SPHERE) for m in SMOOTH if m in counted})
     rp, files = replays(T, dest)
     pg = pages()
     names = series_list()
@@ -682,9 +711,11 @@ def build_index():
             continue
         d = json.loads(p.read_text(encoding="utf-8"))
         st = d["stats"]
+        sph = st.get("sphere")
         out.append(dict(test=test, notes=d["notes"], timed=d["timed"], pilots=d["pilots"], n_runs=d["n_runs"],
                         n_practice=d["n_practice"], dates=d["dates"], city=d["city"], built=d["built"],
                         stats=dict(total=st["total"], search=st["search"], transit=st["transit"]),
+                        sphere=dict(total=sph["total"], search=sph["search"], transit=sph["transit"]) if sph else None,
                         smooth={k: st["smooth"].get(k) for k in ("stick_tv_per_min", "adj_per_min")},
                         lost=dict(swarm=sum(1 for x in d["losses"] if x["condition"] == "Swarm" and not x["practice"]),
                                   runs=sum(1 for x in d["runs"] if x["condition"] == "Swarm" and not x["practice"]))))

@@ -458,7 +458,8 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   `Sphere360Display`, `Assets/Shaders/Sphere360View.shader`, settings in `InterfaceManager.sphere360`). The
   experimenter sets the mode and the label, and the recorder's `condition_mismatch` checks they agree with each other
   and with the drone count. No screens spawn: a hidden camera at the drone renders a cube (`RenderToCubemap`) at
-  `refreshHz` (36), and the sphere looks each pixel up in it. Not yet flown in the headset. Points worth keeping:
+  `refreshHz` (36), and the sphere looks each pixel up in it. First flown in the headset on 2026-11-16 (internal_4's
+  SIMI, two runs in ScenicPatchCityWorld): 70.7–71.2 fps, 93–96% of the 10 Hz rows at 72. Points worth keeping:
   - **It is a single-drone condition, never a swarm's** (2026-11-09, the user's call). Under SPHERE, `swarmSpawn`
     spawns one drone on its start position whatever its pattern and count say (`GetSpawnPositions`, which
     `ResetToPos` reads too), with a warning. A swarm handed to `InterfaceManager` anyway gets its feed screens and
@@ -2052,7 +2053,8 @@ colliders, same swarm tuning, rig, input, dressing rules, goals drawn at Play an
 `Tools/Swarm/Build scenic patch city world` (`ScenicPatchCityWorldBuilder`; batch `.Run`) makes it from a file copy of
 BlockShapedPatchCityWorld, as PracticeBlockWorld is made and for the same reason (the trial tuning lives only in that
 scene's YAML). **Rebuild it after changing BlockShapedPatchCityWorld**; a rebuild discards hand edits to the scenic
-scene. Not yet flown in the headset. Everything it adds is in `Assets/Scenic/` and ten shaders; no project setting
+scene. First flown in the headset on 2026-11-16 (internal_4's SIMI), at 71.5 fps with ~98% of the 10 Hz rows at 72 in
+the swarm runs, as in the trial scene's. Everything it adds is in `Assets/Scenic/` and ten shaders; no project setting
 changed, the render pipeline is still the built-in one, and no other scene is touched. Points worth keeping:
 
 - **The buildings are drawn by `ScenicCity` + `ScenicBuilding`, and their colliders are still PrismBuilding's.** A
@@ -2174,7 +2176,10 @@ changed, the render pipeline is still the built-in one, and no other scene is to
     pairs, the trial scene's one among them, collided where the swarm enters the city (x -275 to -217, z 12 to 70),
     which is where the recorded headset flight lost its own pair in the trial scene: the replay sits on a near
     miss there. Nothing found that could make the scenes differ, and sixteen runs cannot show that they do; if
-    losses in the headset look more frequent here, that spot is where to look.
+    losses in the headset look more frequent here, that spot is where to look. **SIMI's first headset flights here
+    (2026-11-16) lost three pairs in one swarm run, none at that spot**, by the trial scene's own mechanism: the stick
+    shield braking one drone at a facade while its partner flew on into it (docs/trials/internal_4.md, "Why the swarm
+    lost drones"); the swarm's settings, the frame rate and the editor log were as in the trial scene's runs.
   **A probe that saves a RenderTexture must make it sRGB** (`RenderTextureDescriptor.sRGB = true`): the descriptor's
   default is linear, and every picture judged from one is far too dark and too contrasty.
 - The textures and the sky are Poly Haven's (CC0): the sky kloofendal_48d_partly_cloudy_puresky; walls red_brick_03,
@@ -2196,7 +2201,8 @@ changed, the render pipeline is still the built-in one, and no other scene is to
     existing `Ring_*` copies as they stand, and builds them only if they are missing. So **rebuild it after rebuilding
     ScenicPatchCityWorld**, as PracticeBlockWorld after BlockShapedPatchCityWorld.
   - Measured on the same replay (whose sticks were flown in the trial city, so only the frame rate means anything):
-    71.94 fps, 99.7% of rows at 72, main thread 3.0 ms a frame, 0.62 ms per FPV render. Not yet flown in the headset.
+    71.94 fps, 99.7% of rows at 72, main thread 3.0 ms a frame, 0.62 ms per FPV render. First flown in the headset by
+    SIMI on 2026-11-16 (unrecorded practice, as every practice scene is; the swarm lost a pair there, in the editor log).
 - Not done: the SPHERE condition's lighting; the pedestrians (unchanged, at the user's word).
 
 ## Testing swarm changes offline (headless bench + replica)

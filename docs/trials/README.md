@@ -9,7 +9,7 @@ in [docs/studies/](../studies/README.md); the Swarm Study Index links here.
 | [internal_1](internal_1.md) | 2026-07-06 → 07-07 | ERIC, ERIP | CityWorld | The first trials: no answers recorded (times taken by hand, not on this machine), the buildings invisible to the swarm's avoidance |
 | [internal_2](internal_2.md) | 2026-09-23 | AABB, AABC | ScaledCityWorld | Answers entered afterwards; swarm collisions at the tightest spread |
 | [internal_3](internal_3.md) | 2026-10-01 | BBAA, BBCC | DiamondCityWorld | RC presses (outcomes not keyed); the core and damper fix |
-| [internal_4](internal_4.md) | 2026-11-06, 11-10 | ERKS, ALEX | BlockShapedPatchCityWorld | Presses scored on the spot, the start line, no stitching, S6–S11's swarm law |
+| [internal_4](internal_4.md) | 2026-11-06, 11-10, 11-16 | ERKS, ALEX, SIMI | BlockShapedPatchCityWorld (SIMI: ScenicPatchCityWorld) | Presses scored on the spot, the start line, no stitching, S6–S11's swarm law; SIMI flew the swarm against the 360 sphere |
 
 The page addresses are [pages.json](pages.json) (`index` and one per series): private claude.ai artifacts; open them
 with the Artifact tool, never by web fetch, and update them by their address so the links keep working.

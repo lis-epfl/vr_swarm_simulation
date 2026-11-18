@@ -1,14 +1,14 @@
 {
- "built": "2026-11-10 17:50",
+ "built": "2026-11-16 15:21",
  "test": "internal_4",
  "notes": {
   "title": "internal_4 \u00b7 The block-shaped patch city",
   "meta": {
-   "dates": "6 and 10 November 2026",
-   "pilots": "ERKS, ALEX",
-   "city": "BlockShapedPatchCityWorld"
+   "dates": "6, 10 and 16 November 2026",
+   "pilots": "ERKS, ALEX, SIMI",
+   "city": "BlockShapedPatchCityWorld (SIMI: ScenicPatchCityWorld, the same city in a realistic look)"
   },
-  "summary": "<p>Two pilots, ERKS on 6 November and ALEX on 10 November, in BlockShapedPatchCityWorld: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS flew two single-drone runs, three swarm runs and a third single-drone run; ALEX two single-drone runs, then two swarm runs. Each run's three goals were drawn afresh from the city's own buildings. Practice was flown in PracticeBlockWorld and not recorded, so every run here counts.</p>",
+  "summary": "<p>Three pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS (6 November) flew two single-drone runs, three swarm runs and a third single-drone run, and ALEX (10 November) two single-drone runs, then two swarm runs, both in BlockShapedPatchCityWorld. SIMI (16 November) flew two swarm runs, then the first two runs of a third condition, one drone whose 360 camera is shown on a sphere all round the pilot, in ScenicPatchCityWorld: the same city, colliders and swarm law with a realistic look. Each run's three goals were drawn afresh from the city's own buildings. Practice was flown and not recorded, so every run here counts.</p>",
   "changes_title": "Changes since internal_3",
   "changes": [
    {
@@ -87,9 +87,12 @@
    }
   ],
   "within": [
-   "<b>Scoring:</b> ERKS's presses were scored at 40 m with no look-back, each counting for the goal whose zone held the formation's centre; ALEX's at 80 m, looking back 3 s, for any goal (<span class=\"code\">abef940b</span>). Presses the recorder refused that the experimenter judged correct (five of ERKS's, one of ALEX's) count as correct here (test.json <span class=\"code\">identifyOverrides</span>).",
-   "<b>The wrap rule:</b> for ALEX the swarm kept its full spread while a building was inside the formation (S11's Hold, <span class=\"code\">1a4877ad</span>); for ERKS it did not.",
-   "<b>The screens:</b> ERKS's hung 0.3 m below eye level, ALEX's at eye level, where the layout also no longer turned into a map when the camera pointed down (<span class=\"code\">333b53bb</span>)."
+   "<b>Scoring:</b> ERKS's presses were scored at 40 m with no look-back, each counting for the goal whose zone held the formation's centre; ALEX's at 80 m, looking back 3 s, for any goal (<span class=\"code\">abef940b</span>); SIMI's at 80 m, looking back 5 s (<span class=\"code\">8974165a</span>). Presses the recorder refused that the experimenter judged correct (five of ERKS's, one of ALEX's, and one of SIMI's, pending the experimenter's confirmation) count as correct here (test.json <span class=\"code\">identifyOverrides</span>).",
+   "<b>The wrap rule:</b> for ALEX and SIMI the swarm kept its full spread while a building was inside the formation (S11's Hold, <span class=\"code\">1a4877ad</span>); for ERKS it did not.",
+   "<b>The screens:</b> ERKS's hung 0.3 m below eye level, ALEX's and SIMI's at eye level, where the layout also no longer turned into a map when the camera pointed down (<span class=\"code\">333b53bb</span>).",
+   "<b>SIMI's city looked real:</b> ScenicPatchCityWorld draws the same buildings with photographed facades, gentle sun shadows, a realistic ground and restyled street furniture, and unlit feed screens (<span class=\"code\">78be29af</span>); its colliders, goals and swarm settings are the trial scene's, and the run files agree field for field. Its pedestrians stand out more against the street there (about a quarter more clearly, measured on the bench before it was flown), so identifying a hat is easier in it and SIMI's times are not comparable with ERKS's and ALEX's. These were its first flights in the headset, and it held the headset's 72 Hz.",
+   "<b>A third condition, the 360 sphere, flown by SIMI only:</b> one drone's 360 camera drawn on a sphere round the pilot, with no feed screens and no cockpit room (<span class=\"code\">b563e408</span>, <span class=\"code\">65b7481c</span>); the rig follows the drone's heading, smoothed between physics steps (<span class=\"code\">b600544b</span>). SIMI flew no single-drone run, so SIMI appears only in the swarm \u00f7 360 sphere comparison.",
+   "<b>Practice:</b> ALEX practised in PracticeBlockWorld, SIMI in its scenic copy, ScenicPracticeBlockWorld (<span class=\"code\">e1164cc5</span>), with the start line behind the hat walkers (<span class=\"code\">965a1fda</span>)."
   ],
   "setup": {
    "head": [
@@ -101,7 +104,12 @@
     [
      "City",
      "DiamondCityWorld: tile blocks and four diamond parks",
-     "BlockShapedPatchCityWorld: 289 prism buildings"
+     "BlockShapedPatchCityWorld: 289 prism buildings (SIMI: the same city in ScenicPatchCityWorld's realistic look)"
+    ],
+    [
+     "Conditions",
+     "swarm, single drone",
+     "swarm, single drone; SIMI: swarm and the 360 sphere"
     ],
     [
      "Goals",
@@ -153,19 +161,31 @@
    "legs": {
     "title": "The longest legs",
     "html": "<p>A single leg can decide a run's total: ERKS's third swarm run spent most of its time between goals on the way to one goal. The swarm's long legs are between goals, the single drone's at them.</p>"
+   },
+   "losses": {
+    "title": "Why the swarm lost drones",
+    "html": "<p>Every drone lost in this series was one of a colliding pair, and the four pairs came about the same way. One drone of the pair reached a building and was braked there by the stick shield, which takes away the part of the pilot's command that points into a building; its partner, still clear of the building and about 20 m behind it on the line of the stick, kept the full command and flew into it, closing at up to 9 m/s in SIMI's three. The shield stops every drone short of a facade at about the same distance, so a drone arriving second on the same line is stopped where the first is already parked. At full stick the pilot's command outweighs the formation's own repulsion between drones, and the close-range damper reaches only 3 m, too short to shed that speed. The replica's force-by-force account of the recorded states (<span class=\"code\">swarm_replica.py forces</span>) shows the same sequence in all four: the shield's difference between the two drones builds the closing speed over about two seconds, the building pushes the braked drone back towards its partner, and both drones are at their tilt limit when the damper acts in the last fifth of a second.</p><p>SIMI's second swarm run lost three pairs within about a minute of entering the city. Five times in that minute two drones closing fast came within a metre of each other, which no other run in the series did. SIMI did not push the formation into buildings more than ERKS or ALEX, measured by how much of the stick the shield took away. What differed is how SIMI steered: by swinging the stick's direction at full deflection rather than with the yaw stick, which turns the command at once where yaw turns it at 40 \u00b0/s and can stop a drone that was sliding along a facade in another's path. ALEX steered the same way and lost the series' other pair; ERKS turned with yaw and lost none. Four pairs cannot settle this. Nothing else was found: the swarm's settings, the frame rate and the editor log are as in the trial scene's runs. SIMI's swarm practice in ScenicPracticeBlockWorld lost one more pair, which only the editor log records.</p>"
    }
   },
-  "reading": "<p>The swarm searched the goals faster and travelled between them more slowly, and for both pilots the first outweighed the second.</p><p>At the goals the swarm took between a third and a half of the single drone's time, which is what ten cameras looking round a ring of buildings at once should buy; between goals it took longer, the formation's price in narrow streets, as the simulation studies predicted. In total it came out ahead for both pilots, narrowly for ERKS and clearly for ALEX. With two pilots this is a direction, not a result: one long leg (ERKS's third swarm run) carries much of the swarm's travel time, and ALEX, the pilot with the larger lead, flew the swarm second, so practice and condition are confounded.</p>",
+  "reading": "<p>Against one drone with an ordinary camera, the swarm searched the goals faster and travelled between them more slowly, and for ERKS and ALEX the first outweighed the second. Against one drone with a 360 camera, which only SIMI flew, the swarm was slower at both. That is one pilot who flew the sphere second, after a swarm run that lost six drones.</p><p>At the goals the swarm took between a third and a half of the single drone's time, which is what ten cameras looking round a ring of buildings at once should buy; between goals it took longer, the formation's price in narrow streets, as the simulation studies predicted. In total it came out ahead for both pilots, narrowly for ERKS and clearly for ALEX. With two pilots this is a direction, not a result: one long leg (ERKS's third swarm run) carries much of the swarm's travel time, and ALEX, the pilot with the larger lead, flew the swarm second, so practice and condition are confounded.</p><p>The 360 sphere was added to pull apart two things the swarm gives at once: a view all round, and many points of view. The sphere has the first without the second, and without the formation's price between goals. In SIMI's runs it found the goals in about half the swarm's time at them and was quicker between them too. Three things keep that from being a result. It is one pilot with two runs each, flown swarm first, so practice favours the sphere as it favoured the later condition for every pilot so far. SIMI's second swarm run lost six drones before its first goal and searched the rest of the city with four. And SIMI flew the scenic city, so these times compare with each other but not with ERKS's or ALEX's. What the sphere needs next is pilots who fly it first, and the single drone as well.</p><p>The swarm's drone losses are this series' other finding (Why the swarm lost drones, under Other results): all four pairs came from the stick shield braking one drone at a facade while its partner flew on into it, and the pilots who lost them steered by swinging the stick rather than with yaw.</p>",
   "data_notes": [
-   "Practice was flown in PracticeBlockWorld and not recorded: every run here counts.",
+   "Practice was flown in PracticeBlockWorld (SIMI: ScenicPracticeBlockWorld) and not recorded: every run here counts.",
    "Trial numbers count within each condition in this series (in internal_2 and internal_3 they run across both).",
-   "ERKS's third swarm run was labelled t3 after a 7 s false start, which is archived."
+   "ERKS's third swarm run was labelled t3 after a 7 s false start, which is archived.",
+   "SIMI's second swarm run lost six of its ten drones on the way to its first goal, so the rest of it was flown with four. It was quit after the bucket hat as if all three goals were found: the press at the cap, which the recorder scored a false alarm, had the cap on drone 3's feed at 20 m with a clear line, 0.85 of the way from the centre to the edge, outside the central 80% the recorder accepts; it counts as correct here, pending the experimenter's confirmation.",
+   "SIMI's swarm practice lost one colliding pair 9 minutes in; with no recorder in the practice scene, the editor log is its only record."
   ],
-  "summary_text": "Two pilots, ERKS on 6 November and ALEX on 10 November, in BlockShapedPatchCityWorld: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS flew two single-drone runs, three swarm runs and a third single-drone run; ALEX two single-drone runs, then two swarm runs. Each run's three goals were drawn afresh from the city's own buildings. Practice was flown in PracticeBlockWorld and not recorded, so every run here counts."
+  "summary_text": "Three pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS (6 November) flew two single-drone runs, three swarm runs and a third single-drone run, and ALEX (10 November) two single-drone runs, then two swarm runs, both in BlockShapedPatchCityWorld. SIMI (16 November) flew two swarm runs, then the first two runs of a third condition, one drone whose 360 camera is shown on a sphere all round the pilot, in ScenicPatchCityWorld: the same city, colliders and swarm law with a realistic look. Each run's three goals were drawn afresh from the city's own buildings. Practice was flown and not recorded, so every run here counts."
  },
  "timed": true,
  "total_col": "time_s",
- "pages": {},
+ "pages": {
+  "index": "https://claude.ai/artifact/H7UGMEWkhYUxao7MkCc4Kr",
+  "internal_1": "https://claude.ai/artifact/57xqwjy4e8HM8dtBqDknph",
+  "internal_2": "https://claude.ai/artifact/VAeV4ME137fe6NdwrYXf5e",
+  "internal_3": "https://claude.ai/artifact/6bakNxhgxPK6Uwp5vef53k",
+  "internal_4": "https://claude.ai/artifact/H4ay6BrtGggAo7QB4W13UB"
+ },
  "hub": "https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5",
  "nav": {
   "prev": "internal_3",
@@ -175,22 +195,24 @@
  "range": 80.0,
  "pilots": [
   "ALEX",
-  "ERKS"
+  "ERKS",
+  "SIMI"
  ],
- "n_runs": 10,
+ "n_runs": 14,
  "n_practice": 0,
  "dates": [
   "20261106",
-  "20261110"
+  "20261110",
+  "20261116"
  ],
  "city": [
-  "BlockShapedPatchCityWorld"
+  "BlockShapedPatchCityWorld (SIMI: ScenicPatchCityWorld, the same city in a realistic look)"
  ],
  "start_sources": {
-  "line": 10
+  "line": 14
  },
  "time_sources": {
-  "identify": 10
+  "identify": 14
  },
  "runs": [
   {
@@ -492,6 +514,126 @@
    "cmd_straightness": 0.9071,
    "act_path_ratio": 1.1904,
    "cond": "single"
+  },
+  {
+   "run": "SIMI_t1_Swarm_20261116_141431",
+   "pid": "SIMI",
+   "order": 1,
+   "trial": 1,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20261116",
+   "durationSec": 342.1419,
+   "startSec": 18.6676,
+   "startSource": "line",
+   "time_s": 323.4743,
+   "time_source": "identify",
+   "transit_s": 57.2753,
+   "search_s": 266.1994,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "falseAlarms": 0,
+   "identifyOverrides": 0,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 61.7778,
+   "adj_per_min": 11.5233,
+   "mean_hold_s": 5.2068,
+   "course_turn_per_min": 1001.6305,
+   "cmd_straightness": 0.9287,
+   "act_path_ratio": 1.0821,
+   "cond": "swarm"
+  },
+  {
+   "run": "SIMI_t1_SingleSphere_20261116_143756",
+   "pid": "SIMI",
+   "order": 3,
+   "trial": 1,
+   "condition": "SingleSphere",
+   "practice": false,
+   "date": "20261116",
+   "durationSec": 230.2316,
+   "startSec": 23.852,
+   "startSource": "line",
+   "time_s": 206.3796,
+   "time_source": "identify",
+   "transit_s": 67.0901,
+   "search_s": 139.3164,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "falseAlarms": 0,
+   "identifyOverrides": 0,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 48.777,
+   "adj_per_min": 24.1467,
+   "mean_hold_s": 2.4848,
+   "course_turn_per_min": 1054.3358,
+   "cmd_straightness": 0.9402,
+   "act_path_ratio": 1.089,
+   "cond": "sphere"
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "trial": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20261116",
+   "durationSec": 682.5953,
+   "startSec": 44.3094,
+   "startSource": "line",
+   "time_s": 631.7186,
+   "time_source": "identify",
+   "transit_s": 134.8889,
+   "search_s": 503.383,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "falseAlarms": 0,
+   "identifyOverrides": 1,
+   "drones_lost": 6,
+   "crashes": 3,
+   "stick_tv_per_min": 32.4402,
+   "adj_per_min": 19.5717,
+   "mean_hold_s": 3.0657,
+   "course_turn_per_min": 679.1795,
+   "cmd_straightness": 0.8386,
+   "act_path_ratio": 1.2462,
+   "cond": "swarm"
+  },
+  {
+   "run": "SIMI_t2_SingleSphere_20261116_144220",
+   "pid": "SIMI",
+   "order": 4,
+   "trial": 2,
+   "condition": "SingleSphere",
+   "practice": false,
+   "date": "20261116",
+   "durationSec": 324.3076,
+   "startSec": 19.5719,
+   "startSource": "line",
+   "time_s": 304.7357,
+   "time_source": "identify",
+   "transit_s": 62.5947,
+   "search_s": 242.0891,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "falseAlarms": 0,
+   "identifyOverrides": 0,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 45.82,
+   "adj_per_min": 25.8808,
+   "mean_hold_s": 2.3183,
+   "course_turn_per_min": 364.8693,
+   "cmd_straightness": 0.9242,
+   "act_path_ratio": 1.122,
+   "cond": "sphere"
   }
  ],
  "goals": [
@@ -944,6 +1086,186 @@
    "outcome": "correct",
    "decision": 594.4387,
    "sight_to_press": 13.2
+  },
+  {
+   "run": "SIMI_t1_Swarm_20261116_141431",
+   "pid": "SIMI",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 1,
+   "search": 132.3,
+   "transit": 29.4,
+   "outcome": "correct",
+   "decision": 124.098,
+   "sight_to_press": 93.1
+  },
+  {
+   "run": "SIMI_t1_Swarm_20261116_141431",
+   "pid": "SIMI",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 2,
+   "search": 53.1,
+   "transit": 13.0,
+   "outcome": "correct",
+   "decision": 214.7844,
+   "sight_to_press": 19.5
+  },
+  {
+   "run": "SIMI_t1_Swarm_20261116_141431",
+   "pid": "SIMI",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 3,
+   "search": 80.7,
+   "transit": 14.9,
+   "outcome": "correct",
+   "decision": 342.1419,
+   "sight_to_press": 87.3
+  },
+  {
+   "run": "SIMI_t1_SingleSphere_20261116_143756",
+   "pid": "SIMI",
+   "order": 3,
+   "condition": "SingleSphere",
+   "cond": "sphere",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 1,
+   "search": 58.3,
+   "transit": 34.2,
+   "outcome": "correct",
+   "decision": 101.3282,
+   "sight_to_press": 33.7
+  },
+  {
+   "run": "SIMI_t1_SingleSphere_20261116_143756",
+   "pid": "SIMI",
+   "order": 3,
+   "condition": "SingleSphere",
+   "cond": "sphere",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 2,
+   "search": 31.6,
+   "transit": 18.8,
+   "outcome": "correct",
+   "decision": 141.3821,
+   "sight_to_press": 3.5
+  },
+  {
+   "run": "SIMI_t1_SingleSphere_20261116_143756",
+   "pid": "SIMI",
+   "order": 3,
+   "condition": "SingleSphere",
+   "cond": "sphere",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 49.3,
+   "transit": 14.2,
+   "outcome": "correct",
+   "decision": 230.2316,
+   "sight_to_press": 40.4
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 2,
+   "search": 410.4,
+   "transit": 12.6,
+   "outcome": "correct",
+   "decision": 398.7326,
+   "sight_to_press": 103.0
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 1,
+   "search": 32.4,
+   "transit": 99.6,
+   "outcome": "correct",
+   "decision": 159.0814,
+   "sight_to_press": 2.7
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 60.5,
+   "transit": 22.8,
+   "outcome": "correct",
+   "decision": 676.0281,
+   "sight_to_press": 54.9
+  },
+  {
+   "run": "SIMI_t2_SingleSphere_20261116_144220",
+   "pid": "SIMI",
+   "order": 4,
+   "condition": "SingleSphere",
+   "cond": "sphere",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 1,
+   "search": 24.1,
+   "transit": 16.5,
+   "outcome": "correct",
+   "decision": 33.4378,
+   "sight_to_press": 2.0
+  },
+  {
+   "run": "SIMI_t2_SingleSphere_20261116_144220",
+   "pid": "SIMI",
+   "order": 4,
+   "condition": "SingleSphere",
+   "cond": "sphere",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 2,
+   "search": 126.4,
+   "transit": 30.8,
+   "outcome": "correct",
+   "decision": 193.4429,
+   "sight_to_press": 96.3
+  },
+  {
+   "run": "SIMI_t2_SingleSphere_20261116_144220",
+   "pid": "SIMI",
+   "order": 4,
+   "condition": "SingleSphere",
+   "cond": "sphere",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 3,
+   "search": 91.6,
+   "transit": 15.3,
+   "outcome": "correct",
+   "decision": 324.3076,
+   "sight_to_press": 67.1
   }
  ],
  "stats": {
@@ -978,7 +1300,7 @@
    "typ_d": 496.543,
    "n_lower": 2,
    "n_pilots": 2,
-   "mean_s": 373.9388,
+   "mean_s": 403.5552,
    "mean_d": 501.0378
   },
   "search": {
@@ -1012,7 +1334,7 @@
    "typ_d": 420.514,
    "n_lower": 2,
    "n_pilots": 2,
-   "mean_s": 193.9877,
+   "mean_s": 248.503,
    "mean_d": 422.0814
   },
   "transit": {
@@ -1046,7 +1368,7 @@
    "typ_d": 73.4735,
    "n_lower": 0,
    "n_pilots": 2,
-   "mean_s": 181.6551,
+   "mean_s": 157.2057,
    "mean_d": 79.4405
   },
   "smooth": {
@@ -1081,7 +1403,7 @@
     "typ_d": 72.668,
     "n_lower": 1,
     "n_pilots": 2,
-    "mean_s": 56.3842,
+    "mean_s": 53.7341,
     "mean_d": 72.7591
    },
    "adj_per_min": {
@@ -1115,7 +1437,7 @@
     "typ_d": 19.7097,
     "n_lower": 0,
     "n_pilots": 2,
-    "mean_s": 21.5818,
+    "mean_s": 19.8577,
     "mean_d": 20.4426
    },
    "mean_hold_s": {
@@ -1149,7 +1471,7 @@
     "typ_d": 3.0442,
     "n_lower": 2,
     "n_pilots": 2,
-    "mean_s": 2.7839,
+    "mean_s": 3.1703,
     "mean_d": 3.0604
    },
    "course_turn_per_min": {
@@ -1183,7 +1505,7 @@
     "typ_d": 467.0342,
     "n_lower": 1,
     "n_pilots": 2,
-    "mean_s": 428.647,
+    "mean_s": 546.2922,
     "mean_d": 522.5713
    },
    "cmd_straightness": {
@@ -1217,7 +1539,7 @@
     "typ_d": 0.858,
     "n_lower": 1,
     "n_pilots": 2,
-    "mean_s": 0.747,
+    "mean_s": 0.786,
     "mean_d": 0.8775
    },
    "act_path_ratio": {
@@ -1251,8 +1573,228 @@
     "typ_d": 1.2533,
     "n_lower": 0,
     "n_pilots": 2,
-    "mean_s": 1.74,
+    "mean_s": 1.5755,
     "mean_d": 1.2326
+   }
+  },
+  "sphere": {
+   "total": {
+    "per": [
+     {
+      "pid": "SIMI",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 452.0451,
+      "gm_d": 250.7813,
+      "mean_s": 477.5965,
+      "mean_d": 255.5577,
+      "ratio": 1.8025
+     }
+    ],
+    "ratio": 1.8025,
+    "p": 0.3333,
+    "floor": 0.3333,
+    "n_perm": 6,
+    "typ_s": 452.0451,
+    "typ_d": 250.7813,
+    "n_lower": 0,
+    "n_pilots": 1,
+    "mean_s": 403.5552,
+    "mean_d": 255.5577
+   },
+   "search": {
+    "per": [
+     {
+      "pid": "SIMI",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 366.0604,
+      "gm_d": 183.6491,
+      "mean_s": 384.7912,
+      "mean_d": 190.7027,
+      "ratio": 1.9933
+     }
+    ],
+    "ratio": 1.9933,
+    "p": 0.3333,
+    "floor": 0.3333,
+    "n_perm": 6,
+    "typ_s": 366.0604,
+    "typ_d": 183.6491,
+    "n_lower": 0,
+    "n_pilots": 1,
+    "mean_s": 248.503,
+    "mean_d": 190.7028
+   },
+   "transit": {
+    "per": [
+     {
+      "pid": "SIMI",
+      "n_s": 2,
+      "n_d": 2,
+      "gm_s": 87.8965,
+      "gm_d": 64.8034,
+      "mean_s": 96.0821,
+      "mean_d": 64.8424,
+      "ratio": 1.3564
+     }
+    ],
+    "ratio": 1.3564,
+    "p": 1.0,
+    "floor": 0.3333,
+    "n_perm": 6,
+    "typ_s": 87.8965,
+    "typ_d": 64.8034,
+    "n_lower": 0,
+    "n_pilots": 1,
+    "mean_s": 157.2057,
+    "mean_d": 64.8424
+   },
+   "smooth": {
+    "stick_tv_per_min": {
+     "per": [
+      {
+       "pid": "SIMI",
+       "n_s": 2,
+       "n_d": 2,
+       "gm_s": 44.767,
+       "gm_d": 47.2754,
+       "mean_s": 47.109,
+       "mean_d": 47.2985,
+       "ratio": 0.9469
+      }
+     ],
+     "ratio": 0.9469,
+     "p": 1.0,
+     "floor": 0.3333,
+     "n_perm": 6,
+     "typ_s": 44.767,
+     "typ_d": 47.2754,
+     "n_lower": 1,
+     "n_pilots": 1,
+     "mean_s": 53.7341,
+     "mean_d": 47.2985
+    },
+    "adj_per_min": {
+     "per": [
+      {
+       "pid": "SIMI",
+       "n_s": 2,
+       "n_d": 2,
+       "gm_s": 15.0177,
+       "gm_d": 24.9987,
+       "mean_s": 15.5475,
+       "mean_d": 25.0137,
+       "ratio": 0.6007
+      }
+     ],
+     "ratio": 0.6007,
+     "p": 0.3333,
+     "floor": 0.3333,
+     "n_perm": 6,
+     "typ_s": 15.0177,
+     "typ_d": 24.9987,
+     "n_lower": 1,
+     "n_pilots": 1,
+     "mean_s": 19.8577,
+     "mean_d": 25.0137
+    },
+    "mean_hold_s": {
+     "per": [
+      {
+       "pid": "SIMI",
+       "n_s": 2,
+       "n_d": 2,
+       "gm_s": 3.9953,
+       "gm_d": 2.4001,
+       "mean_s": 4.1362,
+       "mean_d": 2.4016,
+       "ratio": 1.6646
+      }
+     ],
+     "ratio": 1.6646,
+     "p": 0.3333,
+     "floor": 0.3333,
+     "n_perm": 6,
+     "typ_s": 3.9953,
+     "typ_d": 2.4001,
+     "n_lower": 0,
+     "n_pilots": 1,
+     "mean_s": 3.1703,
+     "mean_d": 2.4016
+    },
+    "course_turn_per_min": {
+     "per": [
+      {
+       "pid": "SIMI",
+       "n_s": 2,
+       "n_d": 2,
+       "gm_s": 824.7951,
+       "gm_d": 620.2377,
+       "mean_s": 840.405,
+       "mean_d": 709.6026,
+       "ratio": 1.3298
+      }
+     ],
+     "ratio": 1.3298,
+     "p": 1.0,
+     "floor": 0.3333,
+     "n_perm": 6,
+     "typ_s": 824.7951,
+     "typ_d": 620.2377,
+     "n_lower": 0,
+     "n_pilots": 1,
+     "mean_s": 546.2922,
+     "mean_d": 709.6026
+    },
+    "cmd_straightness": {
+     "per": [
+      {
+       "pid": "SIMI",
+       "n_s": 2,
+       "n_d": 2,
+       "gm_s": 0.8825,
+       "gm_d": 0.9321,
+       "mean_s": 0.8836,
+       "mean_d": 0.9322,
+       "ratio": 0.9467
+      }
+     ],
+     "ratio": 0.9467,
+     "p": 0.6667,
+     "floor": 0.3333,
+     "n_perm": 6,
+     "typ_s": 0.8825,
+     "typ_d": 0.9321,
+     "n_lower": 1,
+     "n_pilots": 1,
+     "mean_s": 0.786,
+     "mean_d": 0.9322
+    },
+    "act_path_ratio": {
+     "per": [
+      {
+       "pid": "SIMI",
+       "n_s": 2,
+       "n_d": 2,
+       "gm_s": 1.1613,
+       "gm_d": 1.1054,
+       "mean_s": 1.1642,
+       "mean_d": 1.1055,
+       "ratio": 1.0506
+      }
+     ],
+     "ratio": 1.0506,
+     "p": 1.0,
+     "floor": 0.3333,
+     "n_perm": 6,
+     "typ_s": 1.1613,
+     "typ_d": 1.1054,
+     "n_lower": 0,
+     "n_pilots": 1,
+     "mean_s": 1.5755,
+     "mean_d": 1.1055
+    }
    }
   }
  },
@@ -1406,6 +1948,66 @@
    "overrides": 1,
    "out_of_zone": 1,
    "sight_to_press": 13.2
+  },
+  {
+   "run": "SIMI_t1_Swarm_20261116_141431",
+   "pid": "SIMI",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "AutoScore",
+   "presses": 3,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": 87.3
+  },
+  {
+   "run": "SIMI_t1_SingleSphere_20261116_143756",
+   "pid": "SIMI",
+   "order": 3,
+   "condition": "SingleSphere",
+   "practice": false,
+   "mode": "AutoScore",
+   "presses": 3,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": 33.7
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "AutoScore",
+   "presses": 3,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 1,
+   "out_of_zone": 0,
+   "sight_to_press": 54.9
+  },
+  {
+   "run": "SIMI_t2_SingleSphere_20261116_144220",
+   "pid": "SIMI",
+   "order": 4,
+   "condition": "SingleSphere",
+   "practice": false,
+   "mode": "AutoScore",
+   "presses": 3,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": 67.1
   }
  ],
  "losses": [
@@ -1439,6 +2041,102 @@
    "reason": "ExternallyKilled",
    "partner": 4,
    "speed": 1.4046,
+   "spread": 2.0
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 1,
+   "t": 149.5024,
+   "t_task": 105.193,
+   "x": -38.9346,
+   "z": 98.5238,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": 6,
+   "speed": 4.4525,
+   "spread": 2.0
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 2,
+   "t": 86.1039,
+   "t_task": 41.7945,
+   "x": -287.6031,
+   "z": 78.8292,
+   "reason": "ExternallyKilled",
+   "partner": 5,
+   "speed": 1.3375,
+   "spread": 2.0
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 5,
+   "t": 86.1039,
+   "t_task": 41.7945,
+   "x": -287.8986,
+   "z": 78.0951,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": 2,
+   "speed": 3.7759,
+   "spread": 2.0
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 6,
+   "t": 149.5024,
+   "t_task": 105.193,
+   "x": -38.3763,
+   "z": 98.287,
+   "reason": "ExternallyKilled",
+   "partner": 1,
+   "speed": 4.2566,
+   "spread": 2.0
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 7,
+   "t": 140.5098,
+   "t_task": 96.2004,
+   "x": -55.1068,
+   "z": 118.3773,
+   "reason": "CollidingWithAnotherDrone",
+   "partner": 9,
+   "speed": 4.4063,
+   "spread": 2.0
+  },
+  {
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 9,
+   "t": 140.5098,
+   "t_task": 96.2004,
+   "x": -54.3047,
+   "z": 118.6304,
+   "reason": "ExternallyKilled",
+   "partner": 7,
+   "speed": 0.9353,
    "spread": 2.0
   }
  ],
@@ -1572,17 +2270,93 @@
     596.8938
    ],
    "practice": false
+  },
+  {
+   "pid": "SIMI",
+   "trial": 1,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    1
+   ],
+   "lengths": [
+    342.1419
+   ],
+   "practice": false
+  },
+  {
+   "pid": "SIMI",
+   "trial": 2,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    2
+   ],
+   "lengths": [
+    682.5953
+   ],
+   "practice": false
+  },
+  {
+   "pid": "SIMI",
+   "trial": 1,
+   "condition": "SingleSphere",
+   "n": 1,
+   "order": [
+    3
+   ],
+   "lengths": [
+    230.2316
+   ],
+   "practice": false
+  },
+  {
+   "pid": "SIMI",
+   "trial": 2,
+   "condition": "SingleSphere",
+   "n": 1,
+   "order": [
+    4
+   ],
+   "lengths": [
+    324.3076
+   ],
+   "practice": false
   }
  ],
  "setups": {
   "pilots": [
    "ERKS",
-   "ALEX"
+   "ALEX",
+   "SIMI",
+   "SIMI \u00b7 sphere"
   ],
   "rows": [
    {
+    "key": "scene",
+    "vals": [
+     "BlockShapedPatchCityWorld",
+     "BlockShapedPatchCityWorld",
+     "ScenicPatchCityWorld",
+     "ScenicPatchCityWorld"
+    ],
+    "differs": true
+   },
+   {
+    "key": "display",
+    "vals": [
+     "feed screens",
+     "feed screens",
+     "feed screens",
+     "360 sphere"
+    ],
+    "differs": true
+   },
+   {
     "key": "scoring",
     "vals": [
+     "AutoScore",
+     "AutoScore",
      "AutoScore",
      "AutoScore"
     ],
@@ -1592,6 +2366,8 @@
     "key": "identify range (m)",
     "vals": [
      "40",
+     "80",
+     "80",
      "80"
     ],
     "differs": true
@@ -1600,13 +2376,17 @@
     "key": "look-back (s)",
     "vals": [
      "none",
-     "3"
+     "3",
+     "5",
+     "5"
     ],
     "differs": true
    },
    {
     "key": "zone (m)",
     "vals": [
+     "15",
+     "15",
      "15",
      "15"
     ],
@@ -1616,7 +2396,9 @@
     "key": "screen layout",
     "vals": [
      "OUTER_CIRCLE",
-     "OUTER_CIRCLE"
+     "OUTER_CIRCLE",
+     "OUTER_CIRCLE",
+     "n/a"
     ],
     "differs": false
    },
@@ -1624,7 +2406,9 @@
     "key": "screen scale",
     "vals": [
      "1.3",
-     "1.3"
+     "1.3",
+     "1.3",
+     "n/a"
     ],
     "differs": false
    },
@@ -1632,7 +2416,9 @@
     "key": "screen radius (m)",
     "vals": [
      "2",
-     "2"
+     "2",
+     "2",
+     "n/a"
     ],
     "differs": false
    },
@@ -1640,13 +2426,27 @@
     "key": "feed size",
     "vals": [
      "1920\u00d71080",
-     "1920\u00d71080"
+     "1920\u00d71080",
+     "1920\u00d71080",
+     "n/a"
+    ],
+    "differs": false
+   },
+   {
+    "key": "360 sphere",
+    "vals": [
+     "n/a",
+     "n/a",
+     "n/a",
+     "cube 2048 px, 36 Hz, faces split, TurnWithDrone"
     ],
     "differs": false
    },
    {
     "key": "stitching",
     "vals": [
+     "off",
+     "off",
      "off",
      "off"
     ],
@@ -1656,13 +2456,17 @@
     "key": "backdrop",
     "vals": [
      "FloorAndCeiling",
-     "FloorAndCeiling"
+     "FloorAndCeiling",
+     "FloorAndCeiling",
+     "off"
     ],
-    "differs": false
+    "differs": true
    },
    {
     "key": "headset refresh (Hz)",
     "vals": [
+     "72",
+     "72",
      "72",
      "72"
     ],
@@ -1672,7 +2476,9 @@
     "key": "commit",
     "vals": [
      "4667e819 (dirty)",
-     "07be66b6 (dirty)"
+     "07be66b6 (dirty)",
+     "75851023",
+     "75851023 (dirty)"
     ],
     "differs": true
    },
@@ -1680,6 +2486,8 @@
     "key": "wrap rule",
     "vals": [
      "Off (before the field)",
+     "Hold",
+     "Hold",
      "Hold"
     ],
     "differs": true
@@ -1687,6 +2495,8 @@
    {
     "key": "avoidance shape",
     "vals": [
+     "Ellipse",
+     "Ellipse",
      "Ellipse",
      "Ellipse"
     ],
@@ -1696,6 +2506,8 @@
     "key": "adaptive spread",
     "vals": [
      "on",
+     "on",
+     "on",
      "on"
     ],
     "differs": false
@@ -1703,6 +2515,8 @@
    {
     "key": "d_ref",
     "vals": [
+     "2",
+     "2",
      "2",
      "2"
     ],
@@ -1712,7 +2526,9 @@
     "key": "screens below eye level (m)",
     "vals": [
      "0.3",
-     "0"
+     "0",
+     "0",
+     "n/a"
     ],
     "differs": true
    }
@@ -1728,6 +2544,16 @@
    "hat": "Cap",
    "leg": 2,
    "s": 434.9
+  },
+  {
+   "kind": "at a goal",
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "hat": "Cap",
+   "leg": 2,
+   "s": 410.4
   },
   {
    "kind": "at a goal",
@@ -1770,16 +2596,6 @@
    "s": 183.4
   },
   {
-   "kind": "at a goal",
-   "run": "ALEX_t2_SingleDrone_20261110_133303",
-   "pid": "ALEX",
-   "order": 2,
-   "condition": "SingleDrone",
-   "hat": "Cap",
-   "leg": 1,
-   "s": 158.1
-  },
-  {
    "kind": "between goals",
    "run": "ERKS_t3_Swarm_20261106_144130",
    "pid": "ERKS",
@@ -1788,6 +2604,16 @@
    "hat": "Cowboy",
    "leg": 3,
    "s": 317.2
+  },
+  {
+   "kind": "between goals",
+   "run": "SIMI_t2_Swarm_20261116_142145",
+   "pid": "SIMI",
+   "order": 2,
+   "condition": "Swarm",
+   "hat": "Cowboy",
+   "leg": 1,
+   "s": 99.6
   },
   {
    "kind": "between goals",
@@ -1828,16 +2654,6 @@
    "hat": "Bucket",
    "leg": 3,
    "s": 57.9
-  },
-  {
-   "kind": "between goals",
-   "run": "ALEX_t2_Swarm_20261110_150123",
-   "pid": "ALEX",
-   "order": 4,
-   "condition": "Swarm",
-   "hat": "Cowboy",
-   "leg": 1,
-   "s": 56.0
   }
  ],
  "panorama": null,
@@ -1940,6 +2756,47 @@
      }
     ],
     "about": "ERKS's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."
+   },
+   {
+    "id": "SIMI",
+    "title": "SIMI",
+    "short": "SIMI",
+    "kind": "runs",
+    "flights": [
+     {
+      "id": "SIMI_t1_Swarm_20261116_141431",
+      "title": "1. Swarm t1",
+      "cond": "swarm",
+      "city": "bbB_p40_s18_patch150_j0.15_sight487_seed1",
+      "source": "trial",
+      "about": "SIMI_t1_Swarm_20261116_141431: 10 drone(s), recorded 5:42."
+     },
+     {
+      "id": "SIMI_t2_Swarm_20261116_142145",
+      "title": "2. Swarm t2",
+      "cond": "swarm",
+      "city": "bbB_p40_s18_patch150_j0.15_sight487_seed1",
+      "source": "trial",
+      "about": "SIMI_t2_Swarm_20261116_142145: 10 drone(s), recorded 11:22."
+     },
+     {
+      "id": "SIMI_t1_SingleSphere_20261116_143756",
+      "title": "3. SingleSphere t1",
+      "cond": "sphere",
+      "city": "bbB_p40_s18_patch150_j0.15_sight487_seed1",
+      "source": "trial",
+      "about": "SIMI_t1_SingleSphere_20261116_143756: 1 drone(s), recorded 3:50."
+     },
+     {
+      "id": "SIMI_t2_SingleSphere_20261116_144220",
+      "title": "4. SingleSphere t2",
+      "cond": "sphere",
+      "city": "bbB_p40_s18_patch150_j0.15_sight487_seed1",
+      "source": "trial",
+      "about": "SIMI_t2_SingleSphere_20261116_144220: 1 drone(s), recorded 5:24."
+     }
+    ],
+    "about": "SIMI's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."
    }
   ]
  },
@@ -1949,6 +2806,8 @@
   "ALEX t2 has 2 runs (ALEX_t2_SingleDrone_20261110_133303, ALEX_t2_Swarm_20261110_150123); all are analysed",
   "ERKS t1 has 2 runs (ERKS_t1_SingleDrone_20261106_140556, ERKS_t1_Swarm_20261106_142421); all are analysed",
   "ERKS t2 has 2 runs (ERKS_t2_SingleDrone_20261106_141708, ERKS_t2_Swarm_20261106_143321); all are analysed",
-  "ERKS t3 has 2 runs (ERKS_t3_Swarm_20261106_144130, ERKS_t3_SingleDrone_20261106_145230); all are analysed"
+  "ERKS t3 has 2 runs (ERKS_t3_Swarm_20261106_144130, ERKS_t3_SingleDrone_20261106_145230); all are analysed",
+  "SIMI t1 has 2 runs (SIMI_t1_Swarm_20261116_141431, SIMI_t1_SingleSphere_20261116_143756); all are analysed",
+  "SIMI t2 has 2 runs (SIMI_t2_Swarm_20261116_142145, SIMI_t2_SingleSphere_20261116_144220); all are analysed"
  ]
 }

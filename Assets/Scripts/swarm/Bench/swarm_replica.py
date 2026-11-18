@@ -80,7 +80,7 @@ import swarm_params as sp  # noqa: E402
 sys.path.insert(0, str(sp.EXPERIMENT_DIR))
 import analyse  # noqa: E402  (scene_boxes: the city as a run saw it, goal tiles swapped in)
 
-FORCE_LAW_COMMIT = "1a4877ad"
+FORCE_LAW_COMMIT = "f67e3491"     # f67e3491 only clears ObstacleFootprint's cache at Play start: the law is 1a4877ad's
 FORCE_LAW_FILES = [
     "Assets/Scripts/swarm/OlfatiSaber.cs",
     "Assets/Scripts/swarm/ObstacleFootprint.cs",
@@ -341,8 +341,17 @@ class City:
     @classmethod
     def for_run(cls, goals, city_name, layout=""):
         """A recorded run's buildings: its own generated layout when the session names one (ProceduralCityWorld,
-        whose goals are already boxes in it), else the test's tile city with the run's goal patches swapped in."""
-        return cls(analyse.scene_boxes(goals, layout or city_name))
+        whose goals are already boxes in it), else the test's tile city with the run's goal patches swapped in. A
+        block-shaped city's layout (internal_4 on) is prisms, which only PolyCity reads; its goals are buildings of
+        the city itself, so there is nothing to swap in."""
+        boxes = analyse.scene_boxes(goals, layout or city_name)
+        prisms = [b[2] for b in boxes if isinstance(b[2], analyse.Prism)]
+        if prisms:
+            if len(prisms) != len(boxes):
+                raise ValueError(f"{layout or city_name}: {len(prisms)} prisms among {len(boxes)} buildings; "
+                                 "the replica reads a city of boxes or of prisms, not both")
+            return PolyCity([p.poly for p in prisms])
+        return cls(boxes)
 
     def _proj(self, P, B, alt):
         d = np.zeros((len(P), len(B), 3))
@@ -1505,7 +1514,11 @@ def crash_terms(m, city, R, k, sh, hd, ids):
     fallback = np.stack([np.sin(yaw), np.cos(yaw)], 1)
     cmd = m.stick_to_world((h.inRoll, h.inPitch), h.bodyYaw)
     cand = city.near(Pm, m.r0_obs * m.S + QUERY_MARGIN_M)
-    t_ = swarm_terms(m, city, cand, Pm, Vm, Pm.mean(0), vmean, core_r, float(s.dRef), cmd, fallback, alt=P3[:, 1])
+    # S7's adaptive spread flies the lattice at d_ref times the scale the run recorded (shape.csv spreadScale, 1 when
+    # the column is absent or the switch was off), as Sim.step's d_eff does
+    scale = float(s.spreadScale) if "spreadScale" in s and np.isfinite(s.spreadScale) and m.adaptive else 1.0
+    t_ = swarm_terms(m, city, cand, Pm, Vm, Pm.mean(0), vmean, core_r, float(s.dRef) * scale, cmd, fallback,
+                     alt=P3[:, 1])
     user_ideal = (cmd - Vm) / m.tau_acc
     user = (t_["cmd"] - Vm) / m.tau_acc
     swarm = t_["vc"] + t_["coh"] + t_["damp"] + t_["obs"] + t_["core"]

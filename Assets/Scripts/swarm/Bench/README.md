@@ -151,7 +151,10 @@ python swarm_replica.py validate D:\claude_obstacle_bench\runs\<tag> [more ...] 
   in Unity. Output is `<test>/results/replica/sim_<time>.csv`.
 - **`forces`** evaluates the force law on the recorded states before each crash and attributes the pair's
   closing acceleration to each term (positive pushes the pair together). Run `analyse.py run <test>` first for
-  `crashes.csv`, or name crashes with `--crash RUN@T:i,j`.
+  `crashes.csv`, or name crashes with `--crash RUN@T:i,j`. A block-shaped city's prisms are read as a `PolyCity`, and
+  under the adaptive spread the lattice is evaluated at the run's recorded `spreadScale` (both since 2026-11-16, for
+  internal_4, where the modelled closing acceleration follows the measured one roughly, in sign and size, over the
+  seconds in which each pair's closing speed built up).
 - **`step`** is the spread-response requirement: d_ref steps at hover in open sky (expand, contract,
   re-expand), with t50/t90/overshoot, then a cruise/stop/reversal block at 0.4.
 - **Parameters are read, not typed in** (`swarm_params.py`). The order is the SwarmManager.cs initialisers,

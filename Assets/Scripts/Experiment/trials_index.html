@@ -145,7 +145,7 @@ function ANSWER_BOX() {
   return `<p class="eyebrow">So far</p><ol>
     <li><b>${S.length} series, ${S.reduce((a, s) => a + s.pilots.length, 0)} pilots, ${S.reduce((a, s) => a + s.n_runs, 0)} recorded runs</b>${T.length < S.length ? `; ${S.length - T.length} series without task times` : ""}.</li>
     <li><b>Total time:</b> the swarm was quicker in ${lower("total")} of ${T.length} timed series; <b>at the goals</b> in ${lower("search")}, <b>between goals</b> in ${lower("transit")}.</li>
-    <li><b>Two pilots a series</b>: in ${T.filter(s => s.stats.total && s.stats.total.floor >= 0.05).length} of ${T.length} timed series not even the most one-sided result could reach p 0.05 (each page gives its design's smallest p). ${(() => {
+    <li><b>Two pilots a comparison</b>: in ${T.filter(s => s.stats.total && s.stats.total.floor >= 0.05).length} of ${T.length} timed series not even the most one-sided result could reach p 0.05 (each page gives its design's smallest p). ${(() => {
       const hits = T.flatMap(s => MEAS.filter(([k]) => s.stats[k] && s.stats[k].p < 0.05).map(([k, t]) => `${s.test}'s ${t.toLowerCase()} (${times(s.stats[k].ratio)}, p ${pv(s.stats[k].p)})`));
       return hits.length ? `Below it: ${hits.join(", ")}.` : "None of the times reached it."; })()}</li></ol>
     <p class="bottom">Every page is built from the runs by <span class="code">trials_report.py</span>; open a series below.</p>`;
@@ -165,13 +165,16 @@ for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click
 
 RENDER.series = el => {
   el.innerHTML = `<div class="series">${S.slice().reverse().map(s => {
-    const url = PG[s.test], tile = ([k, t]) => { const st = s.timed ? s.stats[k] : null;
+    const url = PG[s.test], tileOf = (stats, [k, t]) => { const st = s.timed && stats ? stats[k] : null;
       return `<div class="tile"><div class="k">${t}</div><div class="v">${times(st && st.ratio)}<span>${st ? `a typical run ${secs(st.typ_s)} against ${secs(st.typ_d)}` : s.timed ? "not measured" : "no task times"}</span></div></div>`; };
+    const tile = m => tileOf(s.stats, m);
+    const sph = s.sphere && s.sphere.total ? s.sphere : null, sphWho = sph ? sph.total.per.map(p => p.pid) : [];
     const changes = (s.notes.changes || []).flatMap(a => a.leads.length ? a.leads : a.items.slice(0, 1)).slice(0, 7);
     return `<article class="trial"><header><span class="id">${esc(s.test)}</span><h3>${esc(name(s))}</h3><span class="was">${esc(dates(s))} · ${esc((s.city || []).join(", "))} · ${s.pilots.map(esc).join(", ")} · ${s.n_runs} runs${s.n_practice ? `, ${s.n_practice} practice` : ""}</span></header>
       <div><h4>The series</h4>${s.notes.summary}
         <div class="links">${url ? `<a href="${url}" target="_blank" rel="noopener">Results page</a><a href="${url}#flights" target="_blank" rel="noopener">Every run replayed</a><a href="${url}#changes" target="_blank" rel="noopener">What changed</a>` : `<span class="small muted">page not published yet</span>`}<span class="mono">docs/trials/${esc(s.test)}.md</span></div></div>
       <div><h4>Swarm ÷ single drone${s.timed ? "" : " (no task times)"}</h4><div class="nums">${MEAS.map(tile).join("")}</div>
+        ${sph ? `<h4>Swarm ÷ 360 sphere (${sphWho.map(esc).join(", ")} only)</h4><div class="nums">${MEAS.map(m => tileOf(sph, m)).join("")}</div>` : ""}
         <h4>${esc(s.notes.changes_title || "What changed")}</h4><ul>${changes.map(c => `<li>${c}</li>`).join("")}</ul></div></article>`;
   }).join("")}</div>`;
 };
