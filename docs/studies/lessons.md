@@ -3,7 +3,7 @@
 Refinements the studies identified, for whoever designs the next one. Each says what went wrong or what to watch,
 what to do instead, and the study it came from (S1 Goal Visibility, S2 Hidden Goal Search, S3 City Roaming, S4 Split
 and Surround, S5 Block-Shaped Surround, S6 Patch City Tuning, S7 Building Flow, S8 Footprint Avoidance, S9 Street
-Spread, S10 Ellipse Avoidance, S11 Wrap Hold). Add new ones with the study's ID; mark one **Applied** once the code does it by
+Spread, S10 Ellipse Avoidance, S11 Wrap Hold, S12 Distributed Views). Add new ones with the study's ID; mark one **Applied** once the code does it by
 default.
 
 ## Measures
@@ -287,6 +287,38 @@ default.
     - Likewise, a walk that runs out of chain is charged for the rest of the horizon, since a flight that has ended
       sees nothing more. In S4 12% of walks ended at the arena's edge, which moved the ratios by at most 0.3%. Check
       end times against the horizon, or lay chains that cannot run out. (S4)
+54. **A scripted pilot can fly like people and still search like no one: calibrate on the outcome, not only the
+    process.** S12 built each condition's at-goal search from internal_4's tracks (where the pilots flew, how fast,
+    how often they stopped and yawed, their recorded head traces), and the simulated pilots matched those process
+    measures to within a few points. They still found the hats far more slowly: per goal, the people got the hat into
+    close view on their head's screens about twice as often per minute (swarm 1.2 against the model's 0.5, one drone
+    1.1 against 0.5), because people steer and look towards what they are looking for and a resampled track does not.
+    The same per-second recognition rate fitted to the people then gives the model the wrong times and the wrong
+    order of the conditions. Fit the perceptual rates to people, then check the model's *outcome* (time per goal, per
+    condition, and the ratios between conditions) against theirs before predicting anything from it, and say which
+    of the model's numbers are calibrated to the people and which are independent. (S12)
+55. **Measure a hazard from people, not a range.** S1–S11 counted a hat seen within 40 m and a goal within 80 m, a
+    threshold and a first glimpse. Fitted as rates per second on screen from internal_4's 41 presses and 42 legs, the hat
+    is recognised at ~0.5/s up close, half that at 31 m and a tenth at 47 m, and a goal's crowd is noticed at ~0.1/s out
+    to ~200 m: the crowd's 80 m was a person's range applied to a crowd of a hundred. The fit is a few lines
+    (`views_human.fit_hazard`), uses the recorder's own visibility test, and gives the range as a rate a simulation can
+    draw from. (S12)
+56. **Score counterfactual views over a window the real view does not end.** S12 integrated each alternative view's
+    recognition rate over the goal searches as flown, which end when the condition's own view recognises the hat; the
+    window therefore always closes on a burst of the real view's exposure and cuts the others' off. It said the
+    swarm's distributed feeds were worth 1.6× a 360 camera at its centre and that the sphere's 360 view was worth no
+    more than a forward camera. A probe that searched every goal for a fixed 120 s, whatever was recognised, gave 0.96×
+    (0.71–1.30) and 1.56× (1.41–1.76): both conclusions reversed. Whenever a stopping rule depends on one of the things
+    compared, compare them over a window fixed in advance. (S12)
+    - **And put a stand-in camera where that camera could fly.** The fixed window still compared the swarm with a 360
+      camera on its centroid, which for a swarm wrapped round a building is inside the building. On the drone nearest
+      the centroid the wrapped swarm's views were worth 1.56× the 360 camera, not 0.96×; and the reviewer's question
+      (should the swarm always wrap?) was what exposed it. (S12)
+57. **Credit a recognition to the first sight that led to it, as well as to the press.** Pilots sometimes held a hat in
+    view and flew closer to check before pressing (11 of internal_4's 41 presses). Credited at the press, the approach
+    reads as failed exposure and the recognition as made up close: the fitted rate came out a third of the first-sight
+    credit's at every distance, and the scripted pilots found hats at half the people's rate. Fit both credits; they
+    bound the truth. (S12)
 
 ## Reporting
 

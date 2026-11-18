@@ -1,0 +1,1566 @@
+{
+ "status": "Proposal \u00b7 initial tests done \u00b7 main runs await review",
+ "task_why": "Most of the task is at the goals. In internal_4 the median goal took 100 s at the goal against 54 s between goals with one drone, 41 against 56 s with the swarm and 46 against 37 s with the sphere.",
+ "rec": {
+  "pooled": {
+   "a": 0.48540346023054604,
+   "d50": 30.741587064450314,
+   "k": 5.131498030225957
+  },
+  "per": [
+   {
+    "cond": "swarm",
+    "a": 1.5690773849988904,
+    "d50": 21.002695437563464,
+    "k": 4.960440276685156
+   },
+   {
+    "cond": "single",
+    "a": 0.36263287697183316,
+    "d50": 30.314136656853492,
+    "k": 5.280569218409618
+   },
+   {
+    "cond": "sphere",
+    "a": 0.5981807045715857,
+    "d50": 44.63194729415976,
+    "k": 6.785813897639162
+   }
+  ],
+  "bins": [
+   {
+    "d_lo": 0,
+    "d_hi": 10,
+    "exposure_s": 2.7,
+    "events": 1,
+    "rate": 0.3722,
+    "lo": 0.0094,
+    "hi": 2.0737
+   },
+   {
+    "d_lo": 10,
+    "d_hi": 15,
+    "exposure_s": 10.8,
+    "events": 6,
+    "rate": 0.5547,
+    "lo": 0.2036,
+    "hi": 1.2074
+   },
+   {
+    "d_lo": 15,
+    "d_hi": 20,
+    "exposure_s": 10.3,
+    "events": 6,
+    "rate": 0.5833,
+    "lo": 0.2141,
+    "hi": 1.2696
+   },
+   {
+    "d_lo": 20,
+    "d_hi": 25,
+    "exposure_s": 20.4,
+    "events": 4,
+    "rate": 0.1958,
+    "lo": 0.0533,
+    "hi": 0.5013
+   },
+   {
+    "d_lo": 25,
+    "d_hi": 30,
+    "exposure_s": 23.2,
+    "events": 9,
+    "rate": 0.3883,
+    "lo": 0.1776,
+    "hi": 0.7371
+   },
+   {
+    "d_lo": 30,
+    "d_hi": 40,
+    "exposure_s": 58.7,
+    "events": 10,
+    "rate": 0.1704,
+    "lo": 0.0817,
+    "hi": 0.3134
+   },
+   {
+    "d_lo": 40,
+    "d_hi": 50,
+    "exposure_s": 43.3,
+    "events": 4,
+    "rate": 0.0925,
+    "lo": 0.0252,
+    "hi": 0.2368
+   },
+   {
+    "d_lo": 50,
+    "d_hi": 60,
+    "exposure_s": 35.7,
+    "events": 0,
+    "rate": 0.0,
+    "lo": 0.0,
+    "hi": 0.1033
+   },
+   {
+    "d_lo": 60,
+    "d_hi": 80,
+    "exposure_s": 70.4,
+    "events": 1,
+    "rate": 0.0142,
+    "lo": 0.0004,
+    "hi": 0.0791
+   },
+   {
+    "d_lo": 80,
+    "d_hi": 100,
+    "exposure_s": 50.0,
+    "events": 0,
+    "rate": 0.0,
+    "lo": 0.0,
+    "hi": 0.0738
+   },
+   {
+    "d_lo": 100,
+    "d_hi": 130,
+    "exposure_s": 24.4,
+    "events": 0,
+    "rate": 0.0,
+    "lo": 0.0,
+    "hi": 0.151
+   }
+  ],
+  "decision": "<b>Recognise the hat at the fitted rate</b>, \u03bb(d) = 0.49 / (1 + (d / 31 m)<sup>5.1</sup>) per second while it is on a screen in the head's view. Where one distance is needed, <b>47 m</b> (the rate down to a tenth), with 31 m and 60 m beside it. S1\u2013S11 used 40 m. The trials' recorder keeps its 80 m scoring limit: no correct press in internal_4 was farther than 57 m, so it refuses nothing genuine.",
+  "caption": "Presses per second the hat was on a screen in the head's view, by its distance from the camera (dots, with exact 95% intervals; 41 presses over 350 s), and the fitted rate: pooled over the conditions (solid; d50 31 m, 95% 20\u201339 m) and each condition's own fit (dashed).",
+  "checks": "Latency 0.5 / 1 / 2 s: d50 29.0 / 30.7 / 31.8 m. One shape with a rate per condition: up close 0.37/s for one drone, 0.58/s for the swarm, 1.18/s for the sphere (one rate for all is not rejected, p = 0.07; the sphere is one pilot, six presses). Within the swarm the scenic city's rate is the plain city's (0.59 against 0.58), so the scene does not explain the sphere's. Pilots differ: d50 12 m (ERKS), 27 m (ALEX), 41 m (SIMI). On every shown screen wherever the head was, d50 39 m."
+ },
+ "notice": {
+  "fit": {
+   "a": 0.10643440308163299,
+   "d50": 236.47755234163705,
+   "k": 13.798671483995335
+  },
+  "bins": [
+   {
+    "d_lo": 0,
+    "d_hi": 50,
+    "rate": 0.0952,
+    "lo": 0.025949175562531544,
+    "hi": 0.24384734941437367
+   },
+   {
+    "d_lo": 50,
+    "d_hi": 100,
+    "rate": 0.0825,
+    "lo": 0.022471451002604635,
+    "hi": 0.2111667768124473
+   },
+   {
+    "d_lo": 100,
+    "d_hi": 150,
+    "rate": 0.0833,
+    "lo": 0.0227055286172151,
+    "hi": 0.21336643073757697
+   },
+   {
+    "d_lo": 150,
+    "d_hi": 200,
+    "rate": 0.058,
+    "lo": 0.007020558798375797,
+    "hi": 0.20941123674562204
+   },
+   {
+    "d_lo": 200,
+    "d_hi": 250,
+    "rate": 0.0317,
+    "lo": 0.0008037399360092025,
+    "hi": 0.17687756796631424
+   },
+   {
+    "d_lo": 250,
+    "d_hi": 300,
+    "rate": 0.0,
+    "lo": 0.0,
+    "hi": 0.11178422588224046
+   },
+   {
+    "d_lo": 300,
+    "d_hi": 350,
+    "rate": 0.0,
+    "lo": 0.0,
+    "hi": 0.23799222284606034
+   }
+  ],
+  "decision": "<b>Notice a goal's crowd at the fitted rate</b>, about 0.11 per second while at least one of its walkers is expected on a screen in the head's view within ~200 m, halving at 236 m. Where one distance is needed, <b>240 m</b> (150 and 300 m beside it). S1\u2013S2 used 80 m. Past 350 m the walkers are not drawn at all.",
+  "caption": "Turns onto a goal per second its crowd was on screen, by the crowd's distance (dots: the 15 legs with a turn; the 13 legs that began on the final approach enter the fit as censored), and the fit (d50 236 m, 95% 154\u2013381 m).",
+  "detail": "Turned around: on the 20 legs with a turn, the turn came a median 1 s after the crowd was first within 120 m and 24 s after it was first within 200 m, and 40% of the turns came before it had ever been within 120 m. The noticing range is long because a crowd of some hundred pedestrians is large: S2's 80 m was a person's range, not a crowd's."
+ },
+ "beh": [
+  {
+   "cond": "swarm",
+   "source": "internal_4",
+   "speed": 2.475673726918884,
+   "stopped": 0.4785886989420584,
+   "yawing": 0.1568992576720673,
+   "inside_ring": 0.7452387590413132,
+   "goal_dist": 17.125346831035916
+  },
+  {
+   "cond": "swarm",
+   "source": "model",
+   "speed": 3.11,
+   "stopped": 0.3545,
+   "yawing": 0.2935,
+   "inside_ring": 0.907,
+   "goal_dist": 18.5
+  },
+  {
+   "cond": "single",
+   "source": "internal_4",
+   "speed": 4.670493917918342,
+   "stopped": 0.20592531109272258,
+   "yawing": 0.3856415092785059,
+   "inside_ring": 0.4709972182088704,
+   "goal_dist": 49.92036428803761
+  },
+  {
+   "cond": "single",
+   "source": "model",
+   "speed": 4.635,
+   "stopped": 0.181,
+   "yawing": 0.6415,
+   "inside_ring": 0.4005,
+   "goal_dist": 52.150000000000006
+  },
+  {
+   "cond": "sphere",
+   "source": "internal_4",
+   "speed": 5.064889916702331,
+   "stopped": 0.08970234460621132,
+   "yawing": 0.3799240288915987,
+   "inside_ring": 0.4796404395090962,
+   "goal_dist": 46.044744530720855
+  },
+  {
+   "cond": "sphere",
+   "source": "model",
+   "speed": 5.385,
+   "stopped": 0.096,
+   "yawing": 0.339,
+   "inside_ring": 0.526,
+   "goal_dist": 43.0
+  }
+ ],
+ "calib": {
+  "people": {
+   "between": {
+    "swarm": [
+     33.3,
+     44.5,
+     97.8,
+     56.0,
+     79.4,
+     123.8,
+     15.2,
+     92.8,
+     52.7,
+     40.1,
+     34.1,
+     73.0,
+     31.0,
+     60.2,
+     347.1,
+     29.4,
+     69.3,
+     46.6,
+     99.6,
+     29.8,
+     223.4
+    ],
+    "single": [
+     37.2,
+     87.7,
+     244.7,
+     25.5,
+     54.8,
+     33.8,
+     18.1,
+     75.8,
+     53.6,
+     15.6,
+     55.5,
+     23.0,
+     24.6,
+     59.6,
+     63.9
+    ],
+    "sphere": [
+     34.2,
+     33.8,
+     39.5,
+     13.9,
+     57.6,
+     39.3
+    ]
+   },
+   "at": {
+    "swarm": [
+     22.1,
+     0.0,
+     39.2,
+     59.5,
+     61.9,
+     34.3,
+     41.2,
+     126.6,
+     59.2,
+     89.3,
+     33.3,
+     40.2,
+     39.3,
+     0.0,
+     42.6,
+     76.0,
+     21.4,
+     80.7,
+     15.2,
+     209.8,
+     53.9
+    ],
+    "single": [
+     149.1,
+     99.6,
+     76.2,
+     130.1,
+     172.7,
+     120.4,
+     117.2,
+     12.6,
+     148.6,
+     52.9,
+     69.4,
+     48.6,
+     11.2,
+     410.8,
+     12.1
+    ],
+    "sphere": [
+     43.3,
+     6.3,
+     49.3,
+     0.0,
+     102.4,
+     91.6
+    ]
+   }
+  },
+  "people_med": {
+   "between": {
+    "swarm": 56.035094921875,
+    "single": 53.6139,
+    "sphere": 36.71356371002197
+   },
+   "at": {
+    "swarm": 41.1525,
+    "single": 99.63850000000002,
+    "sphere": 46.32504999999999
+   }
+  },
+  "model": {
+   "between": {
+    "swarm": [
+     33.29,
+     62.18,
+     123.94
+    ],
+    "single": [
+     26.36,
+     51.7,
+     128.79999999999998
+    ],
+    "sphere": [
+     27.845,
+     45.57,
+     127.88
+    ]
+   },
+   "at": {
+    "swarm": [
+     23.955,
+     65.41,
+     95.755
+    ],
+    "single": [
+     26.345000000000002,
+     81.74000000000001,
+     156.215
+    ],
+    "sphere": [
+     22.905,
+     44.65,
+     82.62
+    ]
+   }
+  },
+  "rows": [
+   {
+    "label": "internal_4's pilots (95% interval)",
+    "at": {
+     "swarm": "42 (30-55)",
+     "single": "72 (49-110)",
+     "sphere": "36 (28-45)"
+    },
+    "bt": {
+     "swarm": "60 (48-77)",
+     "single": "44 (32-68)",
+     "sphere": "34 (32-36)"
+    },
+    "r_single": "0.59 (0.36-0.95)",
+    "r_sphere": "1.20 (0.77-1.81)",
+    "gate": ""
+   },
+   {
+    "label": "geometry: one rate for every display (24 sessions)",
+    "run": "calib1",
+    "variant": "pooled",
+    "at": {
+     "swarm": "81",
+     "single": "68",
+     "sphere": "80"
+    },
+    "bt": {
+     "swarm": "68",
+     "single": "79",
+     "sphere": "63"
+    },
+    "r_single": "1.19",
+    "r_sphere": "1.02",
+    "gate": "<span class=\"pill no\">3 of 8</span>",
+    "n_ok": 3
+   },
+   {
+    "label": "a rate per condition (proportional hazards) (24 sessions)",
+    "run": "calib1",
+    "variant": "ph",
+    "at": {
+     "swarm": "71",
+     "single": "94",
+     "sphere": "51"
+    },
+    "bt": {
+     "swarm": "69",
+     "single": "76",
+     "sphere": "63"
+    },
+    "r_single": "0.75",
+    "r_sphere": "1.40",
+    "gate": "<span class=\"pill no\">4 of 8</span>",
+    "n_ok": 4
+   },
+   {
+    "label": "every shown screen, wherever the head was (24 sessions)",
+    "run": "calib1",
+    "variant": "screen",
+    "at": {
+     "swarm": "43",
+     "single": "133",
+     "sphere": "43"
+    },
+    "bt": {
+     "swarm": "69",
+     "single": "74",
+     "sphere": "71"
+    },
+    "r_single": "0.32",
+    "r_sphere": "1.00",
+    "gate": "<span class=\"pill no\">4 of 8</span>",
+    "n_ok": 4
+   },
+   {
+    "label": "geometry, pilot run (40 sessions)",
+    "run": "pilot1",
+    "variant": "pooled",
+    "at": {
+     "swarm": "63",
+     "single": "73",
+     "sphere": "59"
+    },
+    "bt": {
+     "swarm": "69",
+     "single": "62",
+     "sphere": "66"
+    },
+    "r_single": "0.86",
+    "r_sphere": "1.06",
+    "gate": "<span class=\"pill no\">5 of 8</span>",
+    "n_ok": 5
+   },
+   {
+    "label": "calibrated, pilot run (40 sessions)",
+    "run": "pilot1",
+    "variant": "cal",
+    "at": {
+     "swarm": "51",
+     "single": "65",
+     "sphere": "41"
+    },
+    "bt": {
+     "swarm": "66",
+     "single": "59",
+     "sphere": "59"
+    },
+    "r_single": "0.78",
+    "r_sphere": "1.22",
+    "gate": "<span class=\"pill mid\">7 of 8</span>",
+    "n_ok": 7
+   },
+   {
+    "label": "recognised at first sight (circling swarm) (40 sessions)",
+    "run": "follow2",
+    "variant": "start",
+    "at": {
+     "swarm": "45",
+     "single": "50",
+     "sphere": "41"
+    },
+    "bt": {
+     "swarm": "72",
+     "single": "71",
+     "sphere": "69"
+    },
+    "r_single": "0.90",
+    "r_sphere": "1.09",
+    "gate": "<span class=\"pill mid\">6 of 8</span>",
+    "n_ok": 6
+   }
+  ],
+  "people_ci": {
+   "swarm|at_s": [
+    42.44200387665821,
+    30.312036782940606,
+    55.29928185245011
+   ],
+   "swarm|between_s": [
+    60.27457720189061,
+    48.336983760003015,
+    76.82204212052082
+   ],
+   "single|at_s": [
+    71.62203636008213,
+    48.87766804911883,
+    109.70887959380912
+   ],
+   "single|between_s": [
+    44.418743788621256,
+    32.258756875280376,
+    67.53063873067532
+   ],
+   "sphere|at_s": [
+    35.51004075720026,
+    27.750343337753492,
+    45.43954571050372
+   ],
+   "sphere|between_s": [
+    33.56257309651244,
+    31.531849002970905,
+    35.72408052419024
+   ]
+  },
+  "people_rci": {
+   "single": [
+    0.5925830377578158,
+    0.3572484607348584,
+    0.953213770444029
+   ],
+   "sphere": [
+    1.1952113535113975,
+    0.76647989096929,
+    1.8102127674946882
+   ]
+  },
+  "intro": "Before the model predicts anything it has to fly like internal_4's pilots. Each recognition model flew the same 24 sessions in the trial city in every condition. The gate asks eight things: each condition's geometric-mean time at the goal and between goals, and the swarm's two ratios at the goal, inside the people's 95% intervals (resampling their runs; per-goal times under 10 s count as 10 s). <b>No uncalibrated model passes.</b> All three are slower than the people, mostly from long tails: with the same eyes for every display the scripted pilots get the hat into close view about half as often per minute at a goal as internal_4's swarm and single-drone pilots did. Only the per-condition model orders the conditions as the people did (one drone slowest at a goal, the sphere fastest). The <b>calibrated</b> variant multiplies that model's recognition rate by 1.67 (swarm), 1.31 (one drone) and 1.43 (sphere), and its noticing rate by 1.15, 1.72 and 1.88, the ratios of its times to the people's: what the scripted search leaves out of how people search a goal. It reproduces internal_4 by construction, so its condition ratios are internal_4's projected onto many more goals, not an independent prediction; the geometry variant is the mechanistic one. <b>Since then (2026-11-18)</b>, a fourth model credits each recognition to the start of the final sighting that led to the press, because 11 of internal_4's 41 presses followed an approach to check the hat. It brings the time at a goal to the people's for the swarm and the sphere with no per-condition factor (the last row of the table).",
+  "caption": "Per goal, at the goal and between goals. Dots: every goal of internal_4 (the dark bar at their median); coloured bars: the middle half of the calibrated model's goals in the pilot run, the tick its median."
+ },
+ "results": {
+  "intro": "40 fresh sessions in the trial city, each flown in all three conditions under both variants: <b>geo</b> (one recognition rate for every display, the scripted pilots: what the views offer to the same eyes) and <b>cal</b> (the calibrated variant, which matches internal_4's times per condition). Every condition of a session has the same goals, hats, walkers and random thresholds. Task time is the restricted mean to the 900 s cap (an unfinished session counts to the cap, a swarm under four drones to where it stopped); intervals are 95% bootstrap over sessions.",
+  "forest": [
+   {
+    "label": "task: swarm \u00f7 sphere (cal)",
+    "est": 1.099196523061432,
+    "lo": 0.9880203292487262,
+    "hi": 1.2287123606687478,
+    "vs": "sphere"
+   },
+   {
+    "label": "at the goal: swarm \u00f7 sphere (cal)",
+    "est": 1.22240879999475,
+    "lo": 1.0084758542209111,
+    "hi": 1.4808487069935128,
+    "vs": "sphere"
+   },
+   {
+    "label": "between goals: swarm \u00f7 sphere (cal)",
+    "est": 1.1133079479156973,
+    "lo": 0.9685355602048613,
+    "hi": 1.2860338570363998,
+    "vs": "sphere"
+   },
+   {
+    "label": "task: swarm \u00f7 one drone (cal)",
+    "est": 0.8193785126397585,
+    "lo": 0.7144775613095696,
+    "hi": 0.9302910611521558,
+    "vs": "single"
+   },
+   {
+    "label": "at the goal: swarm \u00f7 one drone (cal)",
+    "est": 0.7826950587662785,
+    "lo": 0.6452642841435401,
+    "hi": 0.9610803311662377,
+    "vs": "single"
+   },
+   {
+    "label": "between goals: swarm \u00f7 one drone (cal)",
+    "est": 1.121847998767935,
+    "lo": 0.9761899280000949,
+    "hi": 1.309294403397486,
+    "vs": "single"
+   },
+   {
+    "label": "task: swarm \u00f7 sphere (geo)",
+    "est": 1.1103626943005183,
+    "lo": 0.9916386569970053,
+    "hi": 1.2454343588704238,
+    "vs": "sphere",
+    "alt": true
+   },
+   {
+    "label": "at the goal: swarm \u00f7 sphere (geo)",
+    "est": 1.0564001429425467,
+    "lo": 0.8366790087422901,
+    "hi": 1.3301759014702963,
+    "vs": "sphere",
+    "alt": true
+   },
+   {
+    "label": "between goals: swarm \u00f7 sphere (geo)",
+    "est": 1.0478289273939148,
+    "lo": 0.8775311484997361,
+    "hi": 1.240612842472087,
+    "vs": "sphere",
+    "alt": true
+   },
+   {
+    "label": "task: swarm \u00f7 one drone (geo)",
+    "est": 1.007650475408635,
+    "lo": 0.8864980972773225,
+    "hi": 1.1425336147388778,
+    "vs": "single",
+    "alt": true
+   },
+   {
+    "label": "at the goal: swarm \u00f7 one drone (geo)",
+    "est": 0.8632634953469359,
+    "lo": 0.690575123499952,
+    "hi": 1.0995773324313003,
+    "vs": "single",
+    "alt": true
+   },
+   {
+    "label": "between goals: swarm \u00f7 one drone (geo)",
+    "est": 1.1126659240501544,
+    "lo": 0.9378730472661484,
+    "hi": 1.3229497959149172,
+    "vs": "single",
+    "alt": true
+   }
+  ],
+  "cap_ratio": "Swarm \u00f7 the other condition: the whole task (restricted mean), the time at each goal and between goals (geometric means over the goals found). Filled: calibrated; hollow: geometry. Below 1 the swarm is faster.",
+  "views": [
+   {
+    "cond": "swarm",
+    "label": "swarm wrapped round the goal building",
+    "est": 1.3329701477928941,
+    "lo": 1.1303053040666886,
+    "hi": 1.5407305356482848,
+    "real": true
+   },
+   {
+    "cond": "swarm",
+    "label": "a 360 camera on its most central drone",
+    "est": 0.8547148869531175,
+    "lo": 0.6731968414711115,
+    "hi": 1.0502121180723134,
+    "real": false
+   },
+   {
+    "cond": "swarm",
+    "label": "swarm circling the goal's block",
+    "est": 0.6884303937881309,
+    "lo": 0.5631167775929008,
+    "hi": 0.8193752911813643,
+    "real": true
+   },
+   {
+    "cond": "swarm",
+    "label": "a 360 camera on its most central drone",
+    "est": 1.0964559068219633,
+    "lo": 0.9373237382140878,
+    "hi": 1.2646828618968387,
+    "real": false
+   },
+   {
+    "cond": "sphere",
+    "label": "360 sphere, as flown",
+    "est": 1.0052803467089733,
+    "lo": 0.8474169093178038,
+    "hi": 1.186453558495767,
+    "real": true
+   },
+   {
+    "cond": "sphere",
+    "label": "its forward camera only",
+    "est": 0.6429087180280928,
+    "lo": 0.5151298714251976,
+    "hi": 0.7831633484422512,
+    "real": false
+   },
+   {
+    "cond": "single",
+    "label": "one drone, as flown",
+    "est": 0.7667987462755872,
+    "lo": 0.6158514235379754,
+    "hi": 0.9256147991958353,
+    "real": true
+   },
+   {
+    "cond": "single",
+    "label": "a 360 camera on its flight",
+    "est": 1.1542547304879462,
+    "lo": 0.9810604131816846,
+    "hi": 1.338451220507149,
+    "real": false
+   }
+  ],
+  "cap_views": "The view probe: every goal searched for exactly 120 s whatever was recognised, so every view is scored over the same window, with one per-second rate for all (credited at the press). Hat recognitions per minute at a goal (95% bootstrap over sessions). The 360 stand-in rides on the swarm's drone nearest its centre: the centre of a swarm wrapped round a building is inside it. Wrapped, the swarm's ten views give 1.56 (95% 1.23\u20131.98)\u00d7 that camera's rate; circling the block, 0.63 (95% 0.49\u20130.81)\u00d7.",
+  "table_head": [
+   "condition",
+   "variant",
+   "task (s, 95%)",
+   "done in the cap",
+   "at a goal (s)",
+   "between (s)",
+   "recognised at (m)",
+   "crowd noticed at (m)",
+   "drones lost"
+  ],
+  "table_rows": [
+   [
+    "Swarm",
+    "cal",
+    "535 (466\u2013603)",
+    "88%",
+    "51",
+    "66",
+    "28",
+    "139",
+    "14"
+   ],
+   [
+    "One drone",
+    "cal",
+    "653 (587\u2013719)",
+    "68%",
+    "65",
+    "59",
+    "26",
+    "161",
+    "0"
+   ],
+   [
+    "360 sphere",
+    "cal",
+    "487 (428\u2013549)",
+    "88%",
+    "41",
+    "59",
+    "32",
+    "159",
+    "0"
+   ],
+   [
+    "Swarm",
+    "geo",
+    "654 (587\u2013717)",
+    "75%",
+    "63",
+    "69",
+    "28",
+    "133",
+    "26"
+   ],
+   [
+    "One drone",
+    "geo",
+    "649 (581\u2013713)",
+    "70%",
+    "73",
+    "62",
+    "24",
+    "130",
+    "0"
+   ],
+   [
+    "360 sphere",
+    "geo",
+    "589 (519\u2013659)",
+    "82%",
+    "59",
+    "66",
+    "28",
+    "138",
+    "0"
+   ]
+  ],
+  "table_numeric": [
+   0,
+   0,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1
+  ],
+  "notes": "Held-out cities (the same design at other seeds, calibrated variant), task ratios swarm \u00f7 sphere and swarm \u00f7 one drone: seed 2 (10 sessions) 1.24 and 0.77; seed 3 (10 sessions) 1.40 and 0.93; seed 4 (10 sessions) 1.15 and 0.86.",
+  "follow": {
+   "geometry": {
+    "sphere": {
+     "est": 1.0252450522381724,
+     "lo": 0.9076627609929006,
+     "hi": 1.161945821360775,
+     "n": 40,
+     "at": 0.9137431033106818,
+     "between": 1.1078563360946139,
+     "lost": 20
+    },
+    "single": {
+     "est": 0.9304064965447598,
+     "lo": 0.8208787515490634,
+     "hi": 1.0552058000086662,
+     "n": 40,
+     "at": 0.7466877683450248,
+     "between": 1.1764076765673495,
+     "lost": 20
+    }
+   },
+   "calibrated": {
+    "sphere": {
+     "est": 1.0188056757117763,
+     "lo": 0.8671576160006782,
+     "hi": 1.2028486847256956,
+     "n": 40,
+     "at": 0.932520454969868,
+     "between": 1.1629649158697934,
+     "lost": 10
+    },
+    "single": {
+     "est": 0.7594524379577251,
+     "lo": 0.663837179138596,
+     "hi": 0.854693741759567,
+     "n": 40,
+     "at": 0.5970827044983097,
+     "between": 1.171885879327829,
+     "lost": 10
+    }
+   },
+   "first sight": {
+    "sphere": {
+     "est": 1.0395903902257553,
+     "lo": 0.9308167229573421,
+     "hi": 1.1634109708736864,
+     "n": 40,
+     "at": 0.9748364424160004,
+     "between": 1.1164261586577304,
+     "lost": 32
+    },
+    "single": {
+     "est": 0.8973797761240699,
+     "lo": 0.7745205618658232,
+     "hi": 1.0372390277723789,
+     "n": 40,
+     "at": 0.8046028266517401,
+     "between": 1.084091953416834,
+     "lost": 32
+    }
+   },
+   "geometry, circling": {
+    "sphere": {
+     "est": 1.1103626943005183,
+     "lo": 0.9916386569970053,
+     "hi": 1.2454343588704238,
+     "n": 40,
+     "at": 1.0564001429425458,
+     "between": 1.0478289273939148,
+     "lost": 26
+    },
+    "single": {
+     "est": 1.007650475408635,
+     "lo": 0.8864980972773225,
+     "hi": 1.1425336147388778,
+     "n": 40,
+     "at": 0.8632634953469351,
+     "between": 1.1126659240501553,
+     "lost": 26
+    }
+   },
+   "first sight, circling": {
+    "sphere": {
+     "est": 1.0433595050222224,
+     "lo": 0.9237924807369563,
+     "hi": 1.166493755964948,
+     "n": 40,
+     "at": 1.088312296717771,
+     "between": 1.0374897144602238,
+     "lost": 36
+    },
+    "single": {
+     "est": 0.9006332954178613,
+     "lo": 0.7795013413985782,
+     "hi": 1.0390634179881362,
+     "n": 40,
+     "at": 0.8982626337283441,
+     "between": 1.0074416856653696,
+     "lost": 36
+    }
+   }
+  }
+ },
+ "answer": [
+  "<b>The swarm's spread-out views beat one 360 viewpoint by about 1.5\u00d7 at a goal, but only while it is wrapped round the goal building</b>: 1.56 (95% 1.23\u20131.98)\u00d7 the hat recognitions of a 360 camera on its most central drone (1.45\u00d7 with first-sight recognition). Circling the goal's block instead it gets only 0.63\u00d7: then one 360 camera would do better than its ten screens.",
+  "<b>Over the whole task, the wrapped swarm and the 360 sphere come out even</b>: swarm \u00f7 sphere 1.04 (95% 0.93\u20131.16) with first-sight recognition, 1.03 (95% 0.91\u20131.16) with press-credited recognition. The swarm gains at the goal (0.97) and loses between goals (1.12), where it flies slower and loses drones.",
+  "<b>Against one drone with the ordinary camera the swarm is faster or level</b>: swarm \u00f7 one drone 0.90 (95% 0.77\u20131.04) (first sight), 0.76 (95% 0.66\u20130.85) (calibrated).",
+  "<b>A hat is recognised at 0.49\u20131.57/s up close, half that at 24\u201331 m, a tenth by about 46 m</b>, depending on whether a recognition is credited at the press or at the first sight of the hat that led to it (11 of 41 presses followed a close-in approach to check). Crediting at first sight brings the model's time at a goal to the people's (swarm 40 s against 42, sphere 41 against 36, one drone 50 against 72). A crowd is noticed out to ~240 m."
+ ],
+ "power": {
+  "curves": [
+   {
+    "lab": "1 run per condition",
+    "col": "var(--muted)",
+    "dash": "4 3",
+    "pts": [
+     [
+      1.1,
+      283
+     ],
+     [
+      1.125,
+      186
+     ],
+     [
+      1.15,
+      133
+     ],
+     [
+      1.175,
+      101
+     ],
+     [
+      1.2,
+      79
+     ],
+     [
+      1.225,
+      64
+     ],
+     [
+      1.25,
+      54
+     ],
+     [
+      1.275,
+      46
+     ],
+     [
+      1.3,
+      40
+     ],
+     [
+      1.325,
+      35
+     ],
+     [
+      1.35,
+      31
+     ],
+     [
+      1.375,
+      28
+     ],
+     [
+      1.4,
+      25
+     ],
+     [
+      1.425,
+      23
+     ],
+     [
+      1.45,
+      21
+     ],
+     [
+      1.475,
+      19
+     ],
+     [
+      1.5,
+      18
+     ],
+     [
+      1.525,
+      17
+     ],
+     [
+      1.55,
+      16
+     ],
+     [
+      1.575,
+      15
+     ],
+     [
+      1.6,
+      14
+     ],
+     [
+      1.625,
+      13
+     ],
+     [
+      1.65,
+      13
+     ],
+     [
+      1.675,
+      12
+     ],
+     [
+      1.7,
+      12
+     ],
+     [
+      1.725,
+      11
+     ],
+     [
+      1.75,
+      11
+     ],
+     [
+      1.775,
+      10
+     ],
+     [
+      1.8,
+      10
+     ],
+     [
+      1.825,
+      10
+     ],
+     [
+      1.85,
+      9
+     ],
+     [
+      1.875,
+      9
+     ],
+     [
+      1.9,
+      9
+     ],
+     [
+      1.925,
+      9
+     ],
+     [
+      1.95,
+      8
+     ],
+     [
+      1.975,
+      8
+     ],
+     [
+      2.0,
+      8
+     ],
+     [
+      2.025,
+      8
+     ],
+     [
+      2.05,
+      8
+     ],
+     [
+      2.075,
+      7
+     ],
+     [
+      2.1,
+      7
+     ],
+     [
+      2.125,
+      7
+     ],
+     [
+      2.15,
+      7
+     ],
+     [
+      2.175,
+      7
+     ],
+     [
+      2.2,
+      7
+     ]
+    ]
+   },
+   {
+    "lab": "2 runs per condition",
+    "col": "var(--swarm)",
+    "dash": "",
+    "pts": [
+     [
+      1.1,
+      182
+     ],
+     [
+      1.125,
+      120
+     ],
+     [
+      1.15,
+      86
+     ],
+     [
+      1.175,
+      65
+     ],
+     [
+      1.2,
+      51
+     ],
+     [
+      1.225,
+      42
+     ],
+     [
+      1.25,
+      35
+     ],
+     [
+      1.275,
+      30
+     ],
+     [
+      1.3,
+      26
+     ],
+     [
+      1.325,
+      23
+     ],
+     [
+      1.35,
+      21
+     ],
+     [
+      1.375,
+      19
+     ],
+     [
+      1.4,
+      17
+     ],
+     [
+      1.425,
+      16
+     ],
+     [
+      1.45,
+      14
+     ],
+     [
+      1.475,
+      13
+     ],
+     [
+      1.5,
+      12
+     ],
+     [
+      1.525,
+      12
+     ],
+     [
+      1.55,
+      11
+     ],
+     [
+      1.575,
+      10
+     ],
+     [
+      1.6,
+      10
+     ],
+     [
+      1.625,
+      10
+     ],
+     [
+      1.65,
+      9
+     ],
+     [
+      1.675,
+      9
+     ],
+     [
+      1.7,
+      8
+     ],
+     [
+      1.725,
+      8
+     ],
+     [
+      1.75,
+      8
+     ],
+     [
+      1.775,
+      8
+     ],
+     [
+      1.8,
+      7
+     ],
+     [
+      1.825,
+      7
+     ],
+     [
+      1.85,
+      7
+     ],
+     [
+      1.875,
+      7
+     ],
+     [
+      1.9,
+      7
+     ],
+     [
+      1.925,
+      6
+     ],
+     [
+      1.95,
+      6
+     ],
+     [
+      1.975,
+      6
+     ],
+     [
+      2.0,
+      6
+     ],
+     [
+      2.025,
+      6
+     ],
+     [
+      2.05,
+      6
+     ],
+     [
+      2.075,
+      6
+     ],
+     [
+      2.1,
+      6
+     ],
+     [
+      2.125,
+      6
+     ],
+     [
+      2.15,
+      6
+     ],
+     [
+      2.175,
+      5
+     ],
+     [
+      2.2,
+      5
+     ]
+    ]
+   },
+   {
+    "lab": "3 runs per condition",
+    "col": "var(--sphere)",
+    "dash": "",
+    "pts": [
+     [
+      1.1,
+      148
+     ],
+     [
+      1.125,
+      98
+     ],
+     [
+      1.15,
+      70
+     ],
+     [
+      1.175,
+      53
+     ],
+     [
+      1.2,
+      42
+     ],
+     [
+      1.225,
+      35
+     ],
+     [
+      1.25,
+      29
+     ],
+     [
+      1.275,
+      25
+     ],
+     [
+      1.3,
+      22
+     ],
+     [
+      1.325,
+      19
+     ],
+     [
+      1.35,
+      17
+     ],
+     [
+      1.375,
+      16
+     ],
+     [
+      1.4,
+      14
+     ],
+     [
+      1.425,
+      13
+     ],
+     [
+      1.45,
+      12
+     ],
+     [
+      1.475,
+      11
+     ],
+     [
+      1.5,
+      11
+     ],
+     [
+      1.525,
+      10
+     ],
+     [
+      1.55,
+      9
+     ],
+     [
+      1.575,
+      9
+     ],
+     [
+      1.6,
+      9
+     ],
+     [
+      1.625,
+      8
+     ],
+     [
+      1.65,
+      8
+     ],
+     [
+      1.675,
+      8
+     ],
+     [
+      1.7,
+      7
+     ],
+     [
+      1.725,
+      7
+     ],
+     [
+      1.75,
+      7
+     ],
+     [
+      1.775,
+      7
+     ],
+     [
+      1.8,
+      7
+     ],
+     [
+      1.825,
+      6
+     ],
+     [
+      1.85,
+      6
+     ],
+     [
+      1.875,
+      6
+     ],
+     [
+      1.9,
+      6
+     ],
+     [
+      1.925,
+      6
+     ],
+     [
+      1.95,
+      6
+     ],
+     [
+      1.975,
+      6
+     ],
+     [
+      2.0,
+      5
+     ],
+     [
+      2.025,
+      5
+     ],
+     [
+      2.05,
+      5
+     ],
+     [
+      2.075,
+      5
+     ],
+     [
+      2.1,
+      5
+     ],
+     [
+      2.125,
+      5
+     ],
+     [
+      2.15,
+      5
+     ],
+     [
+      2.175,
+      5
+     ],
+     [
+      2.2,
+      5
+     ]
+    ]
+   }
+  ],
+  "table": [
+   [
+    "1.25\u00d7",
+    "54",
+    "35",
+    "29"
+   ],
+   [
+    "1.40\u00d7",
+    "25",
+    "17",
+    "14"
+   ],
+   [
+    "1.50\u00d7",
+    "18",
+    "12",
+    "11"
+   ],
+   [
+    "1.75\u00d7",
+    "11",
+    "8",
+    "7"
+   ],
+   [
+    "2.00\u00d7",
+    "8",
+    "6",
+    "5"
+   ]
+  ],
+  "predicted": 1.1,
+  "caption": "Pilots needed for 80% power (two-sided, 0.05, a t test over pilots) on the task-time ratio between the two conditions, from internal_4's run-to-run spread within a pilot and condition (SD 0.34 in log time, 8 df) and an assumed 0.3 spread of the pilots' own ratios. At the calibrated prediction (1.10\u00d7, either way round) two runs per condition need 182 pilots: no retest of a feasible size can resolve a difference that small, so it should be sized for the smallest difference worth acting on and report its estimate with its interval."
+ },
+ "plan": [
+  "<b>Calibration gate first</b> (<span class=\"code\">views calib</span>), and before it one round of work on the simulated at-goal search, the part of the model the gate shows is weakest: the people found the hat about twice as fast as the scripted swarm and single-drone searches. The gate and the verdict rule go into <span class=\"code\">rule.json</span> before the main run.",
+  "<b>300 fresh sessions in the trial city</b> in all three conditions, both variants (about 3 h on this machine), and <b>the view probe</b> on 100 more (every goal searched for exactly 120 s, so the counterfactual views are scored over the same window; integrated over the as-flown search they are biased towards the view that ended it, which the initial tests found inflated the swarm's distributed-view advantage from about 1.0\u00d7 to 1.6\u00d7).",
+  "<b>Sensitivities</b> on 100 of them each: the other recognition models, the hat's d50 \u00d70.75 and \u00d71.33, the crowd's at 150 and 300 m, the walk without exploration.",
+  "<b>Three held-out cities</b> (the same design at seeds 2\u20134), 100 sessions each, reported per city.",
+  "<b>A Unity spot check</b>: 12 sessions per condition re-flown on the headless bench from the model's own routes, with the replica's twins, so the flights the answer rests on are Unity's.",
+  "<b>The verdict</b>, swarm \u00f7 sphere on the task time: wholly below 0.9, the swarm is at least 10% faster; wholly above 1/0.9, the sphere is; inside [0.9, 1/0.9], equivalent; otherwise undecided at that size. The view decomposition beside it.",
+  "<b>The results page</b> follows the study pages: the answer first, a Cities tab with a goal drawn and replays of sessions in every condition beside internal_4's, the key to the codes."
+ ],
+ "retest": [
+  "<b>ScenicPatchCityWorld for both conditions</b>, practice to criterion in ScenicPracticeBlockWorld. The sphere has only been flown there, and its pedestrians stand out more than in the plain city, so a series must not mix scenes.",
+  "<b>Within subject, four runs per pilot in ABBA or BAAB order</b> (half each), which balances a linear practice effect inside every pilot. SIMI flew both swarm runs before both sphere runs: internal_4's order confound.",
+  "<b>Primary outcome: the task time</b>, log-transformed, <span class=\"code\">log T ~ condition + position + (1 | pilot)</span>, runs at the cap censored. Secondary: time at and between goals, the press distance, drone losses, NASA-TLX and a simulator-sickness questionnaire after each condition.",
+  "<b>Decide before the first session</b> whether a run ended by a technical failure is restarted, and keep swarm losses as a measure: SIMI's second swarm run lost six drones before its first goal."
+ ],
+ "decisions": [
+  "<b>The task</b>: the whole internal_4 task, with the time split at each goal's zone, rather than a point target.",
+  "<b>Two model variants</b>: geometry (one recognition rate, scripted pilots) as the mechanistic answer and the calibrated one as the bridge to the retest; or ask for the at-goal search to be reworked until a variant passes the gate before the main run.",
+  "<b>The two distances</b>: 47 m for the hat and 240 m for the crowd wherever one number is needed, in this study only (S1\u2013S11 keep their 40 m and 80 m so they reproduce); the recorder's 80 m scoring limit unchanged.",
+  "<b>The retest's design</b>: ScenicPatchCityWorld, ABBA/BAAB, the number of pilots from the power curve.",
+  "<b>Whether one drone joins the retest</b> as a third condition (the swarm \u00f7 one drone ratio would then be a human result too, for a third more session time)."
+ ],
+ "foot": "Built by <span class=\"code\">citysim/views_report.py</span> from <span class=\"code\">experiment_results/views_study/</span> (the human fits, <span class=\"code\">calib1</span>, <span class=\"code\">pilot1</span>). Manual: docs/views_study/README.md. Every number is computed from the runs."
+}

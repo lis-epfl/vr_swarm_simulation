@@ -1,0 +1,391 @@
+<title>S12 Distributed Views</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: the study pages' family (S4's masthead and type), read top to bottom as a proposal: the question and the
+   proposed answer, then one section per decision, each with the evidence the initial tests produced. Data colour: the
+   three conditions (swarm blue, one drone orange, 360 sphere green), people in ink. */
+:root {
+  --bg: #f2f4f5; --panel: #fbfcfc; --ink: #111c25; --ink-2: #44525e; --muted: #7c8893; --line: #d6dde2;
+  --grid: #e4e8eb; --chip: #e6ebee;
+  --swarm: #2a78d6; --single: #d95926; --sphere: #199e70; --people: #111c25;
+  --good: #0c8a0c; --good-bg: #e2f3e2; --warn: #b77a00; --warn-bg: #fbf0d6; --bad: #c43535; --bad-bg: #f8e1e1;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+    --grid: #1d262d; --chip: #1f2830;
+    --swarm: #5a9cf0; --single: #ec7d4c; --sphere: #3cc08f; --people: #ecf1f4;
+    --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1216; --panel: #141b20; --ink: #ecf1f4; --ink-2: #b3bec7; --muted: #7a8792; --line: #26313a;
+  --grid: #1d262d; --chip: #1f2830;
+  --swarm: #5a9cf0; --single: #ec7d4c; --sphere: #3cc08f; --people: #ecf1f4;
+  --good: #5fd35f; --good-bg: #16301a; --warn: #f2c14e; --warn-bg: #33290f; --bad: #f07878; --bad-bg: #3a1a1a;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); }
+.wrap { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 64px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 3.6vw, 2.7rem); font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; }
+h2 { font-size: 1.5rem; font-weight: 600; line-height: 1.15; }
+h3 { font-size: 1.1rem; font-weight: 600; line-height: 1.25; }
+p { margin: 0; max-width: 74ch; }
+.eyebrow { font: 600 0.72rem/1.2 var(--font-body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 0.45rem; }
+.muted { color: var(--muted); }
+.small { font-size: 0.86rem; }
+.mono, td.n, th.n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.code { font-family: var(--font-mono); font-weight: 500; background: var(--chip); border-radius: 4px; padding: 0.05em 0.35em; white-space: nowrap; font-size: 0.86em; }
+.back { display: inline-block; margin: 22px 0 12px; font: 500 0.88rem/1.2 var(--font-body); color: var(--ink-2); text-decoration: none; }
+.back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
+.masthead { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr); gap: 28px; padding-block: 6px 26px; align-items: start; border-bottom: 1px solid var(--line); }
+.lead { font-size: 1.03rem; color: var(--ink-2); margin-top: 0.7rem; }
+.status { display: inline-block; margin-top: 12px; padding: 4px 10px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font-weight: 600; font-size: 0.82rem; }
+.answer { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; min-width: 0; display: grid; gap: 10px; }
+.answer ol { margin: 0; padding-left: 1.2rem; display: grid; gap: 8px; }
+.answer li { font-size: 0.95rem; color: var(--ink-2); }
+.answer li b { color: var(--ink); }
+.key { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.84rem; color: var(--ink-2); }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+nav.toc { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+nav.toc::-webkit-scrollbar { display: none; }
+nav.toc a { flex: none; padding: 11px 12px 10px; font: 500 0.9rem/1 var(--font-body); color: var(--ink-2); text-decoration: none; border-bottom: 2px solid transparent; }
+nav.toc a:hover { color: var(--ink); border-bottom-color: var(--line); }
+section { padding-top: 34px; display: grid; gap: 14px; scroll-margin-top: 48px; }
+section > p, .prose p { color: var(--ink-2); }
+.prose { display: grid; gap: 10px; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 860px) { .masthead, .two { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 14px 10px; min-width: 0; display: grid; gap: 8px; }
+figcaption { font-size: 0.86rem; color: var(--ink-2); max-width: 80ch; }
+figure .chart { width: 100%; overflow-x: auto; }
+svg { display: block; max-width: 100%; height: auto; }
+svg text { fill: var(--ink-2); font: 11px var(--font-body); }
+svg .ax { stroke: var(--line); }
+svg .gl { stroke: var(--grid); }
+.tw { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-weight: 600; color: var(--ink-2); background: var(--chip); font-size: 0.8rem; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+.pill.ok { background: var(--good-bg); color: var(--good); }
+.pill.no { background: var(--bad-bg); color: var(--bad); }
+.pill.mid { background: var(--warn-bg); color: var(--warn); }
+.decision { border-left: 3px solid var(--swarm); padding: 4px 0 4px 12px; color: var(--ink); max-width: 80ch; }
+.decision b { font-weight: 600; }
+.tracks { background: #ffffff; border-radius: 4px; }
+ul.plain { margin: 0; padding-left: 1.1rem; display: grid; gap: 6px; color: var(--ink-2); max-width: 80ch; }
+footer { margin-top: 40px; color: var(--muted); font-size: 0.82rem; border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+
+<div class="wrap">
+  <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5">← Swarm Study Index</a>
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">S12 · the views study · proposal for review</p>
+      <h1>Distributed Views</h1>
+      <p class="lead">Does the swarm find the hats faster than one drone with the trials' camera, and faster than one drone whose 360 camera is shown on a sphere round the pilot? The second comparison is what the swarm's spread-out viewpoints add beyond seeing every way at once, and it is what the next human trials will measure.</p>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="answer">
+      <p class="eyebrow">What the initial tests say</p>
+      <ol id="answer"></ol>
+      <div class="key"><span><i class="sw" style="background:var(--swarm)"></i>swarm</span><span><i class="sw" style="background:var(--single)"></i>one drone</span><span><i class="sw" style="background:var(--sphere)"></i>360 sphere</span><span><i class="sw" style="background:var(--people)"></i>internal_4's pilots</span></div>
+    </div>
+  </header>
+  <nav class="toc" aria-label="Sections">
+    <a href="#task">The task</a><a href="#ranges">Seeing a hat</a><a href="#crowd">Seeing a goal</a><a href="#pilots">The pilots</a><a href="#calib">Calibration</a><a href="#results">Initial results</a><a href="#plan">The main study</a><a href="#retest">The human retest</a><a href="#decide">Decisions</a>
+  </nav>
+
+  <section id="task">
+    <p class="eyebrow">Decision 1</p>
+    <h2>The goal is the trials' whole task, not a point</h2>
+    <p class="decision"><b>Fly internal_4's task:</b> three goals drawn from the city's own buildings as the trial scene draws them at every Play, each a building ringed by buildings whose pedestrians walk round them, one pedestrian in a hat; the pilot does not know where any goal is; the clock runs from the start line to the press on the third hat.</p>
+    <div class="prose">
+      <p id="task-why"></p>
+      <p>At a goal the two all-round views differ most. A 360 camera at one point sees the ring buildings on its own side, and the centre building hides the rest. The swarm, wrapped round the centre building as internal_4's swarm pilots flew it, looks out at every ring building at once, each from nearer. A point hidden at random would measure only the search between goals, which S2 and S3 have measured already.</p>
+      <p>Each goal's time is split at its zone (the patch grown by 15 m, as analyse.py splits the trials) into <b>between goals</b> and <b>at the goal</b>, so the answer says where the difference comes from.</p>
+    </div>
+  </section>
+
+  <section id="ranges">
+    <p class="eyebrow">Decision 2</p>
+    <h2>A hat is recognised at about 0.5 per second up close, half that at 31 m, almost never past 50 m</h2>
+    <p class="decision" id="rec-decision"></p>
+    <div class="two">
+      <figure><div class="chart" id="ch-rec"></div><figcaption id="cap-rec"></figcaption></figure>
+      <div class="prose">
+        <p>Measured on internal_4's 14 runs, every 0.1 s: the hat's distance from the nearest camera that had it in the central 80% of a shown image, at the recorded gimbal pitch, with a clear line through the buildings, and inside the headset's ±50° of where the head pointed. That is the recorder's own test, measured instead of thresholded. Time on screen before a press is exposure; the press, credited to the hat's distance 1 s before it, is an event.</p>
+        <div class="tw"><table id="tb-rec"></table></div>
+        <p class="small muted" id="rec-checks"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="crowd">
+    <p class="eyebrow">Decision 3</p>
+    <h2>A goal's crowd is noticed at about 0.1 per second out to some 240 m</h2>
+    <p class="decision" id="not-decision"></p>
+    <div class="two">
+      <figure><div class="chart" id="ch-not"></div><figcaption id="cap-not"></figcaption></figure>
+      <div class="prose">
+        <p>On every leg between goals: the distance within which at least one of the goal's walkers was expected on the head's screens, and the moment the pilot turned onto the goal for the final approach (from there on the course stayed within 45° of it). Legs that began already on the final approach had noticed the crowd during the previous goal's search, so they are censored rather than dropped.</p>
+        <p id="not-detail"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="pilots">
+    <p class="eyebrow">Decision 4</p>
+    <h2>Each condition is flown the way internal_4's pilots flew it</h2>
+    <p>Between goals every condition walks the streets (internal_4's pilots flew over them 95–100% of the time), persistently and towards ground it has not seen, until it notices a crowd, then takes the street route there. At a goal the three differ, as the recorded tracks do: the swarm flies to the centre building and holds there so the formation wraps it, then circles the goal's block; the single drone works round the ring buildings one by one, orbiting some with the camera turned in on them and passing others; the sphere walks the goal's own junctions while the pilot looks round. Heads are internal_4's recorded traces, replayed.</p>
+    <figure><img class="tracks" id="img-tracks" alt="At-goal tracks of internal_4's pilots beside the simulated pilots, per condition"><figcaption>At a goal: internal_4's pilots (left three of each row; the swarm's drones in blue dots) beside the simulated pilots (right three; the hat walker in red). The cross is the goal building's centre, 190 m square.</figcaption></figure>
+    <div class="tw"><table id="tb-beh"></table></div>
+  </section>
+
+  <section id="calib">
+    <p class="eyebrow">Initial test 1</p>
+    <h2>Calibration against internal_4</h2>
+    <p id="calib-intro"></p>
+    <figure><div class="chart" id="ch-calib"></div><figcaption id="cap-calib"></figcaption></figure>
+    <div class="tw"><table id="tb-calib"></table></div>
+  </section>
+
+  <section id="results">
+    <p class="eyebrow">Initial test 2</p>
+    <h2>What the pilot run predicts</h2>
+    <p id="res-intro"></p>
+    <div class="two">
+      <figure><div class="chart" id="ch-ratio"></div><figcaption id="cap-ratio"></figcaption></figure>
+      <figure><div class="chart" id="ch-views"></div><figcaption id="cap-views"></figcaption></figure>
+    </div>
+    <div class="tw"><table id="tb-res"></table></div>
+    <p class="small muted" id="res-notes"></p>
+  </section>
+
+  <section id="plan">
+    <p class="eyebrow">Proposed</p>
+    <h2>The main study</h2>
+    <ul class="plain" id="plan-list"></ul>
+  </section>
+
+  <section id="retest">
+    <p class="eyebrow">Proposed</p>
+    <h2>The human retest: the swarm against the 360 sphere</h2>
+    <ul class="plain" id="retest-list"></ul>
+    <div class="two">
+      <figure><div class="chart" id="ch-power"></div><figcaption id="cap-power"></figcaption></figure>
+      <div class="tw"><table id="tb-power"></table></div>
+    </div>
+  </section>
+
+  <section id="decide">
+    <p class="eyebrow">For the experimenter</p>
+    <h2>Decisions to confirm before the main runs</h2>
+    <ol class="plain" id="decide-list"></ol>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const COND = { swarm: "var(--swarm)", single: "var(--single)", sphere: "var(--sphere)", people: "var(--people)" };
+const NAME = { swarm: "Swarm", single: "One drone", sphere: "360 sphere" };
+const fmt = (v, d = 0) => (v === null || v === undefined || Number.isNaN(v)) ? "–" : Number(v).toFixed(d);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+// A plot frame: x and y scales (linear or log), gridlines, ticks, labels.
+function frame(host, o) {
+  const W = o.w || 520, H = o.h || 300, m = Object.assign({ l: 52, r: 14, t: 14, b: 40 }, o.m || {});
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": o.label || "" });
+  host.appendChild(svg);
+  const lx = !!o.xlog, ly = !!o.ylog;
+  const tx = (v) => lx ? Math.log10(v) : v, ty = (v) => ly ? Math.log10(v) : v;
+  const [x0, x1] = o.x, [y0, y1] = o.y;
+  const X = (v) => m.l + (tx(v) - tx(x0)) / (tx(x1) - tx(x0)) * (W - m.l - m.r);
+  const Y = (v) => H - m.b - (ty(v) - ty(y0)) / (ty(y1) - ty(y0)) * (H - m.t - m.b);
+  for (const v of o.yt || []) {
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: "gl" }, svg);
+    el("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end" }, svg, o.yf ? o.yf(v) : v);
+  }
+  for (const v of o.xt || []) {
+    el("line", { x1: X(v), x2: X(v), y1: H - m.b, y2: H - m.b + 4, class: "ax" }, svg);
+    el("text", { x: X(v), y: H - m.b + 16, "text-anchor": "middle" }, svg, o.xf ? o.xf(v) : v);
+  }
+  el("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, class: "ax" }, svg);
+  if (o.xl) el("text", { x: (m.l + W - m.r) / 2, y: H - 6, "text-anchor": "middle" }, svg, o.xl);
+  if (o.yl) el("text", { x: 12, y: (m.t + H - m.b) / 2, transform: `rotate(-90 12 ${(m.t + H - m.b) / 2})`, "text-anchor": "middle" }, svg, o.yl);
+  return { svg, X, Y, W, H, m };
+}
+
+function hill(d, a, d50, k) { return a / (1 + Math.pow(d / d50, k)); }
+
+function legend(f, items, x, y) {
+  items.forEach(([lab, col, dash], i) => {
+    el("line", { x1: x, x2: x + 18, y1: y + i * 16, y2: y + i * 16, stroke: col, "stroke-width": 2.2, "stroke-dasharray": dash || "" }, f.svg);
+    el("text", { x: x + 24, y: y + i * 16 + 4 }, f.svg, lab);
+  });
+}
+
+function hazardChart(host, H, xmax, ymax, curves, ylab) {
+  const f = frame(host, { x: [0, xmax], y: [0, ymax], xt: H.xt, yt: H.yt, yf: (v) => v.toFixed(2), xl: "distance from the camera (m)", yl: ylab, label: ylab });
+  for (const b of H.bins) {
+    const cx = f.X((b.d_lo + b.d_hi) / 2);
+    if (b.hi !== null && b.lo !== null) el("line", { x1: cx, x2: cx, y1: f.Y(Math.min(b.hi, ymax)), y2: f.Y(b.lo), stroke: "var(--muted)", "stroke-width": 1 }, f.svg);
+    el("circle", { cx, cy: f.Y(Math.min(b.rate, ymax)), r: 3.2, fill: "var(--people)" }, f.svg);
+  }
+  for (const c of curves) {
+    let d = "";
+    for (let x = 0.5; x <= xmax; x += xmax / 200) d += (d ? "L" : "M") + f.X(x).toFixed(1) + "," + f.Y(Math.min(hill(x, c.a, c.d50, c.k), ymax)).toFixed(1);
+    el("path", { d, fill: "none", stroke: c.col, "stroke-width": c.w || 1.6, "stroke-dasharray": c.dash || "" }, f.svg);
+  }
+  legend(f, curves.map((c) => [c.lab, c.col, c.dash]), f.W - 200, 26);
+  return f;
+}
+
+function table(id, head, rows, numeric) {
+  const t = $(id);
+  const th = "<tr>" + head.map((h, i) => `<th class="${numeric && numeric[i] ? "n" : ""}">${h}</th>`).join("") + "</tr>";
+  t.innerHTML = "<thead>" + th + "</thead><tbody>" + rows.map((r) => "<tr>" + r.map((c, i) => `<td class="${numeric && numeric[i] ? "n" : ""}">${c}</td>`).join("") + "</tr>").join("") + "</tbody>";
+}
+
+// ---------------------------------------------------------------- masthead
+$("status").textContent = D.status;
+$("answer").innerHTML = D.answer.map((a) => `<li>${a}</li>`).join("");
+$("task-why").innerHTML = D.task_why;
+
+// ---------------------------------------------------------------- recognition
+const R = D.rec;
+$("rec-decision").innerHTML = R.decision;
+hazardChart($("ch-rec"), { bins: R.bins, xt: [0, 20, 40, 60, 80, 100, 120], yt: [0, 0.25, 0.5, 0.75, 1.0] }, 130, 1.1,
+  [{ lab: `pooled, d50 ${fmt(R.pooled.d50)} m`, col: "var(--people)", w: 2.4, ...R.pooled },
+   ...R.per.map((p) => ({ lab: `${NAME[p.cond]} (own fit)`, col: COND[p.cond], dash: "4 3", ...p }))],
+  "recognitions per second on screen");
+$("cap-rec").innerHTML = R.caption;
+table("tb-rec", ["distance", "seconds on screen", "presses", "per second (95%)"],
+  R.bins.map((b) => [`${b.d_lo}–${b.d_hi} m`, fmt(b.exposure_s, 1), b.events, `${fmt(b.rate, 2)} (${fmt(b.lo, 2)}–${fmt(b.hi, 2)})`]),
+  [0, 1, 1, 1]);
+$("rec-checks").innerHTML = R.checks;
+
+// ---------------------------------------------------------------- noticing
+const N = D.notice;
+$("not-decision").innerHTML = N.decision;
+hazardChart($("ch-not"), { bins: N.bins, xt: [0, 50, 100, 150, 200, 250, 300, 350], yt: [0, 0.05, 0.1, 0.15, 0.2] }, 350, 0.22,
+  [{ lab: `fit, d50 ${fmt(N.fit.d50)} m`, col: "var(--people)", w: 2.4, a: N.fit.a, d50: N.fit.d50, k: N.fit.k }],
+  "noticed per second on screen");
+$("cap-not").innerHTML = N.caption;
+$("not-detail").innerHTML = N.detail;
+
+// ---------------------------------------------------------------- pilots
+if (D.tracks_png) $("img-tracks").src = D.tracks_png; else $("img-tracks").closest("figure").hidden = true;
+table("tb-beh", ["at a goal", "", "speed (m/s)", "stopped", "yawing", "inside the ring", "from the centre (m)"],
+  D.beh.map((b) => [NAME[b.cond], b.source, fmt(b.speed, 1), fmt(100 * b.stopped) + "%", fmt(100 * b.yawing) + "%", fmt(100 * b.inside_ring) + "%", fmt(b.goal_dist)]),
+  [0, 0, 1, 1, 1, 1, 1]);
+
+// ---------------------------------------------------------------- calibration
+$("calib-intro").innerHTML = D.calib.intro;
+(function () {
+  const C = D.calib, host = $("ch-calib");
+  const groups = [];
+  for (const ph of ["between", "at"]) for (const c of ["swarm", "single", "sphere"]) groups.push([ph, c]);
+  const W = 1040, rowH = 28;
+  const f = frame(host, { w: W, h: 70 + groups.length * rowH, m: { l: 210, r: 20, t: 10, b: 40 }, x: [5, 1000], xlog: true, y: [0, groups.length], xt: [5, 10, 20, 50, 100, 200, 500, 1000], yt: [], xl: "seconds per goal (log scale): people's goals as dots, the model's middle half as a bar with its median", label: "calibration" });
+  groups.forEach(([ph, c], i) => {
+    const y = f.Y(groups.length - i - 0.5);
+    el("text", { x: 8, y: y + 4 }, f.svg, `${ph === "at" ? "at the goal" : "between goals"} · ${NAME[c]}`);
+    const p = C.people[ph][c] || [];
+    p.forEach((v, j) => el("circle", { cx: f.X(Math.max(v, 5)), cy: y - 5 + ((j * 7) % 10) - 5, r: 2.6, fill: "var(--people)", opacity: 0.75 }, f.svg));
+    const pm = C.people_med[ph][c];
+    if (pm) el("line", { x1: f.X(pm), x2: f.X(pm), y1: y - 12, y2: y + 1, stroke: "var(--people)", "stroke-width": 2.4 }, f.svg);
+    const q = C.model[ph][c];
+    if (q) {
+      el("rect", { x: f.X(Math.max(q[0], 5)), y: y + 3, width: Math.max(f.X(q[2]) - f.X(Math.max(q[0], 5)), 1), height: 8, fill: COND[c], opacity: 0.35 }, f.svg);
+      el("line", { x1: f.X(q[1]), x2: f.X(q[1]), y1: y + 1, y2: y + 13, stroke: COND[c], "stroke-width": 2.6 }, f.svg);
+    }
+  });
+})();
+$("cap-calib").innerHTML = D.calib.caption;
+table("tb-calib", ["model", "at the goal (s): swarm", "one drone", "360 sphere", "at: swarm ÷ one drone", "swarm ÷ sphere", "between (s): swarm", "one drone", "360 sphere", "gate"],
+  D.calib.rows.map((r) => [esc(r.label), r.at.swarm, r.at.single, r.at.sphere, r.r_single, r.r_sphere, r.bt.swarm, r.bt.single, r.bt.sphere, r.gate]),
+  [0, 1, 1, 1, 1, 1, 1, 1, 1, 0]);
+
+// ---------------------------------------------------------------- results
+const S = D.results;
+$("res-intro").innerHTML = S.intro;
+(function () {
+  const rows = S.forest, host = $("ch-ratio");
+  const f = frame(host, { w: 520, h: 60 + rows.length * 26, m: { l: 232, r: 16, t: 10, b: 40 }, x: [0.25, 4], xlog: true, y: [0, rows.length], xt: [0.25, 0.5, 1, 2, 4], yt: [], xf: (v) => v + "×", xl: "ratio of times (below 1: the swarm is faster)", label: "ratios" });
+  el("line", { x1: f.X(1), x2: f.X(1), y1: f.m.t, y2: f.H - f.m.b, stroke: "var(--muted)", "stroke-dasharray": "3 3" }, f.svg);
+  rows.forEach((r, i) => {
+    const y = f.Y(rows.length - i - 0.5);
+    el("text", { x: 8, y: y + 4 }, f.svg, r.label);
+    if (r.lo) el("line", { x1: f.X(Math.max(r.lo, 0.25)), x2: f.X(Math.min(r.hi, 4)), y1: y, y2: y, stroke: COND[r.vs], "stroke-width": 2 }, f.svg);
+    el("circle", { cx: f.X(Math.min(Math.max(r.est, 0.25), 4)), cy: y, r: 4.5, fill: r.alt ? "var(--panel)" : COND[r.vs], stroke: COND[r.vs], "stroke-width": 1.8 }, f.svg);
+  });
+})();
+$("cap-ratio").innerHTML = S.cap_ratio;
+(function () {
+  const rows = S.views, host = $("ch-views");
+  const xmax = Math.max(...rows.map((r) => r.hi || r.est)) * 1.1;
+  const f = frame(host, { w: 520, h: 60 + rows.length * 28, m: { l: 230, r: 16, t: 10, b: 40 }, x: [0, xmax], y: [0, rows.length], xt: [0, 1, 2, 3, 4, 5].filter((v) => v <= xmax), yt: [], xl: "hat recognitions per minute at the goal", label: "views" });
+  rows.forEach((r, i) => {
+    const y = f.Y(rows.length - i - 0.5);
+    el("text", { x: 8, y: y + 4 }, f.svg, r.label);
+    el("rect", { x: f.X(0), y: y - 8, width: f.X(r.est) - f.X(0), height: 16, fill: COND[r.cond], opacity: r.real ? 1 : 0.45 }, f.svg);
+    if (r.lo !== undefined) el("line", { x1: f.X(r.lo), x2: f.X(r.hi), y1: y, y2: y, stroke: "var(--ink)", "stroke-width": 1.2 }, f.svg);
+  });
+})();
+$("cap-views").innerHTML = S.cap_views;
+table("tb-res", S.table_head, S.table_rows, S.table_numeric);
+$("res-notes").innerHTML = S.notes;
+
+// ---------------------------------------------------------------- plan, retest, decisions
+$("plan-list").innerHTML = D.plan.map((x) => `<li>${x}</li>`).join("");
+$("retest-list").innerHTML = D.retest.map((x) => `<li>${x}</li>`).join("");
+(function () {
+  const P = D.power, host = $("ch-power");
+  const f = frame(host, { w: 520, h: 300, x: [1.1, 2.2], y: [0, 60], xt: [1.1, 1.25, 1.5, 1.75, 2.0], yt: [0, 10, 20, 30, 40, 50, 60], xf: (v) => v + "×", xl: "true ratio of task times between the conditions", yl: "pilots for 80% power", label: "power" });
+  for (const s of P.curves) {
+    let d = "";
+    s.pts.forEach(([r, n], i) => { if (n <= 60) d += (d ? "L" : "M") + f.X(r).toFixed(1) + "," + f.Y(n).toFixed(1); });
+    el("path", { d, fill: "none", stroke: s.col, "stroke-width": 2, "stroke-dasharray": s.dash || "" }, f.svg);
+  }
+  if (P.predicted) {
+    el("line", { x1: f.X(P.predicted), x2: f.X(P.predicted), y1: f.m.t, y2: f.H - f.m.b, stroke: "var(--swarm)", "stroke-dasharray": "3 3" }, f.svg);
+    el("text", { x: f.X(P.predicted) + 4, y: f.m.t + 12 }, f.svg, "predicted");
+  }
+  legend(f, P.curves.map((s) => [s.lab, s.col, s.dash]), f.W - 210, 26);
+})();
+$("cap-power").innerHTML = D.power.caption;
+table("tb-power", ["true ratio", ...D.power.curves.map((c) => c.lab)], D.power.table, [1, ...D.power.curves.map(() => 1)]);
+$("decide-list").innerHTML = D.decisions.map((x) => `<li>${x}</li>`).join("");
+$("foot").innerHTML = D.foot;
+</script>
