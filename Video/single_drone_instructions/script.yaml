@@ -1,0 +1,357 @@
+# Participant instruction video: one drone, its controls and the hat search. Single drone only.
+# The swarm's video is ../participant_instructions; this one follows it cue for cue where the two agree.
+#
+# Edit freely, then rebuild:
+#   python Video/tools/build_video.py Video/single_drone_instructions             (full 1080p)
+#   python Video/tools/build_video.py Video/single_drone_instructions --preview   (quick check)
+#   python Video/tools/build_video.py Video/single_drone_instructions --stills    (one PNG per cue)
+#
+# The fields are the swarm script's (see the top of ../participant_instructions/script.yaml).
+#
+# The footage is headless take "single1" (D:/claude_scenic_bench/video_shots/single1, ScenicPracticeBlockWorld, one
+# drone), written by shots.py and copied in by import_takes.py, which also brings the swarm video's landmark views
+# and hat close-ups. A new take moves the times marked "take" below.
+
+video:
+  name: single_drone_briefing
+  fps: 30
+  scale: 1.0                 # 1.0 = 1920x1080
+  tts: elevenlabs            # or: sapi (Windows voices, offline). Falls back to sapi with no key.
+  elevenlabs:                # key: $ELEVENLABS_API_KEY or ~/.elevenlabs_api_key (the sk_... secret)
+    voice_id: pFZP5JQG7iQjIQuC4Bku   # "Lily", the swarm video's voice
+    model: eleven_multilingual_v2
+    settings: {stability: 0.5, similarity_boost: 0.75, style: 0.0, use_speaker_boost: true, speed: 1.0}
+  voice: Microsoft Hazel Desktop   # the sapi fallback: British, female
+  rate: 1
+  lead: 0.3
+  tail: 0.6
+  crossfade: 0.3
+  captions: true             # burn subtitles in; an .srt is written either way
+  show_section: true
+  placeholder_banner: true
+
+cues:
+  # ------------------------------------------------------------------------------------------
+  - id: title
+    visual: title
+    params:
+      title: "Flying the drone"
+      subtitle: "How the drone works, the controls, and your task"
+    say: This video shows you how to fly the drone, and the task you'll be doing.
+    duration: 4.5
+
+  # ------------------------------------------------------------------------------------------
+  - id: interface
+    section: The interface
+    visual: blank
+    footage:
+      file: hover_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 1
+      rect: [980, 250, 900, 506]
+      label: "In the headset"
+      shot: Interface camera (raised), the drone hovering just before the city.
+    inset:
+      file: hover_overhead.mp4
+      start: 1
+      rect: [40, 250, 900, 506]
+      label: "The drone, from above"
+      label_above: true
+      shot: Overhead camera, same take.
+    overlays:
+      - {kind: label, at: 4.5, pos: [490, 800], size: 32, color: [70, 235, 120], text: "green: what the drone's camera sees"}
+    say: >
+      In the headset, one screen in front of you shows the live camera view from the drone. On the right is
+      what you see, and on the left, the same drone from above. The green outline is what its camera can see.
+    duration: 10
+
+  # ------------------------------------------------------------------------------------------
+  - id: avoidance
+    section: Obstacle avoidance
+    visual: blank
+    duration: clip
+    fallback_duration: 10
+    footage:
+      file: avoid_overhead.mp4
+      start: 7           # take: full stick from 2 s, meets the building's shield ~10.5 s, slides round it to ~19 s
+      end: 21
+      speed: 1.4
+      shot: Overhead camera held over the building, full stick straight at it, no steering.
+    inset:
+      file: avoid_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 7
+      end: 21
+      speed: 1.4
+      label: "your screen"
+      corner: br
+      scale: 0.32
+      shot: Interface camera, the same take.
+    overlays:
+      # practice layout building 45, straight ahead of the drone (centre -343.3, -15.6)
+      - {kind: building_mark, at: 1.0, name: avoid, src_at: 8.4, speed: 1.4, buildings: [45], color: [255, 176, 59],
+         label: "flown straight at, no steering", dx: 330, dy: -40}
+    say: >
+      The drone has obstacle avoidance, which will help you avoid buildings. If you fly straight at one, it slows
+      down and slides around it.
+
+  # ------------------------------------------------------------------------------------------
+  - id: ctl_forward
+    section: Controls
+    visual: controls
+    params: {control: forward, log: ctl_forward}
+    footage:
+      file: ctl_forward_interface.mp4      # take single1 (high view, the forward arrow on the floor ahead of the seat)
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "In the headset"
+      shot: Interface camera (raised); forward stick, release, back stick.
+    inset:
+      file: ctl_forward_overhead.mp4
+      start: 0.5
+      rect: [1590, 642, 260, 146]
+      shot: (the same take, from above)
+    overlays:
+      - {kind: log_point, at: 0.3, name: ctl_forward, src_at: 0.8, rect: [960, 290, 900, 506], label: "the forward arrow",
+         dx: 50, dy: 40}
+    say: >
+      You fly with this controller. Push the right stick up to fly forward, and down to fly back. Forward is the
+      way your screen faces, and the arrow on the floor in front of you points the same way.
+    duration: 11.5
+
+  - id: ctl_sideways
+    section: Controls
+    visual: controls
+    params: {control: sideways, log: ctl_sideways}
+    footage:
+      file: ctl_sideways_overhead.mp4
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "The drone, from above"
+      shot: Overhead camera (east up); right stick right, release, left.
+    inset:
+      file: ctl_sideways_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 0.5
+      rect: [1590, 642, 260, 146]
+      shot: (the same take, in the headset)
+    say: Push it left or right to fly sideways.
+    duration: 11.5
+
+  - id: ctl_updown
+    section: Controls
+    visual: controls
+    params: {control: updown, log: ctl_updown}
+    footage:
+      file: ctl_updown_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 0.5
+      rect: [930, 300, 780, 439]
+      label: "In the headset"
+      shot: Interface camera (over the shoulder); climb, pause, descend.
+    overlays:
+      - {kind: altitude, at: 0.2, name: ctl_updown, src_at: 0.7, pos: [1790, 300], max: 50, limit: 45}
+    say: >
+      The left stick climbs and descends. You can't fly above the rooftops, so you'll always fly
+      between and around the buildings.
+    duration: 12
+
+  - id: ctl_yaw
+    section: Controls
+    visual: controls
+    params: {control: yaw, log: ctl_yaw}
+    footage:
+      file: ctl_yaw_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "In the headset"
+      shot: Interface camera; yaw right, release, yaw left.
+    inset:
+      file: ctl_yaw_overhead.mp4
+      start: 0.5
+      rect: [1590, 642, 260, 146]
+      shot: (the same take, from above, east up, so the drone is seen turning)
+    say: >
+      Push it left or right to turn the drone. Your screen stays in front of you, and the view in it turns.
+    duration: 10
+
+  - id: ctl_pitch
+    section: Controls
+    visual: controls
+    params: {control: pitch, log: ctl_pitch, sub: "tilt the camera"}
+    footage:
+      file: ctl_pitch_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "In the headset"
+      shot: Interface camera (over the shoulder); gimbal down, hold, up, back to level.
+    say: >
+      The dial on the top left tilts the camera up or down. When you let go, it stays where you left it.
+    duration: 9.5
+
+  - id: landmarks
+    section: Finding your way
+    visual: clip_grid
+    params:
+      file: landmarks_views.mp4          # the swarm video's take 10: four views from 40 m, each from the city edge
+      cols: 2
+      rect: [200, 140, 1520, 820]
+      tiles:
+        - {start: 0.0, len: 3.0, at: 1.6, label: "Mountains: south"}
+        - {start: 3.0, len: 3.0, at: 3.4, label: "Lake: north"}
+        - {start: 6.0, len: 3.0, at: 5.0, label: "Wind turbines: east"}
+        - {start: 9.0, len: 3.0, at: 6.6, label: "Tall mast: west, behind the start"}
+    say: >
+      Four landmarks stand around the city to help you keep your bearings: mountains to the south, a lake to
+      the north, wind turbines to the east, and a tall mast to the west, behind where you start.
+    duration: 11
+
+  # ------------------------------------------------------------------------------------------
+  - id: practice_city
+    section: The task
+    visual: practice_map
+    params: {zoom: [0.5, 0.85], goal_at: 0.3, peds_at: 0.55}
+    say: >
+      You'll practise in a small city first. The goal is a building with no one around it, surrounded
+      by buildings with pedestrians walking round them.
+    duration: 9
+
+  - id: goal_hat
+    section: The task
+    visual: blank
+    footage:
+      file: goalview_overhead.mp4
+      start: 0.5
+      rect: [0, -160, 1920, 1080]   # take single4: the ring sits at the bottom edge, so lift it clear of the captions
+      shot: Overhead camera held over the goal, the hat wearer ringed (yellow).
+    overlays:
+      - {kind: label, at: 1.2, pos: [960, 70], size: 34, color: [255, 214, 64], text: "yellow ring: the pedestrian with the hat (not shown in the task)"}
+    say: >
+      One of the pedestrians is wearing a hat. Your task is to find it as quickly as you can.
+
+  - id: circle_tip
+    section: The task
+    visual: practice_map
+    params: {start_zoomed: true, zoom: false, goal_at: 0.0, hat_at: 2.0}
+    duration: clip
+    fallback_duration: 12
+    footage:
+      file: loop_overhead.mp4
+      start: 0           # take single2: one lap round the centre building takes 0 to 34 s
+      end: 34
+      speed: 3.0
+      shot: Overhead camera held over the goal (east up), one lap round the centre building.
+    inset:
+      file: loop_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 0
+      end: 34
+      speed: 3.0
+      label: "your screen"
+      corner: br
+      scale: 0.32
+      shot: Interface camera, the same lap.
+    overlays:
+      - {kind: badge, at: 0.2, pos: [250, 150], size: 64, text: "3x SPEED"}
+    say: >
+      One way to search is to fly around the centre building, along the streets between it and the buildings
+      with pedestrians, looking at each building as you pass. But you can use any strategy you prefer.
+
+  - id: search_fly
+    section: The task
+    visual: practice_map
+    params: {start_zoomed: true, zoom: false, goal_at: 0.0, hat_at: 2.0}
+    duration: clip
+    fallback_duration: 14
+    footage:
+      file: search_w6_overhead.mp4
+      start: 5           # take single4 (search_w6): sets off ~6 s, on the loop ~25 s, the hat in view ~53 s (under a lap)
+      end: 50
+      speed: 4.0
+      shot: Overhead camera held over the goal (east up), the practice goal flown from the start.
+    inset:
+      file: search_w6_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 5
+      end: 50
+      speed: 4.0
+      label: "your screen"
+      corner: bl
+      scale: 0.32
+      shot: Interface camera, the same take.
+    overlays:
+      - {kind: badge, at: 0.2, pos: [250, 150], size: 64, text: "4x SPEED"}
+    say: >
+      Here's the practice goal flown for real. The drone flies in along the street, then around the centre
+      building until the hat comes into view.
+
+  - id: search_find
+    section: The task
+    visual: practice_map
+    params: {start_zoomed: true, zoom: false, goal_at: 0.0, hat_at: 2.0}
+    duration: clip
+    fallback_duration: 12
+    footage:
+      file: search_w6_interface.mp4
+      crop: [0.2, 0.2, 0.6, 0.6]   # the one screen, zoomed in
+      start: 50          # take single4 (events.txt): the hat in clear view ~53 s, seen at 30 m 54.4 s, in the middle 57.1 s
+      end: 63.1
+      shot: The practice goal, the last part of the lap to the find.
+    overlays:
+      - {kind: badge, at: 0.2, until: 3.0, pos: [250, 150], size: 64, text: "REAL SPEED"}
+      - {kind: hat_closeup, at: 6.6, name: search_w6_front, src_at: 56.6, from_rect: [503, 197, 1010, 560],
+         rect: [120, 110, 1360, 765], mark: 0.6, grow: 0.8, zoom: 3.0, zoom_time: 0.8,
+         label: "your screen, zoomed in for this video only"}
+      - {kind: rc_c2, at: 9.6, pos: [1690, 760], scale: 0.8, text: "press C2, say the hat"}
+    say: >
+      When you spot the hat, stop, and turn the drone so the hat is in the middle of your screen.
+
+  - id: identify
+    section: The task
+    visual: controls
+    params: {control: c2}
+    say: >
+      When you see the hat, press the C2 button on the back of the controller, and say which hat it is
+      out loud, so the moderator can verify it. Make sure the hat is clearly on your screen when you press.
+    duration: 10
+
+  - id: hats
+    section: The task
+    visual: clip_grid
+    params:
+      file: hats_closeup.mp4             # the swarm video's take 6: 3.2 s of each station
+      cols: 3
+      rect: [90, 170, 1740, 720]
+      intro: {hold: 0.9, move: 0.55, height: 900}   # each one large in the centre, then into its place
+      tiles:
+        - {start: 0.0, len: 3.2, at: 0.3, label: "Cap"}
+        - {start: 3.2, len: 3.2, at: 1.8, label: "Bucket hat"}
+        - {start: 6.4, len: 3.2, at: 3.3, label: "Cowboy hat"}
+    say: The hats are a cap, a bucket hat, and a cowboy hat.
+    duration: 6
+
+  - id: trial
+    section: The trials
+    visual: trial_map
+    say: >
+      In the trials, the city is much larger, with three goals placed at random. Each goal has one
+      pedestrian wearing a hat, and each kind of hat appears only once. Find all three.
+    duration: 12
+
+  # ------------------------------------------------------------------------------------------
+  - id: recap
+    section: Summary
+    visual: text
+    params:
+      heading: "To recap"
+      reveal: false
+      bullets:
+        - "Your screen shows the drone's camera, always in front of you."
+        - "Obstacle avoidance helps you avoid buildings."
+        - "Right stick: forward, back, sideways. Left stick: up, down, turn. Top-left dial: tilt the camera."
+        - "Search however you prefer, for example by circling the centre building."
+        - "Found the hat? Press C2 and say which hat it is."
+    say: If anything is unclear, please ask the moderator now. Good luck!
+    duration: 9

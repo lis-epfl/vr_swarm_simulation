@@ -1,0 +1,466 @@
+# Participant instruction video: the swarm, its controls and the hat search. Swarm only.
+#
+# Edit freely, then rebuild:
+#   python Video/tools/build_video.py Video/participant_instructions             (full 1080p)
+#   python Video/tools/build_video.py Video/participant_instructions --preview   (quick check)
+#   python Video/tools/build_video.py Video/participant_instructions --stills    (one PNG per cue)
+#
+# Every cue is one shot with its own narration. The fields (all but `id` optional):
+#   id          unique name. Also the file name for your own narration: narration/<id>.wav
+#               replaces the computer voice for that cue (any of .wav .mp3 .m4a .flac).
+#   section     small label shown top left.
+#   say         the narration. The video waits for it: a cue lasts as long as its speech
+#               plus `lead` (before) and `tail` (after), unless `duration` asks for longer.
+#   caption     on-screen subtitle text, if it should differ from `say`.
+#   duration    minimum length in seconds, or `clip` for the whole footage clip (start..end / speed).
+#   visual      the generated picture (see visuals.py), with its `params`.
+#   footage     a Unity recording in footage/: {file, start, end, speed, fit, rect, label, shot, crop}.
+#               crop: [x, y, w, h], fractions of the recording, to zoom into part of it.
+#               Full screen, or with `rect: [x, y, w, h]` a panel over the drawn `visual`.
+#               Missing, the `visual` is shown with a PLACEHOLDER banner.
+#   inset       a second recording: {file, start, speed, corner, scale | rect, label, label_above, crop}.
+#   overlays    timed extras: [{kind, at, until, ...}]: label, callout, badge, rc_c2, hat_closeup,
+#               drone_mark, altitude, spread_gauge (visuals.py says what each takes).
+#   skip        true leaves the cue out without deleting it.
+#   transition  fade (default) or cut.
+#
+# The footage is headless take 5 (D:/claude_scenic_bench/video_shots/take5, ScenicPracticeBlockWorld), copied in
+# by import_takes.py under its shot names. A new take moves the times marked "take 5" below.
+
+video:
+  name: swarm_task_briefing
+  fps: 30
+  scale: 1.0                 # 1.0 = 1920x1080
+  tts: elevenlabs            # or: sapi (Windows voices, offline). Falls back to sapi with no key.
+  elevenlabs:                # key: $ELEVENLABS_API_KEY or ~/.elevenlabs_api_key (the sk_... secret)
+    voice_id: pFZP5JQG7iQjIQuC4Bku   # "Lily": British, female, made for narration. "Alice" is Xb7hH8MSUJpSbSDYk0k2
+    model: eleven_multilingual_v2
+    settings: {stability: 0.5, similarity_boost: 0.75, style: 0.0, use_speaker_boost: true, speed: 1.0}
+  voice: Microsoft Hazel Desktop   # the sapi fallback: British, female
+  rate: 1
+  lead: 0.3
+  tail: 0.6
+  crossfade: 0.3
+  captions: true             # burn subtitles in; an .srt is written either way
+  show_section: true
+  placeholder_banner: true
+
+cues:
+  # ------------------------------------------------------------------------------------------
+  - id: title
+    visual: title
+    params:
+      title: "Flying the drone swarm"
+      subtitle: "How the swarm works, the controls, and your task"
+    say: This video shows you how to fly the drone swarm, and the task you'll be doing.
+    duration: 4.5
+
+  # ------------------------------------------------------------------------------------------
+  - id: interface
+    section: The interface
+    visual: blank
+    footage:
+      file: hover_interface.mp4
+      start: 1
+      rect: [980, 250, 900, 506]
+      label: "In the headset"
+      shot: Interface camera (raised), the swarm hovering just before the city.
+    inset:
+      file: hover_overhead.mp4
+      start: 1
+      rect: [40, 250, 900, 506]
+      label: "The swarm, from above"
+      label_above: true
+      shot: Overhead camera, same take.
+    say: >
+      In the headset, a ring of screens surrounds you. Each one shows the live camera view from one drone
+      in the swarm. On the right is what you see, and on the left, the same swarm from above.
+    duration: 9
+
+  - id: boundary
+    section: The interface
+    visual: interface_ring
+    footage:
+      file: hover_overhead.mp4
+      start: 4
+      shot: Overhead camera, the hover take.
+    inset:
+      file: hover_interface.mp4
+      start: 4
+      label: "your screens"
+      corner: br
+      scale: 0.36
+      shot: Interface camera, the hover take.
+    overlays:
+      - {kind: label, at: 1.5, pos: [700, 70], size: 34, color: [70, 235, 120], text: "green: on the edge, on a screen"}
+      - {kind: label, at: 1.5, pos: [1290, 70], size: 34, color: [255, 95, 95], text: "red: inside, screen hidden"}
+    say: >
+      The drones on the edge of the swarm face outwards. Each one's camera is on the screen in the same
+      direction around you, so together they show all the way round.
+
+  # ------------------------------------------------------------------------------------------
+  - id: avoidance
+    section: Obstacle avoidance
+    visual: deform_gap
+    params: {span: [0.0, 0.42], annotate: false}
+    footage:
+      file: gap_overhead.mp4
+      start: 3
+      shot: Overhead camera, down a street between two buildings, narrower than the swarm.
+    inset:
+      file: gap_interface.mp4
+      start: 3
+      label: "your screens"
+      corner: br
+      scale: 0.3
+      shot: Interface camera (raised), the gap take.
+    say: >
+      The drones avoid buildings, and each other, by themselves. Between two buildings, the swarm
+      squeezes to fit.
+
+  - id: hidden_screens
+    section: Obstacle avoidance
+    visual: deform_gap
+    params: {span: [0.42, 1.0], annotate: true}
+    footage:
+      file: gap_overhead.mp4
+      start: 10
+      shot: (the gap take, from the squeeze on)
+    overlays:
+      - {kind: label, at: 0.5, pos: [960, 70], size: 34, color: [255, 95, 95], text: "red: pushed inside, so its screen is hidden"}
+    inset:
+      file: gap_interface.mp4
+      start: 10
+      label: "your screens"
+      corner: br
+      scale: 0.3
+      shot: (the gap take)
+    say: >
+      Drones pushed inside the swarm would only see a close-up of the building, so their screens are hidden
+      until they're back on the edge.
+
+  # ------------------------------------------------------------------------------------------
+  - id: into_buildings
+    section: Flying among buildings
+    visual: split_building
+    footage:
+      file: split_overhead.mp4
+      start: 6
+      speed: 1.6
+      shot: Overhead camera, full stick straight at a building, no steering.
+    say: >
+      You don't need to steer around buildings. Fly straight into one, and the swarm splits around it,
+      then joins back up on the other side.
+
+  - id: swarm_size
+    section: Flying among buildings
+    visual: adaptive_spread
+    footage:
+      file: spread_overhead.mp4
+      start: 4
+      speed: 1.5
+      shot: Overhead camera, down a street (narrows), then held on the building at its end (widens, wraps it).
+    overlays:
+      - {kind: spread_gauge, at: 0.3, name: spread, src_at: 4.45, speed: 1.5, pos: [1440, 860]}
+    say: >
+      The swarm also sets its own size. It narrows to fit along a street, and widens again to wrap around
+      a building.
+
+  - id: look_around
+    section: Flying among buildings
+    visual: look_down_streets
+    say: >
+      Wrapping around buildings is worth doing. Kept to a street, the swarm's cameras are mostly blocked by
+      the buildings on either side. Wrapped around a building, the drones look down every street around it
+      at once, which helps you find things faster.
+    duration: 13
+
+  # ------------------------------------------------------------------------------------------
+  - id: ctl_forward
+    section: Controls
+    visual: controls
+    params: {control: forward, log: ctl_forward}
+    footage:
+      file: ctl_forward_interface.mp4      # take 11 (high view, the forward arrow on the floor ahead of the seat)
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "In the headset"
+      shot: Interface camera (raised) and overhead; forward stick, release, back stick.
+    inset:
+      file: ctl_forward_overhead.mp4
+      start: 0.5
+      rect: [1590, 642, 260, 146]
+      shot: (the same take, from above)
+    overlays:
+      - {kind: log_point, at: 0.3, name: ctl_forward, src_at: 0.8, rect: [960, 290, 900, 506], label: "the forward arrow",
+         dx: 50, dy: 40}
+    say: >
+      You fly with this controller. Push the right stick up to fly forward, and down to fly back. Forward is
+      the way the arrow on the floor in front of you points, which won't always line up exactly with a screen.
+    duration: 11.5
+
+  - id: ctl_sideways
+    section: Controls
+    visual: controls
+    params: {control: sideways, log: ctl_sideways}
+    footage:
+      file: ctl_sideways_overhead.mp4      # take 8
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "The swarm, from above"
+      shot: Overhead camera; right stick right, release, left.
+    say: Push it left or right to fly sideways.
+    duration: 11.5
+
+  - id: ctl_updown
+    section: Controls
+    visual: controls
+    params: {control: updown, log: ctl_updown}
+    footage:
+      file: ctl_updown_interface.mp4
+      start: 0.5
+      rect: [930, 300, 780, 439]
+      label: "In the headset"
+      shot: Interface camera (over the shoulder); climb, pause, descend.
+    overlays:
+      - {kind: altitude, at: 0.2, name: ctl_updown, src_at: 0.7, pos: [1790, 300], max: 50, limit: 45}
+    say: >
+      The left stick climbs and descends. You can't fly above the rooftops, so you'll always fly
+      between and around the buildings.
+    duration: 12
+
+  - id: ctl_yaw
+    section: Controls
+    visual: controls
+    params: {control: yaw, log: ctl_yaw}
+    footage:
+      file: ctl_yaw_interface.mp4
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "In the headset"
+      shot: Interface camera (raised); yaw right, release, yaw left.
+    say: >
+      Push it left or right to turn. The ring of screens turns around you, so whatever you turn
+      towards comes round to the front.
+    duration: 10
+
+  - id: ctl_pitch
+    section: Controls
+    visual: controls
+    params: {control: pitch, log: ctl_pitch}
+    footage:
+      file: ctl_pitch_interface.mp4
+      start: 0.5
+      rect: [960, 290, 900, 506]
+      label: "In the headset"
+      shot: Interface camera (over the shoulder); gimbal down, hold, up, back to level.
+    say: >
+      The dial on the top left tilts all of the cameras up or down. When you let go, they stay where
+      you left them.
+    duration: 9.5
+
+  - id: landmarks
+    section: Finding your way
+    visual: clip_grid
+    params:
+      file: landmarks_views.mp4          # take 10: four views from 40 m, each from the city edge facing it
+      cols: 2
+      rect: [200, 140, 1520, 820]
+      tiles:
+        - {start: 0.0, len: 3.0, at: 1.6, label: "Mountains: south"}
+        - {start: 3.0, len: 3.0, at: 3.4, label: "Lake: north"}
+        - {start: 6.0, len: 3.0, at: 5.0, label: "Wind turbines: east"}
+        - {start: 9.0, len: 3.0, at: 6.6, label: "Tall mast: west, behind the start"}
+    say: >
+      Four landmarks stand around the city to help you keep your bearings: mountains to the south, a lake to
+      the north, wind turbines to the east, and a tall mast to the west, behind where you start.
+    duration: 11
+
+  # ------------------------------------------------------------------------------------------
+  - id: practice_city
+    section: The task
+    visual: practice_map
+    params: {zoom: [0.5, 0.85], goal_at: 0.3, peds_at: 0.55}
+    say: >
+      You'll practise in a small city first. The goal is a building with no one around it, surrounded
+      by buildings with pedestrians walking round them.
+    duration: 9
+
+  - id: goal_hat
+    section: The task
+    visual: practice_map
+    params: {start_zoomed: true, zoom: false, hat_at: 0.3, peds_at: 0.0, goal_at: 0.0}
+    footage:
+      file: goalview_overhead.mp4
+      start: 0.5
+      shot: Overhead camera held over the goal, the hat wearer ringed (yellow).
+    overlays:
+      - {kind: label, at: 1.2, pos: [960, 70], size: 34, color: [255, 214, 64], text: "yellow ring: the pedestrian with the hat (not shown in the task)"}
+    say: >
+      One of the pedestrians is wearing a hat. Your task is to find it as quickly as you can.
+
+  - id: surround_tip
+    section: The task
+    visual: practice_map
+    params: {start_zoomed: true, zoom: false, goal_at: 0.0, hat_at: 2.0}
+    footage:
+      file: search_overhead.mp4
+      start: 20          # take 5: arriving at the goal; three drones inside until 31.9 s, all ten on the edge after
+      end: 33.2          # take 5: the pilot starts turning at 33.3 s (the view above turns with them), so hold here
+      shot: (the search take, as it wraps the centre building)
+    overlays:
+      - {kind: label, at: 2.0, until: 11.8, pos: [960, 70], size: 34, color: [255, 95, 95],
+         text: "red: pushed inside, so its screen is hidden for now"}
+      - {kind: label, at: 12.2, pos: [960, 70], size: 34, color: [70, 235, 120], text: "all ten back on the edge"}
+    say: >
+      Try flying the swarm around the centre building. Wrapped around it, the cameras look out at every building
+      with pedestrians at once. It can take several seconds for drones pushed inside to move back to the edge,
+      and for their cameras to be shown.
+
+  # take 5's search (search_log.csv): reaches the goal ~26 s, wrapped by ~35 s, scans, the hat comes in front at
+  # 62.0 s (events.txt); drones 7 and 8, on the right, go round the far side of building 45 from ~14 s.
+  # take 14 (as take 13 with a 26 s hold; overhead held wide over (-262, -8)): flown to the junction west of the goal (arrives ~22 s) and held there, beside the centre building.
+  # The ring buildings beyond it, 195 and 240, are 52 and 60 m from the nearest camera (all six ~20 m in a wrap).
+  - id: bad_surround
+    section: The task
+    visual: practice_map
+    params: {start_zoomed: true, zoom: false, goal_at: 0.0, hat_at: 2.0}
+    footage:
+      file: badsurround_overhead.mp4
+      start: 16          # take 14: arrives in the junction ~22 s and holds there to ~48 s
+      end: 47.0
+      shot: Overhead camera, the swarm held in the junction beside the centre building instead of over it.
+    inset:
+      file: badsurround_interface.mp4
+      start: 16
+      end: 47.0
+      label: "your screens"
+      corner: br
+      scale: 0.3
+      shot: (the same take)
+    overlays:
+      - {kind: badge, at: 0.3, pos: [330, 150], size: 56, text: "NOT LIKE THIS"}
+      - {kind: building_mark, at: 5.9, until: 14.7, name: badsurround, src_at: 21.9, buildings: [28],
+         color: [255, 95, 95], label: "the centre building blocks the view", dx: 0, dy: -150}
+      - {kind: building_mark, at: 8.6, until: 14.7, name: badsurround, src_at: 24.6, buildings: [195, 240],
+         color: [255, 176, 59], label: "far from the cameras: a hat here is hard to spot", dx: 0, dy: -170}
+      # take 14: drones 3, 7 and 9 are inside for the whole hold; drone 5, at the back, faces away from the ring
+      - {kind: drone_mark, at: 14.7, name: badsurround, drone: 3, src_at: 30.7, color: [255, 95, 95],
+         label: "inside: not shown", dx: -330, dy: -60}
+      - {kind: drone_mark, at: 14.7, name: badsurround, drone: 7, src_at: 30.7, color: [255, 95, 95]}
+      - {kind: drone_mark, at: 14.7, name: badsurround, drone: 9, src_at: 30.7, color: [255, 95, 95]}
+      - {kind: drone_mark, at: 18.5, name: badsurround, drone: 5, src_at: 34.5, color: [255, 176, 59],
+         label: "looks away from the pedestrians", dx: -470, dy: 10}
+    say: >
+      Here's what not to do. This swarm has stopped beside the centre building instead of around it. The
+      centre building blocks the view beyond it, and the buildings on the far side are a long way from the
+      cameras, so a hat there would be hard to spot. Some cameras are wasted too: the drones pushed inside
+      aren't shown, and the one at the back looks away from the pedestrians. Fly into the centre building, so
+      the swarm wraps all the way round it.
+
+  - id: search_fly
+    section: The task
+    visual: surround_search
+    params: {span: [0.0, 0.6], callout: false}
+    duration: clip
+    fallback_duration: 16
+    footage:
+      file: search_overhead.mp4
+      start: 0
+      end: 33            # take 5: before the pilot starts turning (the view above turns with them)
+      speed: 2.0
+      shot: Overhead camera, the practice goal flown from the start.
+    inset:
+      file: search_interface.mp4
+      start: 0
+      speed: 2.0
+      label: "your screens"
+      corner: bl
+      scale: 0.32
+      shot: Interface camera, the same take.
+    overlays:
+      - {kind: badge, at: 0.2, pos: [250, 150], size: 64, text: "2x SPEED"}
+      # take 5: drones 7 and 8, on the right, go round the far side of building 45 from ~14 s
+      - {kind: drone_mark, at: 7.0, until: 12.5, name: search, drone: 7, src_at: 14.0, speed: 2.0, dx: -640, dy: -230,
+         label: "these two drones go round the other side of the building"}
+      - {kind: drone_mark, at: 7.0, until: 12.5, name: search, drone: 8, src_at: 14.0, speed: 2.0}
+    say: >
+      Here's the practice goal flown for real. The swarm flies straight in. Two drones on the right go round
+      the other side of a building, and then the swarm wraps around the centre building.
+
+  - id: search_find
+    section: The task
+    visual: surround_search
+    params: {span: [0.6, 1.0]}
+    duration: clip
+    fallback_duration: 14
+    footage:
+      file: search4_interface.mp4
+      start: 29          # take 4
+      end: 43.4          # take 4
+      shot: The practice goal (take 4), from the wrap to the find.
+    overlays:
+      - {kind: badge, at: 0.2, until: 3.0, pos: [250, 150], size: 64, text: "REAL SPEED"}
+      # take 4: the hat in front at 38.4 s; the front screen sits at from_rect in this camera
+      - {kind: hat_closeup, at: 9.2, name: search4_front, src_at: 38.2, from_rect: [700, 410, 630, 200],
+         rect: [300, 140, 900, 506], mark: 0.6, grow: 0.8, label: "the screen in front, zoomed in for this video only"}
+      - {kind: rc_c2, at: 11.0, pos: [1620, 740], scale: 0.9, text: "press C2, say the hat"}
+    say: >
+      Now search for the hat, by turning with the joystick and with your head, until you find it.
+
+  - id: identify
+    section: The task
+    visual: controls
+    params: {control: c2}
+    say: >
+      When you see the hat, press the C2 button on the back of the controller, and say which hat it is
+      out loud, so the moderator can verify it. Make sure the hat is clearly on a screen when you press.
+    duration: 10
+
+  - id: hats
+    section: The task
+    visual: clip_grid
+    params:
+      file: hats_closeup.mp4             # take 6: 3.2 s of each station
+      cols: 3
+      rect: [90, 170, 1740, 720]
+      intro: {hold: 0.9, move: 0.55, height: 900}   # each one large in the centre, then into its place
+      tiles:
+        - {start: 0.0, len: 3.2, at: 0.3, label: "Cap"}
+        - {start: 3.2, len: 3.2, at: 1.8, label: "Bucket hat"}
+        - {start: 6.4, len: 3.2, at: 3.3, label: "Cowboy hat"}
+    say: The hats are a cap, a bucket hat, and a cowboy hat.
+    duration: 6
+
+  - id: trial
+    section: The trials
+    visual: trial_map
+    say: >
+      In the trials, the city is much larger, with three goals placed at random. Each goal has one
+      pedestrian wearing a hat, and each kind of hat appears only once. Find all three.
+    duration: 12
+
+  - id: start_line
+    skip: true          # not requested; switch on if participants should know when the clock starts
+    section: The trials
+    visual: practice_map
+    params: {zoom: false, goal_at: 2.0, peds: false}
+    say: >
+      The clock starts when the first drone crosses the start line, the tinted area just ahead of
+      where you take off.
+
+  # ------------------------------------------------------------------------------------------
+  - id: recap
+    section: Summary
+    visual: text
+    params:
+      heading: "To recap"
+      reveal: false
+      bullets:
+        - "Your screens show the drones on the edge of the swarm."
+        - "Fly straight into buildings: the swarm splits around them and sizes itself."
+        - "Wrap around buildings to look down every street at once."
+        - "Right stick: forward, back, sideways. Left stick: up, down, turn. Top-left dial: tilt the cameras."
+        - "Search by turning with the stick and your head. Found the hat? Press C2 and say which hat it is."
+    say: If anything is unclear, please ask the moderator now. Good luck!
+    duration: 9

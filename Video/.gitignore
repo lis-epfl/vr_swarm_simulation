@@ -1,0 +1,6 @@
+# Built videos, narration caches and raw takes are large and rebuilt from the scripts.
+*/build/
+_recordings/
+*/footage/*
+!*/footage/README.md
+__pycache__/
