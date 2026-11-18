@@ -4958,7 +4958,7 @@ MonoBehaviour:
   prismWalkers: 16
   walkerShadowMaterial: {fileID: 2100000, guid: b77e47becd6b49c68a7e0adc966810ee,
     type: 2}
-  walkerSleepDistance: 350
+  walkerSleepDistance: 500
   occlusionCitySignature: 20:-5234.4:-181.7:931.5
   prismWalkOffset: {x: 1.1, y: 1.5}
   bakedLayout: PracticeBlock__bbB_p40_s18_patch150_j0.15_sight487_seed2_cut_b28.json

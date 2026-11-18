@@ -1035,10 +1035,14 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     colliders by count and position, `CitySignature`); a city at Play that differs — another layout picked at Play,
     or a city rebaked since — sets `OcclusionUsable` false, and ScreenSpawn flies the FPV cameras without occlusion,
     with a warning. `PracticeBlockWorldBuilder` rebakes itself, since its copy carries the trial city's data.
-  - **`WalkerPatrol.SleepDistance` (`ProceduralCityBuilder.walkerSleepDistance`, 350 in both scenes, 0 elsewhere):**
+  - **`WalkerPatrol.SleepDistance` (`ProceduralCityBuilder.walkerSleepDistance`, **500** in these two
+    scenes and their scenic copies since 2026-11-18, 0 elsewhere):**
     a patrol farther than that from every drone camera stops animating and hides its walkers' bodies until one comes
-    within it (20 m hysteresis, checked every 0.5 s). A 1.8 m figure is ~4 headset pixels at 350 m, and the scene's
-    longest street views are rarely over 400 m. In recorded flights ~45% of patrols are past 350 m. **Hats stay
+    within it (20 m hysteresis, checked every 0.5 s). It was 350 until the user, watching a trial in the Scene view,
+    took the frozen, bodiless patrols of a goal 352–440 m from the spawn for walkers stuck in the buildings; it is 500 at
+    their request. A 1.8 m figure is ~4 headset pixels at 350 m, and the scene's
+    longest street views are rarely over 400 m. In recorded flights ~45% of patrols were past 350 m; the measured
+    speed-up below was at 350, and 500 has not been re-measured (check `_perf.csv`). **Hats stay
     drawn**: `SpecialWalker.HatCentre` reads the hat mesh's bounds, which a disabled renderer leaves empty, and the
     recorder logs and scores against it. A sleeping walker's logged position is where it stopped.
   - **The walkers' ground shadow (`WalkerGroundShadows`, `Swarm/Walker Ground Shadow`, the scene's
