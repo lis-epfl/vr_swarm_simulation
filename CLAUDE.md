@@ -3255,8 +3255,8 @@ run replayed through `citysim/replay_view.js`) to `experiment_results/trials/`. 
 **The pilot identifies with the RC's C2 button, and since 2026-10-12 the press is scored on the spot**
 (`ExperimentRecorder.identifyMode`, `AutoScore` by default). Under `rcjoy bridge --profile sim` (what
 `launch_sim_scripts.ps1` runs) C2 no longer resets the knobs: it counts into a cumulative `marks` field that
-`UDPReceiverManager.MarkPresses` turns into presses. A press is `correct` for an open goal whose hat is inside
-the central `identifyCentralFraction` (80%) of a shown feed's image, within `identifyMaxRangeM` (80 m) of its
+`UDPReceiverManager.MarkPresses` turns into presses. A press is `correct` for an open goal whose hat is anywhere in
+a shown feed's image, within `identifyMaxRangeM` (80 m) of its
 camera, with no building in the way, at the press or on any frame of the `identifyMaxLookbackSec` (5 s) before it,
 wherever the centroid is (the goal at the centroid first, else the most recent pass). With no such hat it is a
 `false_alarm` at the goal whose zone (`identifyZoneM`, analyse.py's 15 m) holds the **live** drones' centroid,
@@ -3267,7 +3267,11 @@ and the centroid's zone: ERKS's five refused presses were all the right hat -- f
 the drone closed on the walker in the second before the press (one from 15 m past the zone's edge), one was named at
 43 m. One of the four had last passed 2.25 s before its press, which is why the look-back was 3 s, not 2. **It has
 been 5 s since 2026-11-10** (the user's call, "for now"): ALEX's bucket hat (internal_4, swarm t2) left the central
-80% 3.5 s before the press, which the user judged correct. The range field was renamed from `identifyRangeM`, and the
+80% 3.5 s before the press, which the user judged correct. **The hat has had to be only in the image, not in its
+central 80%, since 2026-11-18** (the user's call): every press that rule refused in internal_4 (ALEX's, SIMI's, YEGO's
+three) was the right hat near the frame's edge, and the user takes a run as complete unless they say otherwise. The
+field `identifyCentralFraction` is gone, so no scene keeps the 0.8 its YAML holds; the session JSON logs 1 under that
+key (0.8 before). The range field was renamed from `identifyRangeM`, and the
 look-back from `identifyLookbackSec`, so every scene takes the new values (their YAML still holds 40 / 3 under the old
 keys, which are ignored); the session JSON keeps the keys `identifyRangeM` and `identifyLookbackSec`. The experimenter's 1/2/3 keys override the latest
 press's score (`outcome_override`) and never create an identify, and the session ends once every goal is

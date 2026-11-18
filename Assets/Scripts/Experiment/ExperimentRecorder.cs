@@ -18,7 +18,7 @@ using UnityEngine.XR;
 /// <para><b>Identify, AutoScore (<see cref="identifyMode"/>, the default since 2026-10-12).</b> The pilot presses
 /// the RC's C2 button (<c>rcjoy bridge --profile sim</c>, <see cref="UDPReceiverManager.MarkPresses"/>) when they
 /// believe the hat is on screen, and the press is scored on the spot. It is <c>correct</c> for an open goal whose
-/// hat is inside the central <see cref="identifyCentralFraction"/> of some shown feed's image, within
+/// hat is anywhere in some shown feed's image, within
 /// <see cref="identifyMaxRangeM"/> of its camera, with no building in the way — at the press, or on any frame in the
 /// <see cref="identifyMaxLookbackSec"/> before it, wherever the centroid is (the goal at the centroid first, else the
 /// most recent). With no such hat it is a <c>false_alarm</c> at the goal whose zone — the patch grown by
@@ -27,7 +27,9 @@ using UnityEngine.XR;
 /// distance, how long before the press the hat passed (<c>passAgo</c>), its feed and the feed the pilot's gaze was
 /// on. The range, the look-back and the zone-free attribution date from 2026-11-06 (40 m, the press's frame only, and
 /// the centroid's zone before): all five of ERKS's presses the old rule refused were the right hat. The look-back went
-/// from 3 s to 5 s on 2026-11-10, for ALEX's hat, which had left the frame's centre 3.5 s before the press. The experimenter's keys override the latest press's score (an
+/// from 3 s to 5 s on 2026-11-10, for ALEX's hat, which had left the frame's centre 3.5 s before the press. Until
+/// 2026-11-18 the hat also had to be inside the central 80% of the image (a field, identifyCentralFraction): every
+/// press that rule refused in internal_4 was the right hat near the frame's edge, so it went. The experimenter's keys override the latest press's score (an
 /// <c>outcome_override</c> event) and never create an identify of their own. The session finishes once every goal
 /// is resolved — identified correctly, or overridden — or on the end key. The verbal hat report is a secondary
 /// check only: with three hats it is right by chance a third of the time.</para>
@@ -106,9 +108,8 @@ public class ExperimentRecorder : MonoBehaviour
     // takes the new value rather than the 40 its YAML still holds under the old name; the session JSON keeps the key.
     [Tooltip("The hat must be within this of the camera whose feed shows it (analyse.py --range).")]
     public float identifyMaxRangeM = 80f;
-    [Tooltip("...and inside this central share of that feed's image, horizontally and vertically.")]
-    [Range(0.1f, 1f)]
-    public float identifyCentralFraction = 0.8f;
+    // The hat may be anywhere in that feed's image since 2026-11-18. identifyCentralFraction (0.8, the central 80%) is
+    // gone rather than set to 1, so no scene keeps the 0.8 its YAML still holds; the session JSON logs 1 under its key.
     // 5 s since 2026-11-10 (3 before: ALEX's hat left the central 80% 3.5 s before the press). Renamed from
     // identifyLookbackSec then, so every scene takes the new value rather than the 3 its YAML still holds under the
     // old name; the session JSON keeps the key.
@@ -1053,7 +1054,7 @@ public class ExperimentRecorder : MonoBehaviour
     }
 
     /// <summary>
-    /// Whether the goal's hat is inside the central part of an alive drone's shown feed, within range, with no
+    /// Whether the goal's hat is anywhere in an alive drone's shown feed, within range, with no
     /// building between camera and hat. The nearest such camera is reported (index in the swarm list, distance). A view
     /// in the live panorama counts as shown: its own quad is hidden only because the pilot is looking at it there.
     /// </summary>
@@ -1065,7 +1066,6 @@ public class ExperimentRecorder : MonoBehaviour
         if (g.special == null || swarm == null) return false;
         Vector3 hat = g.marker.HatCentre;
         if (Sphere360Display.Active) return HatOnSphere(hat, swarm, out feed, out camDist);
-        float half = 0.5f * identifyCentralFraction;
         float best = float.PositiveInfinity;
         for (int i = 0; i < swarm.Count; i++)
         {
@@ -1080,7 +1080,7 @@ public class ExperimentRecorder : MonoBehaviour
             float d = Vector3.Distance(cam.transform.position, hat);
             if (d > identifyMaxRangeM || d >= best) continue;
             Vector3 v = cam.WorldToViewportPoint(hat);
-            if (v.z <= 0f || Mathf.Abs(v.x - 0.5f) > half || Mathf.Abs(v.y - 0.5f) > half) continue;
+            if (v.z <= 0f || v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) continue;
             if (Physics.Linecast(cam.transform.position, hat, obstacleMask, QueryTriggerInteraction.Ignore)) continue;
             best = d;
             feed = i;
@@ -1092,8 +1092,8 @@ public class ExperimentRecorder : MonoBehaviour
     /// <summary>
     /// SPHERE: <see cref="HatOnShownFeed"/> for the 360 camera, which shows every direction at once, so there is no
     /// image frame to test: the hat counts within range of where the cube on the sphere was rendered, with no building
-    /// in the way, and inside the band when the view is masked to one (the feeds' central-fraction rule applied to the
-    /// band's height). Wherever the pilot was looking, as for the ring of feeds; the press logs the head's and the
+    /// in the way, and inside the band when the view is masked to one (as a feed's hat must be inside its image).
+    /// Wherever the pilot was looking, as for the ring of feeds; the press logs the head's and the
     /// gaze's angle to the hat (<see cref="SphereLookAngles"/>) for reading that afterwards.
     /// </summary>
     private bool HatOnSphere(Vector3 hat, List<GameObject> swarm, out int feed, out float camDist)
@@ -1113,8 +1113,7 @@ public class ExperimentRecorder : MonoBehaviour
         if (band > 0f)
         {
             float elevation = Mathf.Atan2(rel.y, new Vector2(rel.x, rel.z).magnitude) * Mathf.Rad2Deg;
-            float limit = Mathf.Atan(identifyCentralFraction * Mathf.Tan(band * Mathf.Deg2Rad)) * Mathf.Rad2Deg;
-            if (Mathf.Abs(elevation - FPVCameraScript.SharedPitch) > limit) return false;
+            if (Mathf.Abs(elevation - FPVCameraScript.SharedPitch) > band) return false;
         }
         if (Physics.Linecast(cam, hat, obstacleMask, QueryTriggerInteraction.Ignore)) return false;
         feed = swarm.IndexOf(s.Drone);
@@ -1452,7 +1451,7 @@ public class ExperimentRecorder : MonoBehaviour
             identifyMode = identifyMode.ToString(),
             identifyZoneM = identifyZoneM,
             identifyRangeM = identifyMaxRangeM,
-            identifyCentralFraction = identifyCentralFraction,
+            identifyCentralFraction = 1f,              // the whole image since 2026-11-18 (0.8 before)
             identifyLookbackSec = identifyMaxLookbackSec,
             rcIdentifyDebounceSec = rcIdentifyDebounceSec,
             stitchingEnabled = stitching != null && stitching.StitchingEnabled,
@@ -1621,7 +1620,7 @@ public class ExperimentRecorder : MonoBehaviour
         public string goalSeedSource;
         public string identifyMode;        // AutoScore or Legacy (absent = Legacy: runs before 2026-10-12)
         // The identify rule this run was scored by (absent = a run before 2026-11-03: the 15 / 40 / 0.8 / 1 defaults,
-        // unless a scene overrode them).
+        // unless a scene overrode them). The central fraction is 1 (the whole image) from 2026-11-18.
         public float identifyZoneM, identifyRangeM, identifyCentralFraction, rcIdentifyDebounceSec;
         public float identifyLookbackSec;
         public int falseAlarms;            // AutoScore presses scored wrong, over every goal
