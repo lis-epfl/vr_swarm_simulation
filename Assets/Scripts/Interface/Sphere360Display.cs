@@ -23,6 +23,10 @@ using UnityEngine.Rendering;
 /// still returns true and draws black. The size is therefore an enum, and creation is checked.</item>
 /// <item>Each face counts as one FPV render in FPVCameraScript's counters (and so in _perf.csv's fpvRenders): a
 /// 2048 cube costs about what ten feeds do, 6.9 ms of main thread in BlockShapedPatchCityWorld.</item>
+/// <item>The sphere shows the products' live link, not the camera: each complete cube is resampled into one
+/// equirectangular frame of <see cref="Settings.streamWidth"/> x half that (2048 x 1024, the Antigravity A1's "2K" live
+/// view of the whole sphere, ~5.7 px/deg), box-filtered over each pixel (Sphere360Stream.shader), and the sphere
+/// draws that frame. 0 shows the cube itself, as every run before 2026-11-18 did (18-36 px/deg).</item>
 /// </list>
 /// </summary>
 [DefaultExecutionOrder(-100)]   // FixedUpdate before VelocityControl's: see RecordPhysicsStep
@@ -71,9 +75,17 @@ public class Sphere360Display : MonoBehaviour
                  "of the gimbal pitch is shown (23.1 is the feeds' half height), for comparing coverage with the " +
                  "swarm's ring of feeds. The recorder's scoring applies the same band.")]
         [Range(0f, 90f)] public float bandHalfDeg = 0f;
+
+        [Tooltip("Width of the equirectangular live stream the sphere shows (height is half): what a 360 drone sends " +
+                 "its goggles, rather than what its camera records. 2048 is the Antigravity A1's \"2K\" live view of " +
+                 "the whole sphere, ~5.7 px/deg against the 2048 cube's 18-36 (docs/single_drone_360_camera.md). " +
+                 "0: the sphere shows the cube itself, as before 2026-11-18. Fixed at the start, like the cube size.")]
+        [Range(0, 8192)] public int streamWidth = 2048;
     }
 
     public const string ShaderName = "Swarm/Sphere 360 View";
+    public const string StreamShaderName = "Hidden/Swarm/Sphere 360 Stream";
+    private const int MinStreamWidth = 256;
     private const float MaxSphereRadius = 100f;
     private const int AllFaces = 63;
     // +X, -X, +Y then -Y, +Z, -Z: the two halves measured 3.8 and 3.6 ms of main thread in the patch city.
@@ -116,12 +128,21 @@ public class Sphere360Display : MonoBehaviour
     /// <summary>The cube itself, for checks that read it back.</summary>
     public RenderTexture Cube => cube;
 
+    /// <summary>The equirectangular live stream the sphere shows, or null when it shows the cube.</summary>
+    public RenderTexture Stream => stream;
+
+    /// <summary>The live stream's size in pixels, or 0 when the sphere shows the cube.</summary>
+    public int StreamWidth => stream != null ? stream.width : 0;
+    public int StreamHeight => stream != null ? stream.height : 0;
+
     private Settings settings;
     private Rigidbody body;
     private VelocityControl velocity;
     private FPVCameraScript fpvScript;
     private Camera cubeCamera;
     private RenderTexture cube;
+    private RenderTexture stream;
+    private Material streamMaterial;
     private GameObject sphere;
     private Material material;
     private OVRCameraRig rig;
@@ -215,6 +236,7 @@ public class Sphere360Display : MonoBehaviour
         }
 
         if (!CreateCube(fpvCamera)) return;
+        CreateStream();
         DisableFeedCameras(swarm);
         TakeOverBackdrop();
         CreateSphere();
@@ -229,7 +251,9 @@ public class Sphere360Display : MonoBehaviour
         Instance = this;
         Active = true;
         Debug.Log($"Sphere360Display: {Drone.name} carries a {CubeEdge}-pixel cube at {settings.refreshHz:F0} Hz" +
-                  $"{(settings.splitFaces ? ", split over two frames" : "")}, heading {settings.heading}" +
+                  $"{(settings.splitFaces ? ", split over two frames" : "")}, " +
+                  $"{(stream != null ? $"shown as a {StreamWidth}x{StreamHeight} live stream" : "shown as rendered")}" +
+                  $", heading {settings.heading}" +
                   $"{(settings.bandHalfDeg > 0f ? $", band +-{settings.bandHalfDeg:F1} deg" : "")}.", this);
     }
 
@@ -250,15 +274,17 @@ public class Sphere360Display : MonoBehaviour
 
         // Mips only where the cube is denser than the headset's ~22 px/deg, i.e. minified on the sphere: there they
         // stop it aliasing, as the feeds' mips do; at 2048 and below the sphere magnifies the cube and they would buy
-        // nothing for their ~1 ms of GPU.
+        // nothing for their ~1 ms of GPU. A live stream always needs them, to filter the cube down to its resolution,
+        // and makes them itself once per complete cube (PublishStream) rather than after each half.
         int size = (int)settings.cubeSize;
-        bool mips = size > 2048;
+        bool streaming = settings.streamWidth > 0;
+        bool mips = size > 2048 || streaming;
         cube = new RenderTexture(size, size, 24)
         {
             name = "Sphere360Cube",
             dimension = TextureDimension.Cube,
             useMipMap = mips,
-            autoGenerateMips = mips,
+            autoGenerateMips = mips && !streaming,
             filterMode = mips ? FilterMode.Trilinear : FilterMode.Bilinear,
             wrapMode = TextureWrapMode.Clamp,
         };
@@ -270,6 +296,50 @@ public class Sphere360Display : MonoBehaviour
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// The live stream's frame, when <see cref="Settings.streamWidth"/> asks for one: equirectangular, width x width/2,
+    /// mipmapped (the sphere minifies it towards the poles, where its rows crowd together) and wrapping in u. Without
+    /// the shader the sphere would show the full-resolution cube, the very thing this setting exists to change, so
+    /// that is an error, and the recorder logs a stream size of 0.
+    /// </summary>
+    private void CreateStream()
+    {
+        if (settings.streamWidth <= 0) return;
+        int width = Mathf.Max(MinStreamWidth, settings.streamWidth & ~1);
+        Shader shader = Shader.Find(StreamShaderName);
+        if (shader == null)
+        {
+            Debug.LogError($"Sphere360Display: shader '{StreamShaderName}' not found, so the sphere shows the " +
+                           $"{CubeEdge}-pixel cube, not a {width}x{width / 2} live stream (a player build needs it in " +
+                           "Always Included Shaders).", this);
+            return;
+        }
+        streamMaterial = new Material(shader) { name = "Sphere360Stream" };
+        stream = new RenderTexture(width, width / 2, 0)
+        {
+            name = "Sphere360Stream",
+            useMipMap = true,
+            autoGenerateMips = true,
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = 4,
+            wrapModeU = TextureWrapMode.Repeat,
+            wrapModeV = TextureWrapMode.Clamp,
+        };
+        if (!stream.Create() || !stream.IsCreated())
+        {
+            Debug.LogError($"Sphere360Display: the {width}x{width / 2} live stream could not be created, so the " +
+                           $"sphere shows the {CubeEdge}-pixel cube.", this);
+            Destroy(stream);
+            stream = null;
+            return;
+        }
+        // Black until the first complete cube, rather than whatever the memory held.
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = stream;
+        GL.Clear(false, true, Color.black);
+        RenderTexture.active = previous;
     }
 
     // The prefab leaves every FPV camera enabled with no target texture, so with no ScreenSpawn to drive them they
@@ -337,6 +407,11 @@ public class Sphere360Display : MonoBehaviour
         }
         material = new Material(shader) { name = "Sphere360View" };
         material.SetTexture("_Cube", cube);
+        if (stream != null)
+        {
+            material.SetTexture("_Stream", stream);
+            material.EnableKeyword("SPHERE_STREAM");
+        }
 
         sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         sphere.name = "Sphere360";
@@ -421,6 +496,7 @@ public class Sphere360Display : MonoBehaviour
             secondHalfDue = false;
             RenderFaces(SecondHalf, halfRenderPosition);
             Refreshes++;
+            PublishStream();
             return;
         }
         if (velocity.State != null && !velocity.State.IsAlive) return;
@@ -440,6 +516,7 @@ public class Sphere360Display : MonoBehaviour
         {
             RenderFaces(AllFaces, position);
             Refreshes++;
+            PublishStream();
         }
     }
 
@@ -464,6 +541,21 @@ public class Sphere360Display : MonoBehaviour
         FPVCameraScript.CountRenders(FaceCount(mask));
         LastRenderPosition = from;
         HasRendered = true;
+    }
+
+    /// <summary>
+    /// Sends a complete cube down the live link: its mips, then the resample into the stream's frame. Only whole
+    /// cubes, as a product sends whole frames; under splitFaces the first half waits for the second.
+    /// </summary>
+    private void PublishStream()
+    {
+        if (stream == null || streamMaterial == null) return;
+        cube.GenerateMips();
+        streamMaterial.SetTexture("_Cube", cube);
+        streamMaterial.SetFloat("_CubeEdge", cube.width);
+        streamMaterial.SetVector("_StreamSize",
+            new Vector4(stream.width, stream.height, 1f / stream.width, 1f / stream.height));
+        Graphics.Blit(null, stream, streamMaterial);
     }
 
     private static int FaceCount(int mask)
@@ -533,6 +625,12 @@ public class Sphere360Display : MonoBehaviour
         RestoreBackdrop();
         if (sphere != null) Destroy(sphere);
         if (material != null) Destroy(material);
+        if (streamMaterial != null) Destroy(streamMaterial);
+        if (stream != null)
+        {
+            stream.Release();
+            Destroy(stream);
+        }
         if (cubeCamera != null) Destroy(cubeCamera.gameObject);
         if (cube != null)
         {

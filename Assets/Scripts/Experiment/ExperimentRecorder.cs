@@ -214,6 +214,7 @@ public class ExperimentRecorder : MonoBehaviour
     private Vector3 loggedOffset;
     private int loggedWidth, loggedHeight;
     private string loggedRoom;
+    private string loggedRoomAnchor;
     private bool loggedSphere, loggedSplit;
     private Sphere360Display.HeadingMode loggedHeading;
     private float loggedRefreshHz, loggedBand;
@@ -532,11 +533,12 @@ public class ExperimentRecorder : MonoBehaviour
         Sphere360Display.Settings sc = sphere ? Sphere360Display.Instance.Config : null;
         if (displayLogged && s.screenStyle == loggedStyle && s.radius == loggedRadius && s.scale == loggedScale &&
             s.offset == loggedOffset && s.width == loggedWidth && s.height == loggedHeight &&
-            CockpitRoom.InForce == loggedRoom && sphere == loggedSphere &&
+            CockpitRoom.InForce == loggedRoom && CockpitRoom.AnchorInForce == loggedRoomAnchor && sphere == loggedSphere &&
             (!sphere || (sc.refreshHz == loggedRefreshHz && sc.splitFaces == loggedSplit &&
                          sc.heading == loggedHeading && sc.bandHalfDeg == loggedBand))) return;
         displayLogged = true;
         loggedRoom = CockpitRoom.InForce;
+        loggedRoomAnchor = CockpitRoom.AnchorInForce;
         loggedStyle = s.screenStyle;
         loggedRadius = s.radius;
         loggedScale = s.scale;
@@ -552,13 +554,14 @@ public class ExperimentRecorder : MonoBehaviour
             loggedHeading = sc.heading;
             loggedBand = sc.bandHalfDeg;
             sphereNote = $" cube={Sphere360Display.Instance.CubeEdge} hz={F(sc.refreshHz)} split={sc.splitFaces} " +
-                         $"heading={sc.heading} band={F(sc.bandHalfDeg)}";
+                         $"heading={sc.heading} band={F(sc.bandHalfDeg)} " +
+                         $"stream={Sphere360Display.Instance.StreamWidth}x{Sphere360Display.Instance.StreamHeight}";
         }
         WriteEvent("display", -1, "", -1f,
             $"mode={(sphere ? "SPHERE" : DisplayModeInForce().ToString())} " +
             $"style={s.screenStyle} radius={F(s.radius)} scale={F(s.scale)} " +
             $"offset={F(s.offset.x)},{F(s.offset.y)},{F(s.offset.z)} feed={s.width}x{s.height} " +
-            $"room={loggedRoom}{sphereNote}");
+            $"room={loggedRoom} roomAnchor={loggedRoomAnchor}{sphereNote}");
     }
 
     private Transform ResolveHeadTransform()
@@ -1458,6 +1461,7 @@ public class ExperimentRecorder : MonoBehaviour
             screenScale = screenSpawn != null ? screenSpawn.scale : 0f,
             cockpitRoom = CockpitRoom.Active,
             cockpitRoomStyle = CockpitRoom.InForce,
+            cockpitRoomAnchor = CockpitRoom.AnchorInForce,
             layout = CityLayoutInfo.Current ?? new CityLayoutInfo.Record(),
             headsetActive = headsetActiveSec > 0f,
             headsetActiveSec = headsetActiveSec,
@@ -1630,6 +1634,9 @@ public class ExperimentRecorder : MonoBehaviour
         // change. Absent = a run before 2026-11-04: the screens hung in a black, world-fixed Arena box.
         public bool cockpitRoom;
         public string cockpitRoomStyle;        // FloorAndWall, FloorAndCeiling, or "off"
+        // RealRoom (yaw fixed to the real room), World (yaw fixed to the world, turns with the screens), or
+        // "off". Absent = a run before 2026-11-17, which was RealRoom.
+        public string cockpitRoomAnchor;
         public CityLayoutInfo.Record layout;   // the generated layout the city was built from (empty id in tile cities)
         // Was this flown in the headset? Absent = a run before 2026-11-03 (see WritePerfSample for those).
         public bool headsetActive;
@@ -1688,6 +1695,8 @@ public class ExperimentRecorder : MonoBehaviour
         public bool splitFaces;
         public string heading;             // TurnWithDrone or WorldFixed
         public float bandHalfDeg;          // 0 = the whole sphere
+        // The equirectangular live stream the sphere showed (0 x 0: the cube itself). Absent = before 2026-11-18, the cube.
+        public int streamWidth, streamHeight;
         public long refreshes;             // complete cube refreshes so far
     }
 
@@ -1703,6 +1712,8 @@ public class ExperimentRecorder : MonoBehaviour
             splitFaces = s.Config.splitFaces,
             heading = s.Config.heading.ToString(),
             bandHalfDeg = s.Config.bandHalfDeg,
+            streamWidth = s.StreamWidth,
+            streamHeight = s.StreamHeight,
             refreshes = s.Refreshes,
         };
     }

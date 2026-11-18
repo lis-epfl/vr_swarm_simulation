@@ -299,6 +299,39 @@ public class ProceduralCityProbe : MonoBehaviour
         Check("sphere cube up", s.Cube.IsCreated() && w == (int)s.Config.cubeSize && df > 0 && counted && lit,
               $"{w} px, {df} refreshes and {dr} counted renders in 1 s of real time; face means (0-255) " +
               $"[{string.Join(", ", means.Select(m => m.ToString("F1")))}]");
+
+        // The live stream the sphere shows: its size, and lit in every band of rows (sky, horizon, ground).
+        if (s.Config.streamWidth > 0)
+        {
+            RenderTexture st = s.Stream;
+            var bands = new float[4];
+            if (st != null)
+            {
+                AsyncGPUReadbackRequest req = AsyncGPUReadback.Request(st, 0, TextureFormat.RGBA32);
+                req.WaitForCompletion();
+                var data = req.hasError ? default : req.GetData<Color32>();
+                for (int b = 0; b < bands.Length; b++)
+                {
+                    if (req.hasError) { bands[b] = -1f; continue; }
+                    double sum = 0;
+                    int rows = st.height / bands.Length, n = 0;
+                    for (int y = b * rows; y < (b + 1) * rows; y++)
+                    {
+                        for (int x = 0; x < st.width; x += 4, n++)
+                        {
+                            Color32 c = data[y * st.width + x];
+                            sum += c.r + c.g + c.b;
+                        }
+                    }
+                    bands[b] = (float)(sum / (3.0 * n));
+                }
+            }
+            int expect = Mathf.Max(256, s.Config.streamWidth & ~1);
+            Check("sphere live stream up",
+                  st != null && st.width == expect && st.height == expect / 2 && bands.All(m => m > 2f),
+                  st == null ? "no stream" : $"{st.width}x{st.height}; band means bottom to top (0-255) " +
+                                             $"[{string.Join(", ", bands.Select(m => m.ToString("F1")))}]");
+        }
     }
 
     /// <summary>
@@ -320,7 +353,9 @@ public class ProceduralCityProbe : MonoBehaviour
         long f0 = s.Refreshes;
         while (s.Refreshes == f0) yield return null;
 
-        const int N = 512;
+        // Through the live stream the sphere holds ~5.7 px/deg, so both views are drawn at about that (30 deg on 172 px)
+        // and the comparison is of the same detail; without it, ~17 px/deg against the cube's ~18.
+        int N = s.Stream != null ? Mathf.RoundToInt(30f * s.StreamWidth / 360f) : 512;
         const float Fov = 30f;
         var throughSphere = new RenderTexture(N, N, 24);
         var direct = new RenderTexture(N, N, 24);
@@ -377,6 +412,7 @@ public class ProceduralCityProbe : MonoBehaviour
         throughSphere.Release();
         direct.Release();
         Check("sphere faces the right way", ok,
+              $"{(s.Stream != null ? $"through the {s.StreamWidth}x{s.StreamHeight} stream at {N} px; " : "")}" +
               $"sphereYaw {sYaw:F1}; mean |diff| (0-255) against the city at phi - sphereYaw and its slips: " +
               string.Join("; ", detail));
     }

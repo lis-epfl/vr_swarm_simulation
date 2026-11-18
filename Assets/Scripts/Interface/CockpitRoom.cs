@@ -53,10 +53,24 @@ public class CockpitRoom : MonoBehaviour
         FloorAndCeiling = 1,
     }
 
+    // Values spelled out: Unity serialises enums by integer.
+    public enum RoomAnchor
+    {
+        RealRoom = 0,
+        World = 1,
+    }
+
     [Tooltip("FloorAndWall: a grid floor inside a ring wall with vertical ribs. FloorAndCeiling: a grid " +
              "floor and a grid ceiling, both fading into the base colour with distance. Can be switched " +
              "in Play.")]
     public RoomStyle style = RoomStyle.FloorAndCeiling;
+
+    [Tooltip("RealRoom: the room's yaw is fixed to the real room, so a stick turn sweeps the screens " +
+             "round a room that holds still (the pilot reads as sitting still). World: the room's yaw is " +
+             "fixed to the virtual world, so it turns with the screens on a stick turn and the pilot reads " +
+             "as spinning. Either way it stays centred on the pilot and at the same height. Can be " +
+             "switched in Play.")]
+    public RoomAnchor anchor = RoomAnchor.RealRoom;
 
     [Tooltip("Height of the floor below the tracking origin, in metres. Under the EyeLevel origin the " +
              "scenes use, that origin is the pilot's eye height at recenter, so this is a seated eye " +
@@ -117,6 +131,12 @@ public class CockpitRoom : MonoBehaviour
     /// <summary>The style drawn while <see cref="Active"/>.</summary>
     public static RoomStyle ActiveStyle { get; private set; }
 
+    /// <summary>The yaw anchor in force while <see cref="Active"/>.</summary>
+    public static RoomAnchor ActiveAnchor { get; private set; }
+
+    /// <summary>The anchor in force, or "off" (ExperimentRecorder's display events and session file).</summary>
+    public static string AnchorInForce => Active ? ActiveAnchor.ToString() : "off";
+
     /// <summary>The style in force, or "off" (ExperimentRecorder's display events and session file).</summary>
     public static string InForce => Active ? ActiveStyle.ToString() : "off";
 
@@ -140,12 +160,16 @@ public class CockpitRoom : MonoBehaviour
         new List<(Camera, CameraClearFlags, Color)>();
     // What the current meshes and textures were built with, so an inspector change in Play rebuilds them.
     private int builtShape;
+    // Under RoomAnchor.World: the world yaw the room is held at, latched when World takes effect so the
+    // switch does not jump. NaN = not latched.
+    private float worldYaw = float.NaN;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void RegisterBootstrap()
     {
         Active = false;
         ActiveStyle = default;
+        ActiveAnchor = default;
         // -= first so a disabled domain reload cannot stack the handler.
         SceneManager.sceneLoaded -= OnSceneLoaded;
         SceneManager.sceneLoaded += OnSceneLoaded;
@@ -193,6 +217,8 @@ public class CockpitRoom : MonoBehaviour
         if (root == null || shape != builtShape) Build(shape);
         if (!Active) Engage();
         ActiveStyle = style;
+        ActiveAnchor = anchor;
+        ApplyAnchor();
 
         if (floorMaterial != null) floorMaterial.color = lineColor;
         if (wallMaterial != null) wallMaterial.color = lineColor;
@@ -203,6 +229,29 @@ public class CockpitRoom : MonoBehaviour
         foreach (var cleared in clearedCameras)
         {
             if (cleared.camera != null) cleared.camera.backgroundColor = baseColor;
+        }
+    }
+
+    /// <summary>
+    /// Holds the room's yaw. The rig is yawed in Update (PyUniSharingFast.UpdateBodyYaw), so this runs in
+    /// LateUpdate after it and the room never lags a frame. Under World the room stays parented to the
+    /// tracking space, which keeps it centred on the pilot and at the floor height, and only its yaw is
+    /// overridden to a fixed world heading: a stick turn then sweeps the grid round with the screens.
+    /// </summary>
+    private void ApplyAnchor()
+    {
+        if (root == null) return;
+        if (anchor == RoomAnchor.World)
+        {
+            if (float.IsNaN(worldYaw)) worldYaw = root.transform.eulerAngles.y;
+            Quaternion parent = root.transform.parent != null ? root.transform.parent.rotation : Quaternion.identity;
+            // The yaw-only target, expressed under the tracking space (which only ever yaws here).
+            root.transform.localRotation = Quaternion.Inverse(parent) * Quaternion.Euler(0f, worldYaw, 0f);
+        }
+        else
+        {
+            worldYaw = float.NaN;
+            root.transform.localRotation = Quaternion.identity;
         }
     }
 

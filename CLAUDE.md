@@ -431,6 +431,12 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - **It hangs under the rig's `trackingSpace`, never under the Arena.** Rig yaw and `CalibrateToCentre`'s
     height shift carry it along, so it never moves relative to the real room. With one drone the rig turns
     with the drone and its screen, so during a turn nothing in view moves but the feed's own picture.
+  - **`anchor` `World` is the alternative** (2026-11-17, the user's request: with the room fixed, a turn
+    reads as the screens rotating, not the body). It stays under `trackingSpace` for position and height,
+    but `LateUpdate` (after the rig is yawed in `Update`) holds its yaw at a world heading latched when it
+    takes effect, so the grid turns with the screens and the pilot reads as spinning. With one drone the
+    grid then turns while the screen holds still. Default `RealRoom`; recorded as `cockpitRoomAnchor` in
+    `_session.json` and `roomAnchor=` on `display` events (runs before it were `RealRoom`).
   - **It is drawn first (Background queue) and writes no depth** (`Sprites/Default`, as `BodyYawCompass`
     uses, which is also stereo-instanced), so no layout can be covered by it. A depth-writing floor would cut
     the bottom off the panorama (−1.5 m at 5 m) and off a four-row `FORMATION_WALL` (−1.46 m at 2 m).
@@ -460,6 +466,16 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
   - **A cube RenderTexture must be a power of two.** At any other size it fails to create, yet `RenderToCubemap`
     returns true and draws black, so `cubeSize` is an enum and creation is checked. 2048 is the default: about as
     many pixels on a walker as a feed at scale 1.3, shown 1.3x larger.
+  - **The sphere shows the live link, not the camera** (2026-11-18, the user's call: the cube direct was much
+    sharper than any product's live view). `sphere360.streamWidth` (default 2048, the Antigravity A1's "2K" live view of
+    the whole sphere) resamples each complete cube into a `streamWidth` × half equirectangular frame
+    (`Assets/Shaders/Sphere360Stream.shader`: a 4 × 4 box over each pixel from the cube's mips), and the sphere draws
+    that frame (`SPHERE_STREAM`), wrapped in u with Tarini's seam fix. That is ~5.7 px per world degree against the
+    cube's 18–36 and the feeds' ~22: a hat at 40 m is ~2 px. The cube stays 2048 as the stream's source. **No codec and
+    no link delay are modelled**, in this or any arm. 0 shows the cube itself, as every run before (SIMI's two in
+    internal_4); `_session.json` `sphere360.streamWidth/Height` and the `display` event's `stream=` say which (absent:
+    the cube). The probe checks the stream is lit and still faces the right way through it (at 171 px over 30°).
+    Not yet flown in the headset.
   - **`splitFaces` is on: half the faces each frame, from one position.** Measured by replaying a recorded
     single-drone headset flight (`internal_4/ERKS_t1_SingleDrone_20261106_140556`) in BlockShapedPatchCityWorld on
     the 72 Hz bench (`D:\claude_feedres_bench`, stand-in eye pass). The table gives the share of 10 Hz rows at

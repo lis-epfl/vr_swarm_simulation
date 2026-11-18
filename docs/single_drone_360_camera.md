@@ -66,7 +66,7 @@ makers' pages (listed under Sources); a figure from a single source says so.
 | Recording | 8K at up to 60 fps | 8K at 30 fps, 5.2K at 60 |
 | Live view | head-tracked, with Goggles 3 or N3 and the RC Motion 3; 1080p at up to 60 fps in 360 mode (DJI) | head-tracked, in the Vision goggles; "2K at 30 fps" (one review) |
 | Delay | about 130 ms at 1080p/60 to the RC 2 or a phone (DJI); no figure for the goggles | "over 100 ms" (one review) |
-| Goggles | not stated in the pages read | 2560 × 2560 per eye, 90°, 72 Hz |
+| Goggles | Goggles 3: 44° field of view (DJI spec sheet, dji.com/goggles-3/specs); N3 not checked | 2560 × 2560 per eye, 90°, 72 Hz |
 | Flying and looking | the drone keeps its course while the view follows the head | the drone flies where the Grip controller points, whatever the head does |
 | Controls | wrist tilt (RC Motion 3); sticks (FPV Remote Controller 3, or the RC 2 with its own screen and no goggles) | the Grip only: point-to-fly (forward only) or wrist tilt; no sticks |
 | Flight-direction cue | one review mentions a window showing where you are flying, without saying on which screen | a small floating window or marker while the pilot looks away from the direction of travel |
