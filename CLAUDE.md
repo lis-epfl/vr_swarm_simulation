@@ -3116,6 +3116,44 @@ Invariants:
   beside the building 0.4–1.2 of its radius off its centre and a hold on it, calibrated against ERKS's wrapped moments
   (`swarmwrap_calib`). Route indices: screen 19000, confirmation 20000, bench 21000.
 
+## Neighbour shield: holding back a drone closing on a braked one
+
+`SwarmManager.neighbourShield` (2026-11-19, built at the user's request after internal_4's losses; off in every scene
+until they say otherwise). Every drone lost in internal_4 was a pair: the building shield took the stick from a drone
+at a facade while the drone behind it on the stick line kept full stick and hit it at up to 9 m/s from 16–22 m back,
+too fast for the damper's 3 m reach and with the lattice outvoted by the velocity loop. On, the part of a drone's
+(already building-shielded) command pointing at a neighbour may not exceed that neighbour's own velocity along the line
+plus `sqrt(2 neighbourShieldDecel (d - neighbourShieldGap))`, the closing speed that braking sheds before the gap
+(defaults 2.5 m/s² and 4 m). Outputs: `experiment_results/neighbour_shield/`. Points worth keeping:
+- **Off is the law exactly as before**: the neighbour list is only filled while the switch is on, and an empty list
+  returns the building shield's command untouched (`OlfatiSaber.ShieldFromNeighbours`, `swarm_replica.neighbour_shield`).
+  Horizontal swarming only; a lone drone has no neighbours, so the single-drone condition is unaffected.
+- **Its change is projected out of the buildings within d_shield, as the damper is, and that is load-bearing.** Taking
+  off the part towards a neighbour that stands farther from a wall takes off an outward part too, which hands back the
+  inward stick the building shield removed: without the projection the replica's building entries on internal_4's
+  sticks rose 91 → 145; with it, 91 → 93. It only removes (never reverses) and the result is held to the stick's length.
+- **It is not Olfati-Saber's**: in the paper neighbours meet only through the α terms and the command never depends on
+  them. It is the same kind of addition as the building shield, and leaves the lattice's potential untouched.
+- **Cruise is untouched beyond about gap + 0.6 m**: a cruising drone commands ~1.7 m/s more than it flies (drag, the
+  velocity loop's steady state at 9.31 m/s commanded is 7.6), which the envelope covers only past that. So **the gap
+  must stay well under the formation's neighbour spacing**: at d_ref 0.4 (~2 m apart, other scenes' dial minimum) it
+  perturbs cruise (replica: a pair under 1 m for 3.7% of the cruise against 0). The patch cities fly 1.7–2.0.
+- **Measured** (replica): internal_4's 11 swarm runs re-flown from their recorded sticks, 6 seeds, drone-drone kills
+  18 → 2 (a softer 3.0/3 m and a firmer 2.0/5 m setting gave 0 and 1); 600 fresh street routes a row (S9's harness,
+  route indices from 23000, ContactSim) loss events 35 → 4, ×0.11 (0.03–0.32), contacts ×1.07 (0.81–1.43), progress
+  −1.1% route by route, split episodes ×1.19 (1.03–1.39); the spread step response identical (it does nothing with the
+  stick centred). **Unity** (`nshield_bench1`, BlockShapedPatchCityWorld, 300 street routes from 22000 + 40 head-on
+  flights a row, the same flights in both): colliding pairs 15 → 2, ×0.13 (0.01–0.57, p 0.002), building contacts
+  44 → 42 (×0.96, 0.61–1.49), hard contacts 29 → 20, speed −1.0% flight by flight, hull fraction 0.697 → 0.679
+  (−2.6%, ~0.2 fewer drones on the hull in the streets), time in pieces 3.0% → 3.7% (p 0.04), the streets' cohesive
+  speed 6.15 → 6.04 m/s (−1.9%). The head-on flights lost nothing in either row and split round the building
+  0.07 s later. The replica's twins of those flights agree (drones lost per km 0.273 → 0.051, Unity 0.264 → 0.034).
+- **Its costs are the tail held back**: a drone behind a braked one now waits instead of ramming, so the formation is
+  a little slower, splits round a building a little more often and has slightly fewer drones on the hull. Raising
+  the gap or lowering the braking should hold it back more; only the defaults were flown in Unity.
+- The harness is `citysim/nshield.py` (`plan`, `gate`, `unity`, `replica`, `stats`); rows are
+  `experiment_results/neighbour_shield/bench_cands.json`, the scene's law named field by field, off and on.
+
 ## Drone prefab hierarchy (relied on by many scripts)
 
 `Drone N` → child `DroneParent` (has `SwarmAlgorithm`, `AttitudeAlgorithm`, `VelocityControl`, `Rigidbody`)

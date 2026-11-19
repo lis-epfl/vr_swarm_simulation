@@ -356,6 +356,9 @@ public class SwarmAlgorithm : MonoBehaviour
             olfatiSaberAlgorithm.ScaleFactor = swarmManager.GetScaleFactor();
             olfatiSaberAlgorithm.c_damp = swarmManager.GetCDamp();
             olfatiSaberAlgorithm.d_damp = swarmManager.GetDDamp();
+            olfatiSaberAlgorithm.NeighbourShield = swarmManager.GetNeighbourShield();
+            olfatiSaberAlgorithm.NeighbourShieldDecel = swarmManager.GetNeighbourShieldDecel();
+            olfatiSaberAlgorithm.NeighbourShieldGap = swarmManager.GetNeighbourShieldGap();
 
             // Hollow swarm core. HollowCore is the one switch: it gates both the shortened cohesion
             // range (through OlfatiSaber.EffectiveR0Coh) and, with ApplyPlaneConstraint's per-tick

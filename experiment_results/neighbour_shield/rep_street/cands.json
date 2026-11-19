@@ -1,0 +1,36 @@
+{
+ "3655add0fb": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "spreadWrapRule": 1,
+   "neighbourShield": false
+  },
+  "d": 2.0,
+  "label": "SCN the trial scene's law (H15_35a), neighbour shield off"
+ },
+ "679016c226": {
+  "over": {
+   "obstacleShape": 3,
+   "ellipseMaxAspect": 1.5,
+   "d_obs": 0.35,
+   "slideRoundBuildings": true,
+   "routeStragglers": false,
+   "adaptiveSpread": true,
+   "streetSpreadFactor": 0.85,
+   "spreadFilterTime": 3.0,
+   "spreadWrapRule": 1,
+   "neighbourShield": true,
+   "neighbourShieldDecel": 2.5,
+   "neighbourShieldGap": 4.0
+  },
+  "d": 2.0,
+  "label": "NSH the same with the neighbour shield on (decel 2.5 m/s^2, gap 4 m)"
+ }
+}

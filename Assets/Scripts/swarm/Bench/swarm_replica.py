@@ -30,7 +30,7 @@ beta-agents, hollow core, the shield's projection, and S7's three switches: the 
 routing and the adaptive spread -- slide_round, route_round, aim_miss, spread_target -- and S8's obstacleShape: the
 bounds circle, the footprint's enclosing circle or the footprint itself -- enclosing_circle, aim_circle, the
 obstacle branches -- and S10's Ellipse: mvee_axis, ellipse_fit, PolyCity.ellipses, ell_frame, and the S7 rules
-in the ellipse's unit space, _slide_ellipse among them), SwarmPlaneController's core
+in the ellipse's unit space, _slide_ellipse among them -- and the neighbour shield, neighbour_shield), SwarmPlaneController's core
 and spread state (centroid, mean velocity, filtered radius, filtered spread scale), VelocityControl's horizontal loop (stick resolution, shield, velocity P-loop,
 swarm-force low-pass, circular tilt clamp, tilt -> rate -> alpha cascade, linear and angular drag) and
 StateFinder's noise -- AS OF FORCE_LAW_COMMIT. Every number comes from the C# initialisers, the scene, the
@@ -291,6 +291,10 @@ class Model:
         self.max_obs = min(swarm["maxObstacleAccel"], budget)
         self.max_core = min(swarm["maxCoreAccel"], budget)
         self.max_damp = min(swarm["maxDampAccel"], budget)
+        # The neighbour shield (.get, as S7's: a bench run recorded before the fields existed has none of them)
+        self.nshield = bool(swarm.get("neighbourShield", False))
+        self.nshield_decel = float(swarm.get("neighbourShieldDecel", 2.5))
+        self.nshield_gap = float(swarm.get("neighbourShieldGap", 4.0))
         self.max_speed = air["maxSpeed"]
         self.tau_acc = air["timeConstantAcceleration"]
         self.swarm_filter = air["SwarmAccelFilterCoefficient"]
@@ -744,6 +748,24 @@ def remove_inward(v, shield):
         inward = -(v * out).sum(-1)
         v = v + (w * np.maximum(inward, 0.0))[:, None] * out
     return v
+
+
+def neighbour_shield(m, cmd, dist, unit, Vm, pair, shield):
+    """The neighbour shield (SwarmManager.neighbourShield; OlfatiSaber.ShieldFromNeighbours): per neighbour j, in index
+    order as the C# loops the swarm list, the part of drone i's (already building-shielded) command pointing at j is
+    cut to j's own velocity along the line plus sqrt(2 neighbourShieldDecel (d - neighbourShieldGap)), never below zero.
+    Removed, never reversed. The change is then projected out of the buildings within d_shield (remove_inward, as the
+    damper is), so cutting the part towards a neighbour farther from a wall cannot hand back inward stick. dist in
+    metres, unit[i, j] the unit vector i -> j, both from measured positions as the C# reads them."""
+    v = cmd.copy()
+    along = (Vm[None, :, :] * unit).sum(-1)                                      # [i, j] j's velocity along i -> j
+    allowed = along + np.sqrt(2.0 * max(m.nshield_decel, 1e-3) * np.maximum(dist - m.nshield_gap, 0.0))
+    for j in range(len(v)):
+        u = unit[:, j]
+        toward = (v * u).sum(-1)
+        removed = np.where(pair[:, j] & (toward > 0), np.minimum(toward - allowed[:, j], toward), 0.0)
+        v = v - np.maximum(removed, 0.0)[:, None] * u
+    return clamp_norm(cmd + remove_inward(v - cmd, shield), np.linalg.norm(cmd, axis=1, keepdims=True))
 
 
 TIE = 0.1   # a side test reads as a tie below this share of its scale, and falls through to the next one
@@ -1201,6 +1223,8 @@ def swarm_terms(m, city, cand, Pm, Vm, cen, vmean, core_r, dref, cmd, fallback, 
             pdir = np.where((pn > 0.15)[:, None], perp / np.maximum(pn, 1e-9)[:, None], side[:, None] * nv)
             add += (m.shield_slide * w * inward)[:, None] * pdir
         shielded = clamp_norm(shielded + add, cn)
+    if m.nshield and n > 1:
+        shielded = neighbour_shield(m, shielded, dist, unit, Vm, pair, shield)
     if m.route and shield:
         if m.aniso > 1.0:
             raise ValueError("routeStragglers with the aniso prototype is not implemented")

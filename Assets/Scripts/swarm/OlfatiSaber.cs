@@ -108,6 +108,20 @@ public class OlfatiSaber : MonoBehaviour
     public float d_damp = 0.3f;       // swarm units
     public float MaxDampAccel = 4.57f; // world m/s^2, not scaled by ScaleFactor
 
+    // ---- Neighbour shield ----------------------------------------------------------------------
+    // The building shield (ProjectCommandVelocity) takes the stick from a drone at a facade, and only
+    // from that drone: the one behind it on the stick line keeps full stick and closes on it at up to
+    // 9 m/s, from 16-22 m back, which is every drone lost in internal_4. The damper's 3 m reach cannot
+    // shed that (stopping from 9 m/s takes ~9 m at the tilt budget), and the lattice cannot either: at
+    // full stick the velocity loop outvotes its repulsion. So the stick itself is held back, as it is at
+    // a building: the part of it pointing at a neighbour may not exceed that neighbour's own speed that
+    // way plus sqrt(2 decel (d - gap)), the closing speed a braking of NeighbourShieldDecel sheds before
+    // the gap. Only removed, never reversed or lengthened. Not Olfati-Saber's: in the paper neighbours
+    // meet only through the alpha terms. Horizontal swarming only; off, the law is exactly as before.
+    [HideInInspector] public bool NeighbourShield = false;
+    [HideInInspector] public float NeighbourShieldDecel = 2.5f;  // world m/s^2, not scaled by ScaleFactor
+    [HideInInspector] public float NeighbourShieldGap = 4.0f;    // world metres, not scaled by ScaleFactor
+
     public float d_obs = 5.0f;
     public float r0_obs = 6.0f;
     public float lambda_obs = 1.0f;
@@ -227,6 +241,18 @@ public class OlfatiSaber : MonoBehaviour
     // building each such neighbour's line of sight enters).
     private readonly List<Vector3> blockedPull = new List<Vector3>();
 
+    // The neighbour shield's view of each alive neighbour, kept from the last GetSwarmAcceleration as
+    // shieldFrames are (so up to a tick stale in the same way): the horizontal unit direction to it, the
+    // horizontal distance (world metres) and its velocity along that direction. Empty while the shield
+    // is off, which is what makes ProjectCommandVelocity skip it.
+    private struct NeighbourSample
+    {
+        public Vector3 direction;
+        public float distance;
+        public float speedAlong;
+    }
+    private readonly List<NeighbourSample> shieldNeighbours = new List<NeighbourSample>();
+
     // How deep inside the obstacle field this drone was on the last GetObstacleForce: the largest
     // rho_h bump over the obstacles in range, 0 clear of them and 1 at a surface. Kept separately
     // from shieldFrames because that list is only filled when the pilot shield is enabled, and the
@@ -275,6 +301,10 @@ public class OlfatiSaber : MonoBehaviour
             for (int q = 0; q < shieldFrames.Count; q++) blockedPull.Add(Vector3.zero);
         }
 
+        // The neighbour shield acts in horizontal swarming only: a wall is a different formation, as for S7.
+        bool neighbourShieldOn = NeighbourShield && !Is3D && !HasPlaneOffsetTarget;
+        shieldNeighbours.Clear();
+
         // Calculate cohesion and velocity consensus for each neighbour
         float totalNeighbourPlaneOffset = 0f;
         int aliveNeighbourCount = 0;
@@ -307,6 +337,22 @@ public class OlfatiSaber : MonoBehaviour
             }
 
             Vector3 relativePosition = neighbourPosition - position;
+
+            if (neighbourShieldOn)
+            {
+                Vector3 flat = Flat(relativePosition);
+                float flatDistance = flat.magnitude;
+                if (flatDistance > 1e-4f)
+                {
+                    Vector3 direction = flat / flatDistance;
+                    shieldNeighbours.Add(new NeighbourSample
+                    {
+                        direction = direction,
+                        distance = flatDistance,
+                        speedAlong = Vector3.Dot(neighbourVelocity, direction),
+                    });
+                }
+            }
 
             // Constrained mode: only the in-plane part of the separation drives cohesion, so the
             // formation spreads within the plane rather than around the neighbour in 3D.
@@ -822,13 +868,52 @@ public class OlfatiSaber : MonoBehaviour
     /// force alone -- unless SwarmManager.routeStragglers is on (see RouteBlockedPull).
     ///
     /// With SwarmManager.slideRoundBuildings the removed part is turned round the building instead of
-    /// deleted (<see cref="SlideRoundObstacles"/>).
+    /// deleted (<see cref="SlideRoundObstacles"/>). With SwarmManager.neighbourShield the result is then
+    /// held back from any neighbour it is closing on too fast (<see cref="ShieldFromNeighbours"/>).
     /// </remarks>
     public Vector3 ProjectCommandVelocity(Vector3 worldCommand)
     {
-        if (SlideRoundBuildings && FlowActive && d_shield > 0.0f && shieldFrames.Count > 0)
-            return SlideRoundObstacles(worldCommand);
-        return RemoveInwardComponent(worldCommand);
+        Vector3 command = SlideRoundBuildings && FlowActive && d_shield > 0.0f && shieldFrames.Count > 0
+            ? SlideRoundObstacles(worldCommand)
+            : RemoveInwardComponent(worldCommand);
+        return shieldNeighbours.Count > 0 ? ShieldFromNeighbours(command) : command;
+    }
+
+    /// <summary>
+    /// The neighbour shield (SwarmManager.neighbourShield): per neighbour, in the swarm list's order, the
+    /// part of the command pointing at it is cut to that neighbour's own velocity along the line plus
+    /// sqrt(2 NeighbourShieldDecel (d - NeighbourShieldGap)), and never below zero -- removed, never
+    /// reversed, never lengthened. A pair flying together is left alone: in cruise the
+    /// command leads the flown speed by ~1.7 m/s against drag, under the envelope beyond about
+    /// gap + 0.6 m. swarm_replica.neighbour_shield.
+    /// </summary>
+    private Vector3 ShieldFromNeighbours(Vector3 command)
+    {
+        float decel = Mathf.Max(NeighbourShieldDecel, 1e-3f);
+        Vector3 v = command;
+        for (int k = 0; k < shieldNeighbours.Count; k++)
+        {
+            NeighbourSample s = shieldNeighbours[k];
+            float toward = Vector3.Dot(v, s.direction);
+            if (toward <= 0.0f)
+                continue;
+            float allowed = s.speedAlong
+                          + Mathf.Sqrt(2.0f * decel * Mathf.Max(s.distance - NeighbourShieldGap, 0.0f));
+            float removed = Mathf.Min(toward - allowed, toward);
+            if (removed > 0.0f)
+                v -= removed * s.direction;
+        }
+
+        // The change itself is projected out of any building within d_shield, as the damper is: taking
+        // off the part towards a neighbour that stands farther from a wall than this drone takes off an
+        // outward part too, which would hand back the inward stick the building shield removed. Off the
+        // shield (no change) this adds exactly nothing. Held to the command's length, as the slide is.
+        Vector3 result = command + RemoveInwardComponent(v - command);
+        float before = command.magnitude;
+        float after = result.magnitude;
+        if (after > before)
+            result *= before / after;
+        return result;
     }
 
     // ---- S7 Building Flow: slide and straggler routing -----------------------------------------

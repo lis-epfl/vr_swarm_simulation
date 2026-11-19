@@ -177,6 +177,34 @@ public class SwarmManager : MonoBehaviour
              "shield is braking into the facade.")]
     public float maxDampAccel = 4.57f;
 
+    // ---- Neighbour shield (internal_4's losses, 2026-11-19) -----------------------------------
+    [Header("Neighbour Shield")]
+    [Tooltip("Hold back a drone closing on a slower neighbour faster than it could stop before neighbourShieldGap. " +
+             "The building shield takes the stick from a drone at a facade while the drone behind it on the stick " +
+             "line keeps full stick: every drone lost in internal_4 was such a pair, closing at up to 9 m/s from " +
+             "16-22 m back, too fast for the damper's 3 m reach. On, the part of a drone's stick pointing at a " +
+             "neighbour may not exceed that neighbour's own speed that way plus the closing speed a braking of " +
+             "neighbourShieldDecel sheds before the gap, sqrt(2 decel (d - gap)). Nothing else changes: it only " +
+             "removes the stick's part towards a neighbour (never reverses or lengthens it), so a pair cruising " +
+             "together is untouched beyond about gap + 0.6 m, and with the stick centred it does nothing. Horizontal " +
+             "swarming only. A lone drone has no neighbours, so the single-drone condition is unchanged. Off is the " +
+             "law exactly as before.")]
+    public bool neighbourShield = false;
+
+    [Tooltip("The braking (m/s^2) the neighbour shield's envelope assumes, below the tilt budget (4.57 at 25 deg) " +
+             "so the swarm's own forces keep a share of it. The velocity loop lags the envelope by about decel x " +
+             "0.75 s, which costs decel x 0.56 m of the gap.")]
+    [Range(0.5f, 4.5f)]
+    public float neighbourShieldDecel = 2.5f;
+
+    [Tooltip("Where the neighbour shield's envelope brings the closing speed to zero, in metres between drone " +
+             "centres (world metres, not swarm units). The velocity loop's lag eats about 1.4 m of it at the default " +
+             "braking, and the close-range damper (d_damp) works inside it. Keep it well under the lattice's spacing: " +
+             "a cruising pair closer than about gap + 0.6 m is slowed, because a cruising drone commands ~1.7 m/s " +
+             "more than it flies against drag.")]
+    [Range(0.0f, 10.0f)]
+    public float neighbourShieldGap = 4.0f;
+
     // ---- S7 Building Flow (docs/swarm_flow/README.md) ------------------------------------------
     // Three independent switches on how the swarm moves among buildings. Each one off is the force law
     // exactly as it was, and each acts in horizontal swarming only (not in vertical-plane mode).
@@ -511,6 +539,11 @@ public class SwarmManager : MonoBehaviour
     public float GetCDamp() => c_damp;
     public float GetDDamp() => d_damp;
     public float GetMaxDampAccel() => maxDampAccel;
+
+    // Getters for the neighbour shield
+    public bool GetNeighbourShield() => neighbourShield;
+    public float GetNeighbourShieldDecel() => neighbourShieldDecel;
+    public float GetNeighbourShieldGap() => neighbourShieldGap;
 
     // Getters for S7 Building Flow
     public bool GetSlideRoundBuildings() => slideRoundBuildings;
