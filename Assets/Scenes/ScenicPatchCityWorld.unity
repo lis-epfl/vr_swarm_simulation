@@ -528454,6 +528454,7 @@ MonoBehaviour:
     splitFaces: 1
     heading: 0
     bandHalfDeg: 0
+    streamWidth: 2048
   screenStyle: 1
   autoStyle: 1
   formationMapAtNadir: 0
@@ -528593,7 +528594,7 @@ MonoBehaviour:
   dronesAlongX: 3
   dronesAlongZ: 3
   droneSpacing: 5
-  circleDroneCount: 10
+  circleDroneCount: 1
   circleRadius: 5
   start_x: -456
   start_y: 0
@@ -528632,9 +528633,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc57387dd9a883740b6af778f897e6b8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  participantId: ALEX
+  participantId: YEGO
   trialNumber: 2
-  condition: 0
+  condition: 1
   sampleHz: 10
   correctKey: 49
   incorrectKey: 50
