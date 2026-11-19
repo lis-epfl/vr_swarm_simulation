@@ -125,7 +125,7 @@ def fig_tracks(log_rows, out, n_people=3):
         people = [r for r in rr if r.condition == V.HUMAN_COND[cond]]
         k = 0
         for r in people:
-            for L in analyse.goal_legs(r, VH.ZONE_M):
+            for L in analyse.goal_legs(r, VH.ZONE_M, rule="zone"):
                 if k >= n_people:
                     break
                 g = L["goal"]

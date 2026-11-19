@@ -225,9 +225,14 @@ function barPanels(el, rows, panels) {
 }
 
 // ---------------------------------------------------------------- the masthead
+// How analyse.goal_legs cut the phases: at each goal's answer press (since 2026-11-18, wherever the goals have answer
+// times), or by the zones alone (internal_1 and internal_2, whose answers carry no time).
+const BY_ANSWER = D.phase_rule === "answer";
 const MEASURES = {total: ["Total time", "the whole task, from the start line to the last answer"],
-                  search: ["Time at a goal", "from entering a goal's zone to leaving it for the next, summed over the three goals"],
-                  transit: ["Time between goals", "from leaving one goal's zone (the start line, for the first) to entering the next, summed"]};
+                  search: ["Time at a goal", BY_ANSWER ? "from entering a goal's zone to answering it, summed over the three goals"
+                                                       : "from entering a goal's zone to leaving it for the next, summed over the three goals"],
+                  transit: ["Time between goals", BY_ANSWER ? "from one answer (the start line, for the first) to entering the next goal's zone, summed"
+                                                            : "from leaving one goal's zone (the start line, for the first) to entering the next, summed"]};
 function verdict(s) {
   if (!s) return ["na", "Not measured"];
   if (s.ratio > 1 / 1.1 && s.ratio < 1.1) return ["part", "About level"];       // within 10% either way
@@ -277,7 +282,8 @@ function MASTHEAD() {
     <span><span class="dot" style="background:var(--k-single)"></span><b>Single drone</b></span>
     ${HAS_SPHERE ? `<span><span class="dot" style="background:var(--k-sphere)"></span><b>360 sphere</b> (one drone, its 360 camera all round the pilot)</span>` : ""}
     <span><span class="dot hollow" style="border-color:var(--ink-2)"></span>a practice run: drawn, counted in no summary</span>
-    <span><b>At a goal</b>: in its zone, ${D.zone} m round its patch</span><span><b>Between goals</b>: from one zone to the next</span>`;
+    ${BY_ANSWER ? `<span><b>At a goal</b>: from entering its zone, ${D.zone} m round its patch, to the answer</span><span><b>Between goals</b>: from one answer to the next zone</span>`
+                : `<span><b>At a goal</b>: in its zone, ${D.zone} m round its patch</span><span><b>Between goals</b>: from one zone to the next</span>`}`;
 }
 
 // ---------------------------------------------------------------- tabs
@@ -355,10 +361,12 @@ RENDER.results = el => {
   el.innerHTML = `<div class="ans">${banner}
     ${qCard(1, "total", "c-total", totalBody)}
     ${qCard(2, "search", "c-search", `${pilotLines(se)}
-      <li><b>At a goal</b> is the time from the swarm's centre (or the single drone) entering a goal's zone, ${D.zone} m round its patch, to leaving it for the next goal: the search there, and any wandering off and back.</li>
+      ${BY_ANSWER
+        ? `<li><b>At a goal</b> is the time from the swarm's centre (or the single drone) entering a goal's zone, ${D.zone} m round its patch, to the press that answered it: the search there, and any wandering off and back before the answer. What follows the answer, including passing back through the zone while looking for the next goal, is time between goals.</li>`
+        : `<li><b>At a goal</b> is the time from the swarm's centre (or the single drone) entering a goal's zone, ${D.zone} m round its patch, to leaving it for the next goal: the search there, and any wandering off and back.</li>`}
       <li><b>Pooled:</b> ${times(se && se.ratio)}, p ${pv(se && se.p)}.</li>`)}
     ${qCard(3, "transit", "c-transit", `${pilotLines(tr)}
-      <li><b>Between goals</b> runs from leaving one goal's zone to entering the next; the first leg starts at the start line (median ${secs(median(firstLeg.map(g => g.transit)))}).</li>
+      <li><b>Between goals</b> runs from ${BY_ANSWER ? "one goal's answer" : "leaving one goal's zone"} to entering the next goal's zone; the first leg starts at the start line (median ${secs(median(firstLeg.map(g => g.transit)))}).</li>
       <li><b>Pooled:</b> ${times(tr && tr.ratio)}, p ${pv(tr && tr.p)}. ${longLegText()}</li>`)}
     ${SPH ? sphereCard() : ""}
     <div class="intro"><h2>Other results</h2><p>The same three on every page, then what stood out in this series.</p></div>
@@ -598,8 +606,11 @@ const TERMS = [
     ["Start line", "A line 30 m ahead of the spawn; the first drone to cross it starts the task. Recorded from 26 October 2026; before that, the same crossing is found in the drone logs (derived). Take-off and looking round before it are not timed."],
     ["Total time", "From the start line to the last answer press; where answers were not pressed (internal_2), to the end of the recording, which the experimenter stopped at the last answer."],
     ["Goal zone", "A goal's patch (a city tile, or a block-shaped city's ring of buildings) grown by 15 m: the whole street round it. Position is the formation's centre (alive drones), or the single drone."],
-    ["Time at a goal", "From entering a goal's zone to the last time it is left before the next goal's zone is entered (for the last goal, its last exit). Leaving and coming back still counts as at the goal."],
-    ["Time between goals", "From leaving one goal's zone to entering the next; the first leg runs from the start line. With the time at the goals it covers the run from the start line to the last goal's last exit, which can differ from the total time by the moments after the last answer."],
+    ...(BY_ANSWER ? [
+    ["Time at a goal", "From the first entry into a goal's zone after the previous goal was answered to the press that answered this one; goals are taken in the order answered. Leaving and coming back before the answer still counts as at the goal; a goal answered from outside its zone has none. Where a run's answers carry no time, the zone rule below applies."],
+    ["Time between goals", "From one goal's answer to entering the next goal's zone; the first leg runs from the start line. Everything after an answer is here, flying out of the patch and any pass back through it while looking for the next goal included, so with the time at the goals it adds up to the total time."]] : [
+    ["Time at a goal", "From entering a goal's zone to the last time it is left before the next goal's zone is entered (for the last goal, its last exit). Leaving and coming back still counts as at the goal. (Series whose answers carry press times are cut at the answers instead.)"],
+    ["Time between goals", "From leaving one goal's zone to entering the next; the first leg runs from the start line. With the time at the goals it covers the run from the start line to the last goal's last exit, which can differ from the total time by the moments after the last answer."]]),
     ["Ratio, pooled", "Swarm ÷ single drone: per pilot the ratio of the geometric means of their runs, pooled as the geometric mean over the pilots, so each pilot counts once. Swarm ÷ 360 sphere is the same, over the pilots who flew both."],
     ["p (permutation)", "The share of all relabellings of which runs were the swarm's, within each pilot and keeping the numbers of runs, that give a pooled ratio at least as far from 1. With two pilots and two runs each there are 36, so p cannot go below 2/36 = 0.056: no difference can be significant at 0.05 in such a design. With one pilot and two runs each there are 6, and p cannot go below 1/3."]]],
   ["How the pilot flew", [

@@ -42,11 +42,17 @@ of half-width TILE_HALF about the goal patch centre: the block plus half of each
 by `zone` metres, so 15 m takes in the whole street around the patch, up to the opposite kerb. A procedural
 goal's patch is a disc of its patchRadius instead (ring radius plus a ring building's half-diagonal), grown
 the same way -- the zone ExperimentRecorder's auto-scored identify uses (IGoalZone). Position is
-the centroid of the alive drones (the drone itself in SingleDrone runs). Goals are ordered by first entry
-into their zone. *Transit* leg k runs from the last exit of zone k-1 before that entry (the task start
-for k = 1, see below) to the first entry of zone k; *search* k runs from that entry to the
-last exit of zone k before zone k+1 is entered (for the last goal, its last exit). Leaving a zone and coming
-back is still searching it. A goal whose zone is never entered has no phases and is reported as unreached.
+the centroid of the alive drones (the drone itself in SingleDrone runs). Goals are ordered by when they were
+answered (the pilot's press, overrides included). *Search* k runs from the first entry into zone k after goal
+k-1 was answered to goal k's answer; *transit* k from goal k-1's answer (the task start for k = 1, see below) to
+that entry. So whatever the pilot does after an answer -- flying out of the patch, or passing back through it
+while looking for the next goal -- is transit, and leaving a zone and coming back before its answer is still
+searching it. A goal answered from outside its zone has no search time. Since 2026-11-18; before, the phases
+followed the zones alone (rule "zone", which goal_legs keeps): goals in order of first entry, search k from
+that entry to the last exit of zone k before zone k+1 was entered, so a revisit after the answer counted as
+searching the goal already found. A goal with no answer time (never answered, or answered by hand afterwards:
+internal_1 and internal_2 have none) and every goal after it still take the zone rule. A goal whose zone is
+never entered and that was never answered has no phases and is reported as unreached.
 
 Task start -- --start, default auto. Runs recorded since 2026-10-26 carry a start line (StartLine, 30 m ahead of
 the spawn): the task starts when the first live drone crosses it (session JSON startLineSec), so take-off and
@@ -384,19 +390,47 @@ def patch_half(g):
     return g["patchRadius"] if g.get("zoneShape") == "disc" else TILE_HALF
 
 
-def goal_legs(run, zone):
-    """Legs in zone order, dict(leg, gi, goal, t0, enter, exit): transit is [t0, enter), search [enter, exit).
-    Leg 1 starts at the task start (run.start) where there is one, else at the first sample."""
+def answer_time(g):
+    """When goal g was answered on the run's clock (the press; overrides applied), or None: never answered, or
+    answered with no time (answers filled in by hand afterwards)."""
+    t = float(g.get("decisionTimeSec", -1.0) or -1.0) if g.get("answered") else -1.0
+    return t if t >= 0 else None
+
+
+def goal_legs(run, zone, rule="answer"):
+    """Legs in order, dict(leg, gi, goal, t0, enter, exit): transit is [t0, enter), search [enter, exit).
+    Leg 1 starts at the task start (run.start) where there is one, else at the first sample.
+
+    rule "answer" (the phases' definition, module docstring): goals in the order answered, search from the first
+    zone entry after the previous answer to the goal's own answer, so time after an answer is transit to the next.
+    Goals without an answer time, and any reached after the last answer, take the zone rule over what is left.
+    rule "zone" (before 2026-11-18, and the studies whose stored results were measured with it): goals in order of
+    first zone entry, search from that entry to the last exit before the next goal's zone is entered."""
     inside = [tile_distance(run.cx, run.cz, g) <= zone for g in run.goals]
-    entry = [int(np.argmax(zn)) if zn.any() else None for zn in inside]
-    order = sorted((k for k, e in enumerate(entry) if e is not None), key=lambda k: entry[k])
-    legs, start = [], float(run.ct[0]) if run.start is None else run.start
+    start = float(run.ct[0]) if run.start is None else run.start
+    answered = {}
+    if rule == "answer":
+        answered = {k: t for k, g in enumerate(run.goals) if (t := answer_time(g)) is not None and t >= start}
+    elif rule != "zone":
+        raise ValueError(f"goal_legs: unknown rule {rule!r}")
+    legs = []
+    for k in sorted(answered, key=answered.get):
+        t_ans = max(answered[k], start)
+        hit = np.flatnonzero(inside[k] & (run.ct >= start) & (run.ct < t_ans))
+        enter = float(run.ct[hit[0]]) if len(hit) else t_ans
+        legs.append(dict(leg=len(legs) + 1, gi=k, goal=run.goals[k], t0=start, enter=max(enter, start), exit=t_ans))
+        start = t_ans
+    # the zone rule over the goals left (all of them under rule "zone", or with no answer at all: exactly as before)
+    rest = [k for k in range(len(run.goals)) if k not in answered]
+    after = run.ct >= start if answered else np.ones(len(run.ct), bool)
+    entry = {k: int(np.argmax(inside[k] & after)) for k in rest if (inside[k] & after).any()}
+    order = sorted(entry, key=entry.get)
     for pos, k in enumerate(order):
         stop = entry[order[pos + 1]] if pos + 1 < len(order) else len(run.ct)
         j = np.flatnonzero(inside[k][:stop])[-1]
         exit_ = float(run.ct[j] + run.cdt[j])
         enter = float(run.ct[entry[k]])
-        legs.append(dict(leg=pos + 1, gi=k, goal=run.goals[k], t0=min(start, enter), enter=enter, exit=exit_))
+        legs.append(dict(leg=len(legs) + 1, gi=k, goal=run.goals[k], t0=min(start, enter), enter=enter, exit=exit_))
         start = exit_
     return legs
 

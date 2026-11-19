@@ -3153,7 +3153,14 @@ analysed in *tests*, one folder per test series** (`internal_1`, `internal_2`, �
 with another's. A single script, `Assets/Scripts/Experiment/analyse.py`, does everything — one run loader,
 one phase definition (transit/search split at a configurable metre zone around each goal, default 15 m),
 one set of plot helpers — replacing what used to be nine separate scripts with duplicated, disagreeing
-logic. Run it with the `stitching` miniconda env (see above): the default `python` has no pandas built
+logic. **Since 2026-11-18 a goal's search ends at the press that answered it** (`goal_legs` rule `answer`, the
+user's request): everything after an answer is transit to the next goal, so flying out of the patch, or passing
+back through it while looking for the next goal (YEGO's second swarm run), no longer counts as searching a goal
+already found. Runs whose answers carry no time (internal_1, internal_2) keep the old cut, at the last zone exit
+before the next goal's zone (rule `zone`), and so do the citysim studies whose stored results were measured with
+it (S2's pilot fit and search, S12's `views_human`/`views_figs`, `operator_band`, `checks`), which pass
+`rule="zone"`. internal_3's `results/` tables predate the change and are left so, because S2's `pilotfit` reads
+its `legs.csv`. Run it with the `stitching` miniconda env (see above): the default `python` has no pandas built
 against a compatible ABI here, and this project's convention is to keep every analysis interpreter the one
 used for the stitcher.
 

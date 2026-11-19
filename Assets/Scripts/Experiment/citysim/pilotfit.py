@@ -104,7 +104,7 @@ def windows(test="internal_3", root=DEFAULT_ROOT, zone=15.0):
     legs_csv = pd.read_csv(results_dir(test) / "legs.csv", sep=None, engine="python")
     out = []
     for r in runs:
-        for L in analyse.goal_legs(r, zone):
+        for L in analyse.goal_legs(r, zone, rule="zone"):
             row = legs_csv[(legs_csv.run == r.stem) & (legs_csv.leg == L["leg"]) & (legs_csv.phase == "transit")]
             if not len(row) or not np.isfinite(row.discoverySec.iloc[0]):
                 continue

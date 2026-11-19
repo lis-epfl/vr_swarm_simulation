@@ -54,6 +54,7 @@ FAMILIES = {"cmd", "dial", "prox", "hat", "street", "disc", "stitch", "crash"}
 COND = {"Swarm": "swarm", "SingleDrone": "single", "SingleSphere": "sphere"}
 SINGLE, SPHERE = ("Swarm", "SingleDrone"), ("Swarm", "SingleSphere")   # the two comparisons: swarm ÷ the other
 DT = 0.2                        # s between replay frames
+WALKER_DT = 0.5                 # s between a hat-wearer's replay frames (they walk ~1.2 m/s; the player interpolates)
 SMOOTH = ["stick_tv_per_min", "adj_per_min", "mean_hold_s", "course_turn_per_min", "cmd_straightness", "act_path_ratio"]
 RUN_COLS = ["run", "pid", "order", "trial", "condition", "practice", "date", "durationSec", "startSec", "startSource",
             "time_s", "time_source", "transit_s", "search_s", "goalsReached", "nGoals", "nCorrect", "falseAlarms",
@@ -555,17 +556,45 @@ def flight_record(T, run, loss_rows):
             start = dict(t=run.start, x=float(run.cx[0] + math.sin(hd) * A.START_LINE_DISTANCE_M),
                          z=float(run.cz[0] + math.cos(hd) * A.START_LINE_DISTANCE_M), heading=A.START_LINE_HEADING_DEG,
                          derived=True)
-    bands = [dict(label="at a goal (in its zone)", tone="good", spans=[[round(L["enter"], 1), round(L["exit"], 1)] for L in legs])]
+    # each goal's hat-wearer as the recorder logged it (_walkers.csv, the special walker only: the other pedestrians are
+    # not recorded), on a grid of its own, in decimetres as the drones are
+    walkers = []
+    wk = run.walkers
+    if wk is not None and len(wk):
+        for gi, g in enumerate(run.goals):
+            w = wk[wk.goalIndex == g.get("goalIndex", gi)].sort_values("t")
+            if len(w) < 2:
+                continue
+            tw = w.t.to_numpy(float)
+            wg = np.arange(tw[0], tw[-1] + 1e-9, WALKER_DT)
+            xz = np.stack([np.interp(wg, tw, w.specialX.to_numpy(float)), np.interp(wg, tw, w.specialZ.to_numpy(float))], -1)
+            walkers.append(dict(goal=gi, label=A.hat_name(g) or f"goal {gi + 1}", t0=round(float(wg[0]), 2), dt=WALKER_DT,
+                                xz=np.round(xz * 10).astype(int).ravel().tolist()))
+    bands = [dict(label="at a goal (zone entry to its answer)" if any(A.answer_time(g) is not None for g in run.goals)
+                  else "at a goal (in its zone)", tone="good", spans=[[round(L["enter"], 1), round(L["exit"], 1)] for L in legs])]
     st = T["res"]["stitch"].get(run.stem)
     if st:
         on = [[round(a, 1), round(b, 1)] for a, b, kind, _ in st[1] if kind == "on"]
         if on:
             bands.append(dict(label="panorama on screen", tone="muted", spans=on))
-    return rec, dict(goals=goals, presses=presses, start=start), bands
+    return rec, dict(goals=goals, presses=presses, start=start, walkers=walkers), bands
 
 
 def run_title(r, order):
     return f"{order}. {'Swarm' if r.condition == 'Swarm' else 'Single drone' if r.condition == 'SingleDrone' else r.condition} t{r.trial}"
+
+
+def write_text(p, s, tries=8):
+    """Path.write_text, retried: something on this machine (a scanner or the editor's watcher) briefly holds a replay
+    file just rewritten, and Windows then refuses the open with EINVAL / EACCES."""
+    for k in range(tries):
+        try:
+            p.write_text(s, encoding="utf-8")
+            return
+        except OSError:
+            if k == tries - 1:
+                raise
+            time.sleep(0.25 * (k + 1))
 
 
 def replays(T, dest):
@@ -578,7 +607,7 @@ def replays(T, dest):
         if cid not in done:
             p = dest / "replay" / "cities" / f"{cid}.json"
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(city, separators=(",", ":")), encoding="utf-8")
+            write_text(p, json.dumps(city, separators=(",", ":")))
             files[f"replay/cities/{cid}.json"] = p
             done.add(cid)
         rec, marks, bands = flight_record(T, r, [x for x in loss if x["run"] == r.stem])
@@ -594,7 +623,7 @@ def replays(T, dest):
                            span=300 if r.condition == "Swarm" else 220, pid=r.pid)
         p = dest / "replay" / "flights" / f"{r.stem}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(_clean(f), separators=(",", ":")), encoding="utf-8")
+        write_text(p, json.dumps(_clean(f), separators=(",", ":")))
         files[f"replay/flights/{r.stem}.json"] = p
         g = groups.setdefault(r.pid, dict(id=r.pid, title=r.pid, short=r.pid, kind="runs", flights=[],
                                           about=f"{r.pid}'s runs, in the order flown. The clock is the recording's, from Play; "
@@ -669,6 +698,8 @@ def build_page(test):
     data = dict(
         built=time.strftime("%Y-%m-%d %H:%M"), test=test, notes=notes, timed=is_timed, total_col=total_col,
         pages=pg, hub=HUB_URL, nav=nav, zone=T["cfg"].zone, range=T["cfg"].range,
+        # how the phases were cut (analyse.goal_legs): at the answers where the goals have answer times, else by zones
+        phase_rule="answer" if any(A.answer_time(g) is not None for r in runs for g in r.goals) else "zone",
         pilots=sorted({r.pid for r in runs}), n_runs=len(runs), n_practice=int(rows.practice.astype(bool).sum()),
         dates=sorted({r.date for r in runs}),
         city=[notes["meta"]["city"]] if notes["meta"].get("city") else sorted({r.city for r in runs}),

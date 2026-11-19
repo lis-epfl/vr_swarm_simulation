@@ -1,5 +1,5 @@
 {
- "built": "2026-11-10 17:45",
+ "built": "2026-11-19 14:33",
  "test": "internal_2",
  "notes": {
   "title": "internal_2 \u00b7 ScaledCityWorld",
@@ -145,7 +145,13 @@
  },
  "timed": true,
  "total_col": "time_s",
- "pages": {},
+ "pages": {
+  "index": "https://claude.ai/artifact/8Vv3kXf2Y8Hdrub1STh2he",
+  "internal_1": "https://claude.ai/artifact/57xqwjy4e8HM8dtBqDknph",
+  "internal_2": "https://claude.ai/artifact/VAeV4ME137fe6NdwrYXf5e",
+  "internal_3": "https://claude.ai/artifact/6bakNxhgxPK6Uwp5vef53k",
+  "internal_4": "https://claude.ai/artifact/Dzf97YXp5c1j41BRWuNQGb"
+ },
  "hub": "https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5",
  "nav": {
   "prev": "internal_1",
@@ -153,6 +159,7 @@
  },
  "zone": 15.0,
  "range": 40.0,
+ "phase_rule": "zone",
  "pilots": [
   "AABB",
   "AABC"

@@ -311,9 +311,10 @@ const RV = (() => {
     const $ = s => el.querySelector(s);
     const canvas = $("canvas"), slider = $(".rv-t"), clock = $(".rv-clock"), btn = $(".rv-play"), spd = $(".rv-speed");
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const layers = { seen: true, route: true, trails: true, wedges: true, cylinders: false, other: true, follow: true };
+    const layers = { seen: true, route: true, trails: true, wedges: true, cylinders: false, other: true, follow: true, walkers: true };
     const LAYER_TEXT = [["follow", "follow the formation"], ["seen", "streets seen so far"], ["route", "the pilot's route ahead"],
-      ["trails", "trails"], ["wedges", "feeds' view (zoomed in)"], ["cylinders", "avoidance cylinders"], ["other", "the other source's drones"]];
+      ["trails", "trails"], ["wedges", "feeds' view (zoomed in)"], ["cylinders", "avoidance cylinders"], ["other", "the other source's drones"],
+      ["walkers", "the hat-wearers"]];
     let G = null, entry = null, F = null, C = null, OTHER = null, t = 0, playing = false, last = 0, raf = 0, cam = null, visible = true;
     let shownGroup = null;
     const view = new MapView(canvas, { aspect: 0.66, minH: 300, maxH: 760, onHover: hover, onMove: () => { if (layers.follow) { layers.follow = false; drawLayers(); } } });
@@ -385,7 +386,8 @@ const RV = (() => {
     // ---- layers and legend
     function drawLayers() {
       const show = LAYER_TEXT.filter(([k]) => k !== "cylinders" || (C && (C.cyl || C.ell))).filter(([k]) => k !== "other" || OTHER)
-        .filter(([k]) => !F || !F.marks || (k !== "seen" || F.seenOrder) && (k !== "route" || (F.wps && F.wps.length)));   // a recorded trial has neither
+        .filter(([k]) => !F || !F.marks || (k !== "seen" || F.seenOrder) && (k !== "route" || (F.wps && F.wps.length)))   // a recorded trial has neither
+        .filter(([k]) => k !== "walkers" || (F && F.marks && (F.marks.walkers || []).length));
       $(".rv-layers").innerHTML = show.map(([k, txt]) => `<label><input type="checkbox" data-l="${k}" ${layers[k] ? "checked" : ""}> ${txt}</label>`).join("");
       $(".rv-layers").querySelectorAll("input").forEach(i => i.addEventListener("change", () => {
         layers[i.dataset.l] = i.checked;
@@ -406,6 +408,7 @@ const RV = (() => {
         F.contacts.length ? `<span><span class="sw" style="background:var(--warn);width:7px;height:7px;transform:rotate(45deg)"></span>building contact</span>` : "",
         F.target ? `<span>★ the target (dashed: ${findM(F)} m)</span>` : "",
         F.marks && (F.marks.goals || []).length ? `<span>☆ a goal, its zone dashed (green once found)</span>` : "",
+        F.marks && (F.marks.walkers || []).length ? `<span><span class="sw" style="background:var(--warn);border:1.5px solid var(--ink);border-radius:50%;width:8px;height:8px"></span>a goal's hat-wearer, with its last 20 s (the other pedestrians are not recorded)</span>` : "",
         F.marks && (F.marks.presses || []).length ? `<span><b style="color:var(--good)">▲</b><b style="color:var(--bad)">▲</b><b style="color:var(--warn);margin-right:5px">▲</b>a press: correct, false alarm, outside every zone</span>` : "",
         F.marks && F.marks.start ? `<span><span class="ln" style="border-color:var(--ink-2);border-top-style:dashed"></span>the start line</span>` : "",
         OTHER ? `<span><span class="sw" style="background:transparent;border:1.5px solid var(--ink-2);width:9px;height:9px"></span>${OTHER.source === "unity" ? "Unity's" : "the replica's"} flight of the same ${F.unit || (F.kind === "search" ? "route" : "walk")}</span>` : ""];
@@ -449,6 +452,21 @@ const RV = (() => {
         const x = v.sx(g.x), y = v.sy(g.z);
         star(c, x, y, 7); c.fillStyle = found ? T.good : T.panel; c.fill(); c.strokeStyle = col; c.lineWidth = 1.5; c.stroke();
         label(c, x + 10, y - 10, found ? `${g.label}: found at ${fmtT(g.found)}` : g.label, { color: col });
+      }
+      if (layers.walkers) for (const w of M.walkers || []) {     // the hat-wearer: where it is now, and its last 20 s
+        const n = w.xz.length / 2, u = (t - w.t0) / w.dt;
+        if (u < 0 || n < 1) continue;
+        const i0 = Math.min(n - 1, Math.floor(u)), i1 = Math.min(n - 1, i0 + 1), a = Math.min(1, u - i0);
+        const wx = lerp(w.xz[2 * i0], w.xz[2 * i1], a) / 10, wz = lerp(w.xz[2 * i0 + 1], w.xz[2 * i1 + 1], a) / 10;
+        c.strokeStyle = rgba(T.warn, 0.55); c.lineWidth = 1.4; c.beginPath();
+        for (let j = Math.max(0, i0 - Math.round(20 / w.dt)); j <= i0; j++) {
+          const x = v.sx(w.xz[2 * j] / 10), y = v.sy(w.xz[2 * j + 1] / 10);
+          if (j === Math.max(0, i0 - Math.round(20 / w.dt))) c.moveTo(x, y); else c.lineTo(x, y);
+        }
+        c.lineTo(v.sx(wx), v.sy(wz)); c.stroke();
+        const x = v.sx(wx), y = v.sy(wz), r = Math.max(3, Math.min(6, 0.8 * v.k));
+        c.beginPath(); c.arc(x, y, r, 0, 2 * Math.PI); c.fillStyle = T.warn; c.fill(); c.strokeStyle = T.ink; c.lineWidth = 1.3; c.stroke();
+        if (v.k >= 1.5) label(c, x + r + 4, y + 8, w.label, { color: T.ink, font: "500 10px Barlow, system-ui, sans-serif" });
       }
       for (const p of M.presses || []) if (p.t <= t) {
         const x = v.sx(p.x), y = v.sy(p.z), col = pressTone(p.outcome), age = t - p.t;

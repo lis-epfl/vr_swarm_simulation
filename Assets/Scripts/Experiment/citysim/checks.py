@@ -38,7 +38,7 @@ def replay_test(test, root=DEFAULT_ROOT, zone=15.0):
     _, _, runs = load_runs(test, root)
     rows = []
     for r in runs:
-        legs = analyse.goal_legs(r, zone)
+        legs = analyse.goal_legs(r, zone, rule="zone")
         boxes = analyse.scene_boxes(r.goals, r.city, r.goal_width)
         for row in replay.summary(r, boxes, legs):
             L = next((L for L in legs if r.goals[L["gi"]].get("goalIndex", L["gi"]) == row["goalIndex"]), None)
@@ -105,7 +105,7 @@ def _predict_job(job):
     fp = Footprints(boxes)
     fpn = fp.subset(fp.near(info["centre"], 130.0))
     near = [boxes[i] for i in Boxes(boxes).near(info["centre"], 250.0)]
-    legs = analyse.goal_legs(run, 15.0)
+    legs = analyse.goal_legs(run, 15.0, rule="zone")
     L = next((L for L in legs if L["gi"] == gi), None)
     if L is not None:      # arrive from where the run arrived
         x, z = analyse.pos_at(run.centroid, L["enter"])

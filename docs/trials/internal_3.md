@@ -74,7 +74,7 @@ condition flown second.
 
 That makes this series a measure of practice as much as of the swarm. The one phase both pilots agree on is the way
 between goals, where the swarm was quicker for both; at the goals BBAA's swarm took about half the single drone's time and
-BBCC's about twice. BBCC flew the swarm at the tightest spread and lost eight drones in its two swarm runs, while BBAA kept
+BBCC's about two and a half times. BBCC flew the swarm at the tightest spread and lost eight drones in its two swarm runs, while BBAA kept
 the spread near 1.0. With two pilots and two runs each, no ratio here could reach p 0.05 however one-sided.
 
 ## Data notes
@@ -85,3 +85,6 @@ the spread near 1.0. With two pilots and two runs each, no ratio here could reac
 - The editor log of that day is not in the series folder, so the losses carry no recorded reason here; the log read on
   1 October named every one a drone-drone collision (one pair after a street-light pole).
 - The task is timed from the start line, found in the drone logs; the series itself was timed from Play.
+- The time at a goal ends at the press that answered it, and what follows is time between goals (since 18 November
+  2026). It used to end at the last exit from the goal's zone before the next goal's zone was entered, which counted
+  flying out of the patch after the answer, and any pass back through it, as time at the goal.

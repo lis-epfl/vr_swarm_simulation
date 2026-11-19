@@ -58,7 +58,7 @@ def calibrate(test, root=DEFAULT_ROOT, zone=15.0):
     _, _, runs = analyse.load_test(str(root), test)
     pools = {}
     for r in runs:
-        legs = analyse.goal_legs(r, zone)
+        legs = analyse.goal_legs(r, zone, rule="zone")
         h = r.head
         t = h.t.values
         search = np.zeros(len(t), bool)

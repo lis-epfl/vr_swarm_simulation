@@ -1022,7 +1022,7 @@ def check_scenarios(test="internal_3", root=None, seeds=CHECK_SEEDS):
     import analyse
     out = []
     for r, t0, t1, leg in pilotfit.windows(test, root or DEFAULT_ROOT):
-        L = next(L for L in analyse.goal_legs(r, 15.0) if L["leg"] == leg)
+        L = next(L for L in analyse.goal_legs(r, 15.0, rule="zone") if L["leg"] == leg)
         g = L["goal"]
         sel = (r.ct >= t0) & (r.ct < t1)
         st = track_stats(r.ct[sel], np.c_[r.cx[sel], r.cz[sel]])

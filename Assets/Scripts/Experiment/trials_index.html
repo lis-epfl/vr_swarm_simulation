@@ -184,8 +184,8 @@ RENDER.times = el => {
     <div class="box"><div class="chart" id="ratios"></div></div>
     <div class="box"><h3>How the times are defined</h3><ul class="small">
       <li><b>Total time</b>: from the first drone crossing the start line, 30 m ahead of the spawn (recorded from 26 October 2026, found in the drone logs before), to the last answer press, or where answers were not pressed, the end of the recording.</li>
-      <li><b>Time at a goal</b>: from the formation's centre entering a goal's zone (its patch and 15 m round it) to leaving it for the next goal, summed over the three goals.</li>
-      <li><b>Time between goals</b>: from leaving one zone (the start line, for the first) to entering the next, summed.</li>
+      <li><b>Time at a goal</b>: from the formation's centre entering a goal's zone (its patch and 15 m round it) to the press that answered it, summed over the three goals. Where the answers carry no time (internal_1, internal_2), to leaving the zone for the next goal instead.</li>
+      <li><b>Time between goals</b>: from one goal's answer (the start line, for the first) to entering the next goal's zone, summed: after an answer, everything until the next zone is reached counts here, a pass back through the old zone included. Without answer times, from leaving one zone to entering the next.</li>
       <li><b>Ratio and p</b>: per pilot the ratio of the geometric means of their swarm and single-drone runs; pooled as the geometric mean over the pilots; p from an exact permutation of the conditions within each pilot. Practice runs are left out.</li></ul></div>`;
   observe($("#ratios", el), () => ratioChart($("#ratios", el)));
 };
