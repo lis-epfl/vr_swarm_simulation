@@ -319,6 +319,22 @@ default.
     reads as failed exposure and the recognition as made up close: the fitted rate came out a third of the first-sight
     credit's at every distance, and the scripted pilots found hats at half the people's rate. Fit both credits; they
     bound the truth. (S12)
+58. **Model the display's resolution, not only what it covers.** S12's 360 drone was first simulated as the cube SIMI
+    flew (~22 px per degree reaching the eye); the sphere then changed to a 2K live stream (5.7). Recognising a small
+    target is limited by the pixels across it, so distances go in pixel-equivalent metres, and with a steep hazard a
+    3.1× factor is the difference between a tie with the swarm (1.00 at the cube) and a 0.61× loss. A camera that sees
+    everything at too few pixels sees nothing in particular. Fit the hazard on pixel-equivalent distance, put every
+    display through its own factor, and when a display has not been flown, carry its alternatives as sensitivities
+    and say the result is a model. (S12)
+59. **Re-run the gate when the human data grows.** Four runs from one more pilot (YEGO) and scoring the whole frame
+    moved the hat's half-rate distance 31 → 26 m and turned the calibration gate round: first-sight credit had matched
+    the people, and with the new data it was faster than them at the goal while press credit passed 5 of 8. Which
+    variant is primary is a result of the gate on the current data, so record it in the rule file each time it is
+    re-run, before the main run is read. (S12)
+60. **Fix a parameter the data cannot identify, and show the fix as a sensitivity.** With YEGO's legs the crowd's
+    noticing curve's steepness moved the likelihood by under 0.3 from k 1 to 20, and the free fit wandered between a
+    step and a power law as other settings changed. Fixing k at 8 (a near-step) and varying the half-rate distance
+    (200 and 400 m) moved swarm ÷ 360 drone by under 0.05. (S12)
 
 ## Reporting
 

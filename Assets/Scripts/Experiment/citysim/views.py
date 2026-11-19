@@ -82,10 +82,13 @@ CITY_SEED = 1                     # the trial city (BlockShapedPatchCityWorld's 
 HELD_SEEDS = (2, 3, 4)
 N_SWARM = 10
 D_REF = 2.0
-# (altitude m, gimbal pitch deg) per phase: internal_4's medians (views_human, the centroid's gtY and _head's gimbalPitch)
-BAND = {"swarm": dict(between=(12.2, -2.0), goal=(10.4, -4.8)),
-        "single": dict(between=(7.9, -4.3), goal=(7.0, -13.5)),
-        "sphere": dict(between=(19.8, 0.0), goal=(14.3, 0.0))}
+# (altitude m, gimbal pitch deg) per phase: internal_4's (ERKS, ALEX, SIMI, YEGO) median over pilots of each pilot's
+# median (the alive drones' mean gtY and _head's gimbalPitch, from the start line; at the goal = within the zone), so
+# each pilot's way of flying counts once (YEGO flew the single drone at 2 m). The first runs (calib1 .. follow4) used
+# 12.2/-2, 10.4/-4.8 (swarm), 7.9/-4.3, 7.0/-13.5 (single), 19.8, 14.3 (sphere).
+BAND = {"swarm": dict(between=(9.9, -1.7), goal=(7.2, -7.2)),
+        "single": dict(between=(6.7, 0.0), goal=(6.6, -4.3)),
+        "sphere": dict(between=(19.7, 0.0), goal=(9.9, 0.0))}
 CAP_S = 900.0                     # task seconds; a session not done by then is censored (internal_4's longest: 694 s)
 SETTLE_S = 15.0
 LINE_M = 30.0                     # StartLine: 30 m ahead of the spawn
@@ -96,8 +99,11 @@ NOTICE_EVERY_S = 1.0
 LATCH_S = 0.1
 MIN_ALIVE = 4
 R_HAT_MAX = 130.0
-R_CROWD_MAX = 350.0               # WalkerPatrol.SleepDistance: beyond it the walkers are not drawn
-CENTRAL = 0.8
+R_CROWD_MAX = 500.0               # WalkerPatrol.SleepDistance (500 m in the patch city scenes since 2026-11-18; 350
+                                  # before): beyond it the walkers are not drawn
+CENTRAL = 1.0                     # the whole frame, as the recorder scores since 2026-11-18 (0.8 in the first runs)
+HMD_PX = 22.0                     # what the headset resolves, px per degree
+STREAM_W = 2048                   # Sphere360Display.streamWidth: the 2K live stream (0: the cube, as SIMI flew it)
 SCREEN_SCALE = math.degrees(2 * math.atan(1.3 * camera.FEED_ASPECT / 2 / 2.0)) / camera.HFOV_DEG   # 60 deg quads
 HMD_HALF = 50.0
 YAW_RATE = 40.0                   # bodyYawRate: the stick turns the pilot at 40 deg/s in every condition
@@ -145,6 +151,23 @@ def fits():
 def hill(d, a0, d50, k):
     with np.errstate(over="ignore"):
         return a0 / (1.0 + (np.asarray(d, float) / d50) ** k)
+
+
+def resolution(sphere=False, stream=STREAM_W, cube=2048, feed_w=1920):
+    """Pixels per world degree reaching the eye (views_human.resolution): a feed on its 60 deg screen, or the sphere
+    at 1:1 from the stream or the cube."""
+    if sphere:
+        return min((stream / 360.0) if stream else (cube / 90.0), HMD_PX)
+    return min(feed_w / camera.HFOV_DEG, HMD_PX * SCREEN_SCALE)
+
+
+def sphere_factor(opts=None):
+    """The distance multiplier that puts a 360 view's metres in the fits' pixel-equivalent metres (the trials' feeds):
+    3.1 for the 2K stream, 0.81 for the cube SIMI flew. `px_power` < 1 softens it (recognition helped by more than the
+    pixels across the hat: motion, the walker's figure)."""
+    opts = opts or {}
+    f = resolution() / resolution(True, opts.get("sphere_stream", STREAM_W))
+    return f ** float(opts.get("px_power", 1.0))
 
 
 def rec_params(model="pooled", cond="swarm", d50_scale=1.0):
@@ -405,6 +428,8 @@ class Pilot:
         self.ring_order = None
         self.seen = np.zeros(len(self.net.jpos), bool)
         self.explore = explore
+        self.tasks = None                      # opts log_tasks: [(kind, p, stick, dur, t0, t_end)], the plan as flown
+        self._cur = None
 
     def mark_seen(self, c):
         self.seen |= np.hypot(*(self.net.jpos - c).T) <= SEEN_M
@@ -585,6 +610,12 @@ class Pilot:
                 if s > task.stick:
                     cmd *= task.stick / s
             break
+        if self.tasks is not None and task is not self._cur:
+            if self.tasks:
+                self.tasks[-1][5] = t
+            self.tasks.append([task.kind, [round(float(x), 2) for x in task.p], float(task.stick), float(task.dur), t,
+                               None])
+            self._cur = task
         if task.view == "face" and task.face is not None:
             f = task.face - c
             self.view_target = math.degrees(math.atan2(f[0], f[1]))
@@ -630,6 +661,8 @@ def fly(cond, city_seed, k, opts=None):
     rec = (rec[0] * opts.get("rec_scale", 1.0), rec[1], rec[2])
     probe = float(opts.get("probe_s", 0.0) or 0.0)
     notice = (notice[0] * opts.get("notice_scale", 1.0), notice[1], notice[2])
+    f_hat = sphere_factor(opts) if cond == "sphere" else 1.0
+    f_crowd = f_hat if opts.get("crowd_px", True) else 1.0
     fp = C["fp"]
     m = T.model({})
     L = C["L"]
@@ -647,11 +680,15 @@ def fly(cond, city_seed, k, opts=None):
     t_off = sim.t
     pilot = Pilot(cond, C, goals, rng, heading0, explore=opts.get("explore", True),
                   pattern=opts.get("swarm_pattern", "circuit"), fly_as=opts.get("fly_as"))
+    if opts.get("log_tasks"):
+        pilot.tasks = []
     band = BAND[opts.get("band_as", cond)]
     pilot.q.append(Task("go", spawn + 120.0 * east, 1.0, timeout=60.0))
     head = HeadPlayer(cond, rng)
     latch = display.FeedLatch(len(sim.P), pitch_deg=BAND[cond]["between"][1]) if swarm else None
     feeds = None
+    if opts.get("tape"):                                 # a replay's tape (views_replays): it only reads the flight
+        opts["tape"](sim, pilot, latch)
     gain = T.S.HOLD_GAIN / m.max_speed
     line = None
     noticed = [None] * len(goals)
@@ -753,7 +790,7 @@ def fly(cond, city_seed, k, opts=None):
             d = math.nan if far else hat_distance(fp, cams, height, pitch, yaws, hp, kind, body, hd,
                                                   use_head=on_head, allround=allround)
             if math.isfinite(d):
-                Lam[gi] += float(hill(d, *rec)) * dt_r
+                Lam[gi] += float(hill(d * f_hat, *rec)) * dt_r
             if here:
                 _counterfactuals(cf.setdefault(gi, {}), cond, fp, sim, cams, yaws, height, pitch, hp, body, hrel,
                                  pilot, rec, rng, dt_r, d, opts)
@@ -779,7 +816,7 @@ def fly(cond, city_seed, k, opts=None):
                     continue
                 d = crowd_distance(fp, cams, height, pitch, yaws, pts, w, kind, body, hd, allround=allround)
                 if math.isfinite(d):
-                    Mu[gi] += float(hill(d, *notice)) * NOTICE_EVERY_S
+                    Mu[gi] += float(hill(d * f_crowd, *notice)) * NOTICE_EVERY_S
                 if Mu[gi] >= E_not[gi]:
                     noticed[gi] = (t, d)
         if pilot.mode == "search":
@@ -830,7 +867,11 @@ def fly(cond, city_seed, k, opts=None):
                       inside_ring=round(stats["inside_ring"] / tot, 3) if tot else None,
                       wrapped=round(stats["wrapped"] / tot, 3) if (tot and swarm) else None,
                       goal_dist_med=round(float(np.median(gd)), 1) if len(gd) else None)
-    if opts.get("keep_log"):
+    if pilot.tasks is not None:
+        if pilot.tasks:
+            pilot.tasks[-1][5] = round(t_end, 2)
+        out["tasks"] = pilot.tasks
+    if opts.get("keep_log") or opts.get("log_tasks"):
         out["log"] = log
         out["goal_geo"] = [dict(centre=[float(x) for x in g["centre"]], block=g["block"], hat_b=g["hat_b"])
                            for g in goals]
@@ -839,14 +880,17 @@ def fly(cond, city_seed, k, opts=None):
 
 def _counterfactuals(acc, cond, fp, sim, cams, yaws, height, pitch, hp, body, hrel, pilot, rec, rng, dt, d_real,
                      opts):
-    """Integrate the hazard over this at-goal sample on each counterfactual basis (see the module docstring)."""
-    def add(name, d):
+    """Integrate the hazard over this at-goal sample on each counterfactual basis (see the module docstring). A 360
+    basis is scored at the sphere's resolution (sphere_factor), a feed basis at the feeds'."""
+    fs = sphere_factor(opts)
+
+    def add(name, d, f=1.0):
         a = acc.setdefault(name, [0.0, 0.0])
         a[0] += dt
         if math.isfinite(d):
-            a[1] += float(hill(d, *rec)) * dt
+            a[1] += float(hill(d * f, *rec)) * dt
 
-    add("real", d_real)
+    add("real", d_real, fs if cond == "sphere" else 1.0)
     if cond == "swarm":
         cen = sim.P[sim.alive].mean(0)
         moved = np.repeat(cen[None], len(cams), axis=0)
@@ -854,22 +898,26 @@ def _counterfactuals(acc, cond, fp, sim, cams, yaws, height, pitch, hp, body, hr
         add("screen", hat_distance(fp, cams, height, pitch, yaws, hp, "swarm", body, hrel, use_head=False))
         sph_head = pilot.view + _sphere_head(pilot, rng)
         add("sphere_c", hat_distance(fp, cen[None], BAND["sphere"]["goal"][0], 0.0, np.array([0.0]), hp, "sphere",
-                                     body, sph_head, allround=True))
+                                     body, sph_head, allround=True), fs)
         # the same 360 camera on the drone nearest the centroid: always outside a building, where the centroid of a
         # swarm wrapped round one is inside it (and a camera there sees nothing)
         Pa = sim.P[sim.alive]
         near = Pa[int(np.argmin(np.linalg.norm(Pa - cen, axis=1)))]
         add("sphere_d", hat_distance(fp, near[None], BAND["sphere"]["goal"][0], 0.0, np.array([0.0]), hp, "sphere",
-                                     body, sph_head, allround=True))
+                                     body, sph_head, allround=True), fs)
+        # ... and at the swarm's own height, so the comparison is the viewpoints and the display, not the altitude
+        add("sphere_h", hat_distance(fp, near[None], height, 0.0, np.array([0.0]), hp, "sphere", body, sph_head,
+                                     allround=True), fs)
     elif cond == "sphere":
         add("fwd", hat_distance(fp, cams, BAND["single"]["goal"][0], BAND["single"]["goal"][1], yaws, hp, "single",
                                 body, 0.0))
         add("screen", hat_distance(fp, cams, height, pitch, yaws, hp, "sphere", body, 0.0, use_head=False,
-                                   allround=True))
+                                   allround=True), fs)
     else:
         sph_head = pilot.view + _sphere_head(pilot, rng)
         add("sphere_s", hat_distance(fp, cams, BAND["sphere"]["goal"][0], 0.0, yaws, hp, "sphere", body, sph_head,
-                                     allround=True))
+                                     allround=True), fs)
+        add("sphere_t", hat_distance(fp, cams, height, 0.0, yaws, hp, "sphere", body, sph_head, allround=True), fs)
 
 
 def _sphere_head(pilot, rng):
@@ -1054,9 +1102,86 @@ def cmd_pilot(a):
     run(a.name, jobs, a.procs)
 
 
+# ============================================================================= the main study (README 7)
+
+# How each condition is flown in the main study (README 6.6-6.7, the experimenter's review of 2026-11-18): the swarm
+# wraps the goal building; the 360 drone flies the single drone's searches at its altitudes (only the camera differs)
+# and shows the 2K live stream (STREAM_W).
+MAIN = {"swarm": dict(swarm_pattern="wrap"), "single": {}, "sphere": dict(fly_as="single", band_as="single")}
+REC_MAIN = "pooled"                # press-credited recognition: the credit the gate passes best (main_calib: 5 of 8; first
+                                   # sight 3 of 8, too fast at the goal); first sight (`start`) beside it
+K_MAIN, K_PROBE, K_CAL = 1000, 1300, 100
+
+
+def _jobs(name, conds, ks, opts, seeds=(CITY_SEED,), per_cond=None):
+    out = []
+    for k in ks:
+        for seed in seeds:
+            for cond in conds:
+                o = dict(MAIN[cond])
+                o.update(opts)
+                o.update((per_cond or {}).get(cond, {}))
+                out.append(dict(cond=cond, city_seed=seed, k=k, variant=name, opts=o))
+    return out
+
+
+def study_jobs(stage, n=None):
+    """The job list of one stage of the main study (README 7). `calib`: the people's ways of flying (the swarm
+    circling as most of internal_4 did and wrapped, one drone, the sphere as SIMI flew it, from the cube) under both
+    recognition credits; `main`: 300 sessions per condition (first sight) and the same 300 press-credited; `probe`:
+    every goal searched for exactly 120 s; `sens`: one assumption changed at a time on 100 of the main sessions;
+    `held`: the three held-out cities."""
+    c3 = list(CONDITIONS)
+    simi = dict(fly_as=None, band_as="sphere", sphere_stream=0)
+    km = range(K_MAIN, K_MAIN + (n or 300))
+    ks = range(K_MAIN, K_MAIN + (n or 100))
+    if stage == "calib":
+        kc = range(K_CAL, K_CAL + (n or 30))
+        out = []
+        for rm in ("start", "pooled"):
+            out += _jobs(rm, c3, kc, dict(rec_model=rm), per_cond=dict(swarm=dict(swarm_pattern="circuit"),
+                                                                      sphere=simi))
+            out += _jobs(f"{rm}_wrap", ["swarm"], kc, dict(rec_model=rm))
+        return out
+    if stage == "main":
+        return _jobs("start", c3, km, dict(rec_model="start")) + _jobs("pooled", c3, km, dict(rec_model="pooled"))
+    if stage == "probe":
+        kp = range(K_PROBE, K_PROBE + (n or 100))
+        return (_jobs("probe_start", c3, kp, dict(rec_model="start", probe_s=120.0)) +
+                _jobs("probe_pooled", c3, kp, dict(rec_model="pooled", probe_s=120.0)))
+    if stage == "sens":
+        nf = fits()["dis"]["d_head|lat1.0"]["fit"]["d50"]
+        base = dict(rec_model=REC_MAIN)
+        out = []
+        for v, o in (("rec_short", dict(rec_d50_scale=0.75)), ("rec_long", dict(rec_d50_scale=1.33)),
+                     ("crowd_short", dict(notice_d50_scale=200.0 / nf)), ("crowd_long", dict(notice_d50_scale=400.0 / nf)),
+                     ("no_explore", dict(explore=False))):
+            out += _jobs(v, c3, ks, dict(base, **o))
+        for v, o in (("sph_cube", dict(sphere_stream=0)), ("sph_soft", dict(px_power=0.5, crowd_px=False)),
+                     ("sph_crowd", dict(crowd_px=False)), ("sph_simi", dict(fly_as=None, band_as="sphere")),
+                     ("sph_high", dict(band_as="sphere"))):
+            out += _jobs(v, ["sphere"], ks, dict(base, **o))
+        out += _jobs("sw_circuit", ["swarm"], ks, dict(base, swarm_pattern="circuit"))
+        return out
+    if stage == "held":
+        return _jobs(REC_MAIN, c3, ks, dict(rec_model=REC_MAIN), seeds=HELD_SEEDS)
+    raise ValueError(stage)
+
+
+def cmd_study(a):
+    run(f"main_{a.stage}" if a.name is None else a.name, study_jobs(a.stage, a.n), a.procs)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    s = None
     sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("study", help="a stage of the main study: calib, main, probe, sens, held (README 7)")
+    s.add_argument("stage", choices=("calib", "main", "probe", "sens", "held"))
+    s.add_argument("--n", type=int, default=None, help="sessions per condition (default: the stage's)")
+    s.add_argument("--name", default=None, help="the run folder (default main_<stage>)")
+    s.add_argument("--procs", type=int, default=None)
+    s.set_defaults(fn=cmd_study)
     s = sub.add_parser("pilot")
     s.add_argument("--name", default="pilot")
     s.add_argument("--sessions", type=int, default=40)

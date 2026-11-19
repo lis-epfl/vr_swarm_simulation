@@ -1,9 +1,14 @@
-# The views study (S12 Distributed Views) — proposal
+# The views study (S12 Distributed Views)
 
-**Status: a proposal for review (2026-11-17/18).** Nothing here has been run at full size. The initial tests below were
-run to develop the design and to justify its settings; the main runs wait on the experimenter's review (§10). The
-review page is https://claude.ai/artifact/CpzLU87XCffSTVdQDopp6j, built by
-`python -B -m citysim.views_report --calib calib1 --pilot pilot1 --probe probe1`.
+**Status: done (2026-11-18).** The main study ran on the settings of §11 (YEGO's runs, the whole frame, the 2K
+stream) and `rule.json`; its results are §12 and the page https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU
+(`python -B -m citysim.views_results`). **In three lines:** the swarm takes 0.61× the 360 drone's time (0.59–0.64)
+and 0.75× one drone's (0.71–0.79), both "at least 10% faster" under the rule, all of it at the goal; the 360 drone
+loses through the stream's resolution (a hat counts 3.1× as far away), and at the cube's resolution SIMI flew it ties
+the swarm (1.00, 0.90–1.10); the stream is a model nobody has flown, so the retest should fly it. Sections 1–10 are the
+proposal as reviewed, kept as the record; where they differ, §11 and §12 stand. The proposal's review page is
+https://claude.ai/artifact/CpzLU87XCffSTVdQDopp6j (`python -B -m citysim.views_report --calib calib1 --pilot pilot1
+--probe probe1`).
 
 **The initial tests in four lines** (revised 2026-11-18, §6.6). (1) A hat is recognised at 0.5–1.6/s up close, half
 that at 24–31 m, a tenth by ~46 m (credited at the press or at the first sight before it: some pilots flew in to check);
@@ -497,3 +502,141 @@ three held-out cities) is ~2,600 sessions, about 7 h on this machine.
 4. **The human retest**: ScenicPatchCityWorld, ABBA/BAAB, the sample size of §8 and §6.3.
 5. **Whether the single drone joins the retest** as a third arm (it would make the swarm ÷ single ratio a human result
    too, at a third more session time).
+
+## 11. Before the main run (2026-11-18): what YEGO's runs and the 2K stream changed
+
+Two things changed after the proposal was written: YEGO's four runs joined internal_4 (two swarm, two one-drone, in
+ScenicPatchCityWorld), and the sphere now shows the 360 camera as the Antigravity A1's 2K live stream
+(`Sphere360Display.streamWidth` 2048) instead of the cube. Two more arrived the same day: the recorder scores a hat
+anywhere in a shown feed (not only its central 80%), and the patch-city walkers sleep beyond 500 m (350 before). What
+each meant for the design, and what was done about it, before anything in the main run was read:
+
+| | what it meant | done |
+|---|---|---|
+| **YEGO's runs** | 54 correct presses instead of 41, a fourth pilot, 18 runs. On the proposal's basis the hat's half-rate distance fell 31 → 25 m: YEGO flew one drone at about 2 m and recognised quickly but only up close (own fit: 1.8/s up close, d50 18 m) | every fit, the behaviour tables, the head traces and the people's goal times rerun (`views_human recognition`, `discovery`, `behaviour`, `head`) |
+| **the whole frame** | the four presses the central-80% basis could not explain (the hat only near the frame's edge) are explained; the fit hardly moves (d50 25 m) | `CENTRAL` 1.0 in views_human and views |
+| **the 2K stream** | SIMI's 360 flights showed the cube, ~22 px per world degree reaching the eye, more than a feed screen's 17.7; the stream delivers 5.7. Recognising a 21 cm hat is limited by the pixels across it (Johnson's criteria: the range at a fixed probability scales with resolution), so through the stream a hat counts as 3.1× as far away. **Nobody has flown the stream: this part is a model, not a measurement** | hazards fitted on pixel-equivalent distance (`views_human.px_factor`: SIMI's sphere distances × 0.81) and simulated through each display's factor (`views.sphere_factor`), the crowd's too; sensitivities: the cube (as SIMI flew), the stream at half its cost with the crowd unscaled, the crowd unscaled |
+| **the crowd's curve** | with YEGO's legs the noticing hazard's steepness is not identified: k from 1 to 20 moves the likelihood by under 0.3, and the free fit wanders to a power law at other latencies | k fixed at 8, a near-step: noticed at 0.079/s while within about 282 m (95% from 220 m, no upper bound); sensitivities at 200 and 400 m |
+| **walkers to 500 m** | a crowd beyond 350 m can now be drawn; with the noticing curve's step at ~280 m this changes little | `R_CROWD_MAX` 500 |
+| **altitudes** | YEGO flew one drone at 2 m, so a pooled median lets one pilot's style move the band | the median over pilots of each pilot's median: one drone 6.7 / 6.6 m, −4° at a goal; the swarm 9.9 / 7.2 m, −7°; the sphere (SIMI) 19.7 / 9.9 m |
+| **the run-to-run spread** | the SD of log task time within a pilot and condition is 0.31 (10 df), was 0.34 (8 df); YEGO's own swarm ÷ one drone 0.54 | the retest's power uses 0.31 |
+
+The resolution model in numbers (`views_human.resolution`): a feed holds 1920 / 74.4 = 25.8 px per world degree and its
+60° screen shows 74.4° of world at the headset's ~22 px/deg, so 17.7 reach the eye; the cube holds 22.8 at a face's
+centre, shown at life size, so 22.0 (the headset's limit); the stream holds 2048 / 360 = 5.7. Factors against the
+feeds: cube 0.81, stream 3.12. At the press-credited fit's d50 (26 m) a hat is about 7 px across on a feed; through the
+stream the same 7 px are at 8.5 m.
+
+The hat's fit with every change, press-credited (`human/basis.json`): the proposal's basis without YEGO 0.49/s, d50
+31 m; with YEGO 0.67/s, 25 m; the whole frame 0.60/s, 25 m; pixel-equivalent **0.57/s, d50 26 m (95% 19–33), a tenth
+at 40 m**, k 5.3, over 54 presses. First sight: 1.93/s, d50 22 m (13–29), a tenth at 40 m. Each pilot's own: ERKS
+0.41/s and 36 m, ALEX 0.34 and 27, SIMI 0.69 and 31, YEGO 1.81 and 18.
+
+**The calibration gate, rerun** (`views study calib`, 30 sessions per condition, flown the people's ways: the swarm
+circling and wrapped, the sphere SIMI's way through the cube): press-credited recognition passes 5 of 8 (failing the
+sphere at the goal, 48 s against 28–45; the sphere between goals, 69 against 32–36, an interval on SIMI's two runs; the
+swarm between goals, 72–75 against 50–71); first sight passes 3 of 8, now faster than the people at the goal (swarm
+28 s against 31–51, one drone 52 against 55–115). With the whole frame and YEGO the press-credited fit is the
+calibrated one, so **the verdict is read on press-credited recognition** with first sight beside it, the reverse of
+§6.6. Every variant is still slower than the people between goals. `experiment_results/views_study/rule.json` records
+this, the verdict rule and the spot check's agreement rule, written before the main run was read.
+
+## 12. The main study (2026-11-18): results
+
+Flown on the settings of §11 and `rule.json`, which was written before any of it was read. The results page is
+https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU, built by `python -B -m citysim.views_results` (the numbers from the
+runs below; the prose in `citysim/views_reading.py`, written after reading them, reads every number from the results),
+with the replays from `python -B -m citysim.views_replays` (12 flights in 7 groups, each re-flown and kept only because
+it re-flew as stored).
+
+| run | what | sessions |
+|---|---|---|
+| `main_calib` | the gate (§11) | 30 per condition × 4 variants |
+| `main_main` | the trial city, k 1000–1299, both credits | 300 per condition × 2 |
+| `main_probe` | the view probe, 120 s at every goal, k 1300–1399 | 100 per condition × 2 |
+| `main_sens` | sensitivities, 100 sessions each | 2,100 |
+| `main_held` | held-out cities, seeds 2–4, 100 sessions each | 900 |
+| `spot` | Unity's headless bench against the replica's twins, 12 routes per condition | 24 + 24 |
+
+### 12.1 The verdicts
+
+Task time, start line to the third press, restricted mean to 900 s, paired over 300 sessions, press-credited
+recognition (first sight beside it):
+
+| | task | at the goal (per goal) | between goals | verdict |
+|---|---|---|---|---|
+| swarm ÷ 360 drone (2K stream) | **0.61 (0.59–0.64)** | 0.19 | 0.97 (0.89–1.07) | the swarm is at least 10% faster |
+| swarm ÷ one drone | **0.75 (0.71–0.79)** | 0.45 | 1.13 (1.06–1.20) | the swarm is at least 10% faster |
+| 360 drone ÷ one drone (the camera alone) | 1.22 (1.19–1.26) | 2.38 | 1.16 | |
+| first sight: swarm ÷ 360, swarm ÷ one drone | 0.56 (0.54–0.59), 0.81 (0.76–0.86) | | | the same |
+
+| | task (RMST) | done in 900 s | at the goal | between goals | recognised at (median) | crowd noticed at |
+|---|---|---|---|---|---|---|
+| swarm | 550 s | 86% | 37 s | 76 s | 22.8 m | 137 m |
+| one drone | 731 s | 63% | 83 s | 68 s | 22.3 m | 128 m |
+| 360 drone | 895 s | 2% | 198 s | 79 s | 10.7 m | 53 m |
+
+The swarm lost 199 drones and touched buildings 391 times in its 300 sessions (0.66 drones a session); no session
+ended under four drones. The 360 drone sits against the cap, so the ratio against it is if anything kind to it.
+
+### 12.2 Where it comes from
+
+- **At the goal, and only there.** Between goals the swarm is level with the 360 drone and a little slower than one
+  drone: ten drones fly no faster than one and notice a crowd about as far off.
+- **The spread of the viewpoints, not the number of feeds** (the probe, 100 sessions, 798 goals each searched 120 s):
+  the wrapped swarm recognises 2.80 hats a minute at a goal; its ten feeds moved to its centre, 0.09 (31× fewer,
+  partly because a wrapped swarm's centre is inside the building); a 2K 360 camera on its most central drone at its
+  own height, 0.016 (173× fewer; 262× at the 360 drone's 9.9 m). On the 360 drone's own flights a forward camera would
+  have recognised 7× as often (0.86 against 0.12); on one drone's flights a 2K 360 camera would have recognised 0.13×
+  as often as the forward camera.
+- **Resolution, not coverage, is what the stream loses.** At 5.7 px per degree a hat counts 3.1× as far away, and
+  with the hazard's steepness (k 5.3) a hat 20 m off becomes one at 62 m: almost never recognised. The 360 drone
+  recognised at a median 10.7 m, flying up to each hat.
+
+### 12.3 What moves it
+
+| sensitivity | swarm ÷ 360 drone | swarm ÷ one drone |
+|---|---|---|
+| main | 0.61 | 0.75 |
+| the hat's d50 × 0.75 / × 1.33 | 0.68 / 0.60 | 0.78 / 0.81 |
+| the crowd's d50 at 200 / 400 m | 0.66 / 0.64 | 0.78 / 0.77 |
+| the walk without exploring | 0.75 | 0.83 |
+| the swarm circling the block instead of wrapping | 0.60 | 0.73 |
+| the 360 drone flown SIMI's way / at SIMI's altitudes | 0.65 / 0.65 | |
+| the stream scales the hat but not the crowd | 0.66 | |
+| the stream at half its cost (√ of the scaling), crowd unscaled | 0.75 (0.69–0.81) | |
+| **the cube, as SIMI flew it** | **1.00 (0.90–1.10): equivalent within 10%** | |
+
+With the cube the 360 drone takes 0.79× one drone's time (at the stream 1.22×, at half its cost 1.06×). **Everything
+but the display's resolution leaves both verdicts standing; the display alone decides whether the 360 drone loses to
+the swarm or ties it**, and whether it beats one drone or loses to it.
+
+**Held-out cities** (per city, never pooled): swarm ÷ 360 drone 0.64, 0.65, 0.61; swarm ÷ one drone 0.78, 0.82, 0.73;
+every interval below 0.9.
+
+### 12.4 Against the people and Unity
+
+- **The gate** (§11): press-credited passes 5 of 8, first sight 3. The model is slower than the people between goals.
+  internal_4's geometric-mean task times were 370 s with the swarm and 507 s with one drone, the model's restricted
+  means 550 and 731; **the ratios agree**: swarm ÷ one drone 0.75 against the people's 0.73, at the goal 0.45 against
+  their 0.50. SIMI's two cube runs (206 and 305 s, against their swarm's 323 and 632) were faster than the model's tie
+  says; two runs.
+- **Unity's spot check passed every rule written before it**: route time 500 / 497 s (swarm, Unity / twin) and 824 /
+  824 s (one drone), the swarm wrapped the whole time in both, losses 5 against 8 events, contacts 20 against 21.
+
+### 12.5 What the human retest should expect (replaces §8's sizes)
+
+With internal_4's run-to-run spread (SD 0.31 in log time, 10 df, YEGO included) and 0.3 between pilots' own ratios,
+two runs per condition: **swarm ÷ one drone near 0.75 needs ~19 pilots** for 80% power; **swarm ÷ the 360 stream near
+0.61 needs ~8**. But the stream's cost is this study's one unmeasured input, and at the cube's resolution the answer is
+a tie, which no feasible retest separates from 10%. So the retest should **fly the 360 drone on the 2K stream** (as the
+sphere now shows it), keep §8's design otherwise, and read first the distance at which pilots name a hat through the
+stream: about 8.5 m at half-rate if this model is right, 26 m if the stream costs nothing.
+
+### 12.6 §10's decisions, as taken
+
+1. The whole task: yes. 2. The model: the gate chose press-credited recognition (§11); both credits were carried and
+agree. 3. The ranges: the fitted hazards (§11), not single distances. 4. The retest: §8's design with §12.5's sizes and
+the stream. 5. The single drone as a third arm: open, the experimenter's call; the model says the swarm ÷ one drone
+ratio is the one it reproduces best (0.75 against the people's 0.73), and the one that does not hang on the stream's
+untested cost.

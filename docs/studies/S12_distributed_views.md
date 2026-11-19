@@ -1,7 +1,8 @@
 # S12 Distributed Views
 
-**Code name:** the views study · **Dates:** 2026-11-17 (proposal and initial tests) · **Status:** proposed; the
-initial tests are done, the main runs wait on the experimenter's review · **Builds on:** S2 (searching a city for a
+**Code name:** the views study · **Dates:** 2026-11-17 (proposal and initial tests), 2026-11-18 (YEGO's runs, the
+2K stream, the main study) · **Status:** done · **Results page:** https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU ·
+**Builds on:** S2 (searching a city for a
 goal it does not know, the paired arms), S11 (the goal search flight, calibrated on ERKS), S6–S11 (the trial scene's
 law and the replica's validation in its city), internal_4 (every fitted parameter), and the 360 camera
 ([docs/single_drone_360_camera.md](../single_drone_360_camera.md))
@@ -27,6 +28,29 @@ what the swarm's distributed viewpoints add beyond all-round coverage; it is the
   forward camera).
 - A calibration gate against internal_4 before the main run; 300 sessions in the trial city, sensitivities, three
   held-out cities, a Unity spot check; the human retest's design and size.
+
+**Before the main run (2026-11-18; manual §11).** YEGO's four runs joined internal_4 (54 presses, four pilots); a hat
+now counts anywhere in the frame; the sphere shows the Antigravity A1's 2K live stream (5.7 px per degree against the
+feeds' 17.7 reaching the eye), so distances are fitted pixel-equivalent and the 360 drone's count 3.1× as far away
+(a model: nobody has flown the stream). The hat's fit, press-credited: 0.57/s, d50 26 m (19–33). The crowd's curve
+is fixed at k 8 (d50 ~280 m). The calibration gate now passes press-credited recognition (5 of 8), so the verdict is
+read on it. The swarm wraps every goal building; the 360 drone flies the single drone's searches.
+
+**Findings of the main study (2026-11-18; manual §12)**, which supersede everything below where they differ:
+- **The swarm takes 0.61× the 360 drone's time (95% 0.59–0.64) and 0.75× one drone's (0.71–0.79)** over the whole
+  task, 300 paired sessions: "at least 10% faster" against both under the rule written before the run. First-sight
+  credit: 0.56 and 0.81. Three held-out cities agree (0.61–0.65 and 0.73–0.82).
+- **All of it is at the goal** (0.19× the 360 drone's time per goal, 0.45× one drone's); between goals the swarm is
+  level with the 360 drone and 1.13× one drone.
+- **It is the spread of the viewpoints, not the number of feeds**: at a goal the wrapped swarm recognises 31× as
+  often as its ten feeds moved to its centre and ~170× a 2K 360 camera on its most central drone.
+- **The 360 drone loses through the stream's resolution, not its coverage.** Every sensitivity leaves swarm ÷ 360
+  drone at 0.60–0.75, except showing the cube SIMI flew: 1.00 (0.90–1.10), equivalent, with the 360 drone then
+  faster than one drone (0.79×).
+- **The ratios match the people** (swarm ÷ one drone 0.75 against internal_4's 0.73); the times do not (the model is
+  ~1.5× slower, between goals). Unity's spot check agreed on every rule. The swarm lost 0.66 drones a session.
+- **The retest should fly the stream**: swarm ÷ one drone at 0.75 needs ~19 pilots with two runs per condition,
+  swarm ÷ stream at 0.61 ~8; at the cube's resolution no feasible retest resolves the tie.
 
 **Findings, revised after review (2026-11-18; manual §6.6)**, which supersede the first list where they differ:
 - **Wrapped round the goal building, the swarm's spread-out views recognise hats ~1.5× as fast as one 360 camera on its
@@ -56,14 +80,18 @@ what the swarm's distributed viewpoints add beyond all-round coverage; it is the
 - The as-flown view comparison is biased by the stopping rule (it said 1.6× over the 360 camera); lessons 54–56 and the
   probe are the corrections.
 
-**Limits and refinements.** internal_4 is three pilots and 42 goals; the sphere is one pilot (six goals) in the scenic
+**Limits and refinements.** internal_4 is four pilots and 54 presses; the sphere is one pilot (six goals, on the cube,
+not the stream) in the scenic
 city. The simulated head is a recorded trace, not attention to what is on screen. The replica is 2-D (right for 50 m
 prisms and drones under the roofs).
 
-**Open decisions.** The manual's §10.
+**Open decisions.** The manual's §12.6: whether the single drone joins the retest as a third arm.
 
 **Where.** Manual [docs/views_study/README.md](../views_study/README.md); code `citysim/views_human.py`,
-`citysim/views.py`, `citysim/views_figs.py`, `citysim/views_report.py` (+ `.html`); outputs
-`experiment_results/views_study/` (`human/`, `calib1/`, `pilot1/`, `probe1/`, `views_proposal.html`); the proposal page
-https://claude.ai/artifact/CpzLU87XCffSTVdQDopp6j (`python -B -m citysim.views_report --calib calib1 --pilot pilot1
---probe probe1`, then publish `views_proposal.html`).
+`citysim/views.py`, `citysim/views_figs.py`, `citysim/views_report.py` (+ `.html`), `citysim/views_bench.py` (the
+Unity spot check), `citysim/views_replays.py`, `citysim/views_results.py` (+ `.html`) and `citysim/views_reading.py`;
+outputs `experiment_results/views_study/` (`human/`, `rule.json`, `main_calib/`, `main_main/`, `main_probe/`,
+`main_sens/`, `main_held/`, `spot/`, `replay/`, `views_results.html`; the initial tests' `calib1/`, `pilot1/`,
+`probe1/`, `follow*/`, `views_proposal.html`). The results page https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU
+(`python -B -m citysim.views_results`, then publish `views_results_bare.html` with the files in
+`views_results_files.json`); the proposal page https://claude.ai/artifact/CpzLU87XCffSTVdQDopp6j.

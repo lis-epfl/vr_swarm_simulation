@@ -1,0 +1,254 @@
+{
+ "groups": [
+  {
+   "id": "pick_typical",
+   "title": "Typical (goal draw 1124)",
+   "short": "typical",
+   "kind": "session",
+   "first": "swarm",
+   "flights": [
+    {
+     "id": "views_swarm_1124",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "Swarm"
+    },
+    {
+     "id": "views_single_1124",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "One drone"
+    },
+    {
+     "id": "views_sphere_1124",
+     "cond": "sphere",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "360 drone"
+    }
+   ],
+   "about": "The typical session: its swarm \u00f7 360-drone task ratio is the median one. Swarm \u00f7 360 drone: 0.83. Every condition faced the same goals and hats; the swarm wraps each goal building, the 360 drone flies the single drone's searches with the 2K stream."
+  },
+  {
+   "id": "pick_swarm",
+   "title": "Swarm (goal draw 1105)",
+   "short": "swarm",
+   "kind": "session",
+   "first": "swarm",
+   "flights": [
+    {
+     "id": "views_swarm_1105",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "Swarm"
+    },
+    {
+     "id": "views_single_1105",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "One drone"
+    },
+    {
+     "id": "views_sphere_1105",
+     "cond": "sphere",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "360 drone"
+    }
+   ],
+   "about": "The session where the swarm did best against the 360 drone. Swarm \u00f7 360 drone: 0.34. Every condition faced the same goals and hats; the swarm wraps each goal building, the 360 drone flies the single drone's searches with the 2K stream."
+  },
+  {
+   "id": "pick_sphere",
+   "title": "Sphere (goal draw 1254)",
+   "short": "sphere",
+   "kind": "session",
+   "first": "swarm",
+   "flights": [
+    {
+     "id": "views_swarm_1254",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "Swarm"
+    },
+    {
+     "id": "views_single_1254",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "One drone"
+    },
+    {
+     "id": "views_sphere_1254",
+     "cond": "sphere",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "360 drone"
+    }
+   ],
+   "about": "The session where the 360 drone did best against the swarm. Swarm \u00f7 360 drone: 1.09. Every condition faced the same goals and hats; the swarm wraps each goal building, the 360 drone flies the single drone's searches with the 2K stream."
+  },
+  {
+   "id": "pick_lost",
+   "title": "Lost (goal draw 1134)",
+   "short": "lost",
+   "kind": "session",
+   "first": "swarm",
+   "flights": [
+    {
+     "id": "views_swarm_1134",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "Swarm"
+    },
+    {
+     "id": "views_single_1134",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "One drone"
+    },
+    {
+     "id": "views_sphere_1134",
+     "cond": "sphere",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "360 drone"
+    }
+   ],
+   "about": "The session where the swarm lost the most drones. Swarm \u00f7 360 drone: nan. Every condition faced the same goals and hats; the swarm wraps each goal building, the 360 drone flies the single drone's searches with the 2K stream."
+  },
+  {
+   "id": "spot_1400",
+   "title": "Unity spot check, route 1400",
+   "short": "Unity 1400",
+   "kind": "session",
+   "first": "swarm",
+   "flights": [
+    {
+     "id": "spot_unity_swarm_1400",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "unity",
+     "title": "Swarm, Unity"
+    },
+    {
+     "id": "spot_twin_swarm_1400",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "Swarm, replica twin"
+    },
+    {
+     "id": "spot_unity_single_1400",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "unity",
+     "title": "One drone, Unity"
+    },
+    {
+     "id": "spot_twin_single_1400",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "One drone, replica twin"
+    }
+   ],
+   "about": "One of the study's routes flown by Unity on the headless bench and by the replica from Unity's start: the swarm wrapped round each goal building, the single drone's searches (which the 360 drone also flies)."
+  },
+  {
+   "id": "spot_1401",
+   "title": "Unity spot check, route 1401",
+   "short": "Unity 1401",
+   "kind": "session",
+   "first": "swarm",
+   "flights": [
+    {
+     "id": "spot_unity_swarm_1401",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "unity",
+     "title": "Swarm, Unity"
+    },
+    {
+     "id": "spot_twin_swarm_1401",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "Swarm, replica twin"
+    },
+    {
+     "id": "spot_unity_single_1401",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "unity",
+     "title": "One drone, Unity"
+    },
+    {
+     "id": "spot_twin_single_1401",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "One drone, replica twin"
+    }
+   ],
+   "about": "One of the study's routes flown by Unity on the headless bench and by the replica from Unity's start: the swarm wrapped round each goal building, the single drone's searches (which the 360 drone also flies)."
+  },
+  {
+   "id": "spot_1402",
+   "title": "Unity spot check, route 1402",
+   "short": "Unity 1402",
+   "kind": "session",
+   "first": "swarm",
+   "flights": [
+    {
+     "id": "spot_unity_swarm_1402",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "unity",
+     "title": "Swarm, Unity"
+    },
+    {
+     "id": "spot_twin_swarm_1402",
+     "cond": "swarm",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "Swarm, replica twin"
+    },
+    {
+     "id": "spot_unity_single_1402",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "unity",
+     "title": "One drone, Unity"
+    },
+    {
+     "id": "spot_twin_single_1402",
+     "cond": "single",
+     "city": "views_city1",
+     "source": "replica",
+     "title": "One drone, replica twin"
+    }
+   ],
+   "about": "One of the study's routes flown by Unity on the headless bench and by the replica from Unity's start: the swarm wrapped round each goal building, the single drone's searches (which the 360 drone also flies)."
+  }
+ ],
+ "picks": {
+  "typical": 1124,
+  "swarm": 1105,
+  "sphere": 1254,
+  "lost": 1134
+ },
+ "ratios": {
+  "typical": 0.83,
+  "swarm": 0.34,
+  "sphere": 1.09,
+  "lost": NaN
+ }
+}

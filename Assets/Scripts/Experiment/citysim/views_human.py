@@ -47,7 +47,10 @@ from citysim.los import Boxes, wrap_deg  # noqa: E402
 
 TEST = "internal_4"
 OUT = REPO / "experiment_results" / "views_study" / "human"
-CENTRAL = 0.8                    # ExperimentRecorder.identifyCentralFraction
+CENTRAL = 1.0                    # the share of the image a hat counts in: the whole frame, as the recorder scores
+                                 # since 2026-11-18 (0.8, identifyCentralFraction, before; S12's first fits used it)
+HMD_PX_PER_DEG = 22.0            # Quest Pro, what the headset resolves (CLAUDE.md: ~22 px/deg)
+PIXELS = True                    # distances in pixel-equivalent metres (see `resolution`); False: plain metres
 SCREEN_RADIUS_M = 2.0
 HMD_HALF_H = 50.0                # Quest Pro, about the head's forward (camera.HMD_HALF_FOV_DEG)
 HMD_HALF_V = 45.0
@@ -97,6 +100,36 @@ def _screen_scale(run):
     r = float(run.session.get("screenRadius", SCREEN_RADIUS_M) or SCREEN_RADIUS_M)
     quad = math.degrees(2 * math.atan(s * camera.FEED_ASPECT / 2 / r))
     return quad / camera.HFOV_DEG
+
+
+def resolution(feed_w=1920, screen_scale=1.3, screen_radius=SCREEN_RADIUS_M, sphere=False, cube=2048, stream=0):
+    """Pixels per WORLD degree the pilot's eye receives, the lesser of what the image holds and what the headset shows
+    of it: a feed holds feed_w / HFOV and its screen shows HFOV in `quad` degrees of the headset's 22 px/deg; the
+    sphere is shown at 1:1, from the cube (cube / 90 px/deg at a face's centre) or, since 2026-11-18, from the 2K live
+    stream (stream / 360). 1920 feeds at scale 1.3: 17.7; the cube: 22.0; the 2048 stream: 5.7."""
+    if sphere:
+        src = (stream / 360.0) if stream else (cube / 90.0)
+        return min(src, HMD_PX_PER_DEG)
+    quad = math.degrees(2 * math.atan(screen_scale * camera.FEED_ASPECT / 2 / screen_radius))
+    return min(feed_w / camera.HFOV_DEG, HMD_PX_PER_DEG * quad / camera.HFOV_DEG)
+
+
+R_REF = resolution()                # the trials' feeds (1920 x 1080 at screen scale 1.3): the reference
+
+
+def px_factor(run):
+    """The distance multiplier that turns a run's metres into pixel-equivalent metres at R_REF: a hat d metres away
+    covers as many pixels of what the eye receives as one d * factor metres away on the reference feeds. Recognition
+    of a 21 cm hat is limited by the pixels across it (Johnson's criteria; range at a fixed probability is proportional
+    to resolution), so a hazard fitted in these units carries to a display of another resolution by its factor."""
+    if not PIXELS:
+        return 1.0
+    s = run.session or {}
+    sp = s.get("sphere360") or {}
+    r = resolution(float(s.get("feedWidth", 1920) or 1920), float(s.get("screenScale", 1.3) or 1.3),
+                   float(s.get("screenRadius", SCREEN_RADIUS_M) or SCREEN_RADIUS_M), sphere=_sphere(run),
+                   cube=float(sp.get("cubeSize", 2048) or 2048), stream=float(sp.get("streamWidth", 0) or 0))
+    return R_REF / r
 
 
 def _sphere(run):
@@ -206,6 +239,7 @@ def recognition_events(rr):
                              press_t=press, camDist=ok[0]["camDist"] if ok else math.nan,
                              override=bool(ok and ok[0].get("override")), false_alarms=len(fa),
                              start=r.start if r.start is not None else 0.0,
+                             px=px_factor(r),
                              first_screen_t=_first(df, "d_screen"), first_head_t=_first(df, "d_head"),
                              min_screen_before=_min_before(df, "d_screen", press),
                              min_head_before=_min_before(df, "d_head", press),
@@ -276,7 +310,9 @@ def exposure_events(rows, ex, col="d_head", latency=1.0, conditions=None, t_from
         else:
             t1 = float(df.t.iloc[-1])
         m = (df.t >= t0) & ((df.t < t1) if strict else (df.t <= t1)) & df[col].notna()
-        exp_d.append(df[col][m].to_numpy())
+        if strict:
+            ev_d[-1] *= row.get("px", 1.0)
+        exp_d.append(df[col][m].to_numpy() * row.get("px", 1.0))
         exp_dt.append(df.dt[m].to_numpy())
     return (np.concatenate(exp_d) if exp_d else np.zeros(0), np.concatenate(exp_dt) if exp_dt else np.zeros(0),
             np.array(ev_d), unexplained)
@@ -303,11 +339,11 @@ def exposure_events_start(rows, ex, col="d_head", conditions=None):
             j = len(on) - 1
             while j > 0 and t[on[j]] - t[on[j - 1]] <= VERIFY_GAP_S:
                 j -= 1
-            ev_d.append(d[on[j]])
+            ev_d.append(d[on[j]] * r.get("px", 1.0))
             m = (t >= r["start"]) & (t < t[on[j]]) & np.isfinite(d)
         else:
             m = (t >= r["start"]) & (t <= t1) & np.isfinite(d)
-        exp_d.append(d[m])
+        exp_d.append(d[m] * r.get("px", 1.0))
         exp_dt.append(dt[m])
     return np.concatenate(exp_d), np.concatenate(exp_dt), np.array(ev_d)
 
@@ -505,7 +541,7 @@ def discovery_ranges(rr):
     rows, series = [], {}
     for r in rr:
         boxes = analyse.scene_boxes(r.goals, r.city, r.goal_width)
-        legs = analyse.goal_legs(r, ZONE_M)
+        legs = analyse.goal_legs(r, ZONE_M, rule="zone")
         for L in legs:
             g = L["goal"]
             c = analyse.commit_time(r, L)
@@ -514,7 +550,7 @@ def discovery_ranges(rr):
             before = s[s.t <= (c if math.isfinite(c) else L["enter"])]
             at = s[(s.t >= c - 2.0) & (s.t <= c)] if math.isfinite(c) else s.iloc[0:0]
             leg_s = s[s.t >= L["t0"]]
-            rows.append(dict(run=r.stem, pid=r.pid, condition=r.condition, leg=L["leg"], t0=L["t0"],
+            rows.append(dict(run=r.stem, pid=r.pid, condition=r.condition, leg=L["leg"], t0=L["t0"], px=px_factor(r),
                              enter=L["enter"], commit=c, commit_s=c - L["t0"] if math.isfinite(c) else math.nan,
                              transit_s=L["enter"] - L["t0"],
                              closest_head_by_commit=float(before.d_head.min()) if before.d_head.notna().any()
@@ -537,21 +573,30 @@ def _goal_dist(run, g, t):
 DISC_LATENCY_S = 2.0             # noticing a crowd -> the turn onto it
 
 
-def fit_notice(legs, series, col="d_head", latency=DISC_LATENCY_S, bins=(0, 50, 100, 150, 200, 250, 300, 350)):
+NOTICE_K = 8.0                   # the noticing hazard's fixed steepness (see fit_notice)
+
+
+def fit_notice(legs, series, col="d_head", latency=DISC_LATENCY_S, bins=(0, 50, 100, 150, 200, 250, 300, 350),
+               k_fixed=NOTICE_K):
     """The crowd-noticing hazard mu(d) = hill(d; mu0, d50, k), by maximum likelihood with interval censoring: a leg
     whose final approach began more than 1 s into it is an event at its commit less `latency` (credited the crowd's
     distance then, or the nearest sample on screen within LOOK_BACK_S before it), after the exposure from the task
     start; a leg that began on its final approach had noticed the crowd at some unknown time before the leg began,
     so it contributes P(noticed by then) = 1 - exp(-Lambda(t0)). Each sample is DISC_EVERY_S. Returns the fit and a
     binned table of the events with their exposure (the events only, so it understates the hazard by the censored
-    legs)."""
+    legs).
+
+    k is fixed (k_fixed; None frees it). With YEGO's legs the likelihood is flat in the shape: k from 1 to 20 changes
+    it by under 0.3 (the rate is about flat over the 16-206 m the events span, and nothing says how it ends), and the
+    free fit wanders to a power law at other latencies. A near-step (k 8) is the plain reading: noticed at mu0 while
+    within about d50."""
     from scipy import optimize
     ev, ev_exp, cens = [], [], []
     for _, L in legs.iterrows():
         s = series[(L.run, L.leg)]
         if not len(s):
             continue
-        t, d = s.t.to_numpy(), s[col].to_numpy()
+        t, d = s.t.to_numpy(), s[col].to_numpy() * (float(L.px) if PIXELS and "px" in L and np.isfinite(L.px) else 1.0)
         if not math.isfinite(L.commit):
             continue
         if L.commit_s > 1.0:
@@ -571,7 +616,8 @@ def fit_notice(legs, series, col="d_head", latency=DISC_LATENCY_S, bins=(0, 50, 
     ev = np.array(ev)
 
     def nll(p):
-        mu0, d50, k = math.exp(p[0]), math.exp(p[1]), math.exp(p[2])
+        mu0, d50 = math.exp(p[0]), math.exp(p[1])
+        k = k_fixed if k_fixed else math.exp(p[2])
         ll = np.log(hill(ev, mu0, d50, k)).sum() - sum((hill(x, mu0, d50, k) * dt).sum() for x in ev_exp)
         for x in cens:
             lam = float((hill(x, mu0, d50, k) * dt).sum())
@@ -588,7 +634,9 @@ def fit_notice(legs, series, col="d_head", latency=DISC_LATENCY_S, bins=(0, 50, 
                     if best is None or r.fun < best.fun:
                         best = r
         mu0, d50, k = (math.exp(v) for v in best.x)
-        grid = np.exp(np.linspace(math.log(20.0), math.log(600.0), 61))
+        if k_fixed:
+            k = k_fixed
+        grid = np.exp(np.linspace(math.log(20.0), math.log(800.0), 61))
         pl = []
         for d in grid:
             r = optimize.minimize(lambda q: nll([q[0], math.log(d), q[1]]), [best.x[0], best.x[2]],
@@ -603,6 +651,7 @@ def fit_notice(legs, series, col="d_head", latency=DISC_LATENCY_S, bins=(0, 50, 
         n = int(((ev >= a) & (ev < b)).sum())
         tab.append(dict(bin=f"{a}-{b}", exposure_s=round(s, 1), events=n, rate=round(n / s, 4) if s else math.nan))
     return dict(mu0=mu0, d50=d50, k=k, loglik=-best.fun, d50_lo=float(inside.min()), d50_hi=float(inside.max()),
+                d50_hi_open=bool(inside.max() >= grid[-1] - 1e-6), k_fixed=k_fixed,
                 n_events=int(len(ev)), n_censored=len(cens), latency=latency), pd.DataFrame(tab)
 
 
@@ -621,6 +670,7 @@ def cmd_discovery(a):
         for lat in (1.0, 2.0, 4.0):
             fit, tab = fit_notice(df, series, col, lat)
             fits[f"{col}|lat{lat}"] = dict(fit=fit, table=tab.to_dict("records"))
+            fits[f"free|{col}|lat{lat}"] = dict(fit=fit_notice(df, series, col, lat, k_fixed=None)[0])
             print(f"\nnotice {col} latency {lat}: mu0 {fit['mu0']:.3f}/s d50 {fit['d50']:.0f} m "
                   f"[{fit['d50_lo']:.0f}, {fit['d50_hi']:.0f}] k {fit['k']:.2f}; {fit['n_events']} events, "
                   f"{fit['n_censored']} censored")
@@ -640,6 +690,7 @@ def cmd_discovery_fit(a):
         for lat in (1.0, 2.0, 4.0):
             fit, tab = fit_notice(df, series, col, lat)
             fits[f"{col}|lat{lat}"] = dict(fit=fit, table=tab.to_dict("records"))
+            fits[f"free|{col}|lat{lat}"] = dict(fit=fit_notice(df, series, col, lat, k_fixed=None)[0])
             print(f"\nnotice {col} latency {lat}: mu0 {fit['mu0']:.3f}/s d50 {fit['d50']:.0f} m "
                   f"[{fit['d50_lo']:.0f}, {fit['d50_hi']:.0f}] k {fit['k']:.2f}; {fit['n_events']} events, "
                   f"{fit['n_censored']} censored")
@@ -693,7 +744,7 @@ def behaviour(rr):
     rows = []
     for r in rr:
         s = _signals(r)
-        legs = analyse.goal_legs(r, ZONE_M)
+        legs = analyse.goal_legs(r, ZONE_M, rule="zone")
         for L in legs:
             g = L["goal"]
             dist = np.hypot(r.cx - g["goalX"], r.cz - g["goalZ"])
@@ -736,7 +787,7 @@ def head_dwells(rr):
     out = {}
     for r in rr:
         s = _signals(r)
-        legs = analyse.goal_legs(r, ZONE_M)
+        legs = analyse.goal_legs(r, ZONE_M, rule="zone")
         for L in legs:
             for phase, a, b in (("transit", L["t0"], L["enter"]), ("search", L["enter"], L["exit"])):
                 m = np.flatnonzero((s["t"] >= a) & (s["t"] < b))
@@ -764,7 +815,7 @@ def head_series(rr):
     out = {}
     for r in rr:
         s = _signals(r)
-        for L in analyse.goal_legs(r, ZONE_M):
+        for L in analyse.goal_legs(r, ZONE_M, rule="zone"):
             for phase, a, b in (("transit", L["t0"], L["enter"]), ("search", L["enter"], L["exit"])):
                 m = (s["t"] >= a) & (s["t"] < b)
                 if m.sum() < 20:
@@ -802,7 +853,7 @@ def goal_times(rr):
     import analyse
     rows = []
     for r in rr:
-        legs = {L["gi"]: L for L in analyse.goal_legs(r, ZONE_M)}
+        legs = {L["gi"]: L for L in analyse.goal_legs(r, ZONE_M, rule="zone")}
         pp = presses(r)
         start = r.start or 0.0
         found = []
@@ -873,6 +924,12 @@ def cmd_recognition(a):
                           f"lam0 {fit['lam0']:.3f}/s d50 {fit['d50']:.1f} m [{fit['d50_lo']:.1f}, {fit['d50_hi']:.1f}]"
                           f" k {fit['k']:.2f}")
                     print(tab.to_string(index=False))
+    for pid in sorted({r["pid"] for r in rows}):                 # each pilot's own (one shape per pilot)
+        d, s, e, un = exposure_events([r for r in rows if r["pid"] == pid], ex, "d_head", 1.0)
+        fit = fit_hazard(d, s, e)
+        res[f"pilot|{pid}"] = dict(fit=fit, n=int(len(e)), exposed_s=float(s.sum()),
+                                   median_event_m=float(np.median(e)) if len(e) else None)
+        print(f"pilot {pid}: {len(e)} events, lam0 {fit['lam0']:.2f}/s d50 {fit['d50']:.1f} m k {fit['k']:.2f}")
     for col in ("d_head", "d_screen"):
         d, s, e = exposure_events_start(rows, ex, col)
         fit = fit_hazard(d, s, e)

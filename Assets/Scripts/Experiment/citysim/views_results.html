@@ -1,0 +1,319 @@
+<title>S12 Distributed Views</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;1,400&family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The study pages' family: S4's page's styles, inlined at build (views_results via shaped_report.s4_style), then
+   S12's additions. Data colour: the three conditions as the user-trial pages draw them (swarm, one drone, 360). */
+/*__S4_STYLE__*/
+:root { --k-swarm: var(--c-street); --k-single: var(--c-single); --k-sphere: var(--c-pass); --k-people: var(--ink); }
+table.dt td.l, table.dt th.l { text-align: left; white-space: normal; min-width: 150px; font-family: var(--font-body); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 14px; }
+.pair > div, .pair > figure { min-width: 0; }
+figure.box { margin: 0; }
+figure.box figcaption { font-size: 0.86rem; color: var(--ink-2); margin-top: 6px; }
+.band { fill: var(--good-bg); }
+.vtag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-weight: 600; font-size: 0.82rem; }
+.vtag.swarm { background: color-mix(in srgb, var(--k-swarm) 18%, transparent); color: var(--ink); }
+.vtag.other { background: color-mix(in srgb, var(--k-sphere) 18%, transparent); color: var(--ink); }
+.vtag.eq { background: var(--good-bg); color: var(--good); }
+.vtag.und { background: var(--warn-bg); color: var(--warn); }
+ul.changes { margin: 0; padding-left: 1.1rem; display: grid; gap: 7px; color: var(--ink-2); max-width: 86ch; }
+ul.changes b { color: var(--ink); }
+.keyline { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.86rem; color: var(--ink-2); margin-top: 10px; }
+.keyline .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <p class="eyebrow">Study S12 · Distributed Views · for the human trials</p>
+      <h1>Does the swarm find the hats faster than one drone with a 360 camera?</h1>
+      <p class="lead">The swarm differs from one drone in two ways at once: its ten cameras face every way, and they stand in ten places. One drone whose 360 camera is shown on a sphere round the pilot
+        has the first without the second, so the swarm against that drone measures what the spread-out viewpoints add beyond seeing every way at once. That is the next human comparison.</p>
+      <p class="lead">S12 flies the trials' whole task (three goals, a walking hat at each, from the start line to the third press) in the trial city with the swarm, one drone with the trials' camera
+        and one drone with a 360 camera shown as the Antigravity A1's 2K live stream, with how far a hat and a crowd can be seen fitted to internal_4's pilots. Scripted pilots on the 2D replica, checked against Unity.</p>
+      <div class="keyline" id="keyline"></div>
+    </div>
+    <div class="answer-box" id="answer-box"></div>
+  </header>
+  <nav class="tabs" role="tablist" aria-label="Sections" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<!--__RV_INLINE__-->
+<script>/*__REPLAY_VIEW__*/</script>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+try { const el = document.getElementById("rv-inline"); if (el) window.RV_INLINE = JSON.parse(el.textContent); } catch (e) { /* none */ }
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const ok = x => x !== null && x !== undefined && !Number.isNaN(x);
+const fmt = (x, nd = 2) => ok(x) ? Number(x).toFixed(nd) : "–";
+const pc = x => ok(x) ? `${Math.round(100 * x)}%` : "–";
+const NAME = {swarm: "Swarm", single: "One drone", sphere: "360 drone", people: "internal_4's pilots"};
+const COL = c => `var(--k-${c})`;
+const ci = r => r ? `${fmt(r.est)} (${fmt(r.lo)}–${fmt(r.hi)})` : "–";
+
+// ---------------------------------------------------------------- tooltip and chart helpers
+const TIP = document.createElement("div");
+TIP.className = "tip"; TIP.hidden = true; TIP.setAttribute("role", "status");
+document.body.appendChild(TIP);
+function tipShow(x, y, title, rows) {
+  TIP.replaceChildren();
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title; TIP.appendChild(t);
+  for (const [col, val, lab] of rows) {
+    const r = document.createElement("div"); r.className = "tr";
+    const k = document.createElement("span"); k.className = "k"; k.style.borderColor = col;
+    const b = document.createElement("b"); b.textContent = val;
+    const l = document.createElement("span"); l.textContent = lab;
+    r.append(k, b, l); TIP.appendChild(r);
+  }
+  TIP.hidden = false;
+  const pad = 14, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  let px = x + pad, py = y + pad;
+  if (px + w > innerWidth - 8) px = x - w - pad;
+  if (py + h > innerHeight - 8) py = y - h - pad;
+  TIP.style.left = Math.max(8, px) + "px"; TIP.style.top = Math.max(8, py) + "px";
+}
+function tipHide() { TIP.hidden = true; }
+function hoverMarks(root, rowsFor) {
+  root.querySelectorAll("[data-i]").forEach(m => {
+    const i = +m.dataset.i;
+    m.addEventListener("pointermove", ev => { const [t, rows] = rowsFor(i); tipShow(ev.clientX, ev.clientY, t, rows); });
+    m.addEventListener("pointerleave", tipHide);
+    m.addEventListener("focus", () => { const b = m.getBoundingClientRect(), [t, rows] = rowsFor(i); tipShow(b.right, b.top, t, rows); });
+    m.addEventListener("blur", tipHide);
+  });
+}
+const cw = (el, lo = 300, hi = 1040) => Math.max(lo, Math.min(hi, Math.round(el.clientWidth || 720)));
+function observe(el, draw) {
+  let w = 0;
+  new ResizeObserver(() => { const n = Math.round(el.clientWidth); if (n && Math.abs(n - w) > 24) { w = n; requestAnimationFrame(draw); } }).observe(el);
+}
+const svgOf = (Wd, H, label, g) => `<svg viewBox="0 0 ${Wd} ${H}" style="max-width:${Wd}px;width:100%" role="img" aria-label="${esc(label)}">${g}</svg>`;
+
+// A forest of ratios on a log axis: rows [{label, est, lo, hi, c (colour key), hollow?, head?}], an equivalence band.
+function forest(el, rows, o = {}) {
+  const draw = () => {
+    const Wd = cw(el, 320, 900), lw = Math.min(330, Math.max(170, Wd * 0.42)), m = {l: lw, r: 64, t: 8, b: 34}, rh = 24;
+    const H = m.t + rows.length * rh + m.b, x0 = o.x0 || 0.4, x1 = o.x1 || 2.5;
+    const X = v => m.l + (Math.log(Math.min(Math.max(v, x0), x1)) - Math.log(x0)) / (Math.log(x1) - Math.log(x0)) * (Wd - m.l - m.r);
+    let g = "";
+    if (o.band) g += `<rect class="band" x="${X(o.band[0])}" y="${m.t}" width="${X(o.band[1]) - X(o.band[0])}" height="${rows.length * rh}"/>`;
+    for (const t of o.ticks || [0.5, 0.75, 1, 1.25, 1.5, 2]) {
+      if (t < x0 || t > x1) continue;
+      g += `<line class="gridl" x1="${X(t)}" x2="${X(t)}" y1="${m.t}" y2="${m.t + rows.length * rh}" ${t === 1 ? 'stroke="var(--ink-2)" stroke-dasharray="3 3"' : ""}/>`;
+      g += `<text x="${X(t)}" y="${H - m.b + 16}" text-anchor="middle">${t}×</text>`;
+    }
+    g += `<text x="${(m.l + Wd - m.r) / 2}" y="${H - 4}" text-anchor="middle">${esc(o.xl || "ratio of task times (below 1: the first is faster)")}</text>`;
+    rows.forEach((r, i) => {
+      const y = m.t + i * rh + rh / 2;
+      g += `<text class="lbl" x="${m.l - 8}" y="${y + 4}" text-anchor="end" ${r.head ? 'font-weight="600"' : ""}>${esc(r.label)}</text>`;
+      if (!ok(r.est)) return;
+      if (ok(r.lo)) g += `<line x1="${X(r.lo)}" x2="${X(r.hi)}" y1="${y}" y2="${y}" stroke="${COL(r.c)}" stroke-width="2.2"/>`;
+      g += `<circle cx="${X(r.est)}" cy="${y}" r="5" fill="${r.hollow ? "var(--panel)" : COL(r.c)}" stroke="${COL(r.c)}" stroke-width="2"/>`;
+      g += `<text class="val" x="${Wd - m.r + 6}" y="${y + 4}">${fmt(r.est)}</text>`;
+      g += `<rect class="hit" data-i="${i}" tabindex="0" x="0" y="${y - rh / 2}" width="${Wd}" height="${rh}"/>`;
+    });
+    el.innerHTML = `<div class="chart">${svgOf(Wd, H, o.label || "ratios", g)}</div>`;
+    hoverMarks(el, i => [rows[i].label, [[COL(rows[i].c), ci(rows[i]), rows[i].note || "95% interval over sessions"]]]);
+  };
+  draw(); observe(el, draw);
+}
+
+// Grouped horizontal bars: groups [{label, bars: [{c, label, est, lo?, hi?, faint?}]}]
+function bars(el, groups, o = {}) {
+  const draw = () => {
+    const Wd = cw(el, 320, 900), m = {l: Math.min(300, Math.max(160, Wd * 0.36)), r: 70, t: 6, b: 30}, bh = 15, gap = 4, gg = 12;
+    let n = 0; groups.forEach(g => n += g.bars.length);
+    const H = m.t + n * (bh + gap) + groups.length * gg + m.b;
+    const all = groups.flatMap(g => g.bars.flatMap(b => [b.est, b.hi].filter(ok)));
+    const vmax = (o.max || Math.max(...all)) * 1.05, X = v => m.l + (Wd - m.l - m.r) * Math.max(0, v) / vmax;
+    let g = "", y = m.t, k = 0;
+    const flat = [];
+    for (const grp of groups) {
+      if (grp.label) g += `<text class="lbl" x="4" y="${y + 10}" font-weight="600">${esc(grp.label)}</text>`;
+      y += grp.label ? gg : gg / 2;
+      for (const b of grp.bars) {
+        g += `<text class="lbl" x="${m.l - 8}" y="${y + bh - 3}" text-anchor="end">${esc(b.label)}</text>`;
+        if (ok(b.est)) {
+          g += `<rect x="${m.l}" y="${y}" width="${Math.max(1.5, X(b.est) - m.l)}" height="${bh}" rx="2" fill="${COL(b.c)}" opacity="${b.faint ? 0.42 : 1}"/>`;
+          if (ok(b.lo)) g += `<line x1="${X(b.lo)}" x2="${X(b.hi)}" y1="${y + bh / 2}" y2="${y + bh / 2}" stroke="var(--ink)" stroke-width="1.3"/>`;
+          g += `<text class="val" x="${Math.max(X(b.est), ok(b.hi) ? X(b.hi) : 0) + 5}" y="${y + bh - 3}">${fmt(b.est, o.nd ?? 1)}</text>`;
+        }
+        g += `<rect class="hit" data-i="${k}" tabindex="0" x="0" y="${y}" width="${Wd}" height="${bh}"/>`;
+        flat.push(b); k++; y += bh + gap;
+      }
+    }
+    for (const t of o.ticks || []) g += `<text x="${X(t)}" y="${H - m.b + 16}" text-anchor="middle">${t}</text>`;
+    g += `<text x="${(m.l + Wd - m.r) / 2}" y="${H - 4}" text-anchor="middle">${esc(o.xl || "")}</text>`;
+    el.innerHTML = `<div class="chart">${svgOf(Wd, H, o.label || "bars", g)}</div>`;
+    hoverMarks(el, i => [flat[i].label, [[COL(flat[i].c), ok(flat[i].lo) ? `${fmt(flat[i].est, o.nd ?? 1)} (${fmt(flat[i].lo, o.nd ?? 1)}–${fmt(flat[i].hi, o.nd ?? 1)})` : fmt(flat[i].est, o.nd ?? 1), o.unit || ""]]]);
+  };
+  draw(); observe(el, draw);
+}
+
+// A hazard by distance: binned rates (dots, intervals) and fitted curves [{lab, c, a, d50, k, dash, scale}]
+function hazard(el, H, curves, o) {
+  const draw = () => {
+    const Wd = cw(el, 300, 620), Ht = 300, m = {l: 50, r: 14, t: 12, b: 40};
+    const X = v => m.l + v / o.xmax * (Wd - m.l - m.r), Y = v => Ht - m.b - Math.min(v, o.ymax) / o.ymax * (Ht - m.t - m.b);
+    let g = "";
+    for (const t of o.yt) g += `<line class="gridl" x1="${m.l}" x2="${Wd - m.r}" y1="${Y(t)}" y2="${Y(t)}"/><text x="${m.l - 6}" y="${Y(t) + 4}" text-anchor="end">${t}</text>`;
+    for (const t of o.xt) g += `<text x="${X(t)}" y="${Ht - m.b + 16}" text-anchor="middle">${t}</text>`;
+    g += `<text x="${(m.l + Wd - m.r) / 2}" y="${Ht - 6}" text-anchor="middle">${esc(o.xl)}</text>`;
+    g += `<text x="12" y="${(m.t + Ht - m.b) / 2}" transform="rotate(-90 12 ${(m.t + Ht - m.b) / 2})" text-anchor="middle">${esc(o.yl)}</text>`;
+    for (const b of H || []) {
+      const cx = X((b.d_lo + b.d_hi) / 2);
+      if (ok(b.hi) && ok(b.lo)) g += `<line x1="${cx}" x2="${cx}" y1="${Y(b.hi)}" y2="${Y(b.lo)}" stroke="var(--muted)"/>`;
+      if (ok(b.rate)) g += `<circle cx="${cx}" cy="${Y(b.rate)}" r="3.2" fill="var(--ink)"/>`;
+    }
+    for (const c of curves) {
+      let d = "";
+      for (let x = 0.5; x <= o.xmax; x += o.xmax / 240) d += (d ? "L" : "M") + X(x).toFixed(1) + "," + Y(c.a / (1 + Math.pow(x * (c.scale || 1) / c.d50, c.k))).toFixed(1);
+      g += `<path d="${d}" fill="none" stroke="${COL(c.c)}" stroke-width="${c.w || 2}" stroke-dasharray="${c.dash || ""}"/>`;
+    }
+    curves.forEach((c, i) => {
+      g += `<line x1="${Wd - 250}" x2="${Wd - 230}" y1="${m.t + 10 + i * 16}" y2="${m.t + 10 + i * 16}" stroke="${COL(c.c)}" stroke-width="2.2" stroke-dasharray="${c.dash || ""}"/>`;
+      g += `<text x="${Wd - 224}" y="${m.t + 14 + i * 16}">${esc(c.lab)}</text>`;
+    });
+    el.innerHTML = `<div class="chart">${svgOf(Wd, Ht, o.yl, g)}</div>`;
+  };
+  draw(); observe(el, draw);
+}
+
+function table(head, rows, o = {}) {
+  const l = o.left || [0];
+  return `<div class="tablewrap"><table class="dt"><thead><tr>${head.map((h, i) => `<th class="${l.includes(i) ? "l" : ""}">${h}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map((c, i) => `<td class="${l.includes(i) ? "l" : ""}">${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+const vtag = v => {
+  const cls = {swarm: "swarm", other: "other", eq: "eq", und: "und"}[v.kind] || "und";
+  return `<span class="vtag ${cls}">${esc(v.text)}</span>`;
+};
+
+// ---------------------------------------------------------------- the masthead
+$("#keyline").innerHTML = ["swarm", "single", "sphere"].map(c => `<span><span class="dot" style="background:${COL(c)}"></span><b>${NAME[c]}</b> ${esc(D.cond_about[c])}</span>`).join("");
+$("#answer-box").innerHTML = `<p class="eyebrow">The short answer</p><ol>${D.answer.map(a => `<li>${a}</li>`).join("")}</ol><p class="bottom">${D.reading_short}</p>`;
+
+// ---------------------------------------------------------------- tabs
+const TABS = [["answer", "The answer"], ["flights", "Cities and flights"], ["details", "All results"], ["people", "What the pilots tell the model"], ["terms", "Terms"]];
+const RENDER = {}, KEEP = {};
+let CURRENT = null, PLAYER = null;
+function show(id) {
+  for (const b of document.querySelectorAll(".tab-btn")) b.setAttribute("aria-selected", b.dataset.id === id);
+  if (CURRENT === "flights" && PLAYER && id !== "flights" && PLAYER.hide) PLAYER.hide();
+  const mm = $("#main");
+  mm.replaceChildren();
+  let sec = KEEP[id];
+  if (sec) { mm.appendChild(sec); if (id === "flights" && PLAYER && PLAYER.show) PLAYER.show(); }
+  else {
+    sec = document.createElement("section");
+    sec.className = "tab"; sec.id = `tab-${id}`; sec.setAttribute("role", "tabpanel");
+    mm.appendChild(sec);
+    RENDER[id](sec);
+    if (id === "flights") KEEP[id] = sec;
+  }
+  CURRENT = id;
+  try { localStorage.setItem("s12tab", id); } catch (e) { /* private window */ }
+}
+$("#tabs").innerHTML = TABS.map(([id, label]) => `<button class="tab-btn" role="tab" data-id="${id}" aria-selected="false">${label}</button>`).join("");
+for (const b of document.querySelectorAll(".tab-btn")) b.addEventListener("click", () => show(b.dataset.id));
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const h = a.getAttribute("href").slice(1);
+  if (TABS.some(t => t[0] === h)) { e.preventDefault(); show(h); $("#tabs").scrollIntoView({block: "start"}); }
+});
+
+// ---------------------------------------------------------------- the answer
+RENDER.answer = el => {
+  const A = D.main, P = D.probe;
+  el.innerHTML = `<div class="intro"><h2>The answer</h2><p>${D.intro}</p></div>
+    <div class="box"><h3>1. The whole task: the swarm against the 360 drone and against one drone</h3>
+      <p>${A.verdict_text}</p>
+      <div id="f-main"></div>
+      <p class="small muted">${A.forest_caption}</p></div>
+    <div class="box"><h3>2. Where the time goes: between goals and at the goal</h3>
+      <p>${A.phase_text}</p>
+      <div class="pair"><div><h4>At a goal (geometric mean per goal, s)</h4><div id="b-at"></div></div><div><h4>Between goals (s)</h4><div id="b-bt"></div></div></div>
+      <p class="small muted">${A.phase_caption}</p></div>
+    <div class="box"><h3>3. At a goal: what the spread-out views add over one 360 viewpoint</h3>
+      <p>${P.text}</p>
+      <div id="b-probe"></div>
+      <p class="small muted">${P.caption}</p></div>
+    <div class="box"><h3>4. The 2K stream</h3><p>${D.stream.text}</p><div id="f-stream"></div><p class="small muted">${D.stream.caption}</p></div>
+    <div class="reading box"><h3>My reading</h3><ul>${D.reading.map(x => `<li>${x}</li>`).join("")}</ul></div>`;
+  forest($("#f-main", el), A.forest, {band: [0.9, 1 / 0.9], x0: 0.12, x1: 3, ticks: [0.125, 0.25, 0.5, 1, 2], label: "task-time ratios"});
+  bars($("#b-at", el), A.phase.at, {xl: "seconds", unit: "s, geometric mean over goals found (95% over sessions)"});
+  bars($("#b-bt", el), A.phase.between, {xl: "seconds", unit: "s, geometric mean over goals found (95% over sessions)"});
+  bars($("#b-probe", el), P.groups, {xl: "hat recognitions per minute at a goal", unit: "per minute (95% over sessions)", nd: 2});
+  forest($("#f-stream", el), D.stream.forest, {band: [0.9, 1 / 0.9], x0: 0.4, x1: 2.5, label: "the stream"});
+};
+
+// ---------------------------------------------------------------- flights
+const RP = D.replay;
+const RPATH = {city: n => `replay/cities/${n}.json`, flight: n => `replay/flights/${n}.json`};
+RENDER.flights = el => {
+  if (!RP || !RP.groups || !RP.groups.length) { el.innerHTML = `<div class="intro"><h2>Cities and flights</h2></div><p class="notrun">The flights have not been replayed yet.</p>`; return; }
+  el.innerHTML = `<div class="intro"><h2>Cities and flights</h2><p>${esc(D.flights_intro)}</p></div><div id="c-player"></div>`;
+  const labels = {swarm: "Swarm", single: "One drone", sphere: "360 drone"}, colors = {swarm: COL("swarm"), single: COL("single"), sphere: COL("sphere")};
+  PLAYER = RV.Player($("#c-player", el), RP.groups.map(g => Object.assign({short: g.title}, g)), {labels, colors, path: RPATH, summaryRows: summaryRows});
+  PLAYER.start(0);
+};
+function summaryRows(F, s) {
+  const r = [];
+  if (F.unit === "route") return [["source", F.source_label || F.source]];
+  r.push(["task time", ok(s.time_s) ? `${fmt(s.time_s, 0)} s` : (s.reason === "lost" ? "stopped: under four drones" : "not done in 900 s")]);
+  (s.at || []).forEach((a, i) => r.push([`${["first", "second", "third"][i] || i + 1} goal found: between / at`, `${fmt((s.between || [])[i], 0)} / ${fmt(a, 0)} s`]));
+  r.push(["drones lost", String(s.lost ?? "–")], ["building contacts", String(s.contacts ?? "–")]);
+  return r;
+}
+
+// ---------------------------------------------------------------- all results
+RENDER.details = el => {
+  const T = D.tables;
+  el.innerHTML = `<div class="intro"><h2>All results</h2><p>${T.intro}</p></div>
+    <div class="box"><h3>Per condition, the trial city (${D.main.n} sessions)</h3>${table(T.cond.head, T.cond.rows)}<p class="small muted">${T.cond.note}</p></div>
+    <div class="box"><h3>Every ratio</h3>${table(T.ratios.head, T.ratios.rows)}</div>
+    <div class="box"><h3>Sensitivities: one assumption changed at a time</h3><div id="f-sens"></div>${table(T.sens.head, T.sens.rows)}<p class="small muted">${T.sens.note}</p></div>
+    <div class="box"><h3>Held-out cities</h3>${table(T.held.head, T.held.rows)}<p class="small muted">${T.held.note}</p></div>
+    <div class="box"><h3>The view probe: every basis</h3>${table(T.probe.head, T.probe.rows)}<p class="small muted">${T.probe.note}</p></div>
+    <div class="box"><h3>The calibration gate</h3><p>${T.calib.text}</p>${table(T.calib.head, T.calib.rows)}<p class="small muted">${T.calib.note}</p></div>
+    <div class="box"><h3>The Unity spot check</h3><p>${T.spot.text}</p>${T.spot.rows.length ? table(T.spot.head, T.spot.rows) : `<p class="notrun">Not flown.</p>`}</div>
+    <div class="box"><h3>The human retest: how many pilots</h3><p>${T.power.text}</p>${table(T.power.head, T.power.rows)}</div>`;
+  forest($("#f-sens", el), T.sens.forest, {band: [0.9, 1 / 0.9], x0: 0.4, x1: 2.5, label: "sensitivities"});
+};
+
+// ---------------------------------------------------------------- the people
+RENDER.people = el => {
+  const H = D.human;
+  el.innerHTML = `<div class="intro"><h2>What the pilots tell the model</h2><p>${H.intro}</p></div>
+    <div class="box"><h3>What changed since the proposal</h3><ul class="changes">${H.changes.map(x => `<li>${x}</li>`).join("")}</ul></div>
+    <div class="box"><h3>Seeing a hat</h3><p>${H.rec.text}</p>
+      <div class="pair"><figure class="box"><div id="h-rec"></div><figcaption>${H.rec.caption}</figcaption></figure>
+      <div>${table(H.rec.bins_head, H.rec.bins)}</div></div>${table(H.rec.pilots_head, H.rec.pilots)}<p class="small muted">${H.rec.note}</p></div>
+    <div class="box"><h3>What the 2K stream does to it</h3><p>${H.res.text}</p>${table(H.res.head, H.res.rows)}
+      <figure class="box"><div id="h-res"></div><figcaption>${H.res.caption}</figcaption></figure></div>
+    <div class="box"><h3>Seeing a goal's crowd</h3><p>${H.notice.text}</p><figure class="box"><div id="h-not"></div><figcaption>${H.notice.caption}</figcaption></figure>${table(H.notice.head, H.notice.rows)}</div>
+    <div class="box"><h3>How each condition was flown</h3><p>${H.beh.text}</p>${table(H.beh.head, H.beh.rows)}</div>`;
+  hazard($("#h-rec", el), H.rec.table, H.rec.curves, {xmax: 100, ymax: 1.0, xt: [0, 20, 40, 60, 80, 100], yt: [0, 0.25, 0.5, 0.75, 1.0], xl: "the hat's distance from the camera (m, at the trials' feeds)", yl: "recognitions per second in view"});
+  hazard($("#h-res", el), null, H.res.curves, {xmax: 60, ymax: 0.6, xt: [0, 10, 20, 30, 40, 50, 60], yt: [0, 0.2, 0.4, 0.6], xl: "the hat's real distance (m)", yl: "recognitions per second in view"});
+  hazard($("#h-not", el), H.notice.table, H.notice.curves, {xmax: 500, ymax: 0.2, xt: [0, 100, 200, 300, 400, 500], yt: [0, 0.05, 0.1, 0.15, 0.2], xl: "the crowd's distance (m)", yl: "noticed per second in view"});
+};
+
+// ---------------------------------------------------------------- terms
+RENDER.terms = el => {
+  el.innerHTML = `<div class="intro"><h2>Terms</h2></div>` + D.terms.map(([h, items]) => `<div class="box"><h3>${esc(h)}</h3><dl class="terms">${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>`).join("")
+    + `<p class="small muted">${D.foot}</p>`;
+};
+
+let first = "answer";
+try { const t = localStorage.getItem("s12tab"); if (t && TABS.some(x => x[0] === t)) first = t; } catch (e) { /* private window */ }
+show(first);
+</script>

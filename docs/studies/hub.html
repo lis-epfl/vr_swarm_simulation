@@ -77,7 +77,7 @@ tr:last-child td { border-bottom: 0; }
     <h1>Swarm Study Index</h1>
     <p class="lead">Every study has a permanent ID and a name. To point a new chat or an agent at one, say its ID and name, for example "see S3 City Roaming": the repository holds its full entry in <code>docs/studies/</code>, which every agent working in this project is told to read.</p>
     <p class="lead">The user trials these studies serve, series by series (internal_1 to internal_4), have pages of their own: the <a href="https://claude.ai/artifact/H7UGMEWkhYUxao7MkCc4Kr" target="_blank" rel="noopener"><b>User Trial Index</b></a>.</p>
-    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span><span><b>S10</b>Ellipse Avoidance</span><span><b>S11</b>Wrap Hold</span></div>
+    <div class="cite"><span><b>S1</b>Goal Visibility</span><span><b>S2</b>Hidden Goal Search</span><span><b>S3</b>City Roaming</span><span><b>S4</b>Split and Surround</span><span><b>S5</b>Block-Shaped Surround</span><span><b>S6</b>Patch City Tuning</span><span><b>S7</b>Building Flow</span><span><b>S8</b>Footprint Avoidance</span><span><b>S9</b>Street Spread</span><span><b>S10</b>Ellipse Avoidance</span><span><b>S11</b>Wrap Hold</span><span><b>S12</b>Distributed Views</span></div>
   </header>
 
   <section>
@@ -318,6 +318,27 @@ tr:last-child td { border-bottom: 0; }
           </ul>
         </div>
       </article>
+      <article class="study">
+        <header><span class="id">S12</span><h3>Distributed Views</h3><span class="was">the views study · 17–18 Nov 2026</span><span class="status done">Done · for the retest</span></header>
+        <div>
+          <p class="q">The trials' whole task flown by the swarm, by one drone and by one drone whose 360 camera is shown on a sphere: what do the swarm's spread-out viewpoints add beyond seeing every way at once, and what should the human retest of the swarm against the sphere expect?</p>
+          <h4>Limits</h4>
+          <ul>
+            <li>The 360 drone shows the Antigravity A1's 2K live stream, which nobody has flown: its cost (a hat counts 3.1× as far away) is a model from the pixels across a hat. SIMI flew the much sharper cube.</li>
+            <li>What a pilot sees is fitted to internal_4's four pilots (54 presses); the scripted pilots are ~1.5× slower than them between goals, though the ratios match.</li>
+          </ul>
+          <div class="links"><a href="https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU" target="_blank" rel="noopener">Results page</a><a href="https://claude.ai/artifact/CpzLU87XCffSTVdQDopp6j" target="_blank" rel="noopener">Proposal</a><span class="mono">docs/studies/S12_distributed_views.md</span></div>
+        </div>
+        <div>
+          <h4>Findings</h4>
+          <ul>
+            <li>The swarm takes 0.61× the 360 drone's time (95% 0.59–0.64) and 0.75× one drone's (0.71–0.79) over the whole task, 300 paired sessions: at least 10% faster against both, under a rule written before the run. Three held-out cities agree.</li>
+            <li>All of it is at the goal. Between goals the swarm is level with the 360 drone and a little slower than one drone.</li>
+            <li>It is the spread of the viewpoints: wrapped round a goal building, the swarm recognises hats 31× as often as its ten feeds moved to its centre, and far more than a 2K 360 camera on its most central drone.</li>
+            <li>The 360 drone loses through resolution, not coverage: shown the cube SIMI flew, it ties the swarm (1.00, 0.90–1.10) and beats one drone. For the trials: fly the stream in the retest (~8 pilots for swarm ÷ stream, ~19 for swarm ÷ one drone, two runs each).</li>
+          </ul>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -375,6 +396,7 @@ tr:last-child td { border-bottom: 0; }
           <li><b>Bound a safety measure by the configuration the scene flies</b>, and report every bar a candidate misses. <span class="tag">S8</span></li>
           <li><b>Before tuning a setting that moves between values in flight, fly those values held, far enough to compare costs</b>: 1.8 held flew exactly like the adaptive spread. <span class="tag">S9</span></li>
           <li><b>Measure the formation, not the setting</b>: holding the spread round a building moved the ring 2%, because the building sets its size. <span class="tag">S11</span></li>
+          <li><b>Model the display's resolution, not only what it covers</b>: a 360 view at 5.7 px per degree lost to the swarm where the same camera at the cube's resolution tied it. <span class="tag">S12</span></li>
         </ol>
       </section>
       <section>
@@ -415,17 +437,18 @@ tr:last-child td { border-bottom: 0; }
         <tr><td><b class="mono">S9</b> Street Spread</td><td><code>docs/studies/S9_street_spread.md</code></td><td><code>docs/swarm_spread/</code></td><td><code>citysim/swarmspread.py</code></td><td><code>experiment_results/swarm_spread/</code></td></tr>
         <tr><td><b class="mono">S10</b> Ellipse Avoidance</td><td><code>docs/studies/S10_ellipse_avoidance.md</code></td><td><code>docs/swarm_ellipse/</code></td><td><code>citysim/swarmellipse.py</code></td><td><code>experiment_results/swarm_ellipse/</code></td></tr>
         <tr><td><b class="mono">S11</b> Wrap Hold</td><td><code>docs/studies/S11_wrap_hold.md</code></td><td><code>docs/swarm_wrap/</code></td><td><code>citysim/swarmwrap.py</code>; <code>SwarmPlaneController.cs</code></td><td><code>experiment_results/swarm_wrap/</code></td></tr>
+        <tr><td><b class="mono">S12</b> Distributed Views</td><td><code>docs/studies/S12_distributed_views.md</code></td><td><code>docs/views_study/</code></td><td><code>citysim/views.py</code>, <code>views_human.py</code>, <code>views_results.py</code></td><td><code>experiment_results/views_study/</code></td></tr>
         <tr><td><b>User trials</b> (<a href="https://claude.ai/artifact/H7UGMEWkhYUxao7MkCc4Kr" target="_blank" rel="noopener">index</a>)</td><td><code>docs/trials/README.md</code></td><td><code>docs/trials/internal_N.md</code></td><td><code>trials_report.py</code>, <code>analyse.py</code></td><td><code>experiment_results/trials/</code></td></tr>
       </tbody>
     </table></div>
-    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape, spread, ellipse, wrap), so nothing that reads them broke.</p>
+    <p style="margin-top:10px">Code, specs and output folders keep each study's code name (density, search, clutter, split, block-shaped, patch-city tuning, flow, shape, spread, ellipse, wrap, views), so nothing that reads them broke.</p>
   </section>
 
   <section>
     <h2>Starting a new study</h2>
     <ol class="steps">
       <li>Read <code>docs/studies/lessons.md</code> and the entries of the studies it builds on; say which lessons apply and how each is handled.</li>
-      <li>Take the next ID (S12), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S12_&lt;slug&gt;.md</code> and add it to the table there.</li>
+      <li>Take the next ID (S13), copy the template in <code>docs/studies/README.md</code> to <code>docs/studies/S13_&lt;slug&gt;.md</code> and add it to the table there.</li>
       <li>Keep the detailed manual in <code>docs/&lt;code_name&gt;/README.md</code> and outputs in <code>experiment_results/&lt;code_name&gt;/</code>.</li>
       <li>Give its page a Cities tab and a key to its codes: the cities drawn, and representative flights of every condition replayed (<code>citysim/playback.py</code>, <code>replay_view.js</code>; S4's page is the example). Choose the flights in the design.</li>
       <li>When it finishes, fill in its findings and refinements, add new lessons, and add its card here (source: <code>docs/studies/hub.html</code>).</li>

@@ -1,0 +1,30 @@
+{
+  "study": "S12 Distributed Views",
+  "written": "2026-11-18, after the calibration gate (main_calib) and before the main run (main_main, main_probe, main_sens, main_held, spot) was flown",
+  "inputs": {
+    "people": "internal_4 with YEGO's four runs (ERKS, ALEX, SIMI, YEGO; 18 runs, 54 correct presses)",
+    "image": "the whole frame (the recorder's rule since 2026-11-18), not its central 80%",
+    "resolution": "hazards fitted on pixel-equivalent distance at the trials' feeds (1920 x 1080 on 60 deg screens: 17.75 px per world degree); the 360 drone shows the 2K live stream (2048 x 1024: 5.69 px/deg), so its distances count x3.12; SIMI's cube (22 px/deg) x0.81",
+    "recognition": "press-credited (`pooled`) primary, chosen by the gate below; first-sight credit (`start`) beside it",
+    "noticing": "crowd-noticing hazard with its steepness fixed at k 8 (the likelihood is flat in k); walkers drawn to 500 m",
+    "flying": "the swarm wraps each goal building; one drone as internal_4's pilots flew it; the 360 drone flies the single drone's searches at its altitudes (a camera swap); altitudes and pitches the median over pilots of each pilot's median"
+  },
+  "gate": {
+    "run": "main_calib (30 sessions per condition, k 100-129)",
+    "flown_as": "the people flew: swarm circling the block (and wrapped, reported beside), one drone, the sphere as SIMI flew it (own style, own altitudes, the cube)",
+    "checks": "per condition, the geometric-mean time at the goal and between goals inside internal_4's 95% bootstrap intervals (resampling runs); the swarm's at-goal ratios to one drone and to the sphere inside theirs; 8 checks",
+    "use": "the recognition credit that passes most checks is reported as the better calibrated; the main run carries both credits whatever the gate says (lesson 38's named fallback: the gaps are reported, not tuned away)",
+    "result": "main_calib (all 240 sessions), read before the main run: press-credited passes 5 of 8, wrapped and circling alike, failing the sphere at the goal (48 s against 28-45), the sphere between goals (69 s against 32-36, an interval on SIMI's 2 runs) and the swarm between goals (72-75 s against 50-71, just outside); first sight passes 3 of 8, faster than the people at the goal (swarm 28-29 s against 31-51, one drone 52 against 55-115) and slower between goals. Every variant is slower than the people between goals. So the verdict is read on press-credited recognition. (A first reading at 234 of 240 sessions said 6 of 8 wrapped.)"
+  },
+  "verdict": {
+    "measure": "task time, start line to the third press, restricted mean to the 900 s cap, paired over the 300 sessions of the trial city (k 1000-1299), 95% bootstrap over sessions, press-credited recognition (first sight beside it)",
+    "swarm_vs_360": "swarm / 360 drone: interval wholly below 0.9 -> the swarm is at least 10% faster; wholly above 1/0.9 -> the 360 drone is; wholly inside [0.9, 1/0.9] -> equivalent within 10%; otherwise undecided at this size",
+    "swarm_vs_single": "the same rule",
+    "beside": "the first-sight variant, the held-out cities (per city, never pooled), the sensitivities; the probe's view decomposition (wrapped swarm's views / a 360 camera on its most central drone, at the sphere's and at the swarm's altitude) is reported, not tested"
+  },
+  "spot_check": {
+    "run": "spot (12 routes per condition, k 1400-1411), Unity's headless bench and the replica twin from Unity's start",
+    "agrees_if": "the median route time within 10%, the swarm's median wrapped share within 0.10, and Unity's drone losses inside the exact 95% Poisson interval of the twins' (and the reverse)"
+  },
+  "replays": "views_replays.py: typical (swarm / 360 ratio nearest the median), swarm's best, 360 drone's best, the most drones lost; each re-flown with a tape and kept only if it re-flies as stored"
+}
