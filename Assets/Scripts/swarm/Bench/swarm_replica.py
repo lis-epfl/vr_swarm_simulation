@@ -80,7 +80,7 @@ import swarm_params as sp  # noqa: E402
 sys.path.insert(0, str(sp.EXPERIMENT_DIR))
 import analyse  # noqa: E402  (scene_boxes: the city as a run saw it, goal tiles swapped in)
 
-FORCE_LAW_COMMIT = "f67e3491"     # f67e3491 only clears ObstacleFootprint's cache at Play start: the law is 1a4877ad's
+FORCE_LAW_COMMIT = "3a080e04"     # 3a080e04 adds the neighbour shield (SwarmManager.neighbourShield), mirrored here
 FORCE_LAW_FILES = [
     "Assets/Scripts/swarm/OlfatiSaber.cs",
     "Assets/Scripts/swarm/ObstacleFootprint.cs",
