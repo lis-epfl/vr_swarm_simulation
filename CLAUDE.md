@@ -2053,7 +2053,9 @@ forces at every crash:
 
 BlockShapedPatchCityWorld made to look like a city (2026-11-12, the user's request: nicer and more realistic while
 playing, more difference between buildings, at the frame rate the trial scene holds). **Same layout file, same
-colliders, same swarm tuning, rig, input, dressing rules, goals drawn at Play and recorder; only the look differs.**
+colliders, same swarm tuning, rig, input, dressing rules, goals drawn at Play and recorder; only the look differs,
+and since 2026-11-20 the neighbour shield, which is on here and in ScenicPracticeBlockWorld and nowhere else** (the
+user's call; its own section below). `ScenicPatchCityWorldBuilder.Finish` sets it, so a rebuild keeps it.
 `Tools/Swarm/Build scenic patch city world` (`ScenicPatchCityWorldBuilder`; batch `.Run`) makes it from a file copy of
 BlockShapedPatchCityWorld, as PracticeBlockWorld is made and for the same reason (the trial tuning lives only in that
 scene's YAML). **Rebuild it after changing BlockShapedPatchCityWorld**; a rebuild discards hand edits to the scenic
@@ -3118,8 +3120,12 @@ Invariants:
 
 ## Neighbour shield: holding back a drone closing on a braked one
 
-`SwarmManager.neighbourShield` (2026-11-19, built at the user's request after internal_4's losses; off in every scene
-until they say otherwise). Every drone lost in internal_4 was a pair: the building shield took the stick from a drone
+`SwarmManager.neighbourShield` (2026-11-19, built at the user's request after internal_4's losses). **On in the two
+scenic scenes, ScenicPatchCityWorld and ScenicPracticeBlockWorld, since 2026-11-20 (the user's call), off in every
+other scene**, BlockShapedPatchCityWorld included, so the bench and the harnesses, which fly that scene, fly it off
+unless a row turns it on. `ScenicPatchCityWorldBuilder.Finish` turns it on in both scenic builds, so rebuilding them
+from BlockShapedPatchCityWorld keeps it. internal_4 goes on across the change, so its runs from 20 November fly it and
+the earlier ones did not: tell them apart by `neighbourShield` in the run's `_swarm.json` (absent = off). Every drone lost in internal_4 was a pair: the building shield took the stick from a drone
 at a facade while the drone behind it on the stick line kept full stick and hit it at up to 9 m/s from 16–22 m back,
 too fast for the damper's 3 m reach and with the lattice outvoted by the velocity loop. On, the part of a drone's
 (already building-shielded) command pointing at a neighbour may not exceed that neighbour's own velocity along the line

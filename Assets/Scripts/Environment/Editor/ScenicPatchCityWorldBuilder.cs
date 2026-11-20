@@ -10,7 +10,8 @@ using UnityEngine.SceneManagement;
 /// <c>Tools/Swarm/Build scenic patch city world</c>: makes <c>ScenicPatchCityWorld.unity</c>, BlockShapedPatchCityWorld
 /// with a more realistic look -- the same layout file, the same buildings where the swarm and the analysis are concerned
 /// (their colliders, the streets, the dressing's rules, the goals drawn at Play), and the same swarm, rig, input, screens
-/// and recorder.
+/// and recorder -- except that the swarm flies with the neighbour shield on (<see cref="NeighbourShield"/>, since
+/// 2026-11-20), here and in the scenic practice scene, which <c>Finish</c> also builds.
 ///
 /// <para><b>It is BlockShapedPatchCityWorld copied file and all</b>, for <see cref="PracticeBlockWorldBuilder"/>'s
 /// reason: that scene's swarm tuning (S6, S8, S10, S11) was written into its SwarmManager by <c>swarmtune apply</c> and
@@ -212,8 +213,23 @@ public static class ScenicPatchCityWorldBuilder
         string skirt = ScenicGroundBuilder.Skirt(scene);
         string light = Light(builder, sun);
         string screens = Screens();
+        string swarm = NeighbourShield();
         EditorSceneManager.MarkSceneDirty(scene);
-        return $"{screens}; {land}; {landmarks}; {skirt}; {light}";
+        return $"{screens}; {swarm}; {land}; {landmarks}; {skirt}; {light}";
+    }
+
+    /// <summary>The one way the scenic scenes' swarm differs from BlockShapedPatchCityWorld's: the neighbour shield is on
+    /// (2026-11-20, the user's call, after it took Unity's colliding pairs 15 -> 2 on the bench; CLAUDE.md, "Neighbour
+    /// shield"). Set here so a rebuild from the source scene, where it is off, keeps it. Only the switch: the decel and
+    /// gap are the source's, i.e. the defaults the bench flew.</summary>
+    private static string NeighbourShield()
+    {
+        SwarmManager manager = UnityEngine.Object.FindFirstObjectByType<SwarmManager>(FindObjectsInactive.Include);
+        if (manager == null) return "no SwarmManager: neighbour shield NOT set";
+        Undo.RecordObject(manager, "Neighbour shield on");
+        manager.neighbourShield = true;
+        EditorUtility.SetDirty(manager);
+        return $"neighbour shield on ({manager.neighbourShieldDecel:g} m/s^2, {manager.neighbourShieldGap:g} m)";
     }
 
     /// <summary>For the tools that bake or redress a city in place (the Block-shaped city window): on a scenic city,

@@ -44370,6 +44370,9 @@ MonoBehaviour:
   c_damp: 2
   d_damp: 0.3
   maxDampAccel: 4.57
+  neighbourShield: 1
+  neighbourShieldDecel: 2.5
+  neighbourShieldGap: 4
   slideRoundBuildings: 1
   slideHeadOnFraction: 0.8
   slideSplitAimFraction: 0.6
