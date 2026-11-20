@@ -377,7 +377,8 @@ def assemble():
     s = M["rat"][PRIMARY]
     pred = s["sphere"]["est"]
     Pw = power_section(max(pred, 1 / pred) if pred else None)
-    return dict(M=M, P=P, S=Sx, H=Hd, C=Cb, Sp=Sp, rec=rec, dis=dis, basis=basis, beh=beh, rule=rule, Pw=Pw)
+    cube = cond_row(SENS, "sph_cube", "sphere")
+    return dict(M=M, P=P, S=Sx, H=Hd, C=Cb, Sp=Sp, rec=rec, dis=dis, basis=basis, beh=beh, rule=rule, Pw=Pw, cube=cube)
 
 
 def page(A, reading):
@@ -409,6 +410,23 @@ def page(A, reading):
                      f"(<code>rule.json</code>): an interval wholly below 0.9 means the swarm is at least 10% faster, wholly "
                      f"above 1/0.9 the other condition is, wholly inside the green band equivalent within 10%. Recognition is "
                      f"credited at the press (the credit the calibration gate passed); first-sight credit is shown hollow.")
+    # ---- the headline: four task times, the 360 drone at the resolution it was modelled at and at full resolution
+    cb = A["cube"]
+    def tile(key, name, r, ratio_, note):
+        return dict(key=key, name=name, est=r["task"]["est"], lo=r["task"]["lo"], hi=r["task"]["hi"], done=r["done"],
+                    at=r["at"]["est"], ratio=ratio_, note=note)
+    data["headline"] = dict(
+        cap=V.CAP_S, n=M["n"],
+        tiles=[tile("swarm", "Swarm", rp["swarm"], None, "ten drones, a feed per hull drone"),
+               tile("single", "One drone", rp["single"], s["single"], "the trials' forward camera"),
+               tile("cube", "360 drone, full resolution", cb, cube["sphere"],
+                    f"the cube SIMI flew, {V.resolution(True, 0):.0f} px/deg"),
+               tile("sphere", "360 drone, 2K stream", rp["sphere"], s["sphere"],
+                    f"the A1's live view, {V.resolution(True):.1f} px/deg")],
+        res=[dict(c="cube", label="360 drone, full resolution (the cube)", est=V.resolution(True, 0)),
+             dict(c="swarm", label="a feed screen (swarm and one drone)", est=V.resolution()),
+             dict(c="sphere", label="360 drone, 2K stream (the main study)", est=V.resolution(True))],
+        fs=fs)
     data["main"] = dict(
         n=M["n"], forest=M["forest"], phase=M["phase"],
         verdict_text=(f"<b>Swarm ÷ 360 drone {fr(s['sphere'])}</b>: {vtag(vs)}. <b>Swarm ÷ one drone {fr(s['single'])}</b>: "

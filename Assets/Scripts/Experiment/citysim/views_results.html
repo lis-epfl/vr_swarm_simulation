@@ -22,19 +22,34 @@ figure.box figcaption { font-size: 0.86rem; color: var(--ink-2); margin-top: 6px
 ul.changes { margin: 0; padding-left: 1.1rem; display: grid; gap: 7px; color: var(--ink-2); max-width: 86ch; }
 ul.changes b { color: var(--ink); }
 .keyline { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.86rem; color: var(--ink-2); margin-top: 10px; }
+:root { --k-cube: var(--c-look); }
+.caveat { margin: 14px 0 4px; padding: 12px 16px; border-radius: 10px; background: var(--warn-bg); border-left: 4px solid var(--warn); color: var(--ink); max-width: 86ch; line-height: 1.5; }
+.caveat b { color: var(--warn); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 12px; margin: 6px 0 14px; }
+.tile { border: 1px solid var(--line); border-top: 4px solid var(--tc); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+.tile.hatched { background: repeating-linear-gradient(135deg, var(--panel) 0 8px, var(--warn-bg) 8px 10px); }
+.tile .nm { font-weight: 600; font-size: 0.95rem; }
+.tile .big { font-family: var(--font-display, inherit); font-size: 2.1rem; font-weight: 700; line-height: 1.1; margin: 6px 0 2px; }
+.tile .big small { font-size: 0.95rem; font-weight: 500; color: var(--ink-2); }
+.tile .rt { font-size: 0.95rem; }
+.tile .sub { font-size: 0.82rem; color: var(--ink-2); margin-top: 4px; }
+.takeaways { display: grid; gap: 10px; margin: 0; padding-left: 1.2rem; max-width: 86ch; }
 .keyline .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: -1px; }
 </style>
 
 <div class="wrap">
   <header class="masthead">
     <div>
-      <a class="back" href="https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5" target="_blank" rel="noopener">← Swarm Study Index</a>
+      <a class="back" href="https://claude.ai/artifact/R9BnwiqixJBNjbXkeqzJLg" target="_blank" rel="noopener">← Swarm Study Index</a>
       <p class="eyebrow">Study S12 · Distributed Views · for the human trials</p>
       <h1>Does the swarm find the hats faster than one drone with a 360 camera?</h1>
       <p class="lead">The swarm differs from one drone in two ways at once: its ten cameras face every way, and they stand in ten places. One drone whose 360 camera is shown on a sphere round the pilot
         has the first without the second, so the swarm against that drone measures what the spread-out viewpoints add beyond seeing every way at once. That is the next human comparison.</p>
-      <p class="lead">S12 flies the trials' whole task (three goals, a walking hat at each, from the start line to the third press) in the trial city with the swarm, one drone with the trials' camera
-        and one drone with a 360 camera shown as the Antigravity A1's 2K live stream, with how far a hat and a crowd can be seen fitted to internal_4's pilots. Scripted pilots on the 2D replica, checked against Unity.</p>
+      <p class="lead">S12 flies the trials' whole task (three goals, a walking hat at each, from the start line to the third press) in the trial city, with scripted pilots on the 2D replica checked against Unity.
+        How far away a hat and a crowd can be seen is fitted to internal_4's pilots.</p>
+      <div class="caveat" role="note"><b>Read this first: the 360 drone here is held back by resolution, not by its viewpoint.</b>
+        The main study shows the 360 camera as a real drone's 2K live stream (the Antigravity A1's). That is about 6 pixels per degree, a third of what a feed screen gives and a quarter of the full-resolution sphere.
+        A hat that is 20 m away looks as small as one 60 m away on a feed. Shown at full resolution, the 360 drone ties the swarm. The study's headline 0.61× is therefore a verdict on the stream, not on 360 cameras.</div>
       <div class="keyline" id="keyline"></div>
     </div>
     <div class="answer-box" id="answer-box"></div>
@@ -202,7 +217,7 @@ $("#keyline").innerHTML = ["swarm", "single", "sphere"].map(c => `<span><span cl
 $("#answer-box").innerHTML = `<p class="eyebrow">The short answer</p><ol>${D.answer.map(a => `<li>${a}</li>`).join("")}</ol><p class="bottom">${D.reading_short}</p>`;
 
 // ---------------------------------------------------------------- tabs
-const TABS = [["answer", "The answer"], ["flights", "Cities and flights"], ["details", "All results"], ["people", "What the pilots tell the model"], ["terms", "Terms"]];
+const TABS = [["answer", "The answer"], ["behind", "Behind the answer"], ["flights", "Cities and flights"], ["details", "All results"], ["people", "What the pilots tell the model"], ["terms", "Terms"]];
 const RENDER = {}, KEEP = {};
 let CURRENT = null, PLAYER = null;
 function show(id) {
@@ -233,8 +248,38 @@ document.addEventListener("click", e => {
 
 // ---------------------------------------------------------------- the answer
 RENDER.answer = el => {
+  const Hd = D.headline;
+  const tiles = Hd.tiles.map(t => {
+    const rel = t.ratio ? `swarm takes <b>${fmt(t.ratio.est)}×</b> its time` : `the reference`;
+    return `<div class="tile${t.key === "sphere" ? " hatched" : ""}" style="--tc:${COL(t.key)}">
+      <div class="nm">${esc(t.name)}</div>
+      <div class="big">${fmt(t.est, 0)} <small>s</small></div>
+      <div class="rt">${rel}</div>
+      <div class="sub">${esc(t.note)} · finished in ${Hd.cap.toFixed(0)} s: ${pc(t.done)}</div></div>`;
+  }).join("");
+  el.innerHTML = `<div class="intro"><h2>The answer</h2><p>Each condition's task time, from the start line to the third hat, over ${Hd.n} sessions.
+      The 360 drone is shown twice: at full resolution, and through the 2K stream the main study used.</p></div>
+    <div class="box"><h3>Task time by condition</h3>
+      <div class="tiles">${tiles}</div>
+      <div id="b-head"></div>
+      <p class="small muted">Restricted mean to the ${Hd.cap.toFixed(0)} s cap, with 95% intervals over sessions. Each "swarm takes …×" figure is the paired ratio over the same goal draws, where below 1 means the swarm is faster.
+        The full-resolution 360 drone comes from the sensitivity run, and is otherwise the same model.</p></div>
+    <div class="box"><h3>Why the 360 drone on the stream comes out so badly</h3>
+      <p>It is the picture's sharpness, not where the camera stands. The bars show how many pixels per degree of the world reach the pilot's eye.
+        On the 2K stream a hat covers as many pixels as one ${fmt(Hd.fs, 1)}× further away on a feed screen, so the pilot recognises a hat only when close to it.
+        At a goal the stream's 360 drone takes ${fmt(Hd.tiles[3].at, 0)} s per goal, against the swarm's ${fmt(Hd.tiles[0].at, 0)} s.
+        At full resolution the same drone, flown the same way, takes ${fmt(Hd.tiles[2].at, 0)} s and ties the swarm over the whole task.</p>
+      <div id="b-res"></div>
+      <p class="small muted">The headset resolves about 22 px/deg, which caps the full-resolution sphere. No one has yet flown the 2K stream, so its cost is modelled from the pixels across a hat, not measured. The figures behind this are under <a href="#behind">Behind the answer</a>, section 4.</p></div>
+    <p class="small muted">The ratios, the time at each goal and between goals, the view probe, the sensitivities and the author's full reading are under <a href="#behind">Behind the answer</a>. Every table is under <a href="#details">All results</a>.</p>`;
+  bars($("#b-head", el), [{label: "", bars: Hd.tiles.map(t => ({c: t.key, label: t.name, est: t.est, lo: t.lo, hi: t.hi}))}],
+       {xl: "task time (s, restricted mean to the cap)", unit: "s (95% over sessions)", nd: 0, max: Hd.cap, ticks: [0, 300, 600, 900]});
+  bars($("#b-res", el), [{label: "", bars: Hd.res}], {xl: "pixels per degree of the world reaching the eye", unit: "px/deg", nd: 1, ticks: [0, 5, 10, 15, 20]});
+};
+
+RENDER.behind = el => {
   const A = D.main, P = D.probe;
-  el.innerHTML = `<div class="intro"><h2>The answer</h2><p>${D.intro}</p></div>
+  el.innerHTML = `<div class="intro"><h2>Behind the answer</h2><p>${D.intro}</p></div>
     <div class="box"><h3>1. The whole task: the swarm against the 360 drone and against one drone</h3>
       <p>${A.verdict_text}</p>
       <div id="f-main"></div>

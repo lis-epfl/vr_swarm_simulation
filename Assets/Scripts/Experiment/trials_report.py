@@ -49,7 +49,7 @@ DOCS = REPO / "docs" / "trials"
 OUT = REPO / "experiment_results" / "trials"
 TEMPLATE = HERE / "trials_report.html"
 INDEX_TEMPLATE = HERE / "trials_index.html"
-HUB_URL = "https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5"
+HUB_URL = "https://claude.ai/artifact/R9BnwiqixJBNjbXkeqzJLg"
 FAMILIES = {"cmd", "dial", "prox", "hat", "street", "disc", "stitch", "crash"}
 COND = {"Swarm": "swarm", "SingleDrone": "single", "SingleSphere": "sphere"}
 SINGLE, SPHERE = ("Swarm", "SingleDrone"), ("Swarm", "SingleSphere")   # the two comparisons: swarm ÷ the other
@@ -374,7 +374,7 @@ def setups(T):
               ("sphere", "360 sphere"), ("stitchingEnabled", "stitching"), ("cockpitRoomStyle", "backdrop"),
               ("displayRefreshHz", "headset refresh (Hz)"), ("gitCommit", "commit")]
     swarm = [("spreadWrapRule", "wrap rule"), ("obstacleShape", "avoidance shape"), ("adaptiveSpread", "adaptive spread"),
-             ("d_ref", "d_ref")]
+             ("neighbourShield", "neighbour shield"), ("d_ref", "d_ref")]
     per = {}
     for r in sorted(T["runs"], key=lambda r: r.timestamp):
         s = r.session
@@ -422,7 +422,8 @@ def setups(T):
         if (on_sphere and k in screen_only) or (not on_sphere and k in sphere_only):
             return NA
         if v is None:
-            return "Off (before the field)" if k == "spreadWrapRule" else "none" if k == "identifyLookbackSec" else "–"
+            return ("Off (before the field)" if k == "spreadWrapRule" else "off (before the field)" if k == "neighbourShield"
+                    else "none" if k == "identifyLookbackSec" else "–")
         if k in enums and isinstance(v, (int, float)) and 0 <= int(v) < len(enums[k]):
             return enums[k][int(v)]
         if isinstance(v, bool):

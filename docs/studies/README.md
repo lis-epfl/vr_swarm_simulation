@@ -28,7 +28,7 @@ Pages for people (private claude.ai artifacts; open them with the Artifact tool,
 
 | | page |
 |---|---|
-| Hub: all studies ("Swarm Study Index") | https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5 |
+| Hub: all studies ("Swarm Study Index") | https://claude.ai/artifact/R9BnwiqixJBNjbXkeqzJLg |
 | The user trials' own index ("User Trial Index", one page per series; registry [docs/trials/](../trials/README.md)) | https://claude.ai/artifact/H7UGMEWkhYUxao7MkCc4Kr |
 | S1 explorer | https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc |
 | S2 results dashboard (light rebuild, 2026-10-21) | https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59 |
@@ -42,7 +42,7 @@ Pages for people (private claude.ai artifacts; open them with the Artifact tool,
 | S9 results page | https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx (version 2; the settling run's version 3 is https://claude.ai/artifact/M6fGKgM1WvMVw3mRSusMwK, on a second account until the original is republished) |
 | S10 results page | https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At (published from the second account, as S9's version 3; the hub carries its card since 2026-11-08) |
 | S11 results page | https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD |
-| S12 results page | https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU |
+| S12 results page | https://claude.ai/artifact/CpfcK1bowUzPQk8bEkwzEC |
 | S12 proposal page (the initial tests, as reviewed) | https://claude.ai/artifact/CpzLU87XCffSTVdQDopp6j |
 
 Do not cite https://claude.ai/artifact/6QyLDyzucn1rN3RqauCkie ("Swarm Density Study"): it is a stale 2026-10-13 build of

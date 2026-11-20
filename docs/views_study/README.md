@@ -1,7 +1,7 @@
 # The views study (S12 Distributed Views)
 
 **Status: done (2026-11-18).** The main study ran on the settings of §11 (YEGO's runs, the whole frame, the 2K
-stream) and `rule.json`; its results are §12 and the page https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU
+stream) and `rule.json`; its results are §12 and the page https://claude.ai/artifact/CpfcK1bowUzPQk8bEkwzEC
 (`python -B -m citysim.views_results`). **In three lines:** the swarm takes 0.61× the 360 drone's time (0.59–0.64)
 and 0.75× one drone's (0.71–0.79), both "at least 10% faster" under the rule, all of it at the goal; the 360 drone
 loses through the stream's resolution (a hat counts 3.1× as far away), and at the cube's resolution SIMI flew it ties
@@ -544,7 +544,7 @@ this, the verdict rule and the spot check's agreement rule, written before the m
 ## 12. The main study (2026-11-18): results
 
 Flown on the settings of §11 and `rule.json`, which was written before any of it was read. The results page is
-https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU, built by `python -B -m citysim.views_results` (the numbers from the
+https://claude.ai/artifact/CpfcK1bowUzPQk8bEkwzEC, built by `python -B -m citysim.views_results` (the numbers from the
 runs below; the prose in `citysim/views_reading.py`, written after reading them, reads every number from the results),
 with the replays from `python -B -m citysim.views_replays` (12 flights in 7 groups, each re-flown and kept only because
 it re-flew as stored).

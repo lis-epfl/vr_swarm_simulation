@@ -53,28 +53,22 @@ def answer(A):
     s = A["M"]["rat"][PRIMARY]
     cube = _sens(A, "the 360 drone shows the cube")
     pp = _people(A)
+    done = A["M"]["rows"][PRIMARY]["sphere"]["done"]
     return [
-        f"<b>Against the 360 drone, as the Antigravity A1's 2K stream shows it, the swarm takes {_e(s['sphere'])}× the "
-        f"time</b> ({_r(s['sphere'])}): at least 10% faster under the rule written before the run. All of it is at the "
-        f"goal ({_e(s['sphere']['at'])}× the time per goal); between goals the two are level "
-        f"({_e(s['sphere']['between'])}×).",
-        f"<b>Against one drone, {_e(s['single'])}×</b> ({_r(s['single'])}): at least 10% faster, again from the goal "
-        f"({_e(s['single']['at'])}×), while between goals the swarm is the slower ({_e(s['single']['between'])}×). "
-        f"internal_4's pilots: {pp['swarm'] / pp['single']:.2f}×.",
-        f"<b>The 360 result is a model of a display nobody has flown.</b> Through the cube SIMI flew (four times the "
-        f"pixels per degree) the swarm and the 360 drone come out equal ({_r(cube['sphere'])}), and the 360 drone beats "
-        f"one drone ({_e(cube['cam'])}×).",
+        f"<b>The swarm beats one drone: it takes {_e(s['single'])}× the time</b>, all of the gain at the goal. "
+        f"internal_4's pilots measured {pp['swarm'] / pp['single']:.2f}×.",
+        f"<b>Against a 360 drone shown at full resolution, the swarm only ties ({_e(cube['sphere'])}×).</b> Seeing every "
+        f"way from one place is as good as ten spread-out views, provided the picture is sharp.",
+        f"<b>The swarm's large lead over the 360 drone ({_e(s['sphere'])}×) comes from resolution, not from the "
+        f"viewpoints.</b> The main study showed that drone through a 2K live stream, about a third of a feed screen's "
+        f"pixels per degree. Its pilot could not make out a hat until close to it, and it finished the task in "
+        f"{done:.0%} of sessions.",
     ]
 
 
 def short(A):
-    s = A["M"]["rat"][PRIMARY]
-    cube = _sens(A, "the 360 drone shows the cube")
-    return (f"The swarm's distributed views beat one drone's forward camera ({_e(s['single'])}×) and beat a 360 camera "
-            f"seen through a 2K live stream ({_e(s['sphere'])}×), both by being faster at the goal. What the stream "
-            f"loses is resolution, not coverage: at the cube's resolution the 360 drone ties the swarm "
-            f"({_e(cube['sphere'])}×). So the trials can expect the swarm to beat the stream; whether it beats a sharp "
-            f"360 view is a question about the display, which the human retest has to answer by flying the stream.")
+    return ("So the 360 comparison measures the display: the swarm beats a blurry 360 view and ties a sharp one. Nobody "
+            "has flown the 2K stream, so the human trial will be decided by how sharp a real 360 drone's live view is.")
 
 
 def long(A):

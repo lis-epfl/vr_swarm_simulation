@@ -1,7 +1,7 @@
 # S12 Distributed Views
 
 **Code name:** the views study · **Dates:** 2026-11-17 (proposal and initial tests), 2026-11-18 (YEGO's runs, the
-2K stream, the main study) · **Status:** done · **Results page:** https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU ·
+2K stream, the main study) · **Status:** done · **Results page:** https://claude.ai/artifact/CpfcK1bowUzPQk8bEkwzEC ·
 **Builds on:** S2 (searching a city for a
 goal it does not know, the paired arms), S11 (the goal search flight, calibrated on ERKS), S6–S11 (the trial scene's
 law and the replica's validation in its city), internal_4 (every fitted parameter), and the 360 camera
@@ -92,6 +92,6 @@ prisms and drones under the roofs).
 Unity spot check), `citysim/views_replays.py`, `citysim/views_results.py` (+ `.html`) and `citysim/views_reading.py`;
 outputs `experiment_results/views_study/` (`human/`, `rule.json`, `main_calib/`, `main_main/`, `main_probe/`,
 `main_sens/`, `main_held/`, `spot/`, `replay/`, `views_results.html`; the initial tests' `calib1/`, `pilot1/`,
-`probe1/`, `follow*/`, `views_proposal.html`). The results page https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU
+`probe1/`, `follow*/`, `views_proposal.html`). The results page https://claude.ai/artifact/CpfcK1bowUzPQk8bEkwzEC
 (`python -B -m citysim.views_results`, then publish `views_results_bare.html` with the files in
 `views_results_files.json`); the proposal page https://claude.ai/artifact/CpzLU87XCffSTVdQDopp6j.

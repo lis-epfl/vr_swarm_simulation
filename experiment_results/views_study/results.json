@@ -1,16 +1,16 @@
 {
- "built": "2026-11-18 23:59",
+ "built": "2026-11-20 18:40",
  "cond_about": {
   "swarm": "ten drones wrapped round each goal building, a feed per hull drone on the ring of screens",
   "single": "one drone, the trials' forward camera on one screen",
   "sphere": "one drone flown the single drone's way, its 360 camera on a sphere round the pilot as a 2K stream"
  },
  "answer": [
-  "<b>Against the 360 drone, as the Antigravity A1's 2K stream shows it, the swarm takes 0.61\u00d7 the time</b> (0.61 (0.59\u20130.64)): at least 10% faster under the rule written before the run. All of it is at the goal (0.19\u00d7 the time per goal); between goals the two are level (0.97\u00d7).",
-  "<b>Against one drone, 0.75\u00d7</b> (0.75 (0.71\u20130.79)): at least 10% faster, again from the goal (0.45\u00d7), while between goals the swarm is the slower (1.13\u00d7). internal_4's pilots: 0.73\u00d7.",
-  "<b>The 360 result is a model of a display nobody has flown.</b> Through the cube SIMI flew (four times the pixels per degree) the swarm and the 360 drone come out equal (1.00 (0.90\u20131.10)), and the 360 drone beats one drone (0.79\u00d7)."
+  "<b>The swarm beats one drone: it takes 0.75\u00d7 the time</b>, all of the gain at the goal. internal_4's pilots measured 0.86\u00d7.",
+  "<b>Against a 360 drone shown at full resolution, the swarm only ties (1.00\u00d7).</b> Seeing every way from one place is as good as ten spread-out views, provided the picture is sharp.",
+  "<b>The swarm's large lead over the 360 drone (0.61\u00d7) comes from resolution, not from the viewpoints.</b> The main study showed that drone through a 2K live stream, about a third of a feed screen's pixels per degree. Its pilot could not make out a hat until close to it, and it finished the task in 2% of sessions."
  ],
- "reading_short": "The swarm's distributed views beat one drone's forward camera (0.75\u00d7) and beat a 360 camera seen through a 2K live stream (0.61\u00d7), both by being faster at the goal. What the stream loses is resolution, not coverage: at the cube's resolution the 360 drone ties the swarm (1.00\u00d7). So the trials can expect the swarm to beat the stream; whether it beats a sharp 360 view is a question about the display, which the human retest has to answer by flying the stream.",
+ "reading_short": "So the 360 comparison measures the display: the swarm beats a blurry 360 view and ties a sharp one. Nobody has flown the 2K stream, so the human trial will be decided by how sharp a real 360 drone's live view is.",
  "reading": [
   "<b>Both verdicts are the swarm's, on either credit.</b> Press-credited, swarm \u00f7 360 drone 0.61 (0.59\u20130.64) and swarm \u00f7 one drone 0.75 (0.71\u20130.79); first sight, 0.56 (0.54\u20130.59) and 0.81 (0.76\u20130.86). The 360 drone finished within the 900 s cap in only 2% of sessions (the swarm 86%, one drone 63%), so its restricted mean sits against the cap and the ratio against it is, if anything, kind to it.",
   "<b>The swarm's lead is at the goal and nowhere else.</b> Per goal at the goal the swarm takes 37 s, one drone 83 s, the 360 drone 198 s. Between goals the swarm is level with the 360 drone (0.97\u00d7) and slower than one drone (1.13\u00d7): ten drones fly no faster than one, and they notice a crowd about as far off (137 m median against 128 m).",
@@ -18,11 +18,124 @@
   "<b>Why the stream does so badly.</b> A 2K equirectangular frame spreads 2048 pixels over 360\u00b0, 5.7 per degree against the feed screens' 17.7 reaching the eye, so a hat counts 3.1\u00d7 as far away. The hazard is steep (k 5.3), so a hat 20 m off, an easy recognition on a feed, becomes one at 62 m, almost none. The 360 drone's recognitions came at a median 10.7 m against one drone's 22.3 m: it had to fly up to each hat. On its own flights a forward camera would have recognised 7\u00d7 as often; on one drone's flights a 2K 360 camera would have recognised 0.13\u00d7 as often as the forward camera did.",
   "<b>The resolution is the whole question about the 360 drone.</b> Every sensitivity but the display leaves swarm \u00f7 360 drone between 0.60 and 0.75 (the hat's distance \u00d70.75 or \u00d71.33, the crowd's at 200 or 400 m, the walk without exploring, the 360 drone flown SIMI's way or at SIMI's altitudes, the swarm circling instead of wrapping). Halve the stream's cost and leave the crowd unscaled: 0.75 (0.69\u20130.81), still the swarm's. Show the cube SIMI flew: 1.00 (0.90\u20131.10), equivalent within 10%, with the 360 drone then 0.79\u00d7 one drone's time, a better camera than the forward one. Scaling the hat but not the crowd changes little (0.66), so it is recognising the hat, not noticing the crowd, that the stream loses.",
   "<b>Against one drone the answer does not move.</b> Swarm \u00f7 one drone stays between 0.73 and 0.82 across the sensitivities, and in the three held-out cities (per city, never pooled) it is 0.78, 0.82, 0.73, with swarm \u00f7 360 drone 0.64, 0.64, 0.61; every interval's upper end is at most 0.89.",
-  "<b>The model is slower than the people, between goals.</b> internal_4's geometric-mean task times were 370 s with the swarm and 507 s with one drone; the model's restricted means are 550 s and 731 s. The calibration gate (passed 5 of 8, press-credited) placed the gap between goals: the scripted pilot wanders where people head for the next crowd. The ratios are what the model is trusted for, and they agree: swarm \u00f7 one drone 0.75 against the people's 0.73, at the goal 0.45 against 0.50 (0.32\u20130.78).",
+  "<b>The model is slower than the people, between goals.</b> internal_4's geometric-mean task times were 436 s with the swarm and 507 s with one drone; the model's restricted means are 550 s and 731 s. The calibration gate (passed 5 of 8, press-credited) placed the gap between goals: the scripted pilot wanders where people head for the next crowd. The ratios are what the model is trusted for, and they agree: swarm \u00f7 one drone 0.75 against the people's 0.86, at the goal 0.45 against 0.50 (0.32\u20130.78).",
   "<b>The swarm pays for it in drones.</b> It lost 199 drones and touched buildings 391 times over 300 sessions (0.66 drones a session), no session ending under four drones. Unity's headless bench agreed with the replica on route time, wrapping and losses (the spot check).",
-  "<b>What the human retest should expect, and fly.</b> Swarm \u00f7 one drone near 0.75: with two runs per condition and internal_4's run-to-run spread (SD 0.31 in log time), about 19 pilots for 80% power. Swarm \u00f7 the 360 stream near 0.61: about 8 pilots. But the stream's cost is this study's one unmeasured input, and at the cube's resolution the answer flips to a tie, which no feasible number of pilots could separate from 10%. So the retest should fly the 360 drone on the stream, as the sphere now shows it, and the first thing to read from it is the distance at which pilots name a hat through the stream: about 8 m at half-rate if this model is right, 26 m if the stream costs nothing."
+  "<b>What the human retest should expect, and fly.</b> Swarm \u00f7 one drone near 0.75: with two runs per condition and internal_4's run-to-run spread (SD 0.30 in log time), about 18 pilots for 80% power. Swarm \u00f7 the 360 stream near 0.61: about 8 pilots. But the stream's cost is this study's one unmeasured input, and at the cube's resolution the answer flips to a tie, which no feasible number of pilots could separate from 10%. So the retest should fly the 360 drone on the stream, as the sphere now shows it, and the first thing to read from it is the distance at which pilots name a hat through the stream: about 8 m at half-rate if this model is right, 26 m if the stream costs nothing."
  ],
  "intro": "300 sessions in the trial city, each flown in all three conditions with the same three goals, hats and walkers and the same random thresholds, so every comparison is paired. Task time is the restricted mean to the 900 s cap (a session not done counts to the cap; a swarm under four drones to where it stopped), with 95% bootstrap intervals over sessions. The verdict rule was written before the run (<code>rule.json</code>): an interval wholly below 0.9 means the swarm is at least 10% faster, wholly above 1/0.9 the other condition is, wholly inside the green band equivalent within 10%. Recognition is credited at the press (the credit the calibration gate passed); first-sight credit is shown hollow.",
+ "headline": {
+  "cap": 900.0,
+  "n": 300,
+  "tiles": [
+   {
+    "key": "swarm",
+    "name": "Swarm",
+    "est": 550.3852000000006,
+    "lo": 526.8842683333337,
+    "hi": 574.7918033333336,
+    "done": 0.86,
+    "at": 37.482637803077736,
+    "ratio": null,
+    "note": "ten drones, a feed per hull drone"
+   },
+   {
+    "key": "single",
+    "name": "One drone",
+    "est": 731.4763333333335,
+    "lo": 710.3232983333338,
+    "hi": 752.1990683333333,
+    "done": 0.63,
+    "at": 83.22238647021621,
+    "ratio": {
+     "est": 0.7524306322966027,
+     "lo": 0.7142935102874222,
+     "hi": 0.7907361253705553,
+     "n": 300,
+     "at": {
+      "est": 0.45039128764340464,
+      "lo": 0.416827699866314,
+      "hi": 0.4883187543942445
+     },
+     "between": {
+      "est": 1.1267366111866868,
+      "lo": 1.0559455906098985,
+      "hi": 1.1989527445970147
+     }
+    },
+    "note": "the trials' forward camera"
+   },
+   {
+    "key": "cube",
+    "name": "360 drone, full resolution",
+    "est": 584.6908,
+    "lo": 543.7001249999997,
+    "hi": 623.8091999999997,
+    "done": 0.89,
+    "at": 58.980329490972665,
+    "ratio": {
+     "est": 0.995744417391209,
+     "lo": 0.9008267550244023,
+     "hi": 1.1021746514056407,
+     "n": 100,
+     "at": {
+      "est": 0.6064919117157599,
+      "lo": 0.5342410769476712,
+      "hi": 0.6879602298335867
+     },
+     "between": {
+      "est": 1.24725952160326,
+      "lo": 1.1150511564209267,
+      "hi": 1.3950746740491282
+     }
+    },
+    "note": "the cube SIMI flew, 22 px/deg"
+   },
+   {
+    "key": "sphere",
+    "name": "360 drone, 2K stream",
+    "est": 895.0502666666667,
+    "lo": 889.786615,
+    "hi": 899.0899999999999,
+    "done": 0.023333333333333334,
+    "at": 198.38564028910793,
+    "ratio": {
+     "est": 0.6149209943813962,
+     "lo": 0.58903796538335,
+     "hi": 0.6415656198434615,
+     "n": 300,
+     "at": {
+      "est": 0.18893826059413468,
+      "lo": 0.16618606774775535,
+      "hi": 0.21483735115553296
+     },
+     "between": {
+      "est": 0.9742310600684563,
+      "lo": 0.8933494010372228,
+      "hi": 1.0658329579368777
+     }
+    },
+    "note": "the A1's live view, 5.7 px/deg"
+   }
+  ],
+  "res": [
+   {
+    "c": "cube",
+    "label": "360 drone, full resolution (the cube)",
+    "est": 22.0
+   },
+   {
+    "c": "swarm",
+    "label": "a feed screen (swarm and one drone)",
+    "est": 17.753767793717962
+   },
+   {
+    "c": "sphere",
+    "label": "360 drone, 2K stream (the main study)",
+    "est": 5.688888888888889
+   }
+  ],
+  "fs": 3.1207794949894856
+ },
  "main": {
   "n": 300,
   "forest": [
@@ -1095,13 +1208,13 @@
    "rows": [
     [
      "1.25\u00d7",
-     "47",
-     "32",
-     "27"
+     "46",
+     "31",
+     "26"
     ],
     [
      "1.40\u00d7",
-     "22",
+     "21",
      "15",
      "13"
     ],
@@ -1113,9 +1226,9 @@
     ],
     [
      "1.75\u00d7",
-     "10",
+     "9",
      "7",
-     "7"
+     "6"
     ],
     [
      "2.00\u00d7",
@@ -1124,7 +1237,7 @@
      "5"
     ]
    ],
-   "text": "Pilots for 80% power (two-sided 0.05, a t test over pilots) on the swarm \u00f7 360 task-time ratio, from internal_4's run-to-run spread within a pilot and condition (SD 0.31 in log time, 10 df, YEGO included) and an assumed 0.3 spread of the pilots' own ratios. At the predicted 1.63\u00d7 (either way round), two runs per condition need 8 pilots."
+   "text": "Pilots for 80% power (two-sided 0.05, a t test over pilots) on the swarm \u00f7 360 task-time ratio, from internal_4's run-to-run spread within a pilot and condition (SD 0.30 in log time, 11 df, YEGO included) and an assumed 0.3 spread of the pilots' own ratios. At the predicted 1.63\u00d7 (either way round), two runs per condition need 8 pilots."
   },
   "intro": "Every number behind the answer. Sessions are the units; a ratio is paired over the goal draws both conditions flew, with a 95% bootstrap interval over them."
  },
@@ -1689,5 +1802,5 @@
    ]
   ]
  ],
- "foot": "Built 2026-11-18 23:59 by citysim/views_results.py from experiment_results/views_study (main_main, main_probe, main_sens, main_held, main_calib, spot, human/, rule.json). Manual: docs/views_study/README.md."
+ "foot": "Built 2026-11-20 18:40 by citysim/views_results.py from experiment_results/views_study (main_main, main_probe, main_sens, main_held, main_calib, spot, human/, rule.json). Manual: docs/views_study/README.md."
 }
