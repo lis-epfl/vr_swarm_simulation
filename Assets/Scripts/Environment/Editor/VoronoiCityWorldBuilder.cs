@@ -27,7 +27,7 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class VoronoiCityWorldBuilder
 {
-    public const string ScenePath = "Assets/Scenes/VoronoiCityWorld.unity";
+    public const string ScenePath = "Assets/Scenes/_Archive/VoronoiCityWorld.unity";
     /// <summary>citygen mixcity's file names (citygen.MIXCITY_PREFIX).</summary>
     public const string LayoutPattern = "VoronoiCity__*.json";
     public const string RoadMaterialPath = "Assets/Modular City Pack/Materials/MC_Asphalt_Road Texture_M_01.mat";

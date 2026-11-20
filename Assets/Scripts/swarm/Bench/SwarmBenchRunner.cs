@@ -115,8 +115,14 @@ public class SwarmBenchRunner : MonoBehaviour
         return error == null ? c : null;
     }
 
-    public static string ScenePath(string scene) =>
-        scene.EndsWith(".unity", StringComparison.OrdinalIgnoreCase) ? scene : $"Assets/Scenes/{scene}.unity";
+    // A bare name is looked for in Assets/Scenes, then in Assets/Scenes/_Archive (scenes no longer flown).
+    public static string ScenePath(string scene)
+    {
+        if (scene.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)) return scene;
+        string live = $"Assets/Scenes/{scene}.unity";
+        string archived = $"Assets/Scenes/_Archive/{scene}.unity";
+        return !File.Exists(live) && File.Exists(archived) ? archived : live;
+    }
 
     public static string OutPath(Config c)
     {

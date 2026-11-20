@@ -7,7 +7,7 @@ using UnityEngine;
 /// writes its report to PROCEDURAL_PROBE_OUT and exits. Run on the bench's project copy, never the live project:
 /// <c>Unity.exe -batchmode -projectPath &lt;copy&gt; -executeMethod ProceduralCityProbeLauncher.Run</c> with
 /// PROCEDURAL_PROBE_OUT and EXPERIMENT_RECORDER_DIR set (and CITY_LAYOUT to pick a layout, PROCEDURAL_PROBE_SCENE to
-/// probe another scene with a ProceduralCityBuilder, e.g. Assets/Scenes/VoronoiCityWorld.unity).
+/// probe another scene with a ProceduralCityBuilder, e.g. Assets/Scenes/_Archive/VoronoiCityWorld.unity).
 /// </summary>
 public static class ProceduralCityProbeLauncher
 {

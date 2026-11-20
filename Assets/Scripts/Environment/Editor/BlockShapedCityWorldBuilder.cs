@@ -28,7 +28,7 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class BlockShapedCityWorldBuilder
 {
-    public const string ScenePath = "Assets/Scenes/BlockShapedCityWorld.unity";
+    public const string ScenePath = "Assets/Scenes/_Archive/BlockShapedCityWorld.unity";
     /// <summary>blockcity's scene layouts (blockcity.SCENE_PREFIX).</summary>
     public const string LayoutPattern = "BlockShaped__*.json";
     /// <summary>What a build bakes unless CITY_LAYOUT says otherwise: S4's p 40 s 18, seed 1 (S4's own file, copied).</summary>

@@ -170,7 +170,11 @@ def rigidbody_values(path):
 
 def scene_path(scene):
     p = Path(scene)
-    return p if p.suffix == ".unity" else ASSETS / "Scenes" / f"{scene}.unity"
+    if p.suffix == ".unity":
+        return p
+    live = ASSETS / "Scenes" / f"{scene}.unity"
+    archived = ASSETS / "Scenes" / "_Archive" / f"{scene}.unity"   # scenes no longer flown
+    return archived if not live.exists() and archived.exists() else live
 
 
 # ------------------------------------------------------------------------------------------ resolution

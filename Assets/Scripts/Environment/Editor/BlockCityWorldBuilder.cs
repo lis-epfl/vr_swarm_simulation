@@ -21,7 +21,7 @@ using UnityEngine;
 /// </summary>
 public static class BlockCityWorldBuilder
 {
-    public const string ScenePath = "Assets/Scenes/BlockCityWorld.unity";
+    public const string ScenePath = "Assets/Scenes/_Archive/BlockCityWorld.unity";
     public const string LayoutPattern = "BlockCity__*.json";
     /// <summary>S4's profile: SwarmManager.r0_coh (docs/split_study/README.md section 6.4).</summary>
     public const float S4CohesionCutoff = 30f;

@@ -28,7 +28,7 @@ public static class CityObstacleExport
     /// </summary>
     public static void RunProceduralCityWorld()
     {
-        EditorSceneManager.OpenScene("Assets/Scenes/ProceduralCityWorld.unity");
+        EditorSceneManager.OpenScene("Assets/Scenes/_Archive/ProceduralCityWorld.unity");
         ProceduralCityBuilder builder = Object.FindFirstObjectByType<ProceduralCityBuilder>(FindObjectsInactive.Include);
         string error = null;
         if (builder == null || !builder.Build(out error))
@@ -45,7 +45,9 @@ public static class CityObstacleExport
 
     static void RunScene(string sceneName)
     {
-        EditorSceneManager.OpenScene($"Assets/Scenes/{sceneName}.unity");
+        string path = $"Assets/Scenes/{sceneName}.unity";
+        if (!File.Exists(path)) path = $"Assets/Scenes/_Archive/{sceneName}.unity";  // scenes no longer flown
+        EditorSceneManager.OpenScene(path);
         Export(sceneName);
         EditorApplication.Exit(0);
     }

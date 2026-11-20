@@ -32,8 +32,8 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class ProceduralCityWorldBuilder
 {
-    private const string SourceScenePath = "Assets/Scenes/DiamondCityWorld.unity";
-    public const string ScenePath = "Assets/Scenes/ProceduralCityWorld.unity";
+    private const string SourceScenePath = "Assets/Scenes/_Archive/DiamondCityWorld.unity";
+    public const string ScenePath = "Assets/Scenes/_Archive/ProceduralCityWorld.unity";
     /// <summary>The trial layouts, <c>L&lt;n&gt;_&lt;level&gt;__&lt;id&gt;.json</c> (citygen trial).</summary>
     private const string TrialLayoutPattern = "L?_*.json";
     public const string GoalRootPrefabPath = "Assets/Prefabs/ScaledCity/ProceduralGoalRoot.prefab";

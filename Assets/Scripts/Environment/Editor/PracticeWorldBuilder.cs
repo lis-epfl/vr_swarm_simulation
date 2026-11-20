@@ -39,8 +39,8 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class PracticeWorldBuilder
 {
-    private const string SourceScenePath = "Assets/Scenes/ScaledCityWorld.unity";
-    public const string PracticeScenePath = "Assets/Scenes/PracticeWorld.unity";
+    private const string SourceScenePath = "Assets/Scenes/_Archive/ScaledCityWorld.unity";
+    public const string PracticeScenePath = "Assets/Scenes/_Archive/PracticeWorld.unity";
 
     /// <summary>
     /// The tile kept for obstacle practice. Eight buildings of mixed footprint — a slab across the middle, blocks on

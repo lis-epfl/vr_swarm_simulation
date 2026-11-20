@@ -1807,6 +1807,14 @@ producer on a single-producer map. DJI_Swarm is looked for beside this repo (`--
 ## City scenes and the ScaledCity assets
 
 Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
+**Only five scenes stay in `Assets/Scenes`** (2026-11-20, the user's clean-up): `ScenicPatchCityWorld`,
+`ScenicPracticeBlockWorld`, `DJIScene`, and the separate research scenes `NBackExperiment` and `RingChallenge`, plus
+`BlockShapedPatchCityWorld`, kept beside them because it is a *source*: both scenic scenes are rebuilt from it, and the
+bench, `swarmtune apply` and S6-S11's harnesses read its SwarmManager. Every other scene below is in
+`Assets/Scenes/_Archive/`, moved with its .meta (GUIDs unchanged), still openable and rebuildable: the builders name the
+archive path, and a bare scene name (`bench.py --scene`, `swarm_params`, `SwarmBenchRunner`, `CityObstacleExport`) is
+looked for in `Assets/Scenes` and then in `_Archive`, so old runs' replicas still read the scene they flew.
+
 (generated from ScaledCityWorld, below), `PracticeBlockWorld` (generated from BlockShapedPatchCityWorld, below),
 `ScenicPatchCityWorld` (BlockShapedPatchCityWorld with a realistic look, generated from it; its own section below),
 `DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld`,
@@ -1854,7 +1862,7 @@ trial city, the recorder stripped, and PracticeWorld's start line and hat statio
 - **Each kept block keeps every street that names it**; the side outside the cut becomes −1, `edge`. This is because
   `CityDressing.BuildBlocks` clips each block's kerb from its streets. Block and street ids are kept, so the dressing's
   random streams dress each block as they would in seed 2.
-- `ProceduralCityProbe` checks it with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/PracticeBlockWorld.unity` and
+- `ProceduralCityProbe` checks it with `PROCEDURAL_PROBE_SCENE=Assets/Scenes/_Archive/PracticeBlockWorld.unity` and
   `PROCEDURAL_PROBE_NO_RECORDER=1`. The first build passed twice: one goal (Block_B028), 96 walkers on the footpaths,
   a different hat each run, the bake adopted.
 

@@ -41,7 +41,7 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class PracticeBlockWorldBuilder
 {
-    public const string PracticeScenePath = "Assets/Scenes/PracticeBlockWorld.unity";
+    public const string PracticeScenePath = "Assets/Scenes/_Archive/PracticeBlockWorld.unity";
     public const string ScenicPracticeScenePath = "Assets/Scenes/ScenicPracticeBlockWorld.unity";
     private const string SourceScenePath = BlockShapedPatchCityWorldBuilder.ScenePath;
 

@@ -75,7 +75,7 @@ public static class LandmarkBuilder
     private const string AquasWavesPath = "Assets/AQUAS-Lite/Textures/Waves_HiRes.png";
     private const string GrassLayerPath = "Assets/BaseLayer.terrainlayer";
     private const string DronePrefabPath = "Assets/Prefabs/DroneReduced.prefab";
-    private const string VoronoiScenePath = "Assets/Scenes/VoronoiCityWorld.unity";
+    private const string VoronoiScenePath = "Assets/Scenes/_Archive/VoronoiCityWorld.unity";
     private const StaticEditorFlags AllStatic = (StaticEditorFlags)~0;
 
     // ---------------------------------------------------------------- the ring

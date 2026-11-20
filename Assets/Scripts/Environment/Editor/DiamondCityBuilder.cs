@@ -42,8 +42,8 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class DiamondCityBuilder
 {
-    private const string SourceScenePath = "Assets/Scenes/ScaledCityWorld.unity";
-    public const string ScenePath = "Assets/Scenes/DiamondCityWorld.unity";
+    private const string SourceScenePath = "Assets/Scenes/_Archive/ScaledCityWorld.unity";
+    public const string ScenePath = "Assets/Scenes/_Archive/DiamondCityWorld.unity";
     public const string DiamondFolder = "Assets/Prefabs/ScaledCity/Diamonds";
     public const string DiamondsRootName = "Diamonds";
 
