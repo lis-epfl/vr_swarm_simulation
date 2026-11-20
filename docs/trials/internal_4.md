@@ -82,7 +82,8 @@ from the city's own buildings. Practice was not recorded, so every run here coun
   turned into a map when the camera pointed down (`333b53bb`).
 - **SIMI's, YEGO's and ALXD's city looked real:** ScenicPatchCityWorld draws the same buildings with photographed facades,
   gentle sun shadows, a realistic ground and restyled street furniture, and unlit feed screens (`78be29af`); its
-  colliders, goals and swarm settings are the trial scene's, and the run files agree field for field. Its pedestrians
+  colliders, goals and swarm settings are the trial scene's, and the run files agree field for field (until the
+  neighbour shield, below). Its pedestrians
   stand out more against the street there (about a quarter more clearly, measured on the bench before it was flown), so
   identifying a hat is easier in it and SIMI's, YEGO's and ALXD's times are not comparable with ERKS's and ALEX's. Each pilot's
   swarm ÷ single-drone ratio compares two conditions in one city, so YEGO's still pools with ERKS's and ALEX's. SIMI's
@@ -90,6 +91,14 @@ from the city's own buildings. Practice was not recorded, so every run here coun
 - **Walkers asleep past 500 m, not 350 m,** from YEGO's last single-drone run (`9d9d3079`, committed during the
   session): a patrol farther than that from every drone camera stops and hides its walkers' bodies, though never the
   hat. The run files do not record the distance, so YEGO's earlier runs most likely flew 350 m, as every earlier pilot did; ALXD's flew 500 m.
+- **The neighbour shield, from 20 November:** the swarm in ScenicPatchCityWorld and its practice scene flies with a
+  shield that holds back a drone closing on a neighbour faster than it could stop 4 m short of it (`3a080e04`, switched
+  on in `db1506d7`). It answers this series' losses (Why the swarm lost drones): on the bench it took colliding pairs
+  from 15 to 2 in 340 flights, at about 1% of speed, slightly fewer drones on the edge of the formation and a little
+  more time split round buildings. Runs flown before it, every run up to and including ALXD's swarm runs, did not have
+  it. So losses after it are not comparable with losses before, and its swarm runs may be a touch slower; each run's
+  `_swarm.json` says which (`neighbourShield`). A single drone has no neighbours, so the single-drone and 360 sphere
+  runs are unaffected.
 - **A third condition, the 360 sphere, flown by SIMI only:** one drone's 360 camera drawn on a sphere round the pilot, with
   no feed screens and no cockpit room (`b563e408`, `65b7481c`); the rig follows the drone's heading, smoothed between
   physics steps (`b600544b`). SIMI flew no single-drone run, so SIMI appears only in the swarm ÷ 360 sphere comparison.
@@ -169,6 +178,10 @@ the formation from 36 m to 21 m. It hit the corner of the building between it an
 the patch-city tuning (S6) traced to cohesion: the shield removes the pilot's command into a building, but not the pull
 of the other drones. That pull drags a straggler behind a building through the facade. Until this run, such contacts
 had cost no drone.
+
+From 20 November the scenic scenes fly with a neighbour shield built for the pairs' mechanism (Within the series): a
+drone may not close on a neighbour faster than it could brake before 4 m, so the drone behind a braked one waits
+instead of flying into it. It does nothing for a straggler pulled through a facade, ALXD's case.
 
 ## Reading
 
