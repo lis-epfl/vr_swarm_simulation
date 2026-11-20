@@ -216,41 +216,85 @@ def timed(T):
                 any(g.get("answered") for r in T["runs"] for g in r.goals))
 
 
+PERM_EXACT_MAX = 2_000_000     # relabellings enumerated exactly; past it (about eight pilots of 2 + 2 runs) drawn at random
+PERM_DRAWS = 200_000
+
+
 def compare(df, col, conds=SINGLE):
     """Swarm against the single drone (or, with conds=SPHERE, against one drone's 360 camera) on one per-run measure:
     per pilot the geometric means and their ratio, the ratio pooled over the pilots who flew both (the geometric mean
-    of theirs), and the exact two-sided permutation p of that pooled log ratio, relabelling the conditions within each
-    pilot (the runs per condition kept). `floor` is the smallest p the design can give. None when no pilot flew both."""
+    of theirs), and two tests of that pooled log ratio:
+    - `p`, the two-sided permutation p, relabelling the conditions within each pilot (the runs per condition kept): an
+      answer about these pilots, against their own run-to-run variation. Exact while the relabellings number at most
+      PERM_EXACT_MAX, else from PERM_DRAWS drawn at random (`n_drawn`); `floor` is the smallest p the design can give.
+    - `p_pilots`, a one-sample t test on the pilots' log ratios, each pilot one observation (df = pilots - 1), with the
+      pooled ratio's 95% interval `ci`: an answer about pilots in general, which more pilots settle. None under two.
+    None when no pilot flew both."""
     d = df[df[col].notna() & (df[col] > 0) & df.condition.isin(conds)]
-    per, groups = [], []
+    per, diffs, total = [], [], 1
     for pid, g in d.groupby("pid"):
         s, o = np.log(g[g.condition == conds[0]][col].to_numpy(float)), np.log(g[g.condition == conds[1]][col].to_numpy(float))
         if not len(s) or not len(o):
             continue
         per.append(dict(pid=pid, n_s=len(s), n_d=len(o), gm_s=float(np.exp(s.mean())), gm_d=float(np.exp(o.mean())),
                         mean_s=float(np.exp(s).mean()), mean_d=float(np.exp(o).mean()), ratio=float(np.exp(s.mean() - o.mean()))))
-        groups.append((np.r_[s, o], len(s)))
-    if not per:
-        return None
-    obs = float(np.mean([math.log(p["ratio"]) for p in per]))
-    stats = []
-    for combo in itertools.product(*[list(itertools.combinations(range(len(v)), k)) for v, k in groups]):
-        tot = 0.0
-        for (v, k), sel in zip(groups, combo):
+        # this pilot's mean log difference under every way of choosing which of their runs were the swarm's
+        v, k = np.r_[s, o], len(s)
+        dv = []
+        for sel in itertools.combinations(range(len(v)), k):
             m = np.zeros(len(v), bool)
             m[list(sel)] = True
-            tot += v[m].mean() - v[~m].mean()
-        stats.append(abs(tot / len(groups)))
-    stats = np.array(stats)
-    p = float((stats >= abs(obs) - 1e-12).mean())
-    floor = float((stats >= stats.max() - 1e-12).mean())
+            dv.append(v[m].mean() - v[~m].mean())
+        diffs.append(np.array(dv))
+        total *= len(dv)
+    if not per:
+        return None
+    n = len(per)
+    obs = float(np.mean([math.log(p["ratio"]) for p in per]))
+    if total <= PERM_EXACT_MAX:
+        # the pooled statistic over the whole product of the pilots' relabellings, summed pilot by pilot in order
+        acc = np.zeros(1)
+        for dv in diffs:
+            acc = (acc[:, None] + dv[None, :]).ravel()
+        stats = np.abs(acc / n)
+        p = float((stats >= abs(obs) - 1e-12).mean())
+        floor = float((stats >= stats.max() - 1e-12).mean())
+        n_drawn = None
+    else:
+        rng = np.random.default_rng(0)
+        acc = np.zeros(PERM_DRAWS)
+        for dv in diffs:
+            acc += dv[rng.integers(0, len(dv), PERM_DRAWS)]
+        stats = np.abs(acc / n)
+        p = float(((stats >= abs(obs) - 1e-12).sum() + 1) / (PERM_DRAWS + 1))
+        # the most one-sided relabellings: every pilot at their own extreme, one way or the other
+        hi, lo = sum(dv.max() for dv in diffs), sum(dv.min() for dv in diffs)
+        top = max(abs(hi), abs(lo))
+        cnt = 0
+        if abs(hi) >= top - 1e-12:
+            cnt += math.prod(int((dv >= dv.max() - 1e-12).sum()) for dv in diffs)
+        if abs(lo) >= top - 1e-12 and abs(hi - lo) > 1e-12:
+            cnt += math.prod(int((dv <= dv.min() + 1e-12).sum()) for dv in diffs)
+        floor = cnt / total
+        n_drawn = PERM_DRAWS
+    # across the pilots: each pilot's log ratio one observation
+    p_pilots, ci = None, None
+    if n >= 2:
+        from scipy import stats as sst
+        lr = np.log([x["ratio"] for x in per])
+        se = float(lr.std(ddof=1)) / math.sqrt(n)
+        if se > 0:
+            p_pilots = float(2 * sst.t.sf(abs(lr.mean()) / se, n - 1))
+            half = float(sst.t.ppf(0.975, n - 1)) * se
+            ci = [float(math.exp(lr.mean() - half)), float(math.exp(lr.mean() + half))]
     # the typical run of each condition, pooled as the ratio is (the geometric mean over the pilots of theirs), so that
     # typ_s / typ_d is the pooled ratio exactly; the arithmetic means are kept beside them for the tables
     typ_s = float(np.exp(np.mean([math.log(x["gm_s"]) for x in per])))
     typ_d = float(np.exp(np.mean([math.log(x["gm_d"]) for x in per])))
     # the plain means over the same pilots as the ratio: a pilot who flew one condition only (SIMI, ALXD) is left out
     d = d[d.pid.isin([x["pid"] for x in per])]
-    return dict(per=per, ratio=float(math.exp(obs)), p=p, floor=floor, n_perm=len(stats), typ_s=typ_s, typ_d=typ_d,
+    return dict(per=per, ratio=float(math.exp(obs)), p=p, floor=floor, n_perm=total, n_drawn=n_drawn, p_pilots=p_pilots,
+                ci=ci, typ_s=typ_s, typ_d=typ_d,
                 n_lower=sum(x["ratio"] < 1 for x in per), n_pilots=len(per),
                 mean_s=float(d[d.condition == conds[0]][col].mean()), mean_d=float(d[d.condition == conds[1]][col].mean()))
 

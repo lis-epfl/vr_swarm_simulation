@@ -33,6 +33,10 @@ table.dt tr.prac td { color: var(--muted); }
 tr.diff td { background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .navrow { display: flex; flex-wrap: wrap; gap: 10px; }
 .vp.na { color: var(--muted); background: var(--chip); }
+/* a question's figures: the pooled box plot over the pilot-by-pilot panels */
+.qfig { display: grid; gap: 12px; min-width: 0; }
+.qfig > h4, .chart > h4 { font: 600 0.82rem/1.3 var(--font-body); color: var(--ink); margin: 0 0 4px; }
+.qfig > h4.split { border-top: 1px solid var(--grid); padding-top: 12px; }
 </style>
 
 <div class="wrap">
@@ -198,7 +202,155 @@ function ratioStrip(el, s, other = "single drone", title = "") {
   el.innerHTML = (title ? `<h4>${esc(title)}</h4>` : "") + svgOf(Wd, H, `swarm time over ${other} time`, g) +
     `<p class="small muted">Swarm ÷ ${esc(other)}: ◇ each pilot's ratio of geometric means, ◆ pooled over the ${s.n_pilots === 1 ? "one pilot who flew both" : "pilots"}.</p>`;
   hoverMarks(el, i => i < s.per.length ? [`${s.per[i].pid}`, [["var(--ink-2)", times(s.per[i].ratio), `swarm ${secs(s.per[i].gm_s)} (${s.per[i].n_s} runs) against ${secs(s.per[i].gm_d)} (${s.per[i].n_d})`]]]
-    : ["Pooled", [["var(--ink)", times(s.ratio), `over ${s.n_pilots} pilot${s.n_pilots === 1 ? "" : "s"}; p ${pv(s.p)} (the design's smallest ${pv(s.floor)})`]]]);
+    : ["Pooled", [["var(--ink)", times(s.ratio), `over ${s.n_pilots} pilot${s.n_pilots === 1 ? "" : "s"}; p ${pv(s.p)} (the design's smallest ${pv(s.floor)})${ok(s.p_pilots) ? `, across pilots ${pv(s.p_pilots)}` : ""}`]]]);
+}
+
+// The run value each question pools: the task time (the recording's length where no task was timed), and the two phases
+// only over runs that reached every goal, as trials_report.compare takes them.
+const VAL = {total: r => D.timed ? r.time_s : r.durationSec, search: r => r.goalsReached >= r.nGoals ? r.search_s : null,
+             transit: r => r.goalsReached >= r.nGoals ? r.transit_s : null};
+const quant = (v, q) => { const s = v.slice().sort((a, b) => a - b), h = (s.length - 1) * q, lo = Math.floor(h);
+  return s[lo] + (s[Math.min(lo + 1, s.length - 1)] - s[lo]) * (h - lo); };
+const PAIRED = ["Swarm", "SingleDrone"];
+// The swarm and single-drone runs a question pools: in the boxes (the pilots who flew both, as the tests take them), and
+// beside them (a pilot who flew one of the two, drawn and tested in neither).
+function pooledRuns(key) {
+  const s = ST[key];
+  if (!s) return null;
+  const get = VAL[key], both = new Set(s.per.map(p => p.pid));
+  const rs = counted.filter(r => PAIRED.includes(r.condition) && ok(get(r)) && get(r) > 0);
+  return {get, s, both, inBox: rs.filter(r => both.has(r.pid)), out: rs.filter(r => !both.has(r.pid))};
+}
+// The pilots who flew the swarm or the single drone but not both, with what they flew instead.
+function unpaired() {
+  return PILOTS.map(p => {
+    const cs = condsOf(p, counted);
+    if (cs.includes("swarm") === cs.includes("single")) return null;
+    return {pid: p, has: cs.includes("swarm") ? "swarm" : "single", sphere: cs.includes("sphere")};
+  }).filter(Boolean);
+}
+
+// All pilots pooled: each condition's runs as a box over the pilots who flew both, every run a dot in its pilot's lane,
+// and each pilot's typical run (the geometric mean of theirs) in the two conditions joined by a line, the pairing the
+// tests use. A pilot who flew one of the two is drawn beside the boxes, hollow, in neither box nor test.
+function boxChart(el, key) {
+  const P = pooledRuns(key);
+  if (!P) { el.innerHTML = ""; return; }
+  const {get, s, inBox, out} = P, lanePids = s.per.map(p => p.pid);
+  const cols = [{c: "single", runs: inBox.filter(r => r.condition === "SingleDrone"), box: true, pids: lanePids},
+                {c: "swarm", runs: inBox.filter(r => r.condition === "Swarm"), box: true, pids: lanePids}];
+  for (const c of ["single", "swarm"]) {
+    const o = out.filter(r => condOf(r.condition) === c);
+    if (o.length) cols.push({c, runs: o, box: false, pids: [...new Set(o.map(r => r.pid))].sort()});
+  }
+  const Wd = Math.min(560, cw(el, 280)), H = 270, m = {l: 46, r: 8, t: 14, b: 46};
+  const {step, top} = niceMax(Math.max(1, ...cols.flatMap(c => c.runs.map(get))) * 1.05);
+  const yy = v => m.t + (H - m.t - m.b) * (1 - v / top);
+  const wts = cols.map(c => c.box ? 1 : 0.62), wsum = wts.reduce((a, b) => a + b, 0);
+  let x0 = m.l;
+  cols.forEach((c, i) => { c.w = (Wd - m.l - m.r) * wts[i] / wsum; c.cx = x0 + c.w / 2; x0 += c.w;
+    c.bw = Math.min(c.w * 0.64, 130); c.lane = pid => c.cx + ((c.pids.indexOf(pid) + 0.5) / c.pids.length - 0.5) * c.bw * 0.78; });
+  const marks = [];
+  let g = "", hits = "";
+  for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="gridl" x1="${m.l}" x2="${Wd - m.r}" y1="${yy(v)}" y2="${yy(v)}"/><text x="${m.l - 6}" y="${yy(v) + 4}" text-anchor="end">${v}</text>`;
+  g += `<text x="${m.l - 34}" y="${m.t + 2}" text-anchor="start" style="font-size:10px">s</text>`;
+  // the boxes, their whiskers (the furthest run within 1.5 box-heights) and medians
+  cols.forEach(c => {
+    const v = c.runs.map(get), col = kCol(c.c), n = c.runs.length, k = new Set(c.runs.map(r => r.pid)).size;
+    g += `<text class="lbl" x="${c.cx}" y="${H - m.b + 18}" text-anchor="middle">${esc(CONDS[c.c])}</text>`;
+    g += `<text x="${c.cx}" y="${H - m.b + 33}" text-anchor="middle">${n} run${n === 1 ? "" : "s"} · ${k} ${c.box ? `pilot${k === 1 ? "" : "s"}` : "unpaired"}</text>`;
+    if (!c.box || !n) return;
+    const q1 = quant(v, 0.25), med = quant(v, 0.5), q3 = quant(v, 0.75), iqr = q3 - q1;
+    const wlo = Math.min(...v.filter(x => x >= q1 - 1.5 * iqr)), whi = Math.max(...v.filter(x => x <= q3 + 1.5 * iqr));
+    const bx = c.cx - c.bw / 2, cap = c.bw * 0.22;
+    g += `<rect x="${bx}" y="${yy(q3)}" width="${c.bw}" height="${Math.max(1, yy(q1) - yy(q3))}" rx="3" fill="${col}" fill-opacity="0.16" stroke="${col}" stroke-width="1.5"/>`;
+    for (const [a, b] of [[q3, whi], [q1, wlo]]) g += `<line x1="${c.cx}" x2="${c.cx}" y1="${yy(a)}" y2="${yy(b)}" stroke="var(--ink-2)" stroke-width="1.2"/><line x1="${c.cx - cap}" x2="${c.cx + cap}" y1="${yy(b)}" y2="${yy(b)}" stroke="var(--ink-2)" stroke-width="1.2"/>`;
+    g += `<line x1="${bx}" x2="${bx + c.bw}" y1="${yy(med)}" y2="${yy(med)}" stroke="var(--ink)" stroke-width="2.5"/>`;
+    const i = marks.length; marks.push({kind: "box", c, n, k, q1, med, q3, wlo, whi});
+    hits += `<rect class="hit" data-i="${i}" tabindex="0" x="${bx}" y="${yy(whi) - 4}" width="${c.bw}" height="${yy(wlo) - yy(whi) + 8}"/>`;
+  });
+  // each pilot's typical run in the two conditions, joined
+  const [cs, csw] = cols;
+  let pairs = "";
+  s.per.forEach(p => {
+    const xa = cs.lane(p.pid), ya = yy(p.gm_d), xb = csw.lane(p.pid), yb = yy(p.gm_s);
+    pairs += `<line x1="${xa}" y1="${ya}" x2="${xb}" y2="${yb}" stroke="var(--ink-2)" stroke-width="1.2" stroke-opacity="0.7"/>`;
+  });
+  g += pairs;
+  // the runs, in their pilot's lane (a pilot's runs a few pixels apart, by flight order)
+  cols.forEach(c => {
+    const col = kCol(c.c);
+    c.pids.forEach(pid => {
+      const rs = c.runs.filter(r => r.pid === pid).sort((a, b) => a.order - b.order);
+      rs.forEach((r, j) => {
+        const x = (c.lane(pid) + (j - (rs.length - 1) / 2) * 5).toFixed(1), y = yy(get(r)).toFixed(1);
+        g += c.box ? `<circle cx="${x}" cy="${y}" r="4.5" fill="${col}" stroke="var(--panel)" stroke-width="1.5"/>`
+                   : `<circle cx="${x}" cy="${y}" r="4.3" fill="var(--panel)" stroke="${col}" stroke-width="2"/>`;
+        const i = marks.length; marks.push({kind: "run", r, c});
+        hits += `<circle class="hit" data-i="${i}" tabindex="0" cx="${x}" cy="${y}" r="8"/>`;
+      });
+    });
+  });
+  // the pilots' typical runs, on top of their runs
+  s.per.forEach(p => {
+    for (const [c, v] of [[cs, p.gm_d], [csw, p.gm_s]]) {
+      const x = c.lane(p.pid), y = yy(v);
+      g += `<path d="M${x} ${y - 5.5} L${x + 5.5} ${y} L${x} ${y + 5.5} L${x - 5.5} ${y} Z" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.6"/>`;
+      const i = marks.length; marks.push({kind: "pilot", p});
+      hits += `<circle class="hit" data-i="${i}" tabindex="0" cx="${x}" cy="${y}" r="8"/>`;
+    }
+  });
+  const U = unpaired().filter(u => out.some(r => r.pid === u.pid));
+  el.innerHTML = `<h4>All pilots pooled</h4>` + svgOf(Wd, H, `${MEASURES[key][0]}: swarm against single drone, every run`, g + hits) +
+    `<p class="small muted">Each dot a run, in its pilot's lane; ◇ joined by a line: one pilot's typical run (the geometric mean of their runs) in each condition, the pairing both tests use. The box spans the middle half of the runs, the bar is the median, the whiskers reach the furthest run within 1.5 box-heights.${U.length ? ` Hollow: ${esc(U.map(u => u.pid).join(" and "))}, who flew no ${U.every(u => u.has === "swarm") ? "single-drone run" : U.every(u => u.has === "single") ? "swarm run" : "run in one of the two"}, in neither box nor test.` : ""}</p>`;
+  hoverMarks(el, i => {
+    const x = marks[i];
+    if (x.kind === "run") return [TITLE(x.r), [[kCol(x.c.c), secs(get(x.r)), x.c.box ? MEASURES[key][0].toLowerCase() : `${MEASURES[key][0].toLowerCase()} (unpaired: in no test)`]]];
+    if (x.kind === "pilot") return [`${x.p.pid}: typical run`, [[kCol("single"), secs(x.p.gm_d), `single drone, ${x.p.n_d} run${x.p.n_d === 1 ? "" : "s"}`],
+      [kCol("swarm"), secs(x.p.gm_s), `swarm, ${x.p.n_s} run${x.p.n_s === 1 ? "" : "s"}`], ["var(--ink)", times(x.p.ratio), "swarm ÷ single"]]];
+    return [`${CONDS[x.c.c]}: ${x.n} runs of ${x.k} pilots`, [[kCol(x.c.c), secs(x.med), "median"], [kCol(x.c.c), `${secs(x.q1)}–${secs(x.q3)}`, "middle half"],
+      [kCol(x.c.c), `${secs(x.wlo)}–${secs(x.whi)}`, "whiskers"]]];
+  });
+}
+
+// The pooled comparison read out: the boxes' medians, the pooled ratio, then the two tests in words.
+const pctOf = p => `${(100 * p).toFixed(p < 0.095 ? 1 : 0)}%`;
+function withinText(s) {
+  const n = s.n_pilots, these = n === 1 ? "this pilot's" : `these ${n} pilots'`;
+  if (s.floor >= 0.05) return `this design cannot reach 0.05 (the most one-sided result gives ${pv(s.floor)}), so it can say nothing either way.`;
+  const dir = s.ratio < 1 ? "quicker" : "slower";
+  if (s.p < 0.05) return `${these} swarm runs were ${dir} than their single-drone runs by more than their run-to-run variation explains: only ${pctOf(s.p)} of the ways of relabelling their runs give a pooled ratio this far from ×1.`;
+  if (s.p < 0.1) return `weak evidence: ${pctOf(s.p)} of the ways of relabelling ${these} runs give a pooled ratio this far from ×1.`;
+  return `a gap this size is common by chance: ${pctOf(s.p)} of the ways of relabelling ${these} runs give one at least as far from ×1.`;
+}
+function acrossText(s) {
+  const n = s.n_pilots, [lo, hi] = s.ci, less = s.ratio < 1, k = less ? s.n_lower : n - s.n_lower;
+  const span = `the swarm's time between ${Math.round(100 * lo)}% and ${Math.round(100 * hi)}% of the single drone's`;
+  const dir = less ? "quicker" : "slower";
+  if (hi < 1 || lo > 1) return `the interval stays ${hi < 1 ? "below" : "above"} ×1, so the evidence is that a new pilot like these would also be ${hi < 1 ? "quicker" : "slower"} with the swarm, though with ${n} pilots it is still wide: ${span}.`;
+  // all pilots one way and still no conclusion: say who was nearest level, which is what holds the interval open
+  const near = s.per.slice().sort((a, b) => Math.abs(Math.log(a.ratio)) - Math.abs(Math.log(b.ratio)))[0];
+  const who = k === n ? `though all ${n} were ${dir} here, ${esc(near.pid)} by only ${Math.round(100 * Math.abs(1 - near.ratio))}%` : `${k} of the ${n} were ${dir} here`;
+  return `the interval spans ×1, ${span}, so ${n} pilots cannot yet say whether a new pilot would be ${dir} with the swarm (${who}).`;
+}
+function pooledLines(key) {
+  const P = pooledRuns(key);
+  if (!P) return "";
+  const {get, s, inBox} = P, n = s.n_pilots;
+  const sw = inBox.filter(r => r.condition === "Swarm").map(get), sd = inBox.filter(r => r.condition === "SingleDrone").map(get);
+  const pct = Math.round(100 * Math.abs(1 - s.ratio));
+  const perm = s.n_drawn ? `${s.n_drawn.toLocaleString("en-GB")} of its ${s.n_perm.toLocaleString("en-GB")} relabellings drawn at random` : `all ${s.n_perm.toLocaleString("en-GB")} relabellings`;
+  return `<li><b>All pilots pooled:</b> over the ${n === 1 ? "one pilot" : `${n} pilots`} who flew both (${esc(s.per.map(p => p.pid).join(", "))}), the median swarm run took ${secs(median(sw))} against ${secs(median(sd))} for the single drone (${sw.length} and ${sd.length} runs). Pooled, the swarm took ${times(s.ratio)} of the single drone's time, ${pct}% ${s.ratio < 1 ? "less" : "more"}: a typical run ${secs(s.typ_s)} against ${secs(s.typ_d)}.</li>
+    <li><b>For ${n === 1 ? "this pilot" : `these ${n} pilots`}, p ${pv(s.p)}</b> (the conditions relabelled among each pilot's own runs, ${perm}): ${withinText(s)}</li>
+    ${ok(s.p_pilots) && s.ci ? `<li><b>For pilots in general, p ${pv(s.p_pilots)}, 95% interval ${times(s.ci[0])} to ${times(s.ci[1])}</b> (a t test across the pilots, each pilot's ratio one observation): ${acrossText(s)}</li>`
+      : n < 2 ? `<li><b>For pilots in general:</b> not testable until two pilots have flown both.</li>` : ""}`;
+}
+// Said once, under the total: what the two p values answer, and who is in neither.
+function twoTestsLine() {
+  if (!ST.total && !ST.search) return "";
+  const U = unpaired(), names = U.map(u => esc(u.pid)).join(" and ");
+  const why = U.length ? ` ${names} flew no ${U.every(u => u.has === "swarm") ? "single-drone" : U.every(u => u.has === "single") ? "swarm" : "run in one of the two conditions"}${U.some(u => u.sphere) ? ` (${U.filter(u => u.sphere).map(u => esc(u.pid)).join(" and ")} flew the 360 sphere instead)` : ""}, so their runs are drawn hollow beside the boxes and enter neither test: without a run of theirs in the other condition, a slow run cannot be told from a slow pilot.` : "";
+  return `<li><b>Why two p values.</b> The first asks whether these pilots' swarm and single-drone runs differ by more than chance among their own runs would make them; it uses every run, so it can be small with few pilots, but it speaks only for them. The second treats the pilots as a sample and asks whether pilots in general would differ; it has one observation per pilot, which is why its interval is wide, and it is the one more pilots settle: each new pilot who flies both conditions adds one.${why}</li>`;
 }
 
 // Small-multiple horizontal bars (S11's): rows [{c, lab, ...}], panels [{title, get, f, unit?}]
@@ -246,7 +398,7 @@ function oneLine(key) {
   const dir = s.ratio < 1 ? "less" : "more";
   return `<b>${MEASURES[key][0]}: ${times(s.ratio)}.</b> The swarm took ${Math.round(100 * Math.abs(1 - s.ratio))}% ${dir} time than the single drone
     (a typical run ${secs(s.typ_s)} against ${secs(s.typ_d)}), ${s.ratio < 1 ? "less" : "more"} for ${s.ratio < 1 ? s.n_lower : s.n_pilots - s.n_lower} of ${s.n_pilots} pilots;
-    p ${pv(s.p)}, where the smallest this design can give is ${pv(s.floor)}.`;
+    p ${pv(s.p)} for these pilots (the smallest this design can give is ${pv(s.floor)})${ok(s.p_pilots) ? ` and ${pv(s.p_pilots)} for pilots in general` : ""}.`;
 }
 function firstPara(h) { const m = /<p>([\s\S]*?)<\/p>/.exec(h || ""); return m ? m[1] : ""; }
 // The swarm against the 360 sphere, over the pilots who flew both (internal_4's SIMI on): the answer box's fourth line.
@@ -343,7 +495,7 @@ function qCard(n, key, chartId, body) {
   return `<section class="q" id="q${n}">
     <div class="qhead"><span class="qn">${n}</span><div><h2>${MEASURES[key][0]}</h2>
       <p class="qa"><span class="vp ${cls}">${txt}</span>${D.timed || key !== "total" ? (s ? `Swarm ${times(s.ratio)} of the single drone's time, pooled over ${s.n_pilots} pilots.` : "") : "Only the recordings' lengths: see the note above."}</p></div></div>
-    <div class="qbody"><div><div class="chart" id="${chartId}"></div><div class="chart" id="${chartId}-r"></div></div>
+    <div class="qbody"><div class="qfig">${s ? `<div class="chart" id="${chartId}-b"></div><h4 class="split">Pilot by pilot</h4>` : ""}<div class="chart" id="${chartId}"></div><div class="chart" id="${chartId}-r"></div></div>
       <div class="qtext"><ul>${body}</ul></div></div></section>`;
 }
 const STD_CARDS = ["identify", "smoothness", "losses"];
@@ -353,29 +505,32 @@ RENDER.results = el => {
   const banner = !D.timed ? `<div class="banner"><b>These are recording lengths, not task times.</b> The recorder of July wrote no answers and no presses, and the times taken by hand at the trials
       are not on this machine (a file of them, manual_times.csv beside the runs, would replace these). Each recording ran from Play until it was stopped, restarts included. The
       phases below come from when the swarm's centre entered and left each goal's zone; the goals stood off the tile grid in that version, so read them as indicative.</div>` : "";
-  const totalBody = D.timed ? `${pilotLines(s)}
-      <li><b>Pooled:</b> ${times(s && s.ratio)}: a typical run ${secs(s && s.typ_s)} against ${secs(s && s.typ_d)} (the geometric mean over the pilots of theirs; the plain means are ${secs(s && s.mean_s)} and ${secs(s && s.mean_d)}). An exact permutation of the conditions within each pilot gives p ${pv(s && s.p)} (${s ? s.n_perm : "–"} relabellings; the smallest p they allow is ${pv(s && s.floor)}).</li>
+  const totalBody = D.timed ? `${pooledLines("total")}${twoTestsLine()}
+      ${pilotLines(s)}
+      <li><b>The typical run</b> is the geometric mean over the pilots of each pilot's geometric mean, so that their ratio is the pooled ratio; the plain means over the same runs are ${secs(s && s.mean_s)} and ${secs(s && s.mean_d)}. The smallest p the relabelling allows is ${pv(s && s.floor)}.</li>
       <li><b>Timed</b> from the first drone crossing the start line, 30 m ahead of the spawn ${startText()}, to ${endText()}.</li>
       <li><b>The order matters as much as the condition:</b> each pilot flew one condition's runs together, so a later run carries more practice. ${orderText()} The chart is in the order flown.</li>`
     : `<li>Every recording, restarts included, by when it was flown. ${(D.restarts || []).filter(x => x.n > 1).map(x => `${esc(x.pid)}'s ${esc(CONDS[condOf(x.condition)])} t${x.trial} was recorded ${x.n} times (${x.lengths.map(mmss).join(", ")}).`).join(" ")}</li>`;
   el.innerHTML = `<div class="ans">${banner}
     ${qCard(1, "total", "c-total", totalBody)}
-    ${qCard(2, "search", "c-search", `${pilotLines(se)}
+    ${qCard(2, "search", "c-search", `${pooledLines("search")}${D.timed ? "" : twoTestsLine()}
+      ${pilotLines(se)}
       ${BY_ANSWER
         ? `<li><b>At a goal</b> is the time from the swarm's centre (or the single drone) entering a goal's zone, ${D.zone} m round its patch, to the press that answered it: the search there, and any wandering off and back before the answer. What follows the answer, including passing back through the zone while looking for the next goal, is time between goals.</li>`
         : `<li><b>At a goal</b> is the time from the swarm's centre (or the single drone) entering a goal's zone, ${D.zone} m round its patch, to leaving it for the next goal: the search there, and any wandering off and back.</li>`}
-      <li><b>Pooled:</b> ${times(se && se.ratio)}, p ${pv(se && se.p)}.</li>`)}
-    ${qCard(3, "transit", "c-transit", `${pilotLines(tr)}
+      <li>The box plot is each run's time at the goals, summed; the pilot-by-pilot chart below it shows every goal on its own.</li>`)}
+    ${qCard(3, "transit", "c-transit", `${pooledLines("transit")}
+      ${pilotLines(tr)}
       <li><b>Between goals</b> runs from ${BY_ANSWER ? "one goal's answer" : "leaving one goal's zone"} to entering the next goal's zone; the first leg starts at the start line (median ${secs(median(firstLeg.map(g => g.transit)))}).</li>
-      <li><b>Pooled:</b> ${times(tr && tr.ratio)}, p ${pv(tr && tr.p)}. ${longLegText()}</li>`)}
+      ${longLegText() ? `<li>${longLegText()}</li>` : ""}`)}
     ${SPH ? sphereCard() : ""}
     <div class="intro"><h2>Other results</h2><p>The same three on every page, then what stood out in this series.</p></div>
     <div class="cards" id="cards"></div>
     ${N.reading ? `<div class="box reading"><p class="eyebrow">My reading</p>${N.reading}</div>` : ""}</div>`;
   const draws = [
-    ["#c-total", () => { orderChart($("#c-total", el), r => D.timed ? r.time_s : r.durationSec, "s", D.timed ? "total time" : "recording length"); ratioStrip($("#c-total-r", el), s); }],
-    ["#c-search", () => { goalChart($("#c-search", el), "search", "at the goal"); ratioStrip($("#c-search-r", el), se); }],
-    ["#c-transit", () => { goalChart($("#c-transit", el), "transit", "on the way to it"); ratioStrip($("#c-transit-r", el), tr); }]];
+    ["#c-total", () => { if (s) boxChart($("#c-total-b", el), "total"); orderChart($("#c-total", el), r => D.timed ? r.time_s : r.durationSec, "s", D.timed ? "total time" : "recording length"); ratioStrip($("#c-total-r", el), s); }],
+    ["#c-search", () => { if (se) boxChart($("#c-search-b", el), "search"); goalChart($("#c-search", el), "search", "at the goal"); ratioStrip($("#c-search-r", el), se); }],
+    ["#c-transit", () => { if (tr) boxChart($("#c-transit-b", el), "transit"); goalChart($("#c-transit", el), "transit", "on the way to it"); ratioStrip($("#c-transit-r", el), tr); }]];
   if (SPH) draws.push(["#c-sph", () => { const g = $("#c-sph", el);
     g.innerHTML = `<div id="c-sph-total"></div><div id="c-sph-search"></div><div id="c-sph-transit"></div>`;
     for (const k of ["total", "search", "transit"]) ratioStrip($(`#c-sph-${k}`, g), SPH[k], "360 sphere", MEASURES[k][0]); }]);
@@ -612,7 +767,9 @@ const TERMS = [
     ["Time at a goal", "From entering a goal's zone to the last time it is left before the next goal's zone is entered (for the last goal, its last exit). Leaving and coming back still counts as at the goal. (Series whose answers carry press times are cut at the answers instead.)"],
     ["Time between goals", "From leaving one goal's zone to entering the next; the first leg runs from the start line. With the time at the goals it covers the run from the start line to the last goal's last exit, which can differ from the total time by the moments after the last answer."]]),
     ["Ratio, pooled", "Swarm ÷ single drone: per pilot the ratio of the geometric means of their runs, pooled as the geometric mean over the pilots, so each pilot counts once. Swarm ÷ 360 sphere is the same, over the pilots who flew both."],
-    ["p (permutation)", "The share of all relabellings of which runs were the swarm's, within each pilot and keeping the numbers of runs, that give a pooled ratio at least as far from 1. With two pilots and two runs each there are 36, so p cannot go below 2/36 = 0.056: no difference can be significant at 0.05 in such a design. With one pilot and two runs each there are 6, and p cannot go below 1/3."]]],
+    ["p, for these pilots (permutation)", "The share of all relabellings of which runs were the swarm's, within each pilot and keeping the numbers of runs, that give a pooled ratio at least as far from 1. With two pilots and two runs each there are 36, so p cannot go below 2/36 = 0.056: no difference can be significant at 0.05 in such a design. With one pilot and two runs each there are 6, and p cannot go below 1/3. Past two million relabellings (about eight pilots), 200,000 are drawn at random instead. It answers whether these pilots' runs differ by more than their own run-to-run variation, not whether other pilots' would."],
+    ["p, for pilots in general (t test)", "A t test on the pilots' log ratios, each pilot who flew both conditions one observation, and the 95% interval of the pooled ratio it gives: whether pilots in general, not only these, would differ. It needs two such pilots, and its interval narrows as pilots are added; a pilot's extra runs make their own ratio surer but add no observation."],
+    ["Box plot (all pilots pooled)", "Each condition's runs over the pilots who flew both: the box spans the middle half of the runs, the bar inside is the median, the whiskers reach the furthest run within 1.5 box-heights. Every run is a dot in its pilot's lane; ◇ joined by a line are one pilot's typical run (the geometric mean of their runs) in each condition. A pilot who flew only one of the two conditions is drawn hollow beside the boxes and is in neither box nor test."]]],
   ["How the pilot flew", [
     ["Stick movement per minute", "The total travel of the four-axis stick vector per minute (dead-banded): control activity, without thresholds. Between goals only."],
     ["Adjustments per minute", "Discrete re-settings: the stick leaves its held position by more than 0.2 and settles 0.5 s at a new one. Push and hold is one; constant re-steering is many."],

@@ -34,8 +34,17 @@ counts them). The index is `experiment_results/trials/trials_index_bare.html`, w
   before 26 October 2026), so every series is on one clock. internal_2's and internal_3's times are therefore ~25 s
   shorter than their own `results/` tables, which were made from Play.
 - **The comparison** is per pilot: the ratio of the geometric means of the swarm's and the single drone's runs, pooled
-  as the geometric mean over the pilots, with an exact permutation p (the conditions relabelled within each pilot).
-  With two pilots and two runs each there are 36 relabellings, so p cannot go below 0.056; the page says so.
+  as the geometric mean over the pilots, with two tests (2026-11-20, as the pilots grew in number):
+  - a permutation p, the conditions relabelled within each pilot: about *these* pilots, against their own run-to-run
+    variation. With two pilots and two runs each there are 36 relabellings, so p cannot go below 0.056; the page says
+    so. Exact up to two million relabellings (about eight pilots of 2 + 2 runs), then 200,000 drawn at random.
+  - a t test on the pilots' log ratios, each pilot one observation, with the pooled ratio's 95% interval: about pilots
+    *in general*. It is the one more pilots settle, and with three pilots it can disagree with the first (internal_4's
+    total time: 0.033 against 0.17).
+
+  Each of the three times also has a box plot over the pilots who flew both, before the pilot-by-pilot charts, with
+  each pilot's typical run in the two conditions joined; a pilot who flew one condition only is drawn beside the boxes,
+  hollow, in neither box nor test.
 - **The phases** (at a goal, between goals) are compared over runs that reached every goal; practice runs are drawn
   hollow and counted in nothing.
 - **The prose is the series' `.md` here**, read by fixed headings: `## Summary` (the lead), `## Changes since …` (or
