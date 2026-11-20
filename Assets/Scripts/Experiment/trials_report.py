@@ -248,6 +248,8 @@ def compare(df, col, conds=SINGLE):
     # typ_s / typ_d is the pooled ratio exactly; the arithmetic means are kept beside them for the tables
     typ_s = float(np.exp(np.mean([math.log(x["gm_s"]) for x in per])))
     typ_d = float(np.exp(np.mean([math.log(x["gm_d"]) for x in per])))
+    # the plain means over the same pilots as the ratio: a pilot who flew one condition only (SIMI, ALXD) is left out
+    d = d[d.pid.isin([x["pid"] for x in per])]
     return dict(per=per, ratio=float(math.exp(obs)), p=p, floor=floor, n_perm=len(stats), typ_s=typ_s, typ_d=typ_d,
                 n_lower=sum(x["ratio"] < 1 for x in per), n_pilots=len(per),
                 mean_s=float(d[d.condition == conds[0]][col].mean()), mean_d=float(d[d.condition == conds[1]][col].mean()))

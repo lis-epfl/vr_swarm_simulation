@@ -1,14 +1,14 @@
 {
- "built": "2026-11-19 14:36",
+ "built": "2026-11-19 18:14",
  "test": "internal_4",
  "notes": {
   "title": "internal_4 \u00b7 The block-shaped patch city",
   "meta": {
-   "dates": "6, 10, 16 and 18 November 2026",
-   "pilots": "ERKS, ALEX, SIMI, YEGO",
-   "city": "BlockShapedPatchCityWorld (SIMI and YEGO: ScenicPatchCityWorld, the same city in a realistic look)"
+   "dates": "6, 10, 16, 18 and 19 November 2026",
+   "pilots": "ERKS, ALEX, SIMI, YEGO, ALXD",
+   "city": "BlockShapedPatchCityWorld (SIMI, YEGO and ALXD: ScenicPatchCityWorld, the same city in a realistic look)"
   },
-  "summary": "<p>Four pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS (6 November) flew two single-drone runs, three swarm runs and a third single-drone run, and ALEX (10 November) two single-drone runs, then two swarm runs, both in BlockShapedPatchCityWorld. SIMI (16 November) flew two swarm runs, then the first two runs of a third condition, one drone whose 360 camera is shown on a sphere all round the pilot, in ScenicPatchCityWorld: the same city, colliders and swarm law with a realistic look. YEGO (18 November) flew two swarm runs, then two single-drone runs, also in ScenicPatchCityWorld: the first pilot to fly the swarm before the single drone. Each run's three goals were drawn afresh from the city's own buildings. Practice was not recorded, so every run here counts.</p>",
+  "summary": "<p>Five pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS (6 November) flew two single-drone runs, three swarm runs and a third single-drone run, and ALEX (10 November) two single-drone runs, then two swarm runs, both in BlockShapedPatchCityWorld. SIMI (16 November) flew two swarm runs, then the first two runs of a third condition, one drone whose 360 camera is shown on a sphere all round the pilot, in ScenicPatchCityWorld: the same city, colliders and swarm law with a realistic look. YEGO (18 November) flew two swarm runs, then two single-drone runs, also in ScenicPatchCityWorld: the first pilot to fly the swarm before the single drone. ALXD (19 November) flew two swarm runs in ScenicPatchCityWorld and no other condition. Each run's three goals were drawn afresh from the city's own buildings. Practice was not recorded, so every run here counts.</p>",
   "changes_title": "Changes since internal_3",
   "changes": [
    {
@@ -87,12 +87,12 @@
    }
   ],
   "within": [
-   "<b>Scoring:</b> ERKS's presses were scored at 40 m with no look-back, each counting for the goal whose zone held the formation's centre; ALEX's at 80 m, looking back 3 s, for any goal (<span class=\"code\">abef940b</span>); SIMI's at 80 m, looking back 5 s (<span class=\"code\">8974165a</span>); YEGO's as SIMI's. Every press the recorder refused in this series was the right hat, as the experimenter judged it: five of ERKS's, one of ALEX's, one of SIMI's and three of YEGO's count as correct here (test.json <span class=\"code\">identifyOverrides</span>). ERKS's fell to rules loosened on 6 November (the range, the look-back, the zone) as well as to the central 80% of the frame the hat had to be in; ALEX's, SIMI's and YEGO's to the central 80% alone, so after YEGO's runs the recorder accepts the hat anywhere in a shown feed.",
+   "<b>Scoring:</b> ERKS's presses were scored at 40 m with no look-back, each counting for the goal whose zone held the formation's centre; ALEX's at 80 m, looking back 3 s, for any goal (<span class=\"code\">abef940b</span>); SIMI's at 80 m, looking back 5 s (<span class=\"code\">8974165a</span>); YEGO's as SIMI's; ALXD's as SIMI's, with the hat allowed anywhere in a shown feed. Every press the recorder refused in this series was the right hat, as the experimenter judged it: five of ERKS's, one of ALEX's, one of SIMI's and three of YEGO's count as correct here (test.json <span class=\"code\">identifyOverrides</span>). ERKS's fell to rules loosened on 6 November (the range, the look-back, the zone) as well as to the central 80% of the frame the hat had to be in; ALEX's, SIMI's and YEGO's to the central 80% alone, so after YEGO's runs the recorder accepts the hat anywhere in a shown feed. It refused none of ALXD's presses.",
    "<b>YEGO pressed two or three times per hat</b> in the first swarm run: the recorder drops a press within 1 s of the last, so only the first press of each burst was scored, and the repeats are in the event log as ignored.",
-   "<b>The wrap rule:</b> for ALEX, SIMI and YEGO the swarm kept its full spread while a building was inside the formation (S11's Hold, <span class=\"code\">1a4877ad</span>); for ERKS it did not.",
+   "<b>The wrap rule:</b> for ALEX, SIMI, YEGO and ALXD the swarm kept its full spread while a building was inside the formation (S11's Hold, <span class=\"code\">1a4877ad</span>); for ERKS it did not.",
    "<b>The screens:</b> ERKS's hung 0.3 m below eye level, the others' at eye level, where the layout also no longer turned into a map when the camera pointed down (<span class=\"code\">333b53bb</span>).",
-   "<b>SIMI's and YEGO's city looked real:</b> ScenicPatchCityWorld draws the same buildings with photographed facades, gentle sun shadows, a realistic ground and restyled street furniture, and unlit feed screens (<span class=\"code\">78be29af</span>); its colliders, goals and swarm settings are the trial scene's, and the run files agree field for field. Its pedestrians stand out more against the street there (about a quarter more clearly, measured on the bench before it was flown), so identifying a hat is easier in it and SIMI's and YEGO's times are not comparable with ERKS's and ALEX's. Each pilot's swarm \u00f7 single-drone ratio compares two conditions in one city, so YEGO's still pools with ERKS's and ALEX's. SIMI's were its first flights in the headset, and it held the headset's 72 Hz for both pilots.",
-   "<b>Walkers asleep past 500 m, not 350 m,</b> from YEGO's last single-drone run (<span class=\"code\">9d9d3079</span>, committed during the session): a patrol farther than that from every drone camera stops and hides its walkers' bodies, though never the hat. The run files do not record the distance, so YEGO's earlier runs most likely flew 350 m, as every earlier pilot did.",
+   "<b>SIMI's, YEGO's and ALXD's city looked real:</b> ScenicPatchCityWorld draws the same buildings with photographed facades, gentle sun shadows, a realistic ground and restyled street furniture, and unlit feed screens (<span class=\"code\">78be29af</span>); its colliders, goals and swarm settings are the trial scene's, and the run files agree field for field. Its pedestrians stand out more against the street there (about a quarter more clearly, measured on the bench before it was flown), so identifying a hat is easier in it and SIMI's, YEGO's and ALXD's times are not comparable with ERKS's and ALEX's. Each pilot's swarm \u00f7 single-drone ratio compares two conditions in one city, so YEGO's still pools with ERKS's and ALEX's. SIMI's were its first flights in the headset, and it held the headset's 72 Hz for both pilots.",
+   "<b>Walkers asleep past 500 m, not 350 m,</b> from YEGO's last single-drone run (<span class=\"code\">9d9d3079</span>, committed during the session): a patrol farther than that from every drone camera stops and hides its walkers' bodies, though never the hat. The run files do not record the distance, so YEGO's earlier runs most likely flew 350 m, as every earlier pilot did; ALXD's flew 500 m.",
    "<b>A third condition, the 360 sphere, flown by SIMI only:</b> one drone's 360 camera drawn on a sphere round the pilot, with no feed screens and no cockpit room (<span class=\"code\">b563e408</span>, <span class=\"code\">65b7481c</span>); the rig follows the drone's heading, smoothed between physics steps (<span class=\"code\">b600544b</span>). SIMI flew no single-drone run, so SIMI appears only in the swarm \u00f7 360 sphere comparison.",
    "<b>Practice:</b> ALEX practised in PracticeBlockWorld, SIMI in its scenic copy, ScenicPracticeBlockWorld (<span class=\"code\">e1164cc5</span>), with the start line behind the hat walkers (<span class=\"code\">965a1fda</span>). Practice scenes have no recorder, so no practice is in the data."
   ],
@@ -106,12 +106,12 @@
     [
      "City",
      "DiamondCityWorld: tile blocks and four diamond parks",
-     "BlockShapedPatchCityWorld: 289 prism buildings (SIMI, YEGO: the same city in ScenicPatchCityWorld's realistic look)"
+     "BlockShapedPatchCityWorld: 289 prism buildings (SIMI, YEGO, ALXD: the same city in ScenicPatchCityWorld's realistic look)"
     ],
     [
      "Conditions",
      "swarm, single drone",
-     "swarm, single drone; SIMI: swarm and the 360 sphere"
+     "swarm, single drone; SIMI: swarm and the 360 sphere; ALXD: swarm only"
     ],
     [
      "Goals",
@@ -158,18 +158,18 @@
   "notable": {
    "setups": {
     "title": "Each pilot's setup",
-    "html": "<p>The four sessions span twelve days and the software changed between them; the shaded rows are where the pilots' own run files disagree.</p>"
+    "html": "<p>The five sessions span thirteen days and the software changed between them; the shaded rows are where the pilots' own run files disagree.</p>"
    },
    "legs": {
     "title": "The longest legs",
-    "html": "<p>A single leg can decide a run's total: ERKS's third swarm run spent most of its time between goals on the way to one goal, and YEGO's second single-drone run lost its way to its last goal. Most of the longest legs at a goal are the single drone's, searching one goal's ring with one camera.</p>"
+    "html": "<p>A single leg can decide a run's total: ERKS's third swarm run spent most of its time between goals on the way to one goal, YEGO's second single-drone run lost its way to its last goal, and ALXD's two swarm runs flew about four times the straight-line distance between goals. Most of the longest legs at a goal are the single drone's, searching one goal's ring with one camera.</p>"
    },
    "losses": {
     "title": "Why the swarm lost drones",
-    "html": "<p>Every drone lost in this series was one of a colliding pair, and the four pairs came about the same way. One drone of the pair reached a building and was braked there by the stick shield, which takes away the part of the pilot's command that points into a building; its partner, still clear of the building and about 20 m behind it on the line of the stick, kept the full command and flew into it, closing at up to 9 m/s in SIMI's three. The shield stops every drone short of a facade at about the same distance, so a drone arriving second on the same line is stopped where the first is already parked. At full stick the pilot's command outweighs the formation's own repulsion between drones, and the close-range damper reaches only 3 m, too short to shed that speed. The replica's force-by-force account of the recorded states (<span class=\"code\">swarm_replica.py forces</span>) shows the same sequence in all four: the shield's difference between the two drones builds the closing speed over about two seconds, the building pushes the braked drone back towards its partner, and both drones are at their tilt limit when the damper acts in the last fifth of a second.</p><p>SIMI's second swarm run lost three pairs within about a minute of entering the city. Five times in that minute two drones closing fast came within a metre of each other, which no other run in the series did. SIMI did not push the formation into buildings more than ERKS or ALEX, measured by how much of the stick the shield took away. What differed is how SIMI steered: by swinging the stick's direction at full deflection rather than with the yaw stick, which turns the command at once where yaw turns it at 40 \u00b0/s and can stop a drone that was sliding along a facade in another's path. ALEX steered the same way and lost the series' other pair; ERKS turned with yaw and lost none. YEGO then swung the stick's direction more than any of them and lost none either, though two fast closings in YEGO's second swarm run passed within a metre. So steering by the stick is at most one ingredient, not the cause.</p><p>A second look (19 November) found nothing that made SIMI's second run riskier, only that its risky moments ended worse. It did not meet the danger more often: it had the fewest arrivals at a facade at full stick pointing straight into it, 3.7 per km against 5.9 to 20 in the other runs, and the least time with one drone 15 to 30 m straight behind another on the line of the stick, a quarter of its full-stick time against 45% to 57%. What set its three collisions apart is the run-up: each time the drone that hit started 16 to 22 m behind the braked one, within about 1.5 m of the line of the stick, with no drone between them, so it had the whole distance to build speed and nothing to deflect it. ALEX's pair was two neighbours closing sideways. Elsewhere in the series a drone stopped at a facade with another that far back and that close to the line once, in YEGO's second run, and the two passed 3.4 m apart. The formation was as flat and as round as in every other run (the drones within a few centimetres of one height throughout, so any near miss in plan is a collision). Where it happened cannot be tested: two of the three were in a part of the city no other run came within 29 m of, and ERKS's third run passed the first within 5 m and lost nothing. If losses fell in proportion to the distance flown, one of the nine swarm runs would collect three of the four pairs about one time in fifteen. The best reading is that SIMI's run met the worst form of a hazard every run carries three times in a minute, not that SIMI flew differently. SIMI's swarm practice in ScenicPracticeBlockWorld lost one more pair, which only the editor log records.</p>"
+    "html": "<p>Every drone lost in this series but one was one of a colliding pair, and the four pairs came about the same way. One drone of the pair reached a building and was braked there by the stick shield, which takes away the part of the pilot's command that points into a building; its partner, still clear of the building and about 20 m behind it on the line of the stick, kept the full command and flew into it, closing at up to 9 m/s in SIMI's three. The shield stops every drone short of a facade at about the same distance, so a drone arriving second on the same line is stopped where the first is already parked. At full stick the pilot's command outweighs the formation's own repulsion between drones, and the close-range damper reaches only 3 m, too short to shed that speed. The replica's force-by-force account of the recorded states (<span class=\"code\">swarm_replica.py forces</span>) shows the same sequence in all four: the shield's difference between the two drones builds the closing speed over about two seconds, the building pushes the braked drone back towards its partner, and both drones are at their tilt limit when the damper acts in the last fifth of a second.</p><p>SIMI's second swarm run lost three pairs within about a minute of entering the city. Five times in that minute two drones closing fast came within a metre of each other, which no other run in the series did. SIMI did not push the formation into buildings more than ERKS or ALEX, measured by how much of the stick the shield took away. What differed is how SIMI steered: by swinging the stick's direction at full deflection rather than with the yaw stick, which turns the command at once where yaw turns it at 40 \u00b0/s and can stop a drone that was sliding along a facade in another's path. ALEX steered the same way and lost the series' other pair; ERKS turned with yaw and lost none. YEGO then swung the stick's direction more than any of them and lost none either, though two fast closings in YEGO's second swarm run passed within a metre. So steering by the stick is at most one ingredient, not the cause.</p><p>A second look (19 November) found nothing that made SIMI's second run riskier, only that its risky moments ended worse. It did not meet the danger more often: it had the fewest arrivals at a facade at full stick pointing straight into it, 3.7 per km against 5.9 to 20 in the other runs, and the least time with one drone 15 to 30 m straight behind another on the line of the stick, a quarter of its full-stick time against 45% to 57%. What set its three collisions apart is the run-up: each time the drone that hit started 16 to 22 m behind the braked one, within about 1.5 m of the line of the stick, with no drone between them, so it had the whole distance to build speed and nothing to deflect it. ALEX's pair was two neighbours closing sideways. Elsewhere in the series a drone stopped at a facade with another that far back and that close to the line once, in YEGO's second run, and the two passed 3.4 m apart. The formation was as flat and as round as in every other run (the drones within a few centimetres of one height throughout, so any near miss in plan is a collision). Where it happened cannot be tested: two of the three were in a part of the city no other run came within 29 m of, and ERKS's third run passed the first within 5 m and lost nothing. If losses fell in proportion to the distance flown, one of the nine swarm runs would collect three of the four pairs about one time in fifteen. The best reading is that SIMI's run met the worst form of a hazard every run carries three times in a minute, not that SIMI flew differently. SIMI's swarm practice in ScenicPracticeBlockWorld lost one more pair, which only the editor log records.</p><p>The one loss that was not a pair is ALXD's, nine minutes into the first swarm run: one drone flew into a facade on its own and flipped. It had fallen 30 to 40 m behind the formation's centre, with a building between them, and was flying back towards the formation at about 10 m/s while the pilot held the stick forward and the throttle fully down, taking the formation from 36 m to 21 m. It hit the corner of the building between it and the formation. This is the contact the patch-city tuning (S6) traced to cohesion: the shield removes the pilot's command into a building, but not the pull of the other drones. That pull drags a straggler behind a building through the facade. Until this run, such contacts had cost no drone.</p>"
    }
   },
-  "reading": "<p>Against one drone with an ordinary camera, all three pilots who flew both finished sooner with the swarm, ERKS only just: it found each goal's hat in about a third of the time once there, which more than paid for slower travel between goals. YEGO flew the swarm first and was still quicker with it, so practice no longer explains the lead away. Against one drone with a 360 camera, which only SIMI flew, the swarm was slower at both.</p><p>At the goals the swarm took between a quarter and a half of the single drone's time for every pilot, which is what ten cameras looking round a ring of buildings at once should buy. Between goals it took longer for every pilot, the formation's price in narrow streets, as the simulation studies predicted, but by little except for ERKS, whose third swarm run spent most of its travel on one leg. Until YEGO, each pilot was quicker in the condition flown later, and the swarm had been flown later; YEGO's runs are the first against that order, and the swarm's lead held. Three pilots make this a direction worth testing, not a result.</p><p>The 360 sphere was added to pull apart two things the swarm gives at once: a view all round, and many points of view. The sphere has the first without the second, and without the formation's price between goals. In SIMI's runs it took about three fifths of the swarm's time at the goals and half its time between them. Three things keep that from being a result. It is one pilot with two runs each, flown swarm first, so practice favours the sphere. SIMI's second swarm run lost six drones before its first goal and searched the rest of the city with four; it is kept in, but without it the sphere's share rises to about four fifths at the goals and three quarters between them (Data notes). And SIMI flew the scenic city, so these times compare with YEGO's but not with ERKS's or ALEX's. What the sphere needs next is pilots who fly it first, and the single drone as well.</p><p>The swarm's drone losses are this series' other finding (Why the swarm lost drones, under Other results): all four pairs came from the stick shield braking one drone at a facade while its partner flew on into it. The pilots who lost them steered by swinging the stick rather than with yaw, but YEGO steered that way more than anyone and lost none.</p>",
+  "reading": "<p>Against one drone with an ordinary camera, all three pilots who flew both finished sooner with the swarm, ERKS only just: it found each goal's hat in about a third of the time once there, which more than paid for slower travel between goals. YEGO flew the swarm first and was still quicker with it, so practice no longer explains the lead away. Against one drone with a 360 camera, which only SIMI flew, the swarm was slower at both.</p><p>At the goals the swarm took between a quarter and a half of the single drone's time for every pilot, which is what ten cameras looking round a ring of buildings at once should buy. Between goals it took longer for every pilot, the formation's price in narrow streets, as the simulation studies predicted, but by little except for ERKS, whose third swarm run spent most of its travel on one leg. Until YEGO, each pilot was quicker in the condition flown later, and the swarm had been flown later; YEGO's runs are the first against that order, and the swarm's lead held. Three pilots make this a direction worth testing, not a result.</p><p>The 360 sphere was added to pull apart two things the swarm gives at once: a view all round, and many points of view. The sphere has the first without the second, and without the formation's price between goals. In SIMI's runs it took about three fifths of the swarm's time at the goals and half its time between them. Three things keep that from being a result. It is one pilot with two runs each, flown swarm first, so practice favours the sphere. SIMI's second swarm run lost six drones before its first goal and searched the rest of the city with four; it is kept in, but without it the sphere's share rises to about four fifths at the goals and three quarters between them (Data notes). And SIMI flew the scenic city, so these times compare with YEGO's but not with ERKS's or ALEX's. What the sphere needs next is pilots who fly it first, and the single drone as well.</p><p>ALXD flew only the swarm, twice, and took longer with it than any other pilot: about three times the other swarm runs' time, most of it between goals. The cruise speed was normal, but each route between goals was about four times the straight line, and in the first run the formation went back to a goal already answered. That is finding the way, not the formation's price, and with no single-drone run it cannot be set against anything. ALXD's runs do not enter either comparison.</p><p>The swarm's drone losses are this series' other finding (Why the swarm lost drones, under Other results): all four pairs came from the stick shield braking one drone at a facade while its partner flew on into it. The pilots who lost them steered by swinging the stick rather than with yaw, but YEGO steered that way more than anyone and lost none. ALXD's single loss was the other route to a facade: a straggler pulled through it by the formation.</p>",
   "data_notes": [
    "Practice was flown in PracticeBlockWorld or its scenic copy, ScenicPracticeBlockWorld, which have no recorder: every run here counts.",
    "Trial numbers count within each condition in this series (in internal_2 and internal_3 they run across both).",
@@ -178,9 +178,11 @@
    "SIMI's swarm practice lost one colliding pair 9 minutes in; with no recorder in the practice scene, the editor log is its only record.",
    "YEGO's second swarm run was recorded as t1 and is relabelled t2 (its session file says so). Four short restarts of YEGO's second single-drone run, none of which reached a goal, are archived.",
    "Both of YEGO's swarm runs were quit as if all three goals were found, and three of YEGO's presses the recorder scored as false alarms: the cap in the first run, the bucket and the cap in the second. Each had the hat on a shown feed with a clear line, in the pilot's head view, but outside the central 80% the recorder then accepted: the first cap close to the edge of the frame for four seconds, the bucket at the very edge, the second cap for under half a second as it came round a building. All three were the right hat, and they count as correct here.",
-   "The time at a goal ends at the press that answered it, and what follows is time between goals (since 18 November 2026). It used to end at the last exit from the goal's zone before the next goal's zone was entered, which counted flying out of the patch after the answer as time at the goal, and any pass back through it while looking for the next goal: in YEGO's second swarm run, nearly two minutes after the bucket was answered counted at the bucket, because the formation passed back through its zone on the way to the cap."
+   "The time at a goal ends at the press that answered it, and what follows is time between goals (since 18 November 2026). It used to end at the last exit from the goal's zone before the next goal's zone was entered, which counted flying out of the patch after the answer as time at the goal, and any pass back through it while looking for the next goal: in YEGO's second swarm run, nearly two minutes after the bucket was answered counted at the bucket, because the formation passed back through its zone on the way to the cap.",
+   "ALXD's second swarm run was recorded as t1 and is relabelled t2 (its session file says so). A 25 s start labelled single-drone t2, flown before the swarm runs, never crossed the start line and is archived. ALXD flew no single-drone run.",
+   "In ALXD's first swarm run the pilot pressed again at the cowboy hat's goal nearly nine minutes after answering it; the recorder logged it as a repeat, which costs nothing."
   ],
-  "summary_text": "Four pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS (6 November) flew two single-drone runs, three swarm runs and a third single-drone run, and ALEX (10 November) two single-drone runs, then two swarm runs, both in BlockShapedPatchCityWorld. SIMI (16 November) flew two swarm runs, then the first two runs of a third condition, one drone whose 360 camera is shown on a sphere all round the pilot, in ScenicPatchCityWorld: the same city, colliders and swarm law with a realistic look. YEGO (18 November) flew two swarm runs, then two single-drone runs, also in ScenicPatchCityWorld: the first pilot to fly the swarm before the single drone. Each run's three goals were drawn afresh from the city's own buildings. Practice was not recorded, so every run here counts."
+  "summary_text": "Five pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned patches so that no view runs straight across the city. ERKS (6 November) flew two single-drone runs, three swarm runs and a third single-drone run, and ALEX (10 November) two single-drone runs, then two swarm runs, both in BlockShapedPatchCityWorld. SIMI (16 November) flew two swarm runs, then the first two runs of a third condition, one drone whose 360 camera is shown on a sphere all round the pilot, in ScenicPatchCityWorld: the same city, colliders and swarm law with a realistic look. YEGO (18 November) flew two swarm runs, then two single-drone runs, also in ScenicPatchCityWorld: the first pilot to fly the swarm before the single drone. ALXD (19 November) flew two swarm runs in ScenicPatchCityWorld and no other condition. Each run's three goals were drawn afresh from the city's own buildings. Practice was not recorded, so every run here counts."
  },
  "timed": true,
  "total_col": "time_s",
@@ -201,26 +203,28 @@
  "phase_rule": "answer",
  "pilots": [
   "ALEX",
+  "ALXD",
   "ERKS",
   "SIMI",
   "YEGO"
  ],
- "n_runs": 18,
+ "n_runs": 20,
  "n_practice": 0,
  "dates": [
   "20261106",
   "20261110",
   "20261116",
-  "20261118"
+  "20261118",
+  "20261119"
  ],
  "city": [
-  "BlockShapedPatchCityWorld (SIMI and YEGO: ScenicPatchCityWorld, the same city in a realistic look)"
+  "BlockShapedPatchCityWorld (SIMI, YEGO and ALXD: ScenicPatchCityWorld, the same city in a realistic look)"
  ],
  "start_sources": {
-  "line": 18
+  "line": 20
  },
  "time_sources": {
-  "identify": 18
+  "identify": 20
  },
  "runs": [
   {
@@ -341,6 +345,66 @@
    "course_turn_per_min": 622.4238,
    "cmd_straightness": 0.7328,
    "act_path_ratio": 1.5358,
+   "cond": "swarm"
+  },
+  {
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "trial": 1,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20261119",
+   "durationSec": 1084.1309,
+   "startSec": 15.3114,
+   "startSource": "line",
+   "time_s": 1068.8194,
+   "time_source": "identify",
+   "transit_s": 761.3427,
+   "search_s": 307.4211,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "falseAlarms": 0,
+   "identifyOverrides": 0,
+   "drones_lost": 1,
+   "crashes": 1,
+   "stick_tv_per_min": 73.9686,
+   "adj_per_min": 22.3815,
+   "mean_hold_s": 2.6808,
+   "course_turn_per_min": 573.586,
+   "cmd_straightness": 0.2965,
+   "act_path_ratio": 4.0119,
+   "cond": "swarm"
+  },
+  {
+   "run": "ALXD_t2_Swarm_20261119_173520",
+   "pid": "ALXD",
+   "order": 2,
+   "trial": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "date": "20261119",
+   "durationSec": 812.0843,
+   "startSec": 21.9513,
+   "startSource": "line",
+   "time_s": 790.133,
+   "time_source": "identify",
+   "transit_s": 587.248,
+   "search_s": 202.8832,
+   "goalsReached": 3,
+   "nGoals": 3,
+   "nCorrect": 3,
+   "falseAlarms": 0,
+   "identifyOverrides": 0,
+   "drones_lost": 0,
+   "crashes": 0,
+   "stick_tv_per_min": 77.1629,
+   "adj_per_min": 19.7191,
+   "mean_hold_s": 3.0427,
+   "course_turn_per_min": 477.4963,
+   "cmd_straightness": 0.274,
+   "act_path_ratio": 4.2955,
    "cond": "swarm"
   },
   {
@@ -944,6 +1008,96 @@
    "outcome": "correct",
    "decision": 280.576,
    "sight_to_press": 51.6
+  },
+  {
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 3,
+   "search": 182.6,
+   "transit": 285.3,
+   "outcome": "correct",
+   "decision": 1084.1309,
+   "sight_to_press": 185.1
+  },
+  {
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 2,
+   "search": 83.9,
+   "transit": 308.1,
+   "outcome": "correct",
+   "decision": 616.2331,
+   "sight_to_press": 70.7
+  },
+  {
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 1,
+   "search": 40.7,
+   "transit": 168.2,
+   "outcome": "correct",
+   "decision": 224.2491,
+   "sight_to_press": 31.4
+  },
+  {
+   "run": "ALXD_t2_Swarm_20261119_173520",
+   "pid": "ALXD",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Bucket",
+   "leg": 1,
+   "search": 116.4,
+   "transit": 23.9,
+   "outcome": "correct",
+   "decision": 162.2418,
+   "sight_to_press": 121.6
+  },
+  {
+   "run": "ALXD_t2_Swarm_20261119_173520",
+   "pid": "ALXD",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cap",
+   "leg": 2,
+   "search": 32.7,
+   "transit": 197.8,
+   "outcome": "correct",
+   "decision": 392.6892,
+   "sight_to_press": 6.8
+  },
+  {
+   "run": "ALXD_t2_Swarm_20261119_173520",
+   "pid": "ALXD",
+   "order": 2,
+   "condition": "Swarm",
+   "cond": "swarm",
+   "practice": false,
+   "hat": "Cowboy",
+   "leg": 3,
+   "search": 53.6,
+   "transit": 365.8,
+   "outcome": "correct",
+   "decision": 812.0843,
+   "sight_to_press": 39.4
   },
   {
    "run": "ERKS_t1_SingleDrone_20261106_140556",
@@ -1618,7 +1772,7 @@
    "typ_d": 526.6349,
    "n_lower": 3,
    "n_pilots": 3,
-   "mean_s": 385.0061,
+   "mean_s": 358.5517,
    "mean_d": 528.075
   },
   "search": {
@@ -1662,7 +1816,7 @@
    "typ_d": 329.7176,
    "n_lower": 3,
    "n_pilots": 3,
-   "mean_s": 152.7307,
+   "mean_s": 131.0426,
    "mean_d": 343.3493
   },
   "transit": {
@@ -1706,7 +1860,7 @@
    "typ_d": 169.6337,
    "n_lower": 0,
    "n_pilots": 3,
-   "mean_s": 232.2494,
+   "mean_s": 227.4855,
    "mean_d": 184.7116
   },
   "smooth": {
@@ -1751,7 +1905,7 @@
     "typ_d": 78.8308,
     "n_lower": 1,
     "n_pilots": 3,
-    "mean_s": 75.548,
+    "mean_s": 78.9607,
     "mean_d": 78.2487
    },
    "adj_per_min": {
@@ -1795,7 +1949,7 @@
     "typ_d": 21.8946,
     "n_lower": 2,
     "n_pilots": 3,
-    "mean_s": 20.2049,
+    "mean_s": 21.3217,
     "mean_d": 22.3658
    },
    "mean_hold_s": {
@@ -1839,7 +1993,7 @@
     "typ_d": 2.7404,
     "n_lower": 1,
     "n_pilots": 3,
-    "mean_s": 3.036,
+    "mean_s": 2.8309,
     "mean_d": 2.7589
    },
    "course_turn_per_min": {
@@ -1883,7 +2037,7 @@
     "typ_d": 472.307,
     "n_lower": 2,
     "n_pilots": 3,
-    "mean_s": 666.3457,
+    "mean_s": 622.6897,
     "mean_d": 511.6978
    },
    "cmd_straightness": {
@@ -1927,7 +2081,7 @@
     "typ_d": 0.6486,
     "n_lower": 1,
     "n_pilots": 3,
-    "mean_s": 0.6834,
+    "mean_s": 0.6923,
     "mean_d": 0.7144
    },
    "act_path_ratio": {
@@ -1971,7 +2125,7 @@
     "typ_d": 1.6395,
     "n_lower": 2,
     "n_pilots": 3,
-    "mean_s": 1.7694,
+    "mean_s": 1.7789,
     "mean_d": 1.7109
    }
   },
@@ -1997,7 +2151,7 @@
     "typ_d": 250.7813,
     "n_lower": 0,
     "n_pilots": 1,
-    "mean_s": 385.0061,
+    "mean_s": 477.5965,
     "mean_d": 255.5577
    },
    "search": {
@@ -2021,7 +2175,7 @@
     "typ_d": 138.7018,
     "n_lower": 0,
     "n_pilots": 1,
-    "mean_s": 152.7307,
+    "mean_s": 228.6388,
     "mean_d": 146.6099
    },
    "transit": {
@@ -2045,7 +2199,7 @@
     "typ_d": 108.9289,
     "n_lower": 0,
     "n_pilots": 1,
-    "mean_s": 232.2494,
+    "mean_s": 248.9231,
     "mean_d": 108.9415
    },
    "smooth": {
@@ -2070,7 +2224,7 @@
      "typ_d": 61.2426,
      "n_lower": 0,
      "n_pilots": 1,
-     "mean_s": 75.548,
+     "mean_s": 63.6033,
      "mean_d": 61.2789
     },
     "adj_per_min": {
@@ -2094,7 +2248,7 @@
      "typ_d": 21.7416,
      "n_lower": 1,
      "n_pilots": 1,
-     "mean_s": 20.2049,
+     "mean_s": 16.2959,
      "mean_d": 21.7473
     },
     "mean_hold_s": {
@@ -2118,7 +2272,7 @@
      "typ_d": 2.7597,
      "n_lower": 0,
      "n_pilots": 1,
-     "mean_s": 3.036,
+     "mean_s": 3.7537,
      "mean_d": 2.7604
     },
     "course_turn_per_min": {
@@ -2142,7 +2296,7 @@
      "typ_d": 1022.341,
      "n_lower": 1,
      "n_pilots": 1,
-     "mean_s": 666.3457,
+     "mean_s": 819.1419,
      "mean_d": 1048.9261
     },
     "cmd_straightness": {
@@ -2166,7 +2320,7 @@
      "typ_d": 0.864,
      "n_lower": 1,
      "n_pilots": 1,
-     "mean_s": 0.6834,
+     "mean_s": 0.6523,
      "mean_d": 0.8641
     },
     "act_path_ratio": {
@@ -2190,7 +2344,7 @@
      "typ_d": 1.1898,
      "n_lower": 0,
      "n_pilots": 1,
-     "mean_s": 1.7694,
+     "mean_s": 1.736,
      "mean_d": 1.1918
     }
    }
@@ -2256,6 +2410,36 @@
    "overrides": 1,
    "out_of_zone": 0,
    "sight_to_press": 46.4
+  },
+  {
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "AutoScore",
+   "presses": 4,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": 70.7
+  },
+  {
+   "run": "ALXD_t2_Swarm_20261119_173520",
+   "pid": "ALXD",
+   "order": 2,
+   "condition": "Swarm",
+   "practice": false,
+   "mode": "AutoScore",
+   "presses": 3,
+   "correct": 3,
+   "goals": 3,
+   "false_alarms": 0,
+   "overrides": 0,
+   "out_of_zone": 0,
+   "sight_to_press": 39.4
   },
   {
    "run": "ERKS_t1_SingleDrone_20261106_140556",
@@ -2502,6 +2686,22 @@
    "spread": 2.0
   },
   {
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "practice": false,
+   "drone": 8,
+   "t": 546.9152,
+   "t_task": 531.6038,
+   "x": -123.7865,
+   "z": 222.4083,
+   "reason": "Crashed",
+   "partner": -1,
+   "speed": 2.3324,
+   "spread": 2.0
+  },
+  {
    "run": "SIMI_t2_Swarm_20261116_142145",
    "pid": "SIMI",
    "order": 2,
@@ -2648,6 +2848,32 @@
    ],
    "lengths": [
     442.4663
+   ],
+   "practice": false
+  },
+  {
+   "pid": "ALXD",
+   "trial": 1,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    1
+   ],
+   "lengths": [
+    1084.1309
+   ],
+   "practice": false
+  },
+  {
+   "pid": "ALXD",
+   "trial": 2,
+   "condition": "Swarm",
+   "n": 1,
+   "order": [
+    2
+   ],
+   "lengths": [
+    812.0843
    ],
    "practice": false
   },
@@ -2840,7 +3066,8 @@
    "ALEX",
    "SIMI",
    "SIMI \u00b7 sphere",
-   "YEGO"
+   "YEGO",
+   "ALXD"
   ],
   "rows": [
    {
@@ -2848,6 +3075,7 @@
     "vals": [
      "BlockShapedPatchCityWorld",
      "BlockShapedPatchCityWorld",
+     "ScenicPatchCityWorld",
      "ScenicPatchCityWorld",
      "ScenicPatchCityWorld",
      "ScenicPatchCityWorld"
@@ -2861,6 +3089,7 @@
      "feed screens",
      "feed screens",
      "360 sphere",
+     "feed screens",
      "feed screens"
     ],
     "differs": true
@@ -2868,6 +3097,7 @@
    {
     "key": "scoring",
     "vals": [
+     "AutoScore",
      "AutoScore",
      "AutoScore",
      "AutoScore",
@@ -2883,6 +3113,7 @@
      "80",
      "80",
      "80",
+     "80",
      "80"
     ],
     "differs": true
@@ -2894,6 +3125,7 @@
      "3",
      "5",
      "5",
+     "5",
      "5"
     ],
     "differs": true
@@ -2901,6 +3133,7 @@
    {
     "key": "zone (m)",
     "vals": [
+     "15",
      "15",
      "15",
      "15",
@@ -2916,6 +3149,7 @@
      "OUTER_CIRCLE",
      "OUTER_CIRCLE",
      "n/a",
+     "OUTER_CIRCLE",
      "OUTER_CIRCLE"
     ],
     "differs": false
@@ -2927,6 +3161,7 @@
      "1.3",
      "1.3",
      "n/a",
+     "1.3",
      "1.3"
     ],
     "differs": false
@@ -2938,6 +3173,7 @@
      "2",
      "2",
      "n/a",
+     "2",
      "2"
     ],
     "differs": false
@@ -2949,6 +3185,7 @@
      "1920\u00d71080",
      "1920\u00d71080",
      "n/a",
+     "1920\u00d71080",
      "1920\u00d71080"
     ],
     "differs": false
@@ -2960,6 +3197,7 @@
      "n/a",
      "n/a",
      "cube 2048 px, shown as rendered, 36 Hz, faces split, TurnWithDrone",
+     "n/a",
      "n/a"
     ],
     "differs": false
@@ -2967,6 +3205,7 @@
    {
     "key": "stitching",
     "vals": [
+     "off",
      "off",
      "off",
      "off",
@@ -2982,6 +3221,7 @@
      "FloorAndCeiling",
      "FloorAndCeiling",
      "off",
+     "FloorAndCeiling",
      "FloorAndCeiling"
     ],
     "differs": true
@@ -2989,6 +3229,7 @@
    {
     "key": "headset refresh (Hz)",
     "vals": [
+     "72",
      "72",
      "72",
      "72",
@@ -3004,7 +3245,8 @@
      "07be66b6 (dirty)",
      "75851023",
      "75851023 (dirty)",
-     "6f8d45f6 (dirty)"
+     "6f8d45f6 (dirty)",
+     "77c011a4 (dirty)"
     ],
     "differs": true
    },
@@ -3015,6 +3257,7 @@
      "Hold",
      "Hold",
      "Hold",
+     "Hold",
      "Hold"
     ],
     "differs": true
@@ -3022,6 +3265,7 @@
    {
     "key": "avoidance shape",
     "vals": [
+     "Ellipse",
      "Ellipse",
      "Ellipse",
      "Ellipse",
@@ -3037,6 +3281,7 @@
      "on",
      "on",
      "on",
+     "on",
      "on"
     ],
     "differs": false
@@ -3044,6 +3289,7 @@
    {
     "key": "d_ref",
     "vals": [
+     "2",
      "2",
      "2",
      "2",
@@ -3059,6 +3305,7 @@
      "0",
      "0",
      "n/a",
+     "0",
      "0"
     ],
     "differs": true
@@ -3098,6 +3345,16 @@
   },
   {
    "kind": "at a goal",
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "hat": "Cap",
+   "leg": 3,
+   "s": 182.6
+  },
+  {
+   "kind": "at a goal",
    "run": "ALEX_t2_SingleDrone_20261110_133303",
    "pid": "ALEX",
    "order": 2,
@@ -3117,14 +3374,14 @@
    "s": 149.1
   },
   {
-   "kind": "at a goal",
-   "run": "ERKS_t1_SingleDrone_20261106_140556",
-   "pid": "ERKS",
-   "order": 1,
-   "condition": "SingleDrone",
-   "hat": "Bucket",
+   "kind": "between goals",
+   "run": "ALXD_t2_Swarm_20261119_173520",
+   "pid": "ALXD",
+   "order": 2,
+   "condition": "Swarm",
+   "hat": "Cowboy",
    "leg": 3,
-   "s": 148.6
+   "s": 365.8
   },
   {
    "kind": "between goals",
@@ -3135,6 +3392,26 @@
    "hat": "Cowboy",
    "leg": 3,
    "s": 347.1
+  },
+  {
+   "kind": "between goals",
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "hat": "Bucket",
+   "leg": 2,
+   "s": 308.1
+  },
+  {
+   "kind": "between goals",
+   "run": "ALXD_t1_Swarm_20261119_171013",
+   "pid": "ALXD",
+   "order": 1,
+   "condition": "Swarm",
+   "hat": "Cap",
+   "leg": 3,
+   "s": 285.3
   },
   {
    "kind": "between goals",
@@ -3155,36 +3432,6 @@
    "hat": "Bucket",
    "leg": 3,
    "s": 223.4
-  },
-  {
-   "kind": "between goals",
-   "run": "YEGO_t2_SingleDrone_20261118_174955",
-   "pid": "YEGO",
-   "order": 4,
-   "condition": "SingleDrone",
-   "hat": "Cap",
-   "leg": 3,
-   "s": 174.0
-  },
-  {
-   "kind": "between goals",
-   "run": "YEGO_t2_Swarm_20261118_164050",
-   "pid": "YEGO",
-   "order": 2,
-   "condition": "Swarm",
-   "hat": "Cap",
-   "leg": 3,
-   "s": 149.7
-  },
-  {
-   "kind": "between goals",
-   "run": "ALEX_t2_Swarm_20261110_150123",
-   "pid": "ALEX",
-   "order": 4,
-   "condition": "Swarm",
-   "hat": "Cap",
-   "leg": 3,
-   "s": 123.8
   }
  ],
  "panorama": null,
@@ -3230,6 +3477,31 @@
      }
     ],
     "about": "ALEX's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."
+   },
+   {
+    "id": "ALXD",
+    "title": "ALXD",
+    "short": "ALXD",
+    "kind": "runs",
+    "flights": [
+     {
+      "id": "ALXD_t1_Swarm_20261119_171013",
+      "title": "1. Swarm t1",
+      "cond": "swarm",
+      "city": "bbB_p40_s18_patch150_j0.15_sight487_seed1",
+      "source": "trial",
+      "about": "ALXD_t1_Swarm_20261119_171013: 10 drone(s), recorded 18:04."
+     },
+     {
+      "id": "ALXD_t2_Swarm_20261119_173520",
+      "title": "2. Swarm t2",
+      "cond": "swarm",
+      "city": "bbB_p40_s18_patch150_j0.15_sight487_seed1",
+      "source": "trial",
+      "about": "ALXD_t2_Swarm_20261119_173520: 10 drone(s), recorded 13:32."
+     }
+    ],
+    "about": "ALXD's runs, in the order flown. The clock is the recording's, from Play; the task starts at the start line."
    },
    {
     "id": "ERKS",

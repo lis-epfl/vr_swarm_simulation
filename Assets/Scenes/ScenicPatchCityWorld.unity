@@ -528633,7 +528633,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc57387dd9a883740b6af778f897e6b8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  participantId: YEGO
+  participantId: ALXD
   trialNumber: 2
   condition: 1
   sampleHz: 10
@@ -528646,7 +528646,6 @@ MonoBehaviour:
   identifyMode: 0
   identifyZoneM: 15
   identifyMaxRangeM: 80
-  identifyCentralFraction: 0.8
   identifyMaxLookbackSec: 5
 --- !u!1 &1839212570
 GameObject:

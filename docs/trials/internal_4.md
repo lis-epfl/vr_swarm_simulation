@@ -1,18 +1,19 @@
 # internal_4 · The block-shaped patch city
 
-- **Dates:** 6, 10, 16 and 18 November 2026
-- **Pilots:** ERKS, ALEX, SIMI, YEGO
-- **City:** BlockShapedPatchCityWorld (SIMI and YEGO: ScenicPatchCityWorld, the same city in a realistic look)
+- **Dates:** 6, 10, 16, 18 and 19 November 2026
+- **Pilots:** ERKS, ALEX, SIMI, YEGO, ALXD
+- **City:** BlockShapedPatchCityWorld (SIMI, YEGO and ALXD: ScenicPatchCityWorld, the same city in a realistic look)
 
 ## Summary
 
-Four pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned
+Five pilots in the block-shaped patch city: 289 prism buildings that fill their blocks, on streets laid in turned
 patches so that no view runs straight across the city. ERKS (6 November) flew two single-drone runs, three swarm runs
 and a third single-drone run, and ALEX (10 November) two single-drone runs, then two swarm runs, both in
 BlockShapedPatchCityWorld. SIMI (16 November) flew two swarm runs, then the first two runs of a third condition, one
 drone whose 360 camera is shown on a sphere all round the pilot, in ScenicPatchCityWorld: the same city, colliders and
 swarm law with a realistic look. YEGO (18 November) flew two swarm runs, then two single-drone runs, also in
-ScenicPatchCityWorld: the first pilot to fly the swarm before the single drone. Each run's three goals were drawn afresh
+ScenicPatchCityWorld: the first pilot to fly the swarm before the single drone. ALXD (19 November), a new pilot, flew two swarm
+runs in ScenicPatchCityWorld; their single-drone runs are still to come. Each run's three goals were drawn afresh
 from the city's own buildings. Practice was not recorded, so every run here counts.
 
 ## Changes since internal_3
@@ -68,27 +69,27 @@ from the city's own buildings. Practice was not recorded, so every run here coun
 
 - **Scoring:** ERKS's presses were scored at 40 m with no look-back, each counting for the goal whose zone held the
   formation's centre; ALEX's at 80 m, looking back 3 s, for any goal (`abef940b`); SIMI's at 80 m, looking back 5 s
-  (`8974165a`); YEGO's as SIMI's. Every press the recorder refused in this series was the right hat, as the experimenter
+  (`8974165a`); YEGO's as SIMI's; ALXD's as SIMI's, with the hat allowed anywhere in a shown feed. Every press the recorder refused in this series was the right hat, as the experimenter
   judged it: five of ERKS's, one of ALEX's, one of SIMI's and three of YEGO's count as correct here (test.json
   `identifyOverrides`). ERKS's fell to rules loosened on 6 November (the range, the look-back, the zone) as well as to the
   central 80% of the frame the hat had to be in; ALEX's, SIMI's and YEGO's to the central 80% alone, so after YEGO's
-  runs the recorder accepts the hat anywhere in a shown feed.
+  runs the recorder accepts the hat anywhere in a shown feed. It refused none of ALXD's presses.
 - **YEGO pressed two or three times per hat** in the first swarm run: the recorder drops a press within 1 s of the last,
   so only the first press of each burst was scored, and the repeats are in the event log as ignored.
-- **The wrap rule:** for ALEX, SIMI and YEGO the swarm kept its full spread while a building was inside the formation
+- **The wrap rule:** for ALEX, SIMI, YEGO and ALXD the swarm kept its full spread while a building was inside the formation
   (S11's Hold, `1a4877ad`); for ERKS it did not.
 - **The screens:** ERKS's hung 0.3 m below eye level, the others' at eye level, where the layout also no longer
   turned into a map when the camera pointed down (`333b53bb`).
-- **SIMI's and YEGO's city looked real:** ScenicPatchCityWorld draws the same buildings with photographed facades,
+- **SIMI's, YEGO's and ALXD's city looked real:** ScenicPatchCityWorld draws the same buildings with photographed facades,
   gentle sun shadows, a realistic ground and restyled street furniture, and unlit feed screens (`78be29af`); its
   colliders, goals and swarm settings are the trial scene's, and the run files agree field for field. Its pedestrians
   stand out more against the street there (about a quarter more clearly, measured on the bench before it was flown), so
-  identifying a hat is easier in it and SIMI's and YEGO's times are not comparable with ERKS's and ALEX's. Each pilot's
+  identifying a hat is easier in it and SIMI's, YEGO's and ALXD's times are not comparable with ERKS's and ALEX's. Each pilot's
   swarm ÷ single-drone ratio compares two conditions in one city, so YEGO's still pools with ERKS's and ALEX's. SIMI's
   were its first flights in the headset, and it held the headset's 72 Hz for both pilots.
 - **Walkers asleep past 500 m, not 350 m,** from YEGO's last single-drone run (`9d9d3079`, committed during the
   session): a patrol farther than that from every drone camera stops and hides its walkers' bodies, though never the
-  hat. The run files do not record the distance, so YEGO's earlier runs most likely flew 350 m, as every earlier pilot did.
+  hat. The run files do not record the distance, so YEGO's earlier runs most likely flew 350 m, as every earlier pilot did; ALXD's flew 500 m.
 - **A third condition, the 360 sphere, flown by SIMI only:** one drone's 360 camera drawn on a sphere round the pilot, with
   no feed screens and no cockpit room (`b563e408`, `65b7481c`); the rig follows the drone's heading, smoothed between
   physics steps (`b600544b`). SIMI flew no single-drone run, so SIMI appears only in the swarm ÷ 360 sphere comparison.
@@ -99,8 +100,8 @@ from the city's own buildings. Practice was not recorded, so every run here coun
 
 | | internal_3 | internal_4 |
 |---|---|---|
-| City | DiamondCityWorld: tile blocks and four diamond parks | BlockShapedPatchCityWorld: 289 prism buildings (SIMI, YEGO: the same city in ScenicPatchCityWorld's realistic look) |
-| Conditions | swarm, single drone | swarm, single drone; SIMI: swarm and the 360 sphere |
+| City | DiamondCityWorld: tile blocks and four diamond parks | BlockShapedPatchCityWorld: 289 prism buildings (SIMI, YEGO, ALXD: the same city in ScenicPatchCityWorld's realistic look) |
+| Conditions | swarm, single drone | swarm, single drone; SIMI: swarm and the 360 sphere; ALXD: swarm so far (single drone to come) |
 | Goals | three tiles, each a patch of nine buildings | three buildings with their rings, drawn each Play |
 | Spread | the dial, d_ref 0.4 to 1.6 | d_ref 2.0, narrowed to 0.85 of it in the streets |
 | Avoidance | a circle round each building's bounds | an ellipse round each building's footprint |
@@ -114,18 +115,19 @@ from the city's own buildings. Practice was not recorded, so every run here coun
 
 ### setups: Each pilot's setup
 
-The four sessions span twelve days and the software changed between them; the shaded rows are where the pilots' own
+The five sessions span thirteen days and the software changed between them; the shaded rows are where the pilots' own
 run files disagree.
 
 ### legs: The longest legs
 
 A single leg can decide a run's total: ERKS's third swarm run spent most of its time between goals on the way to one
-goal, and YEGO's second single-drone run lost its way to its last goal. Most of the longest legs at a goal are the
+goal, YEGO's second single-drone run lost its way to its last goal, and ALXD's two swarm runs flew about four times
+the straight-line distance between goals. Most of the longest legs at a goal are the
 single drone's, searching one goal's ring with one camera.
 
 ### losses: Why the swarm lost drones
 
-Every drone lost in this series was one of a colliding pair, and the four pairs came about the same way. One drone of
+Every drone lost in this series but one was one of a colliding pair, and the four pairs came about the same way. One drone of
 the pair reached a building and was braked there by the stick shield, which takes away the part of the pilot's command
 that points into a building; its partner, still clear of the building and about 20 m behind it on the line of the
 stick, kept the full command and flew into it, closing at up to 9 m/s in SIMI's three. The shield stops every drone
@@ -160,6 +162,14 @@ distance flown, one of the nine swarm runs would collect three of the four pairs
 reading is that SIMI's run met the worst form of a hazard every run carries three times in a minute, not that SIMI flew
 differently. SIMI's swarm practice in ScenicPracticeBlockWorld lost one more pair, which only the editor log records.
 
+The one loss that was not a pair is ALXD's, nine minutes into the first swarm run: one drone flew into a facade on its
+own and flipped. It had fallen 30 to 40 m behind the formation's centre, with a building between them, and was flying
+back towards the formation at about 10 m/s while the pilot held the stick forward and the throttle fully down, taking
+the formation from 36 m to 21 m. It hit the corner of the building between it and the formation. This is the contact
+the patch-city tuning (S6) traced to cohesion: the shield removes the pilot's command into a building, but not the pull
+of the other drones. That pull drags a straggler behind a building through the facade. Until this run, such contacts
+had cost no drone.
+
 ## Reading
 
 Against one drone with an ordinary camera, all three pilots who flew both finished sooner with the swarm, ERKS only
@@ -183,9 +193,16 @@ sphere's share rises to about four fifths at the goals and three quarters betwee
 these times compare with YEGO's but not with ERKS's or ALEX's. What the sphere needs next is pilots who fly it first,
 and the single drone as well.
 
+ALXD flew only the swarm, twice, and took longer with it than any other pilot: about three times the other swarm runs'
+time, most of it between goals. The cruise speed was normal, but each route between goals was about four times the
+straight line, and in the first run the formation went back to a goal already answered. That is finding the way, not
+the formation's price, and with no single-drone run yet it cannot be set against anything. ALXD's runs enter neither
+comparison until the single-drone runs are flown.
+
 The swarm's drone losses are this series' other finding (Why the swarm lost drones, under Other results): all four
 pairs came from the stick shield braking one drone at a facade while its partner flew on into it. The pilots who lost
 them steered by swinging the stick rather than with yaw, but YEGO steered that way more than anyone and lost none.
+ALXD's single loss was the other route to a facade: a straggler pulled through it by the formation.
 
 ## Data notes
 
@@ -217,3 +234,8 @@ them steered by swinging the stick rather than with yaw, but YEGO steered that w
   flying out of the patch after the answer as time at the goal, and any pass back through it while looking for the next
   goal: in YEGO's second swarm run, nearly two minutes after the bucket was answered counted at the bucket, because the
   formation passed back through its zone on the way to the cap.
+- ALXD's second swarm run was recorded as t1 and is relabelled t2 (its session file says so). A 25 s start labelled
+  single-drone t2, flown before the swarm runs, never crossed the start line and is archived. ALXD has flown no single-drone
+  run yet; those runs are to come.
+- In ALXD's first swarm run the pilot pressed again at the cowboy hat's goal nearly nine minutes after answering it; the
+  recorder logged it as a repeat, which costs nothing.
