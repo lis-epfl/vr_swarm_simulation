@@ -247,7 +247,8 @@ live stream (2048 × 1024 of the whole sphere, 5.7 px per world degree, a hat at
 feeds deliver to the eye. That risks a straw man: the feeds' 1920 px are themselves shown at 0.76×, so the eye gets
 about 16.7 px per world degree from them at a screen's centre (~20 at its edges) and ~5.7 px on that hat. A stream
 matched to that is 360 × 16.7 ≈ 6016 px wide, from a 4096 cube so the resample has detail to filter down.
-`sphere360.preset` holds the three, cycled in Play with P, for the user to fly back to back before choosing:
+`sphere360.preset` holds the three for the user to fly back to back before choosing; P toggles `CubeAsRendered` and
+`MatchedToFeeds` in Play, and `A1Stream2K` is set from the dropdown:
 
 | preset | cube → shown | per world degree at the eye | hat at 40 m |
 |---|---|---|---|

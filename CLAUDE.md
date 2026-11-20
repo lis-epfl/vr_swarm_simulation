@@ -478,7 +478,8 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     the cube). The probe checks the stream is lit and still faces the right way through it (at 171 px over 30°).
     Not yet flown in the headset.
   - **Temporary (2026-11-20, until the user picks one): `sphere360.preset` switches between three sphere qualities**,
-    and `cyclePresetKey` (P) cycles them in Play: `CubeAsRendered` (the 2048 cube direct, as SIMI flew it: 18–22 px per
+    and `cyclePresetKey` (P) toggles the first and last in Play (A1Stream2K only from the dropdown, the user's call):
+    `CubeAsRendered` (the 2048 cube direct, as SIMI flew it: 18–22 px per
     world degree at the eye, the headset capping the cube's 18–36), `A1Stream2K` (2048 cube → 2048 × 1024 stream, 5.7)
     and `MatchedToFeeds` (4096 cube → 6016 × 3008 stream, 16.7: what a feed at scale 1.3 delivers to the eye, the
     headset's ~22 times the screens' 0.76, so a hat at 40 m gets ~5.7 px in both). `Custom` (the default, so every scene
@@ -1806,7 +1807,6 @@ producer on a single-producer map. DJI_Swarm is looked for beside this repo (`--
 
 ## City scenes and the ScaledCity assets
 
-Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
 **Only five scenes stay in `Assets/Scenes`** (2026-11-20, the user's clean-up): `ScenicPatchCityWorld`,
 `ScenicPracticeBlockWorld`, `DJIScene`, and the separate research scenes `NBackExperiment` and `RingChallenge`, plus
 `BlockShapedPatchCityWorld`, kept beside them because it is a *source*: both scenic scenes are rebuilt from it, and the
@@ -1815,6 +1815,7 @@ bench, `swarmtune apply` and S6-S11's harnesses read its SwarmManager. Every oth
 archive path, and a bare scene name (`bench.py --scene`, `swarm_params`, `SwarmBenchRunner`, `CityObstacleExport`) is
 looked for in `Assets/Scenes` and then in `_Archive`, so old runs' replicas still read the scene they flew.
 
+Flight scenes: `CityWorld`, `ScaledCityWorld`, `CrowdWorld` (Modular City Pack cities), `PracticeWorld`
 (generated from ScaledCityWorld, below), `PracticeBlockWorld` (generated from BlockShapedPatchCityWorld, below),
 `ScenicPatchCityWorld` (BlockShapedPatchCityWorld with a realistic look, generated from it; its own section below),
 `DiamondCityWorld`, `ProceduralCityWorld`, `VoronoiCityWorld`,
@@ -2294,9 +2295,9 @@ output folders keep the code names, and so do the sections below.
 | manual: method, every result, how to run | [docs/density_study/](docs/density_study/README.md) | [docs/search_study/](docs/search_study/README.md) | [docs/clutter_study/](docs/clutter_study/README.md) | [docs/split_study/](docs/split_study/README.md) | [docs/shaped_study/](docs/shaped_study/README.md) | [docs/swarm_tune/](docs/swarm_tune/README.md) | [docs/swarm_flow/](docs/swarm_flow/README.md) | [docs/swarm_shape/](docs/swarm_shape/README.md) | [docs/swarm_spread/](docs/swarm_spread/README.md) | [docs/swarm_ellipse/](docs/swarm_ellipse/README.md) | [docs/swarm_wrap/](docs/swarm_wrap/README.md) | [docs/views_study/](docs/views_study/README.md) |
 | code (`Assets/Scripts/Experiment/citysim/`) | `vissim.py` tiers, `capability.py`, `transit.py`, `explorer.py` | `search.py`, `pilots.py`, `pilotfit.py`, `search_dashboard.py` | `clutter.py`, `clutter_stats.py`, `clutter_report.py` | `blockcity.py`, `split_probe.py`, `split.py`, `split_report.py` | `shaped.py`, `shaped_replays.py`, `shaped_report.py` | `swarmtune.py`, `swarmtune_replays.py`, `swarmtune_report.py` | `swarmflow.py`, `swarmflow_replays.py`, `swarmflow_report.py` | `swarmshape.py`, `swarmshape_replays.py`, `swarmshape_report.py` | `swarmspread.py`, `swarmspread_replays.py`, `swarmspread_report.py` | `swarmellipse.py`, `swarmellipse_bench.py`, `swarmellipse_replays.py`, `swarmellipse_report.py` | `swarmwrap.py`, `swarmwrap_bench.py`, `swarmwrap_replays.py`, `swarmwrap_report.py` | `views_human.py`, `views.py`, `views_bench.py`, `views_replays.py`, `views_results.py`, `views_reading.py` |
 | outputs (`experiment_results/`) | `density_study/` | `search_study/` | `clutter_study/clutter/` | `split_study/` | `shaped_study/` | `swarm_tune/` | `swarm_flow/` | `swarm_shape/` | `swarm_spread/` | `swarm_ellipse/` | `swarm_wrap/` | `views_study/` |
-| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) | [results](https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At) | [results](https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD) | [results](https://claude.ai/artifact/XnkffA2yPcRrsP7j3EyAnU) |
+| page | [explorer](https://claude.ai/artifact/NLNeGtKvo5vYW11Rj563qc) | [dashboard](https://claude.ai/artifact/9KcgYMcAH4RRWWSKdFbU59) (a light rebuild) | [results](https://claude.ai/artifact/3e13hWAnvaHGyvJoADAN5J), [report](https://claude.ai/artifact/RTdZRe192eeGPoJaQ26A3s) | [results](https://claude.ai/artifact/C1PtAjZybB7JdAkoJy2xXD) | [results](https://claude.ai/artifact/PrHZmczN5CnhAvZLQTCkb9) | [results](https://claude.ai/artifact/EXW3359CjhLNfHg6SpaBvF) | [results](https://claude.ai/artifact/UkwGfhkWqnBAqF4iuBiz9a) | [results](https://claude.ai/artifact/BSzcnGUAjtXe7w23jBBqVc) | [results](https://claude.ai/artifact/3tbJxGdDjKzmRVxqEyXmNx) | [results](https://claude.ai/artifact/QZHj23gYuV4xhfS7uwb6At) | [results](https://claude.ai/artifact/658t8HQXHxpyqU6T7VX7CD) | [results](https://claude.ai/artifact/CpfcK1bowUzPQk8bEkwzEC) |
 
-All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/8FbWjQ3bF7C65khZYJ3aN5)**
+All of them are on one hub page, the **[Swarm Study Index](https://claude.ai/artifact/R9BnwiqixJBNjbXkeqzJLg)**
 (source `docs/studies/hub.html`), and every study page links back to it from the top of its masthead
 (`← Swarm Study Index`, the user's requirement since 2026-10-28; a new page needs it too). The pages are private claude.ai artifacts: read one with the Artifact tool, never by
 web fetch, and update it by its URL, which keeps the link the user has. Every page is built from the repo, so a lost

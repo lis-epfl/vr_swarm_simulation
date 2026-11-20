@@ -29,7 +29,8 @@ using UnityEngine.Rendering;
 /// draws that frame. 0 shows the cube itself, as every run before 2026-11-18 did (18-36 px/deg).</item>
 /// <item>Temporary (2026-11-20, until the user picks one): <see cref="Settings.preset"/> chooses between three sphere
 /// qualities, the cube as SIMI flew it, the A1's 2K stream, and a stream matched at the eye to the feeds, and
-/// <see cref="Settings.cyclePresetKey"/> cycles them in Play. A switch rebuilds the cube and the stream.</item>
+/// <see cref="Settings.cyclePresetKey"/> toggles the two matched to the feeds in Play. A switch rebuilds the cube and
+/// the stream.</item>
 /// </list>
 /// </summary>
 [DefaultExecutionOrder(-100)]   // FixedUpdate before VelocityControl's: see RecordPhysicsStep
@@ -87,9 +88,9 @@ public class Sphere360Display : MonoBehaviour
                  "the cube and the stream are rebuilt, and the change is logged as a display event.")]
         public Preset preset = Preset.Custom;
 
-        [Tooltip("Cycles CubeAsRendered -> A1Stream2K -> MatchedToFeeds in Play (from Custom, to CubeAsRendered), " +
-                 "showing the preset's name in front of the pilot for a few seconds. None: no key. Not for a " +
-                 "recorded trial: the run's files would hold more than one sphere.")]
+        [Tooltip("Toggles CubeAsRendered <-> MatchedToFeeds in Play (from Custom or A1Stream2K, to CubeAsRendered; " +
+                 "A1Stream2K only through the dropdown), showing the preset's name in front of the pilot for a few " +
+                 "seconds. None: no key. Not for a recorded trial: the run's files would hold more than one sphere.")]
         public KeyCode cyclePresetKey = KeyCode.P;
 
         [Tooltip("Edge of each cube face, in pixels, under the Custom preset. 2048 is ~18 px/deg at a face's centre " +
@@ -538,12 +539,9 @@ public class Sphere360Display : MonoBehaviour
     {
         if (settings.cyclePresetKey != KeyCode.None && Input.GetKeyDown(settings.cyclePresetKey))
         {
-            settings.preset = settings.preset switch
-            {
-                Preset.CubeAsRendered => Preset.A1Stream2K,
-                Preset.A1Stream2K => Preset.MatchedToFeeds,
-                _ => Preset.CubeAsRendered
-            };
+            // The key toggles the two that match the feeds' detail (2026-11-20, the user's call); A1Stream2K is
+            // reached only through the inspector, and the key goes from it, or from Custom, to CubeAsRendered.
+            settings.preset = settings.preset == Preset.CubeAsRendered ? Preset.MatchedToFeeds : Preset.CubeAsRendered;
         }
         if (settings.preset == builtPreset) return;
 
