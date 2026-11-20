@@ -24,22 +24,29 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public class BodyYawCompass : MonoBehaviour
 {
+    // Placement (2026-11-20, the user's request: higher and further forward, clearer, never over a
+    // screen). The arrow spans 23-31 deg below eye level (its feathered tip ~22.5 deg); the lowest
+    // screen edge in front of the pilot is the OUTER_CIRCLE screen's at 18 deg (radius 2 m, scale 1.3,
+    // so 0.65 m below eye level) and the panorama's at 16.7 deg (5 m, 3 m tall), so ~4.5 deg of margin.
+    // Was 1.1 / 1.6 / 0.45 m at alpha 0.3 (31-39 deg). A four-row FORMATION_WALL reaches 36 deg and
+    // overlaps it either way. Raise it further only with the screen bottoms in mind.
     [Tooltip("How far below the screens' centre height (the Arena origin, which is the pilot's " +
-             "eye level) the arrow lies, in metres. Below every layout's bottom row so it never " +
-             "sits in front of a feed.")]
-    public float depthBelowScreens = 1.1f;
+             "eye level) the arrow lies, in metres. With forwardOffset it sets how far below eye " +
+             "level the arrow appears: keep every part of it below the OUTER_CIRCLE screens' bottom " +
+             "edge (18 deg down at scale 1.3) so it never sits in front of a feed.")]
+    public float depthBelowScreens = 1.0f;
 
     [Tooltip("Horizontal distance from the OVRCameraRig to the arrow's centre, along the body " +
              "heading, in metres.")]
-    public float forwardOffset = 1.6f;
+    public float forwardOffset = 2.0f;
 
     [Tooltip("Tip-to-tail length of the arrow, in metres.")]
-    public float arrowLength = 0.45f;
+    public float arrowLength = 0.6f;
 
     [Tooltip("Arrow colour at the tip. Blended over the dark background (CockpitRoom's floor, or the " +
              "black arena without it), so alpha sets how bright it reads; a low value keeps it a faint " +
              "shadow rather than a bright mark.")]
-    public Color color = new Color(1f, 1f, 1f, 0.3f);
+    public Color color = new Color(1f, 1f, 1f, 0.4f);
 
     [Tooltip("Brightness at the tail as a fraction of the tip's. The arrow fades linearly from " +
              "tip to tail, so the tip reads as the pointing end.")]
