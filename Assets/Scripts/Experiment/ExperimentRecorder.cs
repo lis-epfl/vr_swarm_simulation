@@ -219,6 +219,8 @@ public class ExperimentRecorder : MonoBehaviour
     private bool loggedSphere, loggedSplit;
     private Sphere360Display.HeadingMode loggedHeading;
     private float loggedRefreshHz, loggedBand;
+    private int loggedCube, loggedStream;   // the sphere's preset can rebuild both in Play
+    private Sphere360Display.Preset loggedPreset;
 
     // ---- RC identify (see PollRcIdentify) ----
     private int rcPressesSeen;
@@ -531,12 +533,15 @@ public class ExperimentRecorder : MonoBehaviour
         if (screenSpawn == null) return;
         ScreenSpawn s = screenSpawn;
         bool sphere = Sphere360Display.Active;
-        Sphere360Display.Settings sc = sphere ? Sphere360Display.Instance.Config : null;
+        Sphere360Display sd = sphere ? Sphere360Display.Instance : null;
+        Sphere360Display.Settings sc = sphere ? sd.Config : null;
         if (displayLogged && s.screenStyle == loggedStyle && s.radius == loggedRadius && s.scale == loggedScale &&
             s.offset == loggedOffset && s.width == loggedWidth && s.height == loggedHeight &&
             CockpitRoom.InForce == loggedRoom && CockpitRoom.AnchorInForce == loggedRoomAnchor && sphere == loggedSphere &&
             (!sphere || (sc.refreshHz == loggedRefreshHz && sc.splitFaces == loggedSplit &&
-                         sc.heading == loggedHeading && sc.bandHalfDeg == loggedBand))) return;
+                         sc.heading == loggedHeading && sc.bandHalfDeg == loggedBand &&
+                         sd.CubeEdge == loggedCube && sd.StreamWidth == loggedStream &&
+                         sd.PresetInForce == loggedPreset))) return;
         displayLogged = true;
         loggedRoom = CockpitRoom.InForce;
         loggedRoomAnchor = CockpitRoom.AnchorInForce;
@@ -554,9 +559,12 @@ public class ExperimentRecorder : MonoBehaviour
             loggedSplit = sc.splitFaces;
             loggedHeading = sc.heading;
             loggedBand = sc.bandHalfDeg;
-            sphereNote = $" cube={Sphere360Display.Instance.CubeEdge} hz={F(sc.refreshHz)} split={sc.splitFaces} " +
+            loggedCube = sd.CubeEdge;
+            loggedStream = sd.StreamWidth;
+            loggedPreset = sd.PresetInForce;
+            sphereNote = $" cube={sd.CubeEdge} hz={F(sc.refreshHz)} split={sc.splitFaces} " +
                          $"heading={sc.heading} band={F(sc.bandHalfDeg)} " +
-                         $"stream={Sphere360Display.Instance.StreamWidth}x{Sphere360Display.Instance.StreamHeight}";
+                         $"stream={sd.StreamWidth}x{sd.StreamHeight} preset={sd.PresetInForce}";
         }
         WriteEvent("display", -1, "", -1f,
             $"mode={(sphere ? "SPHERE" : DisplayModeInForce().ToString())} " +
@@ -1696,6 +1704,11 @@ public class ExperimentRecorder : MonoBehaviour
         public float bandHalfDeg;          // 0 = the whole sphere
         // The equirectangular live stream the sphere showed (0 x 0: the cube itself). Absent = before 2026-11-18, the cube.
         public int streamWidth, streamHeight;
+        // Sphere360Display.Preset in force when the file was written, and how many times it was switched in Play
+        // (more than 0: the run did not hold one sphere throughout; the display events say when). Absent = before
+        // 2026-11-20.
+        public string preset;
+        public int presetSwitches;
         public long refreshes;             // complete cube refreshes so far
     }
 
@@ -1713,6 +1726,8 @@ public class ExperimentRecorder : MonoBehaviour
             bandHalfDeg = s.Config.bandHalfDeg,
             streamWidth = s.StreamWidth,
             streamHeight = s.StreamHeight,
+            preset = s.PresetInForce.ToString(),
+            presetSwitches = s.PresetSwitches,
             refreshes = s.Refreshes,
         };
     }

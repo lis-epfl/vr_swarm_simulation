@@ -162,8 +162,38 @@ public class ProceduralCityProbe : MonoBehaviour
             Check("SPHERE spawns one drone", spawner.swarm.Count == 1 && Sphere360Display.Active && fromStart < 3f,
                   $"the scene's pattern asks for {sceneDrones}; {spawner.swarm.Count} spawned, {fromStart:F1} m from the " +
                   $"start position (horizontally), sphere active {Sphere360Display.Active}");
-            yield return CheckSphereCube();
-            yield return CheckSphereOrientation();
+            yield return CheckSphereCube("");
+            yield return CheckSphereOrientation("");
+
+            // The three presets (temporary, 2026-11-20), each switched to in Play as the key or the inspector would:
+            // the rebuilt cube and stream must come up at their sizes and still show the city the right way round.
+            Sphere360Display sd = Sphere360Display.Instance;
+            if (sd != null)
+            {
+                Sphere360Display.Preset scenePreset = sd.Config.preset;
+                foreach (Sphere360Display.Preset p in new[] { Sphere360Display.Preset.CubeAsRendered,
+                                                             Sphere360Display.Preset.A1Stream2K,
+                                                             Sphere360Display.Preset.MatchedToFeeds })
+                {
+                    sd.Config.preset = p;
+                    yield return null;
+                    yield return null;
+                    GameObject presetLabel = GameObject.Find("Sphere360Label");   // active ones only
+                    Check($"sphere preset {p} in force", sd.PresetInForce == p && Sphere360Display.Active &&
+                                                         presetLabel != null,
+                          $"in force {sd.PresetInForce}, cube {sd.CubeEdge}, stream {sd.StreamWidth}x{sd.StreamHeight}, " +
+                          $"switches {sd.PresetSwitches}, label shown {presetLabel != null}");
+                    yield return CheckSphereCube($" ({p})");
+                    // The label stands in front of the head on the sphere's layer, so the view through the sphere
+                    // would see it: wait until it hides.
+                    float until = Time.realtimeSinceStartup + 8f;
+                    while (presetLabel != null && presetLabel.activeSelf && Time.realtimeSinceStartup < until)
+                        yield return null;
+                    yield return CheckSphereOrientation($" ({p})");
+                }
+                sd.Config.preset = scenePreset;
+                yield return null;
+            }
         }
 
         // ---- the altitude ceiling
@@ -266,12 +296,12 @@ public class ProceduralCityProbe : MonoBehaviour
 
     /// <summary>SPHERE: the cube exists at its size, refreshes, counts six renders a refresh, and every face has
     /// something on it (a cube that failed to create still "renders", black).</summary>
-    IEnumerator CheckSphereCube()
+    IEnumerator CheckSphereCube(string tag)
     {
         Sphere360Display s = Sphere360Display.Instance;
         if (!Sphere360Display.Active || s == null || s.Cube == null)
         {
-            Check("sphere cube up", false, "Sphere360Display is not active");
+            Check("sphere cube up" + tag, false, "Sphere360Display is not active");
             yield break;
         }
         long r0 = FPVCameraScript.TotalRenders, f0 = s.Refreshes;
@@ -296,12 +326,12 @@ public class ProceduralCityProbe : MonoBehaviour
             means[face] = (float)(sum / (3.0 * data.Length));
         }
         bool lit = means.All(m => m > 2f);
-        Check("sphere cube up", s.Cube.IsCreated() && w == (int)s.Config.cubeSize && df > 0 && counted && lit,
+        Check("sphere cube up" + tag, s.Cube.IsCreated() && w == (int)s.Config.EffectiveCubeSize && df > 0 && counted && lit,
               $"{w} px, {df} refreshes and {dr} counted renders in 1 s of real time; face means (0-255) " +
               $"[{string.Join(", ", means.Select(m => m.ToString("F1")))}]");
 
         // The live stream the sphere shows: its size, and lit in every band of rows (sky, horizon, ground).
-        if (s.Config.streamWidth > 0)
+        if (s.Config.EffectiveStreamWidth > 0)
         {
             RenderTexture st = s.Stream;
             var bands = new float[4];
@@ -326,8 +356,8 @@ public class ProceduralCityProbe : MonoBehaviour
                     bands[b] = (float)(sum / (3.0 * n));
                 }
             }
-            int expect = Mathf.Max(256, s.Config.streamWidth & ~1);
-            Check("sphere live stream up",
+            int expect = Mathf.Max(256, s.Config.EffectiveStreamWidth & ~1);
+            Check("sphere live stream up" + tag,
                   st != null && st.width == expect && st.height == expect / 2 && bands.All(m => m > 2f),
                   st == null ? "no stream" : $"{st.width}x{st.height}; band means bottom to top (0-255) " +
                                              $"[{string.Join(", ", bands.Select(m => m.ToString("F1")))}]");
@@ -340,14 +370,14 @@ public class ProceduralCityProbe : MonoBehaviour
     /// 512 px, ~17 px/deg against the cube's ~18), and with the views a sign slip or a 90 deg slip would show instead,
     /// which must all be far worse. Right after a refresh, so the cube and the direct render are one frame apart.
     /// </summary>
-    IEnumerator CheckSphereOrientation()
+    IEnumerator CheckSphereOrientation(string tag)
     {
         Sphere360Display s = Sphere360Display.Instance;
         GameObject sphereObj = GameObject.Find("Sphere360");
         GameObject cubeObj = GameObject.Find("Camera360");
         if (s == null || sphereObj == null || cubeObj == null)
         {
-            Check("sphere faces the right way", false, $"sphere {sphereObj != null}, cube camera {cubeObj != null}");
+            Check("sphere faces the right way" + tag, false, $"sphere {sphereObj != null}, cube camera {cubeObj != null}");
             yield break;
         }
         long f0 = s.Refreshes;
@@ -411,7 +441,7 @@ public class ProceduralCityProbe : MonoBehaviour
         Destroy(city.gameObject);
         throughSphere.Release();
         direct.Release();
-        Check("sphere faces the right way", ok,
+        Check("sphere faces the right way" + tag, ok,
               $"{(s.Stream != null ? $"through the {s.StreamWidth}x{s.StreamHeight} stream at {N} px; " : "")}" +
               $"sphereYaw {sYaw:F1}; mean |diff| (0-255) against the city at phi - sphereYaw and its slips: " +
               string.Join("; ", detail));

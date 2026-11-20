@@ -27,6 +27,9 @@ using UnityEngine.Rendering;
 /// equirectangular frame of <see cref="Settings.streamWidth"/> x half that (2048 x 1024, the Antigravity A1's "2K" live
 /// view of the whole sphere, ~5.7 px/deg), box-filtered over each pixel (Sphere360Stream.shader), and the sphere
 /// draws that frame. 0 shows the cube itself, as every run before 2026-11-18 did (18-36 px/deg).</item>
+/// <item>Temporary (2026-11-20, until the user picks one): <see cref="Settings.preset"/> chooses between three sphere
+/// qualities, the cube as SIMI flew it, the A1's 2K stream, and a stream matched at the eye to the feeds, and
+/// <see cref="Settings.cyclePresetKey"/> cycles them in Play. A switch rebuilds the cube and the stream.</item>
 /// </list>
 /// </summary>
 [DefaultExecutionOrder(-100)]   // FixedUpdate before VelocityControl's: see RecordPhysicsStep
@@ -46,12 +49,52 @@ public class Sphere360Display : MonoBehaviour
         WorldFixed = 1
     }
 
+    /// <summary>
+    /// Temporary (2026-11-20): the three sphere qualities to fly back to back before one is chosen. Detail is per
+    /// degree of the world as it reaches the eye; a feed at scale 1.3 delivers 16.7 at its centre (the headset's ~22
+    /// px/deg times the screens' 0.76 minification), and puts ~5.7 px on a hat at 40 m.
+    /// </summary>
+    public enum Preset
+    {
+        Custom = 0,           // cubeSize and streamWidth as set in the inspector
+        CubeAsRendered = 1,   // SIMI's runs (internal_4, 2026-11-16): the 2048 cube shown directly, 18-22 at the eye
+        A1Stream2K = 2,       // the 2048 cube sent as a 2048x1024 stream: the A1's "2K" live view, 5.7 (hat ~2 px)
+        MatchedToFeeds = 3    // a 4096 cube sent as a 6016x3008 stream: 16.7, the feeds' detail at the eye
+    }
+
+    /// <summary>The cube size and stream width a preset stands for (Custom: the inspector's).</summary>
+    public static (CubeSize cube, int streamWidth) PresetValues(Preset preset, CubeSize customCube, int customStream)
+    {
+        switch (preset)
+        {
+            case Preset.CubeAsRendered: return (CubeSize.Px2048, 0);
+            case Preset.A1Stream2K: return (CubeSize.Px2048, 2048);
+            // 360 x 16.7 px/deg = 6016; the 4096 cube (36-72 px/deg) so the resample has detail to filter down, where
+            // the 2048 cube's 18 px/deg at its face centres would be magnified and soften it further.
+            case Preset.MatchedToFeeds: return (CubeSize.Px4096, 6016);
+            default: return (customCube, customStream);
+        }
+    }
+
     [Serializable]
     public class Settings
     {
-        [Tooltip("Edge of each cube face, in pixels. 2048 is ~18 px/deg at a face's centre against the headset's ~22, " +
-                 "about as many pixels on a walker as a feed at scale 1.3 gives (the write-up's section 6.2). 4096 " +
-                 "does not fit one frame at 72 Hz without splitFaces.")]
+        [Header("Temporary: three sphere qualities to compare (2026-11-20)")]
+        [Tooltip("Custom: cubeSize and streamWidth below. CubeAsRendered: the 2048 cube shown directly, as SIMI flew " +
+                 "it on 2026-11-16 (18-22 px per world degree at the eye). A1Stream2K: the 2048 cube sent as the " +
+                 "Antigravity A1's 2048x1024 live stream (5.7). MatchedToFeeds: a 4096 cube sent as a 6016x3008 " +
+                 "stream (16.7), the detail a feed screen at scale 1.3 delivers to the eye. Can be changed in Play: " +
+                 "the cube and the stream are rebuilt, and the change is logged as a display event.")]
+        public Preset preset = Preset.Custom;
+
+        [Tooltip("Cycles CubeAsRendered -> A1Stream2K -> MatchedToFeeds in Play (from Custom, to CubeAsRendered), " +
+                 "showing the preset's name in front of the pilot for a few seconds. None: no key. Not for a " +
+                 "recorded trial: the run's files would hold more than one sphere.")]
+        public KeyCode cyclePresetKey = KeyCode.P;
+
+        [Tooltip("Edge of each cube face, in pixels, under the Custom preset. 2048 is ~18 px/deg at a face's centre " +
+                 "against the headset's ~22, about as many pixels on a walker as a feed at scale 1.3 gives (the " +
+                 "write-up's section 6.2). 4096 does not fit one frame at 72 Hz without splitFaces.")]
         public CubeSize cubeSize = CubeSize.Px2048;
 
         [Tooltip("Refreshes of the whole cube per second. 36 lands on every second frame at 72 fps (30 would land " +
@@ -76,11 +119,18 @@ public class Sphere360Display : MonoBehaviour
                  "swarm's ring of feeds. The recorder's scoring applies the same band.")]
         [Range(0f, 90f)] public float bandHalfDeg = 0f;
 
-        [Tooltip("Width of the equirectangular live stream the sphere shows (height is half): what a 360 drone sends " +
-                 "its goggles, rather than what its camera records. 2048 is the Antigravity A1's \"2K\" live view of " +
-                 "the whole sphere, ~5.7 px/deg against the 2048 cube's 18-36 (docs/single_drone_360_camera.md). " +
-                 "0: the sphere shows the cube itself, as before 2026-11-18. Fixed at the start, like the cube size.")]
+        [Tooltip("Width of the equirectangular live stream the sphere shows (height is half), under the Custom " +
+                 "preset: what a 360 drone sends its goggles, rather than what its camera records. 2048 is the " +
+                 "Antigravity A1's \"2K\" live view of the whole sphere, ~5.7 px/deg against the 2048 cube's 18-36 " +
+                 "(docs/single_drone_360_camera.md). 0: the sphere shows the cube itself, as before 2026-11-18. " +
+                 "Fixed at the start, like the cube size; a preset change rebuilds both.")]
         [Range(0, 8192)] public int streamWidth = 2048;
+
+        /// <summary>The cube size in force: the preset's, or <see cref="cubeSize"/> under Custom.</summary>
+        public CubeSize EffectiveCubeSize => PresetValues(preset, cubeSize, streamWidth).cube;
+
+        /// <summary>The stream width asked for: the preset's, or <see cref="streamWidth"/> under Custom.</summary>
+        public int EffectiveStreamWidth => PresetValues(preset, cubeSize, streamWidth).streamWidth;
     }
 
     public const string ShaderName = "Swarm/Sphere 360 View";
@@ -135,7 +185,17 @@ public class Sphere360Display : MonoBehaviour
     public int StreamWidth => stream != null ? stream.width : 0;
     public int StreamHeight => stream != null ? stream.height : 0;
 
+    /// <summary>The preset the cube and the stream were last built for (Settings.preset may be ahead by a frame).</summary>
+    public Preset PresetInForce => builtPreset;
+
+    /// <summary>Preset switches in Play so far (each rebuilds the cube and the stream).</summary>
+    public int PresetSwitches { get; private set; }
+
     private Settings settings;
+    private Preset builtPreset;
+    private TMPro.TextMeshPro label;
+    private float labelHideTime;
+    private const float LabelSeconds = 4f;
     private Rigidbody body;
     private VelocityControl velocity;
     private FPVCameraScript fpvScript;
@@ -235,7 +295,9 @@ public class Sphere360Display : MonoBehaviour
             return;
         }
 
-        if (!CreateCube(fpvCamera)) return;
+        CreateCubeCamera(fpvCamera);
+        builtPreset = settings.preset;
+        if (!CreateCube()) return;
         CreateStream();
         DisableFeedCameras(swarm);
         TakeOverBackdrop();
@@ -250,14 +312,23 @@ public class Sphere360Display : MonoBehaviour
 
         Instance = this;
         Active = true;
-        Debug.Log($"Sphere360Display: {Drone.name} carries a {CubeEdge}-pixel cube at {settings.refreshHz:F0} Hz" +
-                  $"{(settings.splitFaces ? ", split over two frames" : "")}, " +
-                  $"{(stream != null ? $"shown as a {StreamWidth}x{StreamHeight} live stream" : "shown as rendered")}" +
-                  $", heading {settings.heading}" +
-                  $"{(settings.bandHalfDeg > 0f ? $", band +-{settings.bandHalfDeg:F1} deg" : "")}.", this);
+        Debug.Log($"Sphere360Display: {Drone.name} carries {Describe()} at {settings.refreshHz:F0} Hz" +
+                  $"{(settings.splitFaces ? ", split over two frames" : "")}, heading {settings.heading}" +
+                  $"{(settings.bandHalfDeg > 0f ? $", band +-{settings.bandHalfDeg:F1} deg" : "")}" +
+                  $"{(settings.cyclePresetKey != KeyCode.None ? $"; {settings.cyclePresetKey} cycles the presets" : "")}.",
+                  this);
     }
 
-    private bool CreateCube(Camera fpvCamera)
+    /// <summary>The preset, cube and stream in force, in words (the log and the label).</summary>
+    private string Describe()
+    {
+        string shown = stream != null
+            ? $"shown as a {StreamWidth}x{StreamHeight} live stream ({StreamWidth / 360f:F1} px/deg)"
+            : "shown as rendered";
+        return $"preset {builtPreset}: a {CubeEdge}-pixel cube {shown}";
+    }
+
+    private void CreateCubeCamera(Camera fpvCamera)
     {
         // CopyFrom brings the FPV camera's culling mask (the city, without the UI layer the sphere is on), its 2000 m
         // far clip (the landmarks stand 1.25-1.45 km out), its near clip and its skybox clear. Not its tag: the FPV
@@ -271,13 +342,16 @@ public class Sphere360Display : MonoBehaviour
         cubeCamera.stereoTargetEye = StereoTargetEyeMask.None;
         cubeCamera.useOcclusionCulling = ProceduralCityBuilder.OcclusionUsable;
         cubeCamera.transform.rotation = Quaternion.identity;
+    }
 
+    private bool CreateCube()
+    {
         // Mips only where the cube is denser than the headset's ~22 px/deg, i.e. minified on the sphere: there they
         // stop it aliasing, as the feeds' mips do; at 2048 and below the sphere magnifies the cube and they would buy
         // nothing for their ~1 ms of GPU. A live stream always needs them, to filter the cube down to its resolution,
         // and makes them itself once per complete cube (PublishStream) rather than after each half.
-        int size = (int)settings.cubeSize;
-        bool streaming = settings.streamWidth > 0;
+        int size = (int)settings.EffectiveCubeSize;
+        bool streaming = settings.EffectiveStreamWidth > 0;
         bool mips = size > 2048 || streaming;
         cube = new RenderTexture(size, size, 24)
         {
@@ -306,17 +380,21 @@ public class Sphere360Display : MonoBehaviour
     /// </summary>
     private void CreateStream()
     {
-        if (settings.streamWidth <= 0) return;
-        int width = Mathf.Max(MinStreamWidth, settings.streamWidth & ~1);
-        Shader shader = Shader.Find(StreamShaderName);
-        if (shader == null)
+        int asked = settings.EffectiveStreamWidth;
+        if (asked <= 0) return;
+        int width = Mathf.Max(MinStreamWidth, asked & ~1);
+        if (streamMaterial == null)
         {
-            Debug.LogError($"Sphere360Display: shader '{StreamShaderName}' not found, so the sphere shows the " +
-                           $"{CubeEdge}-pixel cube, not a {width}x{width / 2} live stream (a player build needs it in " +
-                           "Always Included Shaders).", this);
-            return;
+            Shader shader = Shader.Find(StreamShaderName);
+            if (shader == null)
+            {
+                Debug.LogError($"Sphere360Display: shader '{StreamShaderName}' not found, so the sphere shows the " +
+                               $"{CubeEdge}-pixel cube, not a {width}x{width / 2} live stream (a player build needs " +
+                               "it in Always Included Shaders).", this);
+                return;
+            }
+            streamMaterial = new Material(shader) { name = "Sphere360Stream" };
         }
-        streamMaterial = new Material(shader) { name = "Sphere360Stream" };
         stream = new RenderTexture(width, width / 2, 0)
         {
             name = "Sphere360Stream",
@@ -406,12 +484,7 @@ public class Sphere360Display : MonoBehaviour
             return;
         }
         material = new Material(shader) { name = "Sphere360View" };
-        material.SetTexture("_Cube", cube);
-        if (stream != null)
-        {
-            material.SetTexture("_Stream", stream);
-            material.EnableKeyword("SPHERE_STREAM");
-        }
+        BindTextures();
 
         sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         sphere.name = "Sphere360";
@@ -447,6 +520,108 @@ public class Sphere360Display : MonoBehaviour
         PlaceSphere();
     }
 
+    private void BindTextures()
+    {
+        if (material == null) return;
+        material.SetTexture("_Cube", cube);
+        material.SetTexture("_Stream", stream);
+        if (stream != null) material.EnableKeyword("SPHERE_STREAM");
+        else material.DisableKeyword("SPHERE_STREAM");
+    }
+
+    /// <summary>
+    /// Temporary (2026-11-20): the preset switch. The key cycles the three presets; any change of
+    /// <see cref="Settings.preset"/>, by the key or in the inspector, rebuilds the cube and the stream and draws a whole
+    /// cube at once (one heavy frame), so the sphere never shows a half-built one.
+    /// </summary>
+    private void PollPreset()
+    {
+        if (settings.cyclePresetKey != KeyCode.None && Input.GetKeyDown(settings.cyclePresetKey))
+        {
+            settings.preset = settings.preset switch
+            {
+                Preset.CubeAsRendered => Preset.A1Stream2K,
+                Preset.A1Stream2K => Preset.MatchedToFeeds,
+                _ => Preset.CubeAsRendered
+            };
+        }
+        if (settings.preset == builtPreset) return;
+
+        builtPreset = settings.preset;
+        PresetSwitches++;
+        secondHalfDue = false;
+        ReleaseStream();
+        ReleaseCube();
+        if (!CreateCube()) return;   // logged; the display is off
+        CreateStream();
+        BindTextures();
+        RenderFaces(AllFaces, position);
+        Refreshes++;
+        PublishStream();
+        lastRefreshTime = Time.unscaledTime;
+        Debug.Log($"Sphere360Display: now {Describe()}.", this);
+        ShowLabel($"{builtPreset}\n{CubeEdge} cube, " +
+                  (stream != null ? $"{StreamWidth}x{StreamHeight} stream" : "shown directly"));
+    }
+
+    /// <summary>
+    /// The preset's name, 1.5 m in front of the pilot where they were looking at the switch, for a few seconds: in the
+    /// headset there is no other way to tell which one is on. On the screens' layer, which only the eye cameras draw, so
+    /// the cube never sees it.
+    /// </summary>
+    private void ShowLabel(string text)
+    {
+        Transform head = rig != null ? rig.centerEyeAnchor : null;
+        if (head == null || sphere == null) return;
+        if (label == null)
+        {
+            var go = new GameObject("Sphere360Label") { layer = sphere.layer };
+            label = go.AddComponent<TMPro.TextMeshPro>();
+            if (label.font == null)
+            {
+                Destroy(go);
+                label = null;
+                return;
+            }
+            label.alignment = TMPro.TextAlignmentOptions.Center;
+            label.color = Color.white;
+            label.outlineWidth = 0.2f;
+            label.outlineColor = Color.black;
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 0.1f;
+            label.fontSizeMax = 100f;
+            label.rectTransform.sizeDelta = new Vector2(0.9f, 0.22f);
+            label.renderer.shadowCastingMode = ShadowCastingMode.Off;
+            label.renderer.receiveShadows = false;
+        }
+        Vector3 forward = Vector3.ProjectOnPlane(head.forward, Vector3.up);
+        if (forward.sqrMagnitude < 1e-4f) forward = Vector3.forward;
+        forward.Normalize();
+        // A TextMeshPro reads from its own -Z side, so its +Z points away from the pilot.
+        label.transform.SetPositionAndRotation(head.position + 1.5f * forward, Quaternion.LookRotation(forward));
+        label.text = text;
+        label.gameObject.SetActive(true);
+        labelHideTime = Time.unscaledTime + LabelSeconds;
+    }
+
+    private void ReleaseCube()
+    {
+        if (cube == null) return;
+        if (material != null) material.SetTexture("_Cube", null);
+        cube.Release();
+        Destroy(cube);
+        cube = null;
+    }
+
+    private void ReleaseStream()
+    {
+        if (stream == null) return;
+        if (material != null) material.SetTexture("_Stream", null);
+        stream.Release();
+        Destroy(stream);
+        stream = null;
+    }
+
     /// <summary>
     /// Records the state the coming physics step starts from. Runs before VelocityControl's FixedUpdate (the execution
     /// order), so the heading setpoint is still the previous step's; together with the values read in LateUpdate this
@@ -464,9 +639,15 @@ public class Sphere360Display : MonoBehaviour
     {
         if (!Active) return;
         InterpolatePose();
+        PollPreset();
+        if (cube == null) return;
         StepRefresh();
         UpdateDisplayRotation();
         PlaceSphere();
+        if (label != null && label.gameObject.activeSelf && Time.unscaledTime > labelHideTime)
+        {
+            label.gameObject.SetActive(false);
+        }
     }
 
     // The body's position (DroneParent), not the FPV mount 0.4 m forward of it, which would swing the eye round on
@@ -617,6 +798,7 @@ public class Sphere360Display : MonoBehaviour
             Instance = null;
         }
         if (sphere != null) sphere.SetActive(false);
+        if (label != null) label.gameObject.SetActive(false);
         RestoreBackdrop();
     }
 
@@ -624,19 +806,12 @@ public class Sphere360Display : MonoBehaviour
     {
         RestoreBackdrop();
         if (sphere != null) Destroy(sphere);
+        if (label != null) Destroy(label.gameObject);
         if (material != null) Destroy(material);
         if (streamMaterial != null) Destroy(streamMaterial);
-        if (stream != null)
-        {
-            stream.Release();
-            Destroy(stream);
-        }
+        ReleaseStream();
         if (cubeCamera != null) Destroy(cubeCamera.gameObject);
-        if (cube != null)
-        {
-            cube.Release();
-            Destroy(cube);
-        }
+        ReleaseCube();
     }
 
     private void RestoreBackdrop()

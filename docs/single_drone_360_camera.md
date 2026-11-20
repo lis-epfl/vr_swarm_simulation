@@ -242,6 +242,23 @@ the share barely clearing the clutter round them at 15% at scale 1.3 and 10% at 
 well would mean every arm's screens at 1.71, which was turned down on 2026-11-05 to keep the `CockpitRoom` anchors in
 view. So 2048 is the fairer cube on detail, and the remaining difference in size should be reported with the results.
 
+**Three sphere qualities to compare (2026-11-20, temporary).** On 2026-11-18 the sphere was made to show the A1's "2K"
+live stream (2048 × 1024 of the whole sphere, 5.7 px per world degree, a hat at 40 m ~2 px), a third of the detail the
+feeds deliver to the eye. That risks a straw man: the feeds' 1920 px are themselves shown at 0.76×, so the eye gets
+about 16.7 px per world degree from them at a screen's centre (~20 at its edges) and ~5.7 px on that hat. A stream
+matched to that is 360 × 16.7 ≈ 6016 px wide, from a 4096 cube so the resample has detail to filter down.
+`sphere360.preset` holds the three, cycled in Play with P, for the user to fly back to back before choosing:
+
+| preset | cube → shown | per world degree at the eye | hat at 40 m |
+|---|---|---|---|
+| `CubeAsRendered` (SIMI, 2026-11-16) | 2048, directly | 18–22 (cube 18–36, headset-capped) | 6.1–7.5 px |
+| `A1Stream2K` (2026-11-18) | 2048 → 2048 × 1024 | 5.7 | ~2 px |
+| `MatchedToFeeds` | 4096 → 6016 × 3008 | 16.7 | ~5.7 px |
+| feed screens, scale 1.3 | 1920 feed at 0.76× | 16.7 centre, ~20 edges | 5.7 px |
+
+`CubeAsRendered` and `MatchedToFeeds` should look much alike (the first is slightly sharper away from the cube's face
+centres); `A1Stream2K` should look clearly softer. The sphere shows everything 1.3× larger than the screens in all three.
+
 ### 6.3 What does not depend on the choice
 
 - **Coverage beyond the swarm's.** The swarm's all-round view is a band ±23° about the gimbal pitch. With the gimbal

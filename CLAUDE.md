@@ -477,6 +477,16 @@ files. Sizes that varied at runtime are what produced the intermittent access-de
     internal_4); `_session.json` `sphere360.streamWidth/Height` and the `display` event's `stream=` say which (absent:
     the cube). The probe checks the stream is lit and still faces the right way through it (at 171 px over 30°).
     Not yet flown in the headset.
+  - **Temporary (2026-11-20, until the user picks one): `sphere360.preset` switches between three sphere qualities**,
+    and `cyclePresetKey` (P) cycles them in Play: `CubeAsRendered` (the 2048 cube direct, as SIMI flew it: 18–22 px per
+    world degree at the eye, the headset capping the cube's 18–36), `A1Stream2K` (2048 cube → 2048 × 1024 stream, 5.7)
+    and `MatchedToFeeds` (4096 cube → 6016 × 3008 stream, 16.7: what a feed at scale 1.3 delivers to the eye, the
+    headset's ~22 times the screens' 0.76, so a hat at 40 m gets ~5.7 px in both). `Custom` (the default, so every scene
+    flies what it saved: A1Stream2K's values) uses `cubeSize` / `streamWidth`. A switch rebuilds the cube and the stream,
+    draws one whole cube at once (a heavy frame), shows the preset's name 1.5 m in front of the pilot for 4 s and is
+    logged (`display` event `preset=`, `_session.json` `sphere360.preset` / `presetSwitches`), so never switch during a
+    recorded trial. The matched width scales with the screens: W ≈ 360 × 22 × shown size. The probe flies all three
+    through the switch.
   - **`splitFaces` is on: half the faces each frame, from one position.** Measured by replaying a recorded
     single-drone headset flight (`internal_4/ERKS_t1_SingleDrone_20261106_140556`) in BlockShapedPatchCityWorld on
     the 72 Hz bench (`D:\claude_feedres_bench`, stand-in eye pass). The table gives the share of 10 Hz rows at
